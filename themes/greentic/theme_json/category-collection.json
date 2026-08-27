@@ -1,0 +1,83 @@
+{
+    "title": "Category Collection",
+    "slug": "category-collection",
+    "detail": "Category Collection settings.",
+    "icon": "",
+    "sections": [
+        {
+            "title": "Banner",
+            "slug": "banner",
+            "key": "collection_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Collection list"
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Enter here...",
+                    "value": "{\"image\":\"themes/greentic/assets/images/common-banner.png\"}"
+                }
+            ]
+        },
+        {
+            "title": "All Collections",
+            "slug": "collection-all",
+            "key": "collection_all",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Browse All Collections"
+                }
+
+            ]
+        },
+        {
+            "title": "Featured Collections",
+            "slug": "collection-featured",
+            "key": "collection_featured",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Featured Collections"
+                },
+                {
+                    "label": "Button Text",
+                    "key": "button_text",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Shop Now"
+                }
+            ]
+        }
+    ]
+}

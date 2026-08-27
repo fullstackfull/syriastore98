@@ -1,0 +1,27 @@
+{
+    "name": "workdo/digital-product",
+    "description": "Description for digital-product package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\DigitalProduct\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\DigitalProduct\\app\\Providers\\DigitalProductServiceProvider",
+                "Workdo\\DigitalProduct\\app\\Providers\\DigitalProductimageProvider",
+                "Workdo\\DigitalProduct\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

@@ -1,0 +1,27 @@
+{
+    "name": "workdo/store-locator",
+    "description": "Description for store-locator package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\StoreLocator\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\StoreLocator\\app\\Providers\\StoreLocatorServiceProvider",
+                "Workdo\\StoreLocator\\app\\Providers\\ViewComposer",
+                "Workdo\\StoreLocator\\app\\Providers\\MarketplaceViewLocatorProvider"
+            ]
+        }
+    }
+}

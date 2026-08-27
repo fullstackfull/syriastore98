@@ -1,0 +1,10 @@
+{
+    "name": "SignInWithLinkedIn",
+    "alias": "Sign-in with LinkedIn",
+    "description": "",
+    "priority": 400,
+    "version":1.4,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"sign-in-with-linked-in"
+}

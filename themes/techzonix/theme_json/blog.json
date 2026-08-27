@@ -1,0 +1,55 @@
+{
+    "title": "Blog",
+    "slug": "blog",
+    "detail": "Blog settings .",
+    "icon": "fas fa-arrows-up-to-line",
+    "sections": [
+        {
+            "title": "Banner",
+            "slug": "blog-banner",
+            "key": "blog_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": ""
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "{\"image\":\"themes/techzonix/assets/images/common-banner.png\"}"
+                }
+            ]
+        },
+        {
+            "title": "Blog",
+            "slug": "blog",
+            "key": "blog",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Button Text",
+                    "key": "button_text",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Read More"
+                }
+            ]
+        }
+    ]
+}

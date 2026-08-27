@@ -1,0 +1,25 @@
+{
+    "name": "workdo/coupon-list",
+    "description": "Description for coupon-list package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\CouponList\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\CouponList\\app\\Providers\\CouponListServiceProvider"
+            ]
+        }
+    }
+}

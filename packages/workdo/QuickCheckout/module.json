@@ -1,0 +1,10 @@
+{
+    "name": "QuickCheckout",
+    "alias": "Quick Checkout",
+    "description": "",
+    "priority": 220,
+    "version":1.7,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"quick-checkout"
+}

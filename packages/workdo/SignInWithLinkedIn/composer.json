@@ -1,0 +1,28 @@
+{
+    "name": "workdo/sign-in-with-linked-in",
+    "description": "Description for sign-in-with-linked-in package",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "laravel/socialite": "^5.14"
+    },
+    "autoload": {
+        "psr-4": {
+            "Workdo\\SignInWithLinkedIn\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\SignInWithLinkedIn\\app\\Providers\\SignInWithLinkedInServiceProvider",
+                "Workdo\\SignInWithLinkedIn\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

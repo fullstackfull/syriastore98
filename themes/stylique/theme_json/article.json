@@ -1,0 +1,62 @@
+{
+    "title": "Article",
+    "slug": "article",
+    "detail": "Article page settings.",
+    "icon": "",
+    "sections": [
+        {
+            "title": "Banner",
+            "slug": "article-banner",
+            "key": "article_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": ""
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "{\"image\":\"themes/stylique/assets/images/common-banner.png\"}"
+                }
+            ]
+        },
+        {
+            "title": "Article",
+            "slug": "article",
+            "key": "article",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Social Title",
+                    "key": "social_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": ""
+                },
+                {
+                    "label": "Social Link",
+                    "key": "repeater",
+                    "type": "slider",
+                    "fields": ["icon","link"],
+                    "value": "[{\"icon\":\"fab fa-facebook-f\",\"link\":\"https://www.facebook.com/\"},{\"icon\":\"fab fa-x-twitter\",\"link\":\"https://x.com/\"},{\"icon\":\"fab fa-instagram\",\"link\":\"https://www.instagram.com/\"},{\"icon\":\"fab fa-pinterest\",\"link\":\"https://in.pinterest.com/\"}]"
+                }
+            ]
+        }
+    ]
+}

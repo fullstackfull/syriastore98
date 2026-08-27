@@ -1,0 +1,181 @@
+{
+    "title": "Register",
+    "slug": "register",
+    "detail": "Register settings.",
+    "icon": "",
+    "sections": [
+        {
+            "title": "Banner",
+            "slug": "banner",
+            "key": "register_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Register"
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "{\"image\":\"themes/greentic/assets/images/common-banner.png\"}"
+                }
+            ]
+        },
+        {
+            "title": "Form",
+            "slug": "form",
+            "key": "register",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Create Your Account"
+                },
+                {
+                    "label": "Description",
+                    "key": "description",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Join FreshMart for a seamless shopping experience"
+                },
+                {
+                    "label": "Personal Info",
+                    "key": "personal_info",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Personal Information"
+                },
+                {
+                    "label": "First Name",
+                    "key": "first_name",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "First Name"
+                },
+                {
+                    "label": "Last Name",
+                    "key": "last_name",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Last Name"
+                },
+                {
+                    "label": "Account Information",
+                    "key": "account_info",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Account Information"
+                },
+                {
+                    "label": "Email Address",
+                    "key": "email",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Email Address"
+                },
+                {
+                    "label": "Email Note",
+                    "key": "email_note",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "We'll send order confirmations and receipts to this email"
+                },
+                {
+                    "label": "Phone Number",
+                    "key": "phone",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Phone Number"
+                },
+                {
+                    "label": "Phone Note",
+                    "key": "phone_note",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "For order updates and delivery notifications"
+                },
+                {
+                    "label": "Password",
+                    "key": "password",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Password"
+                },
+                {
+                    "label": "Confirm Password",
+                    "key": "confirm_password",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Confirm Password"
+                },
+                {
+                    "label": "Password Note",
+                    "key": "password_note",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Password must be at least 8 characters long and include a mix of letters, numbers, and special characters"
+                },
+                {
+                    "label": "Terms & Condition",
+                    "key": "terms",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "I agree to the <a href=\"terms-condition.html\" class=\"text-primary hover:underline\">Terms &amp; Conditions</a> and <a href=\"privacy-policy.html\" class=\"text-primary hover:underline\">Privacy Policy</a>. I confirm that I am at least 18 years old."
+                },
+                {
+                    "label": "Button",
+                    "key": "button",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Create Account"
+                }
+            ]
+        },
+        {
+            "title": "Back Button",
+            "slug": "back-button",
+            "key": "register_login",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Link",
+                    "key": "link",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Sign In here"
+                },
+                {
+                    "label": "Description",
+                    "key": "description",
+                    "type": "textarea",
+                    "rows": 3,
+                    "placeholder": "Enter here...",
+                    "value": "Already have an account?"
+                }
+            ]
+        }
+    ]
+}

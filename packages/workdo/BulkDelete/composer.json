@@ -1,0 +1,25 @@
+{
+    "name": "workdo/bulk-delete",
+    "description": "Description for bulk-delete package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\BulkDelete\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\BulkDelete\\app\\Providers\\BulkDeleteServiceProvider"
+            ]
+        }
+    }
+}

@@ -1,0 +1,27 @@
+{
+    "name": "workdo/sign-in-with-outlook",
+    "description": "Description for sign-in-with-outlook package",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "league/oauth2-client": "^2.7"
+    },
+    "autoload": {
+        "psr-4": {
+            "Workdo\\SignInWithOutlook\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\SignInWithOutlook\\app\\Providers\\SignInWithOutlookServiceProvider"
+            ]
+        }
+    }
+}

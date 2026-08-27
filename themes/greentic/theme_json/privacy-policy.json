@@ -1,0 +1,69 @@
+{
+    "title": "Privacy Policy",
+    "slug": "privacy-policy",
+    "detail": "Privacy Policy",
+    "icon": "fas fa-file-contract",
+    "sections": [
+        {
+            "title": "Policy Banner",
+            "slug": "policy_banner",
+            "key": "policy_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Terms of Service"
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "themes/greentic/assets/images/common-banner.png"
+                }
+            ]
+        },
+        {
+            "title": "Privacy Policy",
+            "slug": "privacy_policy",
+            "key": "privacy_policy",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Create Date",
+                    "key": "create_date",
+                    "type": "date",
+                    "placeholder": "Enter here...",
+                    "value": "1750243200000"
+                },
+                {
+                    "label": "Warning Note",
+                    "key": "note",
+                    "type": "textarea",
+                    "rows": 1,
+                    "placeholder": "Enter here...",
+                    "value": "<p>We value your privacy and are committed to protecting your personal information. Please read our privacy policy carefully.</p>" 
+                }, {
+                    "label": "Slider",
+                    "key": "repeater",
+                    "type": "slider",
+                    "fields": ["title","summernote"],
+                    "value": "[{\"title\":\"Step Into a World of Effortless Elegance\",\"summernote\":\"Simple cuts. Solid tones. Elevated basics. Our men’s lineup is designed for effortless dressing with a modern edge.\"}]"
+                }
+            ]
+        }
+    ]
+}

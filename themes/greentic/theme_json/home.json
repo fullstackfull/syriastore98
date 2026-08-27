@@ -1,0 +1,251 @@
+{
+    "title": "Home Banner",
+    "slug": "home",
+    "detail": "Home Banner settings such as, banner, content and so on.",
+    "icon": "fas fa-house",
+    "sections": [
+        {
+            "title": "Slider",
+            "slug": "slider",
+            "key": "slider",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Slider",
+                    "key": "repeater",
+                    "type": "slider",
+                    "fields": ["image", "small_text", "big_text", "content", "button_text", "button_link"],
+                    "value": "[{\"image\":\"themes/greentic/assets/images/home-banner-01.png\",\"small_text\":\"FRESH & ORGANIC\",\"big_text\":\"Nature Grownne We Care <span class=\\\"text-primary\\\">Always</span>\",\"content\":\"Hand-picked harvests sent right with care to your doorstep today.\",\"button_text\":\"Shop Now\",\"button_link\":\"#\"},{\"image\":\"themes/greentic/assets/images/home-banner-02.png\",\"small_text\":\"FRESH & ORGANIC\",\"big_text\":\"Pure Taste From Local <span class=\\\"text-primary\\\">Farms</span>\",\"content\":\"Fresh ingredients grown naturally for hash to your family's meals.\",\"button_text\":\"Shop Now\",\"button_link\":\"#\"},{\"image\":\"themes/greentic/assets/images/home-banner-03.png\",\"small_text\":\"FRESH & ORGANIC\",\"big_text\":\"Wholesome Food For Every <span class=\\\"text-primary\\\">Table</span>\",\"content\":\"Organic flavors crafted to bring wellness with care to your plate.\",\"button_text\":\"Shop Now\",\"button_link\":\"#\"}]"
+                }
+            ]
+        },
+        {
+            "title": "Category",
+            "slug": "category",
+            "key": "category",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Product Categories"
+                },
+                {
+                    "label": "Button Text",
+                    "key": "button_text",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "View All Categories"
+                }
+            ]
+        },
+        {
+            "title": "Logos",
+            "slug": "logos",
+            "key": "logos",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Trusted By Leading Brands"
+                }
+            ]
+        },
+        {
+            "title": "Bestseller Product",
+            "slug": "bestseller-product",
+            "key": "bestseller_product",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Bestseller Product"
+                },
+                {
+                    "label": "Button Text",
+                    "key": "button_text",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "View All products"
+                }
+            ]
+        },
+        {
+            "title": "Top category",
+            "slug": "top_category",
+            "key": "top_category",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Shop Our Collections"
+                },
+                {
+                    "label": "Card Button Text",
+                    "key": "card_btn",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Shop Now"
+                },
+                {
+                    "label": "Button Text",
+                    "key": "button_text",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "View All Collections"
+                }
+            ]
+        },
+        {
+            "title": "Featured Product",
+            "slug": "featured-product",
+            "key": "featured_product",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Featured Product"
+                }
+            ]
+        },
+        {
+            "title": "More Offer",
+            "slug": "more_offer",
+            "key": "more_offer",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "themes/greentic/assets/images/offer-bg.png"
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Limited Time Offer"
+                },
+                {
+                    "label": "Sub Title",
+                    "key": "sub_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Limited Time Offer"
+                },
+                {
+                    "label": "Button Text",
+                    "key": "button_text",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Shop Now"
+                },
+                {
+                    "label": "Button Link",
+                    "key": "button_link",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "#"
+                }
+            ]
+        },
+        {
+            "title": "Article",
+            "slug": "article",
+            "key": "article",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Latest from Our Blog"
+                },
+                {
+                    "label": "Button Text",
+                    "key": "button_text",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "View All blog"
+                }
+            ]
+        },
+        {
+            "title": "Testimonial",
+            "slug": "testimonial",
+            "key": "testimonial",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Latest from Our Blog"
+                }
+            ]
+        }
+    ]
+}

@@ -1,0 +1,62 @@
+{
+    "title": "Support Ticket",
+    "slug": "support-ticket",
+    "detail": "Support ticket settings .",
+    "icon": "ti ti-ticket",
+    "sections": [
+        {
+            "title": "Banner",
+            "slug": "banner",
+            "key": "support_ticket_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": ""
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Enter here...",
+                    "value": "{\"image\":\"themes/greentic/assets/images/common-banner.png\"}"
+                }
+            ]
+        },
+        {
+            "title": "List",
+            "slug": "list",
+            "key": "support_ticket_list",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Support Ticket"
+                },
+                {
+                    "label": "Button",
+                    "key": "button",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Add Ticket"
+                }
+            ]
+        }
+    ]
+}

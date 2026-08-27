@@ -1,0 +1,10 @@
+{
+    "name": "SignInWithOutlook",
+    "alias": "Sign-In With Outlook",
+    "description": "",
+    "priority": 290,
+    "version":1.4,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"sign-in-with-outlook"
+}

@@ -1,0 +1,132 @@
+{
+    "title": "Header",
+    "slug": "header",
+    "detail": "Header settings such as, site top bar, site menu and so on.",
+    "icon": "fas fa-arrows-up-to-line",
+    "sections": [
+        {
+            "title": "Menu Bar",
+            "slug": "menu_bar",
+            "key": "menu_bar",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Menu",
+                    "key": "menu",
+                    "type": "menu",
+                    "placeholder": "Select menu",
+                    "value": ""
+                }
+            ]
+        },
+        {
+            "title": "Announce Bar",
+            "slug": "announce_bar",
+            "key": "announce_bar",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Support Title",
+                    "key": "support_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "24/7 Support"
+                },
+                {
+                    "label": "Button text",
+                    "key": "button_text",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Shop now"
+                }
+            ]
+        },
+        {
+            "title": "Logo",
+            "slug": "logo",
+            "key": "header",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Logo",
+                    "key": "logo",
+                    "type": "image",
+                    "value": "themes/techzonix/assets/images/logo.png"
+                },
+                {
+                    "label": "Favicon",
+                    "key": "favicon",
+                    "type": "image",
+                    "value": "themes/techzonix/assets/images/favicon.png"
+                }
+            ]
+        },
+        {
+            "title": "Favicon",
+            "slug": "favicon",
+            "key": "header_favicon",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                }
+            ]
+        },
+        {
+            "title": "Search Bar",
+            "slug": "search_bar",
+            "key": "search_bar",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                }
+            ]
+        },
+        {
+            "title": "Cart Button",
+            "slug": "cart_button",
+            "key": "cart_button",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                }
+            ]
+        },
+        {
+            "title": "Wishlist Button",
+            "slug": "wishlist_button",
+            "key": "wishlist_button",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                }
+            ]
+        }
+    ]
+}

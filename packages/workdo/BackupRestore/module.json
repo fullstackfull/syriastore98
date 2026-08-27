@@ -1,0 +1,11 @@
+{
+    "name": "BackupRestore",
+    "alias": "Backup & Restore",
+    "description": "",
+    "priority": 260,
+    "version":1.5,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"backup-restore",
+    "display": false
+}

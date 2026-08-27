@@ -1,0 +1,26 @@
+{
+    "name": "workdo/product-compare",
+    "description": "Description for product-compare package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\ProductCompare\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\ProductCompare\\app\\Providers\\ProductCompareServiceProvider",
+                "Workdo\\ProductCompare\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

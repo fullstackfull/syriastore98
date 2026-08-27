@@ -1,0 +1,19 @@
+[2026-08-22 01:36:39] local.INFO:  *********************************** API START ***********************************   
+[2026-08-22 01:36:39] local.INFO: API URL  
+[2026-08-22 01:36:39] local.INFO: https://www.storesyria.com/api/graphql  
+[2026-08-22 01:36:39] local.INFO: request  
+[2026-08-22 01:36:39] local.INFO: array (
+  'query' => '{ __schema { types { name fields { name args { name defaultValue } } } } }',
+)  
+[2026-08-22 01:36:39] local.INFO: 
+  
+[2026-08-22 01:36:39] local.INFO: response  
+[2026-08-22 01:36:39] local.INFO: HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+Cache-Control:               no-cache, private
+Content-Type:                application/json
+Date:                        Sat, 22 Aug 2026 01:36:39 GMT
+Phpdebugbar-Id:              01M0KHSRW0E63WM9QEZ9KFV2KC
+
+{"max_price":0,"status":1,"message":"Base url get successfully.","data":{"base_url":"https:\/\/www.storesyria.com\/api\/graphql","image_url":"https:\/\/www.storesyria.com\/","payment_url":"https:\/\/www.storesyria.com"}}  
+[2026-08-22 01:36:39] local.INFO:  *********************************** API END ***********************************   

@@ -1,0 +1,25 @@
+{
+    "name": "workdo/helpdesk",
+    "description": "Description for helpdesk package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\Helpdesk\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\Helpdesk\\app\\Providers\\HelpdeskServiceProvider"
+            ]
+        }
+    }
+}

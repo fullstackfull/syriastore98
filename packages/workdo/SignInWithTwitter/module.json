@@ -1,0 +1,10 @@
+{
+    "name": "SignInWithTwitter",
+    "alias": "Sign-in With Twitter",
+    "description": "",
+    "priority": 200,
+    "version":1.4,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"sign-in-with-twitter"
+}

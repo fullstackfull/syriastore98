@@ -1,0 +1,1 @@
+<a href="{{ route('campaigns.setting') }}" class="list-group-item list-group-item-action border-0 {{ (Request::route()->getName() == 'campaigns.setting') ? ' active' : '' }}">{{ __('Campaigns Settings') }} <div class="float-end"><i class="ti ti-chevron-right"></i></div></a>

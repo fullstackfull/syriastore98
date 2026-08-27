@@ -1,0 +1,55 @@
+{
+    "title": "Checkout",
+    "slug": "checkout",
+    "detail": "Checkout settings.",
+    "icon": "",
+    "sections": [
+        {
+            "title": "Banner",
+            "slug": "banner",
+            "key": "checkout_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Checkout Page"
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Enter here...",
+                    "value": "{\"image\":\"themes/greentic/assets/images/common-banner.png\"}"
+                }
+            ]
+        },
+        {
+            "title": "Checkout",
+            "slug": "checkout",
+            "key": "checkout",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Place Order",
+                    "key": "button",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Place Order"
+                }
+            ]
+        }
+    ]
+}

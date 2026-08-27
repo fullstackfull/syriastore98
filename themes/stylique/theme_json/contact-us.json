@@ -1,0 +1,97 @@
+{
+    "title": "Contact Us",
+    "slug": "contact-us",
+    "detail": "Contact us settings .",
+    "icon": "fas fa-arrows-up-to-line",
+    "sections": [
+        {
+            "title": "Banner",
+            "slug": "banner",
+            "key": "contact_us_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Contact Us"
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "themes/stylique/assets/images/common-banner.png"
+                }
+            ]
+        },
+        {
+            "title": "Form",
+            "slug": "form",
+            "key": "contact_us_form",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Contact Us"
+                },
+                {
+                    "label": "CALL US",
+                    "key": "call_us",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "+9722556698"
+                },
+                {
+                    "label": "OPEN",
+                    "key": "open_store",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Monday - Friday: 8am - 4pm"
+                },
+                {
+                    "label": "EMAILS",
+                    "key": "email",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "fashionstyle@example.com"
+                }
+            ]
+        },
+        {
+            "title": "Map",
+            "slug": "products",
+            "key": "contact_us_map",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Map Location",
+                    "key": "location",
+                    "type": "text",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d193596.26002810575!2d-74.14431235114544!3d40.69728463488439!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x89c24fa5d33f083b%3A0xc80b8f06e177fe62!2sNew%20York%2C%20NY%2C%20USA!5e0!3m2!1sen!2sin!4v1746009273607!5m2!1sen!2sin"
+                }
+            ]
+        }
+    ]
+}

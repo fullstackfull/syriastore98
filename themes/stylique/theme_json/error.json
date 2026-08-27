@@ -1,0 +1,42 @@
+{
+    "title": "Error",
+    "slug": "error",
+    "detail": "Error settings.",
+    "icon": "",
+    "sections": [
+        {
+            "title": "Error Content",
+            "slug": "error",
+            "key": "error",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Error Code",
+                    "key": "code",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "404"
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Oops! Page Not Found!"
+                },
+                {
+                    "label": "Button Text",
+                    "key": "button",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Return to Shop"
+                }                
+            ]
+        }
+    ]
+}

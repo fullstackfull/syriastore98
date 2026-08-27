@@ -1,0 +1,25 @@
+{
+    "name": "workdo/product-pricing",
+    "description": "Description for product-pricing package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\ProductPricing\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\ProductPricing\\app\\Providers\\ProductPricingServiceProvider"
+            ]
+        }
+    }
+}

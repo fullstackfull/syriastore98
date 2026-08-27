@@ -1,0 +1,10 @@
+{
+    "name": "MarketPlaceList",
+    "alias": "MarketPlace List",
+    "description": "",
+    "priority": 420,
+    "version":1.5,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"market-place-list"
+}

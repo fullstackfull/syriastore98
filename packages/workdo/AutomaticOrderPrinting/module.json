@@ -1,0 +1,10 @@
+{
+    "name": "AutomaticOrderPrinting",
+    "alias": "Automatic Order Printing",
+    "description": "",
+    "priority": 140,
+    "version":1.5,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"automatic-order-printing"
+}

@@ -1,0 +1,90 @@
+{
+    "title": "Address",
+    "slug": "address",
+    "detail": "Address settings .",
+    "icon": "fas fa-arrows-up-to-line",
+    "sections": [
+        {
+            "title": "Banner",
+            "slug": "banner",
+            "key": "address_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": ""
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Enter here...",
+                    "value": "themes/techzonix/assets/images/blogsmall.png"
+                }
+            ]
+        },
+        {
+            "title": "Address",
+            "slug": "address",
+            "key": "address",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Your Addresses"
+                },
+                {
+                    "label": "Label",
+                    "key": "label",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Default"
+                },
+                {
+                    "label": "Add Button",
+                    "key": "add_button",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Add New Address"
+                },
+                {
+                    "label": "Edit Button",
+                    "key": "edit_button",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Edit"
+                },
+                {
+                    "label": "Remove Button",
+                    "key": "remove_button",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Remove"
+                },
+                {
+                    "label": "Set Default Button",
+                    "key": "default_text",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Set as Default"
+                }
+            ]
+        }
+    ]
+}

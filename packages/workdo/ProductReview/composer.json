@@ -1,0 +1,26 @@
+{
+    "name": "workdo/product-review",
+    "description": "Description for product-review package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\ProductReview\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\ProductReview\\app\\Providers\\ProductReviewServiceProvider",
+                "Workdo\\ProductReview\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

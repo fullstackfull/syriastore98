@@ -1,0 +1,102 @@
+{
+    "section_name": "API Setting",
+    "section_slug": "api_setting",
+    "unique_section_slug": "api_setting",
+    "section_enable": "on",
+    "array_type": "inner-list",
+    "loop_number": 1,
+    "section":{
+        "title":{
+            "label" : "API Title",
+            "slug" :  "api_setting_title",
+            "text" : "Introduction",
+            "type" : "text",
+            "placeholder" : "Please enter here.."
+        },
+        "description":{
+            "label" : "API Description",
+            "slug" :  "api_setting_description",
+            "text" : "Are you ready to unlock the full potential of E-commerceGo and seamlessly integrate it into your applications? Look no further. This comprehensive API documentation is your gateway to harnessing the power of E-commerceGo's features, allowing you to streamline your work, boost productivity, and bring your projects to the next level.",
+            "type" : "textarea",
+            "placeholder" : "Please enter here.."
+        },
+        "subtitle":{
+            "label" : "Getting Started Title",
+            "slug" :  "api_setting_subtitle",
+            "text" : "Getting Started",
+            "type" : "text",
+            "placeholder" : "Please enter here.."
+        },
+        "subdescription":{
+            "label" : "Getting Started Description",
+            "slug" :  "api_setting_subdescription",
+            "text" : "This API documentation is a resource for developers, both seasoned and new, who want to leverage E-commerceGo's capabilities within their applications. Here's what you can expect to find.",
+            "type" : "textarea",
+            "placeholder" : "Please enter here.."
+        },
+        "endpoint":{
+            "label" : "EndPoints",
+            "slug" :  "api_setting_endpoint",
+            "text" : "Getting Started",
+            "type" : "array",
+            "loop_number" : 4,
+            "endpoint" : ["GET","POST","PUT","DELETE"],
+            "placeholder" : "Please enter here.."
+        },
+        "endpoint_description":{
+            "label" : "EndPoints Description",
+            "slug" :  "api_setting_endpoint_description",
+            "text" : "You can use HTTP methods like GET to retrieve data, POST to create new data, PUT to update existing data, and DELETE to remove data.",
+            "type" : "textarea",
+            "placeholder" : "Please enter here.."
+        },
+        "request_parameter_title":{
+            "label" : "Request Parameter Title",
+            "slug" :  "api_setting_request_parameter_title",
+            "text" : "Request Parameters",
+            "type" : "text",
+            "placeholder" : "Please enter here.."
+        },
+        "request_parameter_description":{
+            "label" : "Request Parameter Description",
+            "slug" :  "api_setting_request_parameter_description",
+            "text" : "Request parameters are used to customize the behavior of your API requests and provide more specific details when interacting with the API. For E-commerceGo, you might have the following types of request parameters:",
+            "type" : "textarea",
+            "placeholder" : "Please enter here.."
+        },
+        "request_parameter_sub_data":{
+            "label" : "Request Parameter Sub Data",
+            "slug" :  "request_parameter_sub_data",
+            "text" : "Request Parameters",
+            "type" : "array",
+            "placeholder" : "Please enter here..",
+            "loop_number" : 3,
+			"sub_title":["Query Parameters","Request Headers","Request Body"],
+            "sub_description":["You can use query parameters to filter or sort data when retrieving information. For example, you could use id to filter data within a specific id number.","Headers can be used for authentication and additional metadata about the request. For instance, you might need to include an Authorization header with an Bearer token for authentication.","When creating or updating data in E-commerceGo, you'll typically send a JSON request body. The request body will contain the data to be created or updated, such as users information, project information, or invoice information."]
+        },
+        "response_data_title":{
+            "label" : "Response Data Title",
+            "slug" :  "api_setting_response_data_title",
+            "text" : "Response Format",
+            "type" : "text",
+            "placeholder" : "Please enter here.."
+        },
+        "response_data_description":{
+            "label" : "Response Data Description",
+            "slug" :  "api_setting_response_data_description",
+            "text" : "E-commerceGo's API typically responds with data in JSON format",
+            "type" : "textarea",
+            "placeholder" : "Please enter here.."
+        },
+        "response_data_sub_data":{
+            "label" : "Response Data SubData",
+            "slug" :  "api_setting_response_data_subdata",
+            "text" : "Response Data",
+            "placeholder" : "Please enter here..",
+            "type" : "array",
+            "loop_number" : 2,
+			"sub_title":["Status Code","Data"],
+            "sub_description":["The response typically includes an HTTP status code indicating the outcome of the request (e.g., 200 for success, 404 for not found, 401 for unauthorized).","The actual data is contained within the 'data' field."]
+        }
+    }
+}

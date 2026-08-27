@@ -1,0 +1,11 @@
+{
+    "name": "CouponEmail",
+    "alias": "Coupon Email",
+    "description": "",
+    "priority": 11,
+    "version":1.7,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"coupon-email"
+}
+ 

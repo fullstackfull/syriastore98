@@ -1,0 +1,26 @@
+{
+    "name": "workdo/product-catelog",
+    "description": "Description for product-catelog package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\ProductCatelog\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\ProductCatelog\\app\\Providers\\ProductCatelogServiceProvider",
+                "Workdo\\ProductCatelog\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

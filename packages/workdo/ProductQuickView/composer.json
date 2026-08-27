@@ -1,0 +1,26 @@
+{
+    "name": "workdo/product-quick-view",
+    "description": "Description for product-quick-view package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\ProductQuickView\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\ProductQuickView\\app\\Providers\\ProductQuickViewServiceProvider",
+                "Workdo\\ProductQuickView\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

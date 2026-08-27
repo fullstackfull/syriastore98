@@ -1,0 +1,25 @@
+{
+    "name": "workdo/wholesale-product",
+    "description": "Description for wholesale-product package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\WholesaleProduct\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\WholesaleProduct\\app\\Providers\\WholesaleProductServiceProvider"
+            ]
+        }
+    }
+}

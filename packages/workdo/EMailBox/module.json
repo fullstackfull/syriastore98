@@ -1,0 +1,10 @@
+{
+    "name": "EMailBox",
+    "alias": "EMail Box",
+    "description": "",
+    "priority": 0,
+    "version":1.1,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"email-box"
+}

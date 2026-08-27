@@ -1,0 +1,25 @@
+{
+    "name": "workdo/additional-custom-fields",
+    "description": "Description for additional-custom-fields package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\AdditionalCustomFields\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\AdditionalCustomFields\\app\\Providers\\AdditionalCustomFieldsServiceProvider"
+            ]
+        }
+    }
+}

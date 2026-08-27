@@ -1,0 +1,10 @@
+{
+    "name": "ProductPricing",
+    "alias": "Product Pricing",
+    "description": "",
+    "priority": 0,
+    "version":1.4,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"product-pricing"
+}

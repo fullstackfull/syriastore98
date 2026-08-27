@@ -1,0 +1,10 @@
+{
+    "name": "PartialPayments",
+    "alias": "Partial Payments",
+    "description": "",
+    "priority": 280,
+    "version":1.3,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"partial-payments"
+}

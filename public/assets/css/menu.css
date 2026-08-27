@@ -1,0 +1,239 @@
+
+.dd { position: relative; display: block; margin: 0; padding: 0; max-width: 600px; list-style: none; font-size: 13px; line-height: 20px; }
+
+.dd-list { display: block; position: relative; margin: 0; padding: 0; list-style: none; }
+.dd-list .dd-list { padding-left: 30px; }
+.dd-collapsed .dd-list { display: none; }
+
+.dd-item,
+.dd-empty,
+.dd-placeholder { display: block; position: relative; margin: 0; padding: 0; min-height: 20px; font-size: 13px; line-height: 20px; }
+
+.dd-handle { display: block; height: 30px; margin: 5px 0; padding: 5px 10px; color: #333; text-decoration: none; font-weight: bold; border: 1px solid #ccc;
+    background: #fafafa;
+    background: -webkit-linear-gradient(top, #fafafa 0%, #eee 100%);
+    background:    -moz-linear-gradient(top, #fafafa 0%, #eee 100%);
+    background:         linear-gradient(top, #fafafa 0%, #eee 100%);
+    -webkit-border-radius: 3px;
+            border-radius: 3px;
+    box-sizing: border-box; -moz-box-sizing: border-box;
+}
+.dd-handle:hover { color: #2ea8e5; background: #fff; }
+
+.dd-item > button { display: none; position: relative; cursor: pointer; float: left; width: 25px; height: 20px; margin: 5px 0; padding: 0; text-indent: 100%; white-space: nowrap; overflow: hidden; border: 0; background: transparent; font-size: 12px; line-height: 1; text-align: center; font-weight: bold; }
+.dd-item > button:before { content: '+'; display: none; position: absolute; width: 100%; text-align: center; text-indent: 0; }
+.dd-item > button[data-action="collapse"]:before { content: '-'; }
+
+.dd-placeholder,
+.dd-empty { margin: 5px 0; padding: 0; min-height: 30px; background: #f2fbff; border: 1px dashed #b6bcbf; box-sizing: border-box; -moz-box-sizing: border-box; }
+.dd-empty { border: 1px dashed #bbb; min-height: 100px; background-color: #e5e5e5;
+    background-image: -webkit-linear-gradient(45deg, #fff 25%, transparent 25%, transparent 75%, #fff 75%, #fff),
+                      -webkit-linear-gradient(45deg, #fff 25%, transparent 25%, transparent 75%, #fff 75%, #fff);
+    background-image:    -moz-linear-gradient(45deg, #fff 25%, transparent 25%, transparent 75%, #fff 75%, #fff),
+                         -moz-linear-gradient(45deg, #fff 25%, transparent 25%, transparent 75%, #fff 75%, #fff);
+    background-image:         linear-gradient(45deg, #fff 25%, transparent 25%, transparent 75%, #fff 75%, #fff),
+                              linear-gradient(45deg, #fff 25%, transparent 25%, transparent 75%, #fff 75%, #fff);
+    background-size: 60px 60px;
+    background-position: 0 0, 30px 30px;
+}
+
+.dd-dragel { position: absolute; pointer-events: none; z-index: 9999; }
+.dd-dragel > .dd-item .dd-handle { margin-top: 0; }
+.dd-dragel .dd-handle {
+    -webkit-box-shadow: 2px 4px 6px 0 rgba(0,0,0,.1);
+            box-shadow: 2px 4px 6px 0 rgba(0,0,0,.1);
+}
+
+.dd-item {
+    position: relative
+}
+
+.dd-empty,.dd-item,.dd-placeholder {
+    margin: 10px 0
+}
+
+.dd-placeholder {
+    background: var(--bs-light);
+    border: 2px dashed #ccc;
+    height: 40px;
+    margin-bottom: 5px;
+    display: fit-content;
+    border-radius: 5px;
+    box-sizing: border-box;
+    font-size: 13px;
+    line-height: 20px;
+    min-height: 30px;
+    padding: 0;
+    position: relative
+}
+
+.nest-menu-content {
+    background: var(--bb-bg-surface);
+    border: 0;
+    color: var(--bb-body-color);
+    height: 40px;
+    padding: 10px;
+    width: 350px
+}
+
+.nest-menu-handle {
+    background: transparent;
+    border-radius: var(--bb-border-radius);
+    cursor: move;
+    height: 40px;
+    left: 0;
+    margin: 0;
+    overflow: hidden;
+    position: absolute;
+    text-indent: 100%;
+    top: 0;
+    white-space: nowrap;
+    width: 100%;
+    border-radius: 6px;
+    -webkit-border-radius: 6px;
+    -moz-border-radius: 6px;
+    -ms-border-radius: 6px;
+    -o-border-radius: 6px;
+}
+
+.nest-menu-handle:hover {
+    background-color: transparent
+}
+
+.dd-item>.item-details {
+    border: var(--bb-border-width) var(--bb-border-style) var(--bb-border-color);
+    border-top: 0;
+    display: none;
+}
+
+.nest-menu-handle:before {
+    display: none
+}
+
+.nest-menu-content .show-item-details {
+    align-items: center;
+    background-color: var(--bb-body-bg);
+    border-bottom-right-radius: var(--bb-border-radius);
+    border-left: var(--bb-border-width) var(--bb-border-style) var(--bb-border-color);
+    border-top-right-radius: var(--bb-border-radius);
+    color: var(--bb-secondary);
+    display: inline-flex;
+    height: 38px;
+    justify-content: center;
+    right: 20px;
+    position: absolute;
+    text-align: center;
+    top: 1px;
+}
+
+.nest-menu-content .show-item-details.active .icon {
+    transform: rotate(180deg)
+}
+
+.dd-item.active>.item-details {
+    background: var(--bb-bg-surface);
+    display: block
+}
+
+.dd-item.active>.item-details>label {
+    display: block;
+    float: left;
+    width: 100%
+}
+
+.dd-item.active>.item-details>div.text-end {
+    clear: both;
+    float: none
+}
+
+.dd-item.active>.item-details>div.text-end .btn {
+    margin-left: 7px
+}
+
+.dd-item.active>.nest-menu-handle {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0
+}
+
+.dd-item>.item-details .form-group>.control-label {
+    width: 100px;
+}
+.dd-item>.item-details .form-group> label {
+    max-width: 65px;
+}
+
+.dd-item>.item-details .form-group>.ui-select-wrapper {
+    margin-bottom: 0
+}
+
+.core-nest-menu-structure .card .card-header a {
+    color: var(--bb-card-title-color)
+}
+
+.core-nest-menu-structure .card .card-header a .btn-action {
+    height: 1.5rem
+}
+
+.core-nest-menu-structure .card .card-header a[aria-expanded=true] .btn-action span.icon-sm {
+    rotate: 180deg
+}
+
+.box-links-for-menu .list-item {
+    padding-left: 0
+}
+
+.box-links-for-menu .list-item .list-item {
+    border: 0;
+    max-height: none;
+    overflow: visible;
+    padding: 0 0 0 20px
+}
+
+.box-links-for-menu .list-item li {
+    list-style: none;
+    margin-bottom: 5px;
+    position: relative
+}
+
+.box-links-for-menu .list-item li label.form-check {
+    margin-bottom: .75rem
+}
+
+.box-links-for-menu .list-item li ul {
+    padding-left: 20px
+}
+
+.box-links-for-menu .list-item li .checker {
+    margin-top: -25px
+}
+
+.box-links-for-menu .list-item li a {
+    display: inline-block;
+    overflow: hidden;
+    padding-left: 20px;
+    text-overflow: ellipsis;
+    -ms-text-overflow: ellipsis;
+    white-space: nowrap;
+    width: 100%
+}
+
+.form-save-menu #menu_name {
+    margin-bottom: 5px
+}
+
+.nest-menu-content>span.text.float-start {
+    max-width: 200px
+}
+
+.nest-menu-content>span.text.float-end,.nest-menu-content>span.text.float-start {
+    display: inline-block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    -ms-text-overflow: ellipsis;
+    white-space: nowrap
+}
+
+.nest-menu-content>span.text.float-end {
+    margin-right: 25px;
+    max-width: 85px
+}

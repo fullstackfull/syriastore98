@@ -1,0 +1,25 @@
+{
+    "name": "workdo/pdfvouchers",
+    "description": "Description for pdfvouchers package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\PDFVouchers\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\PDFVouchers\\app\\Providers\\PDFVouchersServiceProvider"
+            ]
+        }
+    }
+}

@@ -1,0 +1,10 @@
+{
+    "name": "GoogleLogin",
+    "alias": "Google Login",
+    "description": "",
+    "priority": 110,
+    "version":1.5,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"google-login"
+}

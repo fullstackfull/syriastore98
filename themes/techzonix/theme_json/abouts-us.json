@@ -1,0 +1,143 @@
+{
+    "title": "About Us",
+    "slug": "abouts-us",
+    "detail": "About us settings .",
+    "icon": "fas fa-arrows-up-to-line",
+    "sections": [
+        {
+            "title": "About Us Banner",
+            "slug": "abouts_us_banner",
+            "key": "abouts_us_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Terms of Service"
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "themes/techzonix/assets/images/common-banner.png"
+                }
+            ]
+        },
+        {
+            "title": "Full Image",
+            "slug": "full",
+            "key": "abouts_us_full",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "Our Mission"
+                },
+                {
+                    "label": "Description",
+                    "key": "description",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "We believe everyone deserves access to high-quality, cutting-edge technology built with sustainable manufacturing practices. Our mission is to make premium electronics more accessible while supporting ethical manufacturers and reducing environmental impact. By cutting out the middleman and working directly with manufacturers committed to quality and innovation, we can deliver devices that feature the latest technology, preserving maximum performance and value. We are driven by a commitment to transparency, fairness, and continuous improvement. Our goal is not only to offer exceptional products but also to promote responsible consumption and empower conscious choices in the tech industry.working directly with manufacturers committed to quality and innovation, we can deliver but also to promote responsible consumption and empower conscious reducing environmental."
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Enter here...",
+                    "value": "themes/techzonix/assets/images/about-image.png\"}"
+                },
+                {
+                    "label": "Title",
+                    "key": "title_second",
+                    "type": "text",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "Driven by Innovation, Guided by Purpose"
+                },
+                {
+                    "label": "Description",
+                    "key": "description_second",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "At the heart of everything we do is a passion for creating smarter, more sustainable technology solutions that elevate everyday life. We’re redefining what it means to own electronics by focusing on innovation, accessibility, and environmental responsibility.Our direct-to-consumer approach eliminates unnecessary costs and barriers, allowing us to deliver premium devices without compromise. Each product reflects our dedication to thoughtful design, advanced performance, and long-term value. We collaborate with forward-thinking manufacturers who share our ethical and eco-conscious values, ensuring every step of our process—from sourcing to shipping—supports a cleaner, fairer future for all. We are driven by a commitment to transparency, fairness, and continuous improvement. Our goal is not only to approach eliminates but also to promote responsible consumption and empower conscious choices in the tech industry."
+                },
+                {
+                    "label": "Image",
+                    "key": "image_second",
+                    "type": "image",
+                    "placeholder": "Enter here...",
+                     "value": "themes/techzonix/assets/images/about-image2.png"
+                }
+            ]
+        },
+        {
+            "title": "Counter",
+            "slug": "counter",
+            "key": "abouts_us_counter",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Counter",
+                    "key": "repeater",
+                    "type": "slider",
+                    "fields": ["small_text","content"],
+                    "placeholder": "Enter here...",
+                    "value": "[{\"small_text\":\"45+\",\"content\":\"Brand Partners.\"},{\"small_text\":\"100+\",\"content\":\"Quality Guarantee\"},{\"small_text\":\"10,000+\",\"content\":\"Happy Customers\"},{\"small_text\":\"25,000+\",\"content\":\"Monthly Shipments.\"}]"
+                }
+            ]
+        },
+        {
+            "title": "Team",
+            "slug": "team",
+            "key": "team",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "Meet Our Team"
+                },
+                {
+                    "label": "Team",
+                    "key": "repeater",
+                    "type": "slider",
+                    "fields": ["image","big_text","small_text","content"],
+                    "value": "[{\"image\":\"themes/techzonix/assets/images/team-1.png\",\"big_text\":\"Emily Johnson\",\"content\":\"Former tech engineer with a passion for making cutting-edge technology accessible to everyone.\",\"small_text\":\"Founder CEO\"},{\"image\":\"themes/techzonix/assets/images/team-2.png\",\"big_text\":\"Michael Chen\",\"content\":\"Supply chain expert focused on creating efficient, eco-friendly distribution systems\",\"small_text\":\"Head of Operations\"}]"
+                }
+            ]
+        }
+    ]
+}

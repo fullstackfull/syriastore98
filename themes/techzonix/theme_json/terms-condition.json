@@ -1,0 +1,55 @@
+{
+    "title": "Terms & Condition",
+    "slug": "terms-condition",
+    "detail": "Manage terms and conditions settings.",
+    "icon": "fas fa-file-contract",
+    "sections": [
+        {
+            "title": "Terms Condition Banner",
+            "slug": "terms_condition_banner",
+            "key": "terms_condition_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Terms of Service"
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "themes/techzonix/assets/images/common-banner.png"
+                }
+            ]
+        },
+        {
+            "title": "Terms & Condition Policy",
+            "slug": "terms_condition_policy",
+            "key": "terms_condition_policy",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Slider",
+                    "key": "repeater",
+                    "type": "slider",
+                    "fields": ["title","summernote"],
+                    "value": "[{\"title\":\"Step Into a World of Effortless Elegance\",\"summernote\":\"Simple cuts. Solid tones. Elevated basics. Our men’s lineup is designed for effortless dressing with a modern edge.\"}]"
+                }
+            ]
+        }
+    ]
+}

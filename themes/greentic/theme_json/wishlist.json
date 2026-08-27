@@ -1,0 +1,55 @@
+{
+    "title": "WishList",
+    "slug": "wishlist",
+    "detail": "WishList settings.",
+    "icon": "fas fa-arrows-up-to-line",
+    "sections": [
+        {
+            "title": "Wishlist Banner",
+            "slug": "wishlist-banner",
+            "key": "wishlist_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Wishlist"
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "{\"image\":\"themes/greentic/assets/images/common-banner.png\"}"
+                }
+            ]
+        },
+        {
+            "title": "Wishlist List",
+            "slug": "wishlist-list",
+            "key": "wishlist",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Button",
+                    "key": "button",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Continue Shopping"
+                }
+            ]
+        }
+    ]
+}

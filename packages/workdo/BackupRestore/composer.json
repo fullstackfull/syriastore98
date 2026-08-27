@@ -1,0 +1,25 @@
+{
+    "name": "workdo/backup-restore",
+    "description": "Description for backup-restore package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\BackupRestore\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\BackupRestore\\app\\Providers\\BackupRestoreServiceProvider"
+            ]
+        }
+    }
+}

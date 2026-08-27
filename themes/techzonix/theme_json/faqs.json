@@ -1,0 +1,48 @@
+{
+    "title": "FAQ",
+    "slug": "faqs",
+    "detail": "FAQ settings.",
+    "icon": "",
+    "sections": [
+        {
+            "title": "FAQ Banner",
+            "slug": "faq-banner",
+            "key": "faq_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Frequently Asked Questions"
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "{\"image\":\"themes/techzonix/assets/images/common-banner.png\"}"
+                }
+            ]
+        },
+        {
+            "title": "FAQ List",
+            "slug": "faq-list",
+            "key": "faq_list",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                }
+            ]
+        }
+    ]
+}

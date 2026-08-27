@@ -1,0 +1,25 @@
+{
+    "name": "workdo/google-login",
+    "description": "Description for google-login package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\GoogleLogin\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\GoogleLogin\\app\\Providers\\GoogleLoginServiceProvider"
+            ]
+        }
+    }
+}

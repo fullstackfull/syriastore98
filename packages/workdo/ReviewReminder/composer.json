@@ -1,0 +1,25 @@
+{
+    "name": "workdo/review-reminder",
+    "description": "Description for review-reminder package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\ReviewReminder\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\ReviewReminder\\app\\Providers\\ReviewReminderServiceProvider"
+            ]
+        }
+    }
+}

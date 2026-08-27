@@ -1,0 +1,142 @@
+{
+    "title": "Order Details",
+    "slug": "order-detail",
+    "detail": "Order details page settings.",
+    "icon": "",
+    "sections": [
+        {
+            "title": "Banner",
+            "slug": "order-detail-banner",
+            "key": "order_info_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Order Complete"
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "{\"image\":\"themes/stylique/assets/images/common-banner.png\"}"
+                }
+            ]
+        },
+        {
+            "title": "Order Info.",
+            "slug": "order-info",
+            "key": "order_info",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "your Order details"
+                }
+            ]
+        },
+        {
+            "title": "Order Item Detail",
+            "slug": "order-item",
+            "key": "order_info_item",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "your Order details"
+                }
+            ]
+        },
+        {
+            "title": "Order Addreess Detail",
+            "slug": "order-address",
+            "key": "order_info_address",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Shipping Title",
+                    "key": "ship",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Shipping Information"
+                },
+                {
+                    "label": "Billing Title",
+                    "key": "bill",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Billing Information"
+                }
+            ]
+        },
+        {
+            "title": "Order Amount Detail",
+            "slug": "order-amount",
+            "key": "order_info_amount",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Extra Information"
+                }
+            ]
+        },
+        {
+            "title": "Order Note Detail",
+            "slug": "order-note",
+            "key": "order_info_note",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Order updates for"
+                }
+            ]
+        }
+    ]
+}

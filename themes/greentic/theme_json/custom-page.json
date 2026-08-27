@@ -1,0 +1,41 @@
+{
+    "title": "Custom Page",
+    "slug": "custom-page",
+    "detail": "Custom page settings.",
+    "icon": "",
+    "sections": [
+        {
+            "title": "CMS Banner",
+            "slug": "cms-banner",
+            "key": "cms_page_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "themes/greentic/assets/images/common-banner.png"
+                }
+            ]
+        },
+        {
+            "title": "CMS",
+            "slug": "cms",
+            "key": "cms_page",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                }
+            ]
+        }
+    ]
+}

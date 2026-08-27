@@ -1,0 +1,25 @@
+{
+    "name": "workdo/email-box",
+    "description": "Description for email-box package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\EMailBox\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\EMailBox\\app\\Providers\\EMailBoxServiceProvider"
+            ]
+        }
+    }
+}

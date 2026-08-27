@@ -1,0 +1,25 @@
+{
+    "name": "workdo/signinwithgithub",
+    "description": "Description for signinwithgithub package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\Signinwithgithub\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\Signinwithgithub\\app\\Providers\\SigninwithgithubServiceProvider"
+            ]
+        }
+    }
+}

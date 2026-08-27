@@ -1,0 +1,27 @@
+{
+    "name": "workdo/partial-payments",
+    "description": "Description for partial-payments package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\PartialPayments\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\PartialPayments\\app\\Providers\\PartialPaymentsServiceProvider",
+                "Workdo\\PartialPayments\\app\\Providers\\CheckoutViewComposer",
+                "Workdo\\PartialPayments\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

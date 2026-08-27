@@ -1,0 +1,10 @@
+{
+    "name": "PurchaseNotification",
+    "alias": "Purchase Notification",
+    "description": "",
+    "priority": 90,
+    "version":1.6,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"purchase-notification"
+}

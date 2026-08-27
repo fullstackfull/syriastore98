@@ -1,0 +1,10 @@
+{
+    "name": "Wizzchat",
+    "alias": "Wizzchat",
+    "description": "",
+    "priority": 0,
+    "version":1.6,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"wizzchat"
+}

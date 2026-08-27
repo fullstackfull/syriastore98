@@ -1,0 +1,10 @@
+{
+    "name": "Signinwithgithub",
+    "alias": "Sign-in With Github",
+    "description": "",
+    "priority": 160,
+    "version":1.4,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"signinwithgithub"
+}

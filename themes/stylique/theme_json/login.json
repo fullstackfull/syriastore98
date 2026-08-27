@@ -1,0 +1,131 @@
+{
+    "title": "Login",
+    "slug": "login",
+    "detail": "Login settings.",
+    "icon": "",
+    "sections": [
+        {
+            "title": "Login Page",
+            "slug": "login_page",
+            "key": "login_page",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": ""
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "{\"image\":\"themes/stylique/assets/images/common-banner.png\"}"
+                }
+            ]
+        },{
+            "title": "Login Form",
+            "slug": "form",
+            "key": "login",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "I already have an account"
+                },
+                {
+                    "label": "Description",
+                    "key": "description",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "Hello again, please log in with your email address and password."
+                },
+                {
+                    "label": "Email Address",
+                    "key": "email",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Email Address"
+                },
+                {
+                    "label": "Password",
+                    "key": "password",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Password"
+                },
+                {
+                    "label": "Button",
+                    "key": "button",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Sign In"
+                }
+            ]
+        },
+        {
+            "title": "Forgot Password",
+            "slug": "forgot-password",
+            "key": "login_forgot",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Link",
+                    "key": "link",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Forgot password?"
+                }
+            ]
+        },
+        {
+            "title": "Register Form",
+            "slug": "register-form",
+            "key": "login_register",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Link",
+                    "key": "link",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Sign up here"
+                },
+                {
+                    "label": "Description",
+                    "key": "description",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "Don't have an account?"
+                }
+            ]
+        }
+    ]
+}

@@ -1,0 +1,52 @@
+{
+    "title": "Shipping & Return",
+    "slug": "shipping-return",
+    "detail": "Manage shipping and return settings.",
+    "icon": "fas fa-shipping-fast",
+    "sections": [
+        {
+            "title": "Form",
+            "slug": "form",
+            "key": "shipping-return",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Background Image",
+                    "key": "background_image",
+                    "type": "image",
+                    "value": "[{\"image\":\"packages/workdo/Fashionable/src/assets/images/banner1.jpg\"}]"
+
+                },
+                {
+                    "label": "Breadcrumb Links",
+                    "key": "breadcrumb_links",
+                    "type": "textarea",
+                    "placeholder": "Enter here...",
+                    "rows": 1,
+                    "value": ""
+                },
+                {
+                    "label": "Section Title",
+                    "key": "section_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Shipping & Return"
+                },
+                {
+                    "label": "Section Description",
+                    "key": "section_description",
+                    "type": "textarea",
+                    "placeholder": "Enter here...",
+                    "rows": 3,
+                    "value": "If you are going to use a passage of Lorem Ipsum, you need to be sure there isn't anything embarrassing hidden in the middle of text."
+                }
+
+            ]
+        }
+    ]
+}

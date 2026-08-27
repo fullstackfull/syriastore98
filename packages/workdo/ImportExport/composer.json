@@ -1,0 +1,25 @@
+{
+    "name": "workdo/import-export",
+    "description": "Description for import-export package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\ImportExport\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\ImportExport\\app\\Providers\\ImportExportServiceProvider"
+            ]
+        }
+    }
+}

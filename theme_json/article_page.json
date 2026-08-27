@@ -1,0 +1,87 @@
+{
+    "section_name": "Article Page",
+    "section_slug": "article_page",
+    "section_enable": "on",
+    "array_type": "inner-list",
+    "loop_number": 1,
+    "section":{
+        "title":{
+            "lable" : "Title",
+            "slug" :  "article_page_page_title",
+            "text" : "Blog & Articles <br> <h3>From our blog</h3>",
+            "type" : "text",
+            "placeholder" : "Please enter here..."
+        },
+        "description":{
+            "lable" : "Description",
+            "slug" :  "article_page_description",
+            "text" : " Praesent sapien massa, convallis a pellentesque nec, egestas non nisi.Sed porttitor lectus nibh.",
+            "type" : "textarea",
+            "placeholder" : "Please enter here..."
+        },
+        "button":{
+            "lable" : "Button",
+            "slug" :  "article_page_button",
+            "text" : "Back to Category",
+            "type" : "text",
+            "placeholder" : "Please enter here..."
+        },
+        "image":{
+            "lable" : "Image",
+            "slug" :  "article_page_image",
+            "text" : null,
+            "image": null,
+            "type" : "file",
+            "placeholder" : "Please select file"
+        },
+        "related_title":{
+            "lable" : "Related Title",
+            "slug" :  "article_page_related_title",
+            "text" : "Related articles",
+            "type" : "text",
+            "placeholder" : "Please enter here..."
+        },
+        "related_button":{
+            "lable" : "Related Button",
+            "slug" :  "article_page_related_button",
+            "text" : "View Blog",
+            "type" : "text",
+            "placeholder" : "Please enter here..."
+        },
+        "latest_title":{
+            "lable" : "Latest Title",
+            "slug" :  "article_page_latest_title",
+            "text" : "Latest Blogs",
+            "type" : "text",
+            "placeholder" : "Please enter here..."
+        },
+        "latest_button":{
+            "lable" : "Latest Button",
+            "slug" :  "article_page_latest_button",
+            "text" : "View Blog",
+            "type" : "text",
+            "placeholder" : "Please enter here..."
+        },
+        "section_title":{
+            "lable" : "Article Title",
+            "slug" :  "blog_page_section_title",
+            "text" : "ALL BLOGS",
+            "type" : "text",
+            "placeholder" : "Please enter here..."
+        },
+        "section_sub_title":{
+            "lable" : "Article  Sub Title",
+            "slug" :  "blog_page_section_sub_title",
+            "text" : "From  our blog ",
+            "type" : "text",
+            "placeholder" : "Please enter here..."
+        },
+        "section_sub_button":{
+            "lable" : "Article Button Title",
+            "slug" :  "blog_page_section_button",
+            "text" : "View blog",
+            "type" : "text",
+            "placeholder" : "Please enter here..."
+        } 
+    }
+}

@@ -1,0 +1,10 @@
+{
+    "name": "DigitalProduct",
+    "alias": "Digital Product",
+    "description": "",
+    "priority": 16,
+    "version":1.7,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"digital-product"
+}

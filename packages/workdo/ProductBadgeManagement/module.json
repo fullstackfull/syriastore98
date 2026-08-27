@@ -1,0 +1,10 @@
+{
+    "name": "ProductBadgeManagement",
+    "alias": "Product Badge Management",
+    "description": "",
+    "priority": 230,
+    "version":1.6,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"product-badge-management"
+}

@@ -1,0 +1,404 @@
+{
+    "title": "My Account",
+    "slug": "my-account",
+    "detail": "My Account settings.",
+    "icon": "fas fa-arrows-up-to-line",
+    "sections": [
+        {
+            "title": "Account Overview",
+            "slug": "account-overview-section",
+            "key": "myaccount",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "My Account"
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Enter here...",
+                    "value": "{\"image\":\"themes/greentic/assets/images/common-banner.png\"}"
+                }
+            ]
+        },
+        {
+            "title": "Dashboard",
+            "slug": "dashboard",
+            "key": "account_dashboard",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Dashboard"
+                },
+                {
+                    "label": "Greeting",
+                    "key": "greeting",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Hello"
+                },
+                {
+                    "label": "Description",
+                    "key": "description",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "From your account dashboard you can view your <span class=\"text-primary hover:underline\">recent orders</span>, manage your <span class=\"text-primary hover:underline\">shipping and billing addresses</span>, and <span class=\"text-primary hover:underline\">edit your password and account details</span>"
+                },
+                {
+                    "label": "Order On/Off",
+                    "key": "order",
+                    "type": "switch",
+                    "value": 1
+                }, 
+                {
+                    "label": "Order Title",
+                    "key": "order_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Orders"
+                }, 
+                {
+                    "label": "Order Description",
+                    "key": "order_desc",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "View and track your orders"
+                }, 
+                {
+                    "label": "Order Link",
+                    "key": "order_btn",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "View Orders"
+                },
+                {
+                    "label": "Address On/Off",
+                    "key": "address",
+                    "type": "switch",
+                    "value": 1
+                }, 
+                {
+                    "label": "Address Title",
+                    "key": "address_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Addresses"
+                }, 
+                {
+                    "label": "Address Description",
+                    "key": "address_desc",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "Manage your addresses"
+                }, 
+                {
+                    "label": "Address Link",
+                    "key": "address_btn",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Manage Addresses"
+                },
+                {
+                    "label": "Wishlist On/Off",
+                    "key": "wishlist",
+                    "type": "switch",
+                    "value": 1
+                }, 
+                {
+                    "label": "Wishlist Title",
+                    "key": "wishlist_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Wishlist"
+                }, 
+                {
+                    "label": "Wishlist Description",
+                    "key": "wishlist_desc",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "View saved items"
+                }, 
+                {
+                    "label": "Wishlist Link",
+                    "key": "wishlist_btn",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "View Wishlist"
+                },
+                {
+                    "label": "Account On/Off",
+                    "key": "detail",
+                    "type": "switch",
+                    "value": 1
+                }, 
+                {
+                    "label": "Account Title",
+                    "key": "detail_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Account Details"
+                }, 
+                {
+                    "label": "Account Description",
+                    "key": "detail_desc",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "View and track your details"
+                }, 
+                {
+                    "label": "Account Link",
+                    "key": "detail_btn",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Edit Details"
+                }
+            ]
+        },
+        {
+            "title": "Recent Orders",
+            "slug": "recent-orders",
+            "key": "account_recent_order",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Recent Orders"
+                },
+                {
+                    "label": "View All",
+                    "key": "view_all",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "View All Orders"
+                },
+                {
+                    "label": "Actions",
+                    "key": "action",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "View"
+                }
+            ]
+        },
+        {
+            "title": "Account Details",
+            "slug": "details",
+            "key": "account_detail",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Account Details"
+                },
+                {
+                    "label": "First Name",
+                    "key": "first_name",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "First Name"
+                },
+                {
+                    "label": "Last Name",
+                    "key": "last_name",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Last Name"
+                },
+                {
+                    "label": "Email Address",
+                    "key": "email",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Email Address"
+                },
+                {
+                    "label": "Phone Number",
+                    "key": "phone",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Phone Number"
+                },
+                {
+                    "label": "Password Change",
+                    "key": "pwd_change",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Password Change"
+                },
+                {
+                    "label": "Password Note",
+                    "key": "pwd_note",
+                    "type": "textarea",
+                    "rows" : 4,
+                    "placeholder": "Enter here...",
+                    "value": "Leave blank to keep the same password"
+                },
+                {
+                    "label": "Current Password",
+                    "key": "pwd_current",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Current Password"
+                },
+                {
+                    "label": "New Password",
+                    "key": "pwd_new",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "New Password"
+                },
+                {
+                    "label": "Confirm New Password",
+                    "key": "pwd_confirm",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Confirm New Password"
+                },
+                {
+                    "label": "Save Changes",
+                    "key": "save",
+                    "type"  : "text",
+                    "placeholder": "Enter here...",
+                    "value": "Save Changes"
+                }
+            ]
+        },
+        {
+            "title": "Account Tab",
+            "slug": "tab-list",
+            "key": "account_tab",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Customer Info On/Off",
+                    "key": "customer_info",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Orders On/Off",
+                    "key": "order_status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Orders Title",
+                    "key": "order_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Orders"
+                },
+                {
+                    "label": "Address On/Off",
+                    "key": "address_status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Address Title",
+                    "key": "address_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Addresses"
+                },
+                {
+                    "label": "Wishlist On/Off",
+                    "key": "wishlist_status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Wishlist Title",
+                    "key": "wishlist_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Wishlist"
+                },
+                {
+                    "label": "Account Details On/Off",
+                    "key": "detail_status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Account Details Title",
+                    "key": "detail_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Account Details"
+                },
+                {
+                    "label": "Support Ticket On/Off",
+                    "key": "support_ticket_status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Support Ticket Title",
+                    "key": "support_ticket_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Support Ticket"
+                },
+                {
+                    "label": "Logout On/Off",
+                    "key": "logout_status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Logout Title",
+                    "key": "logout_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Logout"
+                }
+            ]
+        }
+    ]
+}

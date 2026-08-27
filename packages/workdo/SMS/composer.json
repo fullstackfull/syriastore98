@@ -1,0 +1,25 @@
+{
+    "name": "workdo/sms",
+    "description": "Description for sms package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\SMS\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\SMS\\app\\Providers\\SMSServiceProvider"
+            ]
+        }
+    }
+}

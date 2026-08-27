@@ -1,0 +1,26 @@
+{
+    "name": "workdo/pre-order",
+    "description": "Description for pre-order package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\PreOrder\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\PreOrder\\app\\Providers\\PreOrderServiceProvider",
+                "Workdo\\PreOrder\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

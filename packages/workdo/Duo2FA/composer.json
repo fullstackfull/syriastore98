@@ -1,0 +1,25 @@
+{
+    "name": "workdo/duo2fa",
+    "description": "Description for duo2fa package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\Duo2FA\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\Duo2FA\\app\\Providers\\Duo2FAServiceProvider"
+            ]
+        }
+    }
+}

@@ -1,0 +1,25 @@
+{
+    "name": "workdo/products-pdf",
+    "description": "Description for products-pdf package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\ProductsPDF\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\ProductsPDF\\app\\Providers\\ProductsPDFServiceProvider"
+            ]
+        }
+    }
+}

@@ -1,0 +1,265 @@
+{
+    "title": "Home Banner",
+    "slug": "home",
+    "detail": "Home Banner settings such as, banner, content and so on.",
+    "icon": "fas fa-house",
+    "sections": [
+        {
+            "title": "Slider",
+            "slug": "slider",
+            "key": "slider",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Background Image Left",
+                    "key": "left_image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "{\"image\":\"themes/techzonix/assets/images/banner-bg1.png\"}"
+                },
+                {
+                    "label": "Background Image Center",
+                    "key": "center_image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "{\"image\":\"themes/techzonix/assets/images/banner-bg2.png\"}"
+                },
+                {
+                    "label": "Background Image Right",
+                    "key": "right_image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "{\"image\":\"themes/techzonix/assets/images/banner-bg3.png\"}"
+                },
+                {
+                    "label": "Slider",
+                    "key": "repeater",
+                    "type": "slider",
+                    "fields": ["background_image","image","big_text","content","button_text", "button_link"],
+                    "value": "[{\"background_image\":\"themes/techzonix/assets/images/banner-before-img.png\",\"image\":\"themes/techzonix/assets/images/main-banner-1.png\",\"big_text\":\"Earbuds Superior <b>Sound Quality</b>\",\"content\":\"Go wireless and effortless with our sleek new Air Buds. Compact design, long battery life, and powerful sound—made for your everyday hustle.\",\"button_text\":\"Shop Now\",\"button_link\":\"#\"},{\"background_image\":\"themes/techzonix/assets/images/banner-before-img.png\",\"image\":\"themes/techzonix/assets/images/main-banner-2.png\",\"big_text\":\"Immerse Yourself in  <b>Pure Sound</b>\",\"content\":\"Go wireless and effortless with our sleek new Air Buds. Compact design, long battery life, and powerful sound—made for your everyday hustle.\",\"button_text\":\"Shop Now\",\"button_link\":\"#\"},{\"background_image\":\"themes/techzonix/assets/images/banner-before-img.png\",\"image\":\"themes/techzonix/assets/images/main-banner-3.png\",\"big_text\":\"Smart <b>Looks. Smarter</b> Moves.\",\"content\":\"Go wireless and effortless with our sleek new Air Buds. Compact design, long battery life, and powerful sound—made for your everyday hustle.\",\"button_text\":\"Shop Now\",\"button_link\":\"#\"}]"
+                }
+            ]
+        },
+        {
+            "title": "Category",
+            "slug": "category",
+            "key": "category",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Product Categories"
+                },
+                {
+                    "label": "Button Text",
+                    "key": "button_text",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "View All Categories"
+                }
+            ]
+        },
+        {
+            "title": "Collections",
+            "slug": "collections",
+            "key": "collections",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Our Collections"
+                },
+                {
+                    "label": "Button Text",
+                    "key": "button_text",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "View All Collections"
+                }
+            ]
+        },
+        {
+            "title": "Logos",
+            "slug": "logo",
+            "key": "logo",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Trusted By Leading Brands"
+                },
+                {
+                    "label": "Image",
+                    "key": "repeater",
+                    "type": "slider",
+                    "fields": ["image"],
+                    "value": "[{\"image\":\"themes/techzonix/assets/images/logo.png\"},{\"image\":\"themes/techzonix/assets/images/logo.png\"},{\"image\":\"themes/techzonix/assets/images/logo.png\"},{\"image\":\"themes/techzonix/assets/images/logo.png\"},{\"image\":\"themes/techzonix/assets/images/logo.png\"},{\"image\":\"themes/techzonix/assets/images/logo.png\"},{\"image\":\"themes/techzonix/assets/images/logo.png\"},{\"image\":\"themes/techzonix/assets/images/logo.png\"},{\"image\":\"themes/techzonix/assets/images/logo.png\"},{\"image\":\"themes/techzonix/assets/images/logo.png\"}]"
+                }
+            ]
+        },
+        {
+            "title": "Product",
+            "slug": "product",
+            "key": "product",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "New Arrivals"
+                },
+                {
+                    "label": "Button Text",
+                    "key": "button_text",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "View All Product"
+                }
+            ]
+        },
+        {
+            "title": "More Offer",
+            "slug": "more_offer",
+            "key": "more_offer",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "{\"image\":\"themes/techzonix/assets/images/offer-img1.png\"}"
+                },
+                {
+                    "label": "Big Text",
+                    "key": "big_text",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Summer Sale is Live!"
+                },
+                {
+                    "label": "Content",
+                    "key": "content",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Get up to 40% off on selected electronics and free shipping on all orders over $100."
+                },
+                {
+                    "label": "Button Text",
+                    "key": "button",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Shop the Sale"
+                }
+            ]
+        },
+        {
+            "title": "Offer",
+            "slug": "offer",
+            "key": "offer",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Limited Time Offer"
+                }
+            ]
+        },
+        {
+            "title": "Article",
+            "slug": "article",
+            "key": "article",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Our Latest Blog"
+                },
+                {
+                    "label": "Button Text",
+                    "key": "button_text",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "View All"
+                }
+            ]
+        },
+        {
+            "title": "Testimonial",
+            "slug": "testimonial",
+            "key": "testimonial",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "What Our Clients Say"
+                }
+            ]
+        }
+    ]
+}

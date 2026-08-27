@@ -1,0 +1,26 @@
+{
+    "name": "workdo/quick-checkout",
+    "description": "Description for quick-checkout package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\QuickCheckout\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\QuickCheckout\\app\\Providers\\QuickCheckoutServiceProvider",
+                "Workdo\\QuickCheckout\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

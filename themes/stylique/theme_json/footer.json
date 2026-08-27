@@ -1,0 +1,127 @@
+{
+    "title": "Footer",
+    "slug": "footer",
+    "detail": "Footer settings.",
+    "icon": "",
+    "sections": [
+        {
+            "title": "Footer",
+            "slug": "footer",
+            "key": "footer",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Description",
+                    "key": "description",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "Delivering farm-fresh organic groceries straight to your doorstep since 2010."
+                },
+                {
+                    "label": "Logo",
+                    "key": "logo",
+                    "type": "image",
+                    "placeholder": "Enter here...",
+                    "value": "themes/stylique/assets/images/footer-logo.png"
+                },
+                {
+                    "label": "Social Link",
+                    "key": "repeater",
+                    "type": "slider",
+                    "fields": ["icon","link"],
+                    "value": "[{\"icon\":\"fab fa-facebook-f\",\"link\":\"https://www.facebook.com/\"},{\"icon\":\"fab fa-x-twitter\",\"link\":\"https://x.com/\"},{\"icon\":\"fab fa-instagram\",\"link\":\"https://www.instagram.com/\"},{\"icon\":\"fab fa-pinterest\",\"link\":\"https://in.pinterest.com/\"}]"
+                }
+            ]
+        },
+        {
+            "title": "Menu",
+            "slug": "footer_menu",
+            "key": "footer_menu",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Menu",
+                    "key": "repeater",
+                    "type": "slider",
+                    "fields": ["title","menu"],
+                    "value": ""
+                }
+            ]
+        },
+        {   
+            "title": "Newsletter",
+            "slug": "footer_newsletter",
+            "key": "footer_newsletter",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Join Our Newsletter"
+                },
+                {
+                    "label": "Sub Title",
+                    "key": "sub_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Subscribe to our newsletter for the latest updates and offers."
+                }
+            ]
+        },
+        {
+            "title": "Copy Rights",
+            "slug": "copy_right",
+            "key": "copy_right",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Description",
+                    "key": "description",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "© 2025, eCommerce Theme Powered by: <a href='#'>workdo.io</a>"
+                },
+                {
+                    "label": "Footer Image 1",
+                    "key": "footer_image_1",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "themes/stylique/assets/images/ApplePay.png"
+                },
+                {
+                    "label": "Footer Image 2",
+                    "key": "footer_image_2",
+                    "type": "image",
+                    "placeholder": "Enter here...",
+                    "value": "themes/stylique/assets/images/Paypal.png"
+                }
+                
+            ]
+        }
+       
+    ]
+}

@@ -1,0 +1,26 @@
+{
+    "name": "workdo/automatic-order-printing",
+    "description": "Description for automatic-order-printing package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\AutomaticOrderPrinting\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\AutomaticOrderPrinting\\app\\Providers\\AutomaticOrderPrintingServiceProvider",
+                "Workdo\\AutomaticOrderPrinting\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

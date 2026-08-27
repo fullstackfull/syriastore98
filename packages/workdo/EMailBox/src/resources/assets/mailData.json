@@ -1,0 +1,437 @@
+{
+  "inbox": [
+    {
+      "id": 1,
+      "to": "johndoe@example.com",
+      "from": "janedoe@example.com",
+      "sender_name": "Jane Doe",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Meeting Agenda",
+      "body": "Hi John,\n\nI hope you're doing well. I wanted to share the agenda for our upcoming meeting...\n\nBest regards,\nJane",
+      "date": "2023-10-02T10:15:00Z",
+      "is_read": 0,
+      "is_starred": 1
+    },
+    {
+      "id": 2,
+      "to": "marysmith@example.com",
+      "from": "davidbrown@example.com",
+      "sender_name": "David Brown",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Project Update",
+      "body": "Hello Mary,\n\nI wanted to provide you with the latest update on the project...\n\nRegards,\nDavid",
+      "date": "2023-10-01T14:30:00Z",
+      "is_read": 1,
+      "is_starred": 0
+    },
+    {
+      "id": 3,
+      "to": "susanlee@example.com",
+      "from": "markjones@example.com",
+      "sender_name": "Mark Jones",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Invitation to Dinner",
+      "body": "Hi Susan,\n\nI hope you're doing well. I'd like to invite you to dinner at my place on Friday...\n\nWarm regards,\nMark",
+      "date": "2023-09-30T18:45:00Z",
+      "is_read": 0,
+      "is_starred": 1
+    },
+    {
+      "id": 4,
+      "to": "michaelwilson@example.com",
+      "from": "emilythomas@example.com",
+      "sender_name": "Emily Thomas",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Vacation Plans",
+      "body": "Hi Michael,\n\nI hope you're having a great day. I wanted to discuss our vacation plans...\n\nCheers,\nEmily",
+      "date": "2023-09-29T12:20:00Z",
+      "is_read": 1,
+      "is_starred": 0
+    },
+    {
+      "id": 5,
+      "to": "lindajackson@example.com",
+      "from": "peterbrown@example.com",
+      "sender_name": "Peter Brown",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Weekly Report",
+      "body": "Hello Linda,\n\nI've attached the weekly report for your review. Let me know if you have any questions...\n\nBest regards,\nPeter",
+      "date": "2023-09-28T16:55:00Z",
+      "is_read": 0,
+      "is_starred": 1
+    },
+    {
+      "id": 6,
+      "to": "alexwilson@example.com",
+      "from": "sarasmith@example.com",
+      "sender_name": "Sara Smith",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Happy Birthday!",
+      "body": "Dear Alex,\n\nWishing you a very happy birthday! I hope you have a fantastic day...\n\nWarmest wishes,\nSara",
+      "date": "2023-09-27T09:10:00Z",
+      "is_read": 1,
+      "is_starred": 0
+    },
+    {
+      "id": 7,
+      "to": "danielbrown@example.com",
+      "from": "jessicadavis@example.com",
+      "sender_name": "Jessica Davis",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Important Announcement",
+      "body": "Hi Daniel,\n\nI wanted to share an important announcement with you regarding our upcoming project...\n\nBest regards,\nJessica",
+      "date": "2023-09-26T15:25:00Z",
+      "is_read": 0,
+      "is_starred": 1
+    },
+    {
+      "id": 8,
+      "to": "gracewilson@example.com",
+      "from": "robertjones@example.com",
+      "sender_name": "Robert Jones",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Meeting Reminder",
+      "body": "Hi Grace,\n\nJust a friendly reminder about our meeting tomorrow at 10 AM...\n\nRegards,\nRobert",
+      "date": "2023-09-25T11:30:00Z",
+      "is_read": 1,
+      "is_starred": 0
+    },
+    {
+      "id": 9,
+      "to": "williamsmith@example.com",
+      "from": "sophiebrown@example.com",
+      "sender_name": "Sophie Brown",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Travel Itinerary",
+      "body": "Hello William,\n\nI've attached your travel itinerary for your upcoming trip...\n\nSafe travels,\nSophie",
+      "date": "2023-09-24T08:45:00Z",
+      "is_read": 0,
+      "is_starred": 1
+    },
+    {
+      "id": 10,
+      "to": "oliviajohnson@example.com",
+      "from": "michaeldavis@example.com",
+      "sender_name": "Michael Davis",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Thank You!",
+      "body": "Hi Olivia,\n\nI just wanted to say thank you for your help with the project...\n\nWarm regards,\nMichael",
+      "date": "2023-09-23T13:05:00Z",
+      "is_read": 1,
+      "is_starred": 0
+    },
+    {
+      "id": 11,
+      "to": "johndoe@example.com",
+      "from": "janedoe@example.com",
+      "sender_name": "Jane Doe",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Meeting Agenda",
+      "body": "Hi John, I hope this email finds you well. I wanted to share the agenda for our upcoming meeting.\n\nAgenda:\n1. Project Updates\n2. Budget Review\n3. Action Items\n\nPlease let me know if you have any questions or if there's anything specific you'd like to discuss.\n\nBest regards,\nJane",
+      "date": "2023-10-02 09:15:00",
+      "is_read": 1,
+      "is_starred": 0
+    }
+  ],
+  "sent": [
+    {
+      "id": 11,
+      "to": "johndoe@example.com",
+      "from": "janedoe@example.com",
+      "sender_name": "Jane Doe",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Meeting Agenda",
+      "body": "Hi John, I hope this email finds you well. I wanted to share the agenda for our upcoming meeting.\n\nAgenda:\n1. Project Updates\n2. Budget Review\n3. Action Items\n\nPlease let me know if you have any questions or if there's anything specific you'd like to discuss.\n\nBest regards,\nJane",
+      "date": "2023-10-02 09:15:00",
+      "is_read": 1,
+      "is_starred": 0
+    },
+    {
+      "id": 12,
+      "to": "marysmith@example.com",
+      "from": "davidbrown@example.com",
+      "sender_name": "David Brown",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Invitation to Charity Event",
+      "body": "Dear Mary,\n\nI hope this message finds you in good health. We would like to invite you to our charity event, which will take place on October 15th, 2023. Your presence would mean a lot to us as we aim to raise funds for a great cause.\n\nPlease let us know if you can attend. We look forward to seeing you there!\n\nWarm regards,\nDavid",
+      "date": "2023-09-28 17:30:00",
+      "is_read": 0,
+      "is_starred": 1
+    },
+    {
+      "id": 13,
+      "to": "susanwilson@example.com",
+      "from": "markthompson@example.com",
+      "sender_name": "Mark Thompson",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Project Update",
+      "body": "Hi Susan,\n\nI wanted to provide you with an update on our ongoing project. Things are progressing well, and we've made significant headway in the past week. Here's a summary of our achievements:\n\n- Completed Phase 2 milestones\n- Met with the client to address concerns\n- Hired two additional team members\n\nIf you have any questions or would like more details, please let me know.\n\nBest regards,\nMark",
+      "date": "2023-09-25 11:45:00",
+      "is_read": 1,
+      "is_starred": 0
+    },
+    {
+      "id": 14,
+      "to": "robert.jones@example.com",
+      "from": "alice.miller@example.com",
+      "sender_name": "Alice Miller",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Vacation Plans",
+      "body": "Hi Robert,\n\nI hope this email finds you well. I wanted to discuss our vacation plans for the upcoming holiday season. Let's catch up over coffee this weekend and finalize the details. I'm looking forward to spending quality time together.\n\nWarm regards,\nAlice",
+      "date": "2023-09-20 14:20:00",
+      "is_read": 0,
+      "is_starred": 1
+    },
+    {
+      "id": 15,
+      "to": "michael.smith@example.com",
+      "from": "emily.wilson@example.com",
+      "sender_name": "Emily Wilson",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Important Presentation",
+      "body": "Hi Michael,\n\nI hope you're doing well. We have an important client presentation scheduled for next week, and I would like to discuss the key points with you before finalizing the slides. When would be a convenient time for you?\n\nBest regards,\nEmily",
+      "date": "2023-09-18 16:55:00",
+      "is_read": 1,
+      "is_starred": 0
+    },
+    {
+      "id": 16,
+      "to": "laurajohnson@example.com",
+      "from": "peterdavis@example.com",
+      "sender_name": "Peter Davis",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Happy Birthday!",
+      "body": "Dear Laura,\n\nWishing you a very happy birthday! May your day be filled with joy, love, and laughter. We should celebrate soon. Let's plan a get-together with friends to mark this special day.\n\nCheers!\nPeter",
+      "date": "2023-09-12 08:10:00",
+      "is_read": 0,
+      "is_starred": 1
+    }
+  ],
+  "drafts": [
+    {
+      "id": 17,
+      "from": "john.doe@example.com",
+      "to": "jane.smith@example.com",
+      "sender_name": "John Doe",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Meeting Agenda",
+      "body": "Hi Jane,\n\nI hope this email finds you well. I wanted to share the agenda for our upcoming meeting scheduled for next week. Please review the attached document and let me know if you have any questions or if there's anything specific you'd like to discuss.\n\nBest regards,\nJohn",
+      "date": "2023-10-02T09:00:00",
+      "is_read": 0,
+      "is_starred": 1
+    },
+    {
+      "id": 18,
+      "from": "susan.jones@example.com",
+      "to": "david.wilson@example.com",
+      "sender_name": "Susan Jones",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Project Update",
+      "body": "Hello David,\n\nI hope you're doing well. I wanted to provide you with an update on the progress of the project we're working on. We've made significant headway in the last few weeks, and I believe you'll be pleased with the results.\n\nPlease find attached the latest project report for your review. If you have any questions or would like to discuss any aspects of the project, feel free to reach out to me.\n\nBest regards,\nSusan",
+      "date": "2023-10-02T14:30:00",
+      "is_read": 1,
+      "is_starred": 0
+    }
+  ],
+  "spam": [
+    {
+      "id": 19,
+      "to": "alice.smith@example.com",
+      "from": "bob.jones@example.com",
+      "sender_name": "Bob Jones",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Meeting Agenda",
+      "body": "Hi Alice,\n\nI hope this email finds you well. I wanted to share the agenda for our upcoming meeting on Friday.\n\nBest regards,\nBob",
+      "date": "2023-10-02 09:30:00",
+      "is_read": 0,
+      "is_starred": 1
+    },
+    {
+      "id": 20,
+      "to": "david.wilson@example.com",
+      "from": "emily.davis@example.com",
+      "sender_name": "Emily Davis",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Project Update",
+      "body": "Hello David,\n\nI wanted to provide you with an update on the project's progress. Things are going smoothly, and we're on track to meet our deadlines.\n\nRegards,\nEmily",
+      "date": "2023-10-01 15:45:00",
+      "is_read": 1,
+      "is_starred": 0
+    },
+    {
+      "id": 21,
+      "to": "susan.johnson@example.com",
+      "from": "michael.miller@example.com",
+      "sender_name": "Michael Miller",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Invitation to Conference",
+      "body": "Dear Susan,\n\nI'm pleased to invite you to our upcoming conference on technology trends. Your expertise would be valuable at the event.\n\nSincerely,\nMichael",
+      "date": "2023-09-30 11:20:00",
+      "is_read": 1,
+      "is_starred": 0
+    }
+  ],
+  "trash": [
+    {
+      "id": 1234,
+      "to": "alice@example.com",
+      "from": "bob@example.com",
+      "sender_name": "Bob Johnson",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Meeting Agenda",
+      "body": "Hi Alice,\n\nI hope this email finds you well. I wanted to share the agenda for our upcoming meeting.\n\n1. Project Updates\n2. Budget Review\n3. New Opportunities\n4. Q&A\n\nPlease let me know if you have any questions or additional items to add to the agenda.\n\nBest regards,\nBob",
+      "date": "2023-10-02 09:30:00",
+      "is_read": 1,
+      "is_starred": 0
+    },
+    {
+      "id": 5678,
+      "to": "david@example.com",
+      "from": "emily@example.com",
+      "sender_name": "Emily Rodriguez",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Vacation Plans",
+      "body": "Hi David,\n\nI hope you're doing well. I wanted to discuss our vacation plans for the upcoming holiday season. I've attached a list of possible destinations for your consideration.\n\nLet's catch up soon to finalize our plans!\n\nWarm regards,\nEmily",
+      "date": "2023-10-01 15:45:00",
+      "is_read": 0,
+      "is_starred": 1
+    },
+    {
+      "id": 9876,
+      "to": "charlotte@example.com",
+      "from": "grace@example.com",
+      "sender_name": "Grace Thompson",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Project Update",
+      "body": "Hi Charlotte,\n\nI wanted to provide you with an update on the progress of our ongoing project. We've made significant headway, and I've attached the latest report for your review.\n\nLooking forward to your feedback.\n\nBest regards,\nGrace",
+      "date": "2023-09-30 14:20:00",
+      "is_read": 1,
+      "is_starred": 0
+    },
+    {
+      "id": 4321,
+      "to": "oliver@example.com",
+      "from": "sophia@example.com",
+      "sender_name": "Sophia Martinez",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Birthday Celebration",
+      "body": "Hi Oliver,\n\nI hope you're doing well. I wanted to invite you to my birthday celebration next week. It's going to be a fun evening with friends and family. Please RSVP when you can!\n\nWarm regards,\nSophia",
+      "date": "2023-09-28 18:10:00",
+      "is_read": 0,
+      "is_starred": 0
+    },
+    {
+      "id": 2468,
+      "to": "grace@example.com",
+      "from": "david@example.com",
+      "sender_name": "David Wilson",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Re: Project Update",
+      "body": "Hi Grace,\n\nThanks for the project update. I've reviewed the report, and it looks great. Let's schedule a meeting to discuss the next steps.\n\nBest regards,\nDavid",
+      "date": "2023-09-29 10:05:00",
+      "is_read": 1,
+      "is_starred": 1
+    }
+  ],
+  "archive": [
+    {
+      "id": 1357,
+      "to": "rahul.kumar@example.com",
+      "from": "neha.sharma@example.com",
+      "sender_name": "Neha Sharma",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Meeting Agenda",
+      "body": "Dear Rahul, I hope this email finds you well. Attached is the agenda for our upcoming meeting. Please review it and let me know if you have any suggestions or changes. Looking forward to our discussion. Best regards, Neha",
+      "date": "2023-10-02 10:15:00",
+      "is_read": 1,
+      "is_starred": 0
+    },
+    {
+      "id": 8642,
+      "to": "smita.gupta@example.com",
+      "from": "amit.joshi@example.com",
+      "sender_name": "Amit Joshi",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Project Update",
+      "body": "Hi Smita, I wanted to provide you with an update on our project's progress. Things are going well, and we are on track to meet our deadlines. I'll share a detailed report with you soon. Regards, Amit",
+      "date": "2023-10-01 15:30:00",
+      "is_read": 0,
+      "is_starred": 1
+    },
+    {
+      "id": 9753,
+      "to": "anurag.verma@example.com",
+      "from": "priya.mishra@example.com",
+      "sender_name": "Priya Mishra",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Invitation to Dinner",
+      "body": "Hello Anurag, I hope you're doing well. I wanted to invite you and your family to dinner at my place this Saturday. Please let me know if you can make it. Regards, Priya",
+      "date": "2023-09-30 18:45:00",
+      "is_read": 1,
+      "is_starred": 0
+    }
+  ],
+  "starred": [
+    {
+      "id": 7890,
+      "to": "radha.sharma@example.com",
+      "from": "vikram.verma@example.com",
+      "sender_name": "Vikram Verma",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Regarding Upcoming Meeting",
+      "body": "Hi Radha,\n\nI hope you're doing well. I wanted to discuss the details of the upcoming meeting scheduled for next week. Please let me know when you're available for a quick call.\n\nBest regards,\nVikram",
+      "date": "2023-10-02 09:15:00",
+      "is_read": 0,
+      "is_starred": 1
+    },
+    {
+      "id": 7531,
+      "to": "sneha.mishra@example.com",
+      "from": "amit.joshi@example.com",
+      "sender_name": "Amit Joshi",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Project Update",
+      "body": "Hi Sneha,\n\nI wanted to provide you with an update on the project's progress. We've made significant headway, and I believe you'll be pleased with the results. Please find the attached report for your review.\n\nBest regards,\nAmit",
+      "date": "2023-10-02 11:30:00",
+      "is_read": 1,
+      "is_starred": 1
+    },
+    {
+      "id": 4567,
+      "to": "neha.patel@example.com",
+      "from": "rajesh.shah@example.com",
+      "sender_name": "Rajesh Shah",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Invitation to Our Company Event",
+      "body": "Hi Neha,\n\nI hope this message finds you well. We are delighted to invite you to our company's annual event, which will take place on October 15th. Your presence would mean a lot to us.\n\nWarm regards,\nRajesh",
+      "date": "2023-10-02 14:45:00",
+      "is_read": 1,
+      "is_starred": 1
+    },
+    {
+      "id": 3210,
+      "to": "mohit.gupta@example.com",
+      "from": "anita.saxena@example.com",
+      "sender_name": "Anita Saxena",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Discussion on Project Proposal",
+      "body": "Hi Mohit,\n\nI hope you're having a productive day. I'd like to schedule a meeting to discuss the project proposal you submitted last week. Your insights are valuable to us.\n\nBest regards,\nAnita",
+      "date": "2023-10-02 16:20:00",
+      "is_read": 0,
+      "is_starred": 0
+    },
+    {
+      "id": 9876,
+      "to": "prakash.kumar@example.com",
+      "from": "reena.pandey@example.com",
+      "sender_name": "Reena Pandey",
+      "receiver_name":"Workdo-Dash",
+      "subject": "Reminder: Team Building Workshop",
+      "body": "Hi Prakash,\n\nJust a friendly reminder about the team building workshop scheduled for tomorrow at 10:00 AM. Please make sure to be there on time. It's going to be a great learning experience.\n\nWarm regards,\nReena",
+      "date": "2023-10-02 18:05:00",
+      "is_read": 1,
+      "is_starred": 0
+    }
+  ]
+  
+}

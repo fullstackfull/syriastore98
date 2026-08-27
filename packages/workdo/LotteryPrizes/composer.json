@@ -1,0 +1,26 @@
+{
+    "name": "workdo/lottery-prizes",
+    "description": "Description for lottery-prizes package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\LotteryPrizes\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\LotteryPrizes\\app\\Providers\\LotteryPrizesServiceProvider",
+                "Workdo\\LotteryPrizes\\app\\Providers\\Viewcomposer"
+            ]
+        }
+    }
+}

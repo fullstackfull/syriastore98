@@ -1,0 +1,10 @@
+{
+    "name": "CheckoutAttachment",
+    "alias": "Checkout Attachment",
+    "description": "",
+    "priority": 45,
+    "version":1.7,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"checkout-attachment"
+}

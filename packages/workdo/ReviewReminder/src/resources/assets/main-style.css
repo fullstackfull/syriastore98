@@ -1,0 +1,88 @@
+
+.review-page-sec {
+    padding: 30px;
+}
+.review-page-sec .section-title {
+    margin-bottom: 30px;
+}
+.review-page-sec-inner {
+    border: 1px solid #E4E4E4;
+    border-radius: 20px;
+    box-shadow: 0px 0px 34px 0px rgba(0, 0, 0, 0.05);
+    padding: 30px;
+}
+.review-page-sec .review-form-wrp .btn {
+    max-width: 100px;
+    width: 100%;
+    background-color: #1AB36A;
+    border-color: #1AB36A;
+    transition: all 500ms ease-in-out 0s;
+}
+.review-page-sec .review-form-wrp .btn:hover {
+    background: transparent;
+    color: #1AB36A;
+}
+.review-page-sec .review-form-wrp .form-right-image {
+    margin-left: 15%;
+}
+.review-page-sec .review-form-wrp .form-wrp-image {
+    position: relative;
+    display: block;
+    width: 100%;
+    padding-top: 80%;
+}
+.review-page-sec .review-form-wrp .form-wrp-image img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.review-page-sec .customer-review-wrp {
+    margin-top: 30px;
+}
+.review-page-sec .customer-review-wrp .review-title {
+    margin-bottom: 20px;
+}
+.review-page-sec .customer-review-wrp .testimonial-card {
+    border: 1px solid #E4E4E4;
+    box-shadow: 0px 0px 34px 0px rgba(0, 0, 0, 0.05);
+    border-radius: 15px;
+    padding: 20px;
+    display: flex;
+    gap: 20px;
+}
+.review-page-sec .testimonial-card .testimonial-image {
+    height: 70px;
+    width: 70px;
+    border-radius: 50%;
+}
+.review-page-sec .testimonial-card .testimonial-image img {
+    height: 100%;
+    width: 100%;
+    object-fit: cover;
+}
+.review-page-sec .testimonial-card:not(:last-of-type) {
+    margin-bottom: 20px;
+}
+.review-page-sec .testimonial-card .testimonial-content {
+    flex: 1;
+}
+.review-page-sec .testimonial-card .testimonial-content h3 {
+    margin-bottom: 15px;
+}
+.review-page-sec .testimonial-card .testimonial-content .review-star-wrp {
+    gap: 30px;
+    margin-bottom: 15px;
+}
+.review-page-sec .testimonial-card .testimonial-content .review-star-wrp .stars i {
+    font-size: 20px;
+}
+.review-page-sec .testimonial-card .testimonial-content p {
+    margin: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;  
+    overflow: hidden;
+}

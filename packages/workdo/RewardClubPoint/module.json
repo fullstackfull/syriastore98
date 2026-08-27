@@ -1,0 +1,10 @@
+{
+    "name": "RewardClubPoint",
+    "alias": "Reward-Club Point",
+    "description": "",
+    "priority": 0,
+    "version":1.7,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"reward-club-point"
+}

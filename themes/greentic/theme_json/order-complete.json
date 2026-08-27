@@ -1,0 +1,91 @@
+{
+    "title": "Order Complete",
+    "slug": "order-complete",
+    "detail": "Order complete page settings.",
+    "icon": "",
+    "sections": [
+        {
+            "title": "Banner",
+            "slug": "order-complete-banner",
+            "key": "order_cmp_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Order Complete"
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "{\"image\":\"themes/greentic/assets/images/common-banner.png\"}"
+                }
+            ]
+        },
+        {
+            "title": "Detail",
+            "slug": "order-detail",
+            "key": "order_cmp",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Your order"
+                },
+                {
+                    "label": "Short Message",
+                    "key": "short_msg",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "has been placed!"
+                },
+                {
+                    "label": "Message",
+                    "key": "message",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Order confirmed successfully!"
+                },
+                {
+                    "label": "Description",
+                    "key": "description",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "Your order has been successfully processed! We've sent you an email confirmation. Our team will reach out if we need any additional information."
+                },
+                {
+                    "label": "Copy Button",
+                    "key": "copy_btn",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Copy Link"
+                },
+                {
+                    "label": "Back Button",
+                    "key": "back_btn",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Back to shop"
+                }
+            ]
+        }
+    ]
+}

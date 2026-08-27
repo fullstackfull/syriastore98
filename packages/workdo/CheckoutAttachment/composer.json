@@ -1,0 +1,26 @@
+{
+    "name": "workdo/checkout-attachment",
+    "description": "Description for checkout-attachment package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\CheckoutAttachment\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\CheckoutAttachment\\app\\Providers\\CheckoutAttachmentServiceProvider",
+                "Workdo\\CheckoutAttachment\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

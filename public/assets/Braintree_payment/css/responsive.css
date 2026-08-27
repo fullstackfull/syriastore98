@@ -1,0 +1,52 @@
+@media screen and (max-width:1199px) {
+    :root {
+        --h1: normal 500 40px/1.2 var(--first-font);
+        --h2: normal 500 36px/1.2 var(--first-font);
+        --h3: normal 500 28px/1.2 var(--first-font);
+        --h4: normal 500 24px/1.2 var(--first-font);
+        --h5: normal 500 22px/1.2 var(--first-font);
+        --h6: normal 500 20px/1.2 var(--first-font);
+    }
+}
+
+@media screen and (max-width:991px) {
+    :root {
+        --h1: normal 500 34px/1.2 var(--first-font);
+        --h2: normal 500 30px/1.2 var(--first-font);
+        --h3: normal 500 24px/1.2 var(--first-font);
+        --h4: normal 500 22px/1.2 var(--first-font);
+        --h5: normal 500 20px/1.2 var(--first-font);
+
+    }
+}
+
+@media screen and (max-width:767px){
+    :root {
+        --h1: normal 500 30px/1.2 var(--first-font);
+        --h2: normal 500 28px/1.2 var(--first-font);
+        --h3: normal 500 26px/1.2 var(--first-font);
+        --common-text: normal 500 14px/1.4 var(--second-font);
+    }
+    .payment-form {
+        max-width: calc(100% - 30px);
+    }
+
+    .payment-form .form-group  input,
+    .payment-form .form-group label{
+        font-size: 14px;
+    }
+}
+@media screen and (max-width:575px) {
+    :root {
+        --h1: normal 500 30px/1.2 var(--first-font);
+        --h2: normal 500 24px/1.2 var(--first-font);
+        --h3: normal 500 22px/1.2 var(--first-font);
+    }
+    .payment-form form{
+        padding:20px 15px;
+    }
+    .payment-form .payment-logo img{
+        width: 40px;
+        height: 40px;
+    }
+}

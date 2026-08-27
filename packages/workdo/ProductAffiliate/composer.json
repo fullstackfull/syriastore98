@@ -1,0 +1,26 @@
+{
+    "name": "workdo/product-affiliate",
+    "description": "Description for product-affiliate package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\ProductAffiliate\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\ProductAffiliate\\app\\Providers\\ProductAffiliateServiceProvider",
+                "Workdo\\ProductAffiliate\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

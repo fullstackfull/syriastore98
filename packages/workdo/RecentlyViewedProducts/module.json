@@ -1,0 +1,10 @@
+{
+    "name": "RecentlyViewedProducts",
+    "alias": "Recently Viewed Products",
+    "description": "",
+    "priority": 5,
+    "version":1.7,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"recently-viewed-products"
+}

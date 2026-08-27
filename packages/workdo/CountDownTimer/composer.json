@@ -1,0 +1,26 @@
+{
+    "name": "workdo/count-down-timer",
+    "description": "Description for count-down-timer package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\CountDownTimer\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\CountDownTimer\\app\\Providers\\CountDownTimerServiceProvider",
+                "Workdo\\CountDownTimer\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

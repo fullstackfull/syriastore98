@@ -1,0 +1,25 @@
+{
+    "name": "workdo/cart-quantity-control",
+    "description": "Description for cart-quantity-control package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\CartQuantityControl\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\CartQuantityControl\\app\\Providers\\CartQuantityControlServiceProvider"
+            ]
+        }
+    }
+}

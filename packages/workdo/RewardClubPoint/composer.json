@@ -1,0 +1,25 @@
+{
+    "name": "workdo/reward-club-point",
+    "description": "Description for reward-club-point package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\RewardClubPoint\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\RewardClubPoint\\app\\Providers\\RewardClubPointServiceProvider"
+            ]
+        }
+    }
+}

@@ -1,0 +1,10 @@
+{
+    "name": "Marketing",
+    "alias": "Marketing",
+    "description": "",
+    "priority": 380,
+    "version":1.3,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"marketing"
+}

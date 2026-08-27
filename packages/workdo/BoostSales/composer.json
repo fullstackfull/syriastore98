@@ -1,0 +1,25 @@
+{
+    "name": "workdo/boost-sales",
+    "description": "Description for boost-sales package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\BoostSales\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\BoostSales\\app\\Providers\\BoostSalesServiceProvider"
+            ]
+        }
+    }
+}

@@ -1,0 +1,26 @@
+{
+    "name": "workdo/product-csv",
+    "description": "Description for product-csv package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\ProductCSV\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\ProductCSV\\app\\Providers\\ProductCSVServiceProvider",
+                "Workdo\\ProductCSV\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

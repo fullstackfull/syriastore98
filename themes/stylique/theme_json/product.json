@@ -1,0 +1,21 @@
+{
+    "title": "Product",
+    "slug": "product",
+    "detail": "Manage product page settings.",
+    "icon": "fas fa-box",
+    "sections": [
+        {
+            "title": "Product Page",
+            "slug": "product page",
+            "key": "product_page",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                }
+            ]
+        }
+    ]
+}

@@ -1,0 +1,26 @@
+{
+    "name": "workdo/product-enquiry",
+    "description": "Description for product-enquiry package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\ProductEnquiry\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\ProductEnquiry\\app\\Providers\\ProductEnquiryServiceProvider",
+                "Workdo\\ProductEnquiry\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

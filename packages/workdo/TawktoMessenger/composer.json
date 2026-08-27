@@ -1,0 +1,26 @@
+{
+    "name": "workdo/tawkto-messenger",
+    "description": "Description for tawkto-messenger package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\TawktoMessenger\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\TawktoMessenger\\app\\Providers\\TawktoMessengerServiceProvider",
+                "Workdo\\TawktoMessenger\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

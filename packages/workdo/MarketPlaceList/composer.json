@@ -1,0 +1,25 @@
+{
+    "name": "workdo/market-place-list",
+    "description": "Description for market-place-list package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\MarketPlaceList\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\MarketPlaceList\\app\\Providers\\MarketPlaceListServiceProvider"
+            ]
+        }
+    }
+}

@@ -1,0 +1,25 @@
+{
+    "name": "workdo/sign-in-with-bitbucket",
+    "description": "Description for sign-in-with-bitbucket package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\SignInWithBitbucket\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\SignInWithBitbucket\\app\\Providers\\SignInWithBitbucketServiceProvider"
+            ]
+        }
+    }
+}

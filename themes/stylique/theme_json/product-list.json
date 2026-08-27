@@ -1,0 +1,35 @@
+{
+    "title": "Product List",
+    "slug": "product-list",
+    "detail": "Manage product page settings.",
+    "icon": "fas fa-box",
+    "sections": [
+        {
+            "title": "Banner",
+            "slug": "banner",
+            "key": "product_list_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Shop"
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Enter here...",
+                    "value": "themes/stylique/assets/images/common-banner.png"
+                }
+            ]
+        }
+    ]
+}

@@ -1,0 +1,26 @@
+{
+    "name": "workdo/purchase-notification",
+    "description": "Description for purchase-notification package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\PurchaseNotification\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\PurchaseNotification\\app\\Providers\\PurchaseNotificationServiceProvider",
+                "Workdo\\PurchaseNotification\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

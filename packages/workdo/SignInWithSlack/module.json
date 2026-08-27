@@ -1,0 +1,10 @@
+{
+    "name": "SignInWithSlack",
+    "alias": "Sign-in With Slack",
+    "description": "",
+    "priority": 200,
+    "version":1.4,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"sign-in-with-slack"
+}

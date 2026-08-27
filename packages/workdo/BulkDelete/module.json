@@ -1,0 +1,10 @@
+{
+    "name": "BulkDelete",
+    "alias": "Bulk Delete",
+    "description": "",
+    "priority": 440,
+    "version":1.2,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"bulk-delete"
+}

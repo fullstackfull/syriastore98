@@ -1,0 +1,153 @@
+{
+    "title": "Track Order",
+    "slug": "track-order",
+    "detail": "Track Order page settings .",
+    "icon": "fas fa-arrows-up-to-line",
+    "sections": [
+        {
+            "title": "Banner",
+            "slug": "banner",
+            "key": "track_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Track Order"
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Enter here...",
+                    "value": "{\"image\":\"themes/greentic/assets/images/common-banner.png\"}"
+                }
+            ]
+        },
+        {
+            "title": "Form",
+            "slug": "form",
+            "key": "track_form",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Track Your Order"
+                },
+                {
+                    "label": "Description",
+                    "key": "description",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "Enter your order number to track the status of your delivery. You can find your order number in the order confirmation email."
+                },
+                {
+                    "label": "Order Number",
+                    "key": "number",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Order Number"
+                },
+                {
+                    "label": "Order Number Note",
+                    "key": "number_note",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Please enter your order number without spaces or dashes"
+                },
+                {
+                    "label": "Email Address",
+                    "key": "email",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Email Address"
+                },
+                {
+                    "label": "Track Order",
+                    "key": "button",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Track Order"
+                }
+            ]
+        },{
+            "title": "Order Tracking Detail",
+            "slug": "track-detail",
+            "key": "track",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "error_status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Error Title",
+                    "key": "error_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Order Not Found"
+                },
+                {
+                    "label": "Error Description",
+                    "key": "error_desc",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "We couldn't find an order matching the information you provided. Please check your order number and email address, and try again."
+                },
+                {
+                    "label": "Error Button",
+                    "key": "error_button",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Try Again"
+                }, 
+                {
+                    "label": "On/Off",
+                    "key": "cancel_status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Cancel Title",
+                    "key": "cancel_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Your order is Cancel"
+                },
+                {
+                    "label": "Cancel Description",
+                    "key": "cancel_desc",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "This order has been canceled."
+                },
+                {
+                    "label": "Cancel Button",
+                    "key": "cancel_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Continue shopping"
+                }
+            ]
+        }
+    ]
+}

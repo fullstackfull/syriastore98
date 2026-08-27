@@ -1,0 +1,17 @@
+{
+    "section_name": "Common Content",
+    "section_slug": "common_page",
+    "unique_section_slug": "common_page",
+    "section_enable": "on",
+    "array_type": "inner-list",
+    "loop_number": 1,
+    "section":{
+        "cart_button":{
+            "lable" : "Add Cart To Button",
+            "slug" :  "add_to_cart_button",
+            "text" : "Add To Cart",
+            "type" : "text",
+            "placeholder" : "Please enter here.."
+        }        
+    }
+}

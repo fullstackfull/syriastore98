@@ -1,0 +1,3037 @@
+{
+    "authentication": {
+        "login": {
+            "method": "POST",
+            "endpoints": "/api/admin/adminlogin",
+            "header": {
+                "Accept": "application/json"
+            },
+            "request": {
+                "email": "test@example.com",
+                "password": "test@example.com"
+            },
+            "success_response": {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "id": 4,
+                    "name": "test",
+                    "email": "test@example.com",
+                    "image": "storage/uploads/profile/avatar.png",
+                    "mobile": "7878787878",
+                    "current_store": "64",
+                    "token": "6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk9lmUJyykPOKO8da781a",
+                    "token_type": "Bearer"
+                }
+            },
+            "error_response": {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Invalid login details"
+                }
+            },
+            "status_code": {
+                "success": "HTTP/1.1 200 OK",
+                "error": "HTTP/1.1 401 Unauthorized"
+            }
+        }
+    },
+    "basic-settings": {
+        "base-url": {
+            "method": "POST",
+            "endpoints": "/api/admin/base_url",
+            "header": {
+                "Accept": "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request": {},
+            "success_response": {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "image_url": "https://example.com/",
+                    "payment_url": "https://example.com"
+                }
+            },
+            "error_response": {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Token is Absent!"
+                }
+            },
+            "status_code": {
+                "success": "HTTP/1.1 200 OK",
+                "error": "HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "currency":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/currency",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "currency": "$",
+                    "currency_name": "USD"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Token is Absent!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "profile-update":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/editprofile",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "user_id":"2",
+                "name":"user name",
+                "email":"user email",
+                "profile_image":"attach file"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "User Data updated successfully!"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "User not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "password-update":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/updatepassword",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "user_id":"2",
+                "old_password":"1234",
+                "password":"123456",
+                "password_confirmation":"123456"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "User Password updated successfully."
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "User not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "change-store":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/changestore",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Store Change Successfully!"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Store not found!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "store-delete":{
+            "method"        : "DELETE",
+            "endpoints"           : "/api/admin/deletestore",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Store deleted successfully!",
+                    "user_info":{
+                        "id": 2,
+                        "name": "stylique",
+                        "email": "stylique@example.com",
+                        "current_store": 3
+                    }
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Store not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        }
+    },
+    "general-detail": {
+        "product-dropdown":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/productdropdown",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "category": [
+                        {
+                            "id": 14,
+                            "name": "Fruits"
+                        },
+                        {
+                            "id": 16,
+                            "name": "Beans"
+                        }
+                    ]
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Product Data not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "generate-code":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/generatecode",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": "FWRZKNIOPR"
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Token is Absent!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "static-data":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/staticsdata",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "visitorchart": [
+                        {
+                            "date": "21-May",
+                            "pageview": 0,
+                            "unique_pageview": 0
+                        },
+                        {
+                            "date": "22-May",
+                            "pageview": 0,
+                            "unique_pageview": 0
+                        },
+                        {
+                            "date": "23-May",
+                            "pageview": 0,
+                            "unique_pageview": 0
+                        },
+                        {
+                            "date": "24-May",
+                            "pageview": 0,
+                            "unique_pageview": 0
+                        },
+                        {
+                            "date": "25-May",
+                            "pageview": 0,
+                            "unique_pageview": 0
+                        },
+                        {
+                            "date": "26-May",
+                            "pageview": 0,
+                            "unique_pageview": 0
+                        },
+                        {
+                            "date": "27-May",
+                            "pageview": 0,
+                            "unique_pageview": 0
+                        },
+                        {
+                            "date": "28-May",
+                            "pageview": 0,
+                            "unique_pageview": 0
+                        },
+                        {
+                            "date": "29-May",
+                            "pageview": 0,
+                            "unique_pageview": 0
+                        },
+                        {
+                            "date": "30-May",
+                            "pageview": 0,
+                            "unique_pageview": 0
+                        },
+                        {
+                            "date": "31-May",
+                            "pageview": 0,
+                            "unique_pageview": 0
+                        },
+                        {
+                            "date": "01-Jun",
+                            "pageview": 0,
+                            "unique_pageview": 0
+                        },
+                        {
+                            "date": "02-Jun",
+                            "pageview": 0,
+                            "unique_pageview": 0
+                        },
+                        {
+                            "date": "03-Jun",
+                            "pageview": 0,
+                            "unique_pageview": 0
+                        },
+                        {
+                            "date": "04-Jun",
+                            "pageview": 0,
+                            "unique_pageview": 0
+                        }
+                    ],
+                    "topurl": [
+                        {
+                            "total_click": 28,
+                            "url": "http://192.168.29.95/Product/EcommerceGo-demo/main_file/stylique/home"
+                        },
+                        {
+                            "total_click": 20,
+                            "url": "http://localhost/Product/EcommerceGo-demo/main_file/stylique/home"
+                        },
+                        {
+                            "total_click": 14,
+                            "url": "http://localhost/Product-old/EcommerceGo/main_file/my-store/home"
+                        },
+                        {
+                            "total_click": 14,
+                            "url": "https://ecom-demo.workdo.io/stylique/home"
+                        },
+                        {
+                            "total_click": 7,
+                            "url": "http://localhost/Product/EcommerceGo-demo/main_file/my-store/home"
+                        },
+                        {
+                            "total_click": 7,
+                            "url": "http://192.168.29.2/ecom/latest_ecom/demo-latest/stylique/home"
+                        },
+                        {
+                            "total_click": 4,
+                            "url": "http://localhost/ecom/latest_ecom/demo-latest/stylique/home"
+                        },
+                        {
+                            "total_click": 2,
+                            "url": "http://localhost/Product/EcommerceGo-demo/main_file/my-store"
+                        },
+                        {
+                            "total_click": 1,
+                            "url": "http://localhost/Product/EcommerceGo/main_file/my-store/home"
+                        }
+                    ],
+                    "platform": [
+                        {
+                            "platform": "Windows",
+                            "data": 8,
+                            "colour": "#4942a8"
+                        },
+                        {
+                            "platform": "Ubuntu",
+                            "data": 6,
+                            "colour": "#41c9d6"
+                        },
+                        {
+                            "platform": "OS X",
+                            "data": 1,
+                            "colour": "#f8a21e"
+                        },
+                        {
+                            "platform": "Linux",
+                            "data": 79,
+                            "colour": "#e83e8c"
+                        },
+                        {
+                            "platform": "iOS",
+                            "data": 1,
+                            "colour": "#E9FFDF"
+                        },
+                        {
+                            "platform": "AndroidOS",
+                            "data": 2,
+                            "colour": "#045dff"
+                        }
+                    ],
+                    "browser": [
+                        {
+                            "browser": "Safari",
+                            "data": 1,
+                            "colour": "#4942a8"
+                        },
+                        {
+                            "browser": "Opera",
+                            "data": 4,
+                            "colour": "#41c9d6"
+                        },
+                        {
+                            "browser": "Firefox",
+                            "data": 7,
+                            "colour": "#f8a21e"
+                        },
+                        {
+                            "browser": "Edge",
+                            "data": 1,
+                            "colour": "#e83e8c"
+                        },
+                        {
+                            "browser": "Chrome",
+                            "data": 84,
+                            "colour": "#E9FFDF"
+                        }
+                    ],
+                    "device": [
+                        {
+                            "device": "WebKit",
+                            "data": 88,
+                            "colour": "#4942a8"
+                        },
+                        {
+                            "device": "Macintosh",
+                            "data": 1,
+                            "colour": "#41c9d6"
+                        },
+                        {
+                            "device": "iPhone",
+                            "data": 1,
+                            "colour": "#f8a21e"
+                        },
+                        {
+                            "device": "other",
+                            "data": 7,
+                            "colour": "#e83e8c"
+                        }
+                    ]
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Something went wrong!!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        }
+    },
+    "deliveryBoy": {
+        "deliveryBoy-login":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/delivery-login",
+            "header"        : {
+                "Accept" : "application/json"
+            },
+            "request"       : {
+                "email":"demo@example.com",
+                "password":"demo@example.com"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "currency": "$",
+                    "currency_name": "USD",
+                    "id": 1,
+                    "name": "Delivery Boy",
+                    "email": "demo@example.com",
+                    "image": "storage/uploads/profile/avatar.png",
+                    "contact": "1234567890",
+                    "token": "8|QJlRufo2mglkJS6tVPkElOcD87j1kPOLD86Ci73U9b2a7ae3",
+                    "token_type": "Bearer"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Delivery Boy not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "deliveryBoy-profile-update":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/change-profile",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "id":"1",
+                "name":"delivery boy name",
+                "email":"demo@example.com",
+                "contact":"1234567890",
+                "profile_image":"attach file"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "id": 1,
+                    "name": "Delivery Boy",
+                    "email": "demo@example.com",
+                    "contact": "1234567890",
+                    "image": "storage/uploads/profile/avatar.png"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Token is Absent!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "deliveryBoy-logout":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/logOut",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "user_id":"1"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "User Logout",
+                    "logout": 0
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "User not found"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "deliveryBoy-delete":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/delete-user",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "user_id":"1"
+            },
+            "success_response"      : {
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "User Deleted successfully"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "User not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "deliveryBoy-home":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/Home",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "pending": 1,
+                    "complete": 0,
+                    "cancel": 0,
+                    "total_earning": 187,
+                    "today_earning": 0,
+                    "transaction": [
+                        {
+                            "id": 1,
+                            "product_order_id": "320240312070909",
+                            "date": "2024-03-12 07:09:09",
+                            "amount": 187,
+                            "delivered_status": 0,
+                            "delivery_date": null,
+                            "payment_type": "bank_transfer",
+                            "payment_status": "Paid",
+                            "demo_field": "demo_field",
+                            "delivered_status_string": "Pending",
+                            "delivered_image": "",
+                            "order_id_string": "#320240312070909",
+                            "return_date": "2024-01-01",
+                            "user_name": ""
+                        }
+                    ]
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "User not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "deliveryBoy-order-list":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/delivery-order-list",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "max_price": 0,
+                    "status": 1,
+                    "message": "successfull",
+                    "data": {
+                        "current_page": 1,
+                        "data": [
+                            {
+                                "id": 1,
+                                "product_order_id": "320240312070909",
+                                "date": "2024-03-12 07:09:09",
+                                "amount": 187,
+                                "delivered_status": 0,
+                                "delivery_date": null,
+                                "payment_status": "Paid",
+                                "demo_field": "demo_field",
+                                "delivered_status_string": "Pending",
+                                "delivered_image": "",
+                                "order_id_string": "#320240312070909",
+                                "return_date": "2024-01-01",
+                                "user_name": ""
+                            }
+                        ],
+                        "first_page_url": "https://example.com/api/admin/delivery-order-list?page=1",
+                        "from": 1,
+                        "last_page": 1,
+                        "last_page_url": "https://example.com/api/admin/delivery-order-list?page=1",
+                        "links": [
+                            {
+                                "url": null,
+                                "label": "pagination.previous",
+                                "active": false
+                            },
+                            {
+                                "url": "https://example.com/api/admin/delivery-order-list?page=1",
+                                "label": "1",
+                                "active": true
+                            },
+                            {
+                                "url": null,
+                                "label": "pagination.next",
+                                "active": false
+                            }
+                        ],
+                        "next_page_url": null,
+                        "path": "https://example.com/api/admin/delivery-order-list",
+                        "per_page": 10,
+                        "prev_page_url": null,
+                        "to": 1,
+                        "total": 1
+                    }
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Order Data not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "deliveryBoy-order-detail":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/order-detail",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "order_id":"1"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "Order detail get successfully.",
+                "data": {
+                    "id": 1,
+                    "is_guest": 0,
+                    "order_id": "#3720240311113745",
+                    "delivery_date": null,
+                    "order_reward_point": 1,
+                    "return_price": 0,
+                    "return_status_message": null,
+                    "return_date": "2024-03-11",
+                    "order_status_text": "Pending",
+                    "order_status": 0,
+                    "order_status_message": "",
+                    "payment_status": "Paid",
+                    "deliveryboy_id": null,
+                    "product": [
+                        {
+                            "product_id": 686,
+                            "image": "themes/stylique/uploads/74_1708942631_Kenevo SL Expert.png",
+                            "name": "Kenevo SL Expert 29",
+                            "orignal_price": "2100.00",
+                            "total_orignal_price": "2100.00",
+                            "final_price": "2088.00",
+                            "qty": 1,
+                            "variant_id": 0,
+                            "variant_name": "",
+                            "return": 0
+                        },
+                        {
+                            "product_id": 674,
+                            "image": "themes/stylique/uploads/26_1708941880_Allez.png",
+                            "name": "Allez",
+                            "orignal_price": "1452.00",
+                            "total_orignal_price": "1452.00",
+                            "final_price": "1447.00",
+                            "qty": 1,
+                            "variant_id": 0,
+                            "variant_name": "",
+                            "return": 0
+                        }
+                    ],
+                    "is_review": 0,
+                    "billing_informations": {
+                        "name": "John Doe",
+                        "address": "24593 Hodkiewicz Oval, South Reubenmouth, VA 41037-2216",
+                        "state": "Ghazni",
+                        "country": "Afghanistan",
+                        "city": "49",
+                        "post_code": "41037",
+                        "email": "stylique@example.com",
+                        "phone": "1234567890"
+                    },
+                    "delivery_informations": {
+                        "name": "John Doe",
+                        "address": "24593 Hodkiewicz Oval, South Reubenmouth, VA 41037-2216",
+                        "state": "Ghazni",
+                        "country": "Afghanistan",
+                        "city": "49",
+                        "post_code": "41037",
+                        "email": "stylique@example.com",
+                        "phone": "1234567890"
+                    },
+                    "paymnet_type": "Bank Transfer",
+                    "paymnet": "themes/stylique/uploads/05820240329_1711711287.png",
+                    "delivery": "/storage/uploads/delivery.png",
+                    "delivered_charge": "0.00",
+                    "coupon_info": null,
+                    "tax": {
+                        "amountstring": 0
+                    },
+                    "sub_total": "3535.00",
+                    "final_price": "3535.00",
+                    "tax_price": "0.00",
+                    "tax_name": "Tax",
+                    "tax_rate": 0,
+                    "tax_type": "Percentage",
+                    "tax_id": 0
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Order Data not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "deliveryBoy-status-change":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/status-change",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "id":"1",
+                "delivered":"delivered"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "status": "success",
+                    "message": "Order status changed.",
+                    "order_status": "Delivered"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Something went wrong."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "deliveryBoy-transaction":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/delivery-transaction",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "total_earning": 187,
+                    "today_earning": 0,
+                    "transaction": {
+                        "current_page": 1,
+                        "data": [
+                            {
+                                "id": 11,
+                                "product_order_id": "320240312070909",
+                                "date": "2024-03-12 07:09:09",
+                                "amount": 187,
+                                "delivered_status": 0,
+                                "delivery_date": null,
+                                "payment_status": "Paid",
+                                "payment_type": "bank_transfer",
+                                "demo_field": "demo_field",
+                                "delivered_status_string": "Pending",
+                                "delivered_image": "",
+                                "order_id_string": "#320240312070909",
+                                "return_date": "1970-01-01",
+                                "user_name": ""
+                            }
+                        ],
+                        "first_page_url": "https://example.com/api/admin/delivery-transaction?page=1",
+                        "from": 1,
+                        "last_page": 1,
+                        "last_page_url": "https://example.com/api/admin/delivery-transaction?page=1",
+                        "links": [
+                            {
+                                "url": null,
+                                "label": "pagination.previous",
+                                "active": false
+                            },
+                            {
+                                "url": "https://example.com/api/admin/delivery-transaction?page=1",
+                                "label": "1",
+                                "active": true
+                            },
+                            {
+                                "url": null,
+                                "label": "pagination.next",
+                                "active": false
+                            }
+                        ],
+                        "next_page_url": null,
+                        "path": "https://example.com/api/admin/delivery-transaction",
+                        "per_page": 10,
+                        "prev_page_url": null,
+                        "to": 1,
+                        "total": 1
+                    }
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Something went wrong."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "deliveryBoy-order-cancel":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/order-cancel",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "order_id":"1",
+                "user_id":"1"
+            },
+            "success_response"      : {
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Order cancel Successfully."
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Order not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        }
+    },
+    "products": {
+        "product-brand-create":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/addproductbrand",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "name":"product brand name",
+                "logo":"attach file",
+                "status":"1",
+                "is_popular":"1"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Product Brand successfully created."
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Token is Absent!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "product-brand-update":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/updateproductbrand",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "productbrand_id":"1",
+                "name":"product brand name",
+                "logo":"attach file",
+                "status":"1",
+                "is_popular":"1"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Product Brand successfully updated."
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Product Brand not found!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "product-brand-delete":{
+            "method"        : "DELETE",
+            "endpoints"           : "/api/admin/deleteproductbrand",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "productbrand_id":"1"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Product Brand deleted successfully!."
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Product Brand data not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "product-brand-status":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/product-brand-status",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "productbrand_id":"1",
+                "status":"1"
+            },
+            "success_response"      : {
+                "status": "success",
+                "message": "Status change successfully."
+            },
+            "error_response"        : {
+                "status": "error",
+                "message": "Something went wrong!!"
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "product-brand-popular":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/product-brand-popular",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "productbrand_id":"1",
+                "is_popular":"1"
+            },
+            "success_response"      : {
+                "status": "success",
+                "message": "Status change successfully."
+            },
+            "error_response"        : {
+                "status": "error",
+                "message": "Something went wrong!!"
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "product-label-create":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/addproductlable",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "name":"product label name",
+                "status":"1"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Product Label successfully created."
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Token is Absent!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "product-label-update":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/updateproductlable",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "lable_id":"1",
+                "name":"product label name",
+                "status":"1"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Product Label successfully updated."
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Product Label not found!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "product-label-delete":{
+            "method"        : "DELETE",
+            "endpoints"           : "/api/admin/deleteproductlable",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "lable_id":"1"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Product Label Deleted successfully"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Product Label data not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "product-label-status":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/product-label-status",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "lable_id":"1",
+                "status":"1"
+            },
+            "success_response"      : {
+                "status": "success",
+                "message": "Status change successfully."
+            },
+            "error_response"        : {
+                "status": "error",
+                "message": "Something went wrong!!"
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "category-list":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/categorylist",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "current_page": 1,
+                    "data": [
+                        {
+                            "id": 1,
+                            "name": "category name",
+                            "slug": "category slug",
+                            "image_path": "attach file path",
+                            "icon_path": "attach file path",
+                            "trending": 1,
+                            "status": 1,
+                            
+                            "store_id": 2,
+                            "created_at": "2024-04-24T05:42:36.000000Z",
+                            "updated_at": "2024-04-24T05:42:36.000000Z",
+                            "demo_field": "demo_field",
+                            "category_item": 1,
+                            "total_product": 1,
+                            "category_id": 1,
+                            "image_path_full_url": "https://example.com/themes/stylique/uploads/40_1713937355_1.png",
+                            "icon_path_full_url": "https://example.com/themes/stylique/uploads/44_1713937356_1.png"
+                        }
+                    ],
+                    "first_page_url": "https://example.com/api/admin/categorylist?page=1",
+                    "from": null,
+                    "last_page": 1,
+                    "last_page_url": "https://example.com/api/admin/categorylist?page=1",
+                    "links": [
+                        {
+                            "url": null,
+                            "label": "pagination.previous",
+                            "active": false
+                        },
+                        {
+                            "url": "https://example.com/api/admin/categorylist?page=1",
+                            "label": "1",
+                            "active": true
+                        },
+                        {
+                            "url": null,
+                            "label": "pagination.next",
+                            "active": false
+                        }
+                    ],
+                    "next_page_url": null,
+                    "path": "https://example.com/api/admin/categorylist",
+                    "per_page": 10,
+                    "prev_page_url": null,
+                    "to": null,
+                    "total": 0
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Category Data not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "category-create":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/addcategory",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "name":"category name",
+                "image":"attach file",
+                "icon_image":"attach file",
+                "trending":"1",
+                "status":"1"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Maincategory added successfully!"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Token is Absent!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "category-update":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/updatecategory",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "category_id":"2",
+                "name":"category name",
+                "image":"attach file",
+                "icon_image":"attach file",
+                "trending":"1",
+                "status":"1"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Maincategory Updated successfully!"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Maincategory not found!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "category-delete":{
+            "method"        : "DELETE",
+            "endpoints"           : "/api/admin/deletecategory",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "category_id":"2"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Maincategory deleted successfully!."
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Maincategory not found!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "product-list":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/productlist",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "current_page": 1,
+                    "data": [
+                        {
+                            "id": 1,
+                            "name": "product name",
+                            "slug": "product slug",
+                            "tag_id": "1",
+                            "product_code": "8461931447",
+                            "category_id": 1,
+                            "subcategory_id": 1,
+                            "brand_id": null,
+                            "label_id": null,
+                            "tax_id": "1",
+                            "tax_status": "taxable",
+                            "shipping_id": 1,
+                            "preview_type": "Video File",
+                            "preview_video": null,
+                            "preview_content": null,
+                            "trending": 0,
+                            "status": 1,
+                            "video_url": null,
+                            "track_stock": 0,
+                            "stock_order_status": "",
+                            "price": 60,
+                            "sale_price": 59,
+                            "product_type": null,
+                            "product_stock": 0,
+                            "low_stock_threshold": 10,
+                            "downloadable_product": "themes/stylique/uploads/79_1708516946_62_1684296021_orange-fruit.png",
+                            "product_weight": 5,
+                            "cover_image_path": "themes/stylique/uploads/79_1708516946_62_1684296021_orange-fruit.png",
+                            "cover_image_url": "https://example.com/themes/stylique/uploads/79_1708516946_62_1684296021_orange-fruit.png",
+                            "stock_status": "on_backorder",
+                            "variant_product": 0,
+                            "attribute_id": "0",
+                            "product_attribute": "[]",
+                            "custom_field_status": 0,
+                            "custom_field": null,
+                            "description": "Description",
+                            "detail": "detail",
+                            "specification": "specification",
+                            "size_chart_title": null,
+                            "size_chart_information": null,
+                            "average_rating": 0,
+                            
+                            "store_id": 2,
+                            "created_by": 2,
+                            "is_active": null,
+                            "created_at": "2024-02-21T12:02:26.000000Z",
+                            "updated_at": "2024-04-24T05:50:39.000000Z",
+                            "category_name": "Fruits",
+                            "sub_category_name": "Fruits",
+                            "in_cart": false,
+                            "in_whishlist": false,
+                            "final_price": "60.00",
+                            "product_data": {
+                                "id": 1,
+                                "name": "Fruits",
+                                "slug": "collections/fruits",
+                                "image_path": "themes/stylique/uploads/30_1708507798_47_1684238109_banana.png",
+                                "icon_path": "themes/stylique/uploads/22_1708507798_47_1684238111_Untitled-2.png",
+                                "trending": 0,
+                                "status": 1,
+                                
+                                "store_id": 2,
+                                "created_at": "2024-02-21T03:59:58.000000Z",
+                                "updated_at": "2024-02-21T03:59:58.000000Z",
+                                "demo_field": "demo_field",
+                                "category_item": 1,
+                                "total_product": 1,
+                                "category_id": 1,
+                                "image_path_full_url": "https://example.com/themes/stylique/uploads/30_1708507798_47_1684238109_banana.png",
+                                "icon_path_full_url": "https://example.com/themes/stylique/uploads/22_1708507798_47_1684238111_Untitled-2.png"
+                            },
+                            "sub_categoryct_data": {
+                                "id": 1,
+                                "name": "Fruits",
+                                "image_url": "https://example.com/themes/stylique/uploads/84_1708509425_Fruits1.png",
+                                "image_path": "themes/stylique/uploads/84_1708509425_Fruits1.png",
+                                "icon_path": "themes/stylique/uploads/49_1708509425_Fruits2.png",
+                                "category_id": 1,
+                                "status": 1,
+                                
+                                "store_id": 2,
+                                "created_at": "2024-02-21T04:27:05.000000Z",
+                                "updated_at": "2024-02-21T04:27:05.000000Z",
+                                "icon_img_path": "themes/stylique/uploads/49_1708509425_Fruits2.png",
+                                "image_path_full_url": "https://example.com/themes/stylique/uploads/84_1708509425_Fruits1.png",
+                                "icon_path_full_url": "https://example.com/themes/stylique/uploads/49_1708509425_Fruits2.png"
+                            }
+                        }
+                    ],
+                    "first_page_url": "https://example.com/api/admin/productlist?page=1",
+                    "from": null,
+                    "last_page": 1,
+                    "last_page_url": "https://example.com/api/admin/productlist?page=1",
+                    "links": [
+                        {
+                            "url": null,
+                            "label": "pagination.previous",
+                            "active": false
+                        },
+                        {
+                            "url": "https://example.com/api/admin/productlist?page=1",
+                            "label": "1",
+                            "active": true
+                        },
+                        {
+                            "url": null,
+                            "label": "pagination.next",
+                            "active": false
+                        }
+                    ],
+                    "next_page_url": null,
+                    "path": "https://example.com/api/admin/productlist",
+                    "per_page": 10,
+                    "prev_page_url": null,
+                    "to": null,
+                    "total": 0
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Product Data not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "variant-list":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/variantlist",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "current_page": 1,
+                    "data": [
+                        {
+                            "id": 1,
+                            "product_id": 2,
+                            "variant": "1",
+                            "sku": "Brown-rice_wooden_bowl-1",
+                            "price": 90,
+                            "stock": 0,
+                            "variation_price": 100,
+                            "weight": 1,
+                            "stock_order_status": "0",
+                            "low_stock_threshold": 0,
+                            "downloadable_product": null,
+                            "variation_option": "enabled,",
+                            "description": "description",
+                            "stock_status": "",
+                            "shipping": "same_as_parent",
+                            
+                            "store_id": 2,
+                            "created_at": "2024-02-21T11:00:04.000000Z",
+                            "updated_at": "2024-04-25T03:14:27.000000Z"
+                        }
+                    ],
+                    "first_page_url": "https://example.com/api/admin/variantlist?page=1",
+                    "from": 1,
+                    "last_page": 1,
+                    "last_page_url": "https://example.com/api/admin/variantlist?page=1",
+                    "links": [
+                        {
+                            "url": null,
+                            "label": "pagination.previous",
+                            "active": false
+                        },
+                        {
+                            "url": "https://example.com/api/admin/variantlist?page=1",
+                            "label": "1",
+                            "active": true
+                        },
+                        {
+                            "url": null,
+                            "label": "pagination.next",
+                            "active": false
+                        }
+                    ],
+                    "next_page_url": null,
+                    "path": "https://example.com/api/admin/variantlist",
+                    "per_page": 10,
+                    "prev_page_url": null,
+                    "to": 7,
+                    "total": 7
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Product Data not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "tax-list":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/taxlist",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "current_page": 1,
+                    "data": [
+                        {
+                            "id": 1,
+                            "name": "CGST",
+                            
+                            "store_id": 2,
+                            "created_at": "2024-02-21T09:59:22.000000Z",
+                            "updated_at": "2024-02-21T09:59:22.000000Z",
+                            "demo_field": "demo_field",
+                            "tax_string": " ()"
+                        }
+                    ],
+                    "first_page_url": "https://example.com/api/admin/taxlist?page=1",
+                    "from": 1,
+                    "last_page": 1,
+                    "last_page_url": "https://example.com/api/admin/taxlist?page=1",
+                    "links": [
+                        {
+                            "url": null,
+                            "label": "pagination.previous",
+                            "active": false
+                        },
+                        {
+                            "url": "https://example.com/api/admin/taxlist?page=1",
+                            "label": "1",
+                            "active": true
+                        },
+                        {
+                            "url": null,
+                            "label": "pagination.next",
+                            "active": false
+                        }
+                    ],
+                    "next_page_url": null,
+                    "path": "https://example.com/api/admin/taxlist",
+                    "per_page": 10,
+                    "prev_page_url": null,
+                    "to": 1,
+                    "total": 1
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Tax Data not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "tax-create":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/addtax",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "name":"tax name"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Tax added successfully!"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Token is Absent!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "tax-update":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/updatetax",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "tax_id":"1",
+                "name":"tax name"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Tax Updated successfully!"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Tax not found!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "tax-delete":{
+            "method"        : "DELETE",
+            "endpoints"           : "/api/admin/deletetax",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "tax_id":"1"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Tax deleted successfully!."
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Tax data not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "review-list":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/reviewlist",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "product_id":"1"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": [
+                    {
+                        "id": 1,
+                        "category_id": 1,
+                        "subcategory_id": 1,
+                        "product_id": 1,
+                        "rating_no": 4,
+                        "title": "Excellent Product",
+                        "description": "The bowl with dried dates is a delightful combination of convenience and natural sweetness.",
+                        "status": 1,
+                        
+                        "store_id": 2,
+                        "user_id": 1,
+                        "created_at": "2024-02-21T12:18:29.000000Z",
+                        "updated_at": "2024-02-21T12:18:29.000000Z"
+                    }
+                ]
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Review Data not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "review-create":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/addreview",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "id":"1",
+                "user_id":"2",
+                "rating_no":"4",
+                "title":"title",
+                "description":"description"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Review Add successfully."
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Token is Absent!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "review-update":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/updatereview",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "id":"1",
+                "product_id":"1",
+                "user_id":"2",
+                "rating_no":"4",
+                "title":"title",
+                "description":"description"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Review Updated successfully!"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Review not found!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "review-delete":{
+            "method"        : "DELETE",
+            "endpoints"           : "/api/admin/deletereview",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "product_id":"1"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Review deleted successfully!."
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Review not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        }
+    },
+    "shipping": {
+        "shipping-list":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/shippinglist",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "current_page": 1,
+                    "data": [
+                        {
+                            "id": 1,
+                            "name": "DTDC Courier",
+                            "description": "description",
+                            "slug": "dtdc-courier",
+                            
+                            "store_id": 2,
+                            "created_at": "2024-02-21T10:38:41.000000Z",
+                            "updated_at": "2024-02-21T10:38:41.000000Z"
+                        }
+                    ],
+                    "first_page_url": "https://example.com/api/admin/shippinglist?page=1",
+                    "from": 1,
+                    "last_page": 1,
+                    "last_page_url": "https://example.com/api/admin/shippinglist?page=1",
+                    "links": [
+                        {
+                            "url": null,
+                            "label": "pagination.previous",
+                            "active": false
+                        },
+                        {
+                            "url": "https://example.com/api/admin/shippinglist?page=1",
+                            "label": "1",
+                            "active": true
+                        },
+                        {
+                            "url": null,
+                            "label": "pagination.next",
+                            "active": false
+                        }
+                    ],
+                    "next_page_url": null,
+                    "path": "https://example.com/api/admin/shippinglist",
+                    "per_page": 10,
+                    "prev_page_url": null,
+                    "to": 1,
+                    "total": 1
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Shipping Data not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "shipping-create":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/addshipping",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "name":"shipping name",
+                "description":"description"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Shipping added successfully!"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Token is Absent!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "shipping-update":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/updateshipping",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "shipping_id":"1",
+                "name":"shipping name",
+                "description":"description"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Shipping Updated successfully!"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Shipping not found!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "shipping-delete":{
+            "method"        : "DELETE",
+            "endpoints"           : "/api/admin/deleteshipping",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "shipping_id":"1"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Shipping deleted successfully!."
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Shipping data not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        }
+    },
+    "coupons": {
+        "coupon-list":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/couponlist",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "current_page": 1,
+                    "data": [
+                        {
+                            "id": 1,
+                            "coupon_name": "SaverThings",
+                            "coupon_code": "2ZU6QNU1D6",
+                            "coupon_type": "percentage",
+                            "applied_product": null,
+                            "exclude_product": null,
+                            "applied_categories": null,
+                            "exclude_categories": null,
+                            "minimum_spend": null,
+                            "maximum_spend": null,
+                            "coupon_limit_user": null,
+                            "coupon_limit_x_item": null,
+                            "coupon_limit": 10,
+                            "coupon_expiry_date": "2024-06-30",
+                            "discount_amount": 10,
+                            "sale_items": 1,
+                            "free_shipping_coupon": 1,
+                            "status": 1,
+                            
+                            "store_id": 2,
+                            "created_at": "2024-02-27T04:23:19.000000Z",
+                            "updated_at": "2024-02-27T04:23:19.000000Z"
+                        }
+                    ],
+                    "first_page_url": "https://example.com/api/admin/couponlist?page=1",
+                    "from": 1,
+                    "last_page": 1,
+                    "last_page_url": "https://example.com/api/admin/couponlist?page=1",
+                    "links": [
+                        {
+                            "url": null,
+                            "label": "pagination.previous",
+                            "active": false
+                        },
+                        {
+                            "url": "https://example.com/api/admin/couponlist?page=1",
+                            "label": "1",
+                            "active": true
+                        },
+                        {
+                            "url": null,
+                            "label": "pagination.next",
+                            "active": false
+                        }
+                    ],
+                    "next_page_url": null,
+                    "path": "https://example.com/api/admin/couponlist",
+                    "per_page": 10,
+                    "prev_page_url": null,
+                    "to": 1,
+                    "total": 1
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Coupon Data not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "coupon-create":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/addcoupon",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "coupon_name":"coupon name",
+                "coupon_type":"percentage",
+                "discount_amount":"10",
+                "coupon_limit":"10",
+                "coupon_expiry_date":"2024-06-30",
+                "coupon_code":"2ZU6QNU1D6"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Coupon added successfully!"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Token is Absent!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "coupon-update":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/updatecoupon",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "coupon_id":"1",
+                "coupon_name":"coupon name",
+                "coupon_type":"percentage",
+                "discount_amount":"10",
+                "coupon_limit":"10",
+                "coupon_expiry_date":"2024-06-30",
+                "coupon_code":"2ZU6QNU1D6"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Coupon Updated successfully!"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Coupon data not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "coupon-delete":{
+            "method"        : "DELETE",
+            "endpoints"           : "/api/admin/deletecoupon",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "coupon_id":"1"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Coupon deleted successfully!."
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Coupon data not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "used-coupon-detail":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/view-used-coupon",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "coupon_id":"2"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": [
+                    {
+                        "id": 1,
+                        "user_id": 2,
+                        "coupon_id": 2,
+                        "amount": 10,
+                        "order_id": 1,
+                        "date_used": null,
+                        "created_at": null,
+                        "updated_at": null,
+                        "coupon_name": "10% Coupon",
+                        "product_order_id": "3720240311113745"
+                    }
+                ]
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Data not found!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        }
+    },
+    "orders": {
+        "order-list":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/orderlist",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "current_page": 1,
+                    "data": [
+                        {
+                            "id": 1,
+                            "product_order_id": "4520240424050221",
+                            "order_date": "2024-04-24 05:02:21",
+                            "customer_id": 45,
+                            "is_guest": 0,
+                            "product_json": "[{\"cart_id\":135,\"cart_created\":\"2024-04-24T05:01:35.000000Z\",\"product_id\":4,\"image\":\"themes\\/stylique\\/uploads\\/58_1708512718_buck-wheat.png\",\"name\":\"Buck wheat\",\"orignal_price\":\"88.00\",\"total_orignal_price\":\"88.00\",\"per_product_discount_price\":\"0.00\",\"discount_price\":\"0.00\",\"final_price\":\"88.00\",\"qty\":1,\"variant_id\":0,\"variant_name\":\"\",\"return\":0,\"shipping_price\":\"0.00\"}]",
+                            "product_id": "4",
+                            "product_price": 88,
+                            "coupon_price": 0,
+                            "delivery_price": 0,
+                            "tax_price": 0,
+                            "final_price": 88,
+                            "return_price": 0,
+                            "payment_comment": "",
+                            "payment_type": "cod",
+                            "payment_status": "Paid",
+                            "delivery_id": 0,
+                            "delivery_comment": "",
+                            "delivered_status": 1,
+                            "delivery_date": "2024-04-25",
+                            "confirmed_date": null,
+                            "picked_date": null,
+                            "shipped_date": null,
+                            "return_status": 0,
+                            "return_date": "2024-04-24",
+                            "cancel_date": null,
+                            "reward_points": 1,
+                            "additional_note": null,
+                            "deliveryboy_id": null,
+                            
+                            "store_id": 2,
+                            "created_at": "2024-04-24T05:02:21.000000Z",
+                            "updated_at": "2024-04-25T03:23:07.000000Z",
+                            "demo_field": "demo_field",
+                            "delivered_status_string": "Delivered",
+                            "delivered_image": "",
+                            "order_id_string": "#4520240424050221",
+                            "user_name": ""
+                        }
+                    ],
+                    "first_page_url": "https://example.com/api/admin/orderlist?page=1",
+                    "from": 1,
+                    "last_page": 2,
+                    "last_page_url": "https://example.com/api/admin/orderlist?page=2",
+                    "links": [
+                        {
+                            "url": null,
+                            "label": "pagination.previous",
+                            "active": false
+                        },
+                        {
+                            "url": "https://example.com/api/admin/orderlist?page=1",
+                            "label": "1",
+                            "active": true
+                        },
+                        {
+                            "url": "https://example.com/api/admin/orderlist?page=2",
+                            "label": "2",
+                            "active": false
+                        },
+                        {
+                            "url": "https://example.com/api/admin/orderlist?page=2",
+                            "label": "pagination.next",
+                            "active": false
+                        }
+                    ],
+                    "next_page_url": "https://example.com/api/admin/orderlist?page=2",
+                    "path": "https://example.com/api/admin/orderlist",
+                    "per_page": 10,
+                    "prev_page_url": null,
+                    "to": 1,
+                    "total": 1
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Order Data not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "order-detail":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/vieworder",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "order_id":"1"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "id": 1,
+                    "is_guest": 0,
+                    "order_id": "#4520240424050221",
+                    "delivery_date": "2024-04-25",
+                    "order_reward_point": 1,
+                    "return_price": 0,
+                    "return_status_message": null,
+                    "return_date": "2024-04-24",
+                    "order_status_text": "Delivered",
+                    "order_status": 1,
+                    "order_status_message": "",
+                    "payment_status": "Paid",
+                    "deliveryboy_id": null,
+                    "product": [
+                        {
+                            "product_id": 4,
+                            "image": "themes/stylique/uploads/58_1708512718_buck-wheat.png",
+                            "name": "Buck wheat",
+                            "orignal_price": "88.00",
+                            "total_orignal_price": "88.00",
+                            "final_price": "88.00",
+                            "qty": 1,
+                            "variant_id": 0,
+                            "variant_name": "",
+                            "return": 0
+                        }
+                    ],
+                    "is_review": 0,
+                    "billing_informations": {
+                        "name": "Alice Smith",
+                        "address": "456 Elm Street",
+                        "state": "Ghazni",
+                        "country": "Afghanistan",
+                        "city": "49",
+                        "post_code": "62701",
+                        "email": "alice.smith@email.com",
+                        "phone": "1987654321"
+                    },
+                    "delivery_informations": {
+                        "name": "Alice Smith",
+                        "address": "456 Elm Street",
+                        "state": "Ghazni",
+                        "country": "Afghanistan",
+                        "city": "49",
+                        "post_code": "62701",
+                        "email": "alice.smith@email.com",
+                        "phone": "1987654321"
+                    },
+                    "paymnet_type": "COD",
+                    "paymnet": "themes/stylique/uploads/04820240329_1711709579.png",
+                    "delivery": "/storage/uploads/delivery.png",
+                    "delivered_charge": "0.00",
+                    "coupon_info": null,
+                    "tax": {
+                        "amountstring": 0
+                    },
+                    "sub_total": "88.00",
+                    "final_price": "88.00",
+                    "tax_price": "0.00",
+                    "tax_name": "Tax",
+                    "tax_rate": 0,
+                    "tax_type": "Percentage",
+                    "tax_id": 0
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Order not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "order-delete":{
+            "method"        : "DELETE",
+            "endpoints"           : "/api/admin/deleteorder",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "order_id":"1"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Order deleted successfully!."
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Order not found."
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        }
+    },
+    "settings": {
+        "email-setting":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/emailsetting",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "mail_driver":"mail driver",
+                "mail_host":"mail host",
+                "mail_port":"mail port",
+                "mail_username":"mail username",
+                "mail_password":"mail password",
+                "mail_encryption":"mail encryption",
+                "mail_from_address":"mail from address",
+                "mail_from_name":"mail from name"
+            },
+            "success_response"      : {
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Email Setting successfully updated."
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Token is Absent!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "get-email-setting":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/getemailsetting",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "MAIL_DRIVER": "mail driver",
+                    "MAIL_HOST": "mail host",
+                    "MAIL_PORT": "mail port",
+                    "MAIL_USERNAME": "mail username",
+                    "MAIL_PASSWORD": "mail password",
+                    "MAIL_ENCRYPTION": "mail encryption",
+                    "MAIL_FROM_NAME": "mail from address",
+                    "MAIL_FROM_ADDRESS": "mail from name"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Email Setting not found!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "test-mail":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/testmail",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "email":"test@example.com"
+            },
+            "success_response"      : {
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Email send Successfully."
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "E-Mail has been not sent due to SMTP configuration"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "loyality-setting":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/loyalitysetting",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "loyality_program_enabled":"on",
+                "reward_point":"10"
+            },
+            "success_response"      : {
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Loyality Setting successfully updated."
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Token is Absent!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "get-loyality-setting":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/getloyalitysetting",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "loyality_program_enabled": "on",
+                    "reward_point": "10"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Loyality Setting not found!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "cod-payment":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/cod-payment",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "CURRENCY_NAME":"USD",
+                "CURRENCY":"$",
+                "is_cod_enabled":"on",
+                "cod_image":"attach file",
+                "cod_info":"info"
+            },
+            "success_response"      : {
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Cod payment Setting successfully updated."
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Token is Absent!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "get-cod-payment":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/get-cod-payment",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "CURRENCY": "$",
+                    "CURRENCY_NAME": "USD",
+                    "is_cod_enabled": "on",
+                    "cod_info": "info",
+                    "cod_image": "file path"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "COD Setting Data not found!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "bank-payment":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/bank-payment",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "CURRENCY_NAME":"USD",
+                "CURRENCY":"$",
+                "is_bank_transfer_enabled":"on",
+                "bank_transfer_image":"attach file",
+                "bank_transfer":"info"
+            },
+            "success_response"      : {
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Bank payment Setting successfully updated."
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Token is Absent!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "get-bank-payment":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/get-bank-payment",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "CURRENCY": "$",
+                    "CURRENCY_NAME": "USD",
+                    "is_bank_transfer_enabled": "on",
+                    "bank_transfer_image": "file path",
+                    "bank_transfer": "info"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Bank Payment Setting Data not found!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "stripe-payment":{
+            "method"        : "POST",
+            "endpoints"           : "/api/admin/stripe-payment",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2",
+                "CURRENCY_NAME":"USD",
+                "CURRENCY":"$",
+                "is_stripe_enabled":"on",
+                "stripe_image":"attach file",
+                "stripe_unfo":"info",
+                "publishable_key":"publishable key",
+                "stripe_secret":"stripe secret"
+            },
+            "success_response"      : {
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "message": "Cod payment Setting successfully updated."
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "Token is Absent!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        },
+        "get-stripe-payment":{
+            "method"        : "GET",
+            "endpoints"           : "/api/admin/get-stripe-payment",
+            "header"        : {
+                "Accept" : "application/json",
+                "Authorization": "Bearer 6|Gt2WYk8vT5kErBBRSaqsb3mOXhKk..."
+            },
+            "request"       : {
+                "store_id":"2"
+            },
+            "success_response"      : {
+                "max_price": 0,
+                "status": 1,
+                "message": "successfull",
+                "data": {
+                    "CURRENCY": "$",
+                    "CURRENCY_NAME": "USD",
+                    "is_stripe_enabled": "on",
+                    "stripe_image": "file path",
+                    "stripe_unfo": "info",
+                    "publishable_key":"publishable key",
+                    "stripe_secret":"stripe secret"
+                }
+            },
+            "error_response"        : {
+                "status": 0,
+                "message": "fail",
+                "data": {
+                    "message": "COD Setting Data not found!"
+                }
+            },
+            "status_code"   :{
+                "success":"HTTP/1.1 200 OK",
+                "error":"HTTP/1.1 401 Unauthorized"
+            }
+        }
+    }
+}

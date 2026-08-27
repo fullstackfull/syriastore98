@@ -1,0 +1,25 @@
+{
+    "name": "workdo/product-badge-management",
+    "description": "Description for product-badge-management package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\ProductBadgeManagement\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\ProductBadgeManagement\\app\\Providers\\ProductBadgeManagementServiceProvider"
+            ]
+        }
+    }
+}

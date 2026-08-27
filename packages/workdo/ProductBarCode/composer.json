@@ -1,0 +1,26 @@
+{
+    "name": "workdo/product-bar-code",
+    "description": "Description for product-bar-code package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\ProductBarCode\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\ProductBarCode\\app\\Providers\\ProductBarCodeServiceProvider",
+                "Workdo\\ProductBarCode\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

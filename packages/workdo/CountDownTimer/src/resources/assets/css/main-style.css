@@ -1,0 +1,1479 @@
+*,
+:after,
+:before {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+    text-decoration: inherit;
+    vertical-align: inherit;
+}
+
+html {
+    outline: none;
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-text-size-adjust: 100%;
+}
+body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+    overflow-x: hidden;
+}
+.overlay {
+    content: " ";
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    visibility: hidden;
+    background: rgb(0 0 0 / 52%);
+    z-index: 4;
+    transition: all 500ms ease-in-out 0s;
+    -webkit-transition: all 500ms ease-in-out 0s;
+    -moz-transition: all 500ms ease-in-out 0s;
+    -ms-transition: all 500ms ease-in-out 0s;
+    -o-transition: all 500ms ease-in-out 0s;
+}
+.overlay.active {
+    opacity: 1;
+    visibility: visible;
+}
+
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic Cond Oblique';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicCondObliqueBlackRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicCondObliqueBlackRegular.woff') format('woff');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicBoldRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicBoldRegular.woff') format('woff');
+    font-weight: bold;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic Book';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicBookRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicBookRegular.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic Cond';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicCondBlackRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicCondBlackRegular.woff') format('woff');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic Cond';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicCondHeavyRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicCondHeavyRegular.woff') format('woff');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic Cond';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicCondBoldRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicCondBoldRegular.woff') format('woff');
+    font-weight: bold;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic Cond Book';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicCondBookRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicCondBookRegular.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic Cond Oblique';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicCondObliqueBoldRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicCondObliqueBoldRegular.woff') format('woff');
+    font-weight: bold;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicBlackRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicBlackRegular.woff') format('woff');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic ExWide';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicExWideHeavyRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicExWideHeavyRegular.woff') format('woff');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic ExWide Oblique';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicExWideObliqueBlackRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicExWideObliqueBlackRegular.woff') format('woff');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic ExWide Oblique';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicExWideObliqueHeavyRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicExWideObliqueHeavyRegular.woff') format('woff');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic ExWide Oblique';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicExWideObliqueRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicExWideObliqueRegular.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic ExWide Oblique Book';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicExWideObliqueBookRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicExWideObliqueBookRegular.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic Oblique Book';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicObliqueBookRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicObliqueBookRegular.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic ExWide Oblique';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicExWideObliqueBoldRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicExWideObliqueBoldRegular.woff') format('woff');
+    font-weight: bold;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic Cond Oblique';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicCondObliqueRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicCondObliqueRegular.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic Cond Oblique Book';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicCondObliqueBookRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicCondObliqueBookRegular.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicHeavyRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicHeavyRegular.woff') format('woff');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic Cond Oblique';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicCondObliqueHeavyRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicCondObliqueHeavyRegular.woff') format('woff');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic Cond';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicCondRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicCondRegular.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic ExWide';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicExWideRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicExWideRegular.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic ExWide';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicExWideBoldRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicExWideBoldRegular.woff') format('woff');
+    font-weight: bold;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic Oblique';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicObliqueBlackRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicObliqueBlackRegular.woff') format('woff');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic ExWide Book';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicExWideBookRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicExWideBookRegular.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic ExWide';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicExWideBlackRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicExWideBlackRegular.woff') format('woff');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic Oblique';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicObliqueBoldRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicObliqueBoldRegular.woff') format('woff');
+    font-weight: bold;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic Oblique';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicObliqueRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicObliqueRegular.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic Oblique';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicObliqueHeavyRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicObliqueHeavyRegular.woff') format('woff');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'FONTSPRING DEMO - Avionic';
+    src: url('../fonts/FONTSPRINGDEMO-AvionicRegular.woff2') format('woff2'),
+        url('../fonts/FONTSPRINGDEMO-AvionicRegular.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    margin: 0;
+}
+h1,
+.h1 {
+    font: var(--h1);
+}
+
+h2,
+.h2 {
+    font: var(--h2);
+}
+
+h3,
+.h3 {
+    font: var(--h3);
+}
+
+h4,
+.h4 {
+    font: var(--h4);
+}
+
+h5,
+.h5 {
+    font: var(--h5);
+}
+
+h6,
+.h6 {
+    font: var(--h6);
+}
+/* ======================================================== */
+/*                 countdown-popup-style1                    */
+/* ======================================================== */
+:root .countdown-popup-style1 {
+    --first-font: "Poppins";
+    --second-font: "Damion";
+    --third-font:'FONTSPRING DEMO - Avionic';
+    --theme-color: #6C8973;
+    --second-color: #F3851E;
+    --black: #303C42;
+    --white: #ffffff;
+    --h1: normal 400 51px/1.1 var(--first-font);
+    --h2: normal 400 41px/1.1 var(--second-font);
+    --h3: normal 400 36px/1.1 var(--first-font);
+    --h4: normal 400 22px/1.1 var(--first-font);
+    --h5: normal 400 20px/1.1 var(--first-font);
+    --h6: normal 400 18px/1.1 var(--first-font);
+    --common-text: normal 400 16px/1.4 var(--first-font);
+}
+ .countdown-popup {
+    position: fixed;
+    top: 50%;
+    left: 0;
+    right: 0;
+    opacity: 0;
+    visibility: hidden;
+    max-width: calc(1440px - 100px);
+    width: 100%;
+    overflow-y: auto;
+    max-height: 90vh;
+    margin: 0 auto;
+    z-index: 4;
+    -webkit-transition: all 500ms ease-in-out 0s;
+    -moz-transition: all 500ms ease-in-out 0s;
+    -ms-transition: all 500ms ease-in-out 0s;
+    -o-transition: all 500ms ease-in-out 0s;
+    transition: all 500ms ease-in-out 0s;
+    -webkit-transform: translateY(-50%);
+    -moz-transform: translateY(-50%);
+    -ms-transform: translateY(-50%);
+    -o-transform: translateY(-50%);
+    transform: translateY(-50%);
+}
+.countdown-popup.active {
+    opacity: 1;
+    visibility: visible;
+}
+
+.countdown-popup-style1 .countdown-popup .countdown-popup-inner{
+    background-repeat: no-repeat;
+    background-size: cover;
+    width: 100%;
+    height: 100%;
+    padding: 80px 50px;
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    position: relative;
+    z-index: 1;
+    background-position: 15% bottom;
+}
+.countdown-popup-style1 .countdown-popup-inner .section-title{
+ text-align: center;
+ max-width: 80%;
+ width: 100%;
+ margin:  0 auto 30px;
+}
+.countdown-popup-style1 .countdown-popup-inner .section-title .popup-image{
+    max-width: 50%;
+    width: 100%;
+    margin: 0 auto;
+}
+.countdown-popup-style1 .countdown-popup-inner .section-title img{
+    width: 100%;
+    height: 100%;
+    margin-bottom: 15px;
+}
+.countdown-popup-style1 .countdown-popup-inner .section-title p{
+    font-family:var(--second-font) ;
+    font-size: 35px;
+    color: var(--theme-color);
+    margin: 0;
+    line-height: 1;
+}
+.countdown-popup-style1 .countdown-popup-inner .section-title p b{
+    font-weight: normal;
+    color: var(--second-color);
+}
+.countdown-popup-style1 .countdown-popup-inner .popup-counter-wrapper {
+    text-align: center;
+    width: 100%;
+}
+.countdown-popup-style1 .popup-bottom-content{
+    max-width: 65%;
+    margin: 0 auto;
+}
+.countdown-popup-style1 .countdown-popup-inner .popup-counter-wrapper h3{
+    font-style: italic;
+    color: var(--second-color);
+    margin-bottom: 30px;
+    font-weight: 500;
+}
+.countdown-popup-style1 .countdown-popup-inner .popup-counter-wrapper .deal-timeline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    margin-bottom: 50px;
+    flex-wrap: wrap;
+}
+.countdown-popup-style1 .deal-timeline .counter-dtl{
+    display: block;
+    font-family: var(--first-font);
+    font-size: 25px;
+    color: var(--black);
+    text-transform: capitalize;
+    margin-bottom: 10px;
+    font-weight: 500;
+}
+.countdown-popup-style1 .deal-timeline .counter{
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+    max-width: 90px;
+    width: 100%;
+}
+.countdown-popup-style1 .deal-timeline span.count {
+    background: var(--white);
+    padding: 20px;
+    display: block;
+    width: 65px;
+    height: 65px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--third-font);
+    font-size: 30px;
+    color: var(--theme-color);
+    border: 1px solid var(--second-color);
+    border-radius: 10px;
+    position: relative;
+}
+.countdown-popup-style1 .deal-timeline .counter:not(:last-of-type) span.count:after{
+    content: ':';
+    position: absolute;
+    right: -25px;
+    font-family: var(--third-font);
+    font-size: 30px;
+    color: var(--theme-color);
+}
+.countdown-popup-style1 .countdown-popup-inner .popup-bottom-content p{
+    font-family: var(--first-font);
+    color: var(--theme-color);
+    font-style: italic;
+    font-size: 26px;
+    margin: 0;
+    text-align: center;
+}
+.countdown-popup-style1 .close-countdown-btn{
+    position: absolute;
+    right: 0;
+    top: 0px;
+    z-index: 2;
+    width: 30px;
+    height: 30px;
+    background-color: var(--white);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.countdown-popup-style1 .close-countdown-btn svg{
+    width: 17px;
+    height: 17px;
+}
+.countdown-popup-style1 .countdown-popup::-webkit-scrollbar {
+    width: 5px;
+  }
+  .countdown-popup-style1 .countdown-popup::-webkit-scrollbar-track {
+    background: #f1f1f1;
+  }
+
+  .countdown-popup-style1 .countdown-popup::-webkit-scrollbar-thumb {
+    background: var(--theme-color);
+  }
+
+/* ======================================================== */
+/*                 countdown-popup-style2                   */
+/* ======================================================== */
+:root .countdown-popup-style2{
+    --first-font: "Dancing Script";
+    --second-font: "Poppins";
+    --third-font:'FONTSPRING DEMO - Avionic';
+    --fourth-font:'Lato';
+    --theme-color: #FCC292;
+    --second-color: #FEDA90;
+    --black: #303C42;
+    --white: #ffffff;
+    --h1: normal 400 51px/1.1 var(--first-font);
+    --h2: normal 400 41px/1.1 var(--second-font);
+    --h3: normal 400 36px/1.1 var(--second-font);
+    --h4: normal 400 22px/1.1 var(--first-font);
+    --h5: normal 400 20px/1.1 var(--first-font);
+    --h6: normal 400 18px/1.1 var(--first-font);
+    --common-text: normal 400 16px/1.4 var(--first-font);
+}
+.countdown-popup-style2 .countdown-popup .countdown-popup-inner{
+    background-repeat: no-repeat;
+    background-size: cover;
+    width: 100%;
+    height: 100%;
+    padding: 75px 50px;
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    position: relative;
+    z-index: 1;
+    background-position: bottom 50% right 7%;
+}
+.countdown-popup-style2 .countdown-popup .countdown-popup-inner .counter-popup-bg1{
+    position: absolute;
+    top: 5%;
+    left: 10%;
+    z-index: -1;
+}
+.countdown-popup-style2 .countdown-popup .countdown-popup-inner .counter-popup-bg2{
+    position: absolute;
+    bottom: 5%;
+    right: 0%;
+    z-index: -1;
+}
+.countdown-popup-style2 .countdown-popup-inner .section-title{
+ text-align: center;
+ max-width: 80%;
+ width: 100%;
+ margin:  0 auto 30px;
+}
+.countdown-popup-style2 .countdown-popup-inner .section-title .popup-image{
+    max-width: 400px;
+    width: 100%;
+    margin: 0 auto;
+}
+.countdown-popup-style2 .countdown-popup-inner .section-title .popup-image h3{
+    color: var(--second-color);
+    position: relative;
+    display: block;
+    padding-bottom: 20px;
+    margin-bottom: 30px;
+}
+.countdown-popup-style2 .countdown-popup-inner .section-title .popup-image h3::after{
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: 4px;
+    border-radius: 100%;
+    background-color: var(--second-color);
+}
+.countdown-popup-style2 .countdown-popup-inner .section-title img{
+    width: 100%;
+    height: 100%;
+    margin-bottom: 15px;
+}
+.countdown-popup-style2 .countdown-popup-inner .section-title p{
+    font-family:var(--first-font) ;
+    font-size: 35px;
+    color: var(--theme-color);
+    margin: 0;
+    line-height: 1;
+}
+
+.countdown-popup-style2 .countdown-popup-inner .popup-counter-wrapper {
+    text-align: center;
+}
+.countdown-popup-style2 .popup-bottom-content{
+    max-width: 65%;
+    margin: 0 auto;
+}
+.countdown-popup-style2 .countdown-popup-inner .popup-counter-wrapper h3{
+    font-style: italic;
+    color: var(--theme-color);
+    margin-bottom: 30px;
+}
+.countdown-popup-style2 .countdown-popup-inner .popup-counter-wrapper .deal-timeline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 30px;
+    margin-bottom: 50px;
+    flex-wrap: wrap;
+}
+.countdown-popup-style2 .deal-timeline .counter-dtl{
+    display: block;
+    font-family: var(--second-font);
+    font-size: 25px;
+    color: var(--white);
+    text-transform: capitalize;
+    margin-bottom: 10px;
+}
+.countdown-popup-style2 .deal-timeline .counter{
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+}
+.countdown-popup-style2 .deal-timeline span.count {
+    background: transparent;
+    padding: 20px;
+    display: block;
+    width: 80px;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--third-font);
+    font-size: 30px;
+    color: var(--second-color);
+    border: 1px solid var(--theme-color);
+    border-radius: 10px;
+    position: relative;
+}
+.countdown-popup-style2 .deal-timeline .counter:not(:last-of-type) span.count:after{
+    content: ':';
+    position: absolute;
+    right: -20px;
+    font-family: var(--third-font);
+    font-size: 30px;
+    color: var(--theme-color);
+}
+.countdown-popup-style2 .countdown-popup-inner .popup-bottom-content p{
+    font-family: var(--fourth-font);
+    color: var(--white);
+    font-style: italic;
+    font-size: 26px;
+    margin: 0;
+    text-align: center;
+}
+.countdown-popup-style2 .close-countdown-btn{
+    position: absolute;
+    right: 0;
+    top: 0px;
+    z-index: 2;
+    width: 30px;
+    height: 30px;
+    background-color: var(--white);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.countdown-popup-style2 .close-countdown-btn svg{
+    width: 17px;
+    height: 17px;
+}
+.countdown-popup-style2 .offer-content{
+    background: linear-gradient(-20deg, #B3B3B3 -31.11%, #FFFFFF 108.7%);
+    width: 180px;
+    height: 180px;
+    border-radius: 50%;
+    -webkit-border-radius: 50%;
+    -moz-border-radius: 50%;
+    -ms-border-radius: 50%;
+    -o-border-radius: 50%;
+    position: absolute;
+    top: 50%;
+    right: 40px;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 5px 5px 0px #666666;
+    overflow: hidden;
+    z-index: 1;
+}
+.countdown-popup-style2 .offer-content::after{
+    content: '';
+    position: absolute;
+    top: 55px;
+    left: -8px;
+    background: linear-gradient(90deg, #B3B3B3 -31.11%, #FFFFFF 108.7%);
+    width: 100%;
+    height: 30px;
+    z-index: -1;
+    transform: rotate(-16deg);
+}
+.countdown-popup-style2 .offer-content::before{
+    content: '';
+    position: absolute;
+    bottom: 38px;
+    left: 10px;
+    background: linear-gradient(90deg, #B3B3B3 -31.11%, #FFFFFF 108.7%);
+    width: 100%;
+    height: 40px;
+    z-index: -1;
+    transform: rotate(-16deg);
+}
+.countdown-popup-style2 .offer-content p{
+    font-family: var(--second-font);
+    font-size: 30px;
+    font-weight: 700;
+    text-transform: uppercase;
+    margin: 0;
+    line-height: 1;
+}
+.countdown-popup-style2 .offer-content p b{
+    display: block;
+    color: #D20017;
+    font-size: 60px;
+    line-height: 1;
+}
+.countdown-popup-style2 .countdown-popup::-webkit-scrollbar {
+    width: 5px;
+  }
+
+  /* Track */
+  .countdown-popup-style2 .countdown-popup::-webkit-scrollbar-track {
+    background: #f1f1f1;
+  }
+
+  /* Handle */
+  .countdown-popup-style2 .countdown-popup::-webkit-scrollbar-thumb {
+    background:var(--second-color);
+  }
+/* ======================================================== */
+/*                 countdown-popup-style3                   */
+/* ======================================================== */
+  :root .countdown-popup-style3{
+    --first-font: "Montserrat";
+    --second-font: "Federo";
+    --third-font:'FONTSPRING DEMO - Avionic';
+    --fourth-font:'Lato';
+    --theme-color: #0B8AC3;
+    --second-color: #0C3669;
+    --third-color:#4F79AC;
+    --white: #ffffff;
+    --h1: normal 400 51px/1.1 var(--first-font);
+    --h2: normal 400 41px/1.1 var(--second-font);
+    --h3: normal 400 36px/1.1 var(--second-font);
+    --h4: normal 400 22px/1.1 var(--first-font);
+    --h5: normal 400 20px/1.1 var(--first-font);
+    --h6: normal 400 18px/1.1 var(--first-font);
+    --common-text: normal 400 16px/1.4 var(--first-font);
+}
+
+.countdown-popup-style3 .countdown-popup .countdown-popup-inner{
+    background-repeat: no-repeat;
+    background-size: cover;
+    width: 100%;
+    height: 100%;
+    padding: 70px 50px;
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    position: relative;
+    z-index: 1;
+    /* background-position: 15% bottom; */
+}
+.countdown-popup-style3 .countdown-popup .countdown-popup-inner .counter-popup-bg1{
+    position: absolute;
+    top: 5%;
+    left: 10%;
+    z-index: -1;
+}
+.countdown-popup-style3 .countdown-popup .countdown-popup-inner .counter-popup-bg2{
+    position: absolute;
+    bottom: 5%;
+    right: 0%;
+    z-index: -1;
+}
+.countdown-popup-style3 .countdown-popup-inner .section-title{
+ text-align: center;
+ margin-bottom: 30px;
+}
+.countdown-popup-style3 .countdown-popup-inner .section-title .popup-image{
+    max-width: 400px;
+    width: 100%;
+    margin: 0 auto 30px;
+    position: relative;
+}
+.countdown-popup-style3 .countdown-popup-inner .section-title .popup-image h3{
+    color: var(--second-color);
+    position: relative;
+    display: block;
+    padding-bottom: 20px;
+    margin-bottom: 30px;
+}
+.countdown-popup-style3 .countdown-popup-inner .section-title .popup-image h3::after{
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: 4px;
+    border-radius: 100%;
+    background-color: var(--second-color);
+}
+.countdown-popup-style3 .countdown-popup-inner .section-title img{
+    width: 100%;
+    height: 100%;
+}
+.countdown-popup-style3 .countdown-popup-inner .section-title p{
+    font-family:var(--second-font) ;
+    font-size: 35px;
+    color: var(--second-color);
+    margin: 0;
+    line-height: 1;
+}
+
+.countdown-popup-style3 .countdown-popup-inner .popup-counter-wrapper {
+    text-align: center;
+}
+.countdown-popup-style3 .popup-bottom-content{
+    background-color: var(--third-color);
+    border-radius: 50px;
+    padding: 10px 30px;
+    -webkit-border-radius: 50px;
+    -moz-border-radius: 50px;
+    -ms-border-radius: 50px;
+    -o-border-radius: 50px;
+}
+.countdown-popup-style3 .countdown-popup-inner .popup-counter-wrapper h3{
+    font-style: italic;
+    color: var(--theme-color);
+    margin-bottom: 30px;
+    font-family: var(--first-font);
+    font-weight: 600;
+}
+.countdown-popup-style3 .countdown-popup-inner .popup-counter-wrapper .deal-timeline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 30px;
+    margin-bottom: 40px;
+    flex-wrap: wrap;
+}
+.countdown-popup-style3 .deal-timeline .counter-dtl{
+    display: block;
+    font-family: var(--first-font);
+    font-size: 20px;
+    color: var(--second-color);
+    text-transform: capitalize;
+    margin-bottom: 10px;
+    font-weight: 600;
+}
+.countdown-popup-style3 .deal-timeline .counter{
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+}
+.countdown-popup-style3 .deal-timeline span.count {
+    background: rgba(255, 255, 255, 0.6);
+    padding: 20px;
+    display: block;
+    width: 80px;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--third-font);
+    font-size: 30px;
+    color: var(--theme-color);
+    border-radius: 50%;
+    border: 1px solid rgba(12, 54, 105, 0.4);
+    position: relative;
+}
+.countdown-popup-style3 .deal-timeline .counter:not(:last-of-type) span.count:after{
+    content: ':';
+    position: absolute;
+    right: -20px;
+    font-family: var(--third-font);
+    font-size: 30px;
+    color: var(--theme-color);
+}
+.countdown-popup-style3 .countdown-popup-inner .popup-bottom-content p{
+    font-family: var(--fourth-font);
+    color: var(--white);
+    font-style: italic;
+    font-size: 24px;
+    margin: 0;
+    text-align: center;
+}
+.countdown-popup-style3 .close-countdown-btn{
+    position: absolute;
+    right: 0;
+    top: 0px;
+    z-index: 2;
+    width: 30px;
+    height: 30px;
+    background-color: var(--white);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.countdown-popup-style3 .close-countdown-btn svg{
+    width: 17px;
+    height: 17px;
+}
+.countdown-popup-style3 .offer-content-wrapper {
+    position: absolute;
+    top: 50%;
+    transform: translatex(-50%);
+    left: -25px;
+    width: 150px;
+    height: 150px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-transform: translatex(-50%);
+    -moz-transform: translatex(-50%);
+    -ms-transform: translatex(-50%);
+    -o-transform: translatex(-50%);
+    z-index: -1;
+}
+.countdown-popup-style3 .offer-content-wrapper img{
+    position: absolute;
+    top: -5px;
+    left: -5px;
+    right: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+}
+.countdown-popup-style3 .countdown-popup-inner .section-title .offer-content-wrapper p{
+    color: var(--white);
+    transform: rotate(25deg);
+    text-align: center;
+    max-width: 70%;
+    width: 100%;
+    font-size: 24px;
+    font-family: var(--fourth-font);
+}
+.countdown-popup-style3 .countdown-popup-inner .section-title .offer-content-wrapper p B{
+    display: block;
+    font-size: 36px;
+}
+.countdown-popup-style3 .countdown-popup::-webkit-scrollbar {
+    width: 5px;
+  }
+
+  /* Track */
+  .countdown-popup-style3 .countdown-popup::-webkit-scrollbar-track {
+    background: #f1f1f1;
+  }
+
+  /* Handle */
+  .countdown-popup-style3 .countdown-popup::-webkit-scrollbar-thumb {
+    background:var(--second-color);
+  }
+/* ======================================================== */
+/*                 countdown-popup-style4                   */
+/* ======================================================== */
+:root .countdown-popup-style4{
+    --first-font: "Montserrat";
+    --second-font: "Poppins";
+    --third-font:'FONTSPRING DEMO - Avionic';
+    --fourth-font:'Lato';
+    --theme-color: #FAEE90;
+    --second-color: #FA002E;
+    --white: #ffffff;
+    --h1: normal 400 51px/1.1 var(--first-font);
+    --h2: normal 400 41px/1.1 var(--second-font);
+    --h3: normal 400 36px/1.1 var(--second-font);
+    --h4: normal 400 22px/1.1 var(--first-font);
+    --h5: normal 400 20px/1.1 var(--first-font);
+    --h6: normal 400 18px/1.1 var(--first-font);
+    --common-text: normal 400 16px/1.4 var(--first-font);
+}
+
+.countdown-popup-style4 .countdown-popup .countdown-popup-inner{
+    background-repeat: no-repeat;
+    background-size: cover;
+    width: 100%;
+    height: 100%;
+    padding: 50px 40px;
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    position: relative;
+    z-index: 1;
+    background-position: bottom 50% right 7%;
+}
+.countdown-popup-style4 .countdown-popup .countdown-popup-inner .counter-popup-bg1{
+    position: absolute;
+    top: 5%;
+    left: 10%;
+    z-index: -1;
+}
+.countdown-popup-style4 .countdown-popup .countdown-popup-inner .counter-popup-bg2{
+    position: absolute;
+    bottom: 5%;
+    right: 0%;
+    z-index: -1;
+}
+.countdown-popup-style4 .countdown-popup-inner .section-title{
+ text-align: center;
+ max-width: 80%;
+ width: 100%;
+ margin:  0 auto 40px;
+}
+.countdown-popup-style4 .countdown-popup-inner .section-title .popup-image{
+    position: relative;
+    z-index: 1;
+    max-width: 430px;
+    width: 100%;
+    margin: 0 auto 40px;
+}
+.countdown-popup-style4 .offer-content-wrapper {
+        position: absolute;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        bottom: -5px;
+        right: -14px;
+        width: 145px;
+        height: 108px;
+}
+.countdown-popup-style4 .offer-content-wrapper img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: -1;
+}
+.countdown-popup-style4 .offer-content-wrapper b{
+    font-size: 30px;
+    color: #ffd900;
+    font-family: var(--second-font);
+    transform: rotate(-12deg);
+    max-width: 50%;
+    font-weight: 700;
+    width: 100%;
+}
+.countdown-popup-style4 .countdown-popup-inner .section-title .popup-image h3{
+    color: var(--second-color);
+    position: relative;
+    display: block;
+    padding-bottom: 20px;
+    margin-bottom: 30px;
+}
+.countdown-popup-style4 .countdown-popup-inner .section-title .popup-image h3::after{
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: 4px;
+    border-radius: 100%;
+    background-color: var(--second-color);
+}
+.countdown-popup-style4 .countdown-popup-inner .section-title img{
+    width: 100%;
+    height: 100%;
+}
+.countdown-popup-style4 .countdown-popup-inner .section-title p{
+    font-family:var(--first-font) ;
+    font-size: 35px;
+    color: var(--white);
+    margin: 0;
+}
+.countdown-popup-style4 .countdown-popup-inner .section-title p b{
+    font-weight: normal;
+    color: var(--theme-color);
+}
+.countdown-popup-style4 .countdown-popup-inner .popup-counter-wrapper {
+    text-align: center;
+}
+.countdown-popup-style4 .popup-bottom-content{
+    max-width: 50%;
+    width: 100%;
+}
+.countdown-popup-style4 .countdown-popup-inner .popup-counter-wrapper h3{
+    font-style: italic;
+    color: var(--white);
+    margin-bottom: 30px;
+    font-family: var(--first-font);
+    font-weight: 500;
+}
+.countdown-popup-style4 .countdown-popup-inner .popup-counter-wrapper .deal-timeline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 30px;
+    margin-bottom: 50px;
+    flex-wrap: wrap;
+}
+.countdown-popup-style4 .deal-timeline .counter-dtl{
+    display: block;
+    font-family: var(--second-font);
+    font-size: 20px;
+    color: var(--theme-color);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+}
+.countdown-popup-style4 .deal-timeline .counter{
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+}
+.countdown-popup-style4 .deal-timeline span.count {
+    background:transparent;
+    padding: 20px;
+    display: block;
+    width: 80px;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--third-font);
+    font-size: 30px;
+    color: var(--second-color);
+    border-radius: 10px;
+    border: 2px solid var(--theme-color);
+    position: relative;
+    -webkit-border-radius: 10px;
+    -moz-border-radius: 10px;
+    -ms-border-radius: 10px;
+    -o-border-radius: 10px;
+}
+.countdown-popup-style4 .deal-timeline .counter:not(:last-of-type) span.count:after{
+    content: ':';
+    position: absolute;
+    right: -20px;
+    font-family: var(--third-font);
+    font-size: 30px;
+    color: var(--second-color);
+}
+.countdown-popup-style4 .countdown-popup-inner .popup-bottom-content p{
+    font-family: var(--fourth-font);
+    color: var(--white);
+    font-style: italic;
+    font-size: 24px;
+    margin: 0;
+    text-align: center;
+}
+.countdown-popup-style4 .close-countdown-btn{
+    position: absolute;
+    right: 0;
+    top: 0px;
+    z-index: 2;
+    width: 30px;
+    height: 30px;
+    background-color: var(--white);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.countdown-popup-style4 .close-countdown-btn svg{
+    width: 17px;
+    height: 17px;
+}
+.countdown-popup-style4 .countdown-popup::-webkit-scrollbar {
+    width: 5px;
+  }
+
+  /* Track */
+  .countdown-popup-style4 .countdown-popup::-webkit-scrollbar-track {
+    background: #f1f1f1;
+  }
+
+  /* Handle */
+  .countdown-popup-style4 .countdown-popup::-webkit-scrollbar-thumb {
+    background:var(--theme-color);
+  }
+/* ======================================================== */
+/*                 countdown-popup-style5                   */
+/* ======================================================== */
+:root .countdown-popup-style5{
+    --first-font: "Federo";
+    --second-font: "Montserrat";
+    --third-font:'FONTSPRING DEMO - Avionic';
+    --fourth-font:'Lato';
+    --theme-color: #5D235F;
+    --second-color: #ED8323;
+    --third-color:#D71E25;
+    --border-color:#CDE21C;
+    --white: #ffffff;
+    --h1: normal 400 51px/1.1 var(--first-font);
+    --h2: normal 400 41px/1.1 var(--second-font);
+    --h3: normal 400 36px/1.1 var(--second-font);
+    --h4: normal 400 22px/1.1 var(--first-font);
+    --h5: normal 400 20px/1.1 var(--first-font);
+    --h6: normal 400 18px/1.1 var(--first-font);
+    --common-text: normal 400 16px/1.4 var(--first-font);
+}
+.countdown-popup-style5 .countdown-popup .countdown-popup-inner{
+    background-repeat: no-repeat;
+    background-size: cover;
+    width: 100%;
+    height: 100%;
+    padding: 40px 40px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    position: relative;
+    z-index: 1;
+    background-position: bottom 50% right 7%;
+}
+.countdown-popup-style5 .countdown-popup .countdown-popup-inner .counter-popup-bg1{
+    position: absolute;
+    top: 5%;
+    left: 10%;
+    z-index: -1;
+}
+.countdown-popup-style5 .countdown-popup .countdown-popup-inner .counter-popup-bg2{
+    position: absolute;
+    bottom: 5%;
+    right: 0%;
+    z-index: -1;
+}
+.countdown-popup-style5 .countdown-popup-inner .section-title{
+ text-align: center;
+ width: 100%;
+}
+.countdown-popup-style5 .countdown-popup-inner .section-title .popup-image{
+    position: relative;
+    z-index: 1;
+    max-width: 430px;
+    width: 100%;
+    margin: 0 auto 40px;
+}
+.countdown-popup-style5 .offer-content-wrapper {
+        position: absolute;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        bottom: -5px;
+        right: -14px;
+        width: 145px;
+        height: 108px;
+}
+.countdown-popup-style5 .offer-content-wrapper img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: -1;
+}
+.countdown-popup-style5 .offer-content-wrapper b{
+    font-size: 30px;
+    color: #ffd900;
+    font-family: var(--second-font);
+    transform: rotate(-12deg);
+    max-width: 50%;
+    font-weight: 700;
+    width: 100%;
+}
+.countdown-popup-style5 .countdown-popup-inner .section-title .popup-image h3{
+    font-family: var(--second-font);
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--white);
+    margin-bottom: 5px;
+    font-size: 60px;
+    display: block;
+}
+.countdown-popup-style5 .popup-title-content span{
+    font-family: var(--second-font);
+    text-transform: uppercase;
+    font-weight: 500;
+    color: var(--white);
+    background-color: var(--second-color);
+    margin-bottom: 5px;
+    display: inline-block;
+    padding: 5px 10px;
+}
+.countdown-popup-style5 .popup-title-content {
+    padding: 95px 40px;
+    transform: skewX(17deg);
+    transform: rotate(-8deg);
+    -webkit-transform: rotate(-9deg);
+    -moz-transform: rotate(-8deg);
+    -ms-transform: rotate(-8deg);
+    -o-transform: rotate(-8deg);
+}
+.countdown-popup-style5 .countdown-popup-inner .section-title img{
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    z-index: -1;
+}
+.countdown-popup-style5 .countdown-popup-inner .section-title .popup-image p{
+    font-family: var(--second-font);
+    font-size: 24px;
+    color: var(--white);
+    margin: 0;
+    text-transform: uppercase;
+    font-weight: 500;
+}
+.countdown-popup-style5 .countdown-popup-inner .section-title p b{
+    font-weight: normal;
+    color: var(--theme-color);
+}
+.countdown-popup-style5 .countdown-popup-inner .popup-counter-wrapper {
+    text-align: center;
+}
+.countdown-popup-style5 .countdown-popup-inner .popup-counter-wrapper p{
+    font-family: var(--first-font);
+    font-size: 36px;
+    font-weight: 500;
+    color: var(--theme-color);
+    margin: 0 0 25px;
+}
+
+
+.countdown-popup-style5 .countdown-popup-inner .popup-counter-wrapper h3{
+    font-style: italic;
+    color: var(--third-color);
+    margin-bottom: 20px;
+    font-family: var(--second-font);
+    font-weight: 600;
+}
+.countdown-popup-style5 .countdown-popup-inner .popup-counter-wrapper .deal-timeline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 30px;
+    margin-bottom: 40px;
+    flex-wrap: wrap;
+}
+.countdown-popup-style5 .deal-timeline .counter-dtl{
+    display: block;
+    font-family: var(--second-font);
+    font-size: 20px;
+    color: var(--theme-color);
+    text-transform: capitalize;
+    margin-bottom: 10px;
+    font-weight: 500;
+}
+.countdown-popup-style5 .deal-timeline .counter{
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+}
+.countdown-popup-style5 .deal-timeline span.count {
+    background:var(--white);
+    padding: 20px;
+    display: block;
+    width: 80px;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--third-font);
+    font-size: 30px;
+    color: var(--second-color);
+    border-radius: 50%;
+    border: 1px solid var(--border-color);
+    position: relative;
+    -webkit-border-radius: 50%;
+    -moz-border-radius: 50%;
+    -ms-border-radius: 50%;
+    -o-border-radius: 50%;
+}
+.countdown-popup-style5 .deal-timeline .counter:not(:last-of-type) span.count:after{
+    content: ':';
+    position: absolute;
+    right: -20px;
+    font-family: var(--third-font);
+    font-size: 30px;
+    color: var(--second-color);
+}
+.countdown-popup-style5 .countdown-popup-inner .popup-bottom-content p{
+    font-family: var(--fourth-font);
+    color: var(--theme-color);
+    font-style: italic;
+    font-size: 24px;
+    margin: 0;
+    text-align: center;
+}
+.countdown-popup-style5 .close-countdown-btn{
+    position: absolute;
+    right: 0;
+    top: 0px;
+    z-index: 2;
+    width: 30px;
+    height: 30px;
+    background-color: var(--white);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.countdown-popup-style5 .close-countdown-btn svg{
+    width: 17px;
+    height: 17px;
+}
+.countdown-popup::-webkit-scrollbar {
+    width: 5px;
+  }
+
+  /* Track */
+  .countdown-popup-style5 .countdown-popup::-webkit-scrollbar-track {
+    background: #f1f1f1;
+  }
+
+  /* Handle */
+  .countdown-popup-style5 .countdown-popup::-webkit-scrollbar-thumb {
+    background:var(--theme-color);
+  }
+  .countdown-popup-style5 img.counter-layer-img2 {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    z-index: -1;
+}
+.countdown-popup-style5 img.counter-layer-img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: -1;
+}

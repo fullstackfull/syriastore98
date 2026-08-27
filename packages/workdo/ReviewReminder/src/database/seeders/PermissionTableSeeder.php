@@ -1,0 +1,47 @@
+<?php
+
+namespace Workdo\ReviewReminder\database\seeders;
+
+use App\Models\Permission;
+use App\Models\Role;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Artisan;
+
+class PermissionTableSeeder extends Seeder
+{
+    /**
+     * Run the database seeds.
+     */
+    public function run()
+    {
+        Model::unguard();
+        Artisan::call('cache:clear');
+        $module = 'ReviewReminder';
+        $permissions = [
+            'Manage Order Reviews',
+            'Delete Order Reviews',
+        ];
+        $company_role = Role::where('name', 'admin')->first();
+        foreach ($permissions as $key => $value)
+        {
+            $check = Permission::where('name',$value)->where('module',$module)->exists();
+            if($check == false)
+            {
+                $permission = Permission::create(
+                    [
+                        'name' => $value,
+                        'guard_name' => 'web',
+                        'module' => 'ReviewReminder',
+                        'created_by' => 0,
+                        "created_at" => date('Y-m-d H:i:s'),
+                        "updated_at" => date('Y-m-d H:i:s'),
+                    ]
+                );
+                if (!$company_role->hasPermission($value)) {
+                    $company_role->givePermission($permission);
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,25 @@
+{
+    "name": "workdo/sidebar-customization",
+    "description": "Description for sidebar-customization package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\SidebarCustomization\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\SidebarCustomization\\app\\Providers\\SidebarCustomizationServiceProvider"
+            ]
+        }
+    }
+}

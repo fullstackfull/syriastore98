@@ -1,0 +1,42 @@
+{
+    "title": "Newsletter",
+    "slug": "newsletter",
+    "detail": "Newsletter settings .",
+    "icon": "fas fa-arrows-up-to-line",
+    "sections": [
+        {
+            "title": "Form",
+            "slug": "form",
+            "key": "newsletter",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Join Our Newsletter"
+                },
+                {
+                    "label": "Sub Title",
+                    "key": "sub_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Subscribe to get exclusive offers recipes, and health tips delivered to your inbox."
+                },
+                {
+                    "label": "Button Text",
+                    "key": "button_text",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Subscribe"
+                }
+            ]
+        }
+    ]
+}

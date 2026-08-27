@@ -1,0 +1,10 @@
+{
+    "name": "ThemeCustomizer",
+    "alias": "Theme Customizer",
+    "description": "",
+    "priority": 0,
+    "version":1.5,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"theme-customizer"
+}

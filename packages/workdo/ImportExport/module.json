@@ -1,0 +1,10 @@
+{
+    "name": "ImportExport",
+    "alias": "Import Export",
+    "description": "",
+    "priority": 320,
+    "version":1.8,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"import-export"
+}

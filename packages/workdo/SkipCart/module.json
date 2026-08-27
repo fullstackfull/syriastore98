@@ -1,0 +1,10 @@
+{
+    "name": "SkipCart",
+    "alias": "Skip Cart",
+    "description": "",
+    "priority": 340,
+    "version":1.4,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"skip-cart"
+}

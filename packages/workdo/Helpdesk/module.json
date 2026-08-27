@@ -1,0 +1,10 @@
+{
+    "name": "Helpdesk",
+    "alias": "Helpdesk",
+    "description": "",
+    "priority": 390,
+    "version":1.3,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"helpdesk"
+}

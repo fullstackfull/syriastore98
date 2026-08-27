@@ -1,0 +1,178 @@
+[
+    {
+        "title": "Header",
+        "slug": "header",
+        "detail": "Header settings such as, site top bar, site menu and so on.",
+        "icon": "ti ti-heading"
+    },
+    {
+        "title": "Footer",
+        "slug": "footer",
+        "detail": "Footer settings such as, site bottom bar, site menu and so on.",
+        "icon": "ti ti-ball-football"
+    },
+    {
+        "title": "Service",
+        "slug": "service",
+        "detail": "Service settings.",
+        "icon": "ti ti-ball-football"
+    },
+    {
+        "title": "Home Page",
+        "slug": "home",
+        "detail": "Homage page settings such as, products, categories, site menu and so on.",
+        "icon": "ti ti-home",
+         "is_order": true,
+        "orders": "slider,category,product,top_category,bestseller,more_offer,article,testimonial,logos"
+    },
+    {
+        "title": "About Us",
+        "slug": "abouts-us",
+        "detail": "About us settings.",
+        "icon": "ti ti-vocabulary"
+    },
+    {
+        "title": "Contact Us",
+        "slug": "contact-us",
+        "detail": "Contact us settings.",
+        "icon": "ti ti-phone"
+    },
+    {
+        "title": "Blog Page",
+        "slug": "blog",
+        "detail": "Blog page settings.",
+        "icon": "ti ti-blockquote"
+    },
+    {
+        "title": "Article Page",
+        "slug": "article",
+        "detail": "Article page settings.",
+        "icon": "ti ti-blockquote"
+    },
+    {
+        "title": "Cart Page",
+        "slug": "cart",
+        "detail": "Cart Page settings.",
+        "icon": "ti ti-shopping-cart"
+    },
+    {
+        "title": "Checkout Page",
+        "slug": "checkout",
+        "detail": "Checkout Page settings.",
+        "icon": "ti ti-shopping-cart"
+    },
+    {
+        "title": "Category Collection Page",
+        "slug": "category-collection",
+        "detail": "Category Collection settings.",
+        "icon": "ti ti-clipboard-list"
+    },
+    {
+        "title": "Error Page",
+        "slug": "error",
+        "detail": "Error page settings.",
+        "icon": "ti ti-user-exclamation"
+    },
+    {
+        "title": "Faqs Page",
+        "slug": "faqs",
+        "detail": "Faqs settings.",
+        "icon": "ti ti-clipboard-list"
+    },
+    {
+        "title": "Login Page",
+        "slug": "login",
+        "detail": "Login Page settings.",
+        "icon": "ti ti-login"
+    },
+    {
+        "title": "Register Page",
+        "slug": "register",
+        "detail": "Register page settings.",
+        "icon": "ti ti-registered"
+    },
+    {
+        "title": "Forgot Password Page",
+        "slug": "forgot-password",
+        "detail": "Forgot password settings.",
+        "icon": "ti ti-shield-lock"
+    },
+    {
+        "title": "Reset Password Page",
+        "slug": "reset-password",
+        "detail": "Reset password settings.",
+        "icon": "ti ti-shield-lock"
+    },
+    {
+        "title": "My Account Page",
+        "slug": "my-account",
+        "detail": "My account settings.",
+        "icon": "ti ti-user"
+    },
+    {
+        "title": "Address Page",
+        "slug": "address",
+        "detail": "Address settings.",
+        "icon": "ti ti-location"
+    },
+    {
+        "title": "Support Ticket Page",
+        "slug": "support-ticket",
+        "detail": "Support ticket settings.",
+        "icon": "ti ti-ticket"
+    },
+    {
+        "title": "Privacy Policy",
+        "slug": "privacy-policy",
+        "detail": "Privacy Policy settings.",
+        "icon": "ti ti-fingerprint"
+    },
+    {
+        "title": "Product List",
+        "slug": "product-list",
+        "detail": "Product List settings.",
+        "icon": "ti ti-brand-producthunt"
+    },
+    {
+        "title": "Product Page",
+        "slug": "product",
+        "detail": "Product settings.",
+        "icon": "ti ti-brand-producthunt"
+    },
+    {
+        "title": "Track Order",
+        "slug": "track-order",
+        "detail": "Track Order settings.",
+        "icon": "ti ti-terminal-2"
+    },
+    {
+        "title": "Order Complete Page",
+        "slug": "order-complete",
+        "detail": "Order Complete page settings.",
+        "icon": "ph-duotone ph-list-plus"
+    },
+    {
+        "title": "Order Detail Page",
+        "slug": "order-detail",
+        "detail": "Order details page settings.",
+        "icon": "ph-duotone ph-list-plus"
+    },
+    {
+        "title": "Custom Page",
+        "slug": "custom-page",
+        "detail": "Custom page settings.",
+        "icon": "ph-duotone ph-list-plus"
+    },
+    {
+        "title": "Wish List",
+        "slug": "wishlist",
+        "detail": "Whishlist settings.",
+        "icon": "ph-duotone ph-list-plus"
+    },
+    {
+        "title": "Newsletter",
+        "slug": "newsletter",
+        "detail": "Newsletter settings.",
+        "icon": "ti ti-ball-football"
+    }
+]

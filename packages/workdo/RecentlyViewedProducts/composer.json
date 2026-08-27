@@ -1,0 +1,26 @@
+{
+    "name": "workdo/recently-viewed-products",
+    "description": "Description for recently-viewed-products package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\RecentlyViewedProducts\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\RecentlyViewedProducts\\app\\Providers\\RecentlyViewedProductsServiceProvider",
+                "Workdo\\RecentlyViewedProducts\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

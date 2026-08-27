@@ -1,0 +1,42 @@
+
+@media (min-width: 640px) {
+    .list-view .product-card {
+      display: flex;
+      flex-direction: row;
+      padding: 1rem;
+    }
+    .list-view .product-image {
+      width: 250px;
+      display: block;
+    }
+}
+@media screen and (max-width:1023px) {
+    .offer-banner{
+        max-width: 100%;
+      }     
+}
+@media screen and (max-width:767px){
+    p{
+        font-size: 14px;
+    }
+    table,
+    select,
+    .form-input{
+        font-size: 14px !important;
+    }
+    .btn-outline, .btn-primary{
+        padding: 10px 15px;
+        font-size: 14px;
+    }
+    .swiper-button-next, .swiper-button-prev{
+        width: 35px;
+        height: 35px;
+    }
+    .swiper-button-next:after, .swiper-button-prev:after{
+        font-size: 14px;
+    }
+    .section-spacing{
+        padding-top: 2.5rem;
+        padding-bottom: 2.5rem;
+    }
+}

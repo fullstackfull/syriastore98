@@ -1,0 +1,27 @@
+{
+    "name": "workdo/auction-product",
+    "description": "Description for auction-product package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\AuctionProduct\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\AuctionProduct\\app\\Providers\\AuctionProductServiceProvider",
+                "Workdo\\AuctionProduct\\app\\Providers\\AuctionProductOrderProvider",
+                "Workdo\\AuctionProduct\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

@@ -1,0 +1,264 @@
+/* RTL Overrides for Stylique Theme */
+
+/* Base RTL */
+[dir="rtl"] {
+    text-align: right;
+}
+
+/* Layout */
+[dir="rtl"] .container {
+    direction: rtl;
+}
+
+/* Navigation */
+[dir="rtl"] .nav-link {
+    margin-left: 0;
+    margin-right: 1rem;
+}
+
+[dir="rtl"] .dropdown-menu {
+    text-align: right;
+}
+
+/* Hero Section */
+[dir="rtl"] .hero-slider .swiper-button-next {
+    left: 10px;
+    right: auto;
+}
+
+[dir="rtl"] .hero-slider .swiper-button-prev {
+    right: 10px;
+    left: auto;
+}
+
+/* Product Cards */
+[dir="rtl"] .product-card .wishlist-btn {
+    left: 1rem;
+    right: auto;
+}
+
+[dir="rtl"] .product-card .price {
+    margin-left: 0;
+    margin-right: auto;
+}
+
+/* Category Section */
+[dir="rtl"] .category-card .category-content {
+    left: auto;
+    right: 1rem;
+}
+
+/* Testimonials */
+[dir="rtl"] .testimonial-card .user-info {
+    padding-left: 0;
+    padding-right: 1rem;
+}
+
+/* Blog Cards */
+[dir="rtl"] .blog-card .blog-meta {
+    padding-left: 0;
+    padding-right: 1rem;
+}
+
+/* Service Section */
+[dir="rtl"] .service-card .service-icon {
+    margin-left: 1rem;
+    margin-right: 0;
+}
+
+/* Cart Panel */
+[dir="rtl"] .cart-panel {
+    left: auto;
+    right: 0;
+    transform: translateX(100%);
+}
+
+[dir="rtl"] .cart-panel.open {
+    transform: translateX(0);
+}
+
+/* Mobile Menu */
+[dir="rtl"] .mobile-menu {
+    left: auto;
+    right: 0;
+    transform: translateX(100%);
+}
+
+[dir="rtl"] .mobile-menu.show {
+    transform: translateX(0);
+}
+
+/* Search Popup */
+[dir="rtl"] .search-popup .search-input {
+    padding-left: 3rem;
+    padding-right: 1rem;
+}
+
+[dir="rtl"] .search-popup .search-icon {
+    left: auto;
+    right: 1rem;
+}
+
+/* Swiper Navigation */
+[dir="rtl"] .swiper-button-next {
+    left: 10px;
+    right: auto;
+}
+
+[dir="rtl"] .swiper-button-prev {
+    right: 10px;
+    left: auto;
+}
+
+/* Product Detail Page */
+[dir="rtl"] .product-gallery .thumbnail-slider {
+    padding-left: 0;
+    padding-right: 1rem;
+}
+
+[dir="rtl"] .product-info .quantity-selector {
+    margin-left: 0;
+    margin-right: 1rem;
+}
+
+/* Footer */
+[dir="rtl"] .footer-links {
+    padding-left: 0;
+    padding-right: 2rem;
+}
+
+[dir="rtl"] .social-links {
+    margin-left: 0;
+    margin-right: 1rem;
+}
+
+/* Utility Classes */
+[dir="rtl"] .ml-auto {
+    margin-left: 0;
+    margin-right: auto;
+}
+
+[dir="rtl"] .mr-auto {
+    margin-right: 0;
+    margin-left: auto;
+}
+
+[dir="rtl"] .pl-4 {
+    padding-left: 0;
+    padding-right: 1rem;
+}
+
+[dir="rtl"] .pr-4 {
+    padding-right: 0;
+    padding-left: 1rem;
+}
+
+/* Filter Panel */
+[dir="rtl"] .filter-panel {
+    left: auto;
+    right: 0;
+    transform: translateX(100%);
+}
+
+[dir="rtl"] .filter-panel.open {
+    transform: translateX(0);
+}
+
+/* Tab Navigation */
+[dir="rtl"] .tab-nav {
+    padding-left: 0;
+    padding-right: 1rem;
+}
+
+/* Breadcrumb */
+[dir="rtl"] .breadcrumb-item + .breadcrumb-item::before {
+    padding-left: 0.5rem;
+    padding-right: 0;
+}
+
+/* Form Elements */
+[dir="rtl"] .form-group label {
+    text-align: right;
+}
+
+[dir="rtl"] .form-control {
+    text-align: right;
+}
+
+/* Pagination */
+[dir="rtl"] .pagination .page-item:not(:first-child) .page-link {
+    margin-left: 0;
+    margin-right: -1px;
+}
+
+/* Alert Messages */
+[dir="rtl"] .alert-icon {
+    margin-left: 0.5rem;
+    margin-right: 0;
+}
+
+/* Modal */
+[dir="rtl"] .modal-header .close {
+    margin-left: 0;
+    margin-right: auto;
+}
+
+/* Tooltip */
+[dir="rtl"] .tooltip {
+    text-align: right;
+}
+
+/* Dropdown Menus */
+[dir="rtl"] .dropdown-menu {
+    left: auto;
+    right: 0;
+}
+
+/* Badge */
+[dir="rtl"] .badge {
+    margin-left: 0;
+    margin-right: 0.5rem;
+}
+
+/* List Groups */
+[dir="rtl"] .list-group-item {
+    text-align: right;
+}
+
+/* Progress Bars */
+[dir="rtl"] .progress-bar {
+    float: right;
+}
+
+/* Custom Scrollbar */
+[dir="rtl"] ::-webkit-scrollbar-thumb {
+    border-left: 0;
+    border-right: 2px solid #fff;
+}
+
+/* Animations */
+[dir="rtl"] .slide-in-right {
+    animation: slideInLeft 0.3s ease-out;
+}
+
+[dir="rtl"] .slide-in-left {
+    animation: slideInRight 0.3s ease-out;
+}
+
+@keyframes slideInLeft {
+    from {
+        transform: translateX(100%);
+    }
+    to {
+        transform: translateX(0);
+    }
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(-100%);
+    }
+    to {
+        transform: translateX(0);
+    }
+} 

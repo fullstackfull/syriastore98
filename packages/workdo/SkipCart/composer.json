@@ -1,0 +1,26 @@
+{
+    "name": "workdo/skip-cart",
+    "description": "Description for skip-cart package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\SkipCart\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\SkipCart\\app\\Providers\\SkipCartServiceProvider",
+                "Workdo\\SkipCart\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

@@ -1,0 +1,26 @@
+{
+    "name": "workdo/spin-to-win-reward",
+    "description": "Description for spin-to-win-reward package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\SpinToWinReward\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\SpinToWinReward\\app\\Providers\\SpinToWinRewardServiceProvider",
+                "Workdo\\SpinToWinReward\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

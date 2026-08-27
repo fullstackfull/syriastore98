@@ -1,0 +1,25 @@
+{
+    "name": "workdo/frequently-product",
+    "description": "Description for frequently-product package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\FrequentlyProduct\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\FrequentlyProduct\\app\\Providers\\FrequentlyProductServiceProvider"
+            ]
+        }
+    }
+}

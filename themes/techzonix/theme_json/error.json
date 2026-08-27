@@ -1,0 +1,98 @@
+{
+    "title": "Error",
+    "slug": "error",
+    "detail": "Error settings.",
+    "icon": "",
+    "sections": [
+        {
+            "title": "Error Banner",
+            "slug": "error-banner",
+            "key": "error_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Frequently Asked Questions"
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "{\"image\":\"themes/techzonix/assets/images/common-banner.png\"}"
+                }
+            ]
+        },
+        {
+            "title": "Error Content",
+            "slug": "error",
+            "key": "error",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Error Code",
+                    "key": "code",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "404"
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Oops! Page Not Found!"
+                },
+                {
+                    "label": "Description",
+                    "key": "description",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "We couldn't find the page you're looking for. The page may have moved, or it might no longer be available."
+                },
+                {
+                    "label": "Product List Button Text",
+                    "key": "product_button",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Browse Products"
+                },
+                {
+                    "label": "Product List Button Link",
+                    "key": "product_button_link",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "#"
+                },
+                {
+                    "label": "Home Page Button Text",
+                    "key": "home_button",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Go to Homepage"
+                },
+                {
+                    "label": "Home Page Button Link",
+                    "key": "home_button_link",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "#"
+                }                 
+            ]
+        }
+    ]
+}

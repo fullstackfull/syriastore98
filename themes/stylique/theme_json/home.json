@@ -1,0 +1,241 @@
+{
+    "title": "Home Banner",
+    "slug": "home",
+    "detail": "Home Banner settings such as, banner, content and so on.",
+    "icon": "fas fa-house",
+    "sections": [
+        {
+            "title": "Slider",
+            "slug": "slider",
+            "key": "slider",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Slider",
+                    "key": "repeater",
+                    "type": "slider",
+                    "fields": ["image", "big_text", "content", "button_text", "button_link"],
+                    "value": "[{\"image\":\"themes/stylique/assets/images/slider-image1.png\",\"big_text\":\"Elevate Your Style\",\"content\":\"Discover the latest trends and timeless pieces that define elegance and sophistication.\",\"button_text\":\"Shop Now\",\"button_link\":\"#\"},{\"image\":\"themes/stylique/assets/images/slider-image2.png\",\"big_text\":\"Unleash Your Fashion Potential\",\"content\":\"Explore our curated collections designed to inspire and empower your unique style.\",\"button_text\":\"Explore Now\",\"button_link\":\"#\"}]"
+                  }
+            ]
+        },
+        {
+            "title": "More Offer",
+            "slug": "more_offer",
+            "key": "more_offer",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "themes/stylique/assets/images/offer-banner.png"
+                },
+                {
+                    "label": "Button Link",
+                    "key": "button_link",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "#"
+                }
+            ]
+        },
+        {
+            "title": "Logo",
+            "slug": "logo",
+            "key": "logo",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Image",
+                    "key": "repeater",
+                    "type": "slider",
+                    "fields": ["image"],
+                    "value": "[{\"image\":\"themes/stylique/assets/images/partner-logo1.png\"},{\"image\":\"themes/stylique/assets/images/partner-logo2.png\"},{\"image\":\"themes/stylique/assets/images/partner-logo3.png\"},{\"image\":\"themes/stylique/assets/images/partner-logo4.png\"},{\"image\":\"themes/stylique/assets/images/partner-logo5.png\"}]"
+                  
+                }
+            ]
+        },
+        {
+            "title": "Collection",
+            "slug": "collection",
+            "key": "collection",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                }
+               
+            ]
+        },
+        {
+            "title": "Product",
+            "slug": "product",
+            "key": "product",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Featured Products"
+                },
+                {
+                    "label": "Description",
+                    "key": "description",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "Discover our curated selection of top-rated products that our customers love"
+                }
+            ]
+        },
+        {
+            "title": "Category",
+            "slug": "category",
+            "key": "category",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Shop by Category"
+                },
+                {
+                    "label": "Description",
+                    "key": "description",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "Explore our wide range of fashion categories to find exactly what you're looking for"
+                }
+            ]
+        },
+        {
+            "title": "Bestseller",
+            "slug": "bestseller",
+            "key": "bestseller",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Best seller products"
+                }
+            ]
+        },  
+         {
+            "title": "Testimonial",
+            "slug": "testimonial",
+            "key": "testimonial",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "What Our Happy Clients Say’s"
+                },
+                {
+                    "label": "Sub Title",
+                    "key": "sub_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Don’t just take our word for it—here’s"
+                }
+            ]
+        },
+        {
+            "title": "Blog",
+            "slug": "blog",
+            "key": "blog",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Fashion Blog"
+                },
+                {
+                    "label": "Sub Title",
+                    "key": "sub_title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Style tips, trend reports, and fashion inspiration"
+                }
+            ]
+        },
+        {
+            "title": "Service",
+            "slug": "form",
+            "key": "service",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Slider",
+                    "key": "repeater",
+                    "type": "slider",
+                    "fields": ["image", "title", "content"],
+                    "value": "[{\"image\":\"themes/stylique/assets/images/slider-image1.png\",\"title\":\"Elevate Your Style\",\"content\":\"Discover the latest trends and timeless pieces that define elegance and sophistication.\"},{\"image\":\"themes/stylique/assets/images/slider-image2.png\",\"title\":\"Unleash Your Fashion Potential\",\"content\":\"Explore our curated collections designed to inspire and empower your unique style.\"}]"
+                  }
+            ]
+        }
+        
+    ]
+}

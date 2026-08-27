@@ -1,0 +1,143 @@
+{
+    "title": "About Us",
+    "slug": "abouts-us",
+    "detail": "About us settings .",
+    "icon": "fas fa-arrows-up-to-line",
+    "sections": [
+        {
+            "title": "About Us Banner",
+            "slug": "abouts_us_banner",
+            "key": "abouts_us_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Terms of Service"
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "themes/greentic/assets/images/common-banner.png"
+                }
+            ]
+        },
+        {
+            "title": "Full Image",
+            "slug": "full",
+            "key": "abouts_us_full",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": ""
+                },
+                {
+                    "label": "Description",
+                    "key": "description",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": ""
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Enter here...",
+                     "value": "themes/greentic/assets/images/offer-banner-layout-two.png"
+                },
+                {
+                    "label": "Title",
+                    "key": "title_second",
+                    "type": "text",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "Driven by Innovation, Guided by Purpose"
+                },
+                {
+                    "label": "Description",
+                    "key": "description_second",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "At the heart of everything we do is a passion for creating smarter, more sustainable technology solutions that elevate everyday life. We’re redefining what it means to own electronics by focusing on innovation, accessibility, and environmental responsibility.Our direct-to-consumer approach eliminates unnecessary costs and barriers, allowing us to deliver premium devices without compromise. Each product reflects our dedication to thoughtful design, advanced performance, and long-term value. We collaborate with forward-thinking manufacturers who share our ethical and eco-conscious values, ensuring every step of our process—from sourcing to shipping—supports a cleaner, fairer future for all. We are driven by a commitment to transparency, fairness, and continuous improvement. Our goal is not only to approach eliminates but also to promote responsible consumption and empower conscious choices in the tech industry."
+                },
+                {
+                    "label": "Image",
+                    "key": "image_second",
+                    "type": "image",
+                    "placeholder": "Enter here...",
+                     "value": "themes/greentic/assets/images/about-image2.png"
+                }
+            ]
+        },
+        {
+            "title": "Counter",
+            "slug": "counter",
+            "key": "abouts_us_counter",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Counter",
+                    "key": "repeater",
+                    "type": "slider",
+                    "fields": ["small_text","content"],
+                    "placeholder": "Enter here...",
+                    "value": "[{\"small_text\":\"30\",\"content\":\"'Content here, content here', making it look like readable English. Many desktop publishing packages.\"},{\"small_text\":\"30\",\"content\":\"'Content here, content here', making it look like readable English. Many desktop publishing packages.\"},{\"small_text\":\"30\",\"content\":\"'Content here, content here', making it look like readable English. Many desktop publishing packages.\"}]"
+                }
+            ]
+        },
+        {
+            "title": "Team",
+            "slug": "team",
+            "key": "team",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "Meet Our Team"
+                },
+                {
+                    "label": "Team",
+                    "key": "repeater",
+                    "type": "slider",
+                    "fields": ["image","big_text","small_text","content"],
+                    "value": "[{\"image\":\"themes/techzonix/assets/images/team-1.png\",\"big_text\":\"Emily Johnson\",\"content\":\"Former tech engineer with a passion for making cutting-edge technology accessible to everyone.\",\"small_text\":\"Founder CEO\"},{\"image\":\"themes/techzonix/assets/images/team-2.png\",\"big_text\":\"Michael Chen\",\"content\":\"Supply chain expert focused on creating efficient, eco-friendly distribution systems\",\"small_text\":\"Head of Operations\"}]"
+                }
+            ]
+        }
+    ]
+}

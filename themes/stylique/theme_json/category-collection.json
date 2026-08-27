@@ -1,0 +1,29 @@
+{
+    "title": "Category Collection",
+    "slug": "category-collection",
+    "detail": "Category Collection settings.",
+    "icon": "",
+    "sections": [
+        {
+            "title": "Category Collection",
+            "slug": "category-collection",
+            "key": "category_collection",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Collections"
+                }
+
+            ]
+        }
+    ]
+}

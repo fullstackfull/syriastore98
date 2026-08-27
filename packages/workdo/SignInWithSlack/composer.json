@@ -1,0 +1,25 @@
+{
+    "name": "workdo/sign-in-with-slack",
+    "description": "Description for sign-in-with-slack package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\SignInWithSlack\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\SignInWithSlack\\app\\Providers\\SignInWithSlackServiceProvider"
+            ]
+        }
+    }
+}

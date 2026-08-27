@@ -1,0 +1,10 @@
+{
+    "name": "SpamPrevent",
+    "alias": "Spam Prevent",
+    "description": "",
+    "priority": 30,
+    "version":1.5,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"spam-prevent"
+}

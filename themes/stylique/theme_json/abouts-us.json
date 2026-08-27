@@ -1,0 +1,144 @@
+{
+    "title": "About Us",
+    "slug": "abouts-us",
+    "detail": "About us settings .",
+    "icon": "fas fa-arrows-up-to-line",
+    "sections": [
+        {
+            "title": "About Us Banner",
+            "slug": "abouts_us_banner",
+            "key": "abouts_us_banner",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Terms of Service"
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Select file",
+                    "value": "themes/stylique/assets/images/common-banner.png"
+                }
+            ]
+        },
+        {
+            "title": "Full Image",
+            "slug": "full",
+            "key": "abouts_us_full",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "Our Mission"
+                },
+                {
+                    "label": "Description",
+                    "key": "description",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "At Stylique, we are dedicated to bringing you the latest trends in fashion at affordable prices. Our mission is to provide quality clothing for everyone, ensuring that you look and feel your best every day. We believe in the power of style to transform lives, and we are committed to making fashion accessible to all."
+                },
+                {
+                    "label": "Image",
+                    "key": "image",
+                    "type": "image",
+                    "placeholder": "Enter here...",
+                     "value": "themes/stylique/assets/images/about-image.png"
+                },
+                {
+                    "label": "Title",
+                    "key": "title_second",
+                    "type": "text",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "Driven by Innovation, Guided by Purpose"
+                },
+                {
+                    "label": "Description",
+                    "key": "description_second",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "At Stylique, we are not just a fashion brand; we are a movement driven by innovation and guided by purpose. Our commitment to quality, sustainability, and style sets us apart in the world of fashion. We believe that every piece of clothing tells a story, and we strive to create garments that resonate with our customers on a personal level. Join us on this journey as we redefine fashion for the modern world."
+                },
+                {
+                    "label": "Image",
+                    "key": "image_second",
+                    "type": "image",
+                    "placeholder": "Enter here...",
+                     "value": "themes/stylique/assets/images/about-image2.png"
+                }
+            ]
+        },
+        {
+            "title": "Counter",
+            "slug": "counter",
+            "key": "abouts_us_counter",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+               
+                {
+                    "label": "Counter",
+                    "key": "repeater",
+                    "type": "slider",
+                    "fields": ["small_text","content"],
+                    "placeholder": "Enter here...",
+                     "value": "[{\"small_text\":\"100+\",\"content\":\"Brand Partners\"},{\"small_text\":\"100%\",\"content\":\"Quality Guarantee\"},{\"small_text\":\"10,000+\",\"content\":\"Happy Customer\"},{\"small_text\":\"25,000+\",\"content\":\"Monthly Shipments\"}]"
+                }
+            ]
+        },
+        {
+            "title": "Team",
+            "slug": "team",
+            "key": "team",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "Meet Our Team"
+                },
+                {
+                    "label": "Team",
+                    "key": "repeater",
+                    "type": "slider",
+                    "fields": ["image","big_text","small_text","content"],
+                    "value": "[{\"image\":\"themes/stylique/assets/images/team-1.png\",\"big_text\":\"Emily Johnson\",\"content\":\"Former tech engineer with a passion for making cutting-edge technology accessible to everyone.\",\"small_text\":\"Founder CEO\"},{\"image\":\"themes/stylique/assets/images/team-2.png\",\"big_text\":\"Michael Chen\",\"content\":\"Supply chain expert focused on creating efficient, eco-friendly distribution systems\",\"small_text\":\"Heade Of Oprations\"}]"
+                }
+            ]
+        }
+    ]
+}

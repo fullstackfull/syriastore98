@@ -1,0 +1,25 @@
+{
+    "name": "workdo/sign-in-with-twitter",
+    "description": "Description for sign-in-with-twitter package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\SignInWithTwitter\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\SignInWithTwitter\\app\\Providers\\SignInWithTwitterServiceProvider"
+            ]
+        }
+    }
+}

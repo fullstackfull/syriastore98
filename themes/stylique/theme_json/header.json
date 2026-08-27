@@ -1,0 +1,112 @@
+{
+    "title": "Header",
+    "slug": "header",
+    "detail": "Header settings such as, site top bar, site menu and so on.",
+    "icon": "fas fa-arrows-up-to-line",
+    "sections": [
+        {
+            "title": "Menu Bar",
+            "slug": "menu_bar",
+            "key": "menu_bar",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Menu",
+                    "key": "menu",
+                    "type": "menu",
+                    "placeholder": "Select menu",
+                    "value": ""
+                }
+            ]
+        },
+        {
+            "title": "Logo",
+            "slug": "logo",
+            "key": "header",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Logo",
+                    "key": "logo",
+                    "type": "image",
+                    "value": "themes/stylique/assets/images/logo.png"
+                },
+                {
+                    "label": "Favicon",
+                    "key": "favicon",
+                    "type": "image",
+                    "value": "themes/stylique/assets/images/favicon.png"
+                }
+            ]
+        },
+        {
+            "title": "Search Bar",
+            "slug": "search",
+            "key": "header_search",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "value": "Search",
+                    "placeholder": "Enter here..."
+                }
+            ]
+        },
+        {
+            "title": "Login Button",
+            "slug": "login",
+            "key": "header_login",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                }
+            ]
+        },
+        {
+            "title": "Wishlist Button",
+            "slug": "wishlist",
+            "key": "header_wishlist",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                }
+            ]
+        },
+        {
+            "title": "Cart Button",
+            "slug": "cart",
+            "key": "header_cart",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                }
+            ]
+        }
+    ]
+}

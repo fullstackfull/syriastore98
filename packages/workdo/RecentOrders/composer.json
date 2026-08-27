@@ -1,0 +1,26 @@
+{
+    "name": "workdo/recent-orders",
+    "description": "Description for recent-orders package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\RecentOrders\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\RecentOrders\\app\\Providers\\RecentOrdersServiceProvider",
+                "Workdo\\RecentOrders\\app\\Providers\\RecentOrdersSetting"
+            ]
+        }
+    }
+}

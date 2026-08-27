@@ -1,0 +1,10 @@
+{
+    "name": "ProductBarCode",
+    "alias": "Product BarCode",
+    "description": "",
+    "priority": 8,
+    "version":1.5,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"product-bar-code"
+}

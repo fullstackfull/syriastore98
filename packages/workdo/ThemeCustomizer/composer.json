@@ -1,0 +1,26 @@
+{
+    "name": "workdo/theme-customizer",
+    "description": "Description for theme-customizer package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\ThemeCustomizer\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\ThemeCustomizer\\app\\Providers\\ThemeCustomizerServiceProvider",
+                "Workdo\\ThemeCustomizer\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

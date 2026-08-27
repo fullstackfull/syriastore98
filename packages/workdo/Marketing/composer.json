@@ -1,0 +1,25 @@
+{
+    "name": "workdo/marketing",
+    "description": "Description for marketing package",
+    "type": "library",
+    "license": "MIT",
+    "require": {"jeroendesloovere/vcard": "^1.7"},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\Marketing\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\Marketing\\app\\Providers\\MarketingServiceProvider"
+            ]
+        }
+    }
+}

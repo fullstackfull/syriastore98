@@ -1,0 +1,26 @@
+{
+    "name": "workdo/bundle-product",
+    "description": "Description for bundle-product package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\BundleProduct\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\BundleProduct\\app\\Providers\\BundleProductServiceProvider",
+                "Workdo\\BundleProduct\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

@@ -1,0 +1,10 @@
+{
+    "name": "BundleProduct",
+    "alias": "Bundle Product",
+    "description": "",
+    "priority": 12,
+    "version":1.6,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"bundle-product"
+}

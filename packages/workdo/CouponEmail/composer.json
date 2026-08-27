@@ -1,0 +1,26 @@
+{
+    "name": "workdo/coupon-email",
+    "description": "Description for coupon-email package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\CouponEmail\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\CouponEmail\\app\\Providers\\CouponEmailServiceProvider",
+                "Workdo\\CouponEmail\\app\\Providers\\ViewComposer"
+            ]
+        }
+    }
+}

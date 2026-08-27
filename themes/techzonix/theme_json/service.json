@@ -1,0 +1,28 @@
+{
+    "title": "Service",
+    "slug": "service",
+    "detail": "Service settings .",
+    "icon": "fas fa-arrows-up-to-line",
+    "sections": [
+        {
+            "title": "Service",
+            "slug": "form",
+            "key": "service",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Slider",
+                    "key": "repeater",
+                    "type": "slider",
+                    "fields": ["image", "title", "content"],
+                    "value": "[{\"image\":\"themes/techzonix/assets/images/service.png\",\"title\":\"Free Shipping\",\"content\":\"On orders over $100\"},{\"image\":\"themes/techzonix/assets/images/service2.png\",\"title\":\"Secure Payment\",\"content\":\"100% secure transactions\"},{\"image\":\"themes/techzonix/assets/images/service3.png\",\"title\":\"Quality Guarantee\",\"content\":\"30-day money-back guarantee\"},{\"image\":\"themes/techzonix/assets/images/service4.png\",\"title\":\"24/7 Support\",\"content\":\"Customer support all day\"}]"
+                  }
+            ]
+        }
+    ]
+}

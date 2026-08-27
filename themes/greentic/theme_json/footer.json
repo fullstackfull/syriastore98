@@ -1,0 +1,126 @@
+{
+    "title": "Footer",
+    "slug": "footer",
+    "detail": "Footer settings.",
+    "icon": "",
+    "sections": [
+        {
+            "title": "Footer",
+            "slug": "footer",
+            "key": "footer",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Description",
+                    "key": "description",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "Delivering farm-fresh organic groceries straight to your doorstep since 2010."
+                },
+                {
+                    "label": "Logo",
+                    "key": "logo",
+                    "type": "image",
+                    "placeholder": "Enter here...",
+                    "value": "themes/greentic/assets/images/footer-logo.png"
+                },
+                {
+                    "label": "Social Link",
+                    "key": "repeater",
+                    "type": "slider",
+                    "fields": ["icon","link"],
+                    "value": "[{\"icon\":\"fab fa-facebook-f\",\"link\":\"https://www.facebook.com/\"},{\"icon\":\"fab fa-x-twitter\",\"link\":\"https://x.com/\"},{\"icon\":\"fab fa-instagram\",\"link\":\"https://www.instagram.com/\"},{\"icon\":\"fab fa-pinterest\",\"link\":\"https://in.pinterest.com/\"}]"
+                }
+            ]
+        },
+        {
+            "title": "Menu",
+            "slug": "footer_menu",
+            "key": "footer_menu",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Menu",
+                    "key": "repeater",
+                    "type": "slider",
+                    "fields": ["title","menu"],
+                    "value": "[{\"title\":\"Quick Links\",\"menu\":\"\"},{\"title\":\"Customer Service\",\"menu\":\"\"}]"
+                }
+            ]
+        },
+        {
+            "title": "Contact Info",
+            "slug": "contact-info",
+            "key": "footer_contact",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Title",
+                    "key": "title",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "Contact Us"
+                },
+                {
+                    "label": "Phone",
+                    "key": "phone",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "(555) 123-4567"
+                },
+                {
+                    "label": "Email",
+                    "key": "email",
+                    "type": "text",
+                    "placeholder": "Enter here...",
+                    "value": "hello@greentic.com"
+                },
+                {
+                    "label": "Address",
+                    "key": "address",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "123 Organic Way, Green City"
+                }                
+            ]
+        },
+        {
+            "title": "Copy Rights",
+            "slug": "copy_right",
+            "key": "footer_copy_right",
+            "settings": [
+                {
+                    "label": "On/Off",
+                    "key": "status",
+                    "type": "switch",
+                    "value": 1
+                },
+                {
+                    "label": "Description",
+                    "key": "description",
+                    "type": "textarea",
+                    "rows": 4,
+                    "placeholder": "Enter here...",
+                    "value": "© 2025, Greentic rights reserved."
+                }                
+            ]
+        }
+    ]
+}

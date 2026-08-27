@@ -1,0 +1,1085 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Store;
+
+use App\Models\AccountProfile;
+use App\Models\AppSetting;
+use App\Models\Country;
+use App\Models\State;
+use App\Models\City;
+use App\Models\Category;
+use App\Models\Page;
+use App\Models\User;
+use App\Models\Wishlist;
+use App\Models\Product;
+use App\Models\Customer;
+use App\Models\DeliveryAddress;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+use App\Http\Controllers\Api\ApiController;
+use App\Models\Newsletter;
+use App\Models\Order;
+use App\Models\Utility;
+use App\Models\SupportConversion;
+use App\Models\SupportTicket;
+use App\Mail\ProdcutMail;
+use App\Models\OrderRefund;
+use App\Models\OrderRefundSetting;
+use App\Models\ProductVariant;
+use App\Models\Setting;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Crypt;
+use Qirolab\Theme\Theme;
+use App\Models\OrderNote;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Http;
+class AccountProfileController extends Controller
+{
+
+    public function index(Request $request)
+    {
+        if (auth('customers')->user()) {
+            $store = getStore($request->route('storeSlug'));            
+            $recent_orders = Order::where('customer_id', auth('customers')->user()->id)->take(10)->orderBy('created_at', 'desc')->get();
+            return view('front_end.pages.account', compact('store', 'recent_orders'));
+        } else {
+            return redirect()->back()->with('error', __('kindly please login  and explore our website'));
+        }
+    }
+
+    public function create()
+    {
+    }
+
+    public function store(Request $request)
+    {
+        $store = getStore($request->route('storeSlug'));
+        $rule['first_name'] = 'required';
+        $rule['email'] = 'required';
+
+        if ($request->old_password && $request->new_password) {
+            $rule['old_password'] = 'required';
+            $rule['new_password'] = 'required|confirmed';
+        }
+
+        $validator = Validator::make($request->all(), $rule);
+        if ($validator->fails()) {
+            $messages = $validator->getMessageBag();
+            return redirect()->back()->with('error', $messages->first());
+        }
+        $customer               = Customer::Where('id', $request->customer_id)->first();
+
+        if ($request->old_password && !Hash::check($request->old_password, $customer->password)) {
+            return redirect()->back()->with('error', __("Old Password Does not match!"));
+        }
+        $customer->first_name   = $request->first_name;
+        $customer->last_name    = $request->last_name;
+        $customer->email        = $request->email;
+        $customer->mobile       = $request->mobile;
+
+        if ($request->new_password) {
+            $customer->password = Hash::make($request->new_password);
+        }
+        $customer->save();
+
+        return redirect()->back()->with('success', __('Account details saved successfully.'));
+    }
+
+
+    public function profile_update(Request $request, $slug)
+    {
+        $store = getStore($slug);
+        
+        $rule['first_name'] = 'required';
+        $rule['email'] = 'required';
+
+        $validator = \Validator::make($request->all(), $rule);
+        if ($validator->fails()) {
+            $messages = $validator->getMessageBag();
+            return redirect()->back()->with('error', $messages->first());
+        }
+
+        $user_id = auth('customers')->user()->id;
+
+        $user               = Customer::Where('id', $user_id)->first();
+        $user->first_name   = $request->first_name;
+        $user->last_name    = $request->last_name;
+        $user->email        = $request->email;
+        $user->mobile       = $request->mobile;
+        $user->save();
+
+        return redirect()->back()->with('success', __('Contact successfully created.'));
+    }
+
+    public function password_change(Request $request, $slug = '')
+    {
+
+        $store = getStore($slug);
+        
+        # Validation
+        $rule['old_password'] = 'required';
+        $rule['new_password'] = 'required|confirmed';
+
+        $validator = \Validator::make($request->all(), $rule);
+        if ($validator->fails()) {
+            $messages = $validator->getMessageBag();
+            return redirect()->back()->with('error', $messages->first());
+        }
+
+        if (!empty($request->type) && ($request->type != 'admin' || $request->type != 'superadmin')) {
+            #Match The Old Password
+            if (!Hash::check($request->old_password, auth('customers')->user()->password)) {
+                return redirect()->back()->with('error', __("Old Password Does not match!"));
+            }
+
+            #Update the new Password
+            Customer::whereId(auth('customers')->user()->id)->update([
+                'password' => Hash::make($request->new_password)
+            ]);
+        } else {
+            #Match The Old Password
+            if (!Hash::check($request->old_password, auth()->user()->password)) {
+                return redirect()->back()->with('error', __("Old Password Does not match!"));
+            }
+
+            #Update the new Password
+            User::whereId(auth()->user()->id)->update([
+                'password' => Hash::make($request->new_password)
+            ]);
+        }
+
+
+        return redirect()->back()->with('success', __('Password update succefully.'));
+    }
+
+    public function states_list(Request $request, $slug)
+    {
+        $store = getStore($slug);
+       
+        $country_id = $request->country_id;
+
+        $state_list = State::orderBy('name','ASC')->where('country_id', $country_id)->pluck('name', 'id')->prepend(__('Select State'), '')->toArray();
+
+        return response()->json($state_list);
+    }
+
+
+public function city_list(Request $request, $slug)
+{
+
+
+
+    $store = getStore($slug);
+    $secret = User::find($store->created_by);
+
+    // 1. محاولة جلب البيانات من الـ API الخارجي إذا كان التوكن موجوداً
+    if ($secret && $secret->deliverysyria_secret && $request->shipping_label == 'Delivery Syria') {
+        try {
+            $response = Http::post('https://deliverysyria.com/api/secret/state', [
+                'secret' => $secret->deliverysyria_secret,
+                'state'  => $request->state_id, // القيمة القادمة من الفيو
+            ]);
+
+            // إذا نجح الاتصال بالـ API
+            if ($response->successful()) {
+                // جلب الداتا المرجعة كـ Array (مثل {"8": "damascusetest"})
+                $remoteCities = $response->json();
+
+                // دمج الخيار الافتراضي "Select City" مع القائمة المرجعة
+                $city_list = ['' => __('Select City')] + $remoteCities;
+
+                return response()->json($city_list);
+            }
+        } catch (\Exception $e) {
+            // في حال حدوث خطأ بالاتصال، يمكنك تسجيل الخطأ أو التجاوز لجلب المدن من القاعدة المحلية
+            \Log::error('DeliverySyria API Connection Error: ' . $e->getMessage());
+        }
+    }
+
+    // 2. Fallback (الخيار البديل): في حال فشل الـ API أو عدم وجود secret، نجلب من القاعدة المحلية
+    $state_id = $request->state_id;
+    
+    $city_list = City::where('state_id', $state_id)
+                     ->orderBy('name', 'ASC')
+                     ->pluck('name', 'id')
+                     ->prepend(__('Select City'), '')
+                     ->toArray();
+
+    return response()->json($city_list);
+}
+
+
+    public function city_list00(Request $request, $slug)
+    {
+
+
+
+        $store = getStore($slug);
+       
+        $state_id = $request->state_id;
+        $city_list = City::where('state_id', $state_id)->orderBy('name','ASC')->pluck('name', 'id')->prepend(__('Select City'), '')->toArray();
+        return response()->json($city_list);
+    }
+
+    // Addressbook start
+    public function add_address(Request $request, $slug)
+    {
+        $store = getStore($slug);
+       
+        $request->request->add(['store_id' => $store->id, 'slug' => $slug]);
+        $api = new ApiController();
+        $request['customer_id'] = auth('customers')->user()->id ?? null;
+        $data = $api->add_address($request, $slug);
+        $response = $data->getData();
+        if ($response->status == 1) {
+            return redirect()->back()->with('success', $response->data->message);
+        } else {
+            return redirect()->back()->with('error', $response->data->message);
+        }
+    }
+
+    public function address(Request $request, $slug)
+    {
+        // if (auth('customers')->user()) {
+            $store = getStore($slug);
+
+            if (auth('customers')->user()) {
+                $addresses = DeliveryAddress::where('customer_id', auth('customers')->user()->id)->orderBy('id', 'desc')->get();
+            } else {
+                $addresses = collect();
+            }
+
+            return view('front_end.pages.address', compact('store', 'addresses'));
+        // } else {
+        //     return redirect()->back()->with('error', __('kindly please login  and explore our website'));
+        // }
+    }
+
+    public function addressForm(Request $request)
+    {
+        $store = getStore($request->route('storeSlug'));
+        $address = null;
+        $id = $request->route('id');
+        
+        $countries = Country::get();
+        if ($id) {
+            $address = DeliveryAddress::where('id', $id)->first();
+        }
+
+        $return['html'] = view('front_end.pages.address-form', compact('store', 'address', 'countries'))->render();
+        return response()->json($return);
+    }
+
+    public function saveAddress(Request $request)
+    {
+        if (!$request->has('is_default')) {
+            $validator = \Validator::make($request->all(), [
+                'address_type' => 'required',
+                'full_name' => 'required',
+                'phone' => 'required',
+                'address' => 'required',
+                'city_id' => 'required',
+                'state_id' => 'required',
+                'postcode' => 'required',
+                'country_id' => 'required',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => $validator->errors()->first()
+                ]);
+            }
+        }
+
+        try {
+            $data = $request->all();
+            $data['customer_id'] = auth('customers')->id();
+            $data['default_address'] = $request->has('default_address') ? 1 : 0;
+
+            // If setting as default, update all other addresses to not default
+            if ($data['default_address'] == 1) {
+                DeliveryAddress::where('customer_id', $data['customer_id'])
+                    ->where('id', '!=', $request->id)
+                    ->update(['default_address' => 0]);
+            }
+
+            if ($request->has('id')) {
+                // Update existing address
+                $address = DeliveryAddress::where('id', $request->id)
+                    ->first();
+                
+                if (!$address) {
+                    return response()->json([
+                        'status' => false,
+                        'message' => __('Address not found')
+                    ]);
+                }
+
+                $address->update($data);
+                $message = __('Address updated successfully');
+                $address_id = $address->id;
+            } else {
+                // Create new address
+                $address = DeliveryAddress::create($data);
+                $message = __('Address added successfully');
+                $address_id = $address->id;
+            }
+
+            return response()->json([
+                'status' => true,
+                'message' => $message,
+                'address_id' => $address_id
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => false,
+                'message' => __('Something went wrong!')
+            ]);
+        }
+    }
+    
+    public function remove_address(Request $request)
+    {
+        DeliveryAddress::where('id', $request->id)->delete();
+
+         return response()->json([
+            'status' => true,
+            'message' =>__('Address removed successfully.')
+        ]);
+    }
+
+    public function get_addressbook_data(Request $request, $slug)
+    {
+        $store = getStore($slug);
+        if (!$store) {
+            $return['html_data'] = null;
+            $return['message'] = __('Store not found.');
+            return response()->json($return);
+        }
+        
+        $country_option = Country::orderBy('name','ASC')->pluck('name', 'id');
+        $DeliveryAddress = DeliveryAddress::where('id',$request->get('id'))->first();
+        $return['html'] = '';
+        if (empty($DeliveryAddress)) {
+            $DeliveryAddress = [];
+            $state_option = State::where('country_id',1)->orderBy('name','ASC')->pluck('name', 'id');
+            $city_option = City::where('country_id',1)->orderBy('name','ASC')->pluck('name', 'id');
+        } else {
+            $state_option = State::where('country_id',$DeliveryAddress->country_id)->orderBy('name','ASC')->pluck('name', 'id');
+            $city_option = City::where('state_id',$DeliveryAddress->state_id)->where('country_id',$DeliveryAddress->country_id)->orderBy('name','ASC')->pluck('name', 'id');
+            
+            $DeliveryAddress->country = $DeliveryAddress->country_id;
+            $DeliveryAddress->state = $DeliveryAddress->state_id;
+            $DeliveryAddress->city = $DeliveryAddress->city_id;
+
+
+            $return['html'] = view('front_end.sections.addressbook_edit', compact('slug', 'DeliveryAddress', 'country_option','state_option','city_option'))->render();
+        }
+
+        $return['addressbook_checkout_edit'] = view('front_end.sections.addressbook_checkout_edit', compact('DeliveryAddress', 'country_option','state_option','city_option'))->render();
+        $return['form_title'] = '<h2>' . __('Edit address') . '</h2>';
+        return response()->json($return);
+    }
+
+    public function update_addressbook_data(Request $request,$slug, $id)
+    {
+        $store = getStore($slug);
+        
+        $request->merge(['address_id' => $id, 'slug' => $slug, 'store_id' => $store->id]);
+        $api = new ApiController();
+        $data = $api->update_address($request, $slug);
+        $response = $data->getData();
+        if ($response->status == 1) {
+            return redirect()->back()->with('success', $response->data->message);
+        } else {
+            return redirect()->back()->with('error', $response->data->message);
+        }
+    }
+
+    public function delete_addressbook(Request $request, $slug)
+    {
+        DeliveryAddress::where('id', $request->id)->delete();
+    }
+    // Addressbook end
+
+    // Newsletter start
+    public function add_newsletter(Request $request)
+    {
+        $validator = \Validator::make(
+            $request->all(),
+            [
+                'email' => ['required', 'unique:newsletters'],
+            ]
+        );
+        if ($validator->fails()) {
+            $messages = $validator->getMessageBag();
+            $return['status'] = 'error';
+            $return['message'] = $messages->first();
+            return response()->json($return);
+        }
+
+        $newsletter                 = new Newsletter();
+        $newsletter->email         = $request->email;
+        if (auth()->user()) {
+            $newsletter->user_id         = auth('customers')->user()->id;
+        } else {
+            $newsletter->user_id         = '0';
+        }
+        $newsletter->save();
+
+        $return['status'] = 'success';
+        $return['message'] = __('Newsletter successfully subscribe.');
+        return response()->json($return);
+    }
+    // Newsletter end
+
+    // order list start
+    public function order_list(Request $request, $slug)
+    {
+        // if (auth('customers')->user()) {
+            $store = getStore($slug);
+            $filter_order = $request->get('filter_order') !== 'undefined' ?  $request->get('filter_order') : 'all';
+			if (auth('customers')->user()) {
+                $orders = Order::with(['refund'])->where('customer_id', auth('customers')->user()->id)->orderBy('id', 'desc')->where('store_id', $store->id)->paginate(10);
+			} else {
+				$orders = collect(); // Create an empty collection instead of an empty array
+			}
+
+            return view('front_end.pages.order', compact('orders','store', 'filter_order'));
+        // } else {
+        //     return redirect()->back();
+        // }
+    }
+    // order list end
+
+    public function order_page_filter(Request $request, $storeSlug)
+    {
+        $store = Store::where('slug', $storeSlug)->firstOrFail();
+        $store_id = $store->id;;
+
+        $page = $request->page ?? 1;
+
+        // Clean parameters
+        $filter_value = $request->filter_order !== 'undefined' ? $request->filter_order : 'all';
+
+        $orders_query = Order::with(['refund'])->where('customer_id', auth('customers')->user()->id)->orderBy('id', 'desc')->where('store_id', $store->id);
+
+        if (!empty($filter_value)) {
+            switch ($filter_value) {
+                case 'processing':
+                    $orders_query->where('delivered_status', 0);
+                    break;
+                case 'delivered':
+                    $orders_query->where('delivered_status', 1);
+                    break;
+                case 'cancelled':
+                    $orders_query->where('delivered_status', 2);
+                    break;
+                case 'return':
+                    $orders_query->where('delivered_status', 3);
+                    break;
+                case 'confirmed':
+                    $orders_query->where('delivered_status', 4);
+                    break;
+                case 'picked':
+                    $orders_query->where('delivered_status', 5);
+                    break;
+                case 'shipped':
+                    $orders_query->where('delivered_status', 6);
+                    break;
+                case 'partiallyPaid':
+                    $orders_query->where('delivered_status', 7);
+                    break;
+                case 'preOrder':
+                    $orders_query->where('delivered_status', 8);
+                    break;
+            }
+        }
+        $orders = $orders_query->paginate(5);
+
+        $data['html'] = view('front_end.pages.order_list_filter', compact(
+            'storeSlug',
+            'orders',
+        ))->render();
+        return $data;
+    }
+
+    // reward list start
+    public function reward_list(Request $request, $slug)
+    {
+        // if (auth('customers')->user()) {
+            $store = getStore($slug);
+			if (auth('customers')->user()) {
+				 $orders = Order::where('customer_id', auth('customers')->user()->id)->where('store_id',$store->id)->orderBy('id', 'desc')->paginate(10);
+			} else {
+				$orders = collect(); // Create an empty collection instead of an empty array
+			}
+
+            $return['html'] = view('front_end.sections.reward_list', compact('orders'))->render();
+            return response()->json($return);
+        // } else {
+        //     return redirect()->back()->with('error', __('kindly please login  and explore our website'));
+        // }
+    }
+    // reward list end
+
+    // order return list start
+    public function order_return_list(Request $request, $slug)
+    {
+        // if (auth('customers')->user()) {
+            $store = getStore($slug);
+
+            $order_refunds = OrderRefund::where('store_id', $store->id)
+                ->paginate(10);
+
+
+            $orders = collect();
+
+            $return['html'] = view('front_end.sections.order_return_list', compact('orders', 'order_refunds', 'store'))->render();
+            return response()->json($return);
+        // } else {
+        //     return redirect()->back()->with('error', __('kindly please login  and explore our website'));
+        // }
+    }
+    
+
+    public function delete_wishlist(Request $request, $slug)
+    {
+        Wishlist::where('id', $request->id)->delete();
+    }
+    // wishlist end
+
+    //support-ticket start
+    public function support_ticket(Request $request, $slug)
+    {
+        $store = getStore($slug);
+        if (auth('customers')->user()) {
+            $tickets = SupportTicket::where('customer_id', auth('customers')->user()->id)->orderBy('id', 'desc')->paginate(10);
+        } else {
+             $tickets = collect();
+        }
+        return view('front_end.pages.support_ticket', compact('store', 'slug', 'tickets'));
+        // $return['html'] = view('front_end.pages.support_ticket', compact('slug', 'tickets'))->render();
+        // return response()->json($return);
+    }
+
+    public function add_support_ticket(Request $request, $slug)
+    {
+        $store = getStore($slug);
+        $order_id = 0;
+        if(isset($request->order_id) && !empty($request->order_id)){
+            $order_id = $request->order_id;
+        }
+        $orders = Order::where('customer_id', auth('customers')->user()->id)->pluck('product_order_id', 'id');
+
+        $return['html'] = view('front_end.pages.add_tickets', compact('orders', 'slug', 'order_id'))->render();
+        return response()->json($return);
+    }
+
+    public function support_ticket_store(Request $request, $slug)
+    {
+        $store = getStore($slug);
+
+        $validator = \Validator::make(
+            $request->all(),
+            [
+                'title' => 'required',
+                'description' => 'required',
+            ]
+        );
+        if ($validator->fails()) {
+            $messages = $validator->getMessageBag();
+            return redirect()->back()->with('error', $messages->first());
+        }
+        $tickets                 = new SupportTicket();
+        $tickets->title          = $request->title;
+        $tickets->order_id          = $request->order_id;
+        $tickets->ticket_id = time();
+        $tickets->description    = $request->description;
+        $tickets->status        = 'open';
+        $tickets->customer_id       = auth('customers')->user()->id;
+        $tickets->store_id      = $store->id;
+        $tickets->created_by    = auth('customers')->user()->id;
+        $tickets->save();
+
+        $data              = [];
+        if($request->hasfile('attachments'))
+        {
+            $errors=[];
+                 foreach($request->file('attachments') as $filekey => $file)
+                {
+                    $file_size = $file->getSize();
+                    $result = Utility::updateStorageLimit(auth('customers')->user()->creatorId(), $file_size);
+                    if($result==1)
+                    {
+                        $imageName = $file->getClientOriginalName();
+                        $dir        = 'uploads/' . $store->id .'/tickets';
+                        $path = Utility::keyWiseUpload_file($request,'attachments',$imageName,$dir,$filekey,[]);
+
+                        if($path['flag'] == 1){
+                            $data[] = $path['url'];
+
+                        }
+                        else{
+                            $errors = __($path['msg']);
+                        }
+                    }
+                    else
+                    {
+                        return redirect()->back()->with('error', $result);
+                    }
+                }
+
+
+                $file   = 'tickets/' . $imageName;
+                $tickets->attachment    =  json_encode($data);
+                $tickets->save();
+
+        }
+
+        if ($request->attachment) {
+            $fileName = rand(10, 100) . '_' . time() . "_" . $request->attachment->getClientOriginalName();
+            $path = Utility::upload_file($request, 'attachment', $fileName, $dir, []);
+            if ($path['flag'] == '0') {
+                return redirect()->back()->with('error', $path['msg']);
+            }
+            $tickets->attachment    = $path['url'];
+            $tickets->save();
+        }
+
+        return redirect()->back()->with('success', __('Ticket successfully created.'));
+    }
+
+    public function edit_support_ticket(SupportTicket $tickets, $slug, $id)
+    {
+        $store = getStore($slug);
+        $tickets = SupportTicket::find($id);
+        $orders = Order::where('customer_id', auth('customers')->user()->id)->pluck('product_order_id', 'id');
+        $return['html'] = view('front_end.pages.support_ticket_edit', compact('tickets', 'slug', 'orders'))->render();
+        return response()->json($return);
+    }
+
+    public function update_support_ticket(Request $request, $slug, $id)
+    {
+
+        $store = getStore($slug);
+
+        $validator = \Validator::make(
+            $request->all(),
+            [
+                'title' => 'required',
+                'description' => 'required',
+            ]
+        );
+
+        if ($validator->fails()) {
+            $messages = $validator->getMessageBag();
+            return redirect()->back()->with('error', $messages->first());
+        }
+        $ticket           = SupportTicket::find($id);
+        if ($request->attachment) {
+            $dir        = 'uploads/' . getCurrentStore() . '/tickets';
+            $fileName = rand(10, 100) . '_' . time() . "_" . $request->attachment->getClientOriginalName();
+            $path = Utility::upload_file($request, 'attachment', $fileName, $dir, []);
+            if ($path['flag'] == '0') {
+                return redirect()->back()->with('error', $path['msg']);
+            }
+            $ticket->attachment      = $path['url'];
+        }
+
+        $data              = [];
+        if ($request->hasfile('attachments')) {
+            $data = json_decode($ticket->attachment, true);
+
+            foreach ($request->file('attachments') as $filekey => $file) {
+                $file_size = $file->getSize();
+                $result = Utility::updateStorageLimit(auth('customers')->user()->creatorId(), $file_size);
+                if ($result == 1) {
+                    $imageName = $file->getClientOriginalName();
+                    $dir        = 'uploads/' . getCurrentStore() . '/tickets';
+                    $path = Utility::keyWiseUpload_file($request, 'attachments', $imageName, $dir, $filekey, []);
+                    if ($path['flag'] == 1) {
+                        $data[] = $path['url'];
+                    } else {
+                        $errors = __($path['msg']);
+                    }
+                } else {
+                    return redirect()->back()->with('error', $result);
+                }
+                $file   = 'tickets/' . $imageName;
+            }
+        }
+        $ticket->attachment      = json_encode($data);
+        $ticket->title     = $request->title;
+        $ticket->order_id     = $request->order_id;
+        $ticket->description   = $request->description;
+        $ticket->customer_id       = $request->customer_id;
+        $ticket->save();
+
+        return redirect()->back()->with('success', __('Ticket successfully updated.'));
+    }
+
+    public function destroy_support_ticket(Request $request, $slug, $id)
+    {
+
+        SupportTicket::where('id', $id)->delete();
+        return redirect()->back()->with('error', __('Ticket successfully deleted.'));
+    }
+
+    public function attachmentDestroy($slug, $ticket_id, $id)
+    {
+
+        $ticket      = SupportTicket::find($ticket_id);
+        $attachments = json_decode($ticket->attachment);
+        if (isset($attachments[$id])) {
+            $file_path = $attachments[$id];
+            $result = Utility::changeStorageLimit(auth()->user()->creatorId(), $file_path);
+            $file_path = '/tickets/' . $ticket->ticket_id . '/' . $attachments[$id];
+            unset($attachments[$id]);
+            $ticket->attachment = json_encode(array_values($attachments));
+
+            $ticket->save();
+
+            return redirect()->back()->with('success', __('Attachment deleted successfully'));
+        } else {
+            return redirect()->back()->with('error', __('Attachment is missing'));
+        }
+    }
+
+    public function reply_support_ticket(Request $request, $slug, $id)
+    {
+        $ticket    = SupportTicket::where('id', '=', $id)->first();
+        if ($ticket) {
+            $return['html'] = view('front_end.pages.reply_support_ticket', compact('ticket', 'slug'))->render();
+            return response()->json($return);
+        } else {
+            return redirect()->back()->with('error', __('Some thing is wrong'));
+        }
+    }
+
+    public function ticket_reply(Request $request, $slug, $id)
+    {
+        $store = getStore($slug);
+        if (!$store) {
+            return redirect()->back()->with('error', __('Something went wrong!'));
+        }
+        $ticket = SupportTicket::where('id', '=', $id)->first();
+        if (!$ticket) {
+            return redirect()->back()->with('error', __('Something went wrong!'));
+        }
+        $user = auth()->user();
+        if ($ticket) {
+            $validator = \Validator::make(
+                $request->all(),
+                [
+                    'reply_description' => 'required',
+                ]
+            );
+
+            if ($validator->fails()) {
+                $messages = $validator->getMessageBag();
+                return redirect()->back()->with('error', $messages->first());
+            }
+            $post                = [];
+            $post['sender']      = 'user';
+            $post['ticket_id']   = $ticket->id;
+            $post['description'] = $request->reply_description;
+            $data                = [];
+            if ($request->hasfile('reply_attachments')) {
+
+
+                foreach ($request->file('reply_attachments') as $filekey => $file) {
+                    $imageName = $file->getClientOriginalName();
+                    $dir    = 'uploads/' . getCurrentStore() . '/reply_tickets';
+                    $path = Utility::keyWiseUpload_file($request, 'reply_attachments', $imageName, $dir, $filekey, []);
+                    if ($path['flag'] == 1) {
+                        $data[] = $path['url'];
+                    } elseif ($path['flag'] == 0) {
+                        $errors = __($path['msg']);
+                    }
+                }
+            }
+            $post['attachments'] = json_encode($data);
+            $post['customer_id'] = auth('customers')->user()->id;
+            $post['store_id'] = $store->id;
+            $conversion          = SupportConversion::create($post);
+            $ticket->status = 'In Progress';
+            $ticket->update();
+
+            return redirect()->back()->with('success', __('Reply added successfully') . ((isset($error_msg)) ? '<br> <span class="text-danger">' . $error_msg . '</span>' : '') . ((isset($result) && $result != 1) ? '<br> <span class="text-danger">' . $result . '</span>' : ''));
+        } else {
+            return redirect()->back()->with('error', __('Something is wrong'));
+        }
+    }
+
+    public function customerorder($slug, $order_id)
+    {
+        $id = Crypt::decrypt($order_id);
+        $store = getStore($slug);
+        if (empty($store)) {
+            return redirect()->back()->with('error', __('Store not available'));
+        }
+        $order = Order::order_detail($id);
+        $order_note = OrderNote::where('order_id', $id)
+        ->where('note_type', 'to_customer')
+        ->get();
+        return view('front_end.sections.order_view', compact('slug', 'store', 'order','order_note'));
+    }
+
+    public function downloadable_prodcut(Request $request, $slug)
+    {
+        $store = getStore($slug);
+        if (empty($store)) {
+            return response()->json(
+                [
+                    'status' => __('error'),
+                    'message' => __('Page Not Found.'),
+                ]
+            );
+        }
+        $order = Order::order_detail($request->order_id);
+        $o_data = Order::where('id', $request->order_id)->first();
+
+        $settings = Setting::where('store_id', $o_data->store_id)->pluck('value', 'name')->toArray();
+        if ($o_data->delivered_status == 1) {
+
+            if (isset($settings['MAIL_DRIVER']) && !empty($settings['MAIL_DRIVER'])) {
+                try {
+                    config(
+                        [
+                            'mail.driver' => $settings['MAIL_DRIVER'],
+                            'mail.host' => $settings['MAIL_HOST'],
+                            'mail.port' => $settings['MAIL_PORT'],
+                            'mail.encryption' => $settings['MAIL_ENCRYPTION'],
+                            'mail.username' => $settings['MAIL_USERNAME'],
+                            'mail.password' => $settings['MAIL_PASSWORD'],
+                            'mail.from.address' => $settings['MAIL_FROM_ADDRESS'],
+                            'mail.from.name' => $settings['MAIL_FROM_NAME'],
+                        ]
+                    );
+
+
+                    Mail::to(
+                        [
+                            $order['billing_informations']['email'],
+                        ]
+                    )->send(new ProdcutMail($order, $request['download_product'], $store));
+
+                    return response()->json(
+                        [
+                            'status' => __('success'),
+                            'msg' => __('Please check your email'),
+                            'message' => __('successfully send'),
+                        ]
+                    );
+                } catch (\Exception $e) {
+                    return response()->json(
+                        [
+                            'status' => __('error'),
+                            'msg' => __('Please contact your shop owner'),
+                            'message' => __('E-Mail has been not sent due to SMTP configuration'),
+                        ]
+                    );
+                }
+            } else {
+                return response()->json(
+                    [
+                        'status' => __('error'),
+                        'msg' => __('Please contact your shop owner'),
+                        'message' => __('E-Mail has been not sent due to SMTP configuration'),
+                    ]
+                );
+            }
+        }
+    }
+
+    public function order_refund(Request $request, $slug, $id)
+    {
+        $order_refunds = null;
+        if(isset($request->refund) && $request->refund == true)
+        {
+            $order = Order::order_detail($id);
+        }
+        else
+        {
+            $order_refunds = OrderRefund::find($id);
+            $order = Order::order_detail($order_refunds->order_id);
+        }
+        $store = getStore($slug);
+        $pages = Page::where('store_id', $store->id)->get();
+        $RefundStatus = OrderRefundSetting::where('store_id',$store->id)
+                    ->pluck('is_active', 'name')->toArray();
+        $refund_order = OrderRefund::RefundReason();
+        $return['html'] = view('front_end.pages.refund_order', compact('order', 'store', 'order_refunds', 'pages', 'RefundStatus', 'refund_order'))->render();
+        return response()->json($return);
+    }
+
+
+    public function order_refund_request(Request $request, $slug, $id)
+    {
+        $validator = \Validator::make(
+            $request->all(),
+            [
+                'product_refund_id' => 'required',
+                'order_id' => 'required',
+            ]
+        );
+
+        if ($validator->fails()) {
+            $messages = $validator->getMessageBag();
+            return redirect()->back()->with('error', $messages->first());
+        }
+        $productRefundIds = $request->product_refund_id;
+        $quantities = $request->quantity;
+        $returnPrices = $request->return_price;
+
+        $order = Order::find($request->order_id);
+        $productJson = json_decode($order->product_json, true);
+        $total_product_price = 0.0;
+        foreach ($productJson as $key => &$product)
+        {
+            $old_qty = $product['qty'];
+            if(in_array($product['product_id'],$request->product_refund_id))
+            {
+                $quantitie = (array_key_exists($key,$quantities)) ?  $quantities[$key] : 0;
+                $product['qty'] = $product['qty'] - $quantitie;
+
+            }
+            $product['final_price'] = ($product['final_price'] * $product['qty']) / $old_qty;
+
+            $total_product_price = $total_product_price + $product['final_price'];
+        }
+        $grand_total_price = ($total_product_price + $order->delivery_price + $order->tax_price) - $order->coupon_price;
+        $order->final_price = $grand_total_price;
+        $order->product_price = $total_product_price;
+        $order->product_json = json_encode($productJson);
+        $order->save();
+
+        $store = getStore($slug);
+
+        $order_refund                    = new OrderRefund();
+        $order_refund->order_id          = $id;
+        $order_refund->refund_status     = 'Processing';
+        $refund                          = $request->product_refund_id;
+        $product_refund_data = [];
+
+        foreach ($refund as $index => $product_refund_id) {
+            $return_price = $request->return_price[$index];
+            $quantity = $request->quantity[$index];
+
+            $product_refund_data[] = [
+                'product_refund_id' => $product_refund_id,
+                'return_price' => $return_price,
+                'quantity' => $quantity,
+            ];
+        }
+        $order_refund->product_refund_id = json_encode($product_refund_data);
+
+        $order_refund->store_id          = $store->id;
+
+        $data              = [];
+        if ($request->hasfile('attachments')) {
+            foreach ($request->file('attachments') as $filekey => $file) {
+                $imageName = $file->getClientOriginalName();
+                $dir        = 'uploads/' . $store->id . '/order_refund';
+                $path = Utility::keyWiseUpload_file($request, 'attachments', $imageName, $dir, $filekey, []);
+
+                if ($path['flag'] == 1) {
+                    $data[] = $path['url'];
+                } else {
+                    $errors = __($path['msg']);
+                }
+                $file   = 'order_refund/' . $imageName;
+                $order_refund->attachments    =  json_encode($data);
+                $order_refund->save();
+            }
+        }
+        $order_refund->refund_reason = $request->refund_reason;
+        $order_refund->custom_refund_reason = $request->custom_refund_reason;
+        $order_refund->product_refund_price = str_replace('$', '', $request->product_sub_total);
+        $order_refund->save();
+
+        return redirect()->back()->with('success', __('Refund Request Send successfully!'));
+    }
+
+    public function change_refund_cart(Request $request, $slug)
+    {
+        $quantity = $request->quantity;
+        $CURRENCY = \App\Models\Utility::GetValueByName('CURRENCY', getCurrentStore());
+        $final_price = 0;
+
+        $product = Product::find($request->product_id);
+        if ($product->variant_product == 0) {
+            $product_orginal_price = $product->price - $product->discount_amount;
+            $final_price = $product_orginal_price * $quantity;
+        } else {
+            $product = ProductVariant::where('id', $product->id)->first();
+            $final_price += $product->price * $quantity;
+        }
+        $order = Order::order_detail($request->order_id);
+        if (!$order) {
+            return response()->json(['error' => __('Order or product not found')], 404);
+        }
+
+        $return['product_price'] = currency_format_with_sym( $final_price, getCurrentStore()) ?? SetNumberFormat($final_price);
+        $return['CURRENCY'] = $CURRENCY;
+        $return['tax_price'] = currency_format_with_sym( $order['tax_price'], getCurrentStore()) ?? SetNumberFormat($order['tax_price']);
+        $return['discount_price'] = currency_format_with_sym( (($order['coupon_info']) ?  $order['coupon_info']['discount_amount'] : 0), getCurrentStore()) ?? SetNumberFormat(($order['coupon_info']) ?  $order['coupon_info']['discount_amount'] : 0);
+        $return['delivered_charge'] = currency_format_with_sym( $order['delivered_charge'], getCurrentStore()) ?? SetNumberFormat($order['delivered_charge']);
+
+        return response()->json($return);
+    }
+
+    public function add_address_form(Request $request, $slug) {
+        $store = getStore($slug);
+        $country_option = Country::orderBy('name', 'ASC')->pluck('name', 'id')->toArray();
+        return view('front_end.sections.addressbook_add', compact('country_option', 'slug'));
+    }
+
+    public function edit_address_form(Request $request, $slug)
+    {
+        if (!auth('customers')->user()) {
+            return redirect()->back()->with('error', __('Unauthenticated.'));
+        }
+        $store = getStore($slug);
+        $country_option = Country::orderBy('name','ASC')->pluck('name', 'id');
+        $DeliveryAddress = DeliveryAddress::find($request->id);
+        $return['html'] = '';
+        if (empty($DeliveryAddress)) {
+            $DeliveryAddress = [];
+        } else {
+            $DeliveryAddress->country = $DeliveryAddress->country_id;
+            $DeliveryAddress->state = $DeliveryAddress->state_id;
+            $DeliveryAddress->city = $DeliveryAddress->city_id;
+
+        }
+
+
+        return view('front_end.sections.addressbook_edit', compact('slug', 'DeliveryAddress', 'country_option'));
+    }
+
+    public function getStates(Request $request)
+    {
+        $countryId = $request->country_id;
+        $states = State::where('country_id', $countryId)
+            ->orderBy('name')
+            ->get(['id', 'name']);
+        
+        return response()->json($states);
+    }
+
+    public function getCities(Request $request)
+    {
+        $stateId = $request->state_id;
+        $cities = City::where('state_id', $stateId)
+            ->orderBy('name')
+            ->get(['id', 'name']);
+        
+        return response()->json($cities);
+    }
+}

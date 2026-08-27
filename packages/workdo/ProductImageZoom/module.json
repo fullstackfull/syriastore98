@@ -1,0 +1,10 @@
+{
+    "name": "ProductImageZoom",
+    "alias": "Product Image Zoom",
+    "description": "",
+    "priority": 480,
+    "version":1.1,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"product-image-zoom"
+}

@@ -1,0 +1,10 @@
+{
+    "name": "AdditionalCustomFields",
+    "alias": "Additional Custom Fields",
+    "description": "",
+    "priority": 500,
+    "version":1.2,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name":"additional-custom-fields"
+}

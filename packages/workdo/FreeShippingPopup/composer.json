@@ -1,0 +1,25 @@
+{
+    "name": "workdo/free-shipping-popup",
+    "description": "Description for free-shipping-popup package",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\FreeShippingPopup\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "WorkDo",
+            "email": "support@workdo.io"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\FreeShippingPopup\\app\\Providers\\FreeShippingPopupServiceProvider"
+            ]
+        }
+    }
+}
