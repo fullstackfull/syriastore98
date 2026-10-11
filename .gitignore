@@ -1,3 +1,4 @@
 /public/uploads/
 /storage/app/public/
 /vendor/
+/storage/logs/*.log
