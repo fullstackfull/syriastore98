@@ -2920,13 +2920,21 @@ public function saveStoreFcmToken(Request $request)
 
     public function place_order(Request $request, $slug = '')
     {
-        $slug = !empty($slug) ? $slug : '';
-        $store = getStore($slug);
-        if (empty($store)) {
-            return $this->error(['message' => __('Store not found.')], __("Store not found."));
-        }
-        
-        $settings = Utility::Setting($store->id);
+    $slug = !empty($slug) ? $slug : '';
+    $store = getStore($slug);
+    if (empty($store)) {
+        return $this->error(['message' => __('Store not found.')], __("Store not found."));
+    }
+
+    // ✅ 1. أضف هذا السطر هنا لتعريف المتغير بشكل صحيح
+    $storeId = $store->id;
+
+    // ✅ 2. الآن سيعمل الكود بشكل صحيح لأن $storeId يحتوي على قيمة
+$currentCurrencyCode = \App\Models\Utility::GetValueByName('CURRENCY', $storeId) ?: 'USD';
+$currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', $storeId) ?: '$';
+    $settings = Utility::Setting($storeId); // ✅ يفضل استخدام $storeId هنا أيضاً للاتساق
+    
+    
         $user = Cache::remember('admin_details', 3600, function () {
             return User::where('type','admin')->first();
         });
@@ -3189,6 +3197,10 @@ public function saveStoreFcmToken(Request $request)
         $order->coupon_price = $coupon_price;
         $order->delivery_price = $delivery_price;
         $order->tax_price = $tax_price;
+        $order->currency_code = $currentCurrencyCode;
+        $order->currency_symbol = $currentCurrencySymbol;
+
+
         if (!\Auth::guard('customers')->user()) {
             if ($plan->shipping_method == 'on') {
                 $order->final_price = $data['shipping_total_price'];
@@ -6702,6 +6714,10 @@ public function saveStoreFcmToken(Request $request)
         if (empty($store)) {
             return $this->error(['message' => __('Store not found.')], __("Store not found."));
         }
+            $storeId = $store->id;
+
+$currentCurrencyCode = \App\Models\Utility::GetValueByName('CURRENCY', $storeId) ?: 'USD';
+$currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', $storeId) ?: '$';
         $settings = Setting::where('store_id', $store->id)->pluck('value', 'name')->toArray();
 
         if (auth('customers')->user()) {
@@ -7093,6 +7109,11 @@ public function saveStoreFcmToken(Request $request)
         $order->coupon_price = $order_array['coupon_info']['discount_amount'];
         $order->delivery_price = $order_array['delivery_charge'];
         $order->tax_price = $order_array['tax']['tax_price'];
+        
+        $order->currency_code = $currentCurrencyCode;
+        $order->currency_symbol = $currentCurrencySymbol;
+
+
         if (!auth('customers')->user()) {
             if ($plan->shipping_method == "on") {
                 $order->final_price = (float)$order_array['delivery_charge'];

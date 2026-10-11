@@ -8,6 +8,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Laravel\Sanctum\Http\Middleware\CheckAbilities;
 use App\Http\Controllers\Api\DeliverySyriaOrderController;
+use App\Http\Controllers\DeliveryBoyNotificationController;
+use App\Http\Controllers\Api\DeliveryBoyApiController;
+
+use App\Http\Controllers\DeliverySyriaStatusController;
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -40,7 +44,9 @@ Route::post(
 
 
 Route::post('{slug}/register', [AuthController::class, 'register'])->middleware(['APILog']); 
-Route::post('{slug}/login', [AuthController::class, 'login'])->middleware(['APILog']);
+Route::post('adminlogin', [DashboardController::class, 'login'])
+    ->middleware(['AdminApiLog', 'throttle:auth']);
+
 Route::post('{slug}/forgot-password-send-otp', [AuthController::class, 'forgot_password_send_otp'])->middleware(['APILog']);
 Route::post('{slug}/forgot-password-verify-otp', [AuthController::class, 'forgot_password_verify_otp'])->middleware(['APILog']);
 Route::post('{slug}/forgot-password-save', [AuthController::class, 'forgot_password_save'])->middleware(['APILog']);
@@ -133,7 +139,10 @@ Route::prefix('admin')->as('admin.')->group(function(){
   Route::post('adminlogout', [DashboardController::class, 'logouto']);
 
 
+Route::get('/customer/orders', [DashboardController::class, 'getCustomerOrdersApi'])
+    ->middleware(['custom.auth', 'AdminApiLog']);
 
+Route::post('searchCustomerByName', [DashboardController::class, 'searchCustomerByName'])->middleware(['custom.auth', 'AdminApiLog']);
 
 Route::post(
     'store/fcm-token',
@@ -183,6 +192,13 @@ Route::post(
     Route::get('vieworder', [DashboardController::class, 'ViewOrder'])->middleware(['custom.auth','AdminApiLog']);
 
 
+Route::post('assignOrders', [DashboardController::class, 'assignOrder'])->middleware(['custom.auth','AdminApiLog']);
+
+
+    Route::get('indexAllPlan', [DashboardController::class, 'indexAllPlan'])->middleware(['custom.auth', 'AdminApiLog']);
+    Route::post('updateStoreLanguage', [DashboardController::class, 'updateStoreLanguage'])->middleware(['custom.auth', 'AdminApiLog']);
+    Route::get('getAvailableLanguages', [DashboardController::class, 'getAvailableLanguages'])->middleware(['custom.auth', 'AdminApiLog']);
+
 
       Route::post(
         '/orders/notes/create',
@@ -194,7 +210,22 @@ Route::post(
         [DashboardController::class, 'DeleteOrderNote']
     );
 
+Route::post('update-customer', [DashboardController::class, 'updateCustomerInfo'])->middleware(['custom.auth', 'AdminApiLog']);
+Route::get('customerlist', [DashboardController::class, 'CustomerList'])->middleware(['custom.auth', 'AdminApiLog']);
+Route::delete('destroyCustomer', [DashboardController::class, 'destroy'])->middleware(['custom.auth', 'AdminApiLog']);
 
+
+
+
+
+Route::post('AddCustomer', [DashboardController::class, 'addCustomer'])->middleware(['custom.auth', 'AdminApiLog']);
+    Route::post('createOrderViaApi', [DashboardController::class, 'createOrderViaApi'])->middleware(['custom.auth', 'AdminApiLog']);
+    Route::get('getActivePaymentMethods', [DashboardController::class, 'getActivePaymentMethods'])->middleware(['custom.auth', 'AdminApiLog']);
+
+    Route::get('Top_orders', [DashboardController::class, 'Top_orders'])->middleware(['custom.auth','AdminApiLog']);
+
+    Route::post('createStoreApi', [DashboardController::class, 'createStoreApi'])->middleware(['custom.auth','AdminApiLog']);
+    Route::post('updateStoreOwnerInfo', [DashboardController::class, 'updateStoreOwnerInfo'])->middleware(['custom.auth', 'AdminApiLog']);
 
 
     Route::delete('deleteorder', [DashboardController::class, 'DeleteOrder'])->middleware(['custom.auth','AdminApiLog']);
@@ -210,12 +241,42 @@ Route::post(
     Route::get('createreview', [DashboardController::class, 'CreateReview'])->middleware(['custom.auth','AdminApiLog']);
     Route::get('categoryproduct', [DashboardController::class, 'CategoryProduct'])->middleware(['custom.auth','AdminApiLog']);
     Route::post('addreview', [DashboardController::class, 'AddReview'])->middleware(['custom.auth','AdminApiLog']);
-    Route::delete('deletereview', [DashboardController::class, 'DeleteReview'])->middleware(['custom.auth','AdminApiLog']);
+Route::delete('deletereview/{id}', [DashboardController::class, 'DeleteReview'])->middleware(['custom.auth','AdminApiLog']);
     Route::post('updatereview', [DashboardController::class, 'UpdateReview'])->middleware(['custom.auth','AdminApiLog']);
     Route::post('reviewstatus', [DashboardController::class, 'ReviewStatus'])->middleware(['custom.auth','AdminApiLog']);
 
     Route::get('productdropdown', [DashboardController::class, 'ProductDropdown'])->middleware(['custom.auth','AdminApiLog']);
     Route::post('searchproduct', [DashboardController::class, 'SearchProduct'])->middleware(['custom.auth','AdminApiLog']);
+
+    Route::post('searchProductsByName', [DashboardController::class, 'searchProductsByName'])->middleware(['custom.auth','AdminApiLog']);
+    
+    Route::get('/get-currency-rates', [DashboardController::class, 'getCurrencyRatesApi'])
+        ->middleware(['custom.auth', 'AdminApiLog']);
+    
+    Route::put('/update-currency-rate', [DashboardController::class, 'updateCurrencyRateApi'])
+        ->middleware(['custom.auth', 'AdminApiLog']);
+    
+    Route::put('/toggle-currency-status', [DashboardController::class, 'toggleCurrencyStatusApi'])
+        ->middleware(['custom.auth', 'AdminApiLog']);
+        
+    Route::post('updateCurrencyApi', [DashboardController::class, 'updateCurrencyApi'])
+    ->middleware(['custom.auth', 'AdminApiLog']);
+    
+    Route::post('updateStoreLanguage', [DashboardController::class, 'updateStoreLanguage'])
+    ->middleware(['custom.auth', 'AdminApiLog']);
+    
+    Route::get('getAvailableLanguages', [DashboardController::class, 'getAvailableLanguages'])
+    ->middleware(['custom.auth', 'AdminApiLog']);
+    
+
+    Route::get('getCurrenciesApi', [DashboardController::class, 'getCurrenciesApi'])->middleware(['custom.auth', 'AdminApiLog']);
+    Route::get('getCurrentLanguageAndCurrency', [DashboardController::class, 'getCurrentLanguageAndCurrency']) ->middleware(['custom.auth', 'AdminApiLog']);
+
+Route::get('/countries', [DashboardController::class, 'getCountries'])->middleware(['custom.auth','AdminApiLog']);
+
+Route::get('/getStatesByCountry', [DashboardController::class, 'getStatesByCountry'])->middleware(['custom.auth','AdminApiLog']);
+
+Route::get('/getCitiesByState', [DashboardController::class, 'getCitiesByState'])->middleware(['custom.auth','AdminApiLog']);
 
     Route::get('reviewlist', [DashboardController::class, 'ReviewList'])->middleware(['custom.auth','AdminApiLog']);
 
@@ -243,12 +304,17 @@ Route::post(
 
     Route::post('changestore', [DashboardController::class, 'ChangeStore'])->middleware(['custom.auth','AdminApiLog']);
 
+    Route::get('getStoreInfo', [DashboardController::class, 'getStoreOwnerInfo'])->middleware(['custom.auth','AdminApiLog']);
+
+
     Route::get('view-used-coupon', [DashboardController::class, 'ViewUsedCoupon'])->middleware(['custom.auth','AdminApiLog']);
 
     Route::delete('deletestore', [DashboardController::class, 'DeleteStore'])->middleware(['custom.auth','AdminApiLog']);
 
     //delivery boy
-    Route::post('delivery-login', [DashboardController::class, 'deliveryLogin'])->middleware(['AdminApiLog']);
+Route::post('delivery-login', [DashboardController::class, 'deliveryLogin'])
+    ->middleware(['AdminApiLog', 'throttle:auth']);
+
     Route::get('delivery-order-list', [DashboardController::class, 'DeliveryBoyOrderList'])->middleware(['custom.auth','AdminApiLog']);
     Route::get('order-detail', [DashboardController::class, 'orderDetail'])->middleware(['custom.auth','AdminApiLog']);
     Route::post('status-change', [DashboardController::class, 'statusChange'])->middleware(['custom.auth','AdminApiLog']);
@@ -258,6 +324,26 @@ Route::post(
     Route::post('logOut', [DashboardController::class, 'logout'])->middleware(['custom.auth','AdminApiLog']);
     Route::post('delete-user', [DashboardController::class, 'delete_user'])->middleware(['custom.auth','AdminApiLog']);
     Route::post('order-cancel', [DashboardController::class, 'orderCancel'])->middleware(['custom.auth','AdminApiLog']);
+    // إشعارات المندوب
+    Route::post('register-device', [DeliveryBoyNotificationController::class, 'registerDevice'])->middleware(['custom.auth','AdminApiLog']);
+    Route::get('notifications', [DeliveryBoyNotificationController::class, 'getNotifications'])->middleware(['custom.auth','AdminApiLog']);
+    Route::post('notifications/mark-as-read', [DeliveryBoyNotificationController::class, 'markAsRead'])->middleware(['custom.auth','AdminApiLog']);
+    Route::get('notifications/mark-all-as-read', [DeliveryBoyNotificationController::class, 'markAllAsRead'])->middleware(['custom.auth','AdminApiLog']);
+    
+
+
+
+Route::get('deliveryboysIndex', [DeliveryBoyApiController::class, 'index'])->middleware(['custom.auth', 'AdminApiLog']);
+
+Route::post('deliveryboyStore', [DeliveryBoyApiController::class, 'store'])->middleware(['custom.auth', 'AdminApiLog']);
+
+
+Route::put('deliveryboysUpdate/{id}', [DeliveryBoyApiController::class, 'update']) ->middleware(['custom.auth', 'AdminApiLog']);
+
+Route::delete('deliveryboysDestroy/{id}', [DeliveryBoyApiController::class, 'destroy'])->middleware(['custom.auth', 'AdminApiLog']);
+
+Route::post('deliveryboysReset-password/{id}', [DeliveryBoyApiController::class, 'resetPassword']) ->middleware(['custom.auth', 'AdminApiLog']);
+
 
     //product-brand
     Route::post('addproductbrand', [DashboardController::class, 'AddProductBrand'])->middleware(['custom.auth','AdminApiLog']);
@@ -271,7 +357,38 @@ Route::post(
     Route::post('updateproductlable', [DashboardController::class, 'UpdateProductLable'])->middleware(['custom.auth','AdminApiLog']);
     Route::delete('deleteproductlable', [DashboardController::class, 'DeleteProductLable'])->middleware(['custom.auth','AdminApiLog']);
     Route::get('product-label-status', [DashboardController::class,'LableChangeStatus'])->middleware(['custom.auth','AdminApiLog']);
+    //finical
+    Route::get('/wallet/transactions', [\App\Http\Controllers\StoreFinanceController::class, 'walletTransactionsApi'])->middleware(['custom.auth','AdminApiLog']);    
+Route::post('/wallet/add-balance', [\App\Http\Controllers\StoreFinanceController::class, 'addBalanceApi'])
+    ->middleware(['custom.auth','AdminApiLog']);
+    
+    Route::post('/wallet/deduct-balance', [\App\Http\Controllers\StoreFinanceController::class, 'deductBalanceApi'])
+    ->middleware(['custom.auth','AdminApiLog']);
+    
     
 });
+
+
+
+
+
+
+Route::post('/delivery-syria/status', [
+    DeliverySyriaStatusController::class,
+    'updateStatus'
+]);
+
+Route::get('/delivery-syria/zid-statuses-test', [
+    DeliverySyriaStatusController::class,
+    'zidStatuses'
+]);
+
+
+
+
+
+
+
+
 
 Route::post('{slug}/currency', [ApiController::class, 'currency'])->middleware(['custom.auth','APILog']);

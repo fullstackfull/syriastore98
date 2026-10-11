@@ -10,18 +10,30 @@
 
 @section('action-button')
     <div class="text-end">
-        @permission('Manage Customer')
-            <a href="#" class="btn btn-sm btn-primary btn-icon csv" title="{{ __('Export') }}" data-bs-toggle="tooltip"
-                data-bs-placement="top" data-bs-toggle="tooltip" title="{{ __('Export') }}">
-                <i class="ti ti-file-export"></i>
-            </a>
-        @endpermission
-        <a href="{{ route('customer.grid') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('Grid View') }}" class="btn btn-sm btn-primary btn-icon ">
+        {{-- تم إزالة @permission مؤقتاً للتجربة --}}
+        <a href="{{ route('customer.create') }}" 
+           class="btn btn-sm btn-primary btn-icon" 
+           data-bs-toggle="tooltip" 
+           data-bs-placement="top" 
+           title="{{ __('Add Customer') }}">
+            <i class="ti ti-plus"></i>
+        </a>
+
+        <a href="#" class="btn btn-sm btn-primary btn-icon csv" 
+           title="{{ __('Export') }}" 
+           data-bs-toggle="tooltip"
+           data-bs-placement="top">
+            <i class="ti ti-file-export"></i>
+        </a>
+
+        <a href="{{ route('customer.grid') }}" 
+           data-bs-toggle="tooltip" 
+           data-bs-original-title="{{ __('Grid View') }}" 
+           class="btn btn-sm btn-primary btn-icon">
             <i class="ti ti-layout-grid"></i>
         </a>
     </div>
 @endsection
-
 @section('content')
     <div class="row">
 

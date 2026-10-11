@@ -124,7 +124,27 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                 'step' => '0.01']) !!}
                             </div>
                         </div>
+                 
+                              <div class="col-md-6 col-12 product-weight">
+    {!! Form::label('', __('Cost Price'), ['class' => 'form-label']) !!}
+    <span class="text-danger">*</span>
+    {!! Form::number('cost_price', null, [
+        'class' => 'form-control',
+        'min' => '0',
+        'step' => '0.01',
+        'required' => true
+    ]) !!}
+</div>
+                 
+                 
                     </div>
+
+
+
+
+
+
+
                     <!--Stock code-->
                     <div class="product-stock-div p-3 pb-0">
                         <h4>{{ __('Product Stock') }}</h4>

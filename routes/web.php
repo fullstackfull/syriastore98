@@ -3,6 +3,8 @@
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\RoleController;
+use App\Http\Controllers\ZidOAuthController;
+use App\Services\Zid;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\PlanController;
@@ -123,6 +125,11 @@ use App\Http\Controllers\SSLCommerzPaymentController;
 use App\Http\Controllers\PaymentSettingController;
 use App\Http\Controllers\ThemeCustomizeController;
 use App\Http\Controllers\DeliverySyriaController;
+use App\Http\Controllers\newsyria\ChatwootIntegrationController;
+use App\Http\Controllers\newsyria\AbandonedCartController;
+use App\Http\Controllers\OtpIntegrationController;
+use App\Http\Controllers\StoreFinanceController;
+use App\Http\Controllers\CurrencyRateController;
 
 use Illuminate\Support\Facades\Http;
 /*
@@ -135,6 +142,158 @@ use Illuminate\Support\Facades\Http;
 | be assigned to the "web" middleware group. Make something great!
 |
 */
+
+
+
+
+
+
+
+
+
+Route::get(
+    '/currency-rates',
+    [CurrencyRateController::class, 'index']
+)->name('currency-rates.index');
+
+Route::post(
+    '/currency-rates/{id}',
+    [CurrencyRateController::class, 'update']
+)->name('currency-rates.update');
+
+Route::middleware(['auth', 'permission:View Finance Dashboard'])->group(function () {
+    Route::get('/finance', [StoreFinanceController::class, 'index'])
+        ->name('finance.index');
+});
+Route::post('/finance/add-balance', [StoreFinanceController::class, 'addBalance'])
+    ->name('finance.add.balance');
+
+Route::post('/finance/deduct-balance', [StoreFinanceController::class, 'deductBalance'])
+    ->name('finance.deduct.balance');
+
+
+    Route::post(
+    '/finance/withdrawal/request',
+    [StoreFinanceController::class, 'requestWithdrawal']
+)->name('finance.withdrawal.request');
+
+
+
+
+Route::get('/finance/withdrawals', [StoreFinanceController::class, 'withdrawals'])
+    ->name('finance.withdrawals');
+
+Route::post('/finance/withdrawals/{id}/approve', [StoreFinanceController::class, 'approveWithdrawal'])
+    ->name('finance.withdrawals.approve');
+
+Route::post('/finance/withdrawals/{id}/reject', [StoreFinanceController::class, 'rejectWithdrawal'])
+    ->name('finance.withdrawals.reject');
+
+Route::post('/finance/withdrawals/{id}/pay', [StoreFinanceController::class, 'payWithdrawal'])
+    ->name('finance.withdrawals.pay');
+
+Route::post(
+    '/finance/order-financials/{id}/payment-status',
+    [StoreFinanceController::class, 'updateFinancialPaymentStatus']
+)->name('finance.order-financial.status');
+
+
+
+
+
+
+
+
+
+
+
+Route::post(
+    '/otp-integration/test',
+    [OtpIntegrationController::class, 'test']
+)->name('otp.integration.test');
+
+
+
+Route::get('/otp-integration', [OtpIntegrationController::class, 'index'])
+    ->name('otp.integration');
+
+Route::post('/otp-integration', [OtpIntegrationController::class, 'save'])
+    ->name('otp.integration.save');
+
+
+
+
+
+
+
+
+
+Route::get(
+    '/chatwoot/abandoned-carts',
+    [AbandonedCartController::class, 'index']
+)->name('chatwoot.abandoned-carts');
+
+Route::post(
+    '/chatwoot/abandoned-carts/send',
+    [AbandonedCartController::class, 'send']
+)->name('chatwoot.abandoned-carts.send');
+
+
+
+
+
+Route::post(
+    '/settings/chatwoot/connect',
+    [ChatwootIntegrationController::class, 'connect']
+)->name('chatwoot.connect')->middleware('auth');
+
+
+Route::post(
+    '/settings/chatwoot/inbox',
+    [ChatwootIntegrationController::class, 'saveInbox']
+)->name('chatwoot.inbox.save')->middleware('auth');
+
+Route::get(
+    '/settings/chatwoot/inboxes',
+    [ChatwootIntegrationController::class, 'getInboxes']
+)->name('chatwoot.inboxes')->middleware('auth');
+
+Route::get(
+    '/settings/chatwoot/templates',
+    [ChatwootIntegrationController::class, 'getTemplates']
+)->name('chatwoot.templates')->middleware('auth');
+
+Route::post(
+    '/settings/chatwoot/notification-templates',
+    [ChatwootIntegrationController::class, 'saveNotificationTemplates']
+)->name('chatwoot.notification.templates.save')->middleware('auth');
+
+Route::get(
+    '/settings/chatwoot/notification-templates',
+    [ChatwootIntegrationController::class, 'getNotificationTemplates']
+)->name('chatwoot.notification.templates')->middleware('auth');
+
+
+
+
+
+
+
+
+
+Route::get(
+    '/settings/chatwoot/test-order-notification/{order}',
+    [ChatwootIntegrationController::class, 'testOrderNotification']
+)->name('chatwoot.test.order.notification')->middleware('auth');
+
+
+
+
+
+
+
+
+
 
 
 
@@ -699,6 +858,9 @@ Route::get(
     Route::get('/customer-status', [CustomerController::class, 'customerStatus'])->name('update.customer.status');
     Route::get('/customer-timeline/{id}', [CustomerController::class, 'customerTimeline'])->name('customer.timeline');
     
+    
+    
+    
     Route::get('customer-grid', [CustomerController::class, 'customer_grid_view'])->name('customer.grid');
 
     // Order Route
@@ -810,3 +972,191 @@ Route::get(
   Route::post('/format-price', [ProductController::class, 'formatPrice'])->name('format.price');
   require __DIR__ . '/customer.php';
 });
+
+
+
+Route::get('/zid/{storeId}/orders', function ($storeId) {
+    return Zid::store($storeId)->get('/managers/store/orders')->json();
+});
+
+Route::get('/zid/{storeId}/webhooks', function ($storeId) {
+    return \App\Services\Zid::store($storeId)->get('/managers/webhooks')->json();
+})->middleware('auth');
+
+
+Route::post('/zid/events/{v?}', function (\Illuminate\Http\Request $r) {
+    $allowed = $r->header('X-Hook-Secret') === config('services.zid.hook_pass')
+        || ($r->getUser() === config('services.zid.hook_user') && $r->getPassword() === config('services.zid.hook_pass'));
+
+    if (! $allowed) {
+        \Illuminate\Support\Facades\Log::warning('Zid webhook rejected 401', [
+            'path'    => $r->path(),
+            'headers' => array_keys($r->headers->all()),
+            'body'    => \Illuminate\Support\Str::limit(json_encode($r->all(), JSON_UNESCAPED_UNICODE), 500),
+        ]);
+        abort(401);
+    }
+
+    $event   = $r->header('X-Zid-Event') ?? $r->input('event');
+    $raw     = json_encode($r->all(), JSON_UNESCAPED_UNICODE);
+    $storeId = $r->input('store_id') ?? $r->input('store.id');
+
+    DB::table('zid_events')->insert([
+        'store_id'   => $storeId,
+        'event'      => $event,
+        'payload'    => $raw,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    if ($storeId && str_contains($raw . ' ' . $event, 'application.uninstall')) {
+        DB::table('zid_stores')->where('store_id', $storeId)->delete();
+    }
+
+    return response()->json(['ok' => true]);
+})->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class);
+
+
+
+
+////////////new
+
+
+
+Route::match(['GET', 'POST'], '/api/delivery-syria/orders/update-status', function (\Illuminate\Http\Request $request) {
+    $productOrderId = $request->input('product_order_id');
+    $status = $request->input('status');
+
+    if (!$productOrderId || $status === null) {
+        return response()->json([
+            'success' => false,
+            'message' => 'product_order_id and status are required.',
+        ], 422);
+    }
+
+    $zidOrderId = str_replace('ZID-', '', $productOrderId);
+
+    $order = DB::table('zid_orders')
+        ->where('zid_order_id', $zidOrderId)
+        ->first();
+
+    if (!$order) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Zid order not found.',
+            'zid_order_id' => $zidOrderId,
+        ], 404);
+    }
+
+    $zidStatusMapping = [
+        0 => 'new',
+        4 => 'preparing',
+        5 => 'ready',
+        6 => 'indelivery',
+        1 => 'delivered',
+        2 => 'cancelled',
+    ];
+
+    $zidStatus = $zidStatusMapping[(int) $status] ?? null;
+
+    if ($zidStatus === null) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Unknown StoreSyria status.',
+            'status' => $status,
+        ], 422);
+    }
+
+$zidStore = DB::table('zid_stores')
+    ->where('store_id', $order->store_id)
+    ->first();
+
+if (!$zidStore) {
+    return response()->json([
+        'success' => false,
+        'message' => 'Zid store not found.',
+        'store_id' => $order->store_id,
+    ], 404);
+}
+
+try {
+    $authorization = \Illuminate\Support\Facades\Crypt::decryptString(
+        $zidStore->authorization
+    );
+
+    $accessToken = \Illuminate\Support\Facades\Crypt::decryptString(
+        $zidStore->access_token
+    );
+    $zidResponse = Http::withHeaders([
+    'Authorization' => 'Bearer ' . $authorization,
+    'X-MANAGER-TOKEN' => $accessToken,
+    'Content-Type' => 'application/json',
+    'Accept' => 'application/json',
+])->post(
+    'https://api.zid.sa/v1/managers/store/orders/' . $order->zid_order_id . '/change-order-status',
+    [
+        'order_status' => $zidStatus,
+    ]
+);
+
+if (!$zidResponse->successful()) {
+    return response()->json([
+        'success' => false,
+'message' => 'Zid order status updated successfully.',
+'data' => [
+            'zid_order_id' => $order->zid_order_id,
+            'store_id' => $order->store_id,
+            'zid_status' => $zidStatus,
+            'http_status' => $zidResponse->status(),
+            'zid_response' => $zidResponse->json(),
+            
+        ],
+    ], 502);
+}
+} catch (\Throwable $e) {
+    return response()->json([
+        'success' => false,
+        'message' => 'Failed to decrypt Zid credentials.',
+        'error' => $e->getMessage(),
+    ], 500);
+}
+
+return response()->json([
+    'success' => true,
+'message' => 'Zid order status updated successfully.',
+    'data' => [
+        'zid_order_id' => $order->zid_order_id,
+        'store_id' => $order->store_id,
+        'current_status' => $order->status_code,
+        'incoming_status' => $status,
+        'zid_status' => $zidStatus,
+        'authorization_loaded' => !empty($authorization),
+        'access_token_loaded' => !empty($accessToken),
+                    'zid_response' => $zidResponse->json(),
+
+    ],
+]);});
+
+
+
+
+
+
+
+Route::get('/zid/show-token', function (\Illuminate\Http\Request $r) {
+    abort_unless($r->query('key') === '12345678', 403);
+    $s = DB::table('zid_stores')->first();
+    return response(
+        "Authorization:\nBearer " . Crypt::decryptString($s->authorization) .
+        "\n\nX-Manager-Token:\n" . Crypt::decryptString($s->access_token)
+    )->header('Content-Type', 'text/plain');
+});
+Route::get('/zid/oauth/callback', [ZidOAuthController::class, 'callback']);
+
+
+
+
+Route::get('/zid/oauth/redirect', [ZidOAuthController::class, 'redirect']);
+
+
+Route::get('/zid/connect/return', [\App\Http\Controllers\ZidOAuthController::class, 'connectReturn']);

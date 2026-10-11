@@ -10,7 +10,10 @@ class DeliveryAddress extends Model
 {
     use HasFactory, Cachable;
 
-    protected $fillable = [ 'company_name', 'country_id', 'state_id', 'city_id', 'customer_id', 'title', 'address', 'postcode', 'default_address', 'type', 'full_name', 'phone', 'delivery_instructions'];
+    protected $fillable =
+    [ 'company_name', 'country_id', 'state_id', 'city_id', 'customer_id', 'title',
+    'address', 'postcode', 'default_address',
+     'type', 'full_name', 'phone', 'delivery_instructions','store_id'];
 
     protected $appends = ["country_name", "state_name", "city_name"];
 

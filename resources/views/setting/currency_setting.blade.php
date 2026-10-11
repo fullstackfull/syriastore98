@@ -34,12 +34,17 @@
                         {{ Form::label('defult_currancy', __('Default Currancy'), ['class' => ' col-form-label']) }}
                         <select class="form-control currency_note" data-trigger name="defult_currancy"
                             id="defult_currancy" placeholder="{{ __('This is a search placeholder')}}">
-                            @foreach (currency() as $c)
-                                <option value="{{ $c->symbol }}-{{ $c->code }}"
-                                    data-symbol="{{ $c->symbol }}"
-                                    {{ isset($setting['defult_currancy']) && $setting['defult_currancy'] == $c->code ? 'selected' : '' }}>
-                                    {{ $c->symbol }} - {{ $c->code }} </option>
-                            @endforeach
+                     @foreach ($currencyRates->where('is_active', 1) as $c)
+
+    <option
+        value="{{ $c->symbol }}-{{ $c->currency_code }}"
+        data-symbol="{{ $c->symbol }}"
+        {{ isset($setting['defult_currancy']) && $setting['defult_currancy'] == $c->currency_code ? 'selected' : '' }}
+    >
+        {{ $c->symbol }} - {{ $c->currency_code }}
+    </option>
+
+@endforeach
                         </select>
                     </div>
                 </div>
@@ -151,4 +156,147 @@
         </div>
         {{ Form::close() }}
     </div>
+
+
+
+    <div class="card mt-4">
+    <div class="card-header">
+        <h5 class="small-title">
+            {{ __('Store Currency Rates') }}
+        </h5>
+    </div>
+
+    <div class="card-body">
+
+        <div class="alert alert-info">
+            {{ __('All exchange rates are based on 1 USD for this store.') }}
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+
+                <thead>
+                    <tr>
+                        <th>{{ __('Currency') }}</th>
+                        <th>{{ __('Code') }}</th>
+                        <th>{{ __('Symbol') }}</th>
+                        <th>{{ __('Rate Per USD') }}</th>
+                        <th>{{ __('Status') }}</th>
+                        <th>{{ __('Action') }}</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+
+               @forelse($currencyRates as $currency)
+
+    <tr>
+
+        <td>
+            {{ __($currency->currency_name) }}
+        </td>
+
+        <td>
+            <strong>{{ $currency->currency_code }}</strong>
+        </td>
+
+        <td>
+            {{ $currency->symbol }}
+        </td>
+
+        <td>
+            <input
+                type="number"
+                name="rate_per_usd"
+                form="currency-rate-form-{{ $currency->id }}"
+                class="form-control"
+                step="0.00000001"
+                min="0.00000001"
+                value="{{ $currency->rate_per_usd }}"
+                {{ $currency->currency_code === 'USD' ? 'readonly' : '' }}
+                required
+            >
+        </td>
+
+        <td>
+
+            @if($currency->currency_code === 'USD')
+
+                <input
+                    type="hidden"
+                    name="is_active"
+                    value="1"
+                    form="currency-rate-form-{{ $currency->id }}"
+                >
+
+                <span class="badge bg-success">
+                    {{ __('Active') }}
+                </span>
+
+            @else
+
+                <input
+                    type="hidden"
+                    name="is_active"
+                    value="0"
+                    form="currency-rate-form-{{ $currency->id }}"
+                >
+
+                <div class="form-check form-switch">
+
+                    <input
+                        class="form-check-input"
+                        type="checkbox"
+                        name="is_active"
+                        value="1"
+                        form="currency-rate-form-{{ $currency->id }}"
+                        {{ $currency->is_active ? 'checked' : '' }}
+                    >
+
+                </div>
+
+            @endif
+
+        </td>
+
+        <td>
+
+            <form
+                id="currency-rate-form-{{ $currency->id }}"
+                method="POST"
+                action="{{ route('currency-rates.update', $currency->id) }}"
+            >
+                @csrf
+            </form>
+
+            <button
+                type="submit"
+                form="currency-rate-form-{{ $currency->id }}"
+                class="btn btn-sm btn-primary"
+            >
+                <i class="ti ti-device-floppy"></i>
+                {{ __('Save') }}
+            </button>
+
+        </td>
+
+    </tr>
+
+@empty
+
+    <tr>
+        <td colspan="6" class="text-center py-4">
+            {{ __('No currencies found.') }}
+        </td>
+    </tr>
+
+@endforelse
+
+                </tbody>
+
+            </table>
+        </div>
+
+    </div>
+</div>
 <!--currency settings end -->

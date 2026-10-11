@@ -23,6 +23,29 @@ return [
         'secret' => env('AWS_SECRET_ACCESS_KEY'),
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
+    
+    
+    
+    'zid' => [
+    'client_id' => 7858,
+    'client_secret' => 'WU8VxKPSdSWKi8Lhrwobxx1YNDDnGcmxZyvhmVOI',
+    'redirect_uri' => 'https://storesyria.com/zid/oauth/callback',
+    'hook_user' => 'zidhook',
+'hook_pass' => 'StoreSyria2026HookXyz',
+],
+    
+    
+    
+    
+    
+    
+        'deliverysyria' => [
+        'url'     => 'https://deliverysyria.com',
+        'api_key' => 'aaaasdjfjdkffffffffffffskkkkkkkkkkkkkkkkkkkkk',
+    ],
+    
+    
+    
 
     'resend' => [
         'key' => env('RESEND_KEY'),
@@ -86,4 +109,19 @@ return [
     'project_id' => env('FIREBASE_PROJECT_ID'),
     'credentials' => env('FIREBASE_CREDENTIALS'),
 ],
+
+
+    'delivery_firebase' => [
+        'project_id' => env('DELIVERY_FIREBASE_PROJECT_ID', 'store-syria-delivery-62e52'),
+        'credentials' => env('DELIVERY_FIREBASE_CREDENTIALS', 'storage/app/firebase/service-account-deliveryMan.json'),
+    ],
+
+'webuzo' => [
+    'host'       => env('WEBUZO_HOST'),
+    'username'   => env('WEBUZO_USERNAME'),
+    'api_key'    => env('WEBUZO_API_KEY'),
+    'port'       => env('WEBUZO_PORT', 2003),
+    'verify_ssl' => env('WEBUZO_VERIFY_SSL', true),
+],
+
 ];

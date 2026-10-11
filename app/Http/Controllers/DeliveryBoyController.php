@@ -44,15 +44,18 @@ class DeliveryBoyController extends Controller
             $validator = \Validator::make(
                 $request->all(),
                 [
-                    'email' => 'required|email',
-                   // 'contact' => 'required|regex:/^\d{10}$/',
+                    'name' => 'required|string|max:255',
+                    'email' => 'required|email|unique:delivery_boys,email',
+                    'password' => 'required|string|min:6',
+                    'contact' => 'nullable|string|max:20',
+                    'commission_percentage' => 'nullable|numeric|min:0|max:100',
+                    'is_commission_enabled' => 'nullable|boolean', // ✅ التحقق من الحقل الجديد
                 ]
             );
 
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
-
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', $messages->first())->withInput();
             }
 
             $user = \Auth::user();
@@ -66,6 +69,9 @@ class DeliveryBoyController extends Controller
             $deliveryboy->contact = $request->contact;
             $deliveryboy->created_by = $user->id;
             $deliveryboy->store_id = getCurrentStore();
+            
+            $deliveryboy->commission_percentage = $request->commission_percentage ?? 0;
+            $deliveryboy->is_commission_enabled = $request->has('is_commission_enabled') ? 1 : 0;
 
             $deliveryboy->save();
 
@@ -106,22 +112,32 @@ class DeliveryBoyController extends Controller
             $validator = \Validator::make(
                 $request->all(),
                 [
-                    'email' => 'required|email',
-                   // 'contact' => 'required|regex:/^\d{10}$/',
+                    'name' => 'required|string|max:255',
+                    'email' => 'required|email|unique:delivery_boys,email,' . $id,
+                    'contact' => 'nullable|string|max:20',
+                    'commission_percentage' => 'nullable|numeric|min:0|max:100',
+                    'is_commission_enabled' => 'nullable|boolean', // ✅ التحقق من الحقل الجديد
                 ]
             );
 
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
-
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', $messages->first())->withInput();
             }
 
             $deliveryBoy = DeliveryBoy::find($id);
+            
+            if (!$deliveryBoy) {
+                return redirect()->back()->with('error', __('Delivery Boy not found.'));
+            }
 
             $deliveryBoy->name = $request->name;
             $deliveryBoy->email = $request->email;
             $deliveryBoy->contact = $request->contact;
+            $deliveryBoy->commission_percentage = $request->commission_percentage ?? 0;
+            
+            $deliveryBoy->is_commission_enabled = $request->has('is_commission_enabled') ? 1 : 0;
+            
             $deliveryBoy->save();
 
             return redirect()->back()->with('success', __('Delivery Boy successfully updated.'));
@@ -192,4 +208,34 @@ class DeliveryBoyController extends Controller
             return redirect()->back()->with('error', __('Permission denied.'));
         }
     }
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
 }

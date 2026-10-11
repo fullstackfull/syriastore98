@@ -1,1 +1,0 @@
-<?php echo $__env->yieldPushContent('productqrcodetitle'); ?><?php /**PATH /home/storesyria/public_html/resources/views/front_end/hooks/cart_table_head.blade.php ENDPATH**/ ?>

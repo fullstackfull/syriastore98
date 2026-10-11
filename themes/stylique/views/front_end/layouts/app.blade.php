@@ -14,11 +14,11 @@
     rel="stylesheet">
   <link rel="stylesheet" href="{{ asset('themes/' . $currentTheme . '/assets/css/all.min.css') }}">
   <link rel="stylesheet" href="{{ asset('themes/' . $currentTheme . '/assets/css/swiper-bundle.min.css') }}" />
-  
+
     <link rel="stylesheet" href="{{ asset('themes/' . $currentTheme . '/assets/css/main-style.css') }}">
-  
+
   <script src="{{ asset('themes/' . $currentTheme . '/assets/js/tailwind.js') }}"></script>
- 
+
     <meta name="mobile-wep-app-capable" content="yes">
     <meta name="apple-mobile-wep-app-capable" content="yes">
     <meta name="msapplication-starturl" content="/">
@@ -43,9 +43,6 @@
         <meta name="apple-mobile-web-app-status-bar"
             content="{{ $store->pwa_store($store->slug)->background_color }}" />
     @endif
-    <style>
-        {!! $storecss ?? '' !!}
-    </style>
     @stack('page-style')
 
     <script src="{{ asset('js/jquery.min.js') }}"></script>
@@ -56,6 +53,25 @@
     @endif
     <link rel="stylesheet" href="{{ asset('assets/css/plugins/select2.min.css') }}">
     <script src="{{ asset('assets/js/plugins/select2.min.js') }}"></script>
+    @php
+    $storecss = \App\Models\Setting::where('store_id', $store->id)
+        ->where('name', 'storecss')
+        ->value('value');
+@endphp
+
+@if(!empty($storecss))
+    <style id="store-custom-css">
+        {!! $storecss !!}
+    </style>
+@endif
+@php
+    $admin_css = \App\Models\Utility::GetValueByName('storecss', getCurrentStore());
+@endphp
+@if(!empty($admin_css))
+    <style>
+        {!! $admin_css !!}
+    </style>
+@endif
 </head>
 
 <body>
@@ -78,7 +94,7 @@
   <script src="{{ asset('themes/' . $currentTheme . '/assets/js/custom.js') }}"></script>
 
    <!--Theme Routes Script-->
-    
+
     <!--scripts end here-->
    @if ($message = Session::get('success'))
         <script>
@@ -112,5 +128,13 @@
             }
         }
     </script>
+    @php
+    $admin_js = \App\Models\Utility::GetValueByName('storejs', getCurrentStore());
+@endphp
+@if(!empty($admin_js))
+    <script>
+        {!! $admin_js !!}
+    </script>
+@endif
 </body>
 </html>

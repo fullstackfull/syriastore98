@@ -83,10 +83,15 @@ class ProductController extends Controller
         return view('product.create', compact('link', 'categoryTree', 'ProductAttribute', 'Tax', 'Tax_status', 'Shipping', 'preview_type', 'tag', 'brands', 'labels'));
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(Request $request)
+
+
+
+
+
+
+
+
+  public function store(Request $request)
     {
         
         if (auth()->user() && auth()->user()->isAbleTo('Create Product')) {
@@ -105,8 +110,9 @@ class ProductController extends Controller
                         'product_image' => 'required',
                         'status' => 'required',
                         'variant_product' => 'required',
-                        'price' => 'required|numeric|min:0',
-                        'sale_price' => 'nullable|numeric|min:0|lt:price',
+                    'price' => 'required|numeric|min:0',
+'sale_price' => 'nullable|numeric|min:0|lt:price',
+'cost_price' => 'required|numeric|min:0|lte:price',
                         'brand_id' => 'nullable',
                         'label_id' => 'nullable',
 
@@ -125,7 +131,9 @@ class ProductController extends Controller
                 }
 
                 $validator = \Validator::make($request->all(), $rules,[
-                     'sale_price.lt' => __('The sale price must be less than the regular price.')
+                    'sale_price.lt' => __('The sale price must be less than the regular price.'),
+    'cost_price.required' => __('Cost price is required.'),
+    'cost_price.lte' => __('Cost price must not be greater than the regular price.')
                 ]);
                 $request->sale_price = $request->sale_price ? $request->sale_price : 0;
                 if ($validator->fails()) {
@@ -276,7 +284,7 @@ class ProductController extends Controller
                         $Product->detail = $request->detail;
                         $Product->price = $request->price;
                         $Product->sale_price = $request->sale_price;
-
+$Product->cost_price = $request->cost_price;
                         $Product->stock_status = $request->stock_status;
                         $Product->attribute_id = $input['product_attributes'] ?? null;
                         $Product->product_attribute = $input['attribute_options'];
@@ -847,6 +855,26 @@ class ProductController extends Controller
         }
     }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     /**
      * Display the specified resource.
      */
@@ -908,10 +936,33 @@ class ProductController extends Controller
         return view('product.edit', compact($compact));
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, Product $product)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ public function update(Request $request, Product $product)
     {
        
         if (auth()->user() && auth()->user()->isAbleTo('Edit Products')) {
@@ -924,9 +975,9 @@ class ProductController extends Controller
                     'variant_product' => 'required',
                     'brand_id' => 'nullable',
                     'label_id' => 'nullable',
-                    'price' => 'numeric|min:0',
-                    'sale_price' => 'nullable|numeric|min:0|lt:price',
-                ];
+                  'price' => 'required|numeric|min:0',
+'sale_price' => 'nullable|numeric|min:0|lt:price',
+'cost_price' => 'required|numeric|min:0|lte:price',                ];
             }else
             {
                 $rules = [
@@ -940,7 +991,9 @@ class ProductController extends Controller
             }
 
             $validator = \Validator::make($request->all(), $rules,[
-                'sale_price.lt' => __('The sale price must be less than the regular price.')
+                 'sale_price.lt' => __('The sale price must be less than the regular price.'),
+    'cost_price.required' => __('Cost price is required.'),
+    'cost_price.lte' => __('Cost price must not be greater than the regular price.')
             ]);
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();

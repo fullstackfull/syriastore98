@@ -46,9 +46,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="{{ $faviconUrl }}">
     <link rel="apple-touch-icon" sizes="167x167" href="{{ $faviconUrl }}">
     
-    <style>
-        {!! $storecss ?? '' !!}
-    </style>
+    
     @stack('page-style')
 
     <!-- Load jQuery first -->
@@ -61,6 +59,14 @@
     @endif
     <link rel="stylesheet" href="{{ asset('assets/css/plugins/select2.min.css') }}">
     <script src="{{ asset('assets/js/plugins/select2.min.js') }}"></script>
+    @php
+    $admin_css = \App\Models\Utility::GetValueByName('storecss', getCurrentStore());
+@endphp
+@if(!empty($admin_css))
+    <style>
+        {!! $admin_css !!}
+    </style>
+@endif
 </head>
 
 <body>
@@ -117,5 +123,13 @@
             }
         }
     </script>
+    @php
+    $admin_js = \App\Models\Utility::GetValueByName('storejs', getCurrentStore());
+@endphp
+@if(!empty($admin_js))
+    <script>
+        {!! $admin_js !!}
+    </script>
+@endif
 </body>
 </html>

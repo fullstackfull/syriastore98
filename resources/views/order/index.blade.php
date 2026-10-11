@@ -4,10 +4,18 @@
 
 @section('action-button')
 <div class="text-end">
-    <a class="btn btn-sm btn-primary btn-icon export-btn" href="{{ route('order.export') }}" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Export') }}" filename="{{ __('Order') }}">
-        <i  class="ti ti-file-export"></i>
-    </a>
-    <a href="{{ route('order.grid') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('Grid View') }}" class="btn btn-sm btn-primary btn-icon ">
+    {{-- ✅ زر إضافة طلبية جديدة (الإجراء الأساسي) --}}
+        <a href="{{ route('order.create') }}" class="btn btn-sm btn-primary me-2">
+            <i class="ti ti-plus"></i> {{ __('Create Order') }}
+        </a>
+
+
+    {{-- الأزرار الموجودة مسبقاً --}}
+        <a class="btn btn-sm btn-primary btn-icon export-btn" href="{{ route('order.export') }}" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Export') }}" filename="{{ __('Order') }}">
+            <i class="ti ti-file-export"></i>
+        </a>
+
+    <a href="{{ route('order.grid') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('Grid View') }}" class="btn btn-sm btn-primary btn-icon">
         <i class="ti ti-layout-grid"></i>
     </a>
 </div>
@@ -20,7 +28,7 @@
 @section('content')
     <div class="row">
         <div class="col-xl-12">
-        <x-datatable :dataTable="$dataTable" />
+            <x-datatable :dataTable="$dataTable" />
         </div>
     </div>
 @endsection
@@ -48,9 +56,8 @@
                 url: '{{ route('order.return.request') }}',
                 method: 'POST',
                 data: data,
-                context:this,
-                success: function (response)
-                {
+                context: this,
+                success: function (response) {
                     $('#loader').fadeOut();
                     if(response.status == 'error') {
                         show_toastr('{{ __('Error') }}', response.message, 'error')

@@ -1,5 +1,4 @@
 <?php
-
 use App\Models\Themes\{ThemeSection, ThemeBestProductSection, ThemeArticelBlogSection, ThemeArticelBlogSectionDraft, ThemeTopProductSection, ThemeTopProductSectionDraft, ThemeModernProductSection, ThemeModernProductSectionDraft, ThemeBestProductSectionDraft, ThemeBestProductSecondSection, ThemeBestProductSecondSectionDraft, ThemeBestSellingSection, ThemeBestSellingSectionDraft, ThemeLogoSliderSection, ThemeLogoSliderSectionDraft, ThemeBestsellerSliderSection, ThemeBestsellerSliderSectionDraft, ThemeBestsellerSection, ThemeBestsellerSectionDraft, ThemeHeaderSection, ThemeSliderSection, ThemeCategorySection, ThemeReviewSection, ThemeSectionDraft, ThemeHeaderSectionDraft, ThemeSliderSectionDraft, ThemeCategorySectionDraft, ThemeReviewSectionDraft, ThemeSectionMap, ThemeBlogSection, ThemeBlogSectionDraft, ThemeDiscountSection, ThemeDiscountSectionDraft, ThemeProductCategorySection, ThemeProductCategorySectionDraft, ThemeFooterSection, ThemeFooterSectionDraft, ThemeProductSection, ThemeProductSectionDraft, ThemeSubscribeSection, ThemeSubscribeSectionDraft, ThemeVariantBackgroundSection, ThemeVariantBackgroundSectionDraft, ThemeProductBannerSliderSection, ThemeProductBannerSliderSectionDraft, ThemeNewestCateorySectionDraft, ThemeNewestCateorySection, ThemeServiceSection, ThemeServiceSectionDraft, ThemeVideoSection, ThemeVideoSectionDraft, ThemeNewestProductSection, ThemeNewestProductSectionDraft};
 use App\Models\ProductAttributeOption;
 use App\Models\Product;
@@ -142,7 +141,7 @@ if (!function_exists('get_file')) {
     function get_file($path)
     {
         $admin = User::where('type', 'super admin')->first();
-        
+
         $settings = Setting::where('store_id', $admin->current_store)->pluck('value', 'name')->toArray();
 
         if (empty($path)) {
@@ -160,7 +159,7 @@ if (!function_exists('get_file')) {
                         // 'filesystems.disks.wasabi.endpoint' => 'https://s3.' . $settings['wasabi_region'] . '.wasabisys.com'
                     ]
                 );
-               
+
                 $bucket = $settings['wasabi_bucket'];
                 $region = $settings['wasabi_region'];
                 $endpoint =  'https://s3.' . $settings['wasabi_region'] . '.wasabisys.com';
@@ -1250,8 +1249,8 @@ if (!function_exists('module_is_active')) {
         // Check if the module exists and is enabled
         if (Module::has($moduleName)) {
             $module = Module::find($moduleName);
-            
-           
+
+
             if ($module->isEnabled()) {
                 // Check for store slug in the route
                 if (request()->route('storeSlug') || request()->route('slug')) {
@@ -1481,10 +1480,14 @@ if (!function_exists('getshowModuleList')) {
                 array_push($list, $module->name);
             }
         }
+
+        if (!in_array('Finance', $list)) {
+            array_push($list, 'Finance');
+        }
+
         return $list;
     }
 }
-
 if (!function_exists('sidebar_logo')) {
     function sidebar_logo()
     {
@@ -1790,6 +1793,82 @@ if (!function_exists('getProductActualPrice')) {
     }
 }
 
+if (!function_exists('order_currency_format_with_sym')) {
+    function order_currency_format_with_sym($price, $order_id)
+    {
+        $order = \App\Models\Order::find($order_id);
+
+        if (empty($order)) {
+            return $price; // fallback آمن لو الطلب مو موجود
+        }
+
+        $store_id = $order->store_id ?? getCurrentStore();
+        $company_settings = getAdminAllSetting(null, $store_id);
+
+        $symbol_position = 'pre';
+        $format = '1';
+
+        // ✅ الرمز الافتراضي البدائي (fallback لو ما لقينا شي تاني)
+        $currancy_symbol = '$';
+
+        $number = explode('.', (string) $price);
+        $length = strlen(trim($number[0] ?? '0'));
+
+        // نفس منطق الدالة الأصلية بالضبط (كلا الفرعين متطابقين، محافظين على نفس البنية)
+        if ($length > 3) {
+            $decimal_separator = isset($company_settings['decimal_separator']) && $company_settings['decimal_separator'] === 'dot' ? '.' : ',';
+            $thousand_separator = isset($company_settings['thousand_separator']) && $company_settings['thousand_separator'] === 'dot' ? '.' : ',';
+        } else {
+            $decimal_separator = isset($company_settings['decimal_separator']) && $company_settings['decimal_separator'] === 'dot' ? '.' : ',';
+            $thousand_separator = isset($company_settings['thousand_separator']) && $company_settings['thousand_separator'] === 'dot' ? '.' : ',';
+        }
+
+        if (isset($company_settings['site_currency_symbol_position'])) {
+            $symbol_position = $company_settings['site_currency_symbol_position'];
+        }
+
+        // ✅ التكييف الإجباري: الرمز الافتراضي أول شي نجيبه من إعداد المتجر الحالي (زي الأصلية)...
+        if (isset($company_settings['defult_currancy_symbol'])) {
+            $currancy_symbol = $company_settings['defult_currancy_symbol'];
+        }
+
+        if (isset($company_settings['currency_format'])) {
+            $format = $company_settings['currency_format'];
+        } else {
+            $format = 2;
+        }
+
+        $currency_space = '';
+        if (isset($company_settings['currency_space'])) {
+            $currency_space = $company_settings['currency_space'];
+        }
+
+        // ✅ نفس منطق "رمز أو اسم" بالأصلية، بس معتمدين على قيم المتجر الحالية لتحديد "أي واحد يُعرض" (رمز أو اسم)
+        // بينما "شو هي العملة نفسها" رح تصير محسومة بالخطوة اللي بعدها من الطلب مباشرة
+        $use_symbol_not_name = true; // افتراضي: نعرض الرمز
+        if (isset($company_settings['site_currency_symbol_name'])) {
+            $use_symbol_not_name = ($company_settings['site_currency_symbol_name'] == 'symbol');
+        }
+
+        // ✅✅ التكييف الجوهري: إذا الطلب عنده Snapshot محفوظ لعملته (currency_symbol / currency_code)،
+        // بنفضّله دايمًا على إعداد المتجر الحالي — هاد يلي بيحمي الطلبات المكتملة من التغيّر
+        if (!empty($order->currency_symbol) || !empty($order->currency_code)) {
+            $currancy_symbol = $use_symbol_not_name
+                ? ($order->currency_symbol ?? $currancy_symbol)
+                : ($order->currency_code ?? $currancy_symbol);
+        } elseif (isset($company_settings['site_currency_symbol_name'])) {
+            // ما في Snapshot بالطلب (حالة نادرة/قديمة) → نرجع لسلوك الدالة الأصلية بالكامل
+            $defult_currancy = $company_settings['defult_currancy'] ?? '';
+            $defult_currancy_symbol = $company_settings['defult_currancy_symbol'] ?? '$';
+            $currancy_symbol = $use_symbol_not_name ? $defult_currancy_symbol : $defult_currancy;
+        }
+
+        return (
+            ($symbol_position == "pre") ? $currancy_symbol : '') . (($currency_space === 'withspace') ? ' ' : '')
+            . number_format((float) $price, (int) $format, $decimal_separator, $thousand_separator) . (($currency_space === 'withspace') ? ' ' : '') .
+            (($symbol_position == "post") ? $currancy_symbol : '');
+    }
+}
 if (!function_exists('bulkDeleteCloneCheckboxColumn')) {
     function bulkDeleteCloneCheckboxColumn()
     {
@@ -1848,7 +1927,7 @@ if (!function_exists('getSideMenu')) {
             if (module_is_active('SidebarCustomization') && Schema::hasTable('side_menus_option')) {
                 $sideMenuItems = SideMenuOption::where('type', 'admin')->where('created_by', 0)->where('store_id', null)->orderBy('order')->get();
                 $MenuItems = SideMenuOption::where('type', 'admin')->where('created_by', $user->id)->where('store_id', $user->current_store)->orderBy('order')->get();
-    
+
                 if (!$MenuItems->isEmpty()) {
                     $sideMenuItems = $sideMenuItems->merge($MenuItems)->sortBy('order');
                 }
@@ -1856,14 +1935,14 @@ if (!function_exists('getSideMenu')) {
                     ->where('created_by', $user->id)
                     ->where('store_id', $user->current_store)
                     ->get();
-    
+
                 $orderMap = $customOrder->pluck('order', 'menu_id')->toArray();
                 $sortedModules = $sideMenuItems->sortBy(function ($module) use ($orderMap) {
                     return isset($orderMap[$module->id]) ? $orderMap[$module->id] : $module->order;
                 });
 
             }
-            
+
             if ($sideMenuItems->isEmpty()) {
                 event(new \App\Events\CompanyMenuEvent($menu));
                 return generateMenu($menu->menu, null);
@@ -2013,7 +2092,7 @@ if (! function_exists('buildDataTableColumn')) {
     function buildDataTableColumn(array $columnConfig, $action = true)
     {
         $columns = [];
-        
+
         // Always add the ID column (hidden)
         $columns[] = Column::make('id')
             ->searchable(false)
@@ -2021,10 +2100,10 @@ if (! function_exists('buildDataTableColumn')) {
             ->exportable(false)
             ->printable(false);
 
-        $deleteColumn = bulkDeleteCloneCheckboxColumn();  
+        $deleteColumn = bulkDeleteCloneCheckboxColumn();
         if ($deleteColumn) {
            $columns[] = $deleteColumn;
-        }     
+        }
         // Add the configured columns
         foreach ($columnConfig as $name => $options) {
             if (is_numeric($name) && is_string($options)) {
@@ -2035,7 +2114,7 @@ if (! function_exists('buildDataTableColumn')) {
                 // Advanced column definition with options
                 $column = Column::make($name)
                     ->title(__(isset($options['title']) ? $options['title'] : ucfirst($name)));
-                
+
                 // Apply additional options
                 if (isset($options['data'])) {
                     $column->data($options['data']);
@@ -2052,11 +2131,11 @@ if (! function_exists('buildDataTableColumn')) {
                 if (isset($options['sortable']) && $options['sortable'] === false) {
                     $column->sortable(false);
                 }
-                
+
                 if (isset($options['orderable']) && $options['orderable'] === false) {
                     $column->orderable(false);
                 }
-                
+
                 if (isset($options['printable']) && $options['printable'] === false) {
                     $column->printable(false);
                 }
@@ -2068,11 +2147,11 @@ if (! function_exists('buildDataTableColumn')) {
                 if (isset($options['addClass'])) {
                     $column->addClass($options['addClass']);
                 }
-                
+
                 $columns[] = $column;
             }
         }
-        
+
         // Add the action column
         if ($action) {
             $columns[] = Column::computed('action')
@@ -2081,7 +2160,7 @@ if (! function_exists('buildDataTableColumn')) {
                 ->width(60)
                 ->title(__('Action'))->addClass('text-center');
         }
-        
+
         return $columns;
     }
 }
@@ -2186,17 +2265,17 @@ if (! function_exists('getThemeSetting')) {
     {
         $defaultSettings = [];
         $defaultSettingsPath = base_path('themes/'.$theme.'/default_data/settings.php');
-        
+
         if (file_exists($defaultSettingsPath)) {
             $defaultSettings = include $defaultSettingsPath;
         }
-        
+
         $themeSettings = ThemeCustomize::where('store_id', $storeId)
                         ->where('theme_id', $theme)
                         ->pluck('value', 'name')
                         ->toArray();
         $mergedSettings = [];
-        
+
         // Process all keys from default settings
         foreach ($defaultSettings as $key => $value) {
             // If key exists in theme settings, use theme settings value
@@ -2209,12 +2288,12 @@ if (! function_exists('getThemeSetting')) {
                 $mergedSettings[$key] = $value;
             }
         }
-        
+
         // Add any remaining theme settings that weren't in defaults
         foreach ($themeSettings as $key => $value) {
             $mergedSettings[$key] = $value;
         }
-        
+
         return $mergedSettings;
     }
 }
@@ -2467,7 +2546,7 @@ if (! function_exists('getFrontThemeUrl')) {
 if (!function_exists('getAiModelName')) {
     function getAiModelName()
     {
-        return [            
+        return [
             'GPT-4 Series' => [
                 'gpt-4o' => 'GPT-4o',
                 'gpt-4-turbo' => 'GPT-4-Turbo',

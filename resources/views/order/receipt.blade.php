@@ -7,15 +7,15 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="X-UA-Compatible" content="ie=edge">
-    <title>{{ env('APP_NAME') }}</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="X-UA-Compatible" content="ie=edge">
+<title>{{ env('APP_NAME') }}</title>
 </head>
 
 <body>
-    <div id="invoice-POS" style="width:100%">
-        <style>
+<div id="invoice-POS" style="width:100%">
+   <style>
             #invoice-POS {
                 /*box-shadow: 0 0 1in -0.25in rgba(0, 0, 0, 0.5);*/
             }
@@ -185,29 +185,35 @@
                                     @else
                                         {{ $product['qty'] }}
                                     @endif
+                                    
                                 </td>
-                                <td class="tableitem">
-                                    @if ($order['paymnet_type'] == 'POS')
-                                        {{ currency_format_with_sym($product['final_price'] ?? 0, getCurrentStore()) ?? SetNumberFormat($product['orignal_price']) }}
-                                    @else
-                                        @if (module_is_active('ProductPricing') && isset($product['sale_price']))
-                                            {{ currency_format_with_sym($product['sale_price'] ?? 0, getCurrentStore()) ?? SetNumberFormat($product['sale_price']) }}
-                                        @else
-                                            {{ currency_format_with_sym($product['final_price'] ?? 0, getCurrentStore()) ?? SetNumberFormat($product['final_price']) }}
-                                        @endif
-                                    @endif
-                                </td>
-                            </tr>
+<td class="tableitem">
+    @if ($order['paymnet_type'] == 'POS')
+        {{ order_currency_format_with_sym(($product['orignal_price'] ?? $product['final_price'] ?? 0), $order['id']) }}
+    @else
+        @if (module_is_active('ProductPricing') && isset($product['sale_price']))
+            {{ order_currency_format_with_sym($product['sale_price'], $order['id']) }}
+        @else
+            {{ order_currency_format_with_sym($product['final_price'] ?? 0, $order['id']) }}
+        @endif
+    @endif
+</td>                            </tr>
+                            
                         @endforeach
                         <tr class="tabletitle">
                             <td></td>
                             <td class="Rate">
                                 <h2>{{ __('Grand Total') }}</h2>
                             </td>
-                            <td class="payment">
-                                <h2><b>{{ currency_format_with_sym($product['final_price'] ?? 0, getCurrentStore()) ?? SetNumberFormat($order['sub_total']) }}</b>
-                                </h2>
-                            </td>
+                            
+                            
+                            
+<td class="payment">
+    <h2><b>{{ order_currency_format_with_sym($order['final_price'] ?? $order['sub_total'] ?? 0, $order['id']) }}</b>
+    </h2>
+</td>                            
+                            
+                            
                         </tr>
                     </tbody>
                 </table>

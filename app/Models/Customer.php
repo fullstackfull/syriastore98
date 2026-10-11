@@ -13,10 +13,11 @@ use Illuminate\Notifications\Messages\MailMessage;
 use Laravel\Sanctum\HasApiTokens;
 use Laravel\Paddle\Billable;
 use GeneaLabs\LaravelModelCaching\Traits\Cachable;
+use Illuminate\Database\Eloquent\SoftDeletes;  
 class Customer extends Authenticatable implements CanResetPasswordContract
 {
 
-    use Cachable, Notifiable, CanResetPassword,HasApiTokens,Billable;
+    use Cachable, Notifiable, CanResetPassword,HasApiTokens,Billable,SoftDeletes;
 
     protected $guard = 'customers';
     /**

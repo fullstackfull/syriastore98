@@ -77,7 +77,9 @@ Route::middleware([ActiveTheme::class, 'themelanguage'])->group(function () {
     Route::post('{storeSlug?}/product_price', [ProductController::class, 'product_price'])->name('product.price');
 
     Route::get('{storeSlug?}/login', [CustomerLoginController::class, 'showLoginForm'])->name('customer.login');
-    Route::post('{storeSlug?}/login/{cart?}', [CustomerLoginController::class, 'login'])->name('customer.login.save');
+Route::post('{storeSlug?}/login/{cart?}', [CustomerLoginController::class, 'login'])
+    ->middleware('throttle:auth')
+    ->name('customer.login.save');
     Route::get('{storeSlug?}/register/{ref_id?}', [CustomerLoginController::class, 'register'])->name('customer.register');
     Route::post('{storeSlug?}/register-data', [CustomerLoginController::class, 'registerData'])->name('customer.registerdata');
     Route::get('{storeSlug?}/forgot-password', [CustomerLoginController::class, 'forgotPasswordForm'])->name('customer.password.request');
@@ -85,6 +87,42 @@ Route::middleware([ActiveTheme::class, 'themelanguage'])->group(function () {
     Route::get('{storeSlug?}/reset-password', [CustomerLoginController::class, 'resetPasswordForm'])->name('customer.password.reset');
     Route::post('{storeSlug?}/reset-password', [CustomerLoginController::class, 'resetPassword'])->name('customer.password.update');
     Route::post('{storeSlug?}/customer-logout', [CustomerLoginController::class, 'logout'])->name('customer.logout');
+
+
+
+
+
+
+Route::post(
+    '{storeSlug?}/forgot-password/otp/send',
+    [CustomerLoginController::class, 'sendPasswordOtp']
+)->name('customer.password.otp.send');
+
+Route::get(
+    '{storeSlug?}/forgot-password/otp/verify',
+    [CustomerLoginController::class, 'passwordOtpForm']
+)->name('customer.password.otp.form');
+
+Route::post(
+    '{storeSlug?}/forgot-password/otp/verify',
+    [CustomerLoginController::class, 'verifyPasswordOtp']
+)->name('customer.password.otp.verify');
+
+Route::get(
+    '{storeSlug?}/reset-password/otp',
+    [CustomerLoginController::class, 'resetPasswordOtpForm']
+)->name('customer.password.otp.reset.form');
+
+Route::post(
+    '{storeSlug?}/reset-password/otp',
+    [CustomerLoginController::class, 'resetPasswordWithOtp']
+)->name('customer.password.otp.reset');
+
+
+
+
+
+
 
     Route::post('{storeSlug?}/product_cart', [CartController::class, 'product_cartlist'])->name('product.cart');
     Route::post('{storeSlug?}/change-cart', [CartController::class, 'change_cart'])->name('change.cart');

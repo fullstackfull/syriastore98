@@ -20,8 +20,7 @@
                 <div class="p-3 card mb-2">
                     <ul class="nav nav-pills nav-fill gap-2" id="pills-tab" role="tablist">
                         @foreach ($modules as $module)
-                            @if ((module_is_active($module) || $module == 'General') && count(get_permission_by_module($module)) > 0)
-                                <li class="nav-item" role="presentation">
+@if ((module_is_active($module) || $module == 'General' || $module == 'Finance') && count(get_permission_by_module($module)) > 0)                                <li class="nav-item" role="presentation">
                                     <button class="nav-link text-capitalize {{ $loop->index == 0 ? 'active' : '' }}"
                                         id="pills-{{ strtolower($module) }}-tab" data-bs-toggle="pill"
                                         data-bs-target="#pills-{{ strtolower($module) }}"
@@ -34,8 +33,7 @@
                 <div class="px-0 card-body">
                     <div class="tab-content" id="pills-tabContent">
                         @foreach ($modules as $module)
-                            @if ((module_is_active($module) || $module == 'General') && count(get_permission_by_module($module)) > 0)
-                                <div class="tab-pane text-capitalize fade show {{ $loop->index == 0 ? 'active' : '' }}"
+@if ((module_is_active($module) || $module == 'General' || $module == 'Finance') && count(get_permission_by_module($module)) > 0)                                <div class="tab-pane text-capitalize fade show {{ $loop->index == 0 ? 'active' : '' }}"
                                     id="pills-{{ strtolower($module) }}" role="tabpanel"
                                     aria-labelledby="pills-{{ strtolower($module) }}-tab">
                                     <input type="checkbox" class="form-check-input pointer"

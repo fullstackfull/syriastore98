@@ -140,13 +140,14 @@
                                 @endif
                             </td>
                             <td>
+                                {{-- استخدام دالة تنسيق الأسعار الجديدة المخصصة حسب رقم الطلب (Order ID) --}}
                                 @if ($order['paymnet_type'] == 'POS')
-                                    {{ currency_format_with_sym(($item['orignal_price'] ?? 0) * ($item['quantity'] ?? 0), getCurrentStore()) ?? SetNumberFormat(($item['orignal_price'] ?? 0) * ($item['quantity'] ?? 0)) }}
+                                    {{ order_currency_format_with_sym(($item['orignal_price'] ?? 0) * ($item['quantity'] ?? 0), $order['id'], getCurrentStore()) }}
                                 @else
                                     @if (module_is_active('ProductPricing') && isset($item['sale_price']))
-                                        {{ currency_format_with_sym($item['sale_price'] ?? 0, getCurrentStore()) ?? SetNumberFormat($item['sale_price']) }}
+                                        {{ order_currency_format_with_sym($item['sale_price'] ?? 0, $order['id'], getCurrentStore()) }}
                                     @else
-                                        {{ currency_format_with_sym($item['final_price'] ?? 0, getCurrentStore()) ?? SetNumberFormat($item['final_price']) }}
+                                        {{ order_currency_format_with_sym($item['final_price'] ?? 0, $order['id'], getCurrentStore()) }}
                                     @endif
                                 @endif
                             </td>
@@ -240,3 +241,4 @@
             });
         });
     </script>
+</div>

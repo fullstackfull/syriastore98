@@ -58,7 +58,8 @@ return Application::configure(basePath: dirname(__DIR__))
                 '*/get-ticket-payment-paytm',
                 '*/get-ticket-payment-aamarpay',
                 'join_us/store/',
-              'store/paymera/trigger/*'
+              'store/paymera/trigger/*',
+              'delivery-syria/status',
             ] // Add your routes here
         );
     })

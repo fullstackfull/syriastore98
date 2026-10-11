@@ -1,6 +1,7 @@
 <?php
 
 namespace App\Http\Controllers;
+    use Illuminate\Support\Facades\DB;
 
 use Illuminate\Http\Request;
 use App\Models\Store;
@@ -28,6 +29,8 @@ use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\OrderExport;
 use Qirolab\Theme\Theme;
 use Carbon\Carbon;
+use App\Services\DeliveryBoyNotificationService;
+use Illuminate\Support\Facades\Log;
 use App\Models\DeliveryBoy;
 use App\Events\SendOrderReviewMail;
 use App\DataTables\OrderDataTable;
@@ -36,6 +39,228 @@ use Illuminate\Support\Facades\Cache;
 
 class OrderController extends Controller
 {
+
+public function store(Request $request)
+{
+    $validator = \Validator::make($request->all(), [
+        'customer_id' => 'required|exists:customers,id',
+        'products' => 'required|array|min:1',
+        'products.*.product_id' => 'required|exists:products,id',
+        'products.*.quantity' => 'required|integer|min:1',
+        'products.*.price' => 'required|numeric|min:0',
+        'payment_type' => 'required|string',
+        'payment_status' => 'required|in:Paid,Unpaid',
+        'delivery_price' => 'nullable|numeric|min:0',
+        'tax_price' => 'nullable|numeric|min:0',
+        'final_price' => 'required|numeric|min:0',
+        'first_name' => 'required|string|max:255',
+        'last_name' => 'required|string|max:255',
+        'email' => 'required|email|max:255',
+        'telephone' => 'required|string|max:20',
+        'address' => 'required|string',
+        'city' => 'required|string|max:255',
+        'state' => 'required|string|max:255',
+        'country' => 'required|string|max:255',
+        'postcode' => 'nullable|string|max:20',
+    ]);
+
+    if ($validator->fails()) {
+        return redirect()->back()->withErrors($validator)->withInput();
+    }
+
+    DB::beginTransaction();
+
+    try {
+        $productJson = [];
+        $totalProductPrice = 0;
+        $storeId = getCurrentStore();
+
+        $currentCurrencyCode = \App\Models\Utility::GetValueByName('defult_currancy', $storeId) ?? 'USD';
+        $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_symbol', $storeId) ?? '$';
+
+        foreach ($request->products as $item) {
+            $product = \App\Models\Product::find($item['product_id']);
+            if (!$product) {
+                throw new \Exception("المنتج غير موجود: ID {$item['product_id']}");
+            }
+
+            $qty = (int) $item['quantity'];
+            $lineTotal = $item['price'] * $qty;
+            $totalProductPrice += $lineTotal;
+
+            if (!empty($item['variant_id']) && $item['variant_id'] > 0) {
+                $variant = \App\Models\ProductVariant::find($item['variant_id']);
+                if (!$variant) {
+                    throw new \Exception("الخيار/المتغير غير موجود: ID {$item['variant_id']}");
+                }
+
+                if ($variant->stock < $qty) {
+                    throw new \Exception("المخزون غير كافٍ للمتغير: {$variant->name}. المتاح: {$variant->stock}، المطلوب: {$qty}");
+                }
+
+                $variant->stock -= $qty;
+                $variant->save();
+
+                $productJson[] = [
+                    'product_id' => $item['product_id'],
+                    'name' => $product->name ?? 'Product',
+                    'price' => $item['price'],
+                    'quantity' => $qty,
+                    'final_price' => $lineTotal,
+                    'orignal_price' => $product->price ?? $item['price'],
+                    'variant_id' => $item['variant_id'],
+                    'variant_name' => $item['variant_name'] ?? $variant->name ?? null,
+                    'image' => $product->cover_image_url ?? '',
+                    'return' => false,
+                ];
+            } else {
+                if ($product->product_stock < $qty) {
+                    throw new \Exception("المخزون غير كافٍ للمنتج: {$product->name}. المتاح: {$product->product_stock}، المطلوب: {$qty}");
+                }
+
+                $product->product_stock -= $qty;
+                $product->save();
+
+                $productJson[] = [
+                    'product_id' => $item['product_id'],
+                    'name' => $product->name ?? 'Product',
+                    'price' => $item['price'],
+                    'quantity' => $qty,
+                    'final_price' => $lineTotal,
+                    'orignal_price' => $product->price ?? $item['price'],
+                    'variant_id' => 0,
+                    'variant_name' => null,
+                    'image' => $product->cover_image_url ?? '',
+                    'return' => false,
+                ];
+            }
+        }
+
+        $orderNumber = 'ORD-' . strtoupper(uniqid()) . '-' . rand(1000, 9999);
+
+        $order = \App\Models\Order::create([
+            'product_order_id' => $orderNumber,
+            'order_date' => now(),
+            'customer_id' => $request->customer_id,
+            'is_guest' => 0,
+            'product_json' => json_encode($productJson),
+            'product_id' => implode(',', array_column($request->products, 'product_id')),
+            'product_price' => $totalProductPrice,
+            'delivery_price' => $request->delivery_price ?? 0,
+            'tax_price' => $request->tax_price ?? 0,
+            'coupon_price' => 0,
+            'final_price' => $request->final_price,
+            'payment_type' => $request->payment_type,
+            'payment_status' => $request->payment_status,
+            'delivered_status' => 0,
+            'return_status' => 0,
+            'additional_note' => $request->additional_note ?? '',
+            'store_id' => $storeId,
+            'created_by' => auth()->id(),
+            
+            'currency_code' => $currentCurrencyCode,
+            'currency_symbol' => $currentCurrencySymbol,
+        ]);
+
+        \App\Models\OrderBillingDetail::create([
+            'order_id' => $order->id,
+            'first_name' => $request->first_name,
+            'last_name' => $request->last_name,
+            'email' => $request->email,
+            'telephone' => $request->telephone,
+            'address' => $request->address,
+            'city' => $request->city,
+            'state' => $request->state,
+            'country' => $request->country,
+            'postcode' => $request->postcode ?? '',
+            'store_id' => $storeId,
+        ]);
+
+        \App\Models\OrderNote::create([
+            'customer_id' => $request->customer_id,
+            'order_id' => $order->id,
+            'status' => 'Order created',
+            'changeble_status' => 'created',
+            'note' => 'Order created manually by admin',
+            'store_id' => $storeId,
+        ]);
+
+        DB::commit();
+
+        return redirect()->route('order.index')
+            ->with('success', __('Order created successfully. Order ID: ') . $orderNumber);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+
+        \Log::error('Order Creation Error: ' . $e->getMessage());
+
+        return redirect()->back()
+            ->with('error', __('Failed to create order: ') . $e->getMessage())
+            ->withInput();
+    }
+}
+/////////
+
+    public function create(Request $request)
+{
+    $preselectedCustomerId = $request->query('customer_id');
+    $preselectedCustomer = null;
+
+    if ($preselectedCustomerId) {
+        $preselectedCustomer = \App\Models\Customer::where('id', $preselectedCustomerId)
+            ->where('store_id', getCurrentStore())
+            ->first();
+    }
+
+    $customers = \App\Models\Customer::where('store_id', getCurrentStore())
+        ->where('status', 1)
+        ->orderBy('first_name')
+        ->get();
+
+        $products = \App\Models\Product::where('store_id', getCurrentStore())
+            ->where('status', 1)
+            ->get();
+
+
+    $paymentSettingController = new \App\Http\Controllers\PaymentSettingController();
+    $gatewaysConfig = $paymentSettingController->getPaymentGateways();
+    $activePaymentMethods = [];
+
+    $customLabels = [
+        'cod' => 'Cash on Delivery',
+        'bank_transfer' => 'Bank Transfer',
+        'dpopay' => 'DPO Pay',
+        'paytr' => 'Pay TR',
+        'Xendit' => 'Xendit',
+        'Senangpay' => 'SenangPay',
+        'myfatoorah' => 'MyFatoorah',
+    ];
+
+    foreach ($gatewaysConfig as $gateway) {
+        $id = $gateway['id'];
+        $enableKey = "is_{$id}_enabled"; // مثال: is_stripe_enabled
+
+        $status = \App\Models\Utility::GetValueByName($enableKey);
+
+        if ($status === 'on' || $status === '1') {
+            $label = $customLabels[$id] ?? ucwords(str_replace('_', ' ', $id));
+            $activePaymentMethods[$id] = __($label);
+        }
+    }
+
+    if (empty($activePaymentMethods)) {
+        $activePaymentMethods['cod'] = __('Cash on Delivery (Default)');
+    }
+
+    return view('order.createOrder', compact(
+        'customers',
+        'preselectedCustomer',
+        'products',
+        'activePaymentMethods'
+    ));
+}
+
 
     public function index(Request $request, OrderDataTable $dataTable)
     {
@@ -447,16 +672,66 @@ class OrderController extends Controller
         return response()->json($return);
     }
 
-    public function order_assign(Request $request)
+    public function order_assign(Request $request, DeliveryBoyNotificationService $notificationService)
     {
+        $request->validate([
+            'order_id' => 'required|integer|exists:orders,id',
+            'delivery_boy' => 'required|integer|exists:delivery_boys,id',
+        ]);
+
         $order = Order::find($request->order_id);
+        $deliveryBoy = \App\Models\DeliveryBoy::find($request->delivery_boy);
+
+        if ($order->deliveryboy_id != $request->delivery_boy) {
+            \App\Models\DeliveryEarning::where('order_id', $order->id)->delete();
+        }
+
         $order->deliveryboy_id = $request->delivery_boy;
         $order->save();
-        $return['status'] = 'success';
-        $return['message'] = __('Order assigned successfully');
-        return response()->json($return);
-    }
 
+        $shippingMethod = \App\Models\ShippingMethod::find($order->delivery_id);
+
+        if (
+            $shippingMethod &&
+            $deliveryBoy &&
+            strtolower(trim($shippingMethod->method_name)) === 'local pickup' &&
+            $deliveryBoy->is_commission_enabled == 1
+        ) {
+            $commissionPercentage = (float) ($deliveryBoy->commission_percentage ?? 0);
+            $shippingCost = (float) ($order->delivery_price ?? 0);
+
+            if ($commissionPercentage > 0 && $shippingCost > 0) {
+                $earningAmount = ($shippingCost * $commissionPercentage) / 100;
+
+                \App\Models\DeliveryEarning::create([
+                    'delivery_boy_id'       => $deliveryBoy->id,
+                    'order_id'              => $order->id,
+                    'shipping_method_id'    => $shippingMethod->id,
+                    'shipping_cost'         => $shippingCost,
+                    'commission_percentage' => $commissionPercentage,
+                    'commission_amount'     => $earningAmount,
+                    'status'                => 'pending',
+                ]);
+            }
+        }
+
+        if ($order && $deliveryBoy) {
+            try {
+                $notificationService->orderAssigned($order, $deliveryBoy);
+            } catch (\Exception $e) {
+                Log::error('Failed to send delivery boy notification in order_assign', [
+                    'order_id' => $order->id,
+                    'delivery_boy_id' => $deliveryBoy->id,
+                    'error' => $e->getMessage()
+                ]);
+            }
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => __('Order assigned successfully.')
+        ]);
+    }
 
     public function order_grid_view(Request $request)
     {

@@ -15,6 +15,46 @@
 @endsection
 
 @section('content')
+
+
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css">
+
+<style>
+.CodeMirror {
+    width: 100% !important;
+    height: 400px !important;
+    min-height: 400px !important;
+    background: #111 !important;
+    color: #eee !important;
+    border: 1px solid #333 !important;
+    border-radius: 8px !important;
+    font-family: Consolas, Monaco, "Courier New", monospace !important;
+    font-size: 14px !important;
+    line-height: 1.6 !important;
+    direction: ltr !important;
+    text-align: left !important;
+}
+
+.CodeMirror-scroll {
+    min-height: 400px !important;
+}
+
+.CodeMirror-gutters {
+    background: #0d0d0d !important;
+    border-right: 1px solid #333 !important;
+}
+
+.CodeMirror-linenumber {
+    color: #777 !important;
+}
+</style>
+
+
+
 <div class="row">
     <!-- Content here -->
     <div class="col-xl-12">
@@ -48,6 +88,8 @@
                         </a>
 
                     </li>
+
+
                     <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center" role="presentation">
                         <a href="#checkout_Setting"
                             class="nav-link @if(isset($app_setting_tab) && ($app_setting_tab == 'pills-checkout-tab')) active show @endif btn-sm f-w-600"
@@ -257,6 +299,17 @@
                         {{ Form::model($setting, ['route' => 'seo.settings', 'method' => 'POST', 'enctype' => 'multipart/form-data']) }}
                         <div class="card-body p-4">
                             <input type="hidden" name="app_setting_tab" value="pills-seo-tab">
+                            
+                            
+                            
+                            
+                            
+                            
+                            
+                            
+                            
+                            
+                            
                             <div class="row mt-2">
                                 <div class="col-md-6">
                                     <div class="form-group">
@@ -366,9 +419,69 @@
                             <h5 class=""> {{ __('Custom Settings') }} </h5>
 
                         </div>
+
+
+
+
+
+
+
+
+
+
+
+                        
                         {{ Form::model($setting, ['route' => 'theme.settings', 'method' => 'POST', 'enctype' => 'multipart/form-data']) }}
                         <div class="card-body p-4">
                             <input type="hidden" name="app_setting_tab" value="pills-custom-tab">
+                           <ul class="nav nav-tabs mb-4" id="customInnerTabs" role="tablist">
+
+    <li class="nav-item" role="presentation">
+        <button
+            class="nav-link active"
+            id="custom-domain-tab"
+            data-bs-toggle="tab"
+            data-bs-target="#custom-domain-pane"
+            type="button"
+            role="tab">
+            {{ __('Domain Settings') }}
+        </button>
+    </li>
+
+    <li class="nav-item" role="presentation">
+        <button
+            class="nav-link"
+            id="custom-css-tab"
+            data-bs-toggle="tab"
+            data-bs-target="#custom-css-pane"
+            type="button"
+            role="tab">
+            {{ __('Custom CSS') }}
+        </button>
+    </li>
+
+    <li class="nav-item" role="presentation">
+        <button
+            class="nav-link"
+            id="custom-js-tab"
+            data-bs-toggle="tab"
+            data-bs-target="#custom-js-pane"
+            type="button"
+            role="tab">
+            {{ __('Custom JavaScript') }}
+        </button>
+    </li>
+
+</ul>
+
+<div class="tab-content">
+
+                            {{-- Domain Settings --}}
+                            <div class="tab-pane fade show active"
+                                id="custom-domain-pane"
+                                role="tabpanel"
+                                aria-labelledby="custom-domain-tab">
+
                             <div class="row mt-2">
                                 @if ($plan && ($plan->enable_domain == 'on' || $plan->enable_subdomain == 'on'))
                                 <div class="form-group col-md-6 py-4">
@@ -479,38 +592,104 @@
                                 </div>
                                 @endif
 
-                                <div class="form-group col-md-6">
-                                    {{ Form::label('storejs', __('Store Custom JS'), ['class' => 'form-label']) }}
-                                    {{ Form::textarea('storejs', null, ['class' => 'form-control', 'rows' => 3, 'placeholder' => __('console.log(hello);')]) }}
-                                    @error('storejs')
-                                    <span class="invalid-about" role="alert">
-                                        <strong class="text-danger">{{ $message }}</strong>
-                                    </span>
-                                    @enderror
-                                </div>
 
-                                <div class="form-group col-md-6">
+
+
+
+
+
+
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                                
+                               
+                            </div>
+                            </div>
+
+                            {{-- Custom CSS --}}
+                            <div class="tab-pane fade"
+                                id="custom-css-pane"
+                                role="tabpanel"
+                                aria-labelledby="custom-css-tab">
+
+                                <div class="form-group">
                                     {{ Form::label('storecss', __('Store Custom CSS'), ['class' => 'form-label']) }}
-                                    {{ Form::textarea('storecss', null, ['class' => 'form-control', 'rows' => 3, 'placeholder' => __('Custom CSS')]) }}
+
+                                    {{ Form::textarea('storecss', null, [
+                                        'class' => 'form-control',
+                                        'id' => 'storecss',
+                                        'placeholder' => __('Custom CSS')
+                                    ]) }}
+
                                     @error('storecss')
-                                    <span class="invalid-about" role="alert">
-                                        <strong class="text-danger">{{ $message }}</strong>
-                                    </span>
+                                        <span class="invalid-about" role="alert">
+                                            <strong class="text-danger">{{ $message }}</strong>
+                                        </span>
                                     @enderror
                                 </div>
 
                             </div>
+
+                            {{-- Custom JavaScript --}}
+                            <div class="tab-pane fade"
+                                id="custom-js-pane"
+                                role="tabpanel"
+                                aria-labelledby="custom-js-tab">
+
+                                <div class="form-group">
+                                    {{ Form::label('storejs', __('Store Custom JS'), ['class' => 'form-label']) }}
+
+                                    {{ Form::textarea('storejs', null, [
+                                        'class' => 'form-control',
+                                        'id' => 'storejs',
+                                        'placeholder' => __('console.log("hello");')
+                                    ]) }}
+
+                                    @error('storejs')
+                                        <span class="invalid-about" role="alert">
+                                            <strong class="text-danger">{{ $message }}</strong>
+                                        </span>
+                                    @enderror
+                                </div>
+
+                            </div>
+
                         </div>
+                        </div>
+
                         <div class="card-footer d-flex justify-content-end flex-wrap">
                             @permission('Edit Store Setting')
                             <input type="submit" value="{{ __('Save Changes') }}"
                                 class="btn-submit btn btn-primary btn-badge">
-                            {!! Form::close() !!}
                             @endpermission
                         </div>
+
+                        {!! Form::close() !!}
                     </div>
                 </div>
             </div>
+           
+           
+           
+           
+           
+           
+           
             <div class="tab-pane fade  @if(isset($app_setting_tab) && ($app_setting_tab == 'pills-checkout-tab')) show active @endif"
                 id="pills-checkout" role="tabpanel" aria-labelledby="pills-checkout-tab">
                 <div id="checkout_Setting">
@@ -648,6 +827,55 @@
 @endsection
 
 @push('custom-script')
+
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+    let jsEditor = null;
+    let cssEditor = null;
+
+    const jsTextarea = document.getElementById('storejs');
+    if (jsTextarea) {
+        jsEditor = CodeMirror.fromTextArea(jsTextarea, {
+            mode: 'javascript',
+            theme: 'material-darker',
+            lineNumbers: true,
+            lineWrapping: true,
+            indentUnit: 4,
+            tabSize: 4
+        });
+    }
+
+    const cssTextarea = document.getElementById('storecss');
+    if (cssTextarea) {
+        cssEditor = CodeMirror.fromTextArea(cssTextarea, {
+            mode: 'css',
+            theme: 'material-darker',
+            lineNumbers: true,
+            lineWrapping: true,
+            indentUnit: 4,
+            tabSize: 4
+        });
+    }
+
+    document.querySelectorAll('#customInnerTabs button[data-bs-toggle="tab"]').forEach(function (button) {
+        button.addEventListener('shown.bs.tab', function () {
+            if (cssEditor) {
+                cssEditor.refresh();
+            }
+
+            if (jsEditor) {
+                jsEditor.refresh();
+            }
+        });
+    });
+
+});
+</script>
 <script>
 function myFunction() {
     var copyText = document.getElementById("myInput");
@@ -703,4 +931,3 @@ document.getElementById('tab-search').addEventListener('input', function() {
 });
 </script>
 @endpush
-                <!-- Tab content -->

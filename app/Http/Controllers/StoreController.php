@@ -30,6 +30,8 @@ use Session;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Support\Facades\Cache;
 use App\DataTables\StoreDataTable;
+use App\Models\StoreWallet;
+use App\Models\CurrencyRate;
 
 class StoreController extends Controller
 {
@@ -86,130 +88,339 @@ class StoreController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request)
-    {
+   public function store(Request $request)
+{
+    if (auth()->user() && auth()->user()->type == 'admin') {
+        $validator = \Validator::make(
+            $request->all(),
+            [
+                'storename' => 'required',
+            ]
+        );
+    } else {
+        $validator = \Validator::make(
+            $request->all(),
+            [
+                'storename' => 'required',
+                'name' => 'required',
+                'email' => 'required|unique:users,email',
+                'password' => 'required',
+            ]
+        );
+    }
 
-        if (auth()->user() && auth()->user()->type == 'admin') {
-            $validator = \Validator::make(
-                $request->all(),
+    if ($validator->fails()) {
+        $messages = $validator->getMessageBag();
+
+        return redirect()->back()->with('error', $messages->first());
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Admin creates a new store
+    |--------------------------------------------------------------------------
+    */
+    if (auth()->user() && auth()->user()->type == 'admin') {
+
+        $user = auth()->user();
+
+        $total_store = $user->countStore();
+
+        $plan = Plan::find($user->plan_id);
+
+        if ($total_store < $plan->max_stores || $plan->max_stores == -1) {
+
+            $slug = User::slugs($request->storename);
+
+            $store = Store::create([
+                'name' => $request->storename,
+                'email' => $user->email,
+                'theme_id' => $request->theme_id ?? 'stylique',
+                'slug' => $slug,
+                'default_language' => $user->default_language ?? 'en',
+                'created_by' => $user->id,
+            ]);
+
+            /*
+             * Create default store settings first
+             */
+            defaultSetting($store->id, 'admin', $user);
+
+            /*
+             * Force default currency to USD
+             */
+            $defaultCurrencySettings = [
+                'defult_currancy' => 'USD',
+                'defult_currancy_symbol' => '$',
+                'CURRENCY_NAME' => 'USD',
+                'CURRENCY' => '$',
+            ];
+
+            foreach ($defaultCurrencySettings as $key => $value) {
+
+                Setting::updateOrCreate(
+                    [
+                        'name' => $key,
+                        'store_id' => $store->id,
+                    ],
+                    [
+                        'value' => $value,
+                        'name' => $key,
+                        'store_id' => $store->id,
+                        'created_by' => $user->id,
+                    ]
+                );
+            }
+
+            /*
+             * Create store wallet in USD
+             */
+            StoreWallet::firstOrCreate(
                 [
-                    'storename' => 'required',
+                    'store_id' => $store->id,
+                ],
+                [
+                    'currency_code' => 'USD',
+                    'available_balance' => 0,
+                    'pending_balance' => 0,
+                    'withdrawal_pending_balance' => 0,
+                    'total_income' => 0,
+                    'total_withdrawn' => 0,
                 ]
             );
+
+$defaultCurrencies = [
+    ['code' => 'USD', 'name' => 'US Dollar',          'symbol' => '$',   'rate' => 1],
+    ['code' => 'EUR', 'name' => 'Euro',               'symbol' => '€',   'rate' => 1],
+    ['code' => 'SYP', 'name' => 'Syrian Pound',       'symbol' => 'ل.س', 'rate' => 1],
+    ['code' => 'LBP', 'name' => 'Lebanese Pound',     'symbol' => 'ل.ل', 'rate' => 1],
+    ['code' => 'IQD', 'name' => 'Iraqi Dinar',        'symbol' => 'د.ع', 'rate' => 1],
+    ['code' => 'EGP', 'name' => 'Egyptian Pound',     'symbol' => 'ج.م', 'rate' => 1],
+    ['code' => 'JOD', 'name' => 'Jordanian Dinar',    'symbol' => 'د.أ', 'rate' => 1],
+    ['code' => 'SAR', 'name' => 'Saudi Riyal',        'symbol' => 'ر.س', 'rate' => 1],
+    ['code' => 'AED', 'name' => 'UAE Dirham',         'symbol' => 'د.إ', 'rate' => 1],
+    ['code' => 'KWD', 'name' => 'Kuwaiti Dinar',      'symbol' => 'د.ك', 'rate' => 1],
+    ['code' => 'QAR', 'name' => 'Qatari Riyal',       'symbol' => 'ر.ق', 'rate' => 1],
+    ['code' => 'BHD', 'name' => 'Bahraini Dinar',     'symbol' => 'د.ب', 'rate' => 1],
+    ['code' => 'OMR', 'name' => 'Omani Rial',         'symbol' => 'ر.ع', 'rate' => 1],
+];
+
+foreach ($defaultCurrencies as $currency) {
+
+    CurrencyRate::updateOrCreate(
+        [
+            'store_id' => $store->id,
+            'currency_code' => $currency['code'],
+        ],
+        [
+            'currency_name' => $currency['name'],
+            'symbol' => $currency['symbol'],
+            'rate_per_usd' => $currency['rate'],
+            'is_active' => 1,
+            'created_by' => $user->id,
+        ]
+    );
+}
+
+
+
+            pageDefaultData($store->id);
+
+            return redirect()->back()->with(
+                'success',
+                'Store successfully created.'
+            );
+
         } else {
-            $validator = \Validator::make(
-                $request->all(),
-                [
-                    'storename' => 'required',
-                    'name' => 'required',
-                    'email' => 'required|unique:users,email',
-                    'password' => 'required',
-                ]
+
+            return redirect()->back()->with(
+                'error',
+                __('Your Store limit is over, Please upgrade plan')
             );
-        }
-
-        if ($validator->fails()) {
-            $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
-        }
-
-        if (auth()->user() && auth()->user()->type == 'admin') {
-            $user = auth()->user();
-            $total_store = $user->countStore();
-
-            $plan = Plan::find($user->plan_id);
-            if ($total_store < $plan->max_stores || $plan->max_stores == -1)
-            {
-                $slug = User::slugs($request->storename);
-
-                $store = Store::create([
-                    'name' => $request->storename,
-                    'email' => $user->email,
-                    'theme_id' => $request->theme_id ?? 'stylique',
-                    'slug' => $slug,
-                    'default_language' => $user->default_language ?? 'en',
-                    'created_by' => $user->id,
-                ]);
-
-                // create Default Setting
-                defaultSetting( $store->id, 'admin', $user);
-                pageDefaultData($store->id);
-                return redirect()->back()->with('success', 'Store successfully created.');
-            } else {
-                return redirect()->back()->with('error', __('Your Store limit is over, Please upgrade plan'));
-            }
-        }
-        else
-        {
-            if(auth()->user() && auth()->user()->type == 'super admin')
-            {
-                $superAdmin = Cache::remember('super_admin_details', 3600, function () {
-                    return User::where('type','super admin')->first();
-                });
-
-                $user = User::create([
-                    'name' => $request->name,
-                    'email' => $request->email,
-                    'profile_image' => 'uploads/profile/avatar.png',
-                    'type' => 'admin',
-                    'email_verified_at' => date("Y-m-d H:i:s"),
-                    'password' => Hash::make($request->password),
-                    'mobile' => '7878787878',
-                    'register_type' => 'email',
-                    'language' => $superAdmin->default_language ?? 'en',
-                    'default_language' => $superAdmin->default_language ?? 'en',
-                    'plan_id' => '1',
-                    'created_by' => 1,
-                ]);
-                $slug = User::slugs($request->storename);
-
-                $store = Store::create([
-                    'name' => $request->storename,
-                    'email' => $request->email,
-                    'theme_id' => $request->theme_id ?? 'stylique',
-                    'slug' => $slug,
-                    'default_language' => $user->default_language,
-                    'created_by' => $user->id,
-                ]);
-                $user->current_store = $store->id;
-                $user->save();
-                $user->assignPlan(1);
-                // create Default Setting
-                defaultSetting($store->id, 'admin', $user);
-                pageDefaultData($store->id);
-                Utility::userDefaultData($user->id);
-                $role_r = Role::where('name', 'admin')->first();
-                $user->addRole($role_r);
-                $setting = getSuperAdminAllSetting();
-                if ($setting['email_verification'] == "on") {
-                    $user->email_verified_at = null;
-                    $user->save();
-                    config(
-                        [
-                            'mail.driver' => $setting['MAIL_DRIVER'] ?? '',
-                            'mail.host' => $setting['MAIL_HOST'] ?? '',
-                            'mail.port' => $setting['MAIL_PORT'] ?? '',
-                            'mail.encryption' => $setting['MAIL_ENCRYPTION'] ?? '',
-                            'mail.username' => $setting['MAIL_USERNAME'] ?? '',
-                            'mail.password' => $setting['MAIL_PASSWORD'] ?? '',
-                            'mail.from.address' => $setting['MAIL_FROM_ADDRESS'] ?? '',
-                            'mail.from.name' => $setting['MAIL_FROM_NAME'] ?? '',
-                        ]
-                    );
-                    try {
-
-                        // event(new Registered($user));
-                        $user->sendEmailVerificationNotification();
-
-                    } catch (\Exception $e) {
-                    }
-                }
-                return redirect()->back()->with('success', 'User successfully created.');
-            } else {
-                return redirect()->back()->with('error', __('Permission denied.'));
-            }
         }
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Super Admin creates a new admin + store
+    |--------------------------------------------------------------------------
+    */
+    else {
+
+        if (auth()->user() && auth()->user()->type == 'super admin') {
+
+            $superAdmin = Cache::remember(
+                'super_admin_details',
+                3600,
+                function () {
+                    return User::where('type', 'super admin')->first();
+                }
+            );
+
+            $user = User::create([
+                'name' => $request->name,
+                'email' => $request->email,
+                'profile_image' => 'uploads/profile/avatar.png',
+                'type' => 'admin',
+                'email_verified_at' => date("Y-m-d H:i:s"),
+                'password' => Hash::make($request->password),
+                'mobile' => '7878787878',
+                'register_type' => 'email',
+                'language' => $superAdmin->default_language ?? 'en',
+                'default_language' => $superAdmin->default_language ?? 'en',
+                'plan_id' => '1',
+                'created_by' => 1,
+            ]);
+
+            $slug = User::slugs($request->storename);
+
+            $store = Store::create([
+                'name' => $request->storename,
+                'email' => $request->email,
+                'theme_id' => $request->theme_id ?? 'stylique',
+                'slug' => $slug,
+                'default_language' => $user->default_language,
+                'created_by' => $user->id,
+            ]);
+
+            /*
+             * Set current store
+             */
+            $user->current_store = $store->id;
+            $user->save();
+
+            $user->assignPlan(1);
+
+            /*
+             * Create default store settings first
+             */
+            defaultSetting($store->id, 'admin', $user);
+
+            /*
+             * Force default currency to USD
+             */
+            $defaultCurrencySettings = [
+                'defult_currancy' => 'USD',
+                'defult_currancy_symbol' => '$',
+                'CURRENCY_NAME' => 'USD',
+                'CURRENCY' => '$',
+            ];
+
+            foreach ($defaultCurrencySettings as $key => $value) {
+
+                Setting::updateOrCreate(
+                    [
+                        'name' => $key,
+                        'store_id' => $store->id,
+                    ],
+                    [
+                        'value' => $value,
+                        'name' => $key,
+                        'store_id' => $store->id,
+                        'created_by' => $user->id,
+                    ]
+                );
+            }
+
+            /*
+             * Create store wallet in USD
+             */
+            StoreWallet::firstOrCreate(
+                [
+                    'store_id' => $store->id,
+                ],
+                [
+                    'currency_code' => 'USD',
+                    'available_balance' => 0,
+                    'pending_balance' => 0,
+                    'withdrawal_pending_balance' => 0,
+                    'total_income' => 0,
+                    'total_withdrawn' => 0,
+                ]
+            );
+$defaultCurrencies = [
+    ['code' => 'USD', 'name' => 'US Dollar',          'symbol' => '$',   'rate' => 1],
+    ['code' => 'EUR', 'name' => 'Euro',               'symbol' => '€',   'rate' => 1],
+    ['code' => 'SYP', 'name' => 'Syrian Pound',       'symbol' => 'ل.س', 'rate' => 1],
+    ['code' => 'LBP', 'name' => 'Lebanese Pound',     'symbol' => 'ل.ل', 'rate' => 1],
+    ['code' => 'IQD', 'name' => 'Iraqi Dinar',        'symbol' => 'د.ع', 'rate' => 1],
+    ['code' => 'EGP', 'name' => 'Egyptian Pound',     'symbol' => 'ج.م', 'rate' => 1],
+    ['code' => 'JOD', 'name' => 'Jordanian Dinar',    'symbol' => 'د.أ', 'rate' => 1],
+    ['code' => 'SAR', 'name' => 'Saudi Riyal',        'symbol' => 'ر.س', 'rate' => 1],
+    ['code' => 'AED', 'name' => 'UAE Dirham',         'symbol' => 'د.إ', 'rate' => 1],
+    ['code' => 'KWD', 'name' => 'Kuwaiti Dinar',      'symbol' => 'د.ك', 'rate' => 1],
+    ['code' => 'QAR', 'name' => 'Qatari Riyal',       'symbol' => 'ر.ق', 'rate' => 1],
+    ['code' => 'BHD', 'name' => 'Bahraini Dinar',     'symbol' => 'د.ب', 'rate' => 1],
+    ['code' => 'OMR', 'name' => 'Omani Rial',         'symbol' => 'ر.ع', 'rate' => 1],
+];
+
+foreach ($defaultCurrencies as $currency) {
+
+    CurrencyRate::updateOrCreate(
+        [
+            'store_id' => $store->id,
+            'currency_code' => $currency['code'],
+        ],
+        [
+            'currency_name' => $currency['name'],
+            'symbol' => $currency['symbol'],
+            'rate_per_usd' => $currency['rate'],
+            'is_active' => 1,
+            'created_by' => $user->id,
+        ]
+    );
+}
+            pageDefaultData($store->id);
+
+            Utility::userDefaultData($user->id);
+
+            $role_r = Role::where('name', 'admin')->first();
+
+            $user->addRole($role_r);
+
+            $setting = getSuperAdminAllSetting();
+
+            if ($setting['email_verification'] == "on") {
+
+                $user->email_verified_at = null;
+
+                $user->save();
+
+                config([
+                    'mail.driver' => $setting['MAIL_DRIVER'] ?? '',
+                    'mail.host' => $setting['MAIL_HOST'] ?? '',
+                    'mail.port' => $setting['MAIL_PORT'] ?? '',
+                    'mail.encryption' => $setting['MAIL_ENCRYPTION'] ?? '',
+                    'mail.username' => $setting['MAIL_USERNAME'] ?? '',
+                    'mail.password' => $setting['MAIL_PASSWORD'] ?? '',
+                    'mail.from.address' => $setting['MAIL_FROM_ADDRESS'] ?? '',
+                    'mail.from.name' => $setting['MAIL_FROM_NAME'] ?? '',
+                ]);
+
+                try {
+
+                    // event(new Registered($user));
+
+                    $user->sendEmailVerificationNotification();
+
+                } catch (\Exception $e) {
+                }
+            }
+
+            return redirect()->back()->with(
+                'success',
+                'User successfully created.'
+            );
+
+        } else {
+
+            return redirect()->back()->with(
+                'error',
+                __('Permission denied.')
+            );
+        }
+    }
+}
 
     /**
      * Display the specified resource.

@@ -7,7 +7,6 @@ use App\Http\Controllers\ProductController;
 use Illuminate\Http\Request;
 use App\Traits\ApiResponser;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\File;
 use Carbon\Carbon;
 use App\Models\Store;
 use App\Models\Product;
@@ -20,6 +19,15 @@ use App\Models\Tax;
 use App\Models\ProductVariant;
 use App\Models\Plan;
 use App\Models\ProductImage;
+use App\Models\State;
+use App\Models\City;
+use App\Models\DeliveryBoy;
+use App\Models\DeliveryEarning;
+use App\Models\ShippingMethod;
+
+use App\Models\Customer;
+
+use App\Models\Country;
 
 use App\Models\Cart;
 use App\Models\Wishlist;
@@ -36,7 +44,6 @@ use App\Models\Blog;
 use App\Models\Contact;
 use App\Models\Newsletter;
 use App\Models\PlanOrder;
-use App\Models\DeliveryBoy;
 use DB;
 use Hash;
 use Illuminate\Support\Facades\Mail;
@@ -46,7 +53,7 @@ use App\Models\ProductLabel;
 use App\Models\Testimonial;
 use Illuminate\Support\Facades\Validator;
 
-
+use Illuminate\Support\Facades\File; 
 
 use App\Models\OrderNote;
 
@@ -101,9 +108,6 @@ public function AddOrderNote(Request $request)
         ]);
     }
 
-    /*
-     * منع إضافة ملاحظة إلى طلب تابع لمتجر آخر.
-     */
     $order = Order::query()
         ->where('id', $request->order_id)
         ->where('store_id', $store->id)
@@ -807,23 +811,80 @@ public function logouto(Request $request)
         }
     }
 
-    public function ProductList(Request $request)
-    {
-        $store = Store::find($request->store_id);
-        if (empty($store)) {
-            return $this->error(['message' => __('Store not found!')]);
-        }
-
-        $Products = Product::where('store_id', $store->id)->where('product_type', null)->OrderBy('id', 'desc')->paginate(10);
-
-        if (!empty($Products)) {
-            return $this->success($Products);
-        } else {
-            return $this->error(['message' => __('Product Data not found.')]);
-        }
+public function ProductList(Request $request)
+{
+    $store = Store::find($request->store_id);
+    if (empty($store)) {
+        return $this->error(['message' => __('Store not found!')]);
     }
 
-    public function VariantList(Request $request)
+    $Products = Product::where('store_id', $store->id)
+        ->where('product_type', null)
+        ->with('ProductData:id,name')
+        ->orderBy('id', 'desc')
+        ->paginate(10);
+
+    if ($Products->isNotEmpty()) {
+        // ✅ 1. جلب كود العملة الحالية الفعلي من الإعدادات
+        $currencyCode = \App\Models\Utility::GetValueByName('defult_currancy', $store->id) ?? 'USD';
+
+        // ✅ 2. جلب رمز العملة المقابل من جدول currency_rates النشط
+        $currencyRate = \App\Models\CurrencyRate::where('store_id', $store->id)
+            ->where('currency_code', $currencyCode)
+            ->where('is_active', 1)
+            ->first();
+
+        // ✅ 3. تحديد الرمز: من الجدول، أو الافتراضي، أو كود العملة نفسه كحل أخير
+        $currencySymbol = $currencyRate ? $currencyRate->symbol : ($currencyCode === 'USD' ? '$' : $currencyCode);
+
+        $formatNumber = function ($value) {
+            return number_format((float) ($value ?? 0), 2, '.', '');
+        };
+
+        $Products->getCollection()->transform(function ($product) use ($store, $formatNumber) {
+            $product->category = $product->ProductData;
+            unset($product->ProductData);
+
+            $product->price = $formatNumber($product->getRawOriginal('price'));
+            $product->sale_price = $formatNumber($product->getRawOriginal('sale_price'));
+            $product->cost_price = $formatNumber($product->getRawOriginal('cost_price'));
+
+            $rawFinalPrice = $product->getRawOriginal('final_price') ?? $product->getRawOriginal('price') ?? 0;
+            
+            $currentAppends = $product->getAppends();
+            $product->setAppends(array_diff($currentAppends, ['final_price']));
+            
+            $product->final_price = $formatNumber($rawFinalPrice);
+
+            return $product;
+        });
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'successfull',
+            'data' => [
+                'current_page' => $Products->currentPage(),
+                'data' => $Products->items(), // البيانات المحولة
+                'first_page_url' => $Products->url(1),
+                'from' => $Products->firstItem(),
+                'last_page' => $Products->lastPage(),
+                'last_page_url' => $Products->url($Products->lastPage()),
+                'next_page_url' => $Products->nextPageUrl(),
+                'path' => $Products->path(),
+                'per_page' => $Products->perPage(),
+                'prev_page_url' => $Products->previousPageUrl(),
+                'to' => $Products->lastItem(),
+                'total' => $Products->total(),
+                'currency_code' => $currencyCode,      // ✅ إضافة مفيدة: إرجاع كود العملة أيضاً
+                'currency_symbol' => $currencySymbol,  // ✅ الرمز الصحيح والديناميكي
+            ]
+        ], 200);
+
+    } else {
+        return $this->error(['message' => __('Product Data not found.')]);
+    }
+}
+public function VariantList(Request $request)
     {
         $store = Store::find($request->store_id);
         if (empty($store)) {
@@ -847,7 +908,6 @@ public function OrderList(Request $request)
 {
     $request->validate([
         'store_id' => ['required', 'integer'],
-        // تحديث القيم المقبولة لتشمل 4, 5, 6
         'delivered_status' => ['nullable', 'integer', 'in:0,1,2,3,4,5,6'],
         'payment_status' => ['nullable', 'string'],
         'from_date' => ['nullable', 'date'],
@@ -865,44 +925,76 @@ public function OrderList(Request $request)
 
     $query = Order::where('store_id', $store->id);
 
-    // فلترة حسب حالة التوصيل (0, 1, 2, 3, 4, 5, 6)
-// فلترة حسب حالة التوصيل (0, 1, 2, 3, 4, 5, 6)
-if ($request->has('delivered_status') && $request->delivered_status !== null && $request->delivered_status !== '') {
-    $query->where('delivered_status', (int) $request->delivered_status);
-}
+    if ($request->has('delivered_status') && $request->delivered_status !== null && $request->delivered_status !== '') {
+        $query->where('delivered_status', (int) $request->delivered_status);
+    }
 
-    // فلترة حسب حالة الدفع
     if ($request->filled('payment_status')) {
-        $query->where(
-            'payment_status',
-            $request->payment_status
-        );
+        $query->where('payment_status', $request->payment_status);
     }
 
-    // فلترة من تاريخ الطلب
     if ($request->filled('from_date')) {
-        $query->whereDate(
-            'order_date',
-            '>=',
-            $request->from_date
-        );
+        $query->whereDate('order_date', '>=', $request->from_date);
     }
 
-    // فلترة إلى تاريخ الطلب
     if ($request->filled('to_date')) {
-        $query->whereDate(
-            'order_date',
-            '<=',
-            $request->to_date
-        );
+        $query->whereDate('order_date', '<=', $request->to_date);
     }
 
     $orders = $query
         ->orderByDesc('id')
         ->paginate($request->input('per_page', 10));
 
-    return $this->success($orders);
+    // ✅ 1. جلب كود العملة الحالية الفعلي من الإعدادات
+    $currencyCode = \App\Models\Utility::GetValueByName('defult_currancy', $store->id) ?? 'USD';
+
+    // ✅ 2. جلب رمز العملة المقابل من جدول currency_rates النشط
+    $currencyRate = \App\Models\CurrencyRate::where('store_id', $store->id)
+        ->where('currency_code', $currencyCode)
+        ->where('is_active', 1)
+        ->first();
+
+    // ✅ 3. تحديد الرمز: من الجدول، أو الافتراضي، أو كود العملة نفسه كحل أخير
+    $currencySymbol = $currencyRate ? $currencyRate->symbol : ($currencyCode === 'USD' ? '$' : $currencyCode);
+
+    $formatNumber = function ($value) {
+        return number_format((float) ($value ?? 0), 2, '.', '');
+    };
+
+    $orders->getCollection()->transform(function ($order) use ($formatNumber) {
+        $order->product_price = $formatNumber($order->product_price);
+        $order->delivery_price = $formatNumber($order->delivery_price);
+        $order->final_price = $formatNumber($order->final_price);
+        $order->coupon_price = $formatNumber($order->coupon_price ?? 0);
+        $order->tax_price = $formatNumber($order->tax_price ?? 0);
+
+        return $order;
+    });
+
+    // ✅ 4. بناء استجابة JSON مخصصة لضمان ظهور currency_symbol بشكل صحيح ومضمون
+    return response()->json([
+        'status' => 1,
+        'message' => 'successfull',
+        'data' => [
+            'current_page' => $orders->currentPage(),
+            'data' => $orders->items(), // البيانات المحولة
+            'first_page_url' => $orders->url(1),
+            'from' => $orders->firstItem(),
+            'last_page' => $orders->lastPage(),
+            'last_page_url' => $orders->url($orders->lastPage()),
+            'next_page_url' => $orders->nextPageUrl(),
+            'path' => $orders->path(),
+            'per_page' => $orders->perPage(),
+            'prev_page_url' => $orders->previousPageUrl(),
+            'to' => $orders->lastItem(),
+            'total' => $orders->total(),
+            'currency_code' => $currencyCode,      // ✅ إضافة مفيدة: إرجاع كود العملة أيضاً
+            'currency_symbol' => $currencySymbol,  // ✅ الرمز الصحيح والديناميكي
+        ]
+    ], 200);
 }
+
+
 
 
 
@@ -1171,55 +1263,59 @@ if ($request->has('delivered_status') && $request->delivered_status !== null && 
         return $this->success(['message' => __('Coupon added successfully!')]);
     }
 
-    public function UpdateCoupon(Request $request)
-    {
-        $store = Store::find($request->store_id);
-        if (empty($store)) {
-            return $this->error(['message' => __('Store not found!')]);
-        }
-
-        $validator = \Validator::make(
-            $request->all(),
-            [
-                'coupon_id' => 'required',
-            ]
-        );
-
-        if ($validator->fails()) {
-            $messages = $validator->getMessageBag();
-            return $this->error([
-                'message' => $messages->first()
-            ]);
-        }
-
-        $coupon = Coupon::find($request->coupon_id);
-        if (!empty($request->coupon_name)) {
-            $coupon->coupon_name       = $request->coupon_name;
-        }
-        if (!empty($request->coupon_type)) {
-            $coupon->coupon_type       = $request->coupon_type;
-        }
-        if (!empty($request->discount_amount)) {
-            $coupon->discount_amount   = $request->discount_amount;
-        }
-        if (!empty($request->coupon_limit)) {
-            $coupon->coupon_limit      = $request->coupon_limit;
-        }
-        if (!empty($request->coupon_expiry_date)) {
-            $coupon->coupon_expiry_date = $request->coupon_expiry_date;
-        }
-        if (!empty(trim($request->coupon_code))) {
-            $coupon->coupon_code       = trim($request->coupon_code);
-        }
-        if (!empty($request->status)) {
-            $coupon->status            = $request->status;
-        }
-        $coupon->save();
-
-
-        return $this->success(['message' => __('Coupon Updated successfully!')]);
+public function UpdateCoupon(Request $request)
+{
+    $store = Store::find($request->store_id);
+    if (empty($store)) {
+        return $this->error(['message' => __('Store not found!')]);
     }
 
+    $validator = \Validator::make(
+        $request->all(),
+        [
+            'coupon_id' => 'required',
+        ]
+    );
+
+    if ($validator->fails()) {
+        $messages = $validator->getMessageBag();
+        return $this->error([
+            'message' => $messages->first()
+        ]);
+    }
+
+    $coupon = Coupon::find($request->coupon_id);
+    if (!$coupon) {
+        return $this->error(['message' => __('Coupon not found!')]);
+    }
+
+    if ($request->has('coupon_name')) {
+        $coupon->coupon_name = $request->coupon_name;
+    }
+    if ($request->has('coupon_type')) {
+        $coupon->coupon_type = $request->coupon_type;
+    }
+    if ($request->has('discount_amount')) {
+        $coupon->discount_amount = $request->discount_amount;
+    }
+    if ($request->has('coupon_limit')) {
+        $coupon->coupon_limit = $request->coupon_limit;
+    }
+    if ($request->has('coupon_expiry_date')) {
+        $coupon->coupon_expiry_date = $request->coupon_expiry_date;
+    }
+    if ($request->has('coupon_code')) {
+        $coupon->coupon_code = trim($request->coupon_code);
+    }
+    
+    if ($request->has('status')) {
+        $coupon->status = (int) $request->status;
+    }
+    
+    $coupon->save();
+
+    return $this->success(['message' => __('Coupon Updated successfully!')]);
+}
     public function DeleteCoupon(Request $request)
     {
         $store = Store::find($request->store_id);
@@ -1622,9 +1718,6 @@ public function ViewOrder(Request $request)
         ]);
     }
 
-    /*
-     * التأكد أن الطلب موجود وتابع لنفس المتجر.
-     */
     $orderModel = Order::query()
         ->where('id', $request->order_id)
         ->where('store_id', $store->id)
@@ -1642,9 +1735,6 @@ public function ViewOrder(Request $request)
         return $this->error($order);
     }
 
-    /*
-     * جلب ملاحظات الطلب فقط.
-     */
     $notes = OrderNote::query()
         ->where('order_id', $orderModel->id)
         ->where('store_id', $store->id)
@@ -1665,10 +1755,51 @@ public function ViewOrder(Request $request)
 
     $order['notes'] = $notes;
 
+    $currencyCode = \App\Models\Utility::GetValueByName('defult_currancy', $store->id) ?? 'USD';
+
+    $currencyRate = \App\Models\CurrencyRate::where('store_id', $store->id)
+        ->where('currency_code', $currencyCode)
+        ->where('is_active', 1)
+        ->first();
+
+    $order['currency_code'] = $currencyCode;
+    $order['currency_symbol'] = $currencyRate ? $currencyRate->symbol : ($currencyCode === 'USD' ? '$' : $currencyCode);
+
+    $formatNumber = function ($value) {
+        return number_format((float) ($value ?? 0), 2, '.', '');
+    };
+
+    $mainPriceFields = ['product_price', 'delivery_price', 'final_price', 'coupon_price', 'tax_price', 'sub_total', 'return_price'];
+    foreach ($mainPriceFields as $field) {
+        if (isset($order[$field])) {
+            $order[$field] = $formatNumber($order[$field]);
+        }
+    }
+
+    if (isset($order['product'])) {
+        $products = is_string($order['product']) ? json_decode($order['product'], true) : $order['product'];
+
+        if (is_array($products)) {
+            foreach ($products as &$item) {
+                if (isset($item['price'])) {
+                    $item['price'] = $formatNumber($item['price']);
+                }
+                if (isset($item['final_price'])) {
+                    $item['final_price'] = $formatNumber($item['final_price']);
+                }
+                if (isset($item['orignal_price'])) {
+                    $item['orignal_price'] = $formatNumber($item['orignal_price']);
+                }
+                if (isset($item['total_orignal_price'])) {
+                    $item['total_orignal_price'] = $formatNumber($item['total_orignal_price']);
+                }
+            }
+            $order['product'] = $products;
+        }
+    }
+
     return $this->success($order);
 }
-
-
 
 
 
@@ -1913,312 +2044,374 @@ public function DeleteProduct(Request $request)
         return $this->success(['message' => __('Product deleted successfully!.')]);
     }
 
-    public function AddProduct(Request $request)
-    {
-        $store = Store::find($request->store_id);
-        if (empty($store)) {
-            return $this->error(['message' => __('Store not found!')]);
-        }
+public function AddProduct(Request $request)
+{
+    $store = Store::find($request->store_id);
+    if (empty($store)) {
+        return $this->error(['message' => __('Store not found!')]);
+    }
 
-        $validator = \Validator::make(
-            $request->all(),
-            [
-                'name' => 'required',
-                'category_id' => 'required',
-                'description' => 'required',
-                'cover_image' => 'required',
-                'product_image' => 'required',
-                'price' => 'required',
-                'discount_type' => 'required',
-                'discount_amount' => 'required',
-                'product_stock' => 'required',
-                'trending' => 'required',
-                'variant_product' => 'required',
-            ]
-        );
-
-        if ($validator->fails()) {
-            $messages = $validator->getMessageBag();
-            return $this->error([
-                'message' => $messages->first()
-            ]);
-        }
-        $user = \Auth::user();
-        $total_products = $user->countProducts();
-        $plan = Plan::find($user->plan_id);
-        $dir = 'uploads/' . $store->id;
+    $validator = \Validator::make($request->all(), [
+        'name' => 'required|string',
+        'category_id' => 'required|integer',
+        'description' => 'required|string',
+        'cover_image' => 'required|image',
+        'product_image' => 'required|array',
+        'price' => 'required|numeric|min:0',
+        'sale_price' => 'nullable|numeric|min:0|lte:price',
+        'cost_price' => 'nullable|numeric|min:0|lte:price',
+        'product_stock' => 'required|integer|min:0',
+        'trending' => 'required|in:0,1',
+        'variant_product' => 'required|in:0,1',
+        'status' => 'required|in:0,1',
 
 
-        // description array
-        $array = !empty($request->array) ? $request->array : [];
-        $array_api = [];
-        foreach ($array as $array_key => $slug) {
-            foreach ($slug['inner-list'] as $slug_key => $value) {
+        'tax_id' => 'nullable',
+        'tax_status' => 'nullable|string|in:taxable,none,shipping',
+        'shipping_id' => 'nullable',
+        'product_weight' => 'nullable|numeric|min:0',
+        'track_stock' => 'nullable|in:0,1',
+        'stock_status' => 'nullable|string|in:in_stock,out_of_stock,on_backorder',
+    ]);
 
+    if ($validator->fails()) {
+        $messages = $validator->getMessageBag();
+        return $this->error([
+            'message' => $messages->first()
+        ]);
+    }
+
+    $user = \Auth::user();
+    $total_products = $user->countProducts();
+    $plan = Plan::find($user->plan_id);
+    $dir = 'uploads/' . $store->id;
+
+    // description array processing (نفس الكود الخاص بك)
+    $array = !empty($request->array) ? $request->array : [];
+    $array_api = [];
+    foreach ($array as $array_key => $slug) {
+        foreach ($slug['inner-list'] as $slug_key => $value) {
+            $array_api[$slug['section_slug']][$slug_key]['field_type'] = $value['field_type'];
+            $array_api[$slug['section_slug']][$slug_key]['name'] = $value['field_name'];
+            $array_api[$slug['section_slug']][$slug_key]['value'] = !empty($value['value']) ? $value['value'] : '';
+
+            if ($value['field_type'] == 'photo upload') {
+                $theme_image = !empty($value['value']) ? $value['value'] : '';
+                $upload_image_path = !empty($value['value']) ? $value['value'] : '';
+                if (gettype($theme_image) == 'object') {
+                    $fileName = rand(10, 100) . '_' . time() . "_" . $theme_image->getClientOriginalName();
+                    $upload = Utility::jsonUpload_file($request, 'value', $theme_image, $fileName, $dir, []);
+                    if ($upload['flag'] == true) {
+                        $upload_image_path = $upload['image_path'];
+                    }
+                }
+                $array[$array_key]['inner-list'][$slug_key]['image_path'] = $upload_image_path;
+                $array[$array_key]['inner-list'][$slug_key]['value'] = $upload_image_path;
                 $array_api[$slug['section_slug']][$slug_key]['field_type'] = $value['field_type'];
                 $array_api[$slug['section_slug']][$slug_key]['name'] = $value['field_name'];
-                $array_api[$slug['section_slug']][$slug_key]['value'] = !empty($value['value']) ? $value['value'] : '';
-
-                if ($value['field_type'] == 'photo upload') {
-                    $theme_image = !empty($value['value']) ? $value['value'] : '';
-                    $upload_image_path = !empty($value['value']) ? $value['value'] : '';
-                    if (gettype($theme_image) == 'object') {
-
-                        $fileName = rand(10, 100) . '_' . time() . "_" . $theme_image->getClientOriginalName();
-                        $upload = Utility::jsonUpload_file($request, 'value', $theme_image, $fileName, $dir, []);
-
-                        if ($upload['flag'] == true) {
-                            $upload_image_path = $upload['image_path'];
-                        }
-                    }
-
-                    $array[$array_key]['inner-list'][$slug_key]['image_path'] = $upload_image_path;
-                    $array[$array_key]['inner-list'][$slug_key]['value'] = $upload_image_path;
-
-                    $array_api[$slug['section_slug']][$slug_key]['field_type'] = $value['field_type'];
-                    $array_api[$slug['section_slug']][$slug_key]['name'] = $value['field_name'];
-                    $array_api[$slug['section_slug']][$slug_key]['value'] = $upload_image_path;
-                }
+                $array_api[$slug['section_slug']][$slug_key]['value'] = $upload_image_path;
             }
         }
-        
-        if ($total_products < $plan->max_products || $plan->max_products == -1) {
-            if ($request->cover_image) {
-                $fileName = rand(10, 100) . '_' . time() . "_" . $request->cover_image->getClientOriginalName();
-                $path = Utility::upload_file($request, 'cover_image', $fileName, $dir, []);
-                if ($path['flag'] == 0) {
-                    $msg['flag'] = 'error';
-                    $msg['msg'] =  $path['msg'];
-
-                    return $msg;
-                }
+    }
+    
+    if ($total_products < $plan->max_products || $plan->max_products == -1) {
+        if ($request->hasFile('cover_image')) {
+            $fileName = rand(10, 100) . '_' . time() . "_" . $request->cover_image->getClientOriginalName();
+            $path = Utility::upload_file($request, 'cover_image', $fileName, $dir, []);
+            if ($path['flag'] == 0) {
+                return $this->error(['message' => $path['msg']]);
             }
+        } else {
+            return $this->error(['message' => __('Cover image is required')]);
+        }
 
-            $Product = new Product();
-            $Product->name = $request->name;
-            $Product->description = $request->description;
-            // $Product->other_description = !empty($array) ? json_encode($array) : '';
-            // $Product->other_description_api = !empty($array_api) ? json_encode($array_api) : '';
+        $Product = new Product();
+        $Product->name = $request->name;
+        $Product->description = $request->description;
+        $Product->category_id = $request->category_id;
+        
+        $Product->cover_image_path = $path['url'] ?? null;
+        $Product->cover_image_url = $path['full_url'] ?? null;
+        
+        $Product->price = $request->price;
+        $Product->sale_price = $request->sale_price ?? 0;
+        $Product->cost_price = $request->cost_price ?? 0; 
 
-            // $Product->tag = !empty($product_tag_json) ? json_encode($product_tag_json) : '';
-            // $Product->tag_api = $request->tag;
+        $Product->product_stock = $request->product_stock;
+        $Product->variant_product = $request->variant_product;
+        $Product->trending = $request->trending;
+        $Product->slug = str_replace(' ', '_', strtolower($request->name));
+        $Product->status = $request->status ?? 1;
 
-            $Product->category_id = $request->category_id;
-            $Product->cover_image_path = $path['url'];
-            $Product->cover_image_url = $path['full_url'];
-            $Product->price = $request->price;
-            // $Product->discount_type = $request->discount_type;
-            // $Product->discount_amount = $request->discount_amount;
-            $Product->product_stock = $request->product_stock;
-            $Product->variant_product = $request->variant_product;
-            $Product->trending = $request->trending;
-            $Product->slug = str_replace(' ', '_', strtolower($request->name));
-            $Product->status = $request->status;
-            $Product->store_id     = $request->store_id;
-            $Product->created_by   = $user->id;
-            $Product->save();
+        $Product->product_weight = $request->product_weight ?? 0;
+        $Product->shipping_id = $request->shipping_id ?? null;
+        $Product->tax_status = $request->tax_status ?? 'none';
 
+        if (!empty($request->tax_id)) {
+            $Product->tax_id = is_array($request->tax_id) ? implode(',', $request->tax_id) : $request->tax_id;
+        } else {
+            $defaultTax = \App\Models\Tax::where('store_id', $store->id)->first();
+            $Product->tax_id = $defaultTax ? $defaultTax->id : null;
+        }
+
+        if ($request->track_stock == 1) {
+            $Product->track_stock = 1;
+            $Product->stock_status = $request->stock_status ?? 'in_stock';
+        } else {
+            $Product->track_stock = 0;
+            $Product->stock_status = $request->stock_status ?? 'in_stock';
+        }
+
+        $Product->store_id = $request->store_id;
+        $Product->created_by = $user->id;
+        $Product->save();
+
+        if ($request->hasFile('product_image')) {
             foreach ($request->product_image as $key => $image) {
-                $theme_image = $image;
                 $fileName = rand(10, 100) . '_' . time() . "_" . $image->getClientOriginalName();
                 $pathss = Utility::keyWiseUpload_file($request, 'product_image', $fileName, $dir, $key, []);
 
                 $ProductImage = new ProductImage();
                 $ProductImage->product_id = $Product->id;
-                $ProductImage->image_path = $pathss['url'];
-                $ProductImage->image_url  = $pathss['full_url'];
+                $ProductImage->image_path = $pathss['url'] ?? null;
+                $ProductImage->image_url  = $pathss['full_url'] ?? null;
                 $ProductImage->store_id   = $request->store_id;
                 $ProductImage->save();
             }
-            return $this->success(['message' => __('Product added successfully!')]);
-        } else {
-            return $this->error(['message' => __('Your Product limit is over, Please upgrade plan')]);
+        }
+
+        return $this->success(['message' => __('Product added successfully!')]);
+    } else {
+        return $this->error(['message' => __('Your Product limit is over, Please upgrade plan')]);
+    }
+}
+
+
+public function UpdateProduct(Request $request)
+{
+    $store = Store::find($request->store_id);
+    if (empty($store)) {
+        return $this->error(['message' => __('Store not found!')]);
+    }
+
+    $validator = \Validator::make(
+        $request->all(),
+        [
+            'product_id' => 'required|exists:products,id',
+            'name' => 'required|string',
+            'category_id' => 'required|integer',
+            'description' => 'required|string',
+            'cover_image' => 'nullable|image', 
+            'product_image' => 'nullable|array',
+            'price' => 'required|numeric|min:0',
+            'sale_price' => 'nullable|numeric|min:0|lte:price',
+            'cost_price' => 'nullable|numeric|min:0|lte:price',
+            'product_stock' => 'required|integer|min:0',
+            'trending' => 'required|in:0,1',
+            'variant_product' => 'required|in:0,1',
+            'status' => 'required|in:0,1',
+            
+            'tax_id' => 'nullable',
+            'tax_status' => 'nullable|string|in:taxable,none,shipping',
+            'shipping_id' => 'nullable',
+            'product_weight' => 'nullable|numeric|min:0',
+            'track_stock' => 'nullable|in:0,1',
+            'stock_status' => 'nullable|string|in:in_stock,out_of_stock,on_backorder',
+        ]
+    );
+
+    if ($validator->fails()) {
+        $messages = $validator->getMessageBag();
+        return $this->error([
+            'message' => $messages->first()
+        ]);
+    }
+
+    $dir = 'uploads/' . $store->id;
+    $product = Product::find($request->product_id);
+    
+    if (empty($product)) {
+        return $this->error(['message' => __('Product not found!')]);
+    }
+
+    $old_data = '';
+    if (!empty($product->other_description_api)) {
+        $old_data = json_decode($product->other_description_api, true);
+    }
+
+    $array = $request->array ?? [];
+    $array_api = [];
+    foreach ($array as $array_key => $slug) {
+        foreach ($slug['inner-list'] as $slug_key => $value) {
+
+            $array_api[$slug['section_slug']][$slug_key]['field_type'] = $value['field_type'];
+            $array_api[$slug['section_slug']][$slug_key]['name'] = $value['field_name'];
+            $array_api[$slug['section_slug']][$slug_key]['value'] = !empty($value['value']) ? $value['value'] : '';
+
+            if ($value['field_type'] == 'photo upload') {
+                $theme_image = !empty($value['value']) ? $value['value'] : '';
+                $upload_image_path = !empty($value['value']) ? $value['value'] : '';
+
+                if (gettype($theme_image) == 'object') {
+                    $image_path = (!empty($old_data[$slug['section_slug']][$slug_key]['value'])) ? $old_data[$slug['section_slug']][$slug_key]['value'] : '';
+                    if (File::exists(base_path($image_path))) {
+                        File::delete(base_path($image_path));
+                    }
+
+                    $fileName = rand(10, 100) . '_' . time() . "_" . $theme_image->getClientOriginalName();
+                    $upload = Utility::jsonUpload_file($request, 'value', $theme_image, $fileName, $dir, []);
+
+                    if ($upload['flag'] == true) {
+                        $upload_image_path = $upload['image_path'];
+                    }
+                }
+
+                $array[$array_key]['inner-list'][$slug_key]['image_path'] = $upload_image_path;
+                $array[$array_key]['inner-list'][$slug_key]['value'] = $upload_image_path;
+
+                $array_api[$slug['section_slug']][$slug_key]['field_type'] = $value['field_type'];
+                $array_api[$slug['section_slug']][$slug_key]['name'] = $value['field_name'];
+                $array_api[$slug['section_slug']][$slug_key]['value'] = $upload_image_path;
+            }
         }
     }
 
-    public function UpdateProduct(Request $request)
-    {
-        $store = Store::find($request->store_id);
-        if (empty($store)) {
-            return $this->error(['message' => __('Store not found!')]);
+    $product->name = $request->name;
+    $product->description = $request->description;
+    $product->category_id = $request->category_id;
+    
+    $product->price = $request->price;
+    $product->sale_price = $request->sale_price ?? 0;
+    $product->cost_price = $request->cost_price ?? 0;
+    
+    $product->product_stock = $request->product_stock;
+    $product->variant_product = $request->variant_product;
+    $product->trending = $request->trending;
+    $product->slug = str_replace(' ', '_', strtolower($request->name));
+    $product->status = $request->status ?? 1;
+
+    $product->product_weight = $request->product_weight ?? 0;
+    $product->shipping_id = $request->shipping_id ?? null;
+    $product->tax_status = $request->tax_status ?? 'none';
+
+    if (!empty($request->tax_id)) {
+        $product->tax_id = is_array($request->tax_id) ? implode(',', $request->tax_id) : $request->tax_id;
+    }
+
+    if ($request->track_stock == 1) {
+        $product->track_stock = 1;
+        $product->stock_status = $request->stock_status ?? 'in_stock';
+    } else {
+        $product->track_stock = 0;
+        $product->stock_status = $request->stock_status ?? 'in_stock';
+    }
+
+    $product->store_id = $request->store_id;
+    $product->save();
+
+    if ($request->hasFile('cover_image')) {
+        if (!empty($product->cover_image_path) && File::exists(base_path($product->cover_image_path))) {
+            File::delete(base_path($product->cover_image_path));
         }
 
-        $validator = \Validator::make(
-            $request->all(),
-            [
-                'product_id' => 'required',
-                'name' => 'required',
-                'category_id' => 'required',
-                'description' => 'required',
-                'cover_image' => 'required',
-                'product_image' => 'required',
-                'price' => 'required',
-                'discount_type' => 'required',
-                'discount_amount' => 'required',
-                'product_stock' => 'required',
-                'trending' => 'required',
-                'variant_product' => 'required',
-            ]
-        );
-
-        if ($validator->fails()) {
-            $messages = $validator->getMessageBag();
-            return $this->error([
-                'message' => $messages->first()
-            ]);
-        }
-
-
-        $dir = 'uploads/' . $store->id;
-        $product = Product::find($request->product_id);
-        if (!empty($product)) {
-            // description array
-            $old_data = '';
-            if (!empty($product->other_description_api)) {
-                $old_data = json_decode($product->other_description_api, true);
-            }
-
-            $array = $request->array ?? [];
-            $array_api = [];
-            foreach ($array as $array_key => $slug) {
-                foreach ($slug['inner-list'] as $slug_key => $value) {
-
-                    $array_api[$slug['section_slug']][$slug_key]['field_type'] = $value['field_type'];
-                    $array_api[$slug['section_slug']][$slug_key]['name'] = $value['field_name'];
-                    $array_api[$slug['section_slug']][$slug_key]['value'] = !empty($value['value']) ? $value['value'] : '';
-
-                    if ($value['field_type'] == 'photo upload') {
-                        $theme_image = !empty($value['value']) ? $value['value'] : '';
-                        $upload_image_path = !empty($value['value']) ? $value['value'] : '';
-
-                        if (gettype($theme_image) == 'object') {
-                            $image_path = (!empty($old_data[$slug['section_slug']][$slug_key]['value'])) ? $old_data[$slug['section_slug']][$slug_key]['value'] : '';
-                            if (File::exists(base_path($image_path))) {
-                                File::delete(base_path($image_path));
-                            }
-
-
-                            $fileName = rand(10, 100) . '_' . time() . "_" . $theme_image->getClientOriginalName();
-                            $upload = Utility::jsonUpload_file($request, 'value', $theme_image, $fileName, $dir, []);
-
-                            if ($upload['flag'] == true) {
-                                $upload_image_path = $upload['image_path'];
-                            }
-                        }
-
-                        $array[$array_key]['inner-list'][$slug_key]['image_path'] = $upload_image_path;
-                        $array[$array_key]['inner-list'][$slug_key]['value'] = $upload_image_path;
-
-                        $array_api[$slug['section_slug']][$slug_key]['field_type'] = $value['field_type'];
-                        $array_api[$slug['section_slug']][$slug_key]['name'] = $value['field_name'];
-                        $array_api[$slug['section_slug']][$slug_key]['value'] = $upload_image_path;
-                    }
-                }
-            }
-
-            if ($request->cover_image) {
-                $fileName = rand(10, 100) . '_' . time() . "_" . $request->cover_image->getClientOriginalName();
-                $path = Utility::upload_file($request, 'cover_image', $fileName, $dir, []);
-                if ($path['flag'] == 0) {
-                    $msg['flag'] = 'error';
-                    $msg['msg'] =  $path['msg'];
-
-                    return $msg;
-                }
-                $product->cover_image_path = $path['url'];
-                $product->cover_image_url = $path['full_url'];
-            }
-
-            $product->name = $request->name;
-            $product->description = $request->description;
-            // $product->other_description = !empty($array) ? json_encode($array) : '';
-            // $product->other_description_api = !empty($array_api) ? json_encode($array_api) : '';
-
-            // $product->tag = !empty($product_tag_json) ? json_encode($product_tag_json) : '';
-            // $product->tag_api = $request->tag;
-            $product->category_id = $request->category_id;
-            $product->price = $request->price;
-            // $product->discount_type = $request->discount_type;
-            // $product->discount_amount = $request->discount_amount;
-            $product->product_stock = $request->product_stock;
-            $product->variant_product = $request->variant_product;
-            $product->trending = $request->trending;
-            $product->slug = str_replace(' ', '_', strtolower($request->name));
-            $product->status = $request->status;
+        $fileName = rand(10, 100) . '_' . time() . "_" . $request->cover_image->getClientOriginalName();
+        $path = Utility::upload_file($request, 'cover_image', $fileName, $dir, []);
+        
+        if ($path['flag'] == 1) {
+            $product->cover_image_path = $path['url'];
+            $product->cover_image_url = $path['full_url'];
             $product->save();
-
-            //sub_image
-            if (!empty($request->product_image)) {
-                $product_images = ProductImage::where('product_id', $request->product_id)->get();
-                if (!empty($product_images)) {
-                    foreach ($product_images as $key => $value) {
-                        if (File::exists(base_path($value->image_path))) {
-                            File::delete(base_path($value->image_path));
-                        }
-                        $value->delete();
-                    }
-                }
-            }
-
-            foreach ($request->product_image as $key => $image) {
-                $theme_image = $image;
-                $fileName = rand(10, 100) . '_' . time() . "_" . $image->getClientOriginalName();
-                $pathss = Utility::keyWiseUpload_file($request, 'product_image', $fileName, $dir, $key, []);
-
-                $ProductImage = new ProductImage();
-                $ProductImage->product_id = $product->id;
-                $ProductImage->image_path = $pathss['url'];
-                $ProductImage->image_url  = $pathss['full_url'];
-                $ProductImage->store_id   = $request->store_id;
-                $ProductImage->save();
-            }
-            return $this->success(['message' => __('Product Updated Successfully!')]);
-        } else {
-            return $this->error(['message' => __('Product not found!')]);
         }
     }
 
-    public function ViewProduct(Request $request)
-    {
+    if ($request->hasFile('product_image')) {
+        ProductImage::where('product_id', $product->id)->delete();
 
-        $store = Store::find($request->store_id);
-        if (empty($store)) {
-            return $this->error(['message' => __('Store not found!')]);
-        }
+        foreach ($request->product_image as $key => $image) {
+            $fileName = rand(10, 100) . '_' . time() . "_" . $image->getClientOriginalName();
+            $pathss = Utility::keyWiseUpload_file($request, 'product_image', $fileName, $dir, $key, []);
 
-        $validator = \Validator::make(
-            $request->all(),
-            [
-                'product_id' => 'required',
-            ]
-        );
-
-        if ($validator->fails()) {
-            $messages = $validator->getMessageBag();
-            return $this->error([
-                'message' => $messages->first()
-            ]);
-        }
-        $ProductDetail = [];
-
-        $Products = Product::find($request->product_id);
-        if (!empty($Products)) {
-            $ProductDetail['Product'] = $Products;
-        } else {
-            return $this->error(['message' => __('Product not found')]);
-        }
-
-        $subimage = Product::Sub_image($request->product_id);
-        if (!empty($subimage)) {
-            $ProductDetail['Sub_Image'] = $subimage['data'];
-        }
-
-        if (!empty($ProductDetail)) {
-            return $this->success($ProductDetail);
-        } else {
-            return $this->error(['message' => __('Something went wrong!')]);
+            $ProductImage = new ProductImage();
+            $ProductImage->product_id = $product->id;
+            $ProductImage->image_path = $pathss['url'] ?? null;
+            $ProductImage->image_url  = $pathss['full_url'] ?? null;
+            $ProductImage->store_id   = $request->store_id;
+            $ProductImage->save();
         }
     }
+
+    return $this->success(['message' => __('Product Updated Successfully!')]);
+}
+
+
+public function ViewProduct(Request $request)
+{
+    $store = Store::find($request->store_id);
+    if (empty($store)) {
+        return $this->error(['message' => __('Store not found!')]);
+    }
+
+    $validator = \Validator::make(
+        $request->all(),
+        [
+            'product_id' => 'required',
+        ]
+    );
+
+    if ($validator->fails()) {
+        $messages = $validator->getMessageBag();
+        return $this->error([
+            'message' => $messages->first()
+        ]);
+    }
+    
+    $ProductDetail = [];
+
+    $Products = Product::find($request->product_id);
+    if (!empty($Products)) {
+        $productArray = $Products->toArray();
+
+        // ✅ 1. جلب كود العملة الحالية الفعلي من الإعدادات
+        $currencyCode = \App\Models\Utility::GetValueByName('defult_currancy', $store->id) ?? 'USD';
+
+        // ✅ 2. جلب رمز العملة المقابل من جدول currency_rates النشط
+        $currencyRate = \App\Models\CurrencyRate::where('store_id', $store->id)
+            ->where('currency_code', $currencyCode)
+            ->where('is_active', 1)
+            ->first();
+
+        // ✅ 3. تحديد الرمز: من الجدول، أو الافتراضي، أو كود العملة نفسه كحل أخير
+        $currencySymbol = $currencyRate ? $currencyRate->symbol : ($currencyCode === 'USD' ? '$' : $currencyCode);
+
+        $formatNumber = function ($value) {
+            return number_format((float) ($value ?? 0), 2, '.', '');
+        };
+
+        $productArray['price'] = $formatNumber($productArray['price'] ?? 0);
+        $productArray['sale_price'] = $formatNumber($productArray['sale_price'] ?? 0);
+        $productArray['cost_price'] = $formatNumber($productArray['cost_price'] ?? 0);
+        $productArray['final_price'] = $formatNumber($productArray['final_price'] ?? $productArray['price'] ?? 0);
+
+        // ✅ 4. إضافة كود العملة ورمزها للاستجابة
+        $productArray['currency_code'] = $currencyCode;
+        $productArray['currency_symbol'] = $currencySymbol;
+
+        $ProductDetail['Product'] = $productArray;
+    } else {
+        return $this->error(['message' => __('Product not found')]);
+    }
+
+    $subimage = Product::Sub_image($request->product_id);
+    if (!empty($subimage)) {
+        $ProductDetail['Sub_Image'] = $subimage['data'];
+    }
+
+    if (!empty($ProductDetail)) {
+        return $this->success($ProductDetail);
+    } else {
+        return $this->error(['message' => __('Something went wrong!')]);
+    }
+}
 
     public function DeleteOrder(Request $request)
     {
@@ -2246,6 +2439,22 @@ public function DeleteProduct(Request $request)
 
         return $this->success(['message' => __('Order deleted successfully!.')]);
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     public function SearchData(Request $request)
     {
@@ -2402,58 +2611,81 @@ public function DeleteProduct(Request $request)
         ], __("Rating add successfully."));
     }
 
-    public function DeleteReview(Testimonial $Testimonial)
-    {
-        $Testimonial->delete();
+   // public function DeleteReview(Testimonial $Testimonial)
+   //{
+     //   $Testimonial->delete();
+      //  return $this->success(['message' => __('Review deleted successfully!.')]);
+    //}
+public function DeleteReview($id)
+{
+        $testimonial=Testimonial::find($id);
+        if($testimonial){
+        $testimonial->delete();
+
+
         return $this->success(['message' => __('Review deleted successfully!.')]);
     }
 
+    return $this->error(['message' => __('Review not found.')], 404);
+}
+
+
     public function UpdateReview(Request $request)
-    {
-
-        $store = Store::find($request->store_id);
-        if (empty($store)) {
-            return $this->error(['message' => __('Store not found!')]);
-        }
-
-        $validator = \Validator::make(
-            $request->all(),
-            [
-                'id' => 'required',
-            ]
-        );
-
-        if ($validator->fails()) {
-            $messages = $validator->getMessageBag();
-            return $this->error([
-                'message' => $messages->first()
-            ]);
-        }
-
-        $review = Testimonial::find($request->id);
-
-        if (!empty($request->user_id)) {
-            $review->user_id        = $request->user_id;
-        }
-        if (!empty($request->category_id)) {
-            $review->category_id    = $request->category_id;
-        }
-        if (!empty($request->product_id)) {
-            $review->product_id      = $request->id;
-        }
-        if (!empty($request->rating_no)) {
-            $review->rating_no          = $request->rating_no;
-        }
-        if (!empty($request->description)) {
-            $review->description    = $request->description;
-        }
-        if (!empty($request->status)) {
-            $review->status         = $request->status;
-        }
-        $review->save();
-
-        return $this->success(['message' => __('Product Review Updated successfully!')]);
+{
+    $store = Store::find($request->store_id);
+    if (empty($store)) {
+        return $this->error(['message' => __('Store not found!')]);
     }
+
+    $validator = \Validator::make(
+        $request->all(),
+        [
+            'id' => 'required|integer|exists:testimonials,id',
+        ]
+    );
+
+    if ($validator->fails()) {
+        return $this->error([
+            'message' => $validator->getMessageBag()->first()
+        ]);
+    }
+
+    $review = Testimonial::find($request->id);
+
+    if (!$review) {
+        return $this->error(['message' => __('Review not found.')], 404);
+    }
+
+    if ($request->has('user_id') && $request->user_id !== null && $request->user_id !== '') {
+        $review->user_id = $request->user_id;
+    }
+    if ($request->has('category_id') && $request->category_id !== null && $request->category_id !== '') {
+        $review->category_id = $request->category_id;
+    }
+    if ($request->has('product_id') && $request->product_id !== null && $request->product_id !== '') {
+        $review->product_id = $request->product_id;
+    }
+    if ($request->has('rating_no') && $request->rating_no !== null && $request->rating_no !== '') {
+        $review->rating_no = $request->rating_no;
+    }
+    if ($request->has('title') && $request->title !== null && $request->title !== '') {
+        $review->title = $request->title;
+    }
+    if ($request->has('description') && $request->description !== null && $request->description !== '') {
+        $review->description = $request->description;
+    }
+    if ($request->has('status')) {
+        $review->status = (int) $request->status;
+    }
+
+    $review->save();
+
+    if ($request->has('rating_no') || $request->has('product_id')) {
+        \App\Models\Testimonial::AvregeRating($review->product_id);
+    }
+
+    return $this->success(['message' => __('Product Review Updated successfully!')]);
+}
 
     public function ReviewStatus(Request $request)
     {
@@ -3693,94 +3925,191 @@ public function DeleteStore(Request $request)
         }
     }
 
-    public function deliveryHome(Request $request)
-    {
-        $user  = auth('deliveryboy')->user();
-        
-        if ($user) {
-            $counterData = [];
-            $total_pending = Order::where('deliveryboy_id', $user->id)
-                ->whereIn('delivered_status', [0, 4, 5, 6])
-                ->count();
+public function deliveryHome(Request $request)
+{
+    $user = auth('deliveryboy')->user();
 
-            $total_complete = Order::where('deliveryboy_id', $user->id)
-                ->where('delivered_status', 1)
-                ->count();
-
-            $total_cancel = Order::where('deliveryboy_id', $user->id)
-                ->where('delivered_status', 2)
-                ->count();
-
-            $counterData['pending'] = $total_pending;
-            $counterData['complete'] = $total_complete;
-            $counterData['cancel'] = $total_cancel;
-
-            //total earning
-            $total_earning = Order::select(\DB::raw('SUM(final_price) as total_amount'))
-                ->where('deliveryboy_id', $user->id)
-                ->get();
-
-            $counterData['total_earning'] =  (int)($total_earning->isEmpty() ? 0 : $total_earning->first()->total_amount);
-
-            //today earning
-            $today_earning = Order::select(\DB::raw('SUM(final_price) as total_amount'))
-                ->where('deliveryboy_id', $user->id)
-                ->whereRaw('DATE(order_date) = CURDATE()')
-                ->get();
-
-            $counterData['today_earning'] =  (int)($today_earning->isEmpty() ? 0 : $today_earning->first()->total_amount);
-
-            //order
-            $assign_order = Order::orderBy('created_at', 'Desc')
-                ->select('id', 'product_order_id as product_order_id', 'order_date as date', 'final_price as amount', 'delivered_status', 'delivery_date', 'payment_type', 'payment_status')
-                ->where('deliveryboy_id', $user->id)
-                ->limit('5')
-                ->get();
-
-            $counterData['transaction'] = $assign_order;
-
-            return $this->success($counterData);
-        } else {
-            return $this->error(['message' => __('Unauthorized')]);
-        }
+    if (!$user) {
+        return $this->error(['message' => __('Unauthorized')], 401);
     }
 
-    public function deliveryTransaction(Request $request)
-    {
-        $user  = auth('deliveryboy')->user();
-        
-        if ($user) {
-            $transactions = Order::select('id', 'product_order_id as product_order_id', 'order_date as date', 'final_price as amount', 'delivered_status', 'delivery_date', 'payment_status', 'payment_type')
-                ->where('deliveryboy_id', $user->id)
-                ->paginate(10);
+    // ✅ الحصول على معرف المتجر لتنسيق العملة بشكل صحيح
+    $storeId = $user->store_id ?? getCurrentStore();
+    $counterData = [];
 
-            //total earning
-            $total_earning = Order::select(\DB::raw('SUM(final_price) as total_amount'))
-                ->where('deliveryboy_id', $user->id)
-                ->get();
+    // ✅ إضافة حالة العمولة والرسالة
+    $isCommissionEnabled = (bool) ($user->is_commission_enabled ?? false);
+    $counterData['is_commission_enabled'] = $isCommissionEnabled;
+    $counterData['commission_message']    = $isCommissionEnabled 
+        ? 'Commission is active.' 
+        : 'Commission is not enabled for your account. Please contact the administrator.';
 
-            $counterData['total_earning'] =  (int)($total_earning->isEmpty() ? 0 : $total_earning->first()->total_amount);
+    $total_pending = Order::where('deliveryboy_id', $user->id)
+        ->whereIn('delivered_status', [0, 4, 5, 6])
+        ->count();
 
+    $total_complete = Order::where('deliveryboy_id', $user->id)
+        ->where('delivered_status', 1)
+        ->count();
+
+    $total_cancel = Order::where('deliveryboy_id', $user->id)
+        ->where('delivered_status', 2)
+        ->count();
+
+    $counterData['pending'] = $total_pending;
+    $counterData['complete'] = $total_complete;
+    $counterData['cancel'] = $total_cancel;
+
+    // ✅ total earning (مع تنسيق العملة)
+    $totalEarningRaw = \App\Models\DeliveryEarning::where('delivery_boy_id', $user->id)
+        ->sum('commission_amount');
+    
+    $counterData['total_earning'] = currency_format_with_sym($totalEarningRaw, $storeId) ?? SetNumberFormat($totalEarningRaw);
+
+    // ✅ today earning (مع تنسيق العملة)
+    $todayEarningRaw = \App\Models\DeliveryEarning::where('delivery_boy_id', $user->id)
+        ->whereDate('created_at', today())
+        ->sum('commission_amount');
+
+    $counterData['today_earning'] = currency_format_with_sym($todayEarningRaw, $storeId) ?? SetNumberFormat($todayEarningRaw);
+
+    // ✅ order (آخر 5 طلبات مع تنسيق المبلغ)
+    $assign_order = Order::orderBy('created_at', 'Desc')
+        ->select('id', 'product_order_id', 'order_date', 'final_price', 'delivered_status', 'delivery_date', 'payment_type', 'payment_status')
+        ->where('deliveryboy_id', $user->id)
+        ->limit(5)
+        ->get()
+        ->map(function ($order) use ($storeId) {
+            return [
+                'id'               => $order->id,
+                'product_order_id' => $order->product_order_id,
+                'date'             => $order->order_date,
+                // ✅ تنسيق مبلغ الطلبية أيضاً ليتطابق مع باقي النظام
+                'amount'           => currency_format_with_sym($order->final_price, $storeId) ?? SetNumberFormat($order->final_price),
+                'delivered_status' => $order->delivered_status,
+                'delivery_date'    => $order->delivery_date,
+                'payment_type'     => $order->payment_type,
+                'payment_status'   => $order->payment_status,
+            ];
+        });
+
+    $counterData['transaction'] = $assign_order;
+
+    return $this->success($counterData);
+}
+public function deliveryTransaction(Request $request)
+{
+    $user = auth('deliveryboy')->user();
+
+    if (!$user) {
+        return $this->error(['message' => __('Unauthorized')], 401);
+    }
+
+    // ✅ الحصول على معرف المتجر لتنسيق العملة بشكل صحيح
+    $storeId = $user->store_id ?? getCurrentStore();
+
+    $isCommissionEnabled = (bool) ($user->is_commission_enabled ?? false);
+
+    if (!$isCommissionEnabled) {
+        return $this->success([
+            'is_commission_enabled' => false,
+            'commission_message'    => 'Commission is not enabled for your account. Please contact the administrator.',
+            // ✅ تنسيق الأصفار برمز العملة
+            'total_earning'         => currency_format_with_sym(0, $storeId) ?? SetNumberFormat(0),
+            'today_earning'         => currency_format_with_sym(0, $storeId) ?? SetNumberFormat(0),
+            'transaction'           => [],
+            'pagination'            => [
+                'current_page' => 1,
+                'last_page'    => 1,
+                'per_page'     => 10,
+                'total'        => 0,
+            ]
+        ]);
+    }
+
+    $earnings = \App\Models\DeliveryEarning::with([
+        'order:id,product_order_id,order_date,final_price,delivery_price,payment_status,payment_type,delivered_status',
+        'shippingMethod:id,method_name'
+    ])
+    ->where('delivery_boy_id', $user->id)
+    ->orderBy('created_at', 'desc')
+    ->paginate(10);
+
+    $transactions = $earnings->map(function ($earning) use ($storeId) {
+        return [
+            'id'                    => $earning->id,
+            'product_order_id'      => $earning->order->product_order_id ?? 'N/A',
+            'date'                  => $earning->order->order_date ?? $earning->created_at,
             
-            //today earning
-            $today_earning = Order::select(\DB::raw('SUM(final_price) as total_amount'))
-                ->where('deliveryboy_id', $user->id)
-                ->whereRaw('DATE(order_date) = CURDATE()')
-                ->get();
+            // ✅ تطبيق تنسيق العملة على جميع الحقول المالية (نفس أسلوب OrderDataTable)
+            'final_price'           => currency_format_with_sym(($earning->order->final_price ?? 0), $storeId) ?? SetNumberFormat($earning->order->final_price ?? 0),
+            'delivery_price'        => currency_format_with_sym(($earning->order->delivery_price ?? 0), $storeId) ?? SetNumberFormat($earning->order->delivery_price ?? 0),
+            'earning_amount'        => currency_format_with_sym(($earning->commission_amount ?? 0), $storeId) ?? SetNumberFormat($earning->commission_amount ?? 0),
+            
+            // النسبة المئوية تبقى رقماً عادياً (float) لأنها ليست عملة
+            'commission_percentage' => (float) $earning->commission_percentage,
+            
+            // ✅ بيانات إضافية
+            'payment_type'          => $earning->order->payment_type ?? 'N/A',
+            'shipping_method_name'  => $earning->shippingMethod->method_name ?? 'N/A',
 
-            $counterData['today_earning'] =  (int)($today_earning->isEmpty() ? 0 : $today_earning->first()->total_amount);
+            'delivered_status'      => $earning->order->delivered_status ?? 0,
+            'payment_status'        => $earning->order->payment_status ?? 'N/A',
+            
+            'delivery_date'         => null, 
+            'demo_field'            => 'demo_field',
+            'delivered_status_string'=> $this->getStatusString($earning->order->delivered_status ?? 0),
+            'delivered_image'       => '',
+            'order_id_string'       => '#' . ($earning->order->product_order_id ?? ''),
+            'return_date'           => '1970-01-01',
+            'user_name'             => 'Deleted Customer', 
+            'customer_data'         => null
+        ];
+    });
 
-            if (!empty($transactions)) {
-                $counterData['transaction'] = $transactions;
-            }
+    // حساب الإجماليات كرقم أولاً
+    $totalEarningRaw = \App\Models\DeliveryEarning::where('delivery_boy_id', $user->id)
+        ->sum('commission_amount');
 
-            return $this->success($counterData);
-        } else {
-            return $this->error(['message' => __('Unauthorized')]);
-        }
+    $todayEarningRaw = \App\Models\DeliveryEarning::where('delivery_boy_id', $user->id)
+        ->whereDate('created_at', today())
+        ->sum('commission_amount');
+
+    $counterData = [
+        'is_commission_enabled' => true,
+        'commission_message'    => 'Commission is active.',
+        
+        // ✅ تطبيق تنسيق العملة على الإجماليات
+        'total_earning'         => currency_format_with_sym($totalEarningRaw, $storeId) ?? SetNumberFormat($totalEarningRaw),
+        'today_earning'         => currency_format_with_sym($todayEarningRaw, $storeId) ?? SetNumberFormat($todayEarningRaw),
+        
+        'transaction'           => $transactions,
+        'pagination'            => [
+            'current_page'    => $earnings->currentPage(),
+            'last_page'       => $earnings->lastPage(),
+            'per_page'        => $earnings->perPage(),
+            'total'           => $earnings->total(),
+            'first_page_url'  => $earnings->url(1),
+            'next_page_url'   => $earnings->nextPageUrl(),
+            'prev_page_url'   => $earnings->previousPageUrl(),
+            'path'            => $earnings->path(),
+        ]
+    ];
+
+    return $this->success($counterData);
+}
+
+private function getStatusString($status)
+{
+    switch ($status) {
+        case 0: return 'Pending';
+        case 1: return 'Delivered';
+        case 2: return 'Cancel';
+        case 3: return 'Return';
+        default: return 'Unknown';
     }
-
-    public function changeProfile(Request $request)
+}   
+public function changeProfile(Request $request)
     {
         $rules = [
             'id' => 'required'
@@ -4246,6 +4575,3058 @@ public function DeleteStore(Request $request)
             $return['status'] = 'error';
             $return['message'] = __('Something went wrong!!');
             return response()->json($return);
+        }
+    }
+
+
+public function CustomerList(Request $request)
+{
+    try {
+        $adminUser = auth()->user();
+
+        if (!$adminUser) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => [
+                    'message' => 'Unauthorized. Valid authentication token is required.'
+                ]
+            ], 401);
+        }
+
+        $storeId = $request->store_id ?? getCurrentStore();
+
+        if (!$storeId) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => [
+                    'message' => 'Store ID is required.'
+                ]
+            ], 400);
+        }
+
+        $store = \App\Models\Store::where('id', $storeId)
+            ->where('created_by', $adminUser->id)
+            ->first();
+
+        if (!$store) {
+            if ($adminUser->type !== 'super admin') {
+                return response()->json([
+                    'status' => 0,
+                    'message' => 'fail',
+                    'data' => [
+                        'message' => 'You do not have permission to access this store.'
+                    ]
+                ], 403);
+            }
+        }
+
+        $query = \App\Models\Customer::where('store_id', $storeId);
+
+        $customers = $query->orderBy('created_at', 'desc')
+            ->paginate($request->per_page ?? 10);
+
+        $customersData = $customers->map(function ($customer) use ($storeId) {
+            $ordersCount = \App\Models\Order::where('customer_id', $customer->id)
+                ->where('store_id', $storeId)
+                ->count();
+
+            $totalSpend = \App\Models\Order::where('customer_id', $customer->id)
+                ->where('store_id', $storeId)
+                ->sum('final_price');
+
+            $aov = $ordersCount > 0 ? $totalSpend / $ordersCount : 0;
+
+            // جلب العنوان الافتراضي للزبون
+            $defaultAddress = \App\Models\DeliveryAddress::where('customer_id', $customer->id)
+                ->where('default_address', 1)
+                ->first();
+
+            $address = '';
+            $stateName = '';
+
+            if ($defaultAddress) {
+                // بناء العنوان الكامل
+                $addressParts = [];
+                if (!empty($defaultAddress->address)) {
+                    $addressParts[] = $defaultAddress->address;
+                }
+                if (!empty($defaultAddress->city)) {
+                    $addressParts[] = $defaultAddress->city;
+                }
+                if (!empty($defaultAddress->postcode)) {
+                    $addressParts[] = $defaultAddress->postcode;
+                }
+                $address = implode(', ', $addressParts);
+
+                // جلب اسم الولاية
+                if (!empty($defaultAddress->state_id)) {
+                    $state = \App\Models\State::find($defaultAddress->state_id);
+                    if ($state) {
+                        $stateName = $state->name ?? '';
+                    }
+                }
+            }
+
+            return [
+                'id' => $customer->id,
+                'customer_info' => [
+                    'name' => trim(($customer->first_name ?? '') . ' ' . ($customer->last_name ?? '')),
+                    'mobile' => $customer->mobile ?? '',
+                ],
+                'email' => $customer->email ?? '',
+                'last_active' => $customer->last_active
+                    ? \Carbon\Carbon::parse($customer->last_active)->format('F d, Y')
+                    : null,
+                'date_registered' => $customer->regiester_date
+                    ? \Carbon\Carbon::parse($customer->regiester_date)->format('F d, Y')
+                    : null,
+                'orders' => $ordersCount,
+                'total_spend' => number_format($totalSpend, 2),
+                'aov' => number_format($aov, 2),
+                'status' => (int) ($customer->status ?? 1),
+                'status_text' => ($customer->status ?? 1) == 1 ? 'Active' : 'Inactive',
+                'address' => $address,
+                'state_name' => $stateName,
+            ];
+        });
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'Customers retrieved successfully.',
+            'data' => [
+                'store_id' => $storeId,
+                'store_name' => $store->name ?? '',
+                'customers' => $customersData->toArray(),
+                'pagination' => [
+                    'total' => $customers->total(),
+                    'per_page' => $customers->perPage(),
+                    'current_page' => $customers->currentPage(),
+                    'last_page' => $customers->lastPage(),
+                    'has_more' => $customers->hasMorePages(),
+                ]
+            ]
+        ], 200);
+
+    } catch (\Exception $e) {
+        \Log::error('API CustomerList Error: ' . $e->getMessage() . ' | File: ' . $e->getFile() . ' | Line: ' . $e->getLine());
+
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Debug Error: ' . $e->getMessage()
+            ]
+        ], 500);
+    }
+}
+public function destroy(Request $request, $id = null)
+{
+    try {
+        $adminUser = auth()->user();
+        if (!$adminUser) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'Unauthorized. Valid token is required.']
+            ], 401);
+        }
+
+        $customerId = $request->query('customer_id') ?? $id;
+        $storeId = $request->query('store_id');
+
+        $validator = \Validator::make($request->query(), [
+            'customer_id' => 'required|integer|exists:customers,id',
+            'store_id'    => 'required|integer|exists:stores,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => [
+                    'message' => 'Validation failed.',
+                    'errors' => $validator->errors()
+                ]
+            ], 422);
+        }
+
+        $store = \App\Models\Store::where('id', $storeId)
+            ->where('created_by', $adminUser->id)
+            ->first();
+
+        if (!$store && $adminUser->type !== 'super admin') {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => [
+                    'message' => 'You do not have permission to delete customers from this store.'
+                ]
+            ], 403);
+        }
+
+        $targetCustomer = \App\Models\Customer::where('id', $customerId)
+            ->where('store_id', $storeId)
+            ->first();
+
+        if (!$targetCustomer) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => [
+                    'message' => __('The customer not found or does not belong to this store.')
+                ]
+            ], 404);
+        }
+
+        $targetCustomer->delete();
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'successful',
+            'data' => [
+                'message' => __('Customer deleted successfully.')
+            ]
+        ], 200);
+
+    } catch (\Exception $e) {
+        \Log::error('API Customer Destroy Error: ' . $e->getMessage() . ' | File: ' . $e->getFile() . ' | Line: ' . $e->getLine());
+
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Failed to delete customer. Please try again later.'
+            ]
+        ], 500);
+    }
+}
+public function store(Request $request)
+{
+    try {
+        $adminUser = auth()->user();
+
+        if (!$adminUser) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'Unauthorized. Valid token is required.']
+            ], 401);
+        }
+
+        $storeId = $request->query('store_id');
+
+        \Validator::make(['store_id' => $storeId], [
+            'store_id' => 'required|integer|exists:stores,id'
+        ])->validate();
+
+        $validated = $request->validate([
+            'first_name' => 'required|string|max:255',
+            'last_name' => 'required|string|max:255',
+            'email' => [
+                'required',
+                'email',
+                'max:255',
+                \Illuminate\Validation\Rule::unique('customers', 'email')
+                    ->where('store_id', $storeId) 
+            ],
+            'mobile' => 'required|string|max:20',
+            'password' => 'required|string|min:8',
+            'status' => 'required|in:0,1',
+        ]);
+
+        $store = \App\Models\Store::where('id', $storeId)
+            ->where('created_by', $adminUser->id)
+            ->first();
+
+        if (!$store && $adminUser->type !== 'super admin') {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'You do not have permission to add customers to this store.']
+            ], 403);
+        }
+
+        $customer = \App\Models\Customer::create([
+            'first_name' => $validated['first_name'],
+            'last_name' => $validated['last_name'],
+            'email' => $validated['email'],
+            'mobile' => $validated['mobile'] ?? null,
+            'password' => !empty($validated['password'])
+                ? \Hash::make($validated['password'])
+                : \Hash::make('default123'),
+            'type' => 'customer',
+            'status' => $validated['status'],
+            'store_id' => $storeId, 
+            'regiester_date' => now()->toDateString(),
+            'last_active' => now()->toDateString(),
+            'created_by' => $adminUser->id,
+            'email_verified_at' => now(),
+        ]);
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'successful',
+            'data' => [
+                'message' => 'Customer created successfully.',
+                'customer_id' => $customer->id,
+                'store_id' => $storeId
+            ]
+        ], 201);
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Validation failed.',
+                'errors' => $e->errors()
+            ]
+        ], 422);
+
+    } catch (\Exception $e) {
+        \Log::error('API Customer Store Error: ' . $e->getMessage() . ' | File: ' . $e->getFile() . ' | Line: ' . $e->getLine());
+
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Failed to create customer. Please try again later.'
+            ]
+        ], 500);
+    }
+}  
+  
+
+public function createOrderViaApi(Request $request)
+{
+    $storeId = $request->query('store_id');
+
+    \Validator::make(['store_id' => $storeId], [
+        'store_id' => 'required|integer|exists:stores,id'
+    ])->validate();
+
+$currentCurrencyCode = \App\Models\Utility::GetValueByName('defult_currancy', $storeId) ?? 'USD';
+$currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_symbol', $storeId) ?? '$';
+
+
+    $validated = $request->validate([
+        'customer_id' => 'required|exists:customers,id,status,1',
+        'products' => 'required|array|min:1',
+        'products.*.product_id' => 'required|exists:products,id',
+        'products.*.quantity' => 'required|integer|min:1',
+        'products.*.price' => 'required|numeric|min:0',
+        'products.*.variant_id' => 'nullable|integer',
+        'payment_type' => 'required|string',
+        'payment_status' => 'required|in:Paid,Unpaid',
+        'delivery_price' => 'nullable|numeric|min:0',
+        'tax_price' => 'nullable|numeric|min:0',
+        'first_name' => 'required|string|max:255',
+        'last_name' => 'required|string|max:255',
+        'email' => 'required|email|max:255',
+        'telephone' => 'required|string|max:20',
+        'address' => 'required|string',
+        'city_id' => 'nullable|integer|exists:cities,id',
+        'state_id' => 'nullable|integer|exists:states,id',
+        'country_id' => 'nullable|integer|exists:countries,id',
+        'postcode' => 'nullable|string|max:20',
+        'additional_note' => 'nullable|string',
+    ]);
+
+    \DB::beginTransaction();
+
+    try {
+        $productJson = [];
+        $totalProductPrice = 0;
+        $userId = auth()->id();
+
+        $store = \App\Models\Store::where('id', $storeId)
+                                  ->where('created_by', $userId)
+                                  ->first();
+
+        if (!$store) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Unauthorized: You do not have permission to create orders for this store.'
+            ], 403);
+        }
+
+        foreach ($validated['products'] as $item) {
+            $product = \App\Models\Product::find($item['product_id']);
+
+            if (!$product || $product->status != 1) {
+                throw new \Exception("Product not found or inactive: ID {$item['product_id']}");
+            }
+
+            $qty = (int) $item['quantity'];
+            $price = (float) $item['price'];
+            $lineTotal = $price * $qty;
+            $totalProductPrice += $lineTotal;
+
+            if (!empty($item['variant_id']) && $item['variant_id'] > 0) {
+                $variant = \App\Models\ProductVariant::find($item['variant_id']);
+                if (!$variant) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => "Product variant not found: ID {$item['variant_id']}"
+                    ], 404);
+                }
+
+                if ($product->track_stock == 1) {
+                    if ($variant->stock < $qty) {
+                        return response()->json([
+                            'status' => 'error',
+                            'message' => "Insufficient stock for variant: {$variant->name}. Available: {$variant->stock}, Requested: {$qty}"
+                        ], 400);
+                    }
+                    $variant->stock -= $qty;
+                    $variant->save();
+                }
+
+                $productJson[] = [
+                    'product_id' => $item['product_id'],
+                    'name' => $product->name ?? 'Product',
+                    'price' => $price,
+                    'quantity' => $qty,
+                    'subtotal' => $lineTotal, 
+                    'orignal_price' => $product->price ?? $price,
+                    'variant_id' => $item['variant_id'],
+                    'variant_name' => $item['variant_name'] ?? $variant->name ?? null,
+                    'image' => $product->cover_image_url ?? '',
+                    'return' => false,
+                ];
+            } else {
+                if ($product->track_stock == 1) {
+                    if ($product->product_stock < $qty) {
+                        return response()->json([
+                            'status' => 'error',
+                            'message' => "Insufficient stock for product: {$product->name}. Available: {$product->product_stock}, Requested: {$qty}"
+                        ], 400);
+                    }
+                    $product->product_stock -= $qty;
+                    $product->save();
+                }
+
+                $productJson[] = [
+                    'product_id' => $item['product_id'],
+                    'name' => $product->name ?? 'Product',
+                    'price' => $price,
+                    'quantity' => $qty,
+                    'subtotal' => $lineTotal,
+                    'orignal_price' => $product->price ?? $price,
+                    'variant_id' => 0,
+                    'variant_name' => null,
+                    'image' => $product->cover_image_url ?? '',
+                    'return' => false,
+                ];
+            }
+        }
+
+        $deliveryPrice = (float) ($validated['delivery_price'] ?? 0);
+        $taxPrice = (float) ($validated['tax_price'] ?? 0);
+        $finalPrice = $totalProductPrice + $deliveryPrice + $taxPrice;
+        $orderNumber = 'ORD-' . strtoupper(uniqid()) . '-' . rand(1000, 9999);
+
+        $order = \App\Models\Order::create([
+            'product_order_id' => $orderNumber,
+            'order_date' => now(),
+            'customer_id' => $validated['customer_id'],
+            'is_guest' => 0,
+            'product_json' => json_encode($productJson),
+            'product_id' => implode(',', array_column($validated['products'], 'product_id')),
+            'product_price' => $totalProductPrice,
+            'delivery_price' => $deliveryPrice,
+            'tax_price' => $taxPrice,
+            'coupon_price' => 0,
+                'currency_code' => $currentCurrencyCode,
+    'currency_symbol' => $currentCurrencySymbol,
+
+            'final_price' => $finalPrice,
+            'payment_type' => $validated['payment_type'],
+            'payment_status' => $validated['payment_status'],
+            'delivered_status' => 0,
+            'return_status' => 0,
+            'additional_note' => $validated['additional_note'] ?? '',
+            'store_id' => $storeId, 
+            'created_by' => $userId,
+        ]);
+
+        \App\Models\OrderBillingDetail::create([
+            'order_id' => $order->id,
+            'first_name' => $validated['first_name'],
+            'last_name' => $validated['last_name'],
+            'email' => $validated['email'],
+            'telephone' => $validated['telephone'],
+            'address' => $validated['address'],
+            'city' => $validated['city_id'] ?? null,     
+            
+            'state' => $validated['state_id'] ?? null,  
+
+            'country' => $validated['country_id'] ?? null,
+            'postcode' => $validated['postcode'] ?? '',
+        ]);
+
+\App\Models\OrderNote::create([
+    'customer_id' => $validated['customer_id'],
+    'order_id' => $order->id,
+    'status' => 'Order created',
+    'note_type' => 'system',
+    'notes' => 'Order created via Admin API',
+    'store_id' => $storeId,
+]);
+
+if (!empty($validated['additional_note'])) {
+    \App\Models\OrderNote::create([
+        'customer_id' => $validated['customer_id'],
+        'order_id' => $order->id,
+        'status' => 'Customer note',
+        'note_type' => 'customer',
+        'notes' => $validated['additional_note'],
+        'store_id' => $storeId,
+    ]);
+}
+        \DB::commit();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Order created successfully',
+            'data' => [
+                'order_id' => $order->id,
+                'order_number' => $orderNumber,
+                'store_id' => $storeId,
+'currency_symbol' => $currentCurrencySymbol,    
+'products' => array_map(function($item) {
+                    return [
+                        'product_id' => $item['product_id'],
+                        'name' => $item['name'],
+                        'quantity' => $item['quantity'],
+                        'price' => $item['price'],
+                        'subtotal' => $item['subtotal'],
+                    ];
+                }, $productJson),
+                'product_price' => $totalProductPrice,
+                'delivery_price' => $deliveryPrice,
+                'tax_price' => $taxPrice,
+                'final_price' => $finalPrice,
+                'payment_type' => $order->payment_type,
+                'payment_status' => $order->payment_status,
+            ]
+        ], 201);
+
+    } catch (\Exception $e) {
+        \DB::rollBack();
+        \Log::error('API Order Creation Error: ' . $e->getMessage());
+
+        return response()->json([
+            'status' => 'error',
+            'message' => 'Failed to create order: ' . $e->getMessage()
+        ], 500);
+    }
+}
+public function getActivePaymentMethods(Request $request)
+{
+    try {
+        $adminUser = auth()->user();
+        if (!$adminUser) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'Unauthorized. Valid token is required.']
+            ], 401);
+        }
+
+        $storeId = $request->query('store_id');
+
+        if (!$storeId) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'Store ID is required.']
+            ], 400);
+        }
+
+        $store = \App\Models\Store::where('id', $storeId)
+            ->where('created_by', $adminUser->id)
+            ->first();
+
+        if (!$store && $adminUser->type !== 'super admin') {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'You do not have permission to access this store.']
+            ], 403);
+        }
+
+        $paymentSettingController = new \App\Http\Controllers\PaymentSettingController();
+        $gatewaysConfig = $paymentSettingController->getPaymentGateways();
+
+        $activeMethods = [];
+
+        foreach ($gatewaysConfig as $gateway) {
+            $id = $gateway['id'];
+            $enableKey = "is_{$id}_enabled";
+
+            $status = \App\Models\Utility::GetValueByName($enableKey, $storeId);
+
+            if ($status === 'on' || $status === '1') {
+                $activeMethods[] = [
+                    'key' => $id,
+                    'name' => ucwords(str_replace('_', ' ', $id)),
+                ];
+            }
+        }
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'Active payment methods retrieved successfully.',
+            'data' => [
+                'store_id' => (int) $storeId,
+                'active_methods' => $activeMethods
+            ]
+        ], 200);
+
+    } catch (\Exception $e) {
+        \Log::error('API Get Active Payment Methods Error: ' . $e->getMessage() . ' | File: ' . $e->getFile() . ' | Line: ' . $e->getLine());
+
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Failed to retrieve payment methods. Please try again later.'
+            ]
+        ], 500);
+    }
+}
+
+
+//عرض معلومات المتجر    الشاملة والحسابات
+public function getStoreOwnerInfo(Request $request)
+{
+    try {
+        $storeId = $request->query('store_id') ?? $request->store_id ?? (function_exists('getCurrentStore') ? getCurrentStore() : null);
+
+        if (!$storeId) {
+            return response()->json(['status' => 'error', 'message' => 'Store ID is required', 'data' => null], 400);
+        }
+
+        $store = \App\Models\Store::find($storeId);
+        if (!$store) {
+            return response()->json(['status' => 'error', 'message' => 'Store not found', 'data' => null], 404);
+        }
+
+        $owner = \App\Models\User::find($store->created_by);
+        
+        $settings = \App\Models\Setting::where('store_id', $storeId)
+            ->pluck('value', 'name')
+            ->toArray();
+
+        $storeUrl = $this->buildStoreUrlLikeWeb($store, $settings);
+
+$socialMedia = $this->extractSocialMediaLinks($storeId, $store->theme_id);
+
+        $data = [
+            'store' => [
+                'id' => (int) $store->id,
+                'name' => $store->name ?? '',
+                'slug' => $store->slug ?? '',
+                'email' => $store->email ?? '',
+                'default_language' => $settings['defult_language'] ?? $store->default_language ?? 'en',
+                'store_url' => $storeUrl,
+                'created_at' => $store->created_at?->toDateTimeString(),
+            ],
+            'owner' => [
+                'id' => (int) ($owner?->id ?? 0),
+                'name' => $owner?->name ?? '',
+                'email' => $owner?->email ?? '',
+                'mobile' => $settings['mobile'] ?? ($owner?->mobile ?? ''),
+                'created_at' => $owner?->created_at?->toDateTimeString(),
+            ],
+            'address' => [
+                'store_address' => $settings['store_address'] ?? '',
+                'store_city' => $settings['store_city'] ?? '',
+                'store_state' => $settings['store_state'] ?? '',
+                'store_zipcode' => $settings['store_zipcode'] ?? '',
+                'store_country' => $settings['store_country'] ?? '',
+                'full_address' => trim(
+                    ($settings['store_address'] ?? '') . ', ' . 
+                    ($settings['store_city'] ?? '') . ', ' . 
+                    ($settings['store_state'] ?? '') . ' ' . 
+                    ($settings['store_zipcode'] ?? '') . ', ' . 
+                    ($settings['store_country'] ?? '')
+                , ', '),
+            ],
+            'media' => [
+                'invoice_logo' => !empty($settings['invoice_logo']) ? asset($settings['invoice_logo']) : null,
+                'store_image'  => !empty($settings['theme_image']) ? asset($settings['theme_image']) : null,
+            ],
+'social_media' => $socialMedia,
+
+
+
+            'settings' => [
+                'currency_name' => $settings['CURRENCY_NAME'] ?? '',
+                'currency_format' => $settings['currency_format'] ?? '',
+                'site_rtl' => $settings['SITE_RTL'] ?? 'off',
+                'date_format' => $settings['site_date_format'] ?? 'Y-m-d',
+                'timezone' => $settings['defult_timezone'] ?? 'UTC',
+            ]
+        ];
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Store and owner information retrieved successfully',
+            'data' => $data
+        ], 200);
+
+    } catch (\Exception $e) {
+        \Log::error('Get Store Owner Info Error: ' . $e->getMessage());
+        return response()->json([
+            'status' => 'error',
+            'message' => 'Failed to retrieve store information: ' . $e->getMessage(),
+            'data' => null
+        ], 500);
+    }
+}
+
+private function extractSocialMediaLinks($storeId, $themeId)
+{
+    $socialLinks = [];
+    
+    try {
+        $footerRecord = \DB::table('theme_customizes')
+            ->where('store_id', $storeId)
+            ->where('theme_id', $themeId)
+            ->where('name', 'footer_repeater')
+            ->first();
+        
+        if ($footerRecord && !empty($footerRecord->value)) {
+            $rawValue = $footerRecord->value;
+            
+            $decoded = json_decode($rawValue, true);
+            
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                foreach ($decoded as $item) {
+                    if (isset($item['link']) && isset($item['icon'])) {
+                        $platform = $this->detectSocialPlatform($item['icon'], $item['link']);
+                        if ($platform) {
+                            $socialLinks[$platform] = [
+                                'link' => $item['link'],
+                                'icon' => $item['icon'],
+                            ];
+                        }
+                    }
+                }
+            } else {
+                $socialLinks = $this->extractLinksAndGuessIcons($rawValue);
+            }
+        }
+    } catch (\Exception $e) {
+        \Log::error('Extract Social Media Error: ' . $e->getMessage());
+    }
+
+    return $socialLinks;
+}
+
+private function extractLinksAndGuessIcons($rawString)
+{
+    $links = [];
+    
+    preg_match_all('/"link"\s*:\s*"([^"]+)"/', $rawString, $linkMatches);
+
+    if (!empty($linkMatches[1])) {
+        foreach ($linkMatches[1] as $link) {
+            $cleanLink = stripslashes($link);
+            
+            $platform = $this->detectSocialPlatform('', $cleanLink);
+            
+            if ($platform) {
+                $links[$platform] = [
+                    'link' => $cleanLink,
+                    'icon' => $this->getDefaultIcon($platform) 
+                ];
+            }
+        }
+    }
+    
+    return $links;
+}
+
+private function getDefaultIcon($platform)
+{
+    $icons = [
+        'facebook'   => 'fab fa-facebook-f',
+        'twitter'    => 'fab fa-x-twitter',
+        'instagram'  => 'fab fa-instagram',
+        'linkedin'   => 'fab fa-linkedin-in',
+        'youtube'    => 'fab fa-youtube',
+        'tiktok'     => 'fab fa-tiktok',
+        'whatsapp'   => 'fab fa-whatsapp',
+        'telegram'   => 'fab fa-telegram',
+        'snapchat'   => 'fab fa-snapchat',
+    ];
+    
+    return $icons[$platform] ?? 'fas fa-link';
+}
+
+private function detectSocialPlatform($icon, $link)
+{
+    $icon = strtolower($icon);
+    $link = strtolower($link);
+
+    if (strpos($icon, 'facebook') !== false || strpos($link, 'facebook.com') !== false) return 'facebook';
+    if (strpos($icon, 'twitter') !== false || strpos($icon, 'x-twitter') !== false || strpos($link, 'twitter.com') !== false || strpos($link, 'x.com') !== false) return 'twitter';
+    if (strpos($icon, 'instagram') !== false || strpos($link, 'instagram.com') !== false) return 'instagram';
+    if (strpos($icon, 'linkedin') !== false || strpos($link, 'linkedin.com') !== false) return 'linkedin';
+    if (strpos($icon, 'youtube') !== false || strpos($link, 'youtube.com') !== false) return 'youtube';
+    if (strpos($icon, 'tiktok') !== false || strpos($link, 'tiktok.com') !== false) return 'tiktok';
+    if (strpos($icon, 'whatsapp') !== false || strpos($link, 'wa.me') !== false || strpos($link, 'whatsapp.com') !== false) return 'whatsapp';
+    if (strpos($icon, 'telegram') !== false || strpos($link, 't.me') !== false) return 'telegram';
+    if (strpos($icon, 'snapchat') !== false || strpos($link, 'snapchat.com') !== false) return 'snapchat';
+
+    return null;
+}
+private function buildStoreUrlLikeWeb($store, $settings)
+{
+    // ✅ إضافة جديدة: إذا كان هناك رابط مخصص مباشر، استخدمه فوراً وتجاهل الباقي
+    if (!empty($settings['custom_store_url'])) {
+        return rtrim($settings['custom_store_url'], '/');
+    }
+
+    $enableDomain = $settings['enable_domain'] ?? 'off';
+    $enableSubdomain = $settings['enable_subdomain'] ?? 'off';
+    $customDomain = $settings['domains'] ?? '';
+    $subdomain = $settings['subdomain'] ?? '';
+
+    if ($enableDomain === 'on' && !empty($customDomain)) {
+        $domain = preg_replace('/^www\./', '', $customDomain);
+        return (strpos($domain, 'http') === 0 ? '' : 'https://') . rtrim($domain, '/') . '/home';
+    }
+
+    if ($enableSubdomain === 'on' && !empty($subdomain)) {
+        $sub = preg_replace('/^www\./', '', $subdomain);
+        return (strpos($sub, 'http') === 0 ? '' : 'https://') . rtrim($sub, '/') . '/home';
+    }
+
+    $appUrl = trim(env('APP_URL'), '/');
+    $input = preg_replace('#^http(s)?://#', '', $appUrl);
+    $input = preg_replace('/^www\./', '', $input);
+    if (!preg_match('#^http(s)?://#', $input)) {
+        $input = 'https://' . $input;
+    }
+
+    return rtrim($input, '/') . '/' . $store->slug . '/home';
+}
+    /// البحث حسب اسم المنتج فقط
+    public function searchProductsByName(Request $request)
+{
+    $adminUser = auth()->user();
+
+    if (!$adminUser) {
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => ['message' => 'Unauthorized. Valid token is required.']
+        ], 401);
+    }
+
+    $storeId = $request->query('store_id');
+
+    \Validator::make(['store_id' => $storeId], [
+        'store_id' => 'required|integer|exists:stores,id'
+    ])->validate();
+
+    $store = \App\Models\Store::where('id', $storeId)
+        ->where('created_by', $adminUser->id)
+        ->first();
+
+    if (!$store && $adminUser->type !== 'super admin') {
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => ['message' => 'You do not have permission to access this store.']
+        ], 403);
+    }
+
+    $rules = [
+        'name' => 'required|string|min:2',
+        
+    ];
+
+    $validator = \Validator::make($request->all(), $rules);
+    if ($validator->fails()) {
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => ['message' => $validator->errors()->first()]
+        ], 422);
+    }
+
+    $products = Product::where('store_id', $store->id)
+        ->where('name', 'LIKE', '%' . $request->name . '%')
+        ->with(['ProductData', 'brand', 'label'])
+       
+        ->paginate(15);
+
+    if ($products->isNotEmpty()) {
+        return response()->json([
+            'status' => 1,
+            'message' => 'success',
+            'data' => $products
+           
+        ], 200);
+    } else {
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => ['message' => __('Product not found.')]
+        ], 404);
+    }
+}
+
+
+// Top Orders
+public function Top_orders(Request $request)
+{
+    try {
+        $adminUser = auth()->user();
+
+        if (!$adminUser) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'Unauthorized. Valid token is required.']
+            ], 401);
+        }
+
+        $storeId = $request->query('store_id');
+
+        \Validator::make(['store_id' => $storeId], [
+            'store_id' => 'required|integer|exists:stores,id'
+        ])->validate();
+
+        $store = \App\Models\Store::where('id', $storeId)
+            ->where('created_by', $adminUser->id)
+            ->first();
+
+        if (!$store && $adminUser->type !== 'super admin') {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'You do not have permission to access this store.']
+            ], 403);
+        }
+
+        // ✅ 1. جلب كود العملة الحالية الفعلي من الإعدادات (مثال: 'USD', 'SYP')
+        $currencyCode = \App\Models\Utility::GetValueByName('defult_currancy', $storeId) ?? 'USD';
+
+        // ✅ 2. جلب رمز العملة المقابل لهذا الكود من جدول currency_rates النشط
+        $currencyRate = \App\Models\CurrencyRate::where('store_id', $storeId)
+            ->where('currency_code', $currencyCode)
+            ->where('is_active', 1)
+            ->first();
+
+        // ✅ 3. تحديد الرمز: من الجدول، أو الرمز الافتراضي للدولار، أو كود العملة نفسه كحل أخير
+        $currencySymbol = $currencyRate ? $currencyRate->symbol : ($currencyCode === 'USD' ? '$' : $currencyCode);
+
+        $formatNumber = function ($value) {
+            return number_format((float) ($value ?? 0), 2, '.', '');
+        };
+
+        $topOrders = \App\Models\Order::where('store_id', $store->id)
+            ->with(['CustomerData' => function ($query) {
+                $query->select('id', 'first_name', 'last_name');
+            }])
+            ->select('id', 'product_order_id', 'customer_id', 'order_date', 'final_price', 'payment_status', 'delivered_status')
+            ->orderBy('final_price', 'desc')
+            ->limit(5)
+            ->get();
+
+        $ordersData = $topOrders->map(function ($order) use ($formatNumber) {
+            $customer = $order->CustomerData;
+            $customerName = $customer
+                ? trim(($customer->first_name ?? '') . ' ' . ($customer->last_name ?? ''))
+                : 'Guest';
+
+            return [
+                'id' => $order->id,
+                'order_number' => '#' . $order->product_order_id,
+                'customer_id' => $order->customer_id,
+                'customer_name' => $customerName,
+                'order_date' => $order->order_date ? \Carbon\Carbon::parse($order->order_date)->format('Y-m-d') : null,
+                
+                'final_price' => $formatNumber($order->final_price),
+                
+                'payment_status' => $order->payment_status,
+                'delivered_status' => $order->delivered_status,
+                'delivered_status_text' => $order->delivered_status_string ?? 'Pending',
+            ];
+        });
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'Top 5 highest value orders retrieved successfully.',
+            'data' => [
+                'store_id' => (int) $storeId,
+                'store_name' => $store->name ?? '',
+                'top_orders' => $ordersData,
+                'count' => $ordersData->count(),
+                'currency_code' => $currencyCode,      // ✅ إضافة مفيدة: إرجاع كود العملة أيضاً
+                'currency_symbol' => $currencySymbol,  // ✅ الرمز الصحيح والديناميكي
+            ]
+        ], 200);
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Validation failed.',
+                'errors' => $e->errors()
+            ]
+        ], 422);
+
+    } catch (\Exception $e) {
+        \Log::error('API Top Orders Error: ' . $e->getMessage() . ' | File: ' . $e->getFile() . ' | Line: ' . $e->getLine());
+
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Failed to retrieve top orders: ' . $e->getMessage()
+            ]
+        ], 500);
+    }
+}//اضافة  متجر  جديد
+    public function createStoreApi(Request $request)
+    {
+
+    $user = auth()->user();
+        if (!$user || !in_array($user->type, ['admin', 'super admin'])) {
+            return $this->error(['message' => __('Permission denied.')], 403);
+        }
+
+        $validator = \Validator::make($request->all(), [
+            'storename' => 'required|string|max:120',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->error(['message' => $validator->errors()->first()], 422);
+        }
+
+        if ($user->type == 'admin') {
+            $total_store = $user->countStore();
+            $plan = Plan::find($user->plan_id);
+
+            if ($total_store < $plan->max_stores || $plan->max_stores == -1) {
+                
+                $slug = User::slugs($request->storename);
+
+                $store = Store::create([
+                    'name'             => $request->storename,
+                    'email'            => $user->email,
+                    'theme_id'         => $request->theme_id ?? 'stylique',
+                    'slug'             => $slug,
+                    'default_language' => $user->default_language ?? 'en',
+                    'created_by'       => $user->id,
+                ]);
+
+                if (function_exists('defaultSetting')) {
+                    defaultSetting($store->id, 'admin', $user);
+                }
+                if (function_exists('pageDefaultData')) {
+                    pageDefaultData($store->id);
+                }
+
+                return $this->success([
+                    'store_id'     => $store->id,
+                    'store_name'   => $store->name,
+                    'slug'         => $store->slug,
+                    'theme_id'     => $store->theme_id,
+                ], __('Store successfully created.'));
+
+            } else {
+                return $this->error(['message' => __('Your Store limit is over, Please upgrade plan')], 403);
+            }
+        }
+        return $this->error(['message' => __('Something went wrong.')], 500);
+    }
+    //عرض  الخطط
+
+public function indexAllPlan(Request $request)
+{
+    try {
+        $user = Auth::user();
+
+        if (!$user) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'Unauthorized. Valid token is required.']
+            ], 401);
+        }
+
+        $storeId = $request->query('store_id');
+        \Validator::make(['store_id' => $storeId], [
+            'store_id' => 'required|integer|exists:stores,id'
+        ])->validate();
+
+        $store = \App\Models\Store::where('id', $storeId)
+            ->where('created_by', $user->id)
+            ->first();
+
+        if (!$store && $user->type !== 'super admin') {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'You do not have permission to access this store.']
+            ], 403);
+        }
+
+        $settings = Utility::Setting($storeId);
+
+        $currentPlan = Plan::where('id', $user->plan_id)
+            ->where('is_disable', 1)
+            ->first();
+
+        $usedProducts = \App\Models\Product::where('created_by', $user->id)->count();
+        $usedStores = \App\Models\Store::where('created_by', $user->id)->count();
+        $usedUsers = \App\Models\User::where('created_by', $user->id)
+            ->where('type', '!=', 'super admin')
+            ->count();
+
+        $maxProducts = $currentPlan ? (int) $currentPlan->max_products : 0;
+        $maxStores = $currentPlan ? (int) $currentPlan->max_stores : 0;
+        $maxUsers = $currentPlan ? (int) $currentPlan->max_users : 0;
+
+        $remainingProducts = $maxProducts == -1 ? -1 : max(0, $maxProducts - $usedProducts);
+        $remainingStores = $maxStores == -1 ? -1 : max(0, $maxStores - $usedStores);
+        $remainingUsers = $maxUsers == -1 ? -1 : max(0, $maxUsers - $usedUsers);
+
+        $planExpireDate = $user->plan_expire_date;
+        $isExpired = false;
+        $daysRemaining = null;
+        $planStatus = 'active';
+
+        if ($planExpireDate) {
+            $today = now()->startOfDay();
+            $expireDate = \Carbon\Carbon::parse($planExpireDate)->startOfDay();
+            $daysRemaining = $today->diffInDays($expireDate, false);
+
+            if ($today->greaterThan($expireDate)) {
+                $isExpired = true;
+                $planStatus = 'expired';
+                $daysRemaining = 0;
+            } elseif ($daysRemaining <= 7) {
+                $planStatus = 'expiring_soon';
+            }
+        } else {
+            $planStatus = 'unlimited';
+        }
+
+        $planData = null;
+        if ($currentPlan) {
+            $planData = [
+                'id' => $currentPlan->id,
+                'name' => $currentPlan->name,
+                'price' => (float) $currentPlan->price,
+                'currency' => $settings['CURRENCY'] ?? '$',
+                'currency_name' => $settings['CURRENCY_NAME'] ?? 'USD',
+                'duration' => $currentPlan->duration,
+                'duration_text' => Plan::getDurationsArr()[$currentPlan->duration] ?? 'Month',
+                'price_display' => ($settings['CURRENCY'] ?? '$') . $currentPlan->price . ' / ' . (Plan::getDurationsArr()[$currentPlan->duration] ?? 'Month'),
+
+                'limits' => [
+                    'products' => [
+                        'max' => $maxProducts == -1 ? 'Unlimited' : $maxProducts,
+                        'used' => $usedProducts,
+                        'remaining' => $remainingProducts == -1 ? 'Unlimited' : $remainingProducts,
+                        'percentage' => $maxProducts == -1 ? 0 : round(($usedProducts / $maxProducts) * 100, 2),
+                    ],
+                    'stores' => [
+                        'max' => $maxStores == -1 ? 'Unlimited' : $maxStores,
+                        'used' => $usedStores,
+                        'remaining' => $remainingStores == -1 ? 'Unlimited' : $remainingStores,
+                        'percentage' => $maxStores == -1 ? 0 : round(($usedStores / $maxStores) * 100, 2),
+                    ],
+                    'users' => [
+                        'max' => $maxUsers == -1 ? 'Unlimited' : $maxUsers,
+                        'used' => $usedUsers,
+                        'remaining' => $remainingUsers == -1 ? 'Unlimited' : $remainingUsers,
+                        'percentage' => $maxUsers == -1 ? 0 : round(($usedUsers / $maxUsers) * 100, 2),
+                    ],
+                ],
+
+                'features' => [
+                    'custom_domain' => $currentPlan->enable_domain == 'on',
+                    'sub_domain' => $currentPlan->enable_subdomain == 'on',
+                    'chatgpt' => $currentPlan->enable_chatgpt == 'on',
+                    'pwa' => $currentPlan->pwa_store == 'on',
+                    'shipping_method' => $currentPlan->shipping_method == 'on',
+                    'enable_tax' => $currentPlan->enable_tax == 'on',
+                    'storage_limit' => (float) $currentPlan->storage_limit . ' MB',
+                ],
+
+                'has_trial' => $currentPlan->trial == 1,
+                'trial_days' => (int) ($currentPlan->trial_days ?? 0),
+                'description' => strip_tags($currentPlan->description),
+
+                'plan_status' => [
+                    'status' => $planStatus,
+                    'is_expired' => $isExpired,
+                    'plan_expire_date' => $planExpireDate ? $user->dateFormat($planExpireDate) : null,
+                    'days_remaining' => $daysRemaining,
+                    'expire_message' => $isExpired
+                        ? 'Your plan has expired on ' . ($planExpireDate ? $user->dateFormat($planExpireDate) : '')
+                        : ($daysRemaining !== null && $daysRemaining > 0
+                            ? $daysRemaining . ' days remaining'
+                            : ($planStatus === 'unlimited' ? 'Unlimited plan' : '')),
+                ],
+
+                'user_subscription' => [
+                    'is_current_plan' => true,
+                    'plan_expire_date' => $planExpireDate ? $user->dateFormat($planExpireDate) : null,
+                    'trial_expire_date' => $user->trial_expire_date ? $user->dateFormat($user->trial_expire_date) : null,
+                    'is_trial_plan' => $user->trial_plan == $currentPlan->id,
+                    'has_requested_plan' => $user->requested_plan == $currentPlan->id,
+                ],
+            ];
+        }
+
+        return $this->success([
+            'store_id' => (int) $storeId,
+            'current_plan' => $planData,
+            'current_user_plan' => $user ? [
+                'plan_id' => $user->plan_id,
+                'trial_plan' => $user->trial_plan,
+                'requested_plan' => $user->requested_plan,
+            ] : null,
+        ], __('Current plan retrieved successfully.'));
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Validation failed.',
+                'errors' => $e->errors()
+            ]
+        ], 422);
+
+    } catch (\Exception $e) {
+        \Log::error('Plans API Error: ' . $e->getMessage() . ' | File: ' . $e->getFile() . ' | Line: ' . $e->getLine());
+
+        return $this->error(['message' => __('Failed to retrieve plans: ' . $e->getMessage())], 500);
+    }
+}
+
+
+  //عرض معدلات صرف العملات للمتجر
+public function getCurrencyRatesApi(Request $request)
+{
+    try {
+        $user = auth()->user();
+
+        if (!$user) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'Unauthorized. Valid token is required.']
+            ], 401);
+        }
+
+        $storeId = $request->query('store_id');
+
+        \Validator::make(['store_id' => $storeId], [
+            'store_id' => 'required|integer|exists:stores,id'
+        ])->validate();
+
+        $store = \App\Models\Store::where('id', $storeId)
+            ->where('created_by', $user->id)
+            ->first();
+
+        if (!$store && $user->type !== 'super admin') {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'You do not have permission to access this store.']
+            ], 403);
+        }
+
+        $currencyRates = \App\Models\CurrencyRate::where('store_id', $storeId)
+            ->orderBy('currency_code')
+            ->get();
+
+        if ($currencyRates->isEmpty()) {
+            $defaultCurrencies = [
+                ['USD', 'US Dollar', '$', 1],
+                ['EUR', 'Euro', '€', 1],
+                ['SYP', 'Syrian Pound', 'ل.س', 1],
+                ['LBP', 'Lebanese Pound', 'ل.ل', 1],
+                ['IQD', 'Iraqi Dinar', 'د.ع', 1],
+                ['EGP', 'Egyptian Pound', 'ج.م', 1],
+                ['JOD', 'Jordanian Dinar', 'د.أ', 1],
+                ['SAR', 'Saudi Riyal', 'ر.س', 1],
+                ['AED', 'UAE Dirham', 'د.إ', 1],
+                ['KWD', 'Kuwaiti Dinar', 'د.ك', 1],
+                ['QAR', 'Qatari Riyal', 'ر.ق', 1],
+                ['BHD', 'Bahraini Dinar', 'د.ب', 1],
+                ['OMR', 'Omani Rial', 'ر.ع', 1],
+            ];
+
+            foreach ($defaultCurrencies as $currency) {
+                \App\Models\CurrencyRate::create([
+                    'store_id' => $storeId,
+                    'currency_code' => $currency[0],
+                    'currency_name' => $currency[1],
+                    'symbol' => $currency[2],
+                    'rate_per_usd' => $currency[3],
+                    'is_active' => 1,
+                    'created_by' => $user->id,
+                ]);
+            }
+
+            $currencyRates = \App\Models\CurrencyRate::where('store_id', $storeId)
+                ->orderBy('currency_code')
+                ->get();
+        }
+
+        $ratesData = $currencyRates->map(function ($rate) {
+            return [
+                'id' => $rate->id,
+                'currency_code' => $rate->currency_code,
+                'currency_name' => $rate->currency_name,
+                'symbol' => $rate->symbol,
+                'rate_per_usd' => (float) $rate->rate_per_usd,
+                'is_active' => (bool) $rate->is_active,
+            ];
+        });
+
+        $defaultCurrency = \App\Models\Setting::where('store_id', $storeId)
+            ->where('name', 'defult_currancy')
+            ->value('value') ?? 'USD';
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'Currency rates retrieved successfully.',
+            'data' => [
+                'store_id' => (int) $storeId,
+                'store_name' => $store->name ?? '',
+                'default_currency' => $defaultCurrency,
+                'currency_rates' => $ratesData,
+                'count' => $ratesData->count(),
+            ]
+        ], 200);
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Validation failed.',
+                'errors' => $e->errors()
+            ]
+        ], 422);
+
+    } catch (\Exception $e) {
+        \Log::error('API Get Currency Rates Error: ' . $e->getMessage() . ' | File: ' . $e->getFile() . ' | Line: ' . $e->getLine());
+
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Failed to retrieve currency rates: ' . $e->getMessage()
+            ]
+        ], 500);
+    }
+    
+}
+    //تعديل  معدلات صرف العملة
+public function updateCurrencyRateApi(Request $request)
+{
+    try {
+        $user = auth()->user();
+
+        if (!$user) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'Unauthorized. Valid token is required.']
+            ], 401);
+        }
+
+        $validated = $request->validate([
+            'store_id' => 'required|integer|exists:stores,id',
+            'currency_code' => 'required|string|max:10',
+            'rate_per_usd' => 'required|numeric|min:0.00000001',
+        ]);
+
+        $store = \App\Models\Store::where('id', $validated['store_id'])
+            ->where('created_by', $user->id)
+            ->first();
+
+        if (!$store && $user->type !== 'super admin') {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'You do not have permission to update this store settings.']
+            ], 403);
+        }
+
+        $currencyRate = \App\Models\CurrencyRate::where('store_id', $validated['store_id'])
+            ->where('currency_code', $validated['currency_code'])
+            ->first();
+
+        if (!$currencyRate) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'Currency not found for this store.']
+            ], 404);
+        }
+
+        $currencyRate->rate_per_usd = $validated['rate_per_usd'];
+        $currencyRate->save();
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'Currency rate updated successfully.',
+            'data' => [
+                'currency_code' => $currencyRate->currency_code,
+                'currency_name' => $currencyRate->currency_name,
+                'symbol' => $currencyRate->symbol,
+                'rate_per_usd' => (float) $currencyRate->rate_per_usd,
+            ]
+        ], 200);
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Validation failed.',
+                'errors' => $e->errors()
+            ]
+        ], 422);
+
+    } catch (\Exception $e) {
+        \Log::error('API Update Currency Rate Error: ' . $e->getMessage() . ' | File: ' . $e->getFile() . ' | Line: ' . $e->getLine());
+
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Failed to update currency rate: ' . $e->getMessage()
+            ]
+        ], 500);
+    }
+}
+ //لتعديل  او ايقاف عملة
+public function toggleCurrencyStatusApi(Request $request)
+{
+    try {
+        $user = auth()->user();
+
+        if (!$user) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'Unauthorized. Valid token is required.']
+            ], 401);
+        }
+
+        $validated = $request->validate([
+            'store_id' => 'required|integer|exists:stores,id',
+            'currency_code' => 'required|string|max:10',
+            'is_active' => 'required|boolean',
+        ]);
+
+        $store = \App\Models\Store::where('id', $validated['store_id'])
+            ->where('created_by', $user->id)
+            ->first();
+
+        if (!$store && $user->type !== 'super admin') {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'You do not have permission to update this store settings.']
+            ], 403);
+        }
+
+        $currencyRate = \App\Models\CurrencyRate::where('store_id', $validated['store_id'])
+            ->where('currency_code', $validated['currency_code'])
+            ->first();
+
+        if (!$currencyRate) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'Currency not found for this store.']
+            ], 404);
+        }
+
+        if ($validated['currency_code'] === 'USD' && !$validated['is_active']) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'USD cannot be disabled as it is the base currency.']
+            ], 400);
+        }
+
+        $currencyRate->is_active = $validated['is_active'] ? 1 : 0;
+        $currencyRate->save();
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'Currency status updated successfully.',
+            'data' => [
+                'currency_code' => $currencyRate->currency_code,
+                'currency_name' => $currencyRate->currency_name,
+                'is_active' => (bool) $currencyRate->is_active,
+            ]
+        ], 200);
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Validation failed.',
+                'errors' => $e->errors()
+            ]
+        ], 422);
+
+    } catch (\Exception $e) {
+        \Log::error('API Toggle Currency Status Error: ' . $e->getMessage() . ' | File: ' . $e->getFile() . ' | Line: ' . $e->getLine());
+
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Failed to update currency status: ' . $e->getMessage()
+            ]
+        ], 500);
+    }
+}
+public function updateStoreLanguage(Request $request)
+{
+    try {
+        $user = Auth::user();
+
+        if (!$user) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'Unauthorized. Valid token is required.']
+            ], 401);
+        }
+
+        $storeId = $request->query('store_id');
+        \Validator::make(['store_id' => $storeId], [
+            'store_id' => 'required|integer|exists:stores,id'
+        ])->validate();
+
+        $store = \App\Models\Store::where('id', $storeId)
+            ->where('created_by', $user->id)
+            ->first();
+
+        if (!$store && $user->type !== 'super admin') {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'You do not have permission to access this store.']
+            ], 403);
+        }
+
+        $validator = \Validator::make($request->all(), [
+            'default_language' => 'required|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'Validation failed.', 'errors' => $validator->errors()]
+            ], 422);
+        }
+
+        $languages = Utility::languages();
+
+        $languageCodeToSave = null;
+
+
+        if (array_key_exists($request->default_language, $languages)) {
+            $languageCodeToSave = $request->default_language;
+        }
+
+        else if (in_array($request->default_language, $languages)) {
+
+        $languageCodeToSave = array_search($request->default_language, $languages);
+        }
+
+        if (!$languageCodeToSave) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'This language is not supported.']
+            ], 400);
+        }
+
+        $store->default_language = $languageCodeToSave;
+        $store->save();
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'Store language updated successfully.',
+            'data' => [
+                'store_id' => $store->id,
+                'store_name' => $store->name,
+                'saved_language_code' => $languageCodeToSave,
+
+                'saved_language_name' => $languages[$languageCodeToSave]
+
+                ]
+        ], 200);
+
+    } catch (\Exception $e) {
+        \Log::error('Update Store Language Error: ' . $e->getMessage());
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => ['message' => 'Failed to update store language: ' . $e->getMessage()]
+        ], 500);
+    }
+}
+
+public function getAvailableLanguages(Request $request)
+{
+    try {
+        $user = Auth::user();
+
+        if (!$user) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'Unauthorized. Valid token is required.']
+            ], 401);
+        }
+
+        $storeId = $request->query('store_id');
+
+        \Validator::make(['store_id' => $storeId], [
+            'store_id' => 'required|integer|exists:stores,id'
+        ])->validate();
+
+        $store = \App\Models\Store::where('id', $storeId)
+            ->where('created_by', $user->id)
+            ->first();
+
+        if (!$store && $user->type !== 'super admin') {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'You do not have permission to access this store.']
+            ], 403);
+        }
+
+        $languages = \App\Models\Utility::languages();
+        $flags = \App\Models\Utility::flagOfCountry();
+
+        $langData = [];
+        foreach ($languages as $code => $name) {
+            $langData[] = [
+                'code' => $code,
+                'name' => $name,
+                'flag' => $flags[$code] ?? '',
+            ];
+        }
+
+        $currentLanguage = $store->default_language ?? ($user->language ?? 'en');
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'Languages retrieved successfully',
+            'data' => [
+                'store_id' => (int) $storeId,
+                'store_name' => $store->name ?? '',
+                'languages' => $langData,
+                'current_language' => $currentLanguage,
+            ]
+        ], 200);
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Validation failed.',
+                'errors' => $e->errors()
+            ]
+        ], 422);
+
+    } catch (\Exception $e) {
+        \Log::error('API Get Available Languages Error: ' . $e->getMessage() . ' | File: ' . $e->getFile() . ' | Line: ' . $e->getLine());
+
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Failed to retrieve languages: ' . $e->getMessage()
+            ]
+        ], 500);
+    }
+}
+public function updateCurrencyApi(Request $request)
+{
+    try {
+        $adminUser = auth()->user();
+
+        if (!$adminUser) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'Unauthorized. Valid token is required.']
+            ], 401);
+        }
+
+        $storeId = $request->query('store_id') ?? $request->input('store_id');
+
+        \Validator::make(['store_id' => $storeId], [
+            'store_id' => 'required|integer|exists:stores,id'
+        ])->validate();
+
+        $store = \App\Models\Store::where('id', $storeId)
+            ->where('created_by', $adminUser->id)
+            ->first();
+
+        if (!$store && $adminUser->type !== 'super admin') {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'You do not have permission to update this store settings.']
+            ], 403);
+        }
+
+        $validated = $request->validate([
+            'defult_currancy' => 'required|string|max:10',     
+            'defult_currancy_symbol' => 'required|string|max:10', 
+
+            'site_currency_symbol_position' => 'nullable|in:pre,post', 
+
+            ]);
+
+
+            $currencyName = strtoupper(trim($validated['defult_currancy']));
+        $currencySymbol = trim($validated['defult_currancy_symbol']);
+        $position = $validated['site_currency_symbol_position'] ?? 'pre';
+
+        $settingsToUpdate = [
+            'defult_currancy' => $currencyName,
+            'CURRENCY_NAME' => $currencyName,
+            'defult_currancy_symbol' => $currencySymbol,
+            'CURRENCY' => $currencySymbol,
+            'site_currency_symbol_position' => $position,
+        ];
+
+
+        $settingQuery = \App\Models\Setting::query();
+        foreach ($settingsToUpdate as $key => $data) {
+            (clone $settingQuery)->updateOrCreate(
+                [
+                    'name' => $key,
+                    'store_id' => $storeId
+                ],
+                [
+                    'value' => $data,
+                    'name' => $key,
+                    'store_id' => $storeId,
+                    'created_by' => $adminUser->id,
+                ]
+            );
+        }
+
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'Currency updated successfully.',
+            'data' => [
+                'store_id' => (int) $storeId,
+                'currency_name' => $currencyName,
+                'currency_symbol' => $currencySymbol,
+                'symbol_position' => $position,
+            ]
+        ], 200);
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Validation failed.',
+                'errors' => $e->errors()
+            ]
+        ], 422);
+
+    } catch (\Exception $e) {
+        \Log::error('API Update Currency Error: ' . $e->getMessage() . ' | File: ' . $e->getFile() . ' | Line: ' . $e->getLine());
+
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Failed to update currency: ' . $e->getMessage()
+            ]
+        ], 500);
+    }
+}
+public function getCurrenciesApi(Request $request)
+{
+    try {
+        $user = auth()->user();
+        if (!$user) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'Unauthorized. Valid token is required.']
+            ], 401);
+        }
+
+        $storeId = $request->query('store_id');
+        \Validator::make(['store_id' => $storeId], [
+            'store_id' => 'required|integer|exists:stores,id'
+        ])->validate();
+
+        $store = \App\Models\Store::where('id', $storeId)
+            ->where('created_by', $user->id)
+            ->first();
+
+        if (!$store && $user->type !== 'super admin') {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'You do not have permission to access this store.']
+            ], 403);
+        }
+
+        $allowedCurrencies = [
+            'SYP', 'AED', 'BHD', 'BYR', 'EGP', 'EUR', 'IQD', 
+            'JOD', 'KWD', 'LBP', 'OMR', 'QAR', 'SAR', 'USD'
+        ];
+
+        $activeCurrencies = \App\Models\CurrencyRate::where('store_id', $storeId)
+            ->where('is_active', 1)
+            ->whereIn('currency_code', $allowedCurrencies)
+            ->get();
+
+        $formattedCurrencies = [];
+        if ($activeCurrencies->isNotEmpty()) {
+            foreach ($activeCurrencies as $currency) {
+                $formattedCurrencies[] = [
+                    'code' => $currency->currency_code,
+                    'name' => $currency->currency_name ?? $currency->currency_code,
+                    'symbol' => $currency->symbol ?? '$',                 
+                    'rate_per_usd' => (float) $currency->rate_per_usd,
+                    'is_active' => (bool) $currency->is_active,
+                ];
+            }
+        }
+
+        $currentCurrencyCode = \App\Models\Utility::GetValueByName('defult_currancy', $storeId) ?? 'USD';
+
+        $currentCurrencyRate = \App\Models\CurrencyRate::where('store_id', $storeId)
+            ->where('currency_code', $currentCurrencyCode)
+            ->first();
+
+        $finalName = $currentCurrencyRate ? $currentCurrencyRate->currency_name : (\App\Models\Utility::GetValueByName('CURRENCY_NAME', $storeId) ?? 'US Dollar');
+        $finalSymbol = $currentCurrencyRate ? $currentCurrencyRate->symbol : (\App\Models\Utility::GetValueByName('CURRENCY', $storeId) ?? '$');
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'Currencies retrieved successfully',
+            'data' => [
+                'store_id' => (int) $storeId,
+                'current_currency' => [
+                    'code' => $currentCurrencyCode,
+                    'name' => $finalName,
+                    'symbol' => $finalSymbol,
+                ],
+                'currencies' => $formattedCurrencies
+            ]
+        ], 200);
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Validation failed.',
+                'errors' => $e->errors()
+            ]
+        ], 422);
+    } catch (\Exception $e) {
+        \Log::error('API Get Currencies Error: ' . $e->getMessage() . ' | File: ' . $e->getFile() . ' | Line: ' . $e->getLine());
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Failed to retrieve currencies: ' . $e->getMessage()
+            ]
+        ], 500);
+    }
+}
+//عرض اللغة والعملة الحالية
+public function getCurrentLanguageAndCurrency(Request $request)
+{
+    try {
+        $user = auth()->user();
+        if (!$user) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => [
+                    'message' => 'Unauthorized. Valid token is required.'
+                ]
+            ], 401);
+        }
+
+        $storeId = $request->query('store_id');
+
+        \Validator::make(
+            ['store_id' => $storeId],
+            ['store_id' => 'required|integer|exists:stores,id']
+        )->validate();
+
+        $store = \App\Models\Store::where('id', $storeId)
+            ->where('created_by', $user->id)
+            ->first();
+
+        if (!$store && $user->type !== 'super admin') {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => [
+                    'message' => 'You do not have permission to access this store.'
+                ]
+            ], 403);
+        }
+
+        // ✅ 1. جلب اللغة الحالية (نفس المنطق السابق - يعمل بشكل صحيح)
+$currentLanguage = $settings['defult_language'] ?? ($store->default_language ?? 'en');        $languages = \App\Models\Utility::languages();
+        $currentLanguageName = $languages[$currentLanguage] ?? 'English';
+        $flags = \App\Models\Utility::flagOfCountry();
+        $currentLanguageFlag = $flags[$currentLanguage] ?? '';
+
+        // ✅ 2. جلب كود العملة الحالية من settings (مصدر الحقيقة الوحيد للكود)
+        $settings = \App\Models\Setting::where('store_id', $storeId)
+            ->pluck('value', 'name')
+            ->toArray();
+
+        $defaultCurrencyCode = $settings['defult_currancy'] ?? 'USD';
+
+        // ✅ 3. جلب جميع معلومات العملة من جدول currency_rates (مصدر واحد للحقيقة)
+        $currencyRate = \App\Models\CurrencyRate::where('store_id', $storeId)
+            ->where('currency_code', $defaultCurrencyCode)
+            ->first();
+
+        // ✅ 4. بناء بيانات العملة من جدول currency_rates
+        $currencyData = [
+            'code' => $defaultCurrencyCode,
+            'symbol' => $currencyRate ? $currencyRate->symbol : '$',
+            'name' => $currencyRate ? $currencyRate->currency_name : 'US Dollar',
+            'rate_per_usd' => $currencyRate ? (float) $currencyRate->rate_per_usd : 1.00,
+            'is_active' => $currencyRate ? (bool) $currencyRate->is_active : true,
+        ];
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'Current language and currency retrieved successfully.',
+            'data' => [
+                'store_id' => (int) $storeId,
+                'store_name' => $store->name ?? '',
+                
+                'current_language' => [
+                    'code' => $currentLanguage,
+                    'name' => $currentLanguageName,
+                    'flag' => $currentLanguageFlag,
+                ],
+
+                'current_currency' => $currencyData,
+
+                'store_settings' => [
+                    'timezone' => $settings['defult_timezone'] ?? 'UTC',
+                    'date_format' => $settings['site_date_format'] ?? 'Y-m-d',
+                    'currency_format' => $settings['currency_format'] ?? '1',
+                    'rtl' => ($settings['SITE_RTL'] ?? 'off') === 'on',
+                ],
+            ]
+        ], 200);
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Validation failed.',
+                'errors' => $e->errors()
+            ]
+        ], 422);
+
+    } catch (\Exception $e) {
+        \Log::error('API GetCurrentLanguageAndCurrency Error: ' . $e->getMessage() . ' | File: ' . $e->getFile() . ' | Line: ' . $e->getLine());
+
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Failed to retrieve current language and currency: ' . $e->getMessage()
+            ]
+        ], 500);
+    }
+}
+public function getCustomerOrdersApi(Request $request)
+{
+    try {
+        $adminUser = auth()->user();
+        if (!$adminUser) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'Unauthorized. Valid token is required.']
+            ], 401);
+        }
+
+        $id = $request->query('id');
+        \Validator::make(['id' => $id], ['id' => 'required|integer|exists:customers,id'])->validate();
+
+        $storeId = $request->query('store_id');
+        \Validator::make(['store_id' => $storeId], ['store_id' => 'required|integer|exists:stores,id'])->validate();
+
+        $store = \App\Models\Store::where('id', $storeId)->where('created_by', $adminUser->id)->first();
+        if (!$store && $adminUser->type !== 'super admin') {
+            return response()->json([
+                'status' => 0, 'message' => 'fail',
+                'data' => ['message' => 'You do not have permission to access this store.']
+            ], 403);
+        }
+
+        $customer = \App\Models\Customer::where('id', $id)->where('store_id', $storeId)->first();
+        if (!$customer) {
+            return response()->json([
+                'status' => 0, 'message' => 'fail',
+                'data' => ['message' => 'Customer not found or does not belong to your store.']
+            ], 404);
+        }
+
+        $defaultAddress = \App\Models\DeliveryAddress::where('customer_id', $customer->id)
+            ->where('default_address', 1)
+            ->select('id', 'full_name', 'phone', 'title', 'address', 'country_id', 'state_id', 'city_id', 'postcode', 'delivery_instructions', 'type')
+            ->first();
+
+        $addressData = null;
+        if ($defaultAddress) {
+            $countryName = \App\Models\Country::where('id', $defaultAddress->country_id)->value('name') ?? null;
+            $stateName = \App\Models\State::where('id', $defaultAddress->state_id)->value('name') ?? null;
+            $cityName = \App\Models\City::where('id', $defaultAddress->city_id)->value('name') ?? null;
+
+            $addressData = [
+                'id' => (int) $defaultAddress->id,
+                'full_name' => $defaultAddress->full_name,
+                'phone' => $defaultAddress->phone,
+                'title' => $defaultAddress->title,
+                'address' => $defaultAddress->address,
+                
+                'country_id' => (int) $defaultAddress->country_id,
+                'state_id' => (int) $defaultAddress->state_id,
+                'city_id' => (int) $defaultAddress->city_id,
+                
+                'country_name' => $countryName,
+                'state_name' => $stateName,
+                'city_name' => $cityName,
+                
+                'postcode' => $defaultAddress->postcode,
+                'delivery_instructions' => $defaultAddress->delivery_instructions,
+                'type' => (int) $defaultAddress->type,
+            ];
+        }
+
+        $ordersCount = \App\Models\Order::where('customer_id', $customer->id)
+            ->where('store_id', $storeId)
+            ->count();
+
+        $totalSpend = \App\Models\Order::where('customer_id', $customer->id)
+            ->where('store_id', $storeId)
+            ->sum('final_price');
+
+        $aov = $ordersCount > 0 ? ($totalSpend / $ordersCount) : 0;
+
+        $ordersQuery = \App\Models\Order::where('customer_id', $id);
+        if ($ordersQuery->count() == 0) {
+            $orders_detail = \App\Models\OrderBillingDetail::where('email', $customer->email)->get()->toArray();
+            $order_id = [];
+            foreach ($orders_detail as $orders) {
+                $order_id[] = $orders['order_id'];
+            }
+            $ordersQuery = \App\Models\Order::whereIn('id', $order_id)->where('customer_id', 0);
+        }
+
+        $perPage = $request->query('per_page', 15);
+        $page = $request->query('page', 1);
+
+        $orders = $ordersQuery->orderByDesc('id')->paginate($perPage, ['*'], 'page', $page);
+
+        $ordersData = $orders->getCollection()->map(function ($order) use ($store) {
+            $detail = \App\Models\Order::order_detail($order->id);
+
+            if (isset($detail['message'])) {
+                return null;
+            }
+
+            $notes = \App\Models\OrderNote::query()
+                ->where('order_id', $order->id)
+                ->where('store_id', $store->id)
+                ->latest('id')
+                ->get()
+                ->map(function ($note) {
+                    return [
+                        'id' => (int) $note->id,
+                        'order_id' => (int) $note->order_id,
+                        'customer_id' => (int) $note->customer_id,
+                        'note' => $note->notes ?? $note->note ?? '',
+                        'note_type' => $note->note_type,
+                        'status' => $note->status,
+                        'created_at' => $note->created_at?->toISOString(),
+                        'updated_at' => $note->updated_at?->toISOString(),
+                    ];
+                });
+
+            $detail['notes'] = $notes;
+            $detail['id'] = (int) $order->id;
+            $detail['is_guest'] = (int) ($order->is_guest ?? 0);
+            $detail['order_id'] = $order->product_order_id ?? ('#ORD-' . str_pad($order->id, 4, '0', STR_PAD_LEFT));
+            $detail['delivery_date'] = $order->delivery_date ?? null;
+            $detail['order_reward_point'] = (int) ($order->reward_points ?? 0);
+            $detail['return_price'] = (float) ($order->return_price ?? 0);
+            $detail['return_status_message'] = $order->return_status_message ?? null;
+            $detail['return_date'] = $order->return_date ?? null;
+            $detail['payment_comment'] = $order->payment_comment ?? null;
+            $detail['additional_note'] = $order->additional_note ?? null;
+
+            $detail['order_status'] = (int) ($order->delivered_status ?? ($order->order_status ?? 0));
+            $detail['order_status_text'] = $detail['order_status_text'] ?? 'Pending';
+            $detail['order_status_message'] = $detail['order_status_message'] ?? '';
+            $detail['payment_status'] = $order->payment_status ?? ($detail['payment_status'] ?? 'Unpaid');
+            $detail['payment_receipt'] = $detail['payment_receipt'] ?? null;
+            $detail['deliveryboy_id'] = $detail['deliveryboy_id'] ?? ($order->delivery_man_id ?? 0);
+            $detail['delivery_id'] = $detail['delivery_id'] ?? ($order->delivery_id ?? 0);
+            $detail['shipping_method'] = $detail['shipping_method'] ?? null;
+            $detail['coupon_price'] = (float) ($detail['coupon_price'] ?? ($order->coupon_price ?? 0));
+
+            return $detail;
+        })->filter()->values();
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'Customer orders retrieved successfully',
+            'data' => [
+                'customer' => [
+                    'id' => (int) $customer->id,
+                    'name' => trim(($customer->first_name ?? '') . ' ' . ($customer->last_name ?? '')),
+                    'email' => $customer->email,
+                    'mobile' => $customer->mobile ?? null,
+                    'default_address' => $addressData,
+
+                    'orders' => (int) $ordersCount,
+                    'total_spend' => currency_format_with_sym((float) $totalSpend, $storeId) ?? SetNumberFormat((float) $totalSpend),
+                    'aov' => currency_format_with_sym((float) $aov, $storeId) ?? SetNumberFormat((float) $aov),
+                ],
+                'orders' => $ordersData->toArray(),
+                'pagination' => [
+                    'total' => $orders->total(),
+                    'per_page' => $orders->perPage(),
+                    'current_page' => $orders->currentPage(),
+                    'last_page' => $orders->lastPage(),
+                    'has_more' => $orders->hasMorePages(),
+                    'next_page_url' => $orders->nextPageUrl(),
+                    'prev_page_url' => $orders->previousPageUrl(),
+                ],
+            ]
+        ], 200);
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return response()->json([
+            'status' => 0, 'message' => 'fail',
+            'data' => ['message' => 'Validation failed.', 'errors' => $e->errors()]
+        ], 422);
+    } catch (\Exception $e) {
+        \Log::error('API Get Customer Orders Error: ' . $e->getMessage() . ' | File: ' . $e->getFile() . ' | Line: ' . $e->getLine());
+        return response()->json([
+            'status' => 0, 'message' => 'fail',
+            'data' => ['message' => 'Failed to retrieve customer orders: ' . $e->getMessage()]
+        ], 500);
+    }
+}
+
+public function addCustomer(Request $request)
+{
+    try {
+        $adminUser = auth()->user();
+
+        if (!$adminUser) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'Unauthorized. Valid token is required.']
+            ], 401);
+        }
+
+        $storeId = $request->query('store_id');
+
+        \Validator::make(['store_id' => $storeId], [
+            'store_id' => 'required|integer|exists:stores,id'
+        ])->validate();
+
+        $validated = $request->validate([
+            'first_name' => 'required|string|max:255',
+            'last_name'  => 'required|string|max:255',
+            'email'      => [
+                'required',
+                'email',
+                'max:255',
+                \Illuminate\Validation\Rule::unique('customers', 'email')->where('store_id', $storeId)
+            ],
+            'mobile'     => 'required|string|regex:/^\+?[0-9\s\-]{8,20}$/',
+            'password'   => 'required|string|min:8|regex:/^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*?&]{8,}$/',
+            'status'     => 'required|in:0,1',
+
+            'address'             => 'nullable|string|max:500',
+            'country_id'          => 'nullable|integer|exists:countries,id',
+            'state_id'            => 'nullable|integer|exists:states,id',
+            'city_id'             => 'nullable|integer|exists:cities,id',
+            'postcode'            => 'nullable|string|max:20',
+            'address_title'       => 'nullable|string|max:100',
+            'is_default'          => 'nullable|in:0,1',
+            'delivery_instructions'=> 'nullable|string|max:500',
+            'address_type'        => 'nullable|in:0,1,2',
+        ]);
+
+        $store = \App\Models\Store::where('id', $storeId)
+            ->where('created_by', $adminUser->id)
+            ->first();
+
+        if (!$store && $adminUser->type !== 'super admin') {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'You do not have permission to add customers to this store.']
+            ], 403);
+        }
+
+        \DB::beginTransaction();
+
+        try {
+            $customer = \App\Models\Customer::create([
+                'first_name'        => $validated['first_name'],
+                'last_name'         => $validated['last_name'],
+                'email'             => $validated['email'],
+                'mobile'            => $validated['mobile'],
+                'password'          => \Hash::make($validated['password']),
+                'type'              => 'customer',
+                'status'            => $validated['status'],
+                'store_id'          => $storeId,
+                'regiester_date'    => now()->toDateString(),
+                'last_active'       => now()->toDateString(),
+                'created_by'        => $adminUser->id,
+                'email_verified_at' => now(),
+            ]);
+
+            if ($request->filled('address') || $request->filled('country_id') || $request->filled('city_id')) {
+
+                $isDefault = (int) ($validated['is_default'] ?? 0);
+
+                \App\Models\DeliveryAddress::create([
+                    'customer_id'         => $customer->id,
+                    'full_name'           => trim($customer->first_name . ' ' . $customer->last_name),
+                    'phone'               => $customer->mobile,
+                    'store_id'            => $storeId, 
+
+                    'title'               => $validated['address_title'] ?? 'Main',
+                    'address'             => $validated['address'] ?? '',
+                    'country_id'          => $validated['country_id'] ?? null,
+                    'state_id'            => $validated['state_id'] ?? null,
+                    'city_id'             => $validated['city_id'] ?? null,
+                    'postcode'            => $validated['postcode'] ?? '',
+                    'delivery_instructions'=> $validated['delivery_instructions'] ?? null,
+                    'default_address'     => $isDefault, 
+                    'type'                => $validated['address_type'] ?? 0, 
+                ]);
+
+                $addressCreated = true;
+            } else {
+                $addressCreated = false;
+            }
+
+            \DB::commit();
+
+            $responseData = [
+                'message' => 'Customer created successfully.',
+                'customer_id' => $customer->id,
+                'store_id' => $storeId,
+                'address_created' => $addressCreated,
+            ];
+
+            if ($addressCreated) {
+                $responseData['address'] = [
+                    'full_name' => trim($customer->first_name . ' ' . $customer->last_name),
+                    'phone' => $customer->mobile,
+                    'is_default' => (bool) $isDefault, 
+                ];
+            }
+
+            return response()->json([
+                'status' => 1,
+                'message' => 'successful',
+                'data' => $responseData
+            ], 201);
+
+        } catch (\Exception $e) {
+            \DB::rollBack();
+            throw $e;
+        }
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Validation failed.',
+                'errors' => $e->errors()
+            ]
+        ], 422);
+
+    } catch (\Exception $e) {
+        \Log::error('API Customer Store Error: ' . $e->getMessage() . ' | File: ' . $e->getFile() . ' | Line: ' . $e->getLine());
+
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Failed to create customer. Please try again later.'
+            ]
+        ], 500);
+    }
+}
+public function updateStoreOwnerInfo(Request $request)
+{
+    try {
+        $adminUser = auth()->user();
+        if (!$adminUser) {
+            return response()->json(['status' => 'error', 'message' => 'Unauthorized.', 'data' => null], 401);
+        }
+
+        $storeId = $request->query('store_id') ?? $request->input('store_id');
+        if (!$storeId) {
+            return response()->json(['status' => 'error', 'message' => 'Store ID is required.', 'data' => null], 400);
+        }
+
+        $store = \App\Models\Store::where('id', $storeId)->where('created_by', $adminUser->id)->first();
+        if (!$store && $adminUser->type !== 'super admin') {
+            return response()->json(['status' => 'error', 'message' => 'Permission denied.', 'data' => null], 403);
+        }
+        if (!$store) {
+            $store = \App\Models\Store::find($storeId);
+        }
+        if (!$store) {
+            return response()->json(['status' => 'error', 'message' => 'Store not found.', 'data' => null], 404);
+        }
+
+        $validated = $request->validate([
+            'store_name' => 'nullable|string|max:255',
+            'store_email' => 'nullable|email|max:255',
+            'store_slug' => 'nullable|string|max:255|unique:stores,slug,' . $store->id,
+            'custom_store_url' => 'nullable|url|max:255',
+
+            'owner_name' => 'nullable|string|max:255',
+            'owner_email' => 'nullable|email|max:255',
+            'owner_mobile' => 'nullable|string|max:20',
+            
+            'store_address' => 'nullable|string|max:500',
+            'store_city' => 'nullable|string|max:100',
+            'store_state' => 'nullable|string|max:100',
+            'store_zipcode' => 'nullable|string|max:20',
+            'store_country' => 'nullable|string|max:100',
+            
+            'currency_name' => 'nullable|string|max:50',
+            'currency_format' => 'nullable|string|max:50',
+            'site_rtl' => 'nullable|in:on,off',
+            'date_format' => 'nullable|string|max:50',
+            'timezone' => 'nullable|string|max:50',
+
+            'invoice_logo' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048',
+            'store_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048',
+
+            'social_media' => 'nullable|array',
+            'social_media.*.platform' => 'required_with:social_media|string',
+            'social_media.*.link' => 'required_with:social_media|url',
+            'social_media.*.icon' => 'nullable|string',
+        ]);
+
+        \DB::beginTransaction();
+
+        try {
+            $updatedFields = [];
+
+            if (!empty($validated['store_name'])) { 
+                $store->name = $validated['store_name']; 
+                $updatedFields[] = 'store_name'; 
+            }
+            if (!empty($validated['store_email'])) { 
+                $store->email = $validated['store_email']; 
+                $updatedFields[] = 'store_email'; 
+            }
+            if (!empty($validated['store_slug'])) { 
+                $store->slug = \Illuminate\Support\Str::slug($validated['store_slug']); 
+                $updatedFields[] = 'store_slug'; 
+            }
+            $store->save();
+
+            $owner = \App\Models\User::find($store->created_by);
+            if ($owner) {
+                if (!empty($validated['owner_name'])) { 
+                    $owner->name = $validated['owner_name']; 
+                    $updatedFields[] = 'owner_name'; 
+                }
+                if (!empty($validated['owner_email'])) { 
+                    $owner->email = $validated['owner_email']; 
+                    $updatedFields[] = 'owner_email'; 
+                }
+                
+                if ($request->has('owner_mobile')) {
+                    $owner->mobile = $validated['owner_mobile'];
+                    $updatedFields[] = 'owner_mobile';
+                }
+                $owner->save();
+            }
+
+            $settingsToUpdate = [];
+            $mapFields = [
+                'store_address', 'store_city', 'store_state', 'store_zipcode', 'store_country',
+                'currency_name', 'currency_format', 'site_rtl', 'date_format', 'timezone'
+            ];
+            foreach ($mapFields as $field) {
+                if (isset($validated[$field])) $settingsToUpdate[$field] = $validated[$field];
+            }
+            if (isset($validated['custom_store_url']) && !empty($validated['custom_store_url'])) {
+                $settingsToUpdate['custom_store_url'] = rtrim($validated['custom_store_url'], '/');
+            }
+
+            $uploadPath = public_path('uploads/' . $storeId);
+
+            if ($request->hasFile('invoice_logo')) {
+                $file = $request->file('invoice_logo');
+                $fileName = time() . '_' . $file->getClientOriginalName(); 
+                $file->move($uploadPath, $fileName);
+                
+                $relativePath = 'uploads/' . $storeId . '/' . $fileName;
+                \App\Models\Setting::updateOrCreate(
+                    ['store_id' => $storeId, 'name' => 'invoice_logo'],
+                    ['value' => $relativePath, 'created_by' => $adminUser->id]
+                );
+                $updatedFields[] = 'invoice_logo';
+            }
+
+            if ($request->hasFile('store_image')) {
+                $file = $request->file('store_image');
+                $fileName = time() . '_' . $file->getClientOriginalName(); 
+                $file->move($uploadPath, $fileName);
+
+                $relativePath = 'uploads/' . $storeId . '/' . $fileName;
+                \App\Models\Setting::updateOrCreate(
+                    ['store_id' => $storeId, 'name' => 'theme_image'],
+                    ['value' => $relativePath, 'created_by' => $adminUser->id]
+                );
+                $updatedFields[] = 'store_image';
+            }
+
+            foreach ($settingsToUpdate as $key => $value) {
+                \App\Models\Setting::updateOrCreate(
+                    ['store_id' => $storeId, 'name' => $key],
+                    ['value' => $value, 'created_by' => $adminUser->id]
+                );
+            }
+
+            if (isset($validated['social_media']) && is_array($validated['social_media'])) {
+                $socialData = [];
+                foreach ($validated['social_media'] as $social) {
+                    if (!empty($social['platform']) && !empty($social['link'])) {
+                        $socialData[] = [
+                            'link' => $social['link'],
+                            'icon' => $social['icon'] ?? $this->getDefaultIcon($social['platform']),
+                            'platform' => $social['platform'],
+                        ];
+                    }
+                }
+
+                if (!empty($socialData)) {
+                    \DB::table('theme_customizes')->updateOrInsert(
+                        [
+                            'store_id' => $storeId,
+                            'theme_id' => $store->theme_id,
+                            'name' => 'footer_repeater',
+                        ],
+                        ['value' => json_encode($socialData)]
+                    );
+                    $updatedFields[] = 'social_media';
+                }
+            }
+
+            \DB::commit();
+
+            $currentSettings = \App\Models\Setting::where('store_id', $storeId)->pluck('value', 'name')->toArray();
+            $newStoreUrl = $this->buildStoreUrlLikeWeb($store, $currentSettings);
+
+            $invoiceLogoUrl = !empty($currentSettings['invoice_logo']) 
+                ? asset($currentSettings['invoice_logo']) 
+                : null;
+
+            $storeImageUrl = !empty($currentSettings['theme_image']) 
+                ? asset($currentSettings['theme_image']) 
+                : null;
+
+            $responseData = [
+                'message' => 'Store information updated successfully.',
+                'updated_fields' => $updatedFields,
+                'store' => [
+                    'id' => (int) $store->id,
+                    'name' => $store->name,
+                    'slug' => $store->slug,
+                    'email' => $store->email,
+                    'store_url' => $newStoreUrl,
+                    'custom_store_url' => $currentSettings['custom_store_url'] ?? '',
+                ],
+                'owner' => [
+                    'id' => (int) ($owner?->id ?? 0),
+                    'name' => $owner?->name ?? '',
+                    'email' => $owner?->email ?? '',
+                    'mobile' => $owner?->mobile ?? '',
+                ],
+                'media' => [
+                    'invoice_logo' => $invoiceLogoUrl,
+                    'store_image' => $storeImageUrl,
+                ]
+            ];
+
+            return response()->json(['status' => 'success', 'message' => 'Store information updated successfully', 'data' => $responseData], 200);
+
+        } catch (\Exception $e) {
+            \DB::rollBack();
+            throw $e;
+        }
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return response()->json(['status' => 'error', 'message' => 'Validation failed.', 'data' => ['errors' => $e->errors()]], 422);
+    } catch (\Exception $e) {
+        \Log::error('Update Store Info Error: ' . $e->getMessage());
+        return response()->json(['status' => 'error', 'message' => 'Failed to update store information.', 'data' => ['error' => $e->getMessage()]], 500);
+    }
+}
+
+public function getCountries( )
+{
+    try {
+        $countries = Country::where('name', 'Syria')
+                            ->orWhere('name', 'سوريا')
+                            ->select('id', 'name')
+                            ->get()
+                            ->map(function ($country) {
+                                return [
+                                    'id' => (int) $country->id,
+                                    'name' => $country->name,
+                                ];
+                            });
+
+        if ($countries->isEmpty()) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Country not found in database.',
+                'data' => []
+            ], 404);
+        }
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'Countries retrieved successfully',
+            'data' => $countries
+        ], 200);
+
+    } catch (\Exception $e) {
+        \Log::error('API Get Countries Error: ' . $e->getMessage());
+        return response()->json([
+            'status' => 0,
+            'message' => 'Failed to retrieve countries.',
+            'data' => null
+        ], 500);
+    }
+}
+
+
+
+public function getStatesByCountry(Request $request)
+{
+    $request->validate([
+        'country_id' => 'required|integer|exists:countries,id'
+    ]);
+
+    try {
+        $states = State::where('country_id', $request->query('country_id'))
+                       ->orderBy('name', 'ASC')
+                       ->select('id', 'name', 'country_id')
+                       ->get()
+                       ->map(function ($state) {
+                           return [
+                               'id' => (int) $state->id,
+                               'name' => $state->name,
+                               'country_id' => (int) $state->country_id,
+                           ];
+                       });
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'States retrieved successfully',
+            'data' => $states
+        ], 200);
+
+    } catch (\Exception $e) {
+        \Log::error('API Get States Error: ' . $e->getMessage());
+        return response()->json([
+            'status' => 0,
+            'message' => 'Failed to retrieve states.',
+            'data' => null
+        ], 500);
+    }
+}
+public function getCitiesByState(Request $request)
+{
+    $request->validate([
+        'country_id' => 'required|integer|exists:countries,id',
+    ]);
+
+    try {
+        $cities = City::where('country_id', $request->query('country_id'))
+                      ->orderBy('name', 'ASC')
+                      ->select('id', 'name', 'country_id', 'state_id', 'created_at', 'updated_at')
+                      ->get()
+                      ->map(function ($city) {
+                          return [
+                              'id'         => (int) $city->id,
+                              'name'       => $city->name,
+                              'country_id' => (int) $city->country_id,
+                              'state_id'   => (int) $city->state_id,
+                              'created_at' => $city->created_at ? $city->created_at->toDateTimeString() : null,
+                              'updated_at' => $city->updated_at ? $city->updated_at->toDateTimeString() : null,
+                          ];
+                      });
+
+        return response()->json([
+            'status'  => 1,
+            'message' => 'Cities retrieved successfully',
+            'data'    => $cities
+        ], 200);
+
+    } catch (\Exception $e) {
+        \Log::error('API Get Cities Error: ' . $e->getMessage());
+        return response()->json([
+            'status'  => 0,
+            'message' => 'Failed to retrieve cities.',
+            'data'    => null
+        ], 500);
+    }
+}
+
+public function updateCustomerInfo(Request $request)
+{
+    try {
+        $adminUser = auth()->user();
+        if (!$adminUser || !in_array($adminUser->type, ['admin', 'super admin'])) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Unauthorized. Valid admin token is required.',
+                'data' => null
+            ], 401);
+        }
+
+        $storeId = $request->query('store_id');
+        if (!$storeId) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'store_id is required in query parameters.',
+                'data' => null
+            ], 400);
+        }
+
+        $request->validate([
+            'customer_id' => 'required|integer|exists:customers,id',
+            
+            'first_name' => 'nullable|string|max:255',
+            'last_name' => 'nullable|string|max:255',
+            'email' => [
+                'nullable',
+                'email',
+                'max:255',
+                \Illuminate\Validation\Rule::unique('customers', 'email')
+                    ->ignore($request->customer_id)
+                    ->where('store_id', $storeId)
+            ],
+            'mobile' => 'nullable|string|max:20',
+            'status' => 'nullable|in:0,1',
+            
+            'address' => 'nullable|string|max:500',
+            'city_id' => 'nullable|integer|exists:cities,id',
+            'default_address' => 'nullable|in:0,1',
+            'delivery_instructions' => 'nullable|string|max:500',
+            'type' => 'nullable|in:0,1,2', 
+        ]);
+
+        $customer = \App\Models\Customer::where('id', $request->customer_id)
+                            ->where('store_id', $storeId)
+                            ->first();
+
+        if (!$customer) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Customer not found or does not belong to this store.',
+                'data' => null
+            ], 404);
+        }
+
+        \DB::beginTransaction();
+
+        try {
+            $customerUpdateData = [];
+            
+            if ($request->filled('first_name')) $customerUpdateData['first_name'] = $request->first_name;
+            if ($request->filled('last_name')) $customerUpdateData['last_name'] = $request->last_name;
+            if ($request->filled('email')) $customerUpdateData['email'] = $request->email;
+            if ($request->filled('mobile')) $customerUpdateData['mobile'] = $request->mobile;
+            if ($request->filled('status')) $customerUpdateData['status'] = $request->status;
+
+            if (!empty($customerUpdateData)) {
+                $customer->update($customerUpdateData);
+            }
+
+            $addressFields = ['address', 'city_id', 'default_address', 'delivery_instructions', 'type'];
+            $hasAddressUpdate = false;
+            
+            foreach ($addressFields as $field) {
+                if ($request->has($field)) {
+                    $hasAddressUpdate = true;
+                    break;
+                }
+            }
+
+            if ($hasAddressUpdate) {
+                $defaultAddress = \App\Models\DeliveryAddress::where('customer_id', $customer->id)
+                                                             ->where('default_address', 1)
+                                                             ->first();
+
+                $addressUpdateData = [];
+                
+                if ($request->has('address')) $addressUpdateData['address'] = $request->address;
+                if ($request->has('city_id')) $addressUpdateData['city_id'] = $request->city_id;
+                if ($request->has('delivery_instructions')) $addressUpdateData['delivery_instructions'] = $request->delivery_instructions;
+                if ($request->has('type')) $addressUpdateData['type'] = $request->type;
+                if ($request->has('default_address')) $addressUpdateData['default_address'] = $request->default_address;
+
+                $addressUpdateData['full_name'] = trim(($customer->first_name ?? '') . ' ' . ($customer->last_name ?? ''));
+                $addressUpdateData['phone'] = $customer->mobile;
+
+                if ($defaultAddress) {
+                    $defaultAddress->update($addressUpdateData);
+                } else {
+                    $addressUpdateData['customer_id'] = $customer->id;
+                    $addressUpdateData['store_id'] = $storeId;
+                    $addressUpdateData['default_address'] = 1;
+                    \App\Models\DeliveryAddress::create($addressUpdateData);
+                }
+            }
+
+            \DB::commit();
+
+            $updatedAddress = \App\Models\DeliveryAddress::where('customer_id', $customer->id)
+                                                        ->where('default_address', 1)
+                                                        ->select('id', 'address', 'city_id', 'default_address', 'delivery_instructions', 'type')
+                                                        ->first();
+
+            return response()->json([
+                'status' => 1,
+                'message' => 'Customer information updated successfully.',
+                'data' => [
+                    'customer' => [
+                        'id' => (int) $customer->id,
+                        'first_name' => $customer->first_name,
+                        'last_name' => $customer->last_name,
+                        'email' => $customer->email,
+                        'mobile' => $customer->mobile,
+                        'status' => (int) $customer->status,
+                    ],
+                    'default_address' => $updatedAddress
+                ]
+            ], 200);
+
+        } catch (\Exception $e) {
+            \DB::rollBack();
+            throw $e;
+        }
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return response()->json([
+            'status' => 0,
+            'message' => 'Validation failed.',
+            'data' => ['errors' => $e->errors()]
+        ], 422);
+    } catch (\Exception $e) {
+        \Log::error('API Update Customer Info Error: ' . $e->getMessage() . ' | File: ' . $e->getFile() . ' | Line: ' . $e->getLine());
+        return response()->json([
+            'status' => 0,
+            'message' => 'Failed to update customer information.',
+            'data' => ['error' => $e->getMessage()]
+        ], 500);
+    }
+}
+public function searchCustomerByName(Request $request)
+{
+    try {
+        $adminUser = auth()->user();
+        if (!$adminUser) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'Unauthorized. Valid token is required.']
+            ], 401);
+        }
+
+        $storeId = $request->query('store_id');
+        \Validator::make(['store_id' => $storeId], [
+            'store_id' => 'required|integer|exists:stores,id'
+        ])->validate();
+
+        $store = \App\Models\Store::where('id', $storeId)
+            ->where('created_by', $adminUser->id)
+            ->first();
+
+        if (!$store && $adminUser->type !== 'super admin') {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'You do not have permission to access this store.']
+            ], 403);
+        }
+
+        $validator = \Validator::make($request->all(), [
+            'name' => 'required|string|min:3|max:100',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => [
+                    'message' => 'Validation failed.',
+                    'errors' => $validator->errors()
+                ]
+            ], 422);
+        }
+
+        $searchTerm = trim($request->name);
+
+        $customers = \App\Models\Customer::where('store_id', $storeId)
+            ->where(function ($query) use ($searchTerm) {
+                $query->where('first_name', 'LIKE', "%{$searchTerm}%")
+                      ->orWhere('last_name', 'LIKE', "%{$searchTerm}%")
+                      ->orWhereRaw("CONCAT(first_name, ' ', last_name) LIKE ?", ["%{$searchTerm}%"]);
+            })
+            ->limit(20)
+            ->get();
+
+        if ($customers->isEmpty()) {
+            return response()->json([
+                'status' => 1,
+                'message' => 'No customers found.',
+                'data' => [
+                    'store_id' => (int) $storeId,
+                    'store_name' => $store->name ?? '',
+                    'search_term' => $searchTerm,
+                    'customers' => [],
+                    'count' => 0
+                ]
+            ], 200);
+        }
+
+        $results = $customers->map(function ($customer) use ($storeId) {
+            $address = \App\Models\DeliveryAddress::where('customer_id', $customer->id)
+                ->orderBy('default_address', 'desc')
+                ->orderBy('id', 'desc')
+                ->first();
+
+            return [
+                'id' => $customer->id,
+                'first_name' => $customer->first_name ?? '',
+                'last_name' => $customer->last_name ?? '',
+                'email' => $customer->email ?? '',
+                
+                                'status' => $customer->status ?? '',
+
+
+                'phone' => $customer->mobile ?? $customer->phone ?? '',
+                
+                'address_details' => $address ? [
+                    'address' => $address->address ?? '',
+                    'city_name' => $address->city_name ?? '',
+                    'country_name' => $address->country_name ?? '',
+                    'state_name' => $address->state_name ?? '',
+                    'postcode' => $address->postcode ?? '',
+                    'phone' => $address->phone ?? ($customer->mobile ?? ''),
+                    'is_default' => (bool) ($address->default_address ?? false),
+                ] : null,
+            ];
+        });
+
+        return response()->json([
+            'status' => 1,
+            'message' => 'Customers retrieved successfully.',
+            'data' => [
+                'store_id' => (int) $storeId,
+                'store_name' => $store->name ?? '',
+                'search_term' => $searchTerm,
+                'customers' => $results,
+                'count' => $results->count()
+            ]
+        ], 200);
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Validation failed.',
+                'errors' => $e->errors()
+            ]
+        ], 422);
+    } catch (\Exception $e) {
+        \Log::error('API Search Customer Error: ' . $e->getMessage() . ' | File: ' . $e->getFile() . ' | Line: ' . $e->getLine());
+        return response()->json([
+            'status' => 0,
+            'message' => 'fail',
+            'data' => [
+                'message' => 'Failed to search customers: ' . $e->getMessage()
+            ]
+        ], 500);
+    }
+}
+    
+        public function assignOrder(Request $request)
+    {
+        $storeId = $request->query('store_id');
+
+        if (!$storeId) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => __('store_id is required in the URL parameters.')
+            ], 400);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'order_id'       => 'required|integer|exists:orders,id',
+            'delivery_boy'   => 'required|integer|exists:delivery_boys,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => $validator->errors()->first(),
+                'errors'  => $validator->errors()
+            ], 422);
+        }
+
+        $order = Order::where('id', $request->order_id)
+                      ->where('store_id', $storeId)
+                      ->first();
+
+        if (!$order) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => __('Order not found or does not belong to this store.')
+            ], 404);
+        }
+
+        $deliveryBoy = DeliveryBoy::where('id', $request->delivery_boy)
+                                  ->where('store_id', $storeId)
+                                  ->first();
+
+        if (!$deliveryBoy) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => __('Delivery boy not found or does not belong to this store.')
+            ], 404);
+        }
+
+        DB::beginTransaction();
+        try {
+            if ($order->deliveryboy_id != $request->delivery_boy) {
+                DeliveryEarning::where('order_id', $order->id)->delete();
+            }
+
+            $order->deliveryboy_id = $request->delivery_boy;
+            $order->save();
+
+            $shippingMethod = ShippingMethod::find($order->delivery_id);
+
+            if (
+                $shippingMethod &&
+                $deliveryBoy->is_commission_enabled == 1 &&
+                strtolower(trim($shippingMethod->method_name)) === 'local pickup'
+            ) {
+                $commissionPercentage = (float) ($deliveryBoy->commission_percentage ?? 0);
+                $shippingCost = (float) ($order->delivery_price ?? 0);
+
+                if ($commissionPercentage > 0 && $shippingCost > 0) {
+                    $earningAmount = ($shippingCost * $commissionPercentage) / 100;
+
+                    DeliveryEarning::create([
+                        'delivery_boy_id'       => $deliveryBoy->id,
+                        'order_id'              => $order->id,
+                        'shipping_method_id'    => $shippingMethod->id,
+                        'shipping_cost'         => $shippingCost,
+                        'commission_percentage' => $commissionPercentage,
+                        'commission_amount'     => $earningAmount,
+                        'status'                => 'pending',
+                    ]);
+                }
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'status'  => 'success',
+                'message' => __('Order assigned successfully.'),
+                'data'    => [
+                    'order_id'          => $order->id,
+                    'delivery_boy_id'   => $deliveryBoy->id,
+                    'delivery_boy_name' => $deliveryBoy->name,
+                ]
+            ], 200);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            
+            Log::error('Order Assignment Dashboard API Error: ' . $e->getMessage(), [
+                'order_id' => $request->order_id,
+                'trace'    => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'status'  => 'error',
+                'message' => __('Failed to assign order. Please try again later.')
+            ], 500);
         }
     }
 }

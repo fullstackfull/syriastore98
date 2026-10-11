@@ -27,6 +27,14 @@ use App\Models\ShippingZone;
 use App\Models\ShippingMethod;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use App\Models\CurrencyRate;
+use App\Services\StoreCurrencyConversionService;
+
+use App\Models\Cart;
+use App\Models\ChatwootNotificationTemplate;
+use App\Models\ChatwootIntegration;
+use App\Models\OtpIntegration;
+
 class SettingController extends Controller
 {
 
@@ -1341,46 +1349,112 @@ $u->save();
         return redirect()->back()->with('success', 'Twilio setting successfully updated.');
     }
 
-    public function currencySettings(Request $request)
-    {
-        session()->put(['setting_tab' => 'currency_setting']);
-        $post = $request->all();
-        unset($post['_token']);
-        unset($post['_method']);
-        if (isset($post['defult_currancy'])) {
-            $data = explode('-', $post['defult_currancy']);
-            $post['defult_currancy_symbol'] = $data[0];
-            $post['CURRENCY'] = $data[0];
-            $post['defult_currancy']        = $data[1];
-            $post['CURRENCY_NAME']        = $data[1];
-        } else {
-            $post['defult_currancy']        = 'USD';
-            $post['defult_currancy_symbol'] = '$';
-            $post['CURRENCY_NAME']        = 'USD';
-            $post['CURRENCY'] = '$';
-        }
-        if (isset($post['site_currency_symbol_position'])) {
-            $post['site_currency_symbol_position'] = !empty($request->site_currency_symbol_position) ? $request->site_currency_symbol_position : 'pre';
-        }
-        $settingQuery = Setting::query();
-        foreach ($post as $key => $data) {
-            (clone $settingQuery)->updateOrCreate(
-                [
-                    'name' => $key,
-                    'store_id' => getCurrentStore()
-                ],
-                [
-                    'value'         => $data,
-                    'name'          => $key,
-                    
-                    'store_id'      => getCurrentStore(),
-                    'created_by'    => auth()->user()->id,
-                ]
-            );
-        }
+   public function currencySettings(Request $request)
+{
+    session()->put(['setting_tab' => 'currency_setting']);
 
-        return redirect()->back()->with('success', __('Currency Setting save successfully.'));
+    $storeId = getCurrentStore();
+
+    /*
+     * العملة الحالية قبل الحفظ
+     */
+    $oldCurrency = Setting::where('store_id', $storeId)
+        ->where('name', 'defult_currancy')
+        ->value('value') ?? 'USD';
+
+    $post = $request->all();
+
+    unset($post['_token']);
+    unset($post['_method']);
+
+    /*
+     * العملة الجديدة المختارة
+     */
+    if (isset($post['defult_currancy'])) {
+
+        $data = explode('-', $post['defult_currancy']);
+
+        $post['defult_currancy_symbol'] = $data[0];
+        $post['CURRENCY'] = $data[0];
+
+        $post['defult_currancy'] = $data[1];
+        $post['CURRENCY_NAME'] = $data[1];
+
+    } else {
+
+        $post['defult_currancy'] = 'USD';
+        $post['defult_currancy_symbol'] = '$';
+        $post['CURRENCY_NAME'] = 'USD';
+        $post['CURRENCY'] = '$';
     }
+
+    $newCurrency = $post['defult_currancy'];
+$currencyRate = CurrencyRate::where('store_id', $storeId)
+    ->where('currency_code', $newCurrency)
+    ->where('is_active', 1)
+    ->first();
+
+if (!$currencyRate) {
+    return redirect()->back()->with(
+        'error',
+        __('Selected currency is not available for this store.')
+    );
+}
+
+if ($newCurrency !== 'USD' && (float) $currencyRate->rate_per_usd <= 1) {
+    return redirect()->back()->with(
+        'error',
+        __('Please set a valid exchange rate before changing the store currency.')
+    );
+}
+    /*
+     * إذا العملة تغيرت فعلاً
+     * نحول القيم الحالية قبل حفظ العملة الجديدة.
+     */
+    if ($oldCurrency !== $newCurrency) {
+
+        app(StoreCurrencyConversionService::class)
+            ->convertStoreCurrentValues(
+                $storeId,
+                $oldCurrency,
+                $newCurrency
+            );
+    }
+
+    if (isset($post['site_currency_symbol_position'])) {
+
+        $post['site_currency_symbol_position'] =
+            !empty($request->site_currency_symbol_position)
+                ? $request->site_currency_symbol_position
+                : 'pre';
+    }
+
+    /*
+     * حفظ إعدادات العملة الجديدة للمتجر
+     */
+    $settingQuery = Setting::query();
+
+    foreach ($post as $key => $data) {
+
+        (clone $settingQuery)->updateOrCreate(
+            [
+                'name' => $key,
+                'store_id' => $storeId,
+            ],
+            [
+                'value' => $data,
+                'name' => $key,
+                'store_id' => $storeId,
+                'created_by' => auth()->user()->id,
+            ]
+        );
+    }
+
+    return redirect()->back()->with(
+        'success',
+        __('Currency Setting save successfully.')
+    );
+}
 
     public function updateNoteValue(Request $request)
     {
@@ -1443,7 +1517,7 @@ $u->save();
         return response()->json($response);
     }
 
-    public function settingForm(Request $request)
+  public function settingForm(Request $request)
     {
         try {
             $user = auth()->user();
@@ -1470,6 +1544,8 @@ $u->save();
                 'twilio_setting' => 'setting.twilio_setting',
                 'whatsapp_notify_setting' => 'setting.whatsapp_notify_setting',
                 'whatsapp_setting' => 'setting.whatsapp_setting',
+                    'chatwoot_setting' => 'setting.chatwoot',
+'otp_setting' => 'setting.otp_setting',
                 'woocom_setting' => 'setting.woocom_setting',
                 'webhook_setting' => 'setting.webhook_setting',
                 'pwa_setting' => 'setting.pwa_setting',
@@ -1487,9 +1563,53 @@ $u->save();
             $plan = Plan::find($user->plan_id);
             $store_settings = getStoreById(getCurrentStore());
 
+$storeId = getCurrentStore();
 
+$currencyRates = CurrencyRate::where('store_id', $storeId)
+    ->orderBy('currency_code')
+    ->get();
 
+if ($currencyRates->isEmpty()) {
 
+    $defaultCurrencies = [
+        ['USD', 'US Dollar', '$'],
+        ['EUR', 'Euro', '€'],
+
+        ['SYP', 'Syrian Pound', 'ل.س'],
+        ['LBP', 'Lebanese Pound', 'ل.ل'],
+        ['IQD', 'Iraqi Dinar', 'د.ع'],
+        ['EGP', 'Egyptian Pound', 'ج.م'],
+        ['JOD', 'Jordanian Dinar', 'د.أ'],
+
+        ['SAR', 'Saudi Riyal', 'ر.س'],
+        ['AED', 'UAE Dirham', 'د.إ'],
+        ['KWD', 'Kuwaiti Dinar', 'د.ك'],
+        ['QAR', 'Qatari Riyal', 'ر.ق'],
+        ['BHD', 'Bahraini Dinar', 'د.ب'],
+        ['OMR', 'Omani Rial', 'ر.ع'],
+    ];
+
+    foreach ($defaultCurrencies as $currency) {
+
+        CurrencyRate::create([
+            'store_id' => $storeId,
+            'currency_code' => $currency[0],
+            'currency_name' => $currency[1],
+            'symbol' => $currency[2],
+            'rate_per_usd' => 1,
+            'is_active' => 1,
+            'created_by' => auth()->id(),
+        ]);
+    }
+
+    $currencyRates = CurrencyRate::where('store_id', $storeId)
+        ->orderBy('currency_code')
+        ->get();
+}
+
+$currencyRates = CurrencyRate::where('store_id', getCurrentStore())
+    ->orderBy('currency_code')
+    ->get();
 
             if ($tabType == 'email_setting') {
                 $email_setting = EmailTemplate::$email_settings;
@@ -1525,7 +1645,25 @@ $u->save();
                     ->where('store_id', getCurrentStore())
                     ->pluck('value', 'name')->toArray();
                 $view = view($views[$tabType], compact('setting', 'tax_option', 'taxes'));
-            } elseif ($tabType == 'whatsapp_notify_setting') {
+            } 
+            
+            
+            
+            
+             elseif ($tabType == 'currency_setting') {
+
+    $view = view(
+        $views[$tabType],
+        compact(
+            'setting',
+            'currencyRates'
+        )
+    );}
+            
+            
+            
+            
+            elseif ($tabType == 'whatsapp_notify_setting') {
                 $WhatsappNotification = WhatsappMessage::where('store_id', getCurrentStore())
                     ->get();
                 $view = view($views[$tabType], compact('setting', 'WhatsappNotification'));
@@ -1540,7 +1678,74 @@ $u->save();
                     $emailTemplates = EmailTemplate::whereNot('created_by', \Auth::user()->id)->get();
                 }
                 $view = view($views[$tabType], compact('emailTemplates', 'setting'));
-            } else {
+            } 
+            
+elseif ($tabType == 'chatwoot_setting') {
+
+    $storeId = getCurrentStore();
+
+    $integration = ChatwootIntegration::where(
+        'store_id',
+        $storeId
+    )->first();
+
+
+    $carts = Cart::with('UserData')
+        ->where('store_id', $storeId)
+        ->whereNotNull('customer_id')
+        ->where('customer_id', '>', 0)
+        ->orderByDesc('updated_at')
+        ->get()
+        ->groupBy('customer_id');
+
+
+    $abandonedCartSetting =
+        ChatwootNotificationTemplate::where(
+            'store_id',
+            $storeId
+        )
+        ->where(
+            'event_type',
+            'abandoned_cart'
+        )
+        ->where(
+            'is_enabled',
+            1
+        )
+        ->first();
+
+
+    $view = view(
+        $views[$tabType],
+        compact(
+            'setting',
+            'integration',
+            'carts',
+            'abandonedCartSetting'
+        )
+    );
+}
+
+
+elseif ($tabType == 'otp_setting') {
+
+    $storeId = getCurrentStore();
+
+    $otpIntegration = OtpIntegration::where(
+        'store_id',
+        $storeId
+    )->first();
+
+    $view = view(
+        $views[$tabType],
+        compact(
+            'setting',
+            'otpIntegration'
+        )
+    );
+}
+            
+            else {
                 $view = view($views[$tabType] ?? $views['email_setting'], compact('setting', 'timezones', 'plan'));
             }
 

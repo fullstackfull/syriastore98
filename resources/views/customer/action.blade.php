@@ -15,4 +15,18 @@
     @if (module_is_active('RewardClubPoint'))
     @include('reward-club-point::admin.clubPointHistoryBtn', ['customerId' => $customer->id])
     @endif
+    <form action="{{ route('customer.destroy', $customer->id) }}" 
+          method="POST" 
+          class="d-inline"
+          onsubmit="return confirm('{{ __('Are you sure you want to delete this customer? This will archive the customer data.') }}');">
+        @csrf
+        @method('DELETE')
+        <button type="submit" 
+                class="btn btn-sm btn-icon btn-danger" 
+                data-bs-placement="top" 
+                data-bs-toggle="tooltip" 
+                title="{{ __('Delete') }}">
+            <i class="ti ti-trash"></i>
+        </button>
+    </form>
 </span>

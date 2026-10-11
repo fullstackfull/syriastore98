@@ -1,1 +1,0 @@
-<?php /**PATH /home/storesyria/public_html/resources/views/front_end/hooks/header_button.blade.php ENDPATH**/ ?>

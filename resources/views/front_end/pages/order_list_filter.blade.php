@@ -85,9 +85,33 @@
                         @endif
                     </p>
                     @if ($order->payment_type == 'POS')
-                        <p class="text-xs text-gray-500">{{ ($product["quantity"] ?? ($product["qty"] ?? 1)) . ' x ' . currency_format_with_sym($product["orignal_price"], $store->id) }}</p>
+                    
+                    
+                    
+                    
+<p class="text-xs text-gray-500">
+    {{ ($product["quantity"] ?? ($product["qty"] ?? 1)) . ' x ' . order_currency_format_with_sym($product["orignal_price"], $order->id) }}
+</p>                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
                     @else
-                        <p class="text-xs text-gray-500">{{ ($product["qty"] ?? ($product["quantity"] ?? 1)) . ' x ' . currency_format_with_sym($product["orignal_price"], $store->id) }}</p>
+                    
+                    
+<p class="text-xs text-gray-500">
+    {{ ($product["quantity"] ?? ($product["qty"] ?? 1)) . ' x ' . order_currency_format_with_sym($product["orignal_price"], $order->id) }}
+</p>                    
+                    
+                    
+                    
                     @endif
                 </div>
                 </div>
@@ -97,9 +121,20 @@
             <!-- Order Summary -->
             <div class="flex flex-wrap items-end justify-between pt-4 border-t gap-y-4">
             <div>
-                <p class="text-sm text-gray-500 mb-1">{{ __('Total') }}: <span
-                    class="font-bold text-primary-dark">{{ currency_format_with_sym($order->final_price, $store->id) }}</span></p>
+                
+                
+<p class="text-sm text-gray-500 mb-1">
+    {{ __('Total') }}: 
+    <span class="font-bold text-primary-dark">
+        {{ order_currency_format_with_sym($order->final_price, $order->id) }}
+    </span>
+</p>                    
+                    
                 <p class="text-sm text-gray-500">
+                    
+                    
+                    
+                    
                 @if ($order->delivered_status == 0)
                     {{ __('Ordered on') }}: <span class="font-medium text-gray-700">{{ \Carbon\Carbon::parse($order->order_date)->format('F j, Y') }}</span>
                 @elseif ($order->delivered_status == 1)

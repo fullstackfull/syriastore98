@@ -75,7 +75,13 @@
                         </span>
                         <br>
                         <span class="text-dark text-md"><b>{{__('Price')}} : </b>
-                        {{ currency_format_with_sym(($order->final_price ?? 0), getCurrentStore()) ?? SetNumberFormat($order->final_price) }}</span>
+                        
+                        
+{{ order_currency_format_with_sym(($order->final_price ?? 0), $order->id) ?? SetNumberFormat($order->final_price) }}                        
+                        
+                        
+                        
+                        
                     </div>
                 </div>
             </div>

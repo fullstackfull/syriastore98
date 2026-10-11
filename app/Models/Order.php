@@ -22,6 +22,9 @@ class Order extends Model
         'product_price',
         'coupon_price',
         'delivery_price',
+        
+                'currency_code',
+                'currency_symbol',
         'tax_price',
         'final_price',
         'return_price',
@@ -56,6 +59,24 @@ class Order extends Model
     public function getDemoFieldAttribute()
     {
         return 'demo_field';
+    }
+    protected static function booted()
+    {
+        static::creating(function ($order) {
+            $storeId = $order->store_id ?? (function_exists('getCurrentStore') ? getCurrentStore() : null);
+
+            if (empty($order->currency_code)) {
+                $order->currency_code = \App\Models\Utility::GetValueByName('defult_currancy', $storeId) 
+                    ?? \App\Models\Utility::GetValueByName('currency', $storeId) 
+                    ?? 'USD';
+            }
+
+            if (empty($order->currency_symbol)) {
+                $order->currency_symbol = \App\Models\Utility::GetValueByName('defult_currancy_symbol', $storeId) 
+                    ?? \App\Models\Utility::GetValueByName('currency_symbol', $storeId) 
+                    ?? '$';
+            }
+        });
     }
 
     public function getDeliveredImageAttribute()
@@ -134,6 +155,17 @@ public function getDeliveredStatusStringAttribute()
         return $return;
     }
 
+
+public function getFormattedFinalPriceAttribute()
+{
+    return order_currency_format_with_sym($this->final_price, $this->id);
+}
+
+public function getFormattedSubTotalAttribute()
+{
+    return order_currency_format_with_sym($this->product_price, $this->id);
+}
+
     public function getOrderIdStringAttribute()
     {
         return '#' . $this->attributes['product_order_id'];
@@ -176,14 +208,18 @@ public function getDeliveredStatusStringAttribute()
     }
     public function getUserNameAttribute()
     {
-        $return = $this->is_guest;
-        if ($return == '1') {
-            $return = 'Guest';
-        } else {
-            $user = User::find($this->user_id);
-            $return = !empty($user->first_name) ? $user->first_name : '';
+        if ($this->is_guest == 1) {
+            return 'Guest';
         }
-        return $return;
+        
+        $customer = $this->CustomerData;
+        if ($customer) {
+            $name = trim(($customer->first_name ?? '') . ' ' . ($customer->last_name ?? ''));
+            
+            return !empty($name) ? $name : ($customer->name ?? $customer->email ?? 'Unknown Customer');
+        }
+        
+        return 'Deleted Customer';
     }
 
     // **********************************************
@@ -210,6 +246,10 @@ public function getDeliveredStatusStringAttribute()
         if (!empty($order)) {
             $store_id = !empty($order) ? $order->store_id : getCurrentStore();
 
+            // ✅ التعديل 1: جلب لقطة العملة (Snapshot) المحفوظة مع هذا الطلب تحديداً
+            $orderCurrencyCode = $order->currency_code ?? 'USD';
+            $orderCurrencySymbol = $order->currency_symbol ?? '$';
+
             $order_array = [];
             $products = json_decode($order->product_json, true);
 
@@ -219,7 +259,6 @@ public function getDeliveredStatusStringAttribute()
                 }
                 foreach ($products as $key => $product) {
                     $qty = $product['qty'] ?? ($product['quantity'] ?? 1);
-
                     $productId = $product['product_id'] ?? ($product['id'] ?? null);
 
                     if ($order->payment_type == 'POS') {
@@ -247,7 +286,6 @@ public function getDeliveredStatusStringAttribute()
                             "variant_id" => $product['variant_id'] ?? null,
                             "variant_name" => $product['variant_name'] ?? null,
                             "return" => $product['return'] ?? false,
-
                         ];
                         if (isset($product['sale_price'])) {
                             $products[$key]['sale_price'] = SetNumber($product["sale_price"] ?? 0);
@@ -262,57 +300,37 @@ public function getDeliveredStatusStringAttribute()
             $order_array['delivery_date'] = $order->delivery_date;
             $order_array['order_reward_point'] = $order->reward_points;
             $order_array['return_price'] = $order->return_price;
-            // $order_array['return_status'] = $order->return_status;
             $order_array['return_status_message'] = $order->return_status_message;
             $order_array['return_date'] = $order->return_date;
             $order_array['payment_comment'] = $order->payment_comment;
             $order_array['additional_note'] = $order->additional_note;
             $order_array['order_status_text'] = __('Pending');
-
             $order_array['order_status'] = $order->delivered_status;
             $order_array['order_status_message'] = '';
             $order_array['payment_status'] = $order->payment_status;
             $order_array['payment_receipt'] = $order->payment_receipt ?? null;
             $order_array['deliveryboy_id'] = $order->deliveryboy_id;
+            $order_array['delivery_id'] = $order->delivery_id;
 
+            $shippingMethod = null;
+            if (!empty($order->delivery_id)) {
+                $shippingMethod = ShippingMethod::query()
+                    ->where('id', $order->delivery_id)
+                    ->where('store_id', $order->store_id)
+                    ->first();
+            }
+            $order_array['shipping_method'] = $shippingMethod?->method_name;
 
-
-
-$order_array['delivery_id'] = $order->delivery_id;
-
-$shippingMethod = null;
-
-if (!empty($order->delivery_id)) {
-    $shippingMethod = ShippingMethod::query()
-        ->where('id', $order->delivery_id)
-        ->where('store_id', $order->store_id)
-        ->first();
-}
-
-$order_array['shipping_method'] = $shippingMethod?->method_name;
-
-
-       
             if ($order->payment_type == 'POS') {
                 $order_array['tax_price'] = $order->tax_price;
                 $order_array['coupon_price'] = $order->coupon_price;
             }
 
-            if ($order->delivered_status == 0) {
-                $order_array['order_status_text'] = __('Pending');
-            }
-            if ($order->delivered_status == 4) {
-                $order_array['order_status_text'] = __('Comfirmed');
-            }
-            if ($order->delivered_status == 5) {
-                $order_array['order_status_text'] = __('Picked Up');
-            }
-            if ($order->delivered_status == 6) {
-                $order_array['order_status_text'] = __('Shipped');
-            }
-            if ($order->delivered_status == 1) {
-                $order_array['order_status_text'] = __('Delivered');
-            }
+            if ($order->delivered_status == 0) $order_array['order_status_text'] = __('Pending');
+            if ($order->delivered_status == 4) $order_array['order_status_text'] = __('Comfirmed');
+            if ($order->delivered_status == 5) $order_array['order_status_text'] = __('Picked Up');
+            if ($order->delivered_status == 6) $order_array['order_status_text'] = __('Shipped');
+            if ($order->delivered_status == 1) $order_array['order_status_text'] = __('Delivered');
             if ($order->delivered_status == 2) {
                 $order_array['order_status_text'] = __('Cancel');
                 $order_array['order_status_message'] = __('Your order has been canced.');
@@ -321,17 +339,16 @@ $order_array['shipping_method'] = $shippingMethod?->method_name;
                 $order_array['order_status_text'] = __('Return request processing');
                 $order_array['order_status_message'] = __('Your order return request has been sent.');
             }
-
             if ($order->delivered_status == 3 && $order->return_status == 2) {
                 $order_array['order_status_text'] = __('Return');
                 $order_array['order_status_message'] = __('Your order has been returnd.');
             }
-
             if ($order->delivered_status == 3 && $order->return_status == 3) {
                 $order_array['order_status_text'] = __('Return cancelled');
                 $order_array['order_status_message'] = __('Your order return request has been cancelled.');
                 $order_array['order_tracking'] = '';
             }
+            
             if (module_is_active('PartialPayments')) {
                 $value = \Workdo\PartialPayments\app\Http\Controllers\PartialPaymentsController::ManageOrderStatusValue($order_array,$order);
                 $order_array['order_status_text'] = $value['order_status_text'] ?? '';
@@ -340,10 +357,14 @@ $order_array['shipping_method'] = $shippingMethod?->method_name;
                 $value = \Workdo\PreOrder\app\Models\PreOrder::ManageOrderStatusValue($order_array,$order);
                 $order_array['order_status_text'] = $value['order_status_text'] ?? '';
             }
+            
             $order_array['coupon_price'] = $order->coupon_price;
             $order_array['product'] = $products;
-            // 1 => review (hide) and 0 => no review (show)
             $order_array['is_review'] = 0;
+
+            // ✅ التعديل 2: إضافة كود ورمز العملة للمصفوفة النهائية لاستخدامها في الواجهة
+            $order_array['currency_code'] = $orderCurrencyCode;
+            $order_array['currency_symbol'] = $orderCurrencySymbol;
 
             if ($order->payment_type != 'POS') {
                 $OrderBillingDetail = OrderBillingDetail::where('order_id', $order_id)->first();
@@ -353,7 +374,6 @@ $order_array['shipping_method'] = $shippingMethod?->method_name;
                 $order_array['billing_informations']['address'] = !empty($OrderBillingDetail->address) ? $OrderBillingDetail->address : '';
                 $order_array['billing_informations']['state'] = !empty($OrderBillingDetail->BillingState->name) ? $OrderBillingDetail->BillingState->name : '';
                 $order_array['billing_informations']['country'] = !empty($OrderBillingDetail->BillingCountry->name) ? $OrderBillingDetail->BillingCountry->name : '';
-                // $order_array['billing_informations']['city'] = !empty($OrderBillingDetail->city) ? $OrderBillingDetail->city : '';
                 $order_array['billing_informations']['city'] = !empty($OrderBillingDetail->BillingCity->name) ? $OrderBillingDetail->BillingCity->name : '';
                 $order_array['billing_informations']['post_code'] = !empty($OrderBillingDetail->postcode) ? $OrderBillingDetail->postcode : '';
                 $order_array['billing_informations']['email'] = !empty($OrderBillingDetail->email) ? $OrderBillingDetail->email : '';
@@ -363,7 +383,6 @@ $order_array['shipping_method'] = $shippingMethod?->method_name;
                 $order_array['delivery_informations']['address'] = !empty($OrderBillingDetail->delivery_address) ? $OrderBillingDetail->delivery_address : '';
                 $order_array['delivery_informations']['state'] = !empty($OrderBillingDetail->DeliveryState->name) ? $OrderBillingDetail->DeliveryState->name : '';
                 $order_array['delivery_informations']['country'] = !empty($OrderBillingDetail->DeliveryCountry->name) ? $OrderBillingDetail->DeliveryCountry->name : '';
-                // $order_array['delivery_informations']['city'] = !empty($OrderBillingDetail->delivery_city) ? $OrderBillingDetail->delivery_city : '';
                 $order_array['delivery_informations']['city'] = !empty($OrderBillingDetail->DeliveryCity->name) ? $OrderBillingDetail->DeliveryCity->name : '';
                 $order_array['delivery_informations']['post_code'] = !empty($OrderBillingDetail->delivery_postcode) ? $OrderBillingDetail->delivery_postcode : '';
                 $order_array['delivery_informations']['email'] = !empty($OrderBillingDetail->email) ? $OrderBillingDetail->email : '';
@@ -390,7 +409,6 @@ $order_array['shipping_method'] = $shippingMethod?->method_name;
                 $order_array['billing_informations']['email'] = !empty($customer->email) ? $customer->email : '-';
                 $order_array['billing_informations']['phone'] = !empty($customer->mobile) ? $customer->mobile : '-';
 
-
                 $order_array['delivery_informations']['address'] = !empty($customerAddress) ? $customerAddress->address : '-';
                 $order_array['delivery_informations']['state'] = !empty($customerAddress->state_name) ? $customerAddress->state_name : '-';
                 $order_array['delivery_informations']['country'] = !empty($customerAddress->country_name) ? $customerAddress->country_name : '';
@@ -399,11 +417,13 @@ $order_array['shipping_method'] = $shippingMethod?->method_name;
                 $order_array['delivery_informations']['email'] = !empty($customer->email) ? $customer->email : '-';
                 $order_array['delivery_informations']['phone'] = !empty($customer->mobile) ? $customer->mobile : '-';
             }
+            
             $payment_data = Utility::payment_data($order->payment_type, $store_id);
             $order_array['paymnet_type'] = $payment_data['name'];
             $order_array['paymnet'] = !empty($payment_data['image']) ? $payment_data['image'] : Storage::url('uploads/payment/cod.png');
             $order_array['delivery'] = !empty($order->delivered_image) ? $order->delivered_image  : Storage::url('uploads/delivery.png');
             $order_array['delivered_charge'] = SetNumber($order->delivery_price);
+            
             // Coupon
             $OrderCouponDetail = OrderCouponDetail::where('order_id', $order_id)->first();
             $order_array['coupon_info'] = null;
@@ -428,7 +448,6 @@ $order_array['shipping_method'] = $shippingMethod?->method_name;
                 $order_array['coupon_info']['discount_string'] = $discount_string;
                 $order_array['coupon_info']['price'] = SetNumber($OrderCouponDetail->coupon_final_amount);
                 $order_array['coupon_info']['discount_string2'] = $discount_string2;
-                
                 $order_array['coupon_info']['discount_amount'] = SetNumber($OrderCouponDetail->coupon_discount_amount);
                 $order_array['coupon_info']['discount'] = SetNumber($discount);
             }
@@ -445,50 +464,62 @@ $order_array['shipping_method'] = $shippingMethod?->method_name;
                 $order_array['tax']['amountstring']  = $tax_price;
             }
             $tax_rate= 0;
-            if(isset($tax))
-            {
+            if(isset($tax)) {
                 if($tax->tax_methods()){
                     foreach(json_decode($tax->tax_methods()) as $method){
                         $tax_rate += $method->tax_rate;
                     }
                 }
             }
+$order_array['sub_total_formatted']   = order_currency_format_with_sym($order->product_price, $order->id);
+$order_array['final_price_formatted'] = order_currency_format_with_sym($order->final_price, $order->id);
+$order_array['tax_price_formatted']   = order_currency_format_with_sym($order->tax_price, $order->id);
+            // ✅ التعديل 3: إنشاء نسخ منسقة من الأسعار تحتوي على رمز العملة الصحيح للطلب
+            // هذا يسهل عرض السعر في الـ Blade دون الاعتماد على دالة currency_format_with_sym العامة
             $order_array['sub_total'] = SetNumber($order->product_price);
+
             $order_array['final_price'] = SetNumber($order->final_price);
+
             $order_array['tax_price'] = SetNumber($order->tax_price);
+
             $order_array['tax_name'] = !empty($tax->name) ? $tax->name : 'Tax';
             $order_array['tax_rate'] = !empty($tax_rate) ? $tax_rate : 0;
             $order_array['tax_type'] = 'Percentage';
             $order_array['tax_id'] = !empty($tax->id) ? $tax->id : 0;
+            
             return $order_array;
         } else {
             $return['message'] = 'Order not found.';
             return $return;
         }
     }
-
     public static function order_status_change($date = [])
     {
         $order_id = $date['order_id'];
         $order_status = $date['order_status'];
         $order = Order::find($order_id);
         if (!empty($order)) {
-            if ($order_status == 'cancel') {
-                if ($order->delivered_status != 0) {
-                    $return['status'] = 'error';
-                    $return['message'] = 'The order has been delivered. So you cannot cancel the order.';
-                    return $return;
-                }
-                $order->cancel_date = now();
-                $order->delivered_status = 2;
-                $order->save();
-                event(new OrderPaymentStatus($order));
+if ($order_status == 'cancel') {
+    if ($order->delivered_status != 0) {
+        $return['status'] = 'error';
+        $return['message'] = 'The order has been delivered. So you cannot cancel the order.';
+        return $return;
+    }
+    
+    $order->cancel_date = now();
+    $order->delivered_status = 2;
+    
+    // ✅ هذا هو السطر السحري المفقود: يجب تغيير حالة الدفع لاسترداد المبلغ
+    $order->payment_status = 'Unpaid'; 
+    
+    $order->save(); // <-- هنا سيكتشف الـ Observer التغيير ويستدعي خدمة المحفظة
+    
+    event(new OrderPaymentStatus($order));
 
-                $return['status'] = 'success';
-                $return['message'] = 'Order status changed.';
-                return $return;
-            }
-            if ($order_status == 'confirmed') {
+    $return['status'] = 'success';
+    $return['message'] = 'Order status changed.';
+    return $return;
+}            if ($order_status == 'confirmed') {
                 $order->confirmed_date = now();
                 $order->delivered_status = 4;
                 $order->save();

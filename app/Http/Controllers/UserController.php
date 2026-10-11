@@ -17,6 +17,8 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use App\DataTables\UserDataTable;
+use App\Models\AuditLog;
+
 
 class UserController extends Controller
 {
@@ -124,6 +126,15 @@ class UserController extends Controller
                 $user->save();
 
                 $user->addRole($role_r);
+
+
+AuditLog::record('user_created', $user, [], [
+    'name' => $user->name,
+    'email' => $user->email,
+    'type' => $user->type,
+]);
+
+
                 // webhook
                 if(!empty($user))
                 {
@@ -232,6 +243,18 @@ class UserController extends Controller
 
             $user->fill($input)->save();
 
+AuditLog::record('user_updated', $user, $oldValues, [
+    'name' => $user->name,
+    'email' => $user->email,
+    'type' => $user->type,
+]);
+
+$oldValues = [
+    'name' => $user->name,
+    'email' => $user->email,
+    'type' => $user->type,
+];
+
             if ($role && !$user->hasRole($role->name)) {
                 $user->addRole($role);
             }
@@ -255,6 +278,14 @@ class UserController extends Controller
         {
             Setting::where('created_by', $user->id)->delete();
             $user->delete();
+
+
+AuditLog::record('user_deleted', $user, [
+    'name' => $user->name,
+    'email' => $user->email,
+    'type' => $user->type,
+], []);
+
 
             return redirect()->back()->with('success', 'User successfully deleted.');
         } else {
@@ -299,7 +330,7 @@ class UserController extends Controller
             $user->forceFill([
                 'password' => Hash::make($request->password),
             ])->save();
-
+AuditLog::record('user_password_reset', $user);
             return redirect()->back()->with( 'success', __('User Password successfully updated.'));
         }
         else
@@ -374,6 +405,13 @@ class UserController extends Controller
             User::whereId(Auth::guard()->user()->id)->update([
                 'password' => Hash::make($request->new_password)
             ]);
+
+
+AuditLog::record(
+    'user_password_changed',
+    Auth::guard()->user()
+);
+
         } else {
             #Match The Old Password
             if (!Hash::check($request->old_password, auth()->user()->password)) {
@@ -385,6 +423,11 @@ class UserController extends Controller
                 'password' => Hash::make($request->new_password)
             ]);
         }
+AuditLog::record(
+    'user_password_changed',
+    auth()->user()
+);
+
 
 
         return redirect()->back()->with('success', __('Password update succefully.'));
@@ -461,6 +504,16 @@ class UserController extends Controller
 		        User::where('id', $request->id)->update(['is_enable_login' => $request->is_active]);
 		        $data = $this->storeUserCounter($request->owner_id);
 
+
+
+$auditUser = User::find($request->id);
+
+AuditLog::record(
+    $request->is_active ? 'user_login_enabled' : 'user_login_disabled',
+    $auditUser
+);
+
+
 		    }
 		    elseif($request->name == 'store')
 		    {
@@ -512,6 +565,13 @@ class UserController extends Controller
             $message = __('User login enable successfully.');
         }
         $user->save();
+
+AuditLog::record(
+    $user->is_enable_login ? 'user_login_enabled' : 'user_login_disabled',
+    $user
+);
+
+
 
         return redirect()->back()->with('success', $message);
     }

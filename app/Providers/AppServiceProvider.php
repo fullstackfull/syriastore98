@@ -5,6 +5,9 @@ namespace App\Providers;
 use Illuminate\Support\ServiceProvider;
 use App\Classes\Module;
 use Illuminate\Support\Facades\File;
+use App\Models\Order;
+use App\Observers\OrderObserver;
+
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -24,6 +27,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Order::observe(OrderObserver::class);
         $cachePath = storage_path('framework/cache/data');
 
         if (! File::exists($cachePath)) {

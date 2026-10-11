@@ -57,7 +57,7 @@ class Product extends Model
     ];
 
 
-    protected $appends = ["in_cart", "in_whishlist", "final_price"];
+protected $appends = ["in_cart", "in_whishlist", "final_price", "category_name"];
 
 
     public function getCategoryNameAttribute()

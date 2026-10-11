@@ -329,16 +329,15 @@
                                                     @endif
                                                 @endif
                                                 <td>
-                                                    @if ($order['paymnet_type'] == 'POS')
-                                                        {{ currency_format_with_sym(($item['orignal_price'] ?? 0) * ($item['quantity'] ?? 0), getCurrentStore()) ?? SetNumberFormat(($item['orignal_price'] ?? 0) * ($item['quantity'] ?? 0)) }}
-                                                    @else
-                                                        @if (module_is_active('ProductPricing') && isset($item['sale_price']))
-                                                            {{ currency_format_with_sym($item['sale_price'] ?? 0, getCurrentStore()) ?? SetNumberFormat($item['sale_price']) }}
-                                                        @else
-                                                            {{ currency_format_with_sym($item['final_price'] ?? 0, getCurrentStore()) ?? SetNumberFormat($item['final_price']) }}
-                                                        @endif
-                                                    @endif
-                                                </td>
+@if ($order['paymnet_type'] == 'POS')
+    {{ order_currency_format_with_sym(($item['orignal_price'] ?? 0) * ($item['quantity'] ?? 0), $order['id']) }}
+@else
+    @if (module_is_active('ProductPricing') && isset($item['sale_price']))
+        {{ order_currency_format_with_sym($item['sale_price'] ?? 0, $order['id']) }}
+    @else
+        {{ order_currency_format_with_sym($item['final_price'] ?? 0, $order['id']) }}
+    @endif
+@endif                                                </td>
 
 
                                             </tr>
@@ -351,49 +350,53 @@
                                     <li class="d-flex justify-content-end">
                                         <span>{{ __('Sub Total') }} :</span>
                                         <span
-                                            class="text-start ps-3"><b>{{ currency_format_with_sym($order['sub_total'] ?? 0, getCurrentStore()) ?? SetNumberFormat($order['sub_total']) }}</b></span>
-                                    </li>
+<span class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['sub_total'] ?? 0, $order['id'] ?? ($order['order_id'] ?? 0)) }}</b></span>                                    </li>
                                     <li class="d-flex justify-content-end">
                                         <span>{{ __('Estimated Tax') }} :</span>
                                         <span class="text-start ps-3"><b>
-                                                @if ($order['paymnet_type'] == 'POS')
-                                                    {{ currency_format_with_sym($order['tax_price'] ?? 0, getCurrentStore()) ?? SetNumberFormat($order['tax_price']) }}
-                                                @else
-                                                    {{ currency_format_with_sym($order['tax_price'] ?? 0, getCurrentStore()) ?? SetNumberFormat($order['tax_price']) }}
-                                                @endif
+                                            
+                                            
+@if ($order['paymnet_type'] == 'POS')
+    {{ order_currency_format_with_sym($order['tax_price'] ?? 0, $order['id']) }}
+@else
+    {{ order_currency_format_with_sym($order['tax_price'] ?? 0, $order['id']) }}
+@endif                                                
+                                                
                                             </b></span>
                                     </li>
                                     @if ($order['paymnet_type'] == 'POS')
                                         <li class="d-flex justify-content-end">
                                             <span>{{ __('Discount') }} :</span>
                                             <span
-                                                class="text-start ps-3"><b>{{ currency_format_with_sym($order['coupon_price'] ?? 0, getCurrentStore()) ?? (!empty($order['coupon_price']) ? SetNumberFormat($order['coupon_price']) : SetNumberFormat(0)) }}</b></span>
+                                            
+class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_price'] ?? 0, $order['id']) }}</b></span>                                                
+                                                
+                                                
+                                                
                                         </li>
                                     @else
-                                        <li class="d-flex justify-content-end">
-                                            <span>{{ __('Discount') }} :</span>
-                                            <span
-                                                class="text-start ps-3"><b>{{ currency_format_with_sym($order['coupon_info']['discount_amount'] ?? 0, getCurrentStore()) ?? (!empty($order['coupon_info']['discount_amount']) ? SetNumberFormat($order['coupon_info']['discount_amount']) : SetNumberFormat(0)) }}</b></span>
-                                        </li>
-                                    @endif
-                                    @stack('savePriceShowAdminOrder')
-                                    <li class="d-flex justify-content-end">
-                                        <span>{{ __('Delivered Charges') }} :</span>
-                                        <span
-                                            class="text-start ps-3"><b>{{ currency_format_with_sym($order['delivered_charge'] ?? 0, getCurrentStore()) ?? SetNumberFormat($order['delivered_charge']) }}</b></span>
-                                    </li>
-                                    <li class="d-flex justify-content-end">
-                                        <span><b>{{ __('Grand Total') }} :</b></span>
-                                        <span
-                                            class="text-start ps-3"><b>{{ currency_format_with_sym($order['final_price'] ?? 0, getCurrentStore()) ?? SetNumberFormat($order['final_price']) }}</b></span>
-                                    </li>
+                                    
+                                    
+<li class="d-flex justify-content-end">
+                                    <span>{{ __('Discount') }} :</span>
+                                    <span class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_info']['discount_amount'] ?? 0, $order['id']) }}</b></span>
+                                </li>
+                            @endif
+                            @stack('savePriceShowAdminOrder')
+                            <li class="d-flex justify-content-end">
+                                <span>{{ __('Delivered Charges') }} :</span>
+                                <span class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['delivered_charge'] ?? 0, $order['id']) }}</b></span>
+                            </li>
+                            <li class="d-flex justify-content-end">
+                                <span><b>{{ __('Grand Total') }} :</b></span>
+                                <span class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['final_price'] ?? 0, $order['id']) }}</b></span>
+                            </li>
 
-                                    <li class="d-flex justify-content-end">
-                                        <span>{{ __('Return') }} :</span>
-                                        <span
-                                            class="text-start ps-3"><b>{{ currency_format_with_sym($order['return_price'] ?? 0, getCurrentStore()) ?? SetNumberFormat($order['return_price']) }}</b></span>
-                                    </li>
-                                    <li class="d-flex justify-content-end">
+<li class="d-flex justify-content-end">
+    <span>{{ __('Return') }} :</span>
+    <span class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['return_price'] ?? 0, $order['id']) }}</b></span>
+</li>
+<li class="d-flex justify-content-end">
                                         <span>{{ __('Payment Type') }} :</span>
                                         <span class="text-start ps-3"><b>{{ $order['paymnet_type'] }}</b></span>
                                     </li>

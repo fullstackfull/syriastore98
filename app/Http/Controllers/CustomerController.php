@@ -16,6 +16,69 @@ class CustomerController extends Controller
     /**
      * Display a listing of the resource.
      */
+public function store(Request $request)
+{
+    try {
+        $validated = $request->validate([
+            'first_name' => 'required|string|max:255',
+            'last_name' => 'required|string|max:255',
+            'email' => 'required|email|max:255|unique:customers,email',
+            'mobile' => 'nullable|string|max:20',
+            'password' => 'required|string|min:8',
+            'status' => 'required|in:0,1',
+        ]);
+
+        $customer = Customer::create([
+            'first_name' => $validated['first_name'],
+            'last_name' => $validated['last_name'],
+            'email' => $validated['email'],
+            'mobile' => $validated['mobile'] ?? null,
+            'password' => \Hash::make($validated['password']),
+            'type' => 'customer',
+            'status' => $validated['status'],
+            'store_id' => auth()->user()->current_store ?? 1,
+            'regiester_date' => now()->toDateString(),
+            'last_active' => now()->toDateString(),
+            'created_by' => auth()->id(),
+            'email_verified_at' => now(),
+        ]);
+
+        return redirect()->route('customer.index')
+            ->with('success', __('Customer created successfully.'));
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        $errorMessages = $e->validator->errors()->all();
+        \Log::error('Validation Error:', $errorMessages);
+        
+        return redirect()->back()
+            ->withErrors($e->validator)
+            ->withInput()
+            ->with('error', 'Validation failed: ' . implode(', ', $errorMessages));
+            
+    } catch (\Exception $e) {
+        \Log::error('Customer Creation Error:', [
+            'message' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine()
+        ]);
+        return redirect()->back()
+            ->with('error', 'Error: ' . $e->getMessage())
+            ->withInput();
+    }
+}
+
+public function create()
+    {
+        return view('customer.create');
+    }
+
+public function destroy(Customer $customer)
+{
+    $customer->delete();
+
+    return redirect()->route('customer.index')
+                     ->with('success', __('Customer archived successfully.'));}
+
     public function index(CustomerDataTable $dataTable, Request $request)
     {
         if (auth()->user() && auth()->user()->isAbleTo('Manage Customer')) {

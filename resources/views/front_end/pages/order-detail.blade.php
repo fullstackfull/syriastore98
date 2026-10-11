@@ -21,14 +21,14 @@
     @if ($themeSettings['order_info_status'] && $themeSettings['order_info_status'] == '1')
     <section class="py-10 lg:py-20">
       <div class="md:container w-full mx-auto px-4">
-        <div class="flex justify-between items-center flex-wrap gap-4  pb-4 border-b border-gray-300">
+        <div class="flex justify-between items-center flex-wrap gap-4 pb-4 border-b border-gray-300">
           <h2 class="md:text-2xl text-[22px] font-bold text-gray-800">{{ $themeSettings['order_info_title'] ?? __('your Order details') }}</h2>
           <div class="flex gap-2">
             @if (module_is_active('AutomaticOrderPrinting'))
                 @stack('invoice-button')
             @else
             <a href="{{ route('shippinglabel.pdf', encrypt($order['id'])) }}"
-                                            target="_blank" type="button" class="btn-primary p-2 h-10 w-10 flex items-center justify-center">
+                target="_blank" type="button" class="btn-primary p-2 h-10 w-10 flex items-center justify-center">
               <i class="fas fa-arrow-down"></i>
             </a>
             @endif
@@ -36,7 +36,6 @@
               {{ $order['order_status_text'] }}
             </span>
           </div>
-
         </div>
 
         <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -53,12 +52,12 @@
                       <th class="text-left rtl:text-right px-4 py-3">{{ __('ITEM') }}</th>
                       <th class="text-center px-4 py-3">{{ __('QUANTITY') }}</th>
                       <th class="text-right px-4 py-3">{{ __('TOTAL') }}</th>
-                    @if ($order['order_status'] == 1 && $order['is_guest'] == 0)
-                       <th class="text-right px-4 py-3">{{ __('Return') }}</th>
-                    @endif
-                    @if ($order['order_status'] == 1)
-                        <th class="text-right px-4 py-3">{{ __('Downloadable Product') }}</th>
-                    @endif
+                      @if ($order['order_status'] == 1 && $order['is_guest'] == 0)
+                         <th class="text-right px-4 py-3">{{ __('Return') }}</th>
+                      @endif
+                      @if ($order['order_status'] == 1)
+                          <th class="text-right px-4 py-3">{{ __('Downloadable Product') }}</th>
+                      @endif
                     </tr>
                   </thead>
                   <tbody>
@@ -73,41 +72,45 @@
                           @if ($item['variant_id'] != 0)
                               {!! \App\Models\ProductVariant::variantlist($item['variant_id']) !!}
                           @endif
-                      </p>
-                    </td>
+                        </p>
+                      </td>
                       <td class="px-4 py-3 text-center text-gray-600">
                             @if ($order['paymnet_type'] == 'POS')
                                 {{ $item['quantity'] }}
                             @else
                                 {{ $item['qty'] }}
                             @endif
-                        </td>
+                      </td>
+                      
+                      {{-- ✅ استخدام دالة تنسيق العملة التاريخية بناءً على معرف الطلب --}}
                       <td class="px-4 py-3 text-right text-gray-800 font-medium">
-                            @if ($order['paymnet_type'] == 'POS')
-                                {{ currency_format_with_sym($item['orignal_price'] ?? 0, $store->id) ?? SetNumberFormat($item['orignal_price']) }}
-                            @else
-                                {!! \App\Models\Product::ManageProductPrice($item, $store) !!}
-                            @endif
-                        </td>
-                        @if ($order['order_status'] == 1 && $order['is_guest'] == 0)
-                            <td class="px-4 py-3 text-center text-gray-600"> - </td>
-                        @endif
-                         @if ($order['order_status_text'] == 'Delivered')
-                            @if (!empty($download_prod->downloadable_product) || !empty($download_product->downloadable_product))
-                            <td class="px-4 py-3 justify-center text-gray-600">
-                              <div class="flex gap-2 justify-center">
-                                @if (!empty($download_product->downloadable_product))
-                                  <a href="{{ get_file($download_product->downloadable_product) }}" type="button" class="btn-primary p-2 h-10 w-10 flex items-center justify-center download_prod_{{ $item['product_id'] }}">
-                                    <i class="fas fa-arrow-down"></i>
-                                  </a>
-                                @endif
-                                  <a href="{{ get_file($download_product->downloadable_product) }}" data-product-id="{{ $item['product_id'] }}" class="btn-primary p-2 h-10 w-10 flex items-center justify-center downloadable_product_variant" download>
-                                    <i class="fas fa-shopping-basket"></i>
-                                  </a>
-                              </div>
-                            </td>
-                            @endif
-                        @endif
+                          @if ($order['paymnet_type'] == 'POS')
+                              {{ order_currency_format_with_sym($item['orignal_price'] ?? 0, $order['id']) }}
+                          @else
+                              {{ order_currency_format_with_sym($item['final_price'] ?? 0, $order['id']) }}
+                          @endif
+                      </td>
+
+                      @if ($order['order_status'] == 1 && $order['is_guest'] == 0)
+                          <td class="px-4 py-3 text-center text-gray-600"> - </td>
+                      @endif
+                      
+                      @if ($order['order_status_text'] == 'Delivered')
+                          @if (!empty($download_prod->downloadable_product) || !empty($download_product->downloadable_product))
+                          <td class="px-4 py-3 justify-center text-gray-600">
+                            <div class="flex gap-2 justify-center">
+                              @if (!empty($download_product->downloadable_product))
+                                <a href="{{ get_file($download_product->downloadable_product) }}" type="button" class="btn-primary p-2 h-10 w-10 flex items-center justify-center download_prod_{{ $item['product_id'] }}">
+                                  <i class="fas fa-arrow-down"></i>
+                                </a>
+                              @endif
+                                <a href="{{ get_file($download_product->downloadable_product) }}" data-product-id="{{ $item['product_id'] }}" class="btn-primary p-2 h-10 w-10 flex items-center justify-center downloadable_product_variant" download>
+                                  <i class="fas fa-shopping-basket"></i>
+                                </a>
+                            </div>
+                          </td>
+                          @endif
+                      @endif
                     </tr>
                     @endforeach
                   </tbody>
@@ -205,41 +208,46 @@
               <ul class="space-y-3 text-sm">
                 <li class="flex justify-between">
                   <span class="text-gray-800">{{ __('Sub Total') }}:</span>
-                  <span class="text-gray-800">{{ currency_format_with_sym($order['sub_total'] ?? 0, $store->id) ?? SetNumberFormat($order['sub_total']) }}</span>
+                  <span class="text-gray-800">{{ order_currency_format_with_sym($order['sub_total'] ?? 0, $order['id']) }}</span>
                 </li>
+                
                 <li class="flex justify-between">
                   <span class="text-gray-800">{{ __('Estimated Tax') }}:</span>
-                  <span class="text-gray-800">@if ($order['paymnet_type'] == 'POS')
-                                                                {{ currency_format_with_sym($order['tax_price'] ?? 0, $store->id) ?? SetNumberFormat($order['tax_price']) }}
-                                                            @else
-                                                                {{-- {{ SetNumberFormat(array_sum(array_column($order['tax'], 'amountstring'))) }} --}}
-                                                                {{ currency_format_with_sym($order['tax_price'] ?? 0, $store->id) ?? SetNumberFormat($order['tax_price']) }}
-                                                            @endif</span>
+                  <span class="text-gray-800">{{ order_currency_format_with_sym($order['tax_price'] ?? 0, $order['id']) }}</span>
                 </li>
+                
                 @if ($order['paymnet_type'] == 'POS')
                 <li class="flex justify-between">
                   <span class="text-gray-800">{{ __('Discount') }}:</span>
-                  <span class="text-gray-800">{{ !empty($order['coupon_price']) ? currency_format_with_sym($order['coupon_price'] ?? 0, $store->id) ?? SetNumberFormat($order['coupon_price']) : SetNumberFormat(0) }}</span>
+                  <span class="text-gray-800">{{ order_currency_format_with_sym($order['coupon_price'] ?? 0, $order['id']) }}</span>
                 </li>
                 @else
                 <li class="flex justify-between">
                   <span class="text-gray-800">{{ __('Apply Coupon') }}:</span>
-                  <span class="text-gray-800">{{ !empty($order['coupon_info']['discount_amount']) ? currency_format_with_sym($order['coupon_info']['discount_amount'] ?? 0, $store->id) ?? currency_format_with_sym($order['coupon_info']['discount_amount'] ?? 0, $store->id) : currency_format_with_sym(0, $store->id) }}</span>
+                  <span class="text-gray-800">{{ order_currency_format_with_sym($order['coupon_info']['discount_amount'] ?? 0, $order['id']) }}</span>
                 </li>
                 @endif
+                
                 @stack('savePriceShowOrderPage')
+                
                 <li class="flex justify-between">
                   <span class="text-gray-800">{{ __('Delivered Charges') }}:</span>
-                  <span class="text-gray-800">{{ currency_format_with_sym($order['delivered_charge'] ?? 0, $store->id) ?? SetNumberFormat($order['delivered_charge']) }}</span>
+                  <span class="text-gray-800">{{ order_currency_format_with_sym($order['delivered_charge'] ?? 0, $order['id']) }}</span>
                 </li>
+                
+                
+
+                
                 <li class="flex justify-between">
-                  <span class="text-gray-800">{{ __('Grand Total') }}:</span>
-                  <span class="text-gray-800">{{ currency_format_with_sym($order['final_price'] ?? 0, $store->id) ?? SetNumberFormat($order['final_price']) }}</span>
+                  <span class="text-gray-800 font-bold">{{ __('Grand Total') }}:</span>
+                  <span class="text-gray-800 font-bold">{{ order_currency_format_with_sym($order['final_price'] ?? 0, $order['id']) }}</span>
                 </li>
+                
                 <li class="flex justify-between">
                   <span class="text-gray-800">{{ __('Payment Type') }}:</span>
                   <span class="text-gray-800">{{ $order['paymnet_type'] }}</span>
                 </li>
+                
                 <li class="flex justify-between">
                   <span class="text-gray-800">{{ __('Order Status') }}:</span>
                   <span class="text-orange-600 font-medium">{{ $order['order_status_text'] }}</span>
@@ -253,24 +261,15 @@
             <div class="card p-4">
               <h3 class="font-semibold text-gray-800">{{ $themeSettings['order_info_note_title'] ?? __('Order updates for') }} {{ $order['order_id'] }}</h3>
                 <div class="card-body">
-                    @php
-                        $i = 1;
-                    @endphp
+                    @php $i = 1; @endphp
                     @foreach ($order_note as $note)
                         <div class="card">
                             <div class="card-header">
-                                <span class="time">
-                                    {{ $i }} .
-                                    {{ $note->created_at->format('l jS \\of F Y, h:ia') }}
-                                </span>
-                                <span class="tl-btn licence-btn">
-                                    {{ $note->notes }}
-                                </span>
+                                <span class="time">{{ $i }} . {{ $note->created_at->format('l jS \of F Y, h:ia') }}</span>
+                                <span class="tl-btn licence-btn">{{ $note->notes }}</span>
                             </div>
                         </div>
-                        @php
-                            $i++;
-                        @endphp
+                        @php $i++; @endphp
                     @endforeach
                 </div>
             </div>
@@ -278,7 +277,6 @@
             @stack('OrderPartialPaymentView')
           </div>
         </div>
-
       </div>
     </section>
     @endif
@@ -286,66 +284,50 @@
 
 @push('page-script')
 <script>
-        var filename = $('#filesname').val();
+    var filename = $('#filesname').val();
 
-        function saveAsPDF() {
-            var element = document.getElementById('printableArea');
-            var opt = {
-                margin: 0.3,
-                filename: filename,
-                image: {
-                    type: 'jpeg',
-                    quality: 1
-                },
-                html2canvas: {
-                    scale: 4,
-                    dpi: 72,
-                    letterRendering: true
-                },
-                jsPDF: {
-                    unit: 'in',
-                    format: 'A2'
-                }
-            };
-            html2pdf().set(opt).from(element).save();
+    function saveAsPDF() {
+        var element = document.getElementById('printableArea');
+        var opt = {
+            margin: 0.3,
+            filename: filename,
+            image: { type: 'jpeg', quality: 1 },
+            html2canvas: { scale: 4, dpi: 72, letterRendering: true },
+            jsPDF: { unit: 'in', format: 'A2' }
+        };
+        html2pdf().set(opt).from(element).save();
+    }
 
-
-        }
-        $(document).on('click', '.delstatus', function() {
-
-            var order_id = $(this).attr('data-id');
-            var data = {
-                order_id: order_id,
-                order_status: 'cancel',
-            }
-            $.ajax({
-                url: '{{ route('status.cancel', $store->slug) }}',
-                data: data,
-                type: 'post',
-                success: function(data) {
-                    $('#loader').fadeOut();
-                    if (data.status == 'error') {
-                        show_toastr('{{ __('Error') }}', data.message, 'error')
-                    } else {
-                      show_toastr('{{ __('Success') }}', data.message, 'success')
-                        setTimeout(function() {
-                            location.reload();
-                        }, 2000);
-                    }
-                }
-            });
-        });
-
-        document.querySelectorAll('.downloadable_product_variant').forEach(button => {
-            button.addEventListener('click', function() {
-                const productId = this.getAttribute('data-product-id');
-                const downloadLink = document.querySelector('.download_prod_' + productId);
-                if (downloadLink) {
-                    downloadLink.click();
+    $(document).on('click', '.delstatus', function() {
+        var order_id = $(this).attr('data-id');
+        var data = { order_id: order_id, order_status: 'cancel' };
+        
+        $.ajax({
+            url: '{{ route('status.cancel', $store->slug) }}',
+            data: data,
+            type: 'post',
+            success: function(data) {
+                $('#loader').fadeOut();
+                if (data.status == 'error') {
+                    show_toastr('{{ __('Error') }}', data.message, 'error');
                 } else {
-                    console.error('Download link not found for product ID:', productId);
+                    show_toastr('{{ __('Success') }}', data.message, 'success');
+                    setTimeout(function() { location.reload(); }, 2000);
                 }
-            });
+            }
         });
-    </script>
+    });
+
+    document.querySelectorAll('.downloadable_product_variant').forEach(button => {
+        button.addEventListener('click', function() {
+            const productId = this.getAttribute('data-product-id');
+            const downloadLink = document.querySelector('.download_prod_' + productId);
+            if (downloadLink) {
+                downloadLink.click();
+            } else {
+                console.error('Download link not found for product ID:', productId);
+            }
+        });
+    });
+</script>
 @endpush

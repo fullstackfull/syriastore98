@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\Event;
 use App\Events\SuperAdminMenuEvent;
 use App\Events\VerifyReCaptchaToken;
 use App\Listeners\VerifyReCaptchaTokenLis;
+use App\Events\OrderPaymentStatus;
+use App\Listeners\SendChatwootOrderStatusNotification;
 
 class EventServiceProvider extends ServiceProvider
 {
@@ -17,15 +19,21 @@ class EventServiceProvider extends ServiceProvider
      *
      * @var array<class-string, array<int, class-string>>
      */
-    protected $listen = [
-        Registered::class => [
-            SendEmailVerificationNotification::class,
-        ],
+ protected $listen = [
 
-        VerifyReCaptchaToken::class => [
-            VerifyReCaptchaTokenLis::class,
-        ],
-    ];
+    Registered::class => [
+        SendEmailVerificationNotification::class,
+    ],
+
+    VerifyReCaptchaToken::class => [
+        VerifyReCaptchaTokenLis::class,
+    ],
+
+    OrderPaymentStatus::class => [
+        SendChatwootOrderStatusNotification::class,
+    ],
+
+];
 
     /**
      * Register any events for your application.

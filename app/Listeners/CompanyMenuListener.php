@@ -382,6 +382,25 @@ if (
         ]);
         /** order end */
 
+
+
+$menu->add([
+    'title' => __('Finance'),
+    'icon' => 'wallet',
+    'name' => 'finance',
+    'parent' => null,
+    'order' => 165,
+    'ignore_if' => [],
+    'depend_on' => [],
+    'route' => 'finance.index',
+    'module' => $module,
+    'permission' => null
+]);
+
+
+
+
+
         /** customer start */
         $menu->add([
             'title' => __('Customers'),

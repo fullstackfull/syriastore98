@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
-
+use App\Services\WebuzoDomainService;
 class AppSettingController extends Controller
 {
     /**
@@ -492,6 +492,16 @@ class AppSettingController extends Controller
         $store = Store::find(getCurrentStore());
         $settings = Setting::where('store_id', $store->id)->pluck('value', 'name')->toArray();
 
+
+
+
+$oldDomain = $settings['domains'] ?? null;
+$oldCustomDomainEnabled = ($settings['enable_domain'] ?? 'off') === 'on';
+
+
+
+
+
         if ($request->theme_name && ($request->theme_name != $store->name)) {
             $store->name = $request->theme_name;
             $store->save();
@@ -666,48 +676,243 @@ class AppSettingController extends Controller
             }
         }
 
-        if ($request->enable_domain && $request->enable_domain == 'enable_domain') {
-            // Remove the http://, www., and slash(/) from the URL
-            $input = $request->domains;
-            // If URI is like, eg. www.way2tutorial.com/
-            $input = trim($input, '/');
-            // If not have http:// or https:// then prepend it
-            if (!preg_match('#^http(s)?://#', $input)) {
-                $input = 'http://' . $input;
-            }
+ 
 
-            $urlParts = parse_url($input);
-            if ($urlParts && $urlParts['host']) {
-                // Remove www.
-                $post['domains'] = preg_replace('/^www\./', '', $urlParts['host']);
-                // Output way2tutorial.com
-            }
-        }
-        if ($request->enable_domain && $request->enable_domain == 'enable_subdomain') {
-            // Remove the http://, www., and slash(/) from the URL
-            $input = env('APP_URL');
 
-            // If URI is like, eg. www.way2tutorial.com/
-            $input = trim($input, '/');
-            // If not have http:// or https:// then prepend it
-            if (!preg_match('#^http(s)?://#', $input)) {
-                $input = 'http://' . $input;
-            }
 
-            $urlParts = parse_url($input);
+/*
+|--------------------------------------------------------------------------
+| Custom Domain
+|--------------------------------------------------------------------------
+*/
+if ($request->enable_domain === 'enable_domain') {
 
-            if (is_array($urlParts) && isset($urlParts['host'])) {
-                // Remove www.
-                $subdomain_name = preg_replace('/^www\./', '', $urlParts['host']);
-                // Output way2tutorial.com
-                $post['subdomain'] = $request->subdomain . '.' . $subdomain_name;
-            } else {
-                // Handle the case where $urlParts is not an array or doesn't contain the expected elements
-                // You can log an error, throw an exception, or handle it according to your application logic
-                // For example:
-                $post['subdomain'] = null; // or any default value you prefer
+    $webuzo = app(WebuzoDomainService::class);
+
+    $input = trim((string) $request->domains);
+
+    /*
+    |--------------------------------------------------------------------------
+    | المستخدم ترك Custom Domain فارغ
+    |--------------------------------------------------------------------------
+    */
+    if ($input === '') {
+
+        if (!empty($oldDomain)) {
+
+            $deleteResult = $webuzo->deleteDomain($oldDomain);
+
+            if (!$deleteResult['success']) {
+                return redirect()->back()
+                    ->with(
+                        'error',
+                        'Webuzo: Could not delete old domain: '
+                        . $deleteResult['message']
+                    );
             }
         }
+
+        // امسح القيمة القديمة من settings
+        $post['domains'] = '';
+
+    } else {
+
+        /*
+        |--------------------------------------------------------------------------
+        | تنظيف الدومين الجديد
+        |--------------------------------------------------------------------------
+        */
+
+        $input = trim($input, '/');
+
+        if (!preg_match('#^http(s)?://#', $input)) {
+            $input = 'http://' . $input;
+        }
+
+        $urlParts = parse_url($input);
+
+        if (!$urlParts || empty($urlParts['host'])) {
+            return redirect()->back()
+                ->with('error', 'Invalid custom domain.');
+        }
+
+        $newDomain = strtolower(
+            preg_replace('/^www\./', '', $urlParts['host'])
+        );
+
+        $post['domains'] = $newDomain;
+
+        /*
+        |--------------------------------------------------------------------------
+        | فقط إذا تغير الدومين
+        |--------------------------------------------------------------------------
+        */
+        if ($oldDomain !== $newDomain) {
+
+            /*
+             * 1. أضف الجديد أولاً
+             */
+            $addResult = $webuzo->addDomain($newDomain, false);
+
+            if (!$addResult['success']) {
+                return redirect()->back()
+                    ->with(
+                        'error',
+                        'Webuzo: ' . $addResult['message']
+                    );
+            }
+
+            /*
+             * 2. بعد نجاح الجديد، احذف القديم
+             */
+            if (!empty($oldDomain)) {
+
+                $deleteResult = $webuzo->deleteDomain($oldDomain);
+
+                if (!$deleteResult['success']) {
+                    return redirect()->back()
+                        ->with(
+                            'error',
+                            'New domain was added, but Webuzo could not delete old domain: '
+                            . $deleteResult['message']
+                        );
+                }
+            }
+        }
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
+| المستخدم ألغى Custom Domain واختار Store Link أو Subdomain
+|--------------------------------------------------------------------------
+*/
+if (
+    $oldCustomDomainEnabled
+    && $request->enable_domain !== 'enable_domain'
+    && !empty($oldDomain)
+) {
+
+    $webuzo = app(WebuzoDomainService::class);
+
+    $deleteResult = $webuzo->deleteDomain($oldDomain);
+
+    if (!$deleteResult['success']) {
+        return redirect()->back()
+            ->with(
+                'error',
+                'Webuzo: Could not delete old custom domain: '
+                . $deleteResult['message']
+            );
+    }
+
+    // حتى ما يضل الدومين القديم محفوظ بالداتابيز
+    $post['domains'] = '';
+}
+
+
+
+
+
+
+
+
+
+if ($request->enable_domain === 'enable_subdomain') {
+
+    $input = env('APP_URL');
+    $input = trim($input, '/');
+
+    if (!preg_match('#^http(s)?://#', $input)) {
+        $input = 'http://' . $input;
+    }
+
+    $urlParts = parse_url($input);
+
+    if (is_array($urlParts) && isset($urlParts['host'])) {
+
+        $subdomain_name = preg_replace(
+            '/^www\./',
+            '',
+            $urlParts['host']
+        );
+
+        $subdomainSlug = strtolower(
+            trim((string) $request->subdomain)
+        );
+
+        $newSubdomain =
+            $subdomainSlug . '.' . $subdomain_name;
+
+        $post['subdomain'] = $newSubdomain;
+
+        $webuzo = app(WebuzoDomainService::class);
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | هل السب دومين الجديد موجود فعلياً في Webuzo؟
+        |--------------------------------------------------------------------------
+        */
+        $newSubdomainExists =
+            $webuzo->domainExists($newSubdomain);
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | إذا غير موجود في Webuzo → أضفه
+        |--------------------------------------------------------------------------
+        */
+     if (!$newSubdomainExists) {
+
+    $addResult = $webuzo->addSubdomain(
+        $subdomain_name,
+        $subdomainSlug,
+        false
+    );
+
+    if (!empty($addResult['error'])) {
+        return redirect()->back()->with(
+            'error',
+            'Webuzo: ' . implode(' ', $addResult['error'])
+        );
+    }
+}
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | إذا تغير اسم السب دومين → احذف القديم
+        |--------------------------------------------------------------------------
+        */
+        if (
+            !empty($oldSubdomain)
+            && $oldSubdomain !== $newSubdomain
+        ) {
+
+            /*
+             * نتأكد أن القديم موجود فعلياً في Webuzo
+             */
+            if ($webuzo->domainExists($oldSubdomain)) {
+
+                $deleteResult =
+                    $webuzo->deleteDomain($oldSubdomain);
+
+                if (!$deleteResult['success']) {
+                    return redirect()->back()->with(
+                        'error',
+                        'New subdomain added, but old subdomain could not be deleted: '
+                        . $deleteResult['message']
+                    );
+                }
+            }
+        }
+
+    } else {
+
+        $post['subdomain'] = null;
+    }
+}
 
 
         if ($request->enable_domain) {

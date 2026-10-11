@@ -146,6 +146,46 @@ $activeTab = session()->get('setting_tab') ?? 'email_setting';
                                 {{ __('Whatsapp Settings') }}
                             </a>
                         </li>
+
+
+
+
+<li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center" role="presentation">
+    <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'chatwoot_setting' ? 'active' : '' }}"
+       data-url="{{ route('setting.form') }}"
+       data-tab="chatwoot_setting"
+       id="pills-chatwoot-tab"
+       data-bs-toggle="pill"
+       data-bs-target="#eco-chatwoot"
+       type="button"
+       role="tab">
+        {{ __('lynomia chat') }}
+    </a>
+</li>
+
+
+
+
+
+
+
+<li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center" role="presentation">
+    <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'otp_setting' ? 'active' : '' }}"
+       data-url="{{ route('setting.form') }}"
+       data-tab="otp_setting"
+       id="pills-otp-tab"
+       data-bs-toggle="pill"
+       data-bs-target="#eco-otp"
+       type="button"
+       role="tab">
+        {{ __('LYNOMIA OTP') }}
+    </a>
+</li>
+
+
+
+
+
                         <li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6  col-12 text-center" role="presentation">
                             <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'whatsapp_msg_setting' ? 'active' : '' }}" data-url="{{ route('setting.form') }}" data-tab="whatsapp_msg_setting" id="pills-contact-tab" data-bs-toggle="pill" data-bs-target="#eco-9" type="button" role="tab" aria-controls="pills-contact" aria-selected="false">
                                 {{ __('Whatsapp Message Settings') }}

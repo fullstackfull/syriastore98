@@ -36,9 +36,7 @@
         <meta name="apple-mobile-web-app-status-bar"
             content="{{ $store->pwa_store($store->slug)->background_color }}" />
     @endif
-    <style>
-        {!! $storecss ?? '' !!}
-    </style>
+   
     @stack('page-style')
     <script>
         tailwind.config = {
@@ -141,6 +139,14 @@
     @endif
     <link rel="stylesheet" href="{{ asset('assets/css/plugins/select2.min.css') }}">
     <script src="{{ asset('assets/js/plugins/select2.min.js') }}"></script>
+    @php
+    $admin_css = \App\Models\Utility::GetValueByName('storecss', getCurrentStore());
+@endphp
+@if(!empty($admin_css))
+    <style>
+        {!! $admin_css !!}
+    </style>
+@endif
 </head>
 
 <body>
@@ -198,5 +204,13 @@
             }
         }
     </script>
+    @php
+    $admin_js = \App\Models\Utility::GetValueByName('storejs', getCurrentStore());
+@endphp
+@if(!empty($admin_js))
+    <script>
+        {!! $admin_js !!}
+    </script>
+@endif
 </body>
 </html>

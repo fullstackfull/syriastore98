@@ -3,7 +3,6 @@
 @php
     $invoice_logo = \App\Models\Utility::GetValueByName('invoice_logo');
     $invoice_logo = get_file($invoice_logo);
-
 @endphp
 
 <head>
@@ -22,7 +21,6 @@
         }
 
         body {
-
             font-family: 'Lato', sans-serif;
         }
 
@@ -112,12 +110,6 @@
             height: 100%;
         }
 
-        .invoice-body {
-            /* padding: 30px 25px 0; */
-        }
-
-
-
         table.add-border tr {
             border-top: 1px solid var(--theme-color);
         }
@@ -183,8 +175,6 @@
             margin-bottom: 0;
         }
     </style>
-
-
 </head>
 
 <body class="">
@@ -217,7 +207,6 @@
                                 @endif
                             </p>
                         </address>
-
                     </div>
                     <div class="col-xl-6">
                         <div class="page-logo">
@@ -267,17 +256,13 @@
                                     {{ $order['delivery_informations']['phone'] }}
                                 @endif
                             </p>
-
-
                         </address>
                     </div>
                     <div class="col-xl-6 d-flex justify-content-end">
                         {!! DNS1D::getBarcodeHTML($order['order_id'], 'C128') !!}
                     </div>
                 </div>
-
             </div>
-
         </div>
         <hr>
         <div class="invoice-body">
@@ -300,17 +285,15 @@
                             </td>
                             <td>
                                 @if (module_is_active('ProductPricing') && isset($item['sale_price']))
-                                    {{ $item['sale_price'] ?? '-'}}
+                                    {{ order_currency_format_with_sym($item['sale_price'], $order['id']) }}
                                 @else
-                                    {{ $item['final_price'] ?? '-'}}
+                                    {{ order_currency_format_with_sym($item['final_price'] ?? 0, $order['id']) }}
                                 @endif
                             </td>
                         </tr>
                     @endforeach
-
                 </tbody>
             </table>
-
         </div>
         <hr>
         <div class="invoice-body">
@@ -328,12 +311,10 @@
                         </td>
                         <td>{{ $product_sum }}</td>
                     </tr>
+                </tbody>
             </table>
-
         </div>
-
     </div>
-
 </body>
 
 </html>

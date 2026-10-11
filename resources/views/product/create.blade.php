@@ -120,6 +120,18 @@
                     {!! Form::label('', __('Sale Price'), ['class' => 'form-label']) !!}<!--<span class="text-danger">*</span>-->
                     {!! Form::number('sale_price', null, ['class' => 'form-control', 'min' => '0', 'step' => '0.01']) !!}
                   </div>
+                <div class="col-md-6 col-12 product-weight">
+    {!! Form::label('', __('Cost Price'), ['class' => 'form-label']) !!}
+    <span class="text-danger">*</span>
+    {!! Form::number('cost_price', null, [
+        'class' => 'form-control',
+        'min' => '0',
+        'step' => '0.01',
+        'required' => true
+    ]) !!}
+</div>
+                
+                
                 </div>
               </div>
               <div class="product-stock-div p-3 pb-0">

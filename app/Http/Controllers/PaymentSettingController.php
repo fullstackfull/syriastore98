@@ -154,7 +154,7 @@ class PaymentSettingController extends Controller
     /**
      * Get configuration for all payment gateways
      */
-    private function getPaymentGateways()
+    public function getPaymentGateways()
     {
         return [
             [

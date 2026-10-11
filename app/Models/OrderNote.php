@@ -9,6 +9,15 @@ use Illuminate\Database\Eloquent\Model;
 class OrderNote extends Model
 {
     use HasFactory, Cachable;
+    protected $fillable = [
+            'customer_id',
+                        'order_id',
+'notes',
+'note_type',
+'status',
+'store_id'
+
+    ];
 
     public static function order_note_data($data= [])
     {

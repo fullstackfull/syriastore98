@@ -47,10 +47,10 @@ class OrderDataTable extends DataTable
                     return __('Walk-in-customer');
                 }
             })
-            ->editColumn('final_price', function ($item) {
-                return currency_format_with_sym(($item->final_price ?? 0), getCurrentStore()) ?? SetNumberFormat($item->final_price);
-            })
-            ->editColumn('payment_type', function ($item) {
+->editColumn('final_price', function ($item) {
+    return order_currency_format_with_sym(($item->final_price ?? 0), $item->id) ?? SetNumberFormat($item->final_price);
+})
+->editColumn('payment_type', function ($item) {
                 $paymentTypes = [
                     'cod' => __('Cash On Delivery'),
                     'paymera' => __('Paymera'),

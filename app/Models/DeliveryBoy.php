@@ -15,9 +15,12 @@ class DeliveryBoy extends Authenticatable
 	protected $guard = 'deliveryboy';
     protected $guard_name = 'web';
 
-    protected $fillable = [
-        'name', 'email', 'profile_image', 'type', 'password', 'contact','created_by','store_id'
-    ];
+protected $fillable = [
+    'name', 'email', 'profile_image', 'type',
+    'password', 'contact', 'commission_percentage', 
+    'is_commission_enabled', 
+    'created_by', 'store_id'
+];
 	
 	public function creatorId()
     {
