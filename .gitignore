@@ -2,3 +2,4 @@
 /storage/app/public/
 /vendor/
 /storage/logs/*.log
+/storage/
