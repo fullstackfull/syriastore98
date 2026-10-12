@@ -347,4 +347,115 @@ class AdminApiSurfaceTest extends SecurityTestCase
 
         $response->assertStatus(401);
     }
+
+    // ---------------------------------------------------------------
+    // adminlogout -- the last /api/admin/* route with no route middleware
+    // ---------------------------------------------------------------
+
+    /**
+     * It was LOW severity rather than open: Api/DashboardController::logouto
+     * re-implements the `{id}|{secret}` parse and the hash_equals comparison
+     * itself, which is why the Phase 1A anonymous probe got 401 and not 200. The
+     * control is declared at the route now, where every sibling declares it,
+     * rather than depending on one handler continuing to get token verification
+     * right on its own. The baseline manifest's must_be_protected list is empty
+     * once this lands.
+     */
+    public function test_adminlogout_carries_the_custom_auth_middleware(): void
+    {
+        $found = null;
+
+        foreach (Route::getRoutes() as $route) {
+            if ($route->uri() === 'api/admin/adminlogout') {
+                $found = $route;
+                break;
+            }
+        }
+
+        $this->assertNotNull($found, 'Route /api/admin/adminlogout not found.');
+
+        $middleware = $found->gatherMiddleware();
+
+        $this->assertContains('custom.auth', $middleware);
+        // So that logout attempts stop being invisible, as the order-note writes were.
+        $this->assertContains('AdminApiLog', $middleware);
+    }
+
+    public function test_adminlogout_rejects_an_anonymous_caller(): void
+    {
+        $this->postJson('/api/admin/adminlogout')->assertStatus(401);
+    }
+
+    public function test_adminlogout_rejects_a_forged_token(): void
+    {
+        $merchant = $this->makeMerchant();
+        $token = $merchant->createToken('auth_token');
+
+        // Right id, wrong secret -- the forgery CustomAuth's hash_equals catches.
+        $forged = $token->accessToken->id . '|' . str_repeat('a', 40);
+
+        $this->withHeader('Authorization', 'Bearer ' . $forged)
+            ->postJson('/api/admin/adminlogout')
+            ->assertStatus(401);
+
+        $this->assertDatabaseHas('personal_access_tokens', ['id' => $token->accessToken->id]);
+    }
+
+    /**
+     * THE LEGITIMATE WORKFLOW. A real token must still log out, and the token
+     * row must actually be gone -- otherwise the route guard could be "working"
+     * while logout silently stopped revoking anything.
+     */
+    public function test_adminlogout_still_revokes_a_valid_token(): void
+    {
+        $merchant = $this->makeMerchant();
+        $token = $merchant->createToken('auth_token');
+        $tokenId = $token->accessToken->id;
+
+        $response = $this->withHeader('Authorization', 'Bearer ' . $token->plainTextToken)
+            ->postJson('/api/admin/adminlogout');
+
+        $response->assertStatus(200);
+        $this->assertSame(1, $response->json('status'));
+        $this->assertDatabaseMissing('personal_access_tokens', ['id' => $tokenId]);
+    }
+
+    /**
+     * The recorded baseline must not silently widen again. A baseline wider than
+     * reality permits a regression back to it, which is why the manifest is
+     * shrunk as routes are fixed rather than left at its original 13.
+     */
+    public function test_the_admin_auth_coverage_baseline_lists_only_public_endpoints(): void
+    {
+        $path = base_path('tests/Support/ApiContract/manifests/admin-auth-coverage-baseline.json');
+
+        $this->assertFileExists($path);
+
+        $manifest = json_decode((string) file_get_contents($path), true);
+
+        $this->assertIsArray($manifest, 'The baseline manifest must be valid JSON.');
+
+        $this->assertSame(
+            [],
+            $manifest['must_be_protected'] ?? null,
+            'Every /api/admin/* route that needs authentication now has it, so '
+            . 'must_be_protected must be empty.'
+        );
+
+        $this->assertSame(
+            ['/api/admin/adminlogin', '/api/admin/base_url', '/api/admin/delivery-login'],
+            $manifest['routes'] ?? null,
+            'The only /api/admin/* routes left without authentication must be the two '
+            . 'login endpoints and base_url.'
+        );
+
+        // Each remaining entry must carry its own written justification.
+        foreach ($manifest['routes'] as $uri) {
+            $this->assertArrayHasKey(
+                $uri,
+                $manifest['legitimately_public'] ?? [],
+                "{$uri} is in the baseline with no recorded justification."
+            );
+        }
+    }
 }
