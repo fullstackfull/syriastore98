@@ -26,13 +26,43 @@ use Illuminate\Database\Eloquent\Builder;
  * (app/Helper/helper.php:357-381), via `App\Scopes\StoreScope::resolveStoreId()`. The trait is a
  * Laravel-native concern that wraps logic the codebase already repeats by hand 1,261 times.
  *
- * ATTACHING IT IS BEHAVIOUR-NEUTRAL TODAY. The global scope it registers is DISABLED by default
- * under GATE G2 (see App\Scopes\StoreScope) and adds no SQL predicate while disabled, so the
- * emitted queries -- and therefore every `genealabs/laravel-model-caching` cache key on the 78
- * models using `Cachable` -- are unchanged. Everything the trait adds beyond that is a NEW named
- * scope or a NEW helper method; nothing existing is overridden. Verified: none of the models this
- * trait is applied to already declares `boot()`, `booted()`, `scopeForStore`, `scopeForCurrentStore`,
- * `scopeWithoutStoreScope`, `isOwnedByStore`, `isOwnedByCurrentStore` or `getStoreColumn`.
+ * ATTACHING IT IS BEHAVIOUR-NEUTRAL; ALLOWLISTING IS NOT. This docblock previously said the
+ * scope was "DISABLED by default", which is NO LONGER TRUE and is corrected here rather than left
+ * to mislead: enforcement is per-model via `config/tenancy.php` -> `scoped_models`, and TEN models
+ * are now really scoped -- Menu, SupportTicket, SupportConversion, FlashSaleCondition,
+ * ThemeCustomizeOrder, NotifyUser (batch 1) and OrderRefund, OrderNote, Customer, Cart (batch 2).
+ *
+ * For a model that is NOT on that list, `apply()` adds no predicate at all, so attaching the trait
+ * alone still leaves the emitted queries -- and therefore every `genealabs/laravel-model-caching`
+ * cache key on the 78 models using `Cachable` -- byte-identical. The 11 trait-carrying models that
+ * are not allowlisted (Category, DeliveryBoy, Product, Shipping, StoreWallet,
+ * StoreWalletTransaction, StoreWithdrawal and the rest) are in exactly that position.
+ *
+ * Everything the trait adds beyond the scope is a NEW named scope or a NEW helper method; nothing
+ * existing is overridden. Verified: none of the models this trait is applied to already declares
+ * `boot()`, `booted()`, `scopeForStore`, `scopeForCurrentStore`, `scopeWithoutStoreScope`,
+ * `isOwnedByStore`, `isOwnedByCurrentStore` or `getStoreColumn`.
+ *
+ * ============================================================================================
+ *  A DELIBERATE ASYMMETRY: THE SCOPE ADMITS EVERY STORE YOU OWN, THESE HELPERS DO NOT.
+ * ============================================================================================
+ *
+ * `StoreScope::apply()` now filters on `{current_store} UNION {stores whose created_by =
+ * creatorId()}`, because the admin API legitimately operates on a store that is not the caller's
+ * `current_store` (see StoreScope::admissibleStoreIds() for the full argument).
+ *
+ * The helpers below were NOT widened to match, and that is a decision rather than an oversight.
+ * `isOwnedByCurrentStore()` exists to be used as `abort_unless($model->isOwnedByCurrentStore(),
+ * 403)` in controllers this workstream does not own. Widening it would relax an AUTHORIZATION
+ * check -- it would start admitting requests that are denied today -- and that is a permission
+ * change wearing a tenancy change's clothes. A call site that genuinely wants "any store this
+ * merchant owns" must say so explicitly, which keeps the decision visible at the call site and in
+ * review:
+ *
+ *     abort_unless($model->isOwnedByStore($request->store_id) && $callerOwns($request->store_id), 403);
+ *
+ * So: the scope is DEFENCE IN DEPTH and errs toward not blanking a working page; these helpers are
+ * the CONTROL OF RECORD and err toward denial. They are supposed to differ.
  *
  * WHAT THIS TRAIT DELIBERATELY DOES NOT DO.
  *   - It does NOT auto-populate `store_id` on create. That would be a behaviour change with a
