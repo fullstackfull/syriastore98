@@ -42,23 +42,60 @@
  *   3. No call site filters it by a FOREIGN store id (the 785 above).
  *   4. It is NOT reachable through the admin API's request-supplied `store_id` path. See the
  *      DEFERRED note below -- this is the condition that excludes the big commerce models.
+ *   5. NO STOREFRONT READ SITE FILTERS IT BY A SLUG-RESOLVED STORE ID. This condition was
+ *      missing from the list, and it is the one Cart and Customer fail.
  *
- * WHY Product, Order, Category, Cart, Customer, Setting AND Shipping ARE DEFERRED.
+ *      Storefronts are path-prefixed ({storeSlug?}) on the SAME host, and routes/customer.php
+ *      is `require`d from routes/web.php:1222, so storefront routes sit INSIDE the `web`
+ *      middleware group -- confirmed from the router, which reports status.cancel as
+ *      [web, ActiveTheme, themelanguage]. config/session.php:146 sets the cookie path to '/'.
+ *      So a merchant or staff member with a live admin session is a POPULATED WEB-GUARD
+ *      PRINCIPAL on every storefront request, and getCurrentStore() returns their ADMIN
+ *      store -- not the store whose storefront they are viewing.
  *
- * app/Http/Controllers/Api/DashboardController.php resolves its tenant from the REQUEST, not
- * from the session: `$storeId = $request->query('store_id')` at 17 sites, and
- * `$store = Store::find($request->store_id)` / `$this->resolveOwnedStore($request->store_id)`
- * at 70 more. `resolveOwnedStore()` (:3590-3605) authorises by `created_by`, NOT by
- * `current_store`, so a merchant who owns several stores may legitimately operate on a store
- * that is not their `current_store`. A scope keyed on `current_store` would return zero rows for
- * that request. `ChangeStore()` (:3619-3656) does keep `current_store` in step when the client
- * calls it, so this breaks only when the client passes a `store_id` it has not switched to --
- * which nothing in the server enforces.
+ *      A storefront query of the form `where('store_id', $slugResolvedStore->id)` is then
+ *      ANDed with this scope's predicate and returns zero rows, SILENTLY, because a find()
+ *      or get() that returns nothing is indistinguishable from "no such record".
  *
- * Closing that gap means binding the admin API's requested store to the session's tenant, and
- * app/Http/** belongs to another workstream. Until then these models keep the trait (so the
- * helpers `forStore()`, `isOwnedByCurrentStore()` and the explicit predicates stay available)
- * but are deliberately absent from `scoped_models`.
+ *      That is a broken storefront, and this project has already shipped that failure twice:
+ *      a brace move behind `auth` killed newsletter signup on every store, and scoping Menu
+ *      blanked the storefront navigation until an explicit withoutGlobalScope was added at
+ *      app/Helper/helper.php. A control that breaks the storefront is a defect, not a fix.
+ *
+ * THE ADMIN-API CONSTRAINT IS NOW SOLVED, NOT DEFERRED. Batch 1 deferred Product, Order,
+ * Category, Cart, Customer, Setting and Shipping on one argument: the admin API resolves its
+ * tenant from the REQUEST (`$request->store_id`, ~100 sites in
+ * app/Http/Controllers/Api/DashboardController.php), authorises it by OWNERSHIP via
+ * `resolveOwnedStore()` (:3627-3641, `created_by = creatorId()`) and NOT by `current_store`, so a
+ * `current_store` predicate would answer a legitimate multi-store request with zero rows.
+ *
+ * That argument was right, and its unstated premise is now PROVEN rather than assumed:
+ * app/Http/Middleware/CustomAuth.php:80-81 logs a `User` token in with `auth()->login()` on the
+ * DEFAULT web guard, so `auth()->user()` really is populated on every admin API call and the
+ * scope really is live there. (Had it authenticated on another guard, the scope would have been a
+ * no-op on that path and the whole deferral would have been unnecessary.)
+ *
+ * The fix is in App\Scopes\StoreScope::admissibleStoreIds(): the predicate admits
+ * `{current_store} UNION {stores whose created_by = creatorId()}` -- the controller's OWN
+ * authorisation test, plus today's value. `store_id = 7 AND store_id IN (5,7)` returns store 7's
+ * rows, so the legitimate multi-store request works; `store_id = 9 AND store_id IN (5,7)` returns
+ * nothing, so the ~70 remaining bare `Store::find($request->store_id)` sites have their IDOR
+ * closed. Because `current_store` is always a member, the new predicate is a STRICT SUPERSET of
+ * the old one and cannot blank a page that works today.
+ *
+ * SO WHY ARE Product, Category, Shipping, Setting AND Order STILL NOT HERE? A DIFFERENT AND
+ * STRONGER REASON, measured for this batch: they are read on the PUBLIC STOREFRONT, and the scope
+ * cannot tell a merchant reading their own admin panel from the same merchant browsing another
+ * merchant's shop -- both are web-guard principals. Scoping them blanks the catalogue, the
+ * category menu, the checkout shipping and tax options for a signed-in merchant browsing any
+ * store they do not own, with no error, and buys no confidentiality at all because the anonymous
+ * visitor those pages exist for resolves no tenant and was never filtered. That is exactly the
+ * trap that blanked the storefront navigation when `Menu` was scoped, and it needed a
+ * `withoutGlobalScope` escape at app/Helper/helper.php to undo. Per-model evidence sits against
+ * each entry in the DEFERRED block at the bottom of this file.
+ *
+ * Deferred models keep the trait, so `forStore()`, `isOwnedByCurrentStore()` and the explicit
+ * fail-closed predicates stay available to call sites that want them.
  */
 
 return [
@@ -146,6 +183,112 @@ return [
         // which does not matter for a write that supplies the column explicitly.
         App\Models\NotifyUser::class,
 
+        /*
+        |----------------------------------------------------------------------------------------
+        | BATCH 2 -- unlocked by the owned-stores predicate, audited model by model
+        |----------------------------------------------------------------------------------------
+        |
+        | Every entry below satisfies the four conditions above AND one more that batch 1 did not
+        | have to state: IT IS NOT PUBLIC STOREFRONT CONTENT. Each is either merchant-admin data
+        | or a customer's own record, never a page an anonymous visitor renders, so scoping it
+        | cannot blank the shop. Each is proven by two independent merchants owning two
+        | independent stores in tests/Feature/Tenancy/Batch2ModelIsolationTest -- negative
+        | (A cannot read, update or delete B's row, asserted through raw DB::table() so the scope
+        | cannot hide damage it failed to prevent) AND positive (A can still do all three to its
+        | own), plus a super-admin cross-store read.
+        |
+        */
+
+        // OrderRefund -- the cleanest case in the codebase. ZERO occurrences in
+        // Api/DashboardController (measured: `grep -c 'OrderRefund::'` = 0), so the
+        // request-supplied-store_id path does not reach it at all and the owned-stores predicate
+        // is not even needed to make it safe.
+        // WHAT THE SCOPE CLOSES: AccountProfileController.php:910 `OrderRefund::find($id)` and
+        // OrderRefundController.php:253 `OrderRefund::where('order_id', $order['id'])->first()`
+        // are both keyed on a bare id with no tenant predicate, and
+        // BulkDeleteController.php:115 deletes `order-refunds` by id with none either.
+        // WHAT AGREES WITH IT: OrderRefundController.php:69 and :233 both pass
+        // `getCurrentStore()`.
+        // Writer: AccountProfileController.php:983 sets `store_id = $store->id`.
+        // Storefront note: the customer-facing reads at AccountProfileController.php:537 and
+        // AuctionOrdersController.php:337 run on the `customers` guard or anonymously, where
+        // `auth()->user()` on `web` is null and the scope adds nothing (MODE_UNRESOLVED).
+        App\Models\OrderRefund::class,
+
+        // OrderNote -- merchant-to-shopper and system text on an order, never rendered to an
+        // anonymous visitor.
+        // WHAT THE SCOPE CLOSES: BulkDeleteController does not carry it, but
+        // SupportTicket-style bare-id access does: the notes read at
+        // Api/DashboardController.php:1807 and :6834 are keyed on `order_id` plus a store that
+        // came from the request, so before the ownership repair any token read any store's notes.
+        // The scope is now the backstop behind that repair.
+        // WHY IT NEEDED THE OWNED-STORES PREDICATE: all three admin-API sites filter on
+        // `$store->id` where `$store = resolveOwnedStore($request->store_id)` (:125, :203), which
+        // may legitimately differ from `current_store`. Under the old `= current_store` predicate
+        // a multi-store merchant's notes list would have gone empty.
+        // Writers: OrderNote.php:46 (`$data['store_id']`), OrderController.php:259 and
+        // Api/DashboardController.php:5220/:5230 all set it explicitly.
+        App\Models\OrderNote::class,
+
+        // Customer -- the highest-value PII table that is NOT storefront-public. A customer's
+        // record is read on the `customers` guard (their own account) or anonymously during
+        // registration and login, and in BOTH of those the web guard has no principal, so the
+        // scope adds no predicate and the storefront is untouched.
+        // WHAT THE SCOPE CLOSES: BulkDeleteController.php:115 maps `customer` and deletes by bare
+        // id across every store on the platform, and Api/DashboardController.php:4919 and :7439
+        // read a customer keyed on `$request->customer_id`.
+        // WHAT AGREES WITH IT: :4775, :6762 and :7591 all filter on a store derived from the
+        // request, which the owned-stores predicate admits when the caller owns it and denies
+        // when it does not.
+        // Writers: ALL SIXTEEN insert paths set `store_id`, verified one by one --
+        // Api/AuthController.php:88, CustomerController.php:39, PaymentController.php:1093,
+        // Customer/Auth/CustomerLoginController.php:727, ShopifyCustomerController.php:185,
+        // Api/DashboardController.php:5001/:6977 and the eight social-login packages
+        // (GoogleLogin:123, SignInWithFacebook:186, SignInWithLinkedIn:129, Signinwithgithub:117,
+        // SignInWithSlack:119, SignInWithTwitter:114, SignInWithBitbucket:109,
+        // SignInWithOutlook:172).
+        // ***** NOT ENABLED. The analysis above is kept because it is sound as far as it
+        // ***** goes, but its premise -- that this model is "always" read on the `customers`
+        // ***** guard or anonymously -- is FALSE, and condition 5 above explains why. A
+        // ***** merchant with a live admin session is a populated WEB-GUARD principal on every
+        // ***** storefront request (routes/customer.php is require'd from routes/web.php:1222,
+        // ***** so storefront routes carry the `web` group; config/session.php:146 sets the
+        // ***** cookie path to '/'), and getCurrentStore() then returns their ADMIN store.
+        // ***** Enabling this model made a storefront read return zero rows, silently, for
+        // ***** that principal on any store they do not own. Re-enable ONLY after every
+        // ***** storefront read site has an explicit withoutGlobalScope escape AND a test
+        // ***** drives the authenticated-web-guard case (the anonymous case fails open and so
+        // ***** passes trivially).
+        // ***** Breaking sites: CustomerLoginController.php:87, :585, :751, :796, :847.
+
+        // Cart -- abandoned-cart rows. Read on the storefront and in every payment controller,
+        // but always on the `customers` guard or anonymously by `cookie_session_id`, so the scope
+        // contributes nothing there and cannot empty a shopper's basket.
+        // WHAT THE SCOPE CLOSES: BulkDeleteController.php:113 deletes `abandoncart` by
+        // `customer_id` -- not even by id -- with no tenant predicate, so one merchant could clear
+        // another merchant's carts for any customer id.
+        // WHY IT NEEDED THE OWNED-STORES PREDICATE: Api/DashboardController.php:2016 and :2105
+        // run `Cart::where('product_id', ...)->delete()` as product-deletion cleanup on a store
+        // that came from the request. Under `= current_store` that cleanup would have silently
+        // stopped deleting for a multi-store merchant, orphaning cart rows against a deleted
+        // product -- a data-integrity regression introduced by a security control, which is
+        // exactly what this phase is told not to do.
+        // Writers: Cart.php:162 and :851, Api/ApiController.php:1533, CartController.php:382,
+        // and the FrequentlyProduct / BoostSales package inserts all set `store_id`.
+        // ***** NOT ENABLED. The analysis above is kept because it is sound as far as it
+        // ***** goes, but its premise -- that this model is "always" read on the `customers`
+        // ***** guard or anonymously -- is FALSE, and condition 5 above explains why. A
+        // ***** merchant with a live admin session is a populated WEB-GUARD principal on every
+        // ***** storefront request (routes/customer.php is require'd from routes/web.php:1222,
+        // ***** so storefront routes carry the `web` group; config/session.php:146 sets the
+        // ***** cookie path to '/'), and getCurrentStore() then returns their ADMIN store.
+        // ***** Enabling this model made a storefront read return zero rows, silently, for
+        // ***** that principal on any store they do not own. Re-enable ONLY after every
+        // ***** storefront read site has an explicit withoutGlobalScope escape AND a test
+        // ***** drives the authenticated-web-guard case (the anonymous case fails open and so
+        // ***** passes trivially).
+        // ***** Breaking sites: app/Models/Cart.php:166 and :208.
+
     ],
 
     /*
@@ -185,6 +328,36 @@ return [
     */
 
     'null_tenant' => env('TENANCY_NULL_TENANT', 'open'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Which stores the predicate admits for a resolved tenant
+    |--------------------------------------------------------------------------
+    |
+    | 'owned_stores'  -- DEFAULT. `store_id IN ({current_store} UNION {stores whose created_by
+    |                    equals the principal's creatorId()})`. This is the controller's own
+    |                    authorisation test (Api/DashboardController::resolveOwnedStore, :3627)
+    |                    rather than a second, disagreeing definition of "this merchant's data",
+    |                    and it is what makes batch 2 possible -- see the header of this file and
+    |                    App\Scopes\StoreScope::admissibleStoreIds() for the full argument.
+    |
+    | 'current_store' -- the pre-batch-2 predicate, `store_id = current_store`, exactly. Correct
+    |                    and strictly narrower for a deployment where every merchant owns exactly
+    |                    one store; it is what returns zero rows for a legitimate multi-store
+    |                    admin API request.
+    |
+    | Because `current_store` is always a member of the 'owned_stores' set, that set is a STRICT
+    | SUPERSET of 'current_store'. Switching to the default can therefore never make a query that
+    | returns rows today return fewer -- the property that makes this safe to ship, asserted in
+    | tests/Feature/Tenancy/OwnedStoresTenantResolutionTest rather than argued here.
+    |
+    | A single-store merchant resolves to a one-element set, and StoreScope::apply() emits the
+    | same single `where()` it always has for that case, so the SQL and every model-caching key
+    | are byte-identical for the common principal.
+    |
+    */
+
+    'tenant_scope' => env('TENANCY_TENANT_SCOPE', 'owned_stores'),
 
     /*
     |--------------------------------------------------------------------------

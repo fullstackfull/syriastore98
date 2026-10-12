@@ -3095,7 +3095,21 @@ class Utility extends Model
                 }
             }
 
-            if (!$companyRole->hasPermission($op)) {
+            // NULL GUARD -- NEW-add-new-data-500-on-missing-role.
+            //
+            // `$companyRole = Role::where('name', 'LIKE', 'admin')->first()` (:2899) returns
+            // null on any database that has no role literally named `admin`, and this line
+            // then raised "Call to a member function hasPermission() on null". addNewData()
+            // runs from AuthenticatedSessionController::store():83 and from the registration
+            // controller, so the 500 lands on LOGIN and on REGISTRATION -- the two endpoints
+            // a deployment can least afford to lose. Measured: failures 2 and 8 of the 13 on
+            // p1b/integration @ 17cb2f91 were this line.
+            //
+            // The permission ROWS are still created by the block above, so the only behaviour
+            // that changes is that permissions are not granted to a role that does not exist
+            // -- which is the only thing that can be done with it. Byte-identical whenever the
+            // role is present.
+            if ($companyRole && !$companyRole->hasPermission($op)) {
                 $companyRole->givePermission($op);
             }
         }
@@ -3141,7 +3155,10 @@ class Utility extends Model
                     (clone $permissionQuery)->create(['name' => $op, 'guard_name' => 'web']);
                 }
             }
-            if (!$superadminRole->hasPermission($op)) {
+            // NULL GUARD -- the sibling of the `$companyRole` defect above. `$superadminRole`
+            // (:3103) is `Role::where('name', 'LIKE', 'super admin')->first()` and is null on
+            // a database with no super-admin role, with the same 500 on login/registration.
+            if ($superadminRole && !$superadminRole->hasPermission($op)) {
                 $superadminRole->givePermission($op);
             }
         }

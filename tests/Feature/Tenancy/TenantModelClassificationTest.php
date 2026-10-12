@@ -320,6 +320,131 @@ class TenantModelClassificationTest extends TestCase
     }
 
     // -------------------------------------------------------------------------------------
+    //  THE THIRD CATEGORY: PUBLIC STOREFRONT CONTENT
+    // -------------------------------------------------------------------------------------
+
+    /**
+     * Models whose rows are rendered to an ANONYMOUS visitor as part of a store's public pages.
+     *
+     * WHY THIS IS A SEPARATE CATEGORY AND NOT A SUBSET OF "TENANT-OWNED". These rows ARE
+     * tenant-owned -- they carry a real `store_id` and belong to exactly one merchant -- so the
+     * two-way partition above says "scopable" about every one of them, and that is the trap.
+     *
+     * The global scope cannot distinguish a merchant reading their OWN admin panel from the same
+     * merchant browsing a shop they do NOT own: both are web-guard principals with the same
+     * `current_store`. Scoping public content therefore blanks the catalogue, the category menu,
+     * the blog, the checkout shipping and tax options for a signed-in merchant browsing any other
+     * store -- silently, with no error, because an empty result set is not an exception. And it
+     * buys NO confidentiality in exchange, because the anonymous visitor those pages exist for
+     * resolves no tenant (MODE_UNRESOLVED) and was never filtered in the first place.
+     *
+     * This is not hypothetical. It has already happened here twice: scoping `Menu` blanked the
+     * storefront navigation, and a brace move behind `auth` killed newsletter signup on every
+     * store. The cost of getting it wrong is a broken shop; the benefit of getting it right is
+     * nothing. So the default for this category is DO NOT SCOPE.
+     *
+     * @return array<class-string, string> class => why an anonymous visitor renders it
+     */
+    public static function publicStorefrontModels(): array
+    {
+        return [
+            \App\Models\Product::class => 'the catalogue itself, on every shop page',
+            \App\Models\Category::class => 'the category navigation and listing pages',
+            \App\Models\ProductImage::class => 'product gallery images',
+            \App\Models\ProductVariant::class => 'variant pickers on the product detail page',
+            \App\Models\ProductAttribute::class => 'variant attribute names',
+            \App\Models\ProductAttributeOption::class => 'variant attribute values',
+            \App\Models\ProductBrand::class => 'brand filters and brand pages',
+            \App\Models\ProductLabel::class => 'the "new"/"sale" badges on product cards',
+            \App\Models\ProductQuestion::class => 'the public Q&A block on product detail',
+            \App\Models\Tag::class => 'product tag links',
+            \App\Models\Blog::class => 'the public blog index and posts',
+            \App\Models\BlogCategory::class => 'blog category navigation',
+            \App\Models\Page::class => 'CMS pages such as terms and privacy',
+            \App\Models\Faq::class => 'the public FAQ section',
+            \App\Models\Testimonial::class => 'the public testimonial section',
+            \App\Models\FlashSale::class => 'the flash-sale banner and countdown',
+            \App\Models\Coupon::class => 'coupon validation during an anonymous checkout',
+            \App\Models\Shipping::class => 'shipping options at checkout',
+            \App\Models\ShippingMethod::class => 'shipping method options at checkout',
+            \App\Models\ShippingZone::class => 'shipping zone resolution at checkout',
+            \App\Models\Tax::class => 'tax lines on the cart and checkout totals',
+            \App\Models\TaxMethod::class => 'tax method resolution at checkout',
+            \App\Models\TaxOption::class => 'tax option resolution at checkout',
+            \App\Models\ThemeCustomize::class => 'the theme the storefront renders with',
+            \App\Models\PixelField::class => 'tracking pixels injected into storefront pages',
+            \App\Models\Setting::class => 'currency, logo and every other storefront setting',
+            \App\Models\Newsletter::class => 'written by the anonymous storefront signup form',
+            \App\Models\Contact::class => 'written by the anonymous contact form',
+        ];
+    }
+
+    /**
+     * THE ASSERTION THAT PROTECTS THE STOREFRONT. None of the above may be enforced.
+     *
+     * `Menu` is the ONE documented exception and is excluded below rather than silently omitted,
+     * because an unexplained gap in this list is how the next one gets added.
+     */
+    public function test_no_public_storefront_model_is_enforced(): void
+    {
+        foreach (self::publicStorefrontModels() as $class => $why) {
+            $this->assertFalse(
+                StoreScope::isAllowlisted($class),
+                $class . ' is PUBLIC STOREFRONT CONTENT (' . $why . ') and has been allowlisted '
+                . 'for tenant enforcement. That blanks it for any signed-in merchant browsing '
+                . 'another store, with no error, and buys no confidentiality because an anonymous '
+                . 'visitor resolves no tenant and was never filtered. If this is intentional, the '
+                . 'storefront read sites need a withoutGlobalScope escape FIRST -- see '
+                . 'app/Helper/helper.php:2364 for how Menu had to be handled -- and this list '
+                . 'needs updating with the evidence.'
+            );
+        }
+    }
+
+    public function test_every_public_storefront_model_really_is_tenant_discriminated(): void
+    {
+        // Keeps the list honest in the other direction: a model with no `store_id` could never
+        // have been scoped anyway, so listing it here would pad the guard with entries that
+        // cannot fail and hide a real one going missing.
+        foreach (array_keys(self::publicStorefrontModels()) as $class) {
+            $this->assertContains(
+                $class,
+                $this->tenantDiscriminated,
+                $class . ' is listed as public storefront content but its table has no `store_id` '
+                . 'column, so it belongs in the platform-global category instead.'
+            );
+        }
+    }
+
+    /**
+     * MENU: THE ONE ENFORCED MODEL THAT IS ALSO PUBLIC STOREFRONT CONTENT.
+     *
+     * Enforcing it was only safe because the storefront read was given an explicit escape. That
+     * escape is the single thing standing between this configuration and a blank navigation bar on
+     * every store, so its continued existence is asserted rather than trusted.
+     */
+    public function test_the_enforced_menu_model_still_has_its_storefront_escape_hatch(): void
+    {
+        $this->assertTrue(
+            StoreScope::isAllowlisted(\App\Models\Menu::class),
+            'Menu is expected to be enforced; if that changed, this test and the exception '
+            . 'recorded in publicStorefrontModels() both need revisiting.'
+        );
+
+        $helper = (string) file_get_contents(base_path('app/Helper/helper.php'));
+
+        $this->assertStringContainsString(
+            'Menu::withoutGlobalScope(\App\Scopes\StoreScope::class)',
+            $helper,
+            'The storefront menu read in app/Helper/helper.php no longer bypasses the tenant '
+            . 'scope. Menu IS enforced, and the storefront resolves its store by SLUG with no '
+            . 'web-guard principal -- but a signed-in merchant browsing another store DOES have '
+            . 'one, and without this escape that store\'s navigation renders empty. This is the '
+            . 'defect that has already shipped once.'
+        );
+    }
+
+    // -------------------------------------------------------------------------------------
     //  GATE F -- the six money tables with no migration
     // -------------------------------------------------------------------------------------
 
