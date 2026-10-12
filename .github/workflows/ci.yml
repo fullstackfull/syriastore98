@@ -98,6 +98,65 @@ jobs:
         # not to make the board green.
         run: composer validate --strict --no-check-publish
 
+      - name: composer audit (locked set, no install)
+        # Queries the advisory database against composer.lock. It needs NO vendor/ and
+        # no install, which is why it can run in this job at all -- Phase 0 recorded a
+        # caveat that only version-and-name reasoning was possible, and that caveat was
+        # wrong.
+        #
+        # MEASURED on the lock at this commit (Agent 5, Phase 1B, reproduced from
+        # scratch): 70 advisories across 22 packages -- 3 critical, 22 high, 34 medium,
+        # 10 low, 1 unscored. `composer audit` exits 3 when it finds any, so this step
+        # WOULD FAIL THE BUILD TODAY.
+        #
+        # It is therefore reported, not enforced, until the bump lands. Enforcing it now
+        # would only teach people to ignore a red board, and the fix edits
+        # composer.json/composer.lock, which is an explicit OWNER GATE and out of scope
+        # for Phase 1B.
+        #
+        # Agent 5 proved, by applying the bumps to a THROWAWAY COPY of the lock outside
+        # both repositories, that 65 of the 70 clear with NO composer.json change at all
+        # -- every vulnerable package is transitive and its requirers' constraints
+        # already permit the patched version. Residual 5: four laravel/framework
+        # advisories with no fix on the 11.x line (fixed only in 12.60+/13.x, so a major
+        # upgrade) and one low firebase/php-jwt whose 7.0.0 fix is blocked by
+        # laravel/socialite v5.16.0 requiring ^6.4.
+        #
+        # FLIP THIS TO ENFORCING (drop continue-on-error, and prefer
+        # `--abandoned=ignore` over widening the audit) as soon as the owner approves the
+        # bump. Leaving it advisory forever is how 70 advisories became 70 advisories.
+        continue-on-error: true
+        run: composer audit --locked
+
+      - name: composer audit must not grow
+        # The ratchet that makes the advisory step above worth having. The count is
+        # allowed to fall and never to rise, so a NEW vulnerable dependency fails the
+        # build even while the known 70 are still being negotiated.
+        env:
+          AUDIT_CEILING: '70'
+        run: |
+          set -o pipefail
+          composer audit --locked --format=plain > audit.txt 2>&1 || true
+          found=$(sed -n 's/^Found \([0-9]\{1,\}\) security vulnerability advisor.*/\1/p' audit.txt | head -1)
+          if [ -z "$found" ]; then
+            if grep -qi 'no security vulnerability advisories' audit.txt; then
+              found=0
+            else
+              echo "::error::Could not parse the advisory count from composer audit."
+              cat audit.txt
+              exit 1
+            fi
+          fi
+          echo "advisories found: $found (ceiling $AUDIT_CEILING)"
+          if [ "$found" -gt "$AUDIT_CEILING" ]; then
+            echo "::error::Advisory count rose from $AUDIT_CEILING to $found. A new vulnerable dependency entered the lock."
+            cat audit.txt
+            exit 1
+          fi
+          if [ "$found" -lt "$AUDIT_CEILING" ]; then
+            echo "::notice::Advisory count fell to $found. Lower AUDIT_CEILING to $found so the ratchet keeps holding."
+          fi
+
       - name: Guard - test-database isolation is intact
         # THE SINGLE MOST VALUABLE STEP IN THIS FILE (8.2). RefreshDatabase runs
         # migrate:fresh, which DROPS EVERY TABLE in whatever database the suite points
@@ -268,6 +327,31 @@ jobs:
         # storage/ is gitignored, so a fresh clone cannot boot the framework without
         # this. It is also a standing reminder that a fresh clone is not runnable.
         run: mkdir -p storage/framework/{cache/data,sessions,views,testing} storage/logs bootstrap/cache
+
+      - name: Clear the committed-and-stale bootstrap cache
+        # bootstrap/cache/packages.php and services.php are COMMITTED (`git ls-files
+        # bootstrap/cache/` lists both) and they are STALE: they name providers from a
+        # vendor tree that no longer resolves, so the framework fatals on boot with
+        # "Class Lahirulhr\PayHere\PayHereServiceProvider not found" before a single
+        # test runs. They are regenerable artifacts, not source, so deleting them here
+        # is safe and non-destructive; `package:discover` rebuilds them on demand.
+        #
+        # This is one of three environment traps that silently break the suite. Do not
+        # remove this step without first checking whether those two files are still
+        # tracked -- if they are, the Feature job dies here with no useful output.
+        run: rm -f bootstrap/cache/packages.php bootstrap/cache/services.php
+
+      - name: Satisfy the installer sentinel
+        # app/Http/Controllers/HomeController.php has a bare exit() in its CONSTRUCTOR
+        # when storage/installed is absent. Under PHPUnit that KILLS THE PROCESS with no
+        # output, no failure count and no junit file -- the run simply stops after the
+        # Unit suite and looks like a hang. storage/ is gitignored, so the sentinel is
+        # never in a fresh clone.
+        #
+        # The real fix is to replace that exit() with a redirect or an abort(), which
+        # lives in a file this agent does not own; see cross_agent_dependencies. Until
+        # then the sentinel is created so the suite can run at all.
+        run: touch storage/installed
 
       - name: Install dependencies
         # --no-scripts is load-bearing: post-autoload-dump runs `artisan

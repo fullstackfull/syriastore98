@@ -8,6 +8,31 @@ use Tests\Support\Fixtures\TenantFixtures;
 use Tests\TestCase;
 
 /**
+ * SUPERSEDED -- DO NOT EXTEND THIS. See the note below before using it.
+ *
+ * Agent 5 measured this on the consolidated tree (p1b/integration + agent2-db +
+ * agent1-auth + agent3-commerce): this class and Tests\Support\Fixtures\TenantFixtures
+ * are referenced by NOTHING except each other -- 675 dead lines. Agent 1 wrote a second
+ * abstract SecurityTestCase, in a different namespace, at
+ * tests/Feature/Security/SecurityTestCase.php, and all 13 of the security suites that
+ * actually exist extend THAT one. It carries the same helper vocabulary
+ * (makePlatformAdmin, makeMerchant, makeStore, makeTenant, makeOrder, makeRole,
+ * grantPermission, requireTable), so the two are duplicates, not complements.
+ *
+ * Two same-named base classes is the "parallel system" the phase brief forbids, and the
+ * live risk is concrete: a new suite that extends this one gets different fixtures from
+ * its 13 siblings and diverges silently.
+ *
+ * This file is kept rather than deleted ONLY because agent1-auth is not merged and still
+ * carries open blockers. If agent1-auth merges, DELETE this file and
+ * tests/Support/Fixtures/TenantFixtures.php. If agent1-auth is rejected, this becomes
+ * the live base class again and this notice should be removed.
+ *
+ * What was checked, so the next reader does not have to: Agent 1's version extends
+ * Tests\TestCase, so tests/bootstrap.php (Layer 0) and the TestDatabaseGuard assertion in
+ * Tests\TestCase::setUp() are both still in its chain. The duplication costs clarity, not
+ * isolation -- the sqlite :memory: guarantee is NOT bypassed.
+ *
  * Shared base class for the P0 security regression suites.
  *
  * It gives agents 1-3 one vocabulary for the three questions every one of those findings
