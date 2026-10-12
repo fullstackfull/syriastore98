@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\InstallAddonRequest;
+
 use App\Models\Utility;
 use App\Models\Store;
 use App\Models\Addon;
@@ -45,30 +47,55 @@ class AddonController extends Controller
      */
     public function destroy($id)
     {
-        $theme = Addon::where('theme_id', $id)->first();
+        // SEC-F5. No authorization at all, and $id was interpolated straight
+        // into a recursive directory delete, so a traversal id removed arbitrary
+        // directories. index() at :21 is already 'super admin'-only; the
+        // destructive method was not.
+        $this->authorize('manage-platform-addons');
+
+        $safeId = InstallAddonRequest::safeDirectoryName((string) $id);
+
+        if ($safeId === '') {
+            return redirect()->back()->with('error', __('Invalid theme identifier.'));
+        }
+
+        $theme = Addon::where('theme_id', $id)->firstOrFail();
         $theme->delete();
-        File::deleteDirectory('themes/' . $id);
+
+        File::deleteDirectory(base_path('themes/' . $safeId));
+
         return redirect()->back()->with('success', __('Theme Deleted Successfully!'));
     }
 
-    public function ThemeInstall(Request $request)
+    public function ThemeInstall(InstallAddonRequest $request)
     {
+        // SEC-F5. This method extracted an attacker-supplied archive into the
+        // running application with NO authorization. The authorize() call is
+        // repeated here deliberately rather than relying on the route group
+        // alone -- relying on grouping alone is exactly what failed in SEC-F2.
+        $this->authorize('manage-platform-addons');
+
+        $uploadedPath = $request->file('file')->getRealPath();
+
+        if ($reason = InstallAddonRequest::archiveRejectionReason($uploadedPath)) {
+            return redirect()->back()->with('error', $reason);
+        }
 
         $zip = new ZipArchive;
         try {
-            $res = $zip->open($request->file);
+            $res = $zip->open($uploadedPath);
         } catch (\Exception $e) {
             return Utility::error(['message' => $e->getMessage()]);
         }
         if ($res === TRUE)
         {
-            $zip->extractTo('themes/');
+            $zip->extractTo(base_path('themes/'));
             // Get the file name without extension
             $filenameWithExt = $request->file('file')->getClientOriginalName();
             $filename = pathinfo($filenameWithExt, PATHINFO_FILENAME);
 
             // Define the target directory
-            $extractPath = 'themes/' . $filename;
+            $extractPath = base_path('themes/' . InstallAddonRequest::safeDirectoryName($filename));
 
             // Ensure the directory exists (create it if it doesn't)
             if (!is_dir($extractPath)) {
@@ -86,7 +113,7 @@ class AddonController extends Controller
             }
 
             // After extracting to the temporary directory
-            $tempPath = 'themes/tmp_' . uniqid();
+            $tempPath = base_path('themes/tmp_' . uniqid());
             if (function_exists('chmod')) {
                 @chmod($tempPath, 0777); // Set permissions if possible
             }
@@ -132,6 +159,10 @@ class AddonController extends Controller
 
     public function ThemeEnable(Request $request)
     {
+        // SEC-F5. Activating a theme changes the code the application renders,
+        // so it is a platform-operator action like install and delete.
+        $this->authorize('manage-platform-addons');
+
         $theme = Addon::where('theme_id', $request->name)->first();
         if (!empty($theme)) {
             if ($theme->status == '0') {

@@ -820,10 +820,17 @@ Route::get(
     Route::put('user-password-update', [UserController::class, 'password_update'])->name('user.password.update');
     Route::get('user-list', [UserController::class, 'list'])->name('user.list');
 
-    Route::resource('addon', AddonController::class);
-    Route::get('addon-apps', [AddonController::class, 'AddonApps'])->name('addon.apps');
-    Route::post('theme-addon', [AddonController::class, 'ThemeInstall'])->name('addon.theme');
-    Route::post('theme-enable', [AddonController::class, 'ThemeEnable'])->name('theme.enable');
+    // SEC-F5. Theme install/delete/enable unpack or activate code inside the
+    // running application, so they are platform-operator actions. The Gate is
+    // defined in AuthServiceProvider::boot(). Each controller method ALSO calls
+    // $this->authorize() itself, so the control does not rest on this grouping
+    // alone -- relying on grouping alone is what failed in SEC-F2.
+    Route::middleware('can:manage-platform-addons')->group(function () {
+        Route::resource('addon', AddonController::class);
+        Route::get('addon-apps', [AddonController::class, 'AddonApps'])->name('addon.apps');
+        Route::post('theme-addon', [AddonController::class, 'ThemeInstall'])->name('addon.theme');
+        Route::post('theme-enable', [AddonController::class, 'ThemeEnable'])->name('theme.enable');
+    });
 
     // Report
     Route::resource('reports', ReportController::class);
@@ -948,7 +955,10 @@ Route::get(
     Route::post('modules-enable', [ModuleController::class, 'enable'])->name('module.enable');
     Route::post('remove-modules/{module}', [ModuleController::class, 'remove'])->name('module.remove');
     Route::get('modules/add', [ModuleController::class, 'add'])->name('module.add');
-    Route::post('install-modules', [ModuleController::class, 'install'])->name('module.install');
+    // SEC-F5. install() extracts an uploaded archive into packages/workdo.
+    Route::post('install-modules', [ModuleController::class, 'install'])
+        ->middleware('can:manage-platform-addons')
+        ->name('module.install');
 
     // Product Brand
     Route::resource('product-brand', ProductBrandController::class);

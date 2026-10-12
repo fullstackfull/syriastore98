@@ -1,6 +1,8 @@
 <?php
 
 namespace App\Http\Controllers;
+
+use App\Http\Requests\UpdateOrderPaymentStatusRequest;
     use Illuminate\Support\Facades\DB;
 
 use Illuminate\Http\Request;
@@ -553,11 +555,21 @@ public function store(Request $request)
         }
     }
 
-    public function order_payment_status(Request $request)
+    public function order_payment_status(UpdateOrderPaymentStatusRequest $request)
     {
-        $order = Order::find($request->order_id);
-        $order->payment_status = $request->payment_status;
+        // NEW-order-payment-status / SEC-F7. Was: Order::find(), assign, save --
+        // no authentication, no permission, no tenant scope, no validation. The
+        // route also sat outside the `auth` group, so this was an ANONYMOUS
+        // arbitrary payment_status write on any order in any store.
+        //
+        // findOrFail so a bad id is a 404 rather than a null dereference 500.
+        $order = Order::findOrFail($request->input('order_id'));
+
+        $this->authorize('updatePaymentStatus', $order);
+
+        $order->payment_status = $request->input('payment_status');
         $order->save();
+
         $return['status'] = 'success';
         $return['message'] = __('Payment status has been changed.');
         return response()->json($return);
@@ -625,21 +637,36 @@ public function store(Request $request)
 
     public function destroy(Order $order)
     {
+        // SEC-F7. The 'Delete Order' permission was checked but ownership was
+        // not, so the implicitly bound id was the only authorization token and
+        // any holder deleted any store's order.
+        $this->authorize('delete', $order);
 
-        if (auth()->user() && auth()->user()->isAbleTo('Delete Order')) {
+        // The cascade was four unrelated statements; a failure part-way left
+        // orphaned detail rows behind.
+        \DB::transaction(function () use ($order) {
             OrderTaxDetail::where('order_id', $order->id)->delete();
             OrderCouponDetail::where('order_id', $order->id)->delete();
             OrderBillingDetail::where('order_id', $order->id)->delete();
             Order::where('id', $order->id)->delete();
-            return redirect()->back()->with('success', __('Order Delete succefully.'));
-        } else {
-            return redirect()->back()->with('error', __('Permission denied.'));
-        }
+        });
+
+        return redirect()->back()->with('success', __('Order Delete succefully.'));
     }
 
     public function updateStatus(Request $request, $id)
     {
-        $order = Order::find($id);
+        // SEC-F7. No permission check and no tenant scope, and Order::find()
+        // returned null for a bad id which the next line dereferenced into a
+        // 500 (NEW-unauthenticated-500s).
+        //
+        // OrderPolicy::updateStatus carries an explicit delivery-boy limb so an
+        // assigned delivery boy can STILL mark their own order delivered -- the
+        // positive case this fix would otherwise break.
+        $order = Order::findOrFail($id);
+
+        $this->authorize('updateStatus', $order);
+
         if ($order->delivered_status == 0) {
             $order->delivered_status = 1;
             $order->delivery_date = Carbon::now();
@@ -679,7 +706,15 @@ public function store(Request $request)
             'delivery_boy' => 'required|integer|exists:delivery_boys,id',
         ]);
 
-        $order = Order::find($request->order_id);
+        // SEC-F7. The validate() above is INPUT validation, not authorization --
+        // the clearest instance of that confusion in the codebase. Without the
+        // authorize() below, any authenticated user reassigned any store's order
+        // and, via the DeliveryEarning delete three lines down, destroyed
+        // another store's financial records.
+        $order = Order::findOrFail($request->order_id);
+
+        $this->authorize('assign', $order);
+
         $deliveryBoy = \App\Models\DeliveryBoy::find($request->delivery_boy);
 
         if ($order->deliveryboy_id != $request->delivery_boy) {

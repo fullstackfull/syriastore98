@@ -28,7 +28,9 @@ class RolePolicy
      * because the application compares against these literals to decide
      * platform-operator status.
      */
-    public const RESERVED_NAMES = ['super admin', 'superadmin'];
+    public const RESERVED_NAMES = [
+        'super admin', 'superadmin', 'Super Admin', 'SuperAdmin', 'SUPER ADMIN',
+    ];
 
     protected function isPlatformAdmin(?User $actor): bool
     {

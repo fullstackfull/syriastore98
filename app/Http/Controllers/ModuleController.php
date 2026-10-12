@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\InstallAddonRequest;
+
 use Illuminate\Http\Request;
 use App\Facades\ModuleFacade as Module;
 use Illuminate\Support\Facades\Artisan;
@@ -208,14 +210,42 @@ class ModuleController extends Controller
         }
     }
 
-    public function install(Request $request)
+    public function install(InstallAddonRequest $request)
     {
+        // SEC-F5. install() checked NOTHING while every other method in this
+        // controller is gated (:24 'Manage Module', :127 'Module remove', :300
+        // 'Module Add') -- a correct permission already existed and was simply
+        // not applied to the method that unpacks an attacker archive into the
+        // application. Repeated here rather than trusting the route group alone.
+        $this->authorize('manage-platform-addons');
+
         $zip = new ZipArchive;
-        $fileName = $request->file('file')->getClientOriginalName();
-        $fileName = str_replace('.zip', '', $fileName);
+
+        // Was getClientOriginalName() with str_replace('.zip','',...) -- not a
+        // suffix match -- interpolated into 'packages/workdo/' . $fileName with
+        // no basename(), so a client filename of '../../public/x.zip' escaped
+        // the install directory.
+        $fileName = InstallAddonRequest::safeDirectoryName(
+            $request->file('file')->getClientOriginalName()
+        );
         $return = [];
+
+        if ($fileName === '') {
+            $return['status'] = 'error';
+            $return['message'] = __('The uploaded file name is not a valid module name.');
+            return response()->json($return);
+        }
+
+        $uploadedPath = $request->file('file')->getRealPath();
+
+        if ($reason = InstallAddonRequest::archiveRejectionReason($uploadedPath)) {
+            $return['status'] = 'error';
+            $return['message'] = $reason;
+            return response()->json($return);
+        }
+
         try {
-            $res = $zip->open($request->file);
+            $res = $zip->open($uploadedPath);
         } catch (\Exception $e) {
             $return['status'] = 'error';
             $return['message'] = $e->getMessage();
@@ -223,7 +253,7 @@ class ModuleController extends Controller
         }
         if ($res === TRUE) {
             // Create temporary directory
-            $tempPath = 'packages/workdo/tmp_' . uniqid();
+            $tempPath = base_path('packages/workdo/tmp_' . uniqid());
             if (!is_dir($tempPath)) {
                 mkdir($tempPath, 0777, true);
             }
@@ -248,7 +278,7 @@ class ModuleController extends Controller
                 $sourcePath = $tempPath;
             }
             // Define final target directory
-            $extractPath = 'packages/workdo/' . $fileName;
+            $extractPath = base_path('packages/workdo/' . $fileName);
             
             // Remove existing directory if it exists
             if (is_dir($extractPath)) {
