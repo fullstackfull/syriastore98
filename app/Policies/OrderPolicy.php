@@ -65,27 +65,39 @@ class OrderPolicy
      */
     public function updatePaymentStatus(User $actor, Order $order): bool
     {
-        return $this->allow($actor, $order, 'Edit Order');
+        return $this->allow($actor, $order, 'Manage Order');
     }
 
     /**
-     * SEC-F7. The delivery-boy limb is MANDATORY and is the positive case this
-     * fix would otherwise break: a delivery boy must still be able to update
-     * the status of an order assigned to them. Without it the whole delivery
-     * flow stops.
+     * SEC-F7.
+     *
+     * A delivery-boy limb was proposed here, comparing $order->deliveryboy_id to
+     * $actor->id so an assigned delivery boy could still update a status. It is
+     * deliberately NOT present, for two independent reasons:
+     *
+     *   1. It cannot fire. This method's actor is type-hinted User, i.e. the `web`
+     *      guard. Delivery boys authenticate on the separate `deliveryboy` guard
+     *      (config/auth.php:47) against the separate delivery_boys table
+     *      (2023_12_26_112245_create_delivery_boys_table.php), so a delivery boy is
+     *      never the actor on this route (routes/web.php:1011, inside the auth group).
+     *   2. It is a cross-tenant bypass. deliveryboy_id is a delivery_boys.id and
+     *      $actor->id is a users.id — two unrelated sequences that both start at 1,
+     *      so collisions are the norm, not the exception. Any merchant whose users.id
+     *      happens to equal an order's deliveryboy_id would have been able to change
+     *      that order's status in ANY store, skipping both the store check and the
+     *      permission check.
+     *
+     * The delivery-boy flow is served by its own guard and its own endpoints; if it
+     * ever needs a policy, it needs one written against the DeliveryBoy model.
      */
     public function updateStatus(User $actor, Order $order): bool
     {
-        if (!empty($order->deliveryboy_id) && (int) $order->deliveryboy_id === (int) $actor->id) {
-            return true;
-        }
-
-        return $this->allow($actor, $order, 'Edit Order');
+        return $this->allow($actor, $order, 'Manage Order');
     }
 
     public function assign(User $actor, Order $order): bool
     {
-        return $this->allow($actor, $order, 'Edit Order');
+        return $this->allow($actor, $order, 'Manage Order');
     }
 
     public function delete(User $actor, Order $order): bool
