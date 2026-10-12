@@ -623,44 +623,79 @@ and `config()` is unavailable. The two layers therefore check different things a
 neither replaces the other; the asymmetry is that **only Layer 0 is guaranteed to run before any
 DDL**, under any framework ordering.
 
-PROPOSED NEW FILE — NOT CREATED. `/home/user/syriastore98/tests/bootstrap.php`, referenced by the
-`bootstrap="tests/bootstrap.php"` change in §1.1:
+**IMPLEMENTED** (Increment 1, commit recorded in the completion report).
+`/home/user/syriastore98/tests/bootstrap.php`, installed by the
+`bootstrap="tests/bootstrap.php"` change in §1.1.
+
+**Design change made during implementation, and why.** The body first specified here read
+`DB_CONNECTION`/`DB_DATABASE` from the environment only. Implementation exposed an unverified
+assumption behind that: **it is not established whether PHPUnit 11 applies `phpunit.xml`'s
+`<env force="true">` entries before or after it loads the bootstrap file.** It could not be
+established in the authoring environment either — `vendor/phpunit/phpunit` is an **empty directory**
+there (0 files; the dependency install had aborted), so the ordering could not be read from source.
+That matters in a concrete way: if `<env>` is applied *after* the bootstrap, an environment-only
+guard sees nothing, fails closed, and **the suite never runs at all** even when correctly
+configured — a self-inflicted outage of the very suite this increment exists to unblock.
+
+The implemented guard therefore accepts **two configuration sources** and is correct under either
+ordering:
+
+- **Source A — the environment already carries the values.** They are asserted strictly through the
+  shared `TestDatabaseGuard::assertSqliteInMemory()`; a non-sqlite or non-`:memory:` value is fatal.
+- **Source B — the environment carries nothing.** `phpunit.xml` is read directly and must itself
+  force **both** `DB_CONNECTION=sqlite` and `DB_DATABASE=:memory:` with `force="true"`. If it does
+  not, the run is refused.
+
+Either way the suite proceeds **only** when the configuration provably pins an in-memory SQLite
+database, and a MySQL-pointed run remains impossible. Do not collapse this back to a single source
+without first establishing the PHPUnit ordering — the ordering, not the guard, is the open question.
+
+Verified by execution (results in the Increment 1 completion report): Source A halts on `mysql` and
+on a persistent sqlite file and permits `sqlite`/`:memory:`; Source B permits the run while
+`phpunit.xml` forces both overrides and **refuses** when either override is returned to the
+commented-out state that was the original defect.
 
 ```php
 <?php
 
 /**
  * PHPUnit bootstrap -- LAYER 0, THE PRIMARY TEST-ISOLATION CONTROL.
- * Runs once, before any test class is loaded and before the Laravel application
- * exists -- so this checks the ENVIRONMENT, not config(), and it is the only guard
- * guaranteed to run before RefreshDatabase can issue migrate:fresh.
- * Layer 3 (tests/TestCase.php) is DEFENCE IN DEPTH ONLY: its setUp() assertion runs
- * after setUpTraits(), and it cannot cover a test that extends
- * PHPUnit\Framework\TestCase directly -- tests/Unit/ExampleTest.php already does.
- * Do not remove this file, and do not change phpunit.xml's bootstrap= away from it.
- * See docs/development/phase-1/05-REGRESSION-TEST-PLAN.md §1.3 and §1.4.
+ * Runs before any test class is loaded and before the Laravel application exists.
+ * Full rationale and the two-source design are in the prose above.
  */
 
 require __DIR__ . '/../vendor/autoload.php';
 
+use Tests\Support\TestDatabaseGuard;
+
+// $fail(): writes the STDERR banner and exit(1). A bootstrap must fail the RUN rather
+// than raise an uncaught exception, so the shared assertion's throw is converted here.
+
 $connection = $_ENV['DB_CONNECTION'] ?? $_SERVER['DB_CONNECTION'] ?? getenv('DB_CONNECTION') ?: null;
 $database   = $_ENV['DB_DATABASE']   ?? $_SERVER['DB_DATABASE']   ?? getenv('DB_DATABASE')   ?: null;
 
-if ($connection !== 'sqlite' || $database !== ':memory:') {
-    fwrite(STDERR, PHP_EOL . str_repeat('=', 78) . PHP_EOL);
-    fwrite(STDERR, 'ABORTING TEST RUN BEFORE ANY TEST LOADED.' . PHP_EOL);
-    fwrite(STDERR, sprintf(
-        "DB_CONNECTION=%s  DB_DATABASE=%s  (required: sqlite / :memory:)" . PHP_EOL,
-        var_export($connection, true),
-        var_export($database, true)
-    ));
-    fwrite(STDERR, 'RefreshDatabase runs migrate:fresh, which DROPS EVERY TABLE in the' . PHP_EOL);
-    fwrite(STDERR, 'target database. phpunit.xml:25-26 must set both overrides with' . PHP_EOL);
-    fwrite(STDERR, 'force="true". See docs/development/phase-1/05-REGRESSION-TEST-PLAN.md.' . PHP_EOL);
-    fwrite(STDERR, str_repeat('=', 78) . PHP_EOL . PHP_EOL);
-    exit(1);
+if ($connection !== null || $database !== null) {
+    // Source A: assert the environment strictly.
+    try {
+        TestDatabaseGuard::assertSqliteInMemory($connection, $database);
+    } catch (RuntimeException $e) {
+        $fail($e->getMessage(), $connection, $database);
+    }
+} else {
+    // Source B: phpunit.xml must force both overrides itself, or refuse to run.
+    $xml = (string) file_get_contents(__DIR__ . '/../phpunit.xml');
+    $forcesConnection = (bool) preg_match('/<env\s+name="DB_CONNECTION"\s+value="sqlite"[^>]*force="true"/', $xml);
+    $forcesDatabase   = (bool) preg_match('/<env\s+name="DB_DATABASE"\s+value=":memory:"[^>]*force="true"/', $xml);
+
+    if (!$forcesConnection || !$forcesDatabase) {
+        $fail('no DB_* in the environment and phpunit.xml does not force both.', $connection, $database);
+    }
 }
 ```
+
+The file as committed carries the full `$fail()` closure and the complete docblock; the listing above
+elides only the banner text. Read the committed file for the authoritative version.
+
 
 Reading order note for the implementer: PHPUnit applies its `<env>` entries before the bootstrap
 file runs, so the `force="true"` values from §1.1 are already present in `$_ENV` when this executes.

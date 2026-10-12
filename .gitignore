@@ -1,5 +1,42 @@
 /public/uploads/
-/storage/app/public/
 /vendor/
-/storage/logs/*.log
-/storage/
+/node_modules/
+
+# Keep the storage/ directory TREE in version control (.gitkeep placeholders) while
+# ignoring its CONTENTS. Previously the blanket `/storage/` rule meant a fresh clone
+# had no storage/ at all, so the application could not boot from source.
+/storage/*
+!/storage/app/
+/storage/app/*
+!/storage/app/public/
+/storage/app/public/*
+!/storage/framework/
+/storage/framework/*
+!/storage/framework/cache/
+/storage/framework/cache/*
+!/storage/framework/cache/data/
+/storage/framework/cache/data/*
+!/storage/framework/sessions/
+/storage/framework/sessions/*
+!/storage/framework/testing/
+/storage/framework/testing/*
+!/storage/framework/views/
+/storage/framework/views/*
+!/storage/logs/
+/storage/logs/*
+!.gitkeep
+/public/storage
+
+# Secrets must never be committed again. .env is already in history (commit 3c39c160)
+# and its credentials must be treated as compromised and rotated; this rule only stops
+# it recurring. .env.testing is tracked ON PURPOSE: it holds no secret and it is what
+# stops the suite falling back to .env.
+.env
+.env.*
+!.env.example
+!.env.testing
+
+# Artefacts that should never have been committed.
+/error_log
+composer.phar
+.DS_Store
