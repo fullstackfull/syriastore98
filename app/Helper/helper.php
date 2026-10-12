@@ -142,7 +142,25 @@ if (!function_exists('get_file')) {
     {
         $admin = User::where('type', 'super admin')->first();
 
-        $settings = Setting::where('store_id', $admin->current_store)->pluck('value', 'name')->toArray();
+        // NULL GUARD -- NEW-get-file-500-on-missing-super-admin.
+        //
+        // This read was `$admin->current_store` with no guard, so `get_file()` raised
+        // "Attempt to read property \"current_store\" on null" and turned every page that
+        // calls it into a 500 on any database that has no `type = 'super admin'` row. That is
+        // not a test artefact: `users.type` is a plain string column, so a deployment whose
+        // super admin was renamed, soft-deleted or never seeded hits it, and `get_file()` is
+        // called from the shared layout partials, so the whole panel goes down at once.
+        // Measured: 7 of the 13 Feature failures on p1b/integration @ 17cb2f91 were this one
+        // line (AuthenticationTest, EmailVerificationTest, PasswordConfirmationTest,
+        // PasswordResetTest x2, RegistrationTest, ProfileTest).
+        //
+        // An absent super admin means no remote-storage settings can be resolved, and the
+        // correct fallback for that is local storage -- which is exactly what the `else` limb
+        // below already does for an empty `$settings`. So the guard yields `[]` rather than
+        // inventing a store id. When a super admin DOES exist the behaviour is byte-identical.
+        $settings = $admin
+            ? Setting::where('store_id', $admin->current_store)->pluck('value', 'name')->toArray()
+            : [];
 
         if (empty($path)) {
             return $path;
@@ -203,6 +221,18 @@ if (!function_exists('isEnabled')) {
     function isEnabled($enableSetting)
     {
         $admin = User::find($enableSetting->created_by);
+
+        // NULL GUARD -- NEW-is-enabled-500-on-orphaned-setting, the sibling of the defect in
+        // get_file() above and found while fixing it. `User::find()` returns null for a
+        // setting whose creator was deleted, and the `$admin->current_store` read then 500s
+        // the domain/subdomain resolution for every request on that host.
+        //
+        // FAILS CLOSED on purpose: a custom domain whose owning user no longer exists cannot
+        // be confirmed enabled, so the answer is "not enabled" rather than an exception. The
+        // return value is unchanged in every case where `$admin` is non-null.
+        if (! $admin) {
+            return false;
+        }
 
         return $enableSetting->value == 'on' && $enableSetting->store_id == $admin->current_store;
     }
