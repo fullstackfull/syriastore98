@@ -53,6 +53,20 @@ class OrderWriteTransactionTest extends TestCase
         return [
             'controller (payment-return writer)' => [PaymentController::class, 'getProductStatus'],
             'service (cod / bank_transfer writer)' => [PaymentService::class, 'getProductStatus'],
+
+            /*
+             * THE THIRD WRITER, added in the stabilization phase. It was the one
+             * left without a boundary while the two above got theirs, although
+             * it writes the Order row plus the same four child tables
+             * (OrderBillingDetail, OrderCouponDetail, UserCoupon,
+             * OrderTaxDetail) the same way, each saved on its own, plus
+             * auto-created City rows.
+             *
+             * It has no gateway call of its own -- whatsapp() composes a wa.me
+             * URL rather than POSTing to anyone -- so there was never a reason
+             * for it to be the exception.
+             */
+            'controller (whatsapp writer)' => [PaymentController::class, 'whatsapp'],
         ];
     }
 

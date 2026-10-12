@@ -77,10 +77,16 @@ class ProductStockService
      *                                      low-stock and out-of-stock checks
      *                                      read the real figure.
      * @param  mixed $qty
+     * @param  bool  $requireAvailability See {@see decrementVariantStock()}; the
+     *                                    manual-admin writer needs it.
      * @return array{applied: bool, reason: string, quantity: int, remaining: ?int}
      */
-    public function decrementProductStock($product, $qty, bool $allowOversell = false): array
-    {
+    public function decrementProductStock(
+        $product,
+        $qty,
+        bool $allowOversell = false,
+        bool $requireAvailability = false
+    ): array {
         $quantity = $this->normaliseQuantity($qty);
 
         if ($product === null || empty($product->id) || $quantity === null) {
@@ -94,7 +100,7 @@ class ProductStockService
         // guard there restores the exact pre-existing unguarded decrement rather
         // than abandoning an order whose money is already taken. The atomic
         // conditional UPDATE is still the only write; only its predicate changes.
-        if ($this->mustNotOversell($product) && !$allowOversell) {
+        if (($this->mustNotOversell($product) || $requireAvailability) && !$allowOversell) {
             $query->where('product_stock', '>=', $quantity);
         }
 
@@ -137,10 +143,32 @@ class ProductStockService
      * @param  \App\Models\ProductVariant $variant A loaded variant. Its
      *                                             in-memory `stock` is refreshed.
      * @param  mixed $qty
+     * @param  bool  $requireAvailability Apply the `>=` predicate even when the
+     *        row permits a backorder.
+     *
+     *        WHY THIS EXISTS, and why it is not the default. The two storefront
+     *        writers must honour `stock_order_status` because a backorder is a
+     *        merchant-facing feature there. OrderController::store() is
+     *        different: it is the MANUAL merchant-admin writer, and its original
+     *        code refused the line whenever `stock < qty` with no reference to
+     *        `stock_order_status` at all (`if ($variant->stock < $qty) throw`).
+     *        Making the service the only guard there would therefore have
+     *        LOOSENED that writer -- a manual order for a backorder-enabled
+     *        product would newly be accepted -- which is a behaviour change, not
+     *        a fix. This flag lets that writer keep its own stricter rule while
+     *        still getting the atomic conditional UPDATE.
+     *
+     *        It defaults to false, so every pre-existing call site
+     *        (PaymentController:118-119/155-156, PaymentService:126-127/163-164)
+     *        is unchanged.
      * @return array{applied: bool, reason: string, quantity: int, remaining: ?int}
      */
-    public function decrementVariantStock($variant, $qty, bool $allowOversell = false): array
-    {
+    public function decrementVariantStock(
+        $variant,
+        $qty,
+        bool $allowOversell = false,
+        bool $requireAvailability = false
+    ): array {
         $quantity = $this->normaliseQuantity($qty);
 
         if ($variant === null || empty($variant->id) || $quantity === null) {
@@ -154,7 +182,7 @@ class ProductStockService
         // guard there restores the exact pre-existing unguarded decrement rather
         // than abandoning an order whose money is already taken. The atomic
         // conditional UPDATE is still the only write; only its predicate changes.
-        if ($this->mustNotOversell($variant) && !$allowOversell) {
+        if (($this->mustNotOversell($variant) || $requireAvailability) && !$allowOversell) {
             $query->where('stock', '>=', $quantity);
         }
 

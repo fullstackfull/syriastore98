@@ -41,6 +41,29 @@ use Illuminate\Support\Facades\Cache;
 
 class OrderController extends Controller
 {
+    /**
+     * Atomic stock decrement, replacing the read-modify-write in store().
+     *
+     * Lazily resolved, and a property rather than a constructor argument so that
+     * the existing `new OrderController()` call sites and the container both
+     * keep working without a signature change -- the same shape
+     * PaymentController already uses for this service
+     * (PaymentController.php:63-64, :89-92).
+     */
+    private ?\App\Services\ProductStockService $stockService = null;
+
+    private function stockService(): \App\Services\ProductStockService
+    {
+        return $this->stockService ??= new \App\Services\ProductStockService();
+    }
+
+    /** Derives an order's payment_status, and owns the COD state machine. */
+    private ?\App\Services\PaymentVerificationService $paymentVerifier = null;
+
+    private function paymentVerifier(): \App\Services\PaymentVerificationService
+    {
+        return $this->paymentVerifier ??= new \App\Services\PaymentVerificationService();
+    }
 
 public function store(Request $request)
 {
@@ -80,8 +103,50 @@ public function store(Request $request)
         $currentCurrencyCode = \App\Models\Utility::GetValueByName('defult_currancy', $storeId) ?? 'USD';
         $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_symbol', $storeId) ?? '$';
 
+        /*
+         * TENANT OWNERSHIP ON THE PRODUCT AND THE VARIANT.
+         *
+         * THE DEFECT. This loop was `Product::find($item['product_id'])` and
+         * `ProductVariant::find($item['variant_id'])` with no store predicate at
+         * all, while `product_id` and `variant_id` come straight off the posted
+         * form (validated only by `exists:products,id`, which is global). So an
+         * authenticated merchant of store A could put store B's product id in
+         * the request and this writer would: read B's row, DECREMENT B's stock,
+         * copy B's name and price into A's order, and write the order under A's
+         * store_id. That is a cross-tenant inventory write and a cross-tenant
+         * catalogue read from one ordinary admin form post.
+         *
+         * WHY NOTHING ELSE COVERS IT. The previous phase deferred this to the
+         * tenant scope, and the tenant scope does not cover it. Two independent
+         * reasons, both read off the files rather than assumed:
+         *
+         *   1. config/tenancy.php:104-150 `scoped_models` lists exactly SIX
+         *      classes -- Menu, SupportTicket, SupportConversion,
+         *      FlashSaleCondition, ThemeCustomizeOrder, NotifyUser. Product and
+         *      ProductVariant are not among them. config/tenancy.php:46 names
+         *      Product explicitly as DEFERRED.
+         *   2. app/Scopes/StoreScope.php:155 `public static bool $enabled =
+         *      false` -- the all-models flip -- is off, and
+         *      StoreScope::isActive() (:324-340) reads
+         *      `config('tenancy.store_scope_enabled')`, a key config/tenancy.php
+         *      does not define, so the static false governs.
+         *
+         * So the predicate below is the only thing standing between this form
+         * and another store's inventory. If Product ever does become scoped the
+         * predicate is simply redundant, not harmful. It is proven by
+         * tests/Feature/Commerce/OrderStoreOwnershipTest.php, which asserts the
+         * cross-tenant line is refused AND that the foreign row's stock is
+         * untouched.
+         *
+         * $storeId is the one from getCurrentStore() at the top of this method,
+         * i.e. the same value the order row is written with -- so a product is
+         * accepted exactly when it belongs to the store the order is created in.
+         */
         foreach ($request->products as $item) {
-            $product = \App\Models\Product::find($item['product_id']);
+            $product = \App\Models\Product::where('id', $item['product_id'])
+                ->where('store_id', $storeId)
+                ->first();
+
             if (!$product) {
                 throw new \Exception("المنتج غير موجود: ID {$item['product_id']}");
             }
@@ -91,17 +156,60 @@ public function store(Request $request)
             $totalProductPrice += $lineTotal;
 
             if (!empty($item['variant_id']) && $item['variant_id'] > 0) {
-                $variant = \App\Models\ProductVariant::find($item['variant_id']);
+                /*
+                 * The variant must belong to BOTH this store and this product.
+                 *
+                 * `product_id` is the second predicate and it is not decoration:
+                 * without it a posted `variant_id` from a DIFFERENT product in
+                 * the same store was accepted, and the decrement below then took
+                 * stock off that other product's variant while the order line
+                 * recorded this product's name and price. A wrong-row inventory
+                 * write inside one store, reachable from the same form.
+                 */
+                $variant = \App\Models\ProductVariant::where('id', $item['variant_id'])
+                    ->where('product_id', $product->id)
+                    ->where('store_id', $storeId)
+                    ->first();
+
                 if (!$variant) {
                     throw new \Exception("الخيار/المتغير غير موجود: ID {$item['variant_id']}");
                 }
 
-                if ($variant->stock < $qty) {
+                /*
+                 * ATOMIC. This was
+                 *
+                 *     if ($variant->stock < $qty) { throw ... }
+                 *     $variant->stock -= $qty;
+                 *     $variant->save();
+                 *
+                 * -- a check-then-act read-modify-write, i.e. the lost update
+                 * App\Services\ProductStockService exists to remove: two
+                 * concurrent writers both read the same stock, both pass the
+                 * `<` test and both write `stock - qty`, so the second
+                 * overwrites the first and the shop oversells by exactly the
+                 * quantity it processed concurrently.
+                 *
+                 * `requireAvailability: true` keeps THIS writer's stricter rule:
+                 * the original refused on `stock < qty` without consulting
+                 * `stock_order_status`, so the service is asked to apply the
+                 * `>=` predicate unconditionally. Behaviour is preserved and
+                 * only the race is removed.
+                 *
+                 * The decrement runs inside the DB::beginTransaction() opened
+                 * above, so DB::rollBack() in the catch gives the stock back;
+                 * no separate compensation is needed here, unlike the storefront
+                 * writers whose stock loop sits outside their boundary.
+                 */
+                $variantDecrement = $this->stockService()->decrementVariantStock(
+                    $variant,
+                    $qty,
+                    false,
+                    true
+                );
+
+                if (!$variantDecrement['applied']) {
                     throw new \Exception("المخزون غير كافٍ للمتغير: {$variant->name}. المتاح: {$variant->stock}، المطلوب: {$qty}");
                 }
-
-                $variant->stock -= $qty;
-                $variant->save();
 
                 $productJson[] = [
                     'product_id' => $item['product_id'],
@@ -116,12 +224,22 @@ public function store(Request $request)
                     'return' => false,
                 ];
             } else {
-                if ($product->product_stock < $qty) {
+                /*
+                 * ATOMIC, for the same reason as the variant branch above. This
+                 * was `$product->product_stock -= $qty; $product->save();`
+                 * behind a check-then-act `<` test. `requireAvailability: true`
+                 * preserves this writer's unconditional refusal.
+                 */
+                $productDecrement = $this->stockService()->decrementProductStock(
+                    $product,
+                    $qty,
+                    false,
+                    true
+                );
+
+                if (!$productDecrement['applied']) {
                     throw new \Exception("المخزون غير كافٍ للمنتج: {$product->name}. المتاح: {$product->product_stock}، المطلوب: {$qty}");
                 }
-
-                $product->product_stock -= $qty;
-                $product->save();
 
                 $productJson[] = [
                     'product_id' => $item['product_id'],
@@ -250,12 +368,36 @@ public function store(Request $request)
             'store_id' => $storeId,
         ]);
 
+        /*
+         * THE NOTE BODY WAS BEING SILENTLY DISCARDED.
+         *
+         * This create() passed `changeble_status` and `note`. Neither is a
+         * column: `order_notes` has `notes` and `note_type`
+         * (database/migrations/2024_01_26_100237_create_order_notes_table.php),
+         * and no migration anywhere adds `changeble_status` or `note` --
+         * `grep -rn changeble_status database/` returns nothing. Neither key is
+         * in OrderNote::$fillable (app/Models/OrderNote.php:13-21) either, so
+         * mass assignment dropped both WITHOUT error and the row was written
+         * with a status and no text at all. Every manually created order got a
+         * blank note.
+         *
+         * `changeble_status` is not invented by the caller -- it is a legitimate
+         * INPUT key of OrderNote::order_note_data(), which reads it and composes
+         * `notes` from it (app/Models/OrderNote.php:44). That helper is the
+         * correct entry point and OrderController.php:723 uses it properly. This
+         * site bypassed it and spoke to create() directly, where those keys mean
+         * nothing.
+         *
+         * Fixed by writing the columns that exist. The note text is preserved
+         * verbatim, so nothing a merchant reads changes except that it now
+         * actually appears. No model and no migration is touched.
+         */
         \App\Models\OrderNote::create([
             'customer_id' => $request->customer_id,
             'order_id' => $order->id,
             'status' => 'Order created',
-            'changeble_status' => 'created',
-            'note' => 'Order created manually by admin',
+            'note_type' => 'created',
+            'notes' => 'Order created manually by admin',
             'store_id' => $storeId,
         ]);
 
@@ -592,6 +734,60 @@ public function store(Request $request)
         $responce = Order::order_status_change($data);
         $order = Order::order_detail($data['order_id']);
         $d_order = Order::find($data['order_id']);
+
+        /*
+         * COD SETTLES HERE -- the other half of the cash-on-delivery state
+         * machine. See App\Services\PaymentVerificationService
+         * COD_SETTLEMENT_ON_DELIVERY for the full argument.
+         *
+         * THE DEFECT. PaymentService::process() routes 'cod' straight to
+         * getProductStatus() (:315) and the order writer recorded it 'Paid'
+         * immediately, so a cash-on-delivery order counted as paid before the
+         * courier had collected anything. An order placed and never delivered
+         * stayed Paid forever, and a CANCELLATION then had to UNDO a payment
+         * that never happened -- which is literally what
+         * Order::order_status_change() does, writing payment_status = 'Unpaid'
+         * on cancel (app/Models/Order.php:550) with a comment calling it the
+         * missing line needed to refund the amount. There is nothing to refund.
+         * An Observer reacts to that write by adjusting the wallet, so the
+         * premature Paid reaches the financial records and is then walked back.
+         *
+         * THE MISSING HALF. Nothing ever moved a COD order from unpaid to paid
+         * on delivery, because nothing had to: it was born Paid. With the
+         * correct machine the transition has to exist, and this is the one place
+         * a merchant declares an order delivered.
+         *
+         * INERT BY DEFAULT. codShouldSettleOnDelivery() returns false unless the
+         * owner has opted in to `services.cod.settlement = 'delivery'`, so for
+         * every existing deployment this block does nothing at all and COD
+         * behaviour is byte-for-byte what it was. That is deliberate: when an
+         * order counts as paid decides when a wallet is credited, which is the
+         * owner's business decision and not a fix to impose.
+         *
+         * IDEMPOTENT. The guard requires the order not to be Paid already, so a
+         * replayed 'delivered' status change settles once, not twice.
+         *
+         * The save is kept narrow -- only payment_status -- and the same
+         * OrderPaymentStatus event the model's own transitions fire is fired
+         * here too, so the wallet and notification listeners see this change the
+         * way they see every other payment-status change rather than being
+         * bypassed.
+         */
+        if (($responce['status'] ?? null) === 'success'
+            && strtolower(trim((string) $data['order_status'])) === 'delivered'
+            && $this->paymentVerifier()->codShouldSettleOnDelivery($d_order)
+        ) {
+            $d_order->payment_status = \App\Services\PaymentVerificationService::STATUS_PAID;
+            $d_order->save();
+
+            event(new \App\Events\OrderPaymentStatus($d_order));
+
+            \Log::info('COD order settled on delivery', [
+                'order_id' => $d_order->id,
+                'store_id' => $d_order->store_id,
+                'payment_type' => $d_order->payment_type,
+            ]);
+        }
         $store = getStoreById($d_order->store_id);
         $dArr = [
             'order_id' => $data['order_id'],

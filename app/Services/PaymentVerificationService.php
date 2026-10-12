@@ -65,17 +65,64 @@ class PaymentVerificationService
      * Payment types that are settled off-platform, by arrangement, and for which
      * "not verified by a gateway" is the normal case rather than a failure.
      *
-     * Their recorded status is NOT changed here. Cash on delivery is currently
-     * written as 'Paid' at order time, which is arguably wrong — the cash has
-     * not been collected yet — but changing it would move when a merchant's
-     * wallet is credited, which is a business decision and not a security fix.
-     * Reported as an owner action rather than altered.
+     * Their recorded status is not derived from a gateway, because no gateway
+     * ever confirms one of these. Cash on delivery is handled by its OWN state
+     * machine below -- see COD_SETTLEMENT_* and codSettlementPolicy() -- because
+     * for COD the question is not "did a gateway confirm a capture" but "has the
+     * courier collected the cash yet".
      */
     public const OFFLINE_PAYMENT_TYPES = [
         'cod',
         'bank_transfer',
         'whatsapp',
     ];
+
+    /**
+     * The payment_type values that mean cash on delivery.
+     *
+     * Three spellings, read off the platform's own code rather than invented:
+     * PaymentService::process() dispatches on 'cod' (:315), and
+     * PaymentService::codCashCollectionAmount() (:3017) already tests
+     * `['cod', 'cash_on_delivery', 'cash']`.
+     */
+    public const COD_PAYMENT_TYPES = ['cod', 'cash_on_delivery', 'cash'];
+
+    /**
+     * COD settles AT ORDER TIME: the order is recorded Paid the moment it is
+     * placed, before the courier has collected anything.
+     *
+     * This is the pre-existing behaviour and it stays the DEFAULT, because when
+     * an order counts as paid decides when a merchant's wallet is credited and
+     * which orders appear in a revenue report. That is a business change for the
+     * owner to choose, not a defect fix to impose.
+     */
+    public const COD_SETTLEMENT_AT_ORDER = 'order';
+
+    /**
+     * COD settles ON DELIVERY: the order is recorded Pending when placed and
+     * becomes Paid when a merchant marks it delivered.
+     *
+     * THIS IS THE CORRECT STATE MACHINE, and the argument is simply that it is
+     * true -- for a cash-on-delivery order no money has moved at checkout.
+     *
+     * The evidence that settle-at-order is wrong is in the platform's own code:
+     * Order::order_status_change() writes `payment_status = 'Unpaid'` when an
+     * order is CANCELLED (app/Models/Order.php:550), with the comment calling it
+     * the missing magic line needed "to refund the amount". There is nothing to
+     * refund on a COD order that was never delivered. That reversal exists only
+     * to undo a Paid state the order should never have been given, and an
+     * Observer reacts to it by adjusting the wallet -- so the premature Paid
+     * propagates into the financial records and then has to be walked back.
+     *
+     * Under this policy the lifecycle is:
+     *
+     *   placed     -> payment_status = Pending, delivered_status = 0
+     *   delivered  -> payment_status = Paid     (OrderController::order_status_change)
+     *   cancelled  -> payment_status stays unpaid; there is nothing to reverse
+     *
+     * Opt in with `services.cod.settlement = 'delivery'`.
+     */
+    public const COD_SETTLEMENT_ON_DELIVERY = 'delivery';
 
     /**
      * Record that a payment has been positively verified, for one order write.
@@ -129,9 +176,29 @@ class PaymentVerificationService
     ): string {
         $type = strtolower(trim((string) $paymentType));
 
+        if ($this->isCashOnDelivery($type)) {
+            /*
+             * COD has its own state machine. See COD_SETTLEMENT_ON_DELIVERY for
+             * why settling on delivery is the correct one, and why settling at
+             * order time nonetheless remains the default.
+             */
+            if ($this->codSettlementPolicy() === self::COD_SETTLEMENT_ON_DELIVERY) {
+                Log::info('COD order recorded as pending collection', [
+                    'site' => $site,
+                    'payment_type' => $type,
+                    'expected_total' => (string) $expectedTotal,
+                    'note' => 'Becomes Paid when the order is marked delivered.',
+                ]);
+
+                return self::STATUS_PENDING;
+            }
+
+            return self::STATUS_PAID;
+        }
+
         if (in_array($type, self::OFFLINE_PAYMENT_TYPES, true)) {
-            // Settled off-platform. Behaviour preserved exactly; see the class
-            // comment and the COD owner action.
+            // Settled off-platform by arrangement; no gateway ever confirms one
+            // of these. Behaviour preserved exactly.
             return self::STATUS_PAID;
         }
 
@@ -409,5 +476,79 @@ class PaymentVerificationService
     public function paymeraSignatureIsRequired(): bool
     {
         return (bool) config('services.paymera.require_callback_signature', true);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Cash on delivery
+    |--------------------------------------------------------------------------
+    */
+
+    /** Is this payment type cash on delivery, in any of its spellings? */
+    public function isCashOnDelivery(?string $paymentType): bool
+    {
+        return in_array(
+            strtolower(trim((string) $paymentType)),
+            self::COD_PAYMENT_TYPES,
+            true
+        );
+    }
+
+    /**
+     * When a COD order is considered paid.
+     *
+     * Defaults to COD_SETTLEMENT_AT_ORDER, i.e. the pre-existing behaviour, so
+     * no merchant's revenue reporting or wallet crediting moves without the
+     * owner choosing it. An UNRECOGNISED value also falls back to the default
+     * rather than failing closed: a typo in a config file must not stop a shop
+     * taking orders. It is logged so the typo is findable.
+     */
+    public function codSettlementPolicy(): string
+    {
+        $policy = strtolower(trim(
+            (string) config('services.cod.settlement', self::COD_SETTLEMENT_AT_ORDER)
+        ));
+
+        if ($policy === self::COD_SETTLEMENT_ON_DELIVERY) {
+            return self::COD_SETTLEMENT_ON_DELIVERY;
+        }
+
+        if ($policy !== self::COD_SETTLEMENT_AT_ORDER && $policy !== '') {
+            Log::warning('Unrecognised COD settlement policy; falling back to settle-at-order', [
+                'configured' => $policy,
+                'config_key' => 'services.cod.settlement',
+                'recognised' => [self::COD_SETTLEMENT_AT_ORDER, self::COD_SETTLEMENT_ON_DELIVERY],
+            ]);
+        }
+
+        return self::COD_SETTLEMENT_AT_ORDER;
+    }
+
+    /**
+     * Should this order be settled now that it has been marked delivered?
+     *
+     * The caller is OrderController::order_status_change(), which is the one
+     * place a merchant declares an order delivered. Returns false unless ALL of:
+     *
+     *   - the settle-on-delivery policy is in force, so the default behaviour is
+     *     untouched and this method is inert until the owner opts in;
+     *   - the order really is cash on delivery;
+     *   - it is not ALREADY Paid, which makes a replayed status change a no-op
+     *     rather than a second settlement.
+     *
+     * @param \App\Models\Order $order
+     */
+    public function codShouldSettleOnDelivery($order): bool
+    {
+        if ($this->codSettlementPolicy() !== self::COD_SETTLEMENT_ON_DELIVERY) {
+            return false;
+        }
+
+        if ($order === null || !$this->isCashOnDelivery($order->payment_type ?? null)) {
+            return false;
+        }
+
+        return strtolower(trim((string) ($order->payment_status ?? '')))
+            !== strtolower(self::STATUS_PAID);
     }
 }

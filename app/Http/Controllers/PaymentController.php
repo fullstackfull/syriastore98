@@ -448,21 +448,66 @@ public const PAYMERA_STATUS_UNAUTHENTICATED = '__paymera_status_unauthenticated'
 /**
  * The bearer credential for Paymera's status API, or null when there isn't one.
  *
- * NEW-paymera-poll-unauthenticated. `config('services.paymera.username')` was
- * read directly into an Authorization header, and there is NO `paymera` block
- * anywhere under `config/` — `grep -rn paymera config/` returns nothing. So the
- * header that went out was the literal string "Bearer " with an empty
- * credential, and every status poll was unauthenticated.
+ * THE CONFIGURATION-SOURCE DEFECT, now corrected.
  *
- * That matters because the response of that call is the ONLY thing deciding
- * whether the order is created: whatever an unauthenticated endpoint chose to
- * return was treated as Paymera's authoritative word on whether money moved.
+ * This read `config('services.paymera.username')` and nothing else. That key
+ * has never existed in any deployment -- it dates to the initial commit
+ * (3c39c160) -- so the credential was always null, the poll always abandoned,
+ * and PAYMERA CHECKOUT COULD NEVER COMPLETE. Not "was broken recently": could
+ * not complete, ever.
  *
- * Never logs or returns the credential's value — only whether one is present.
+ * Meanwhile the credential the merchant actually fills in is a PER-STORE
+ * SETTING, not an env var:
+ *
+ *     Utility::GetValueByName('PAYMERA_USERNAME', $store->id)
+ *
+ * which is what PaymentService::processPaymera() already uses to authorise the
+ * CREATE-payment call (PaymentService.php:340, :428), what the settings screen
+ * writes (PaymentSettingController.php:177-178 lists PAYMERA_TERMINAL_ID and
+ * PAYMERA_USERNAME as Paymera's required_fields) and what Setting.php:1059-1074
+ * reads back per store. A single global env var cannot express a per-store
+ * credential on a shared-database multi-tenant platform, so the env key was
+ * never going to be right.
+ *
+ * So the SOURCE is corrected: the per-store setting first, the global config key
+ * only as a fallback for a single-tenant deployment that had set it. No
+ * credential value is invented, written or printed here, and no live credential
+ * is changed -- this reads the value the merchant already saved.
+ *
+ * WHY THIS CANNOT BY ITSELF CAUSE A PAID ORDER, which is the question a reviewer
+ * should ask of any change to a payment path. The callback verifies in this
+ * order: poll (here), then verifyPaymeraPayment() -- amount AND signature.
+ * `services.paymera.require_callback_signature` defaults TRUE and the signature
+ * scheme is unconfigured (GATE G(4)), so verifyPaymeraSignature() returns
+ * UNVERIFIABLE and the callback is still REJECTED after this. The net effect of
+ * this change is therefore that the status poll now authenticates instead of
+ * sending an empty bearer token. It does not open checkout.
+ *
+ * NOT VERIFIED, and not claimed to be: nothing here establishes that Paymera
+ * accepts this credential as a bearer token, or that PAYMERA_USERNAME is the
+ * right field for the status API rather than only for the create call. No
+ * Paymera host is reachable from this container. The flag
+ * `services.paymera.status_credential_from_store_setting` exists so the owner
+ * can switch this back to the old global-only lookup without a code change.
+ *
+ * Never logs or returns the credential's value -- only whether one is present.
+ *
+ * @param mixed $storeId The store the payment belongs to. Null falls back to the
+ *                       global key only, which is the pre-existing behaviour.
  */
-private function paymeraStatusCredential(): ?string
+private function paymeraStatusCredential($storeId = null): ?string
 {
-    $credential = config('services.paymera.username');
+    $credential = null;
+
+    if (!empty($storeId) && (bool) config('services.paymera.status_credential_from_store_setting', true)) {
+        $credential = \App\Models\Utility::GetValueByName('PAYMERA_USERNAME', $storeId);
+    }
+
+    if (!is_string($credential) || trim($credential) === '') {
+        // Fallback for a single-tenant deployment that set the env var, and the
+        // only source when no store is in scope.
+        $credential = config('services.paymera.username');
+    }
 
     if (!is_string($credential) || trim($credential) === '') {
         return null;
@@ -479,22 +524,31 @@ private function paymeraStatusCredential(): ?string
  * mistaken for a successful capture. The previous behaviour — send an empty
  * bearer token and trust the reply — is gone.
  *
- * Note for the owner, reported rather than changed because it is a deployment
- * decision: the host below is `egate-t.paymera.cc`, which is Paymera's TEST
- * gateway. It is hardcoded, so there is no way to point production at the live
- * gateway without editing this line.
+ * THE GATEWAY HOST. `egate-t.paymera.cc` is Paymera's TEST gateway and it was
+ * HARDCODED here, so there was no way to point production at the live gateway
+ * without editing this line. It now comes from
+ * `services.paymera.status_base_url`, whose default is that exact host, so
+ * behaviour is unchanged until the owner sets the key. Which host is correct for
+ * production is Paymera's to say and is NOT guessed.
+ *
+ * @param mixed $storeId The store whose per-store credential to use. See
+ *                       paymeraStatusCredential().
  */
-public function pollPaymentStatus($paymentId)
+public function pollPaymentStatus($paymentId, $storeId = null)
 {
-    $credential = $this->paymeraStatusCredential();
+    $credential = $this->paymeraStatusCredential($storeId);
 
     if ($credential === null) {
         \Log::critical('Paymera status poll ABANDONED: no API credential is configured', [
             'payment_id' => $paymentId,
-            'config_key' => 'services.paymera.username',
-            'note' => 'There is no paymera block under config/ at all, so this header '
-                . 'was previously sent as an empty bearer token and the reply to an '
-                . 'unauthenticated request was treated as authoritative.',
+            'store_id' => $storeId,
+            'sources_tried' => [
+                'per-store setting PAYMERA_USERNAME',
+                'config services.paymera.username',
+            ],
+            'note' => 'Neither source holds a credential, so the header would have been '
+                . 'sent as an empty bearer token and the reply to an unauthenticated '
+                . 'request treated as authoritative. No value is logged.',
         ]);
 
         return ['status' => self::PAYMERA_STATUS_UNAUTHENTICATED];
@@ -504,7 +558,12 @@ public function pollPaymentStatus($paymentId)
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $credential,
             'Accept'        => 'application/json',
-        ])->timeout(30)->get('https://egate-t.paymera.cc/api/payment-status/' . $paymentId);
+        ])->timeout(30)->get(
+            rtrim(
+                (string) config('services.paymera.status_base_url', 'https://egate-t.paymera.cc'),
+                '/'
+            ) . '/api/payment-status/' . $paymentId
+        );
     } catch (\Throwable $e) {
         // An unreachable gateway is not a successful payment.
         \Log::error('Paymera status poll failed', [
@@ -556,8 +615,12 @@ public function handlePaymeraCallback(Request $request, string $orderId)
      * استخدم نفس شرط النجاح القديم الذي كان يعمل عندك.
      * لا تغيّر آلية التحقق الآن.
      */
+    // The store is passed so the PER-STORE credential is used. See
+    // paymeraStatusCredential(): the global config key it used to read alone has
+    // never existed in any deployment.
     $statusData = $this->pollPaymentStatus(
-        $pending['payment_id']
+        $pending['payment_id'],
+        $pending['request_data']['store_id'] ?? null
     );
 
     /*
@@ -620,6 +683,28 @@ public function handlePaymeraCallback(Request $request, string $orderId)
     }
 
     try {
+        /*
+         * RE-CHECK UNDER THE LOCK. See freshPaymeraPendingOrNull(): the
+         * pre-lock test above and this use of the record straddled the lock,
+         * so a concurrent trigger that finished first did not stop this one
+         * from creating a second order.
+         */
+        $fresh = $this->freshPaymeraPendingOrNull($orderId);
+
+        if ($fresh === null) {
+            // Already processed, or the record is gone. Either way this request
+            // must not create an order. Answering with the same completion
+            // redirect the pre-lock branch above uses keeps the customer's
+            // experience identical to a replay that lost the race by a wider
+            // margin. (`$pending` here is only read for display values; it is
+            // never used to WRITE anything, which is the whole point.)
+            return redirect()
+                ->route('order.complete', $pending['slug'])
+                ->with('data', $pending['product_order_id'] ?? '');
+        }
+
+        $pending = $fresh;
+
         $requestData = $pending['request_data'] ?? [];
 
         /*
@@ -680,6 +765,68 @@ public function handlePaymeraCallback(Request $request, string $orderId)
     } finally {
         $lock->release();
     }
+}
+
+
+/**
+ * Re-read the pending-payment record now that the lock is held.
+ *
+ * THE DEFECT THIS CLOSES: a replayed callback created a SECOND ORDER.
+ *
+ * Both routed Paymera entry points tested `$pending['processed']` BEFORE taking
+ * the lock, and then, inside the lock, went on using the `$pending` array they
+ * had read before it. So the check and the use straddled the lock instead of
+ * both being inside it:
+ *
+ *   gateway trigger            browser callback
+ *   ---------------            ----------------
+ *   read pending (processed=false)
+ *                              read pending (processed=false)
+ *   check passes
+ *                              check passes
+ *   acquire lock
+ *   create order
+ *   processed = true
+ *   release lock
+ *                              acquire lock   <-- succeeds, nothing stops it
+ *                              create order   <-- SECOND ORDER, second stock
+ *                                                 decrement, second wallet
+ *                                                 credit
+ *
+ * A gateway retrying its callback is normal, not exceptional, and the two entry
+ * points are a browser return and a server-to-server poke for the SAME payment,
+ * so they race by design rather than by accident. The pre-lock check is a
+ * cheap-path optimisation and is kept; this is the authoritative one, and it
+ * returns the record to actually use so a caller cannot keep the stale copy by
+ * mistake.
+ *
+ * Returns null when the payment has already been processed, which the caller
+ * must treat as "done, do not create anything".
+ */
+private function freshPaymeraPendingOrNull(string $orderId): ?array
+{
+    $pending = Cache::get('paymera_pending_' . $orderId);
+
+    if (!is_array($pending)) {
+        // The record expired while we waited for the lock. Creating an order
+        // from a stale copy of it is exactly what must not happen.
+        \Log::warning('Paymera pending record vanished before the order was created', [
+            'paymera_reference' => $orderId,
+        ]);
+
+        return null;
+    }
+
+    if (($pending['processed'] ?? false) === true) {
+        \Log::info('Paymera callback replay ignored: this payment already produced an order', [
+            'paymera_reference' => $orderId,
+            'order_id' => $pending['order_id'] ?? null,
+        ]);
+
+        return null;
+    }
+
+    return $pending;
 }
 
 
@@ -826,7 +973,10 @@ public function handlePaymeraTrigger($orderId)
         ]);
     }
 
-    $statusData = $this->pollPaymentStatus($pending['payment_id']);
+    $statusData = $this->pollPaymentStatus(
+        $pending['payment_id'],
+        $pending['request_data']['store_id'] ?? null
+    );
 
     if (($statusData['status'] ?? null) == 'A') {
         // Same verification as the browser callback, same single copy, before
@@ -845,6 +995,25 @@ public function handlePaymeraTrigger($orderId)
 
         if ($lock->get()) {
             try {
+                /*
+                 * RE-CHECK UNDER THE LOCK -- see freshPaymeraPendingOrNull().
+                 * The pre-lock test at the top of this method and this use of
+                 * the record straddled the lock, so a browser callback that
+                 * finished first did not stop this trigger creating a second
+                 * order for the same payment.
+                 */
+                $fresh = $this->freshPaymeraPendingOrNull($orderId);
+
+                if ($fresh === null) {
+                    return response()->json([
+                        'status' => 'A',
+                        'ok' => true,
+                        'product_order_id' => $pending['product_order_id'] ?? null,
+                    ]);
+                }
+
+                $pending = $fresh;
+
                 $pending['status'] = 'A';
                 Cache::put('paymera_pending_' . $orderId, $pending, now()->addHours(2));
 
@@ -1878,6 +2047,10 @@ public function handlePaymeraTrigger00($orderId)
         // therefore never written. Without this, a rejected checkout would
         // silently consume the inventory of the products it got through first.
         $appliedStockChanges = [];
+
+        // Cart lines to empty once the order has COMMITTED -- see the
+        // accumulation site inside the loop below.
+        $cartLinesToClear = [];
         if (!empty($products)) {
             foreach ($products as $key => $product) {
                 $prodduct_id_array[] = $product->product_id;
@@ -2036,8 +2209,41 @@ public function handlePaymeraTrigger00($orderId)
                         return $this->error(['message' => 'Please fill proper product json field .']);
                     }
                 }
-                // remove from cart
-                Cart::where('customer_id', $request->customer_id)->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id', $store->id)->delete();
+                /*
+                 * CART ROWS ARE NO LONGER DESTROYED BY A FAILED CHECKOUT.
+                 *
+                 * THE DEFECT. This was a `Cart::...->delete()` executed HERE,
+                 * per line, inside the stock loop -- while `new Order()` does
+                 * not happen until after the loop. So a failure part-way through
+                 * (a product that cannot be found, a stock shortfall, a thrown
+                 * exception) had already deleted the lines processed so far, and
+                 * left the rest. The shopper got no order AND a half-empty cart,
+                 * with no way to recover what was in it: nothing restored those
+                 * rows, and the loop's own `return $this->error(...)` paths skip
+                 * any cleanup.
+                 *
+                 * THE FIX is to defer rather than to compensate. The line's
+                 * identity is remembered and the delete happens AFTER the order
+                 * has committed, so the cart is emptied only once there is an
+                 * order to show for it. Deferring is strictly better than
+                 * restoring: nothing has to reconstruct cart state that this
+                 * method no longer holds.
+                 *
+                 * FAILURE DIRECTION, stated because it is a deliberate choice:
+                 * if the deferred delete itself fails, the order exists and the
+                 * cart still holds its rows -- the shopper may re-see items they
+                 * have bought. That is a visible, recoverable annoyance. The
+                 * previous direction -- cart gone, no order -- destroyed data.
+                 *
+                 * The predicate is unchanged, including `store_id`, so no row
+                 * outside the shopper's own cart in this store is touched.
+                 */
+                $cartLinesToClear[] = [
+                    'customer_id' => $request->customer_id,
+                    'product_id' => $product_id,
+                    'variant_id' => $variant_id,
+                    'store_id' => $store->id,
+                ];
             }
         }
         if (isset($request->customer_id) && !empty($request->customer_id)) {
@@ -2390,6 +2596,12 @@ public function handlePaymeraTrigger00($orderId)
             }
 
             \Illuminate\Support\Facades\DB::commit();
+
+            // The order exists now, so the cart may be emptied. Inside the
+            // try but after the commit: a cart row that will not delete must
+            // not roll back an order whose money has already moved, which is
+            // why clearCartLines() swallows and logs per line.
+            $this->clearCartLines($cartLinesToClear);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\DB::rollBack();
 
@@ -2972,6 +3184,10 @@ $result = app(\App\Services\StoreNotificationService::class)
         // therefore never written. Without this, a rejected checkout would
         // silently consume the inventory of the products it got through first.
         $appliedStockChanges = [];
+
+        // Cart lines to empty once the order has COMMITTED -- see the
+        // accumulation site inside the loop below.
+        $cartLinesToClear = [];
         if (!empty($products)) {
             foreach ($products as $key => $product) {
                 $prodduct_id_array[] = $product->product_id;
@@ -3130,8 +3346,41 @@ $result = app(\App\Services\StoreNotificationService::class)
                         return $this->error(['message' => 'Please fill proper product json field .']);
                     }
                 }
-                // remove from cart
-                Cart::where('customer_id', $request->customer_id)->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id', $store->id)->delete();
+                /*
+                 * CART ROWS ARE NO LONGER DESTROYED BY A FAILED CHECKOUT.
+                 *
+                 * THE DEFECT. This was a `Cart::...->delete()` executed HERE,
+                 * per line, inside the stock loop -- while `new Order()` does
+                 * not happen until after the loop. So a failure part-way through
+                 * (a product that cannot be found, a stock shortfall, a thrown
+                 * exception) had already deleted the lines processed so far, and
+                 * left the rest. The shopper got no order AND a half-empty cart,
+                 * with no way to recover what was in it: nothing restored those
+                 * rows, and the loop's own `return $this->error(...)` paths skip
+                 * any cleanup.
+                 *
+                 * THE FIX is to defer rather than to compensate. The line's
+                 * identity is remembered and the delete happens AFTER the order
+                 * has committed, so the cart is emptied only once there is an
+                 * order to show for it. Deferring is strictly better than
+                 * restoring: nothing has to reconstruct cart state that this
+                 * method no longer holds.
+                 *
+                 * FAILURE DIRECTION, stated because it is a deliberate choice:
+                 * if the deferred delete itself fails, the order exists and the
+                 * cart still holds its rows -- the shopper may re-see items they
+                 * have bought. That is a visible, recoverable annoyance. The
+                 * previous direction -- cart gone, no order -- destroyed data.
+                 *
+                 * The predicate is unchanged, including `store_id`, so no row
+                 * outside the shopper's own cart in this store is touched.
+                 */
+                $cartLinesToClear[] = [
+                    'customer_id' => $request->customer_id,
+                    'product_id' => $product_id,
+                    'variant_id' => $variant_id,
+                    'store_id' => $store->id,
+                ];
             }
         }
         // Order stock decrease end
@@ -3229,6 +3478,59 @@ $result = app(\App\Services\StoreNotificationService::class)
             $order->final_price,
             __METHOD__
         );
+        /*
+         * TRANSACTION BOUNDARY -- OPENS HERE.
+         *
+         * THE DEFECT. This is the THIRD order writer, and the only one that
+         * still had no transaction: the twins in
+         * PaymentController::getProductStatus() (:2207) and
+         * PaymentService::getProductStatus() (:2614) each got a boundary, this
+         * one did not, although it writes the Order row plus the same FOUR
+         * child tables in the same way -- OrderBillingDetail,
+         * OrderCouponDetail, UserCoupon and OrderTaxDetail, each saved on its
+         * own. A failure part-way left an order with no billing address, or a
+         * coupon marked consumed with no OrderCouponDetail recording what it
+         * was consumed for, or the reverse -- a coupon recorded as applied to
+         * the order but never marked used, so redeemable again. It also
+         * auto-creates City rows (billing and delivery), which were likewise
+         * uncommitted siblings.
+         *
+         * WHAT THIS COVERS. Every LOCAL write from the order row through the
+         * last OrderTaxDetail row. They now commit together or not at all.
+         *
+         * WHAT THIS DOES NOT COVER, stated precisely rather than implied:
+         *
+         *  1. The stock loop and the per-line cart deletion above are OUTSIDE
+         *     it, deliberately. That loop calls Utility::sendEmailTemplate and
+         *     Utility::SendMsgs -- SMTP and SMS -- on its low-stock and
+         *     back-in-stock branches. Holding row locks across a third party's
+         *     response time is a worse defect than the one being fixed, so
+         *     inventory is COMPENSATED in the catch instead of rolled back,
+         *     via the $appliedStockChanges accumulator the loop already keeps.
+         *
+         *  2. The cart rows deleted inside that loop are NOT restored. They go
+         *     before this boundary opens and recreating them would mean
+         *     reconstructing cart state this method no longer holds. A failed
+         *     order therefore still empties the cart. Unchanged, pre-existing
+         *     behaviour, reported rather than hidden.
+         *
+         *  3. NOTHING EXTERNAL IS INSIDE. In particular there is no gateway
+         *     call here at all -- whatsapp() builds a wa.me URL, it does not
+         *     POST to anyone -- so the boundary wraps local writes only, which
+         *     is the rule the other two boundaries follow.
+         *
+         * The exception is RE-THROWN, so the caller sees exactly what it saw
+         * before: this adds atomicity and stock compensation without changing
+         * the happy path or the failure response.
+         *
+         * The body below is NOT re-indented. A 170-line reindent of a 3,500-line
+         * file that five agents are editing concurrently is a merge hazard that
+         * buys nothing: PHP does not read indentation, and the begin/commit
+         * markers delimit the block unambiguously.
+         */
+        \Illuminate\Support\Facades\DB::beginTransaction();
+
+        try {
         $order->save();
         // add in  Order table end
         if (module_is_active('CheckoutAttachment')) {
@@ -3402,6 +3704,32 @@ $result = app(\App\Services\StoreNotificationService::class)
             }
         }
 
+            \Illuminate\Support\Facades\DB::commit();
+
+            // The order exists now, so the cart may be emptied. Inside the
+            // try but after the commit: a cart row that will not delete must
+            // not roll back an order whose money has already moved, which is
+            // why clearCartLines() swallows and logs per line.
+            $this->clearCartLines($cartLinesToClear);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\DB::rollBack();
+
+            // Compensate the inventory this request consumed before the
+            // boundary opened. Without this a failed order write left stock
+            // decremented with no order to account for it.
+            $this->restoreStockDecrements($appliedStockChanges);
+
+            \Log::critical('Order write failed and was rolled back; stock decrements were given back', [
+                'site' => __METHOD__,
+                'store_id' => $store->id ?? null,
+                'payment_type' => $requests_data['payment_type'] ?? null,
+                'restored_lines' => count($appliedStockChanges),
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+
         //activity log
         ActivityLog::order_entry([
             'customer_id' => $order->customer_id,
@@ -3517,6 +3845,35 @@ $result = app(\App\Services\StoreNotificationService::class)
                     'success' => __('Failed'),
                 ]
             );
+        }
+    }
+
+    /**
+     * Empty the cart lines an order was built from, AFTER it has committed.
+     *
+     * See the block at the accumulation site for why this is deferred rather
+     * than compensated. Advisory by design: a cart row that will not delete must
+     * never fail a checkout whose order is already committed and whose money has
+     * already moved, so each line is attempted independently and a failure is
+     * logged rather than thrown.
+     */
+    private function clearCartLines(array $lines): void
+    {
+        foreach ($lines as $line) {
+            try {
+                Cart::where('customer_id', $line['customer_id'])
+                    ->where('product_id', $line['product_id'])
+                    ->where('variant_id', $line['variant_id'])
+                    ->where('store_id', $line['store_id'])
+                    ->delete();
+            } catch (\Throwable $e) {
+                \Log::error('Could not clear a cart line after a committed order', [
+                    'product_id' => $line['product_id'] ?? null,
+                    'variant_id' => $line['variant_id'] ?? null,
+                    'store_id' => $line['store_id'] ?? null,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
     }
 }

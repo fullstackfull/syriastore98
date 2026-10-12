@@ -2303,6 +2303,10 @@ private function processPaymera00000($request, $slug)
         // therefore never written. Without this, a rejected checkout would
         // silently consume the inventory of the products it got through first.
         $appliedStockChanges = [];
+
+        // Cart lines to empty once the order has COMMITTED -- see the
+        // accumulation site inside the loop below.
+        $cartLinesToClear = [];
         if (!empty($products)) {
 
 $products_weight_array = [];
@@ -2473,8 +2477,41 @@ $products_weight_array[] = [
                         return $this->error(['message' => 'Please fill proper product json field .']);
                     }
                 }
-                // remove from cart
-                Cart::where('customer_id', $request->customer_id)->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id', $store->id)->delete();
+                /*
+                 * CART ROWS ARE NO LONGER DESTROYED BY A FAILED CHECKOUT.
+                 *
+                 * THE DEFECT. This was a `Cart::...->delete()` executed HERE,
+                 * per line, inside the stock loop -- while `new Order()` does
+                 * not happen until after the loop. So a failure part-way through
+                 * (a product that cannot be found, a stock shortfall, a thrown
+                 * exception) had already deleted the lines processed so far, and
+                 * left the rest. The shopper got no order AND a half-empty cart,
+                 * with no way to recover what was in it: nothing restored those
+                 * rows, and the loop's own `return $this->error(...)` paths skip
+                 * any cleanup.
+                 *
+                 * THE FIX is to defer rather than to compensate. The line's
+                 * identity is remembered and the delete happens AFTER the order
+                 * has committed, so the cart is emptied only once there is an
+                 * order to show for it. Deferring is strictly better than
+                 * restoring: nothing has to reconstruct cart state that this
+                 * method no longer holds.
+                 *
+                 * FAILURE DIRECTION, stated because it is a deliberate choice:
+                 * if the deferred delete itself fails, the order exists and the
+                 * cart still holds its rows -- the shopper may re-see items they
+                 * have bought. That is a visible, recoverable annoyance. The
+                 * previous direction -- cart gone, no order -- destroyed data.
+                 *
+                 * The predicate is unchanged, including `store_id`, so no row
+                 * outside the shopper's own cart in this store is touched.
+                 */
+                $cartLinesToClear[] = [
+                    'customer_id' => $request->customer_id,
+                    'product_id' => $product_id,
+                    'variant_id' => $variant_id,
+                    'store_id' => $store->id,
+                ];
             }
         }
         // Order stock decrease end
@@ -2794,6 +2831,12 @@ $products_weight_array[] = [
                 }
             }
             \Illuminate\Support\Facades\DB::commit();
+
+            // The order exists now, so the cart may be emptied. Inside the
+            // try but after the commit: a cart row that will not delete must
+            // not roll back an order whose money has already moved, which is
+            // why clearCartLines() swallows and logs per line.
+            $this->clearCartLines($cartLinesToClear);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\DB::rollBack();
 
@@ -4703,4 +4746,33 @@ private function webhook_backup($order, $r, $products_weight = []) {
             return redirect()->route('checkout', $slug)->with('error', __('Something went wrong, Please try again.'));
         }
     } 
+
+    /**
+     * Empty the cart lines an order was built from, AFTER it has committed.
+     *
+     * See the block at the accumulation site for why this is deferred rather
+     * than compensated. Advisory by design: a cart row that will not delete must
+     * never fail a checkout whose order is already committed and whose money has
+     * already moved, so each line is attempted independently and a failure is
+     * logged rather than thrown.
+     */
+    private function clearCartLines(array $lines): void
+    {
+        foreach ($lines as $line) {
+            try {
+                Cart::where('customer_id', $line['customer_id'])
+                    ->where('product_id', $line['product_id'])
+                    ->where('variant_id', $line['variant_id'])
+                    ->where('store_id', $line['store_id'])
+                    ->delete();
+            } catch (\Throwable $e) {
+                \Log::error('Could not clear a cart line after a committed order', [
+                    'product_id' => $line['product_id'] ?? null,
+                    'variant_id' => $line['variant_id'] ?? null,
+                    'store_id' => $line['store_id'] ?? null,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+    }
 }

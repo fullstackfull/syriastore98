@@ -126,6 +126,39 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Cash on delivery
+    |--------------------------------------------------------------------------
+    |
+    | WHEN A COD ORDER COUNTS AS PAID.
+    |
+    |   'order'    -- recorded Paid the moment the order is placed. THE DEFAULT,
+    |                 and the pre-existing behaviour, byte for byte.
+    |   'delivery' -- recorded Pending when placed, Paid when a merchant marks it
+    |                 delivered. The CORRECT machine: for cash on delivery no
+    |                 money has moved at checkout.
+    |
+    | THE DEFAULT IS DELIBERATELY THE OLD BEHAVIOUR, not the correct one. When an
+    | order counts as paid decides when a merchant's wallet is credited and which
+    | orders appear in a revenue report, so flipping it is a business change the
+    | owner has to choose -- not a defect fix to impose on a live shop. Set
+    | COD_SETTLEMENT=delivery to opt in. Read by
+    | App\Services\PaymentVerificationService::codSettlementPolicy(); an
+    | unrecognised value falls back to 'order' and is logged, because a typo here
+    | must not stop a shop taking orders.
+    |
+    | PER-STORE WOULD BE BETTER and is NOT done here. This is one global switch,
+    | whereas on a shared-database multi-tenant platform each merchant may run
+    | COD differently. Making it per store needs a field on the payment-settings
+    | screen (PaymentSettingController plus its view), which this agent does not
+    | own; recorded as a cross-agent dependency.
+    |
+    */
+    'cod' => [
+        'settlement' => env('COD_SETTLEMENT', 'order'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Paymera
     |--------------------------------------------------------------------------
     |
@@ -226,13 +259,53 @@ return [
         'require_callback_signature' => env('PAYMERA_REQUIRE_CALLBACK_SIGNATURE', true),
 
         /*
-        | Reported, NOT changed: the status-poll host is hardcoded to
-        | `egate-t.paymera.cc` at PaymentController::pollPaymentStatus(), and
-        | `egate-t` is Paymera's TEST gateway. There is no way to point
-        | production at the live gateway without editing that line. Declaring a
-        | key for it here would not help, because nothing reads one; making the
-        | code read it is a deployment decision for the owner.
+        | THE STATUS-POLL HOST, now configurable instead of hardcoded.
+        |
+        | pollPaymentStatus() had `https://egate-t.paymera.cc` written into the
+        | call, and `egate-t` is Paymera's TEST gateway -- so there was no way to
+        | point production at the live gateway without editing code. The default
+        | below is that exact host, byte for byte, so nothing changes until the
+        | owner sets PAYMERA_STATUS_BASE_URL. WHICH host is correct for
+        | production is Paymera's to say and is not guessed here.
         */
+        'status_base_url' => env('PAYMERA_STATUS_BASE_URL', 'https://egate-t.paymera.cc'),
+
+        /*
+        | WHERE THE STATUS CREDENTIAL IS READ FROM. Defaults to TRUE, which is
+        | the CORRECTED behaviour: the per-store Setting PAYMERA_USERNAME first,
+        | this file's global `username` key only as a fallback.
+        |
+        | THE DEFECT THIS FIXES. paymeraStatusCredential() read ONLY
+        | config('services.paymera.username'), a key that has never existed in
+        | any deployment and dates to the initial commit (3c39c160). So the
+        | credential was always null, the poll always abandoned, and Paymera
+        | checkout could never complete -- not recently broken, never able to
+        | complete. Meanwhile the value the merchant actually fills in is the
+        | per-store setting, which is what processPaymera() already uses for the
+        | CREATE-payment call (PaymentService.php:340, :428) and what the
+        | settings screen writes (PaymentSettingController.php:177-178). On a
+        | shared-database multi-tenant platform a single global env var cannot
+        | express a per-store credential, so the env key was never going to be
+        | right.
+        |
+        | SET THIS TO FALSE to restore the global-only lookup without a code
+        | change.
+        |
+        | THIS CANNOT BY ITSELF CAUSE A PAID ORDER. The callback polls first and
+        | then verifies the amount AND the signature; require_callback_signature
+        | above defaults TRUE and the scheme is unconfigured (GATE G(4)), so the
+        | callback is still rejected after the poll. The net effect is that the
+        | poll authenticates instead of sending an empty bearer token.
+        |
+        | NOT VERIFIED: that Paymera accepts this value as a bearer token on the
+        | status API, or that PAYMERA_USERNAME is the right field for that API
+        | rather than only for the create call. No Paymera host is reachable from
+        | this container and none was contacted.
+        */
+        'status_credential_from_store_setting' => env(
+            'PAYMERA_STATUS_CREDENTIAL_FROM_STORE_SETTING',
+            true
+        ),
 
     ],
 

@@ -450,6 +450,34 @@ class OrderRefundController extends Controller
         ]);
     }
 
+    /**
+     * Marker note_type written when a refund's stock has been given back.
+     *
+     * WHY A NOTE IS THE MARKER, and what the real fix is.
+     *
+     * Replaying this endpoint added stock again, every time: there was nothing
+     * recording that a restock had happened. `order_refunds` has no column for
+     * it -- see
+     * database/migrations/2024_02_07_071800_create_order_refunds_table.php,
+     * which has id, order_id, refund_status, refund_reason,
+     * custom_refund_reason, attachments, product_refund_id,
+     * product_refund_price, refund_amount, store_id, timestamps -- and adding
+     * one means a migration, which belongs to another agent in this phase. So
+     * the marker is an `order_notes` row, which is durable, uses only columns
+     * that exist and are in OrderNote::$fillable, and has the side benefit of
+     * being visible to the merchant on the order.
+     *
+     * The state can't carry the marker instead: RESTOCKABLE_STATES is
+     * ['Accept', 'Refunded'] and 'Accept' must stay reachable by RefundAmonut(),
+     * so moving the status on restock would break the payout step.
+     *
+     * LIMITATION, stated rather than implied: a merchant who deletes that note
+     * row could restock a second time. The durable fix is a dedicated column and
+     * is recorded as a cross-agent dependency. This closes the replay; it does
+     * not make the record tamper-proof.
+     */
+    public const STOCK_RESTORED_NOTE_TYPE = 'refund_stock_restored';
+
     public function RefundStock(Request $request)
     {
         if (!$this->canManageRefunds()) {
@@ -476,101 +504,290 @@ class OrderRefundController extends Controller
 
         $storeId = getCurrentStore();
 
+        /*
+         * The order is needed for TWO reasons, and it is resolved inside the
+         * caller's tenant like everything else here.
+         *
+         *  1. Its `product_json` is where the variant id lives -- see
+         *     resolveVariantIdsFromOrder() below.
+         *  2. The idempotency marker is an order note, so it needs an order.
+         */
+        $order = Order::where('id', $order_refund->order_id)
+            ->where('store_id', $storeId)
+            ->first();
+
+        if (!$order) {
+            return $this->refundDenied('The order this refund belongs to was not found.', 404);
+        }
+
         $product_refund_id_array = json_decode($order_refund->product_refund_id, true);
 
         if (!is_array($product_refund_id_array)) {
             return $this->refundDenied('Refund request has no refundable products.', 422);
         }
 
-        foreach ($product_refund_id_array as $product_refund) {
-            $product_id = $product_refund['product_refund_id'] ?? null;
-            $quantity = $product_refund['quantity'] ?? null;
+        /*
+         * IDEMPOTENCY, in two layers, because replaying this added stock again
+         * EVERY time and that is an unbounded inventory inflation from one
+         * authenticated POST held down.
+         *
+         *  - The LOCK stops two concurrent requests both passing the
+         *    already-restored check. Without it the check is a classic
+         *    check-then-act.
+         *  - The NOTE (written inside the transaction below) stops a sequential
+         *    replay, durably. See STOCK_RESTORED_NOTE_TYPE.
+         */
+        $lock = \Illuminate\Support\Facades\Cache::lock(
+            'refund_restock_' . $order_refund->id,
+            10
+        );
 
-            if ($product_id === null || $quantity === null) {
-                continue;
+        if (!$lock->get()) {
+            return $this->refundDenied('This refund request is already being restocked.', 409);
+        }
+
+        try {
+            if ($this->stockAlreadyRestored($order_refund, $order)) {
+                return $this->refundDenied(
+                    'Stock for this refund request has already been restored.',
+                    422
+                );
             }
 
-            // A refund quantity is read out of a JSON blob, so it is neither
-            // typed nor validated. A negative value here would have SUBTRACTED
-            // stock through a restore endpoint, and a non-numeric one would have
-            // been coerced to 0 silently.
-            if (!is_numeric($quantity) || (int) $quantity <= 0) {
-                \Log::warning('Refund restock skipped a line with an unusable quantity', [
-                    'refund_id' => $order_refund->id,
-                    'product_id' => $product_id,
-                ]);
+            $variantIds = $this->resolveVariantIdsFromOrder($order);
 
-                continue;
-            }
+            $restored = 0;
 
-            $quantity = (int) $quantity;
+            \DB::transaction(function () use (
+                $product_refund_id_array,
+                $order_refund,
+                $order,
+                $storeId,
+                $variantIds,
+                &$restored
+            ) {
+                foreach ($product_refund_id_array as $product_refund) {
+                    $product_id = $product_refund['product_refund_id'] ?? null;
+                    $quantity = $product_refund['quantity'] ?? null;
 
-            // product_refund_id comes out of a JSON blob on the refund row, so it
-            // is attacker-influenced input, not a validated foreign key. Without
-            // the store predicate this loop wrote product_stock onto any product
-            // in any store. The null guard matters too: Product::find() returned
-            // null for a deleted product and the next line dereferenced it.
-            $product = Product::where('id', $product_id)
-                ->where('store_id', $storeId)
-                ->first();
+                    if ($product_id === null || $quantity === null) {
+                        continue;
+                    }
 
-            if (!$product) {
-                continue;
-            }
+                    // A refund quantity is read out of a JSON blob, so it is
+                    // neither typed nor validated. A negative value here would
+                    // have SUBTRACTED stock through a restore endpoint, and a
+                    // non-numeric one would have been coerced to 0 silently.
+                    if (!is_numeric($quantity) || (int) $quantity <= 0) {
+                        \Log::warning('Refund restock skipped a line with an unusable quantity', [
+                            'refund_id' => $order_refund->id,
+                            'product_id' => $product_id,
+                        ]);
 
-            if ($product->variant_product == 0) {
-                // ATOMIC. This was `$final_stock = $product->product_stock + $quantity;
-                // $product->product_stock = $final_stock; $product->save();` --
-                // a read-modify-write, i.e. the same lost update
-                // ProductStockService was built to remove from the order paths:
-                // two concurrent restores both wrote `stock + qty` and the
-                // second overwrote the first, so returned goods vanished from
-                // inventory. restoreProductStock() issues a single conditional
-                // UPDATE and flushes the model cache the direct write bypasses.
-                $this->stockService()->restoreProductStock($product->id, $quantity);
-            } else {
-                // REPORTED, NOT REPAIRED -- and it is a real defect:
-                // `ProductVariant::find($product->id)` looks a VARIANT up by
-                // PRODUCT id. Those are different key spaces, so this restores
-                // stock to whichever variant happens to share the product's id,
-                // or to none.
-                //
-                // It is not corrected here because the refund payload offers no
-                // way to correct it: `product_refund_id` carries only a product
-                // id and a quantity (see the loop above and the JSON written by
-                // the refund request form), so WHICH variant was returned is not
-                // recorded anywhere. Choosing one would be inventing data, and
-                // the schema answer belongs to the owner. What IS fixed is the
-                // null dereference -- `find()` returned null for a missing
-                // variant and the next line read `->stock` on it -- and the lost
-                // update.
-                $variantProduct = ProductVariant::find($product->id);
+                        continue;
+                    }
 
-                if (!$variantProduct) {
-                    \Log::error('Refund restock could not resolve a variant row; line skipped', [
-                        'refund_id' => $order_refund->id,
-                        'product_id' => $product->id,
-                        'note' => 'ProductVariant::find() is being called with a PRODUCT id; '
-                            . 'the refund payload records no variant id. Owner decision required.',
-                    ]);
+                    $quantity = (int) $quantity;
 
-                    continue;
+                    // product_refund_id comes out of a JSON blob on the refund
+                    // row, so it is attacker-influenced input, not a validated
+                    // foreign key. Without the store predicate this loop wrote
+                    // product_stock onto any product in any store. The null
+                    // guard matters too: Product::find() returned null for a
+                    // deleted product and the next line dereferenced it.
+                    $product = Product::where('id', $product_id)
+                        ->where('store_id', $storeId)
+                        ->first();
+
+                    if (!$product) {
+                        continue;
+                    }
+
+                    if ($product->variant_product == 0) {
+                        // ATOMIC. This was `$final_stock = $product->product_stock
+                        // + $quantity; $product->product_stock = $final_stock;
+                        // $product->save();` -- a read-modify-write, i.e. the same
+                        // lost update ProductStockService was built to remove from
+                        // the order paths: two concurrent restores both wrote
+                        // `stock + qty` and the second overwrote the first, so
+                        // returned goods vanished from inventory.
+                        $this->stockService()->restoreProductStock($product->id, $quantity);
+                        $restored++;
+
+                        continue;
+                    }
+
+                    /*
+                     * THE WRONG-ROW WRITE, now fixed.
+                     *
+                     * This was `ProductVariant::find($product->id)` -- a VARIANT
+                     * looked up by PRODUCT id. Those are different key spaces, so
+                     * it restored stock to whichever variant happened to share the
+                     * product's id, or to none. A silent wrong-row inventory write.
+                     *
+                     * The previous phase reported it as uncorrectable because the
+                     * refund payload records no variant id, which is true: the JSON
+                     * written by AccountProfileController.php:971-981 carries only
+                     * product_refund_id, return_price and quantity. But the variant
+                     * id is not missing from the SYSTEM -- it is on the ORDER, in
+                     * every writer's product_json line
+                     * (OrderController.php:213, PaymentService.php:2321), which is
+                     * the same place the refund feature already resolves its lines
+                     * from: AccountProfileController.php:947 matches a refund line
+                     * to an order line by product_id alone, and
+                     * CancelRefundStatus() (:393-419) walks product_json the same
+                     * way. So resolving the variant from the order by product_id is
+                     * exactly as determinate as the refund feature already is --
+                     * it adds no new assumption.
+                     *
+                     * Where it is NOT determinate -- two order lines for the same
+                     * product with different variants -- resolveVariantIdsFromOrder()
+                     * returns null rather than picking one, and the line is skipped
+                     * with a log. Guessing there would be inventing data.
+                     */
+                    $variantId = $variantIds[(string) $product_id] ?? null;
+
+                    if ($variantId === null) {
+                        \Log::error('Refund restock could not resolve which variant was returned; line skipped', [
+                            'refund_id' => $order_refund->id,
+                            'order_id' => $order->id,
+                            'product_id' => $product->id,
+                            'note' => 'The order product_json carries no single variant_id for this '
+                                . 'product (absent, zero, or several differing ones). Nothing is '
+                                . 'guessed.',
+                        ]);
+
+                        continue;
+                    }
+
+                    // Tenant- and parent-checked, unlike find(): the row must be
+                    // this product's variant and this store's.
+                    $variantProduct = ProductVariant::where('id', $variantId)
+                        ->where('product_id', $product->id)
+                        ->where('store_id', $storeId)
+                        ->first();
+
+                    if (!$variantProduct) {
+                        \Log::error('Refund restock resolved a variant id that is not this product\'s; line skipped', [
+                            'refund_id' => $order_refund->id,
+                            'product_id' => $product->id,
+                            'variant_id' => $variantId,
+                        ]);
+
+                        continue;
+                    }
+
+                    $this->stockService()->restoreVariantStock($variantProduct->id, $quantity);
+                    $restored++;
                 }
 
-                \Log::warning('Refund restock resolved a variant by PRODUCT id', [
-                    'refund_id' => $order_refund->id,
-                    'product_id' => $product->id,
-                    'variant_id_used' => $variantProduct->id,
-                    'note' => 'Pre-existing key-space defect, reported not guessed.',
+                /*
+                 * THE MARKER, written LAST and inside the same transaction as the
+                 * restores, so the two cannot disagree: either the stock came back
+                 * and the refund is marked restored, or neither happened. Written
+                 * even when every line was skipped, because a replay of a refund
+                 * whose lines are all unresolvable must still not be retried into
+                 * a partial double-restore later.
+                 */
+                \App\Models\OrderNote::create([
+                    'order_id' => $order->id,
+                    'customer_id' => $order->customer_id,
+                    'status' => 'Stock Manage',
+                    // The refund id goes in note_type so the replay check is an
+                    // exact equality rather than a LIKE on prose. A prefix match
+                    // on the message would confuse refund #5 with #50.
+                    'note_type' => self::stockRestoredNoteType($order_refund->id),
+                    'notes' => 'Stock restored for refund request #' . $order_refund->id
+                        . ' (' . $restored . ' line(s)).',
+                    'store_id' => $storeId,
                 ]);
+            });
+        } catch (\Throwable $e) {
+            \Log::error('Refund restock rolled back; no stock was changed', [
+                'refund_id' => $order_refund->id,
+                'order_id' => $order->id,
+                'error' => $e->getMessage(),
+            ]);
 
-                $this->stockService()->restoreVariantStock($variantProduct->id, $quantity);
-            }
+            return $this->refundDenied('The stock could not be restored. Nothing was changed.', 500);
+        } finally {
+            $lock->release();
         }
 
         return response()->json([
             'message' => 'Manage Stock updated successfully!'
         ]);
+    }
+
+    /**
+     * Has this refund's stock already been given back?
+     *
+     * Reads the durable marker note. See STOCK_RESTORED_NOTE_TYPE for why the
+     * marker is a note and what the real fix is.
+     */
+    protected function stockAlreadyRestored(OrderRefund $order_refund, Order $order): bool
+    {
+        return \App\Models\OrderNote::where('order_id', $order->id)
+            ->where('note_type', self::stockRestoredNoteType($order_refund->id))
+            ->exists();
+    }
+
+    /** The exact marker note_type for one refund request. */
+    public static function stockRestoredNoteType($refundId): string
+    {
+        return self::STOCK_RESTORED_NOTE_TYPE . ':' . $refundId;
+    }
+
+    /**
+     * product_id => the one variant_id that product was ordered with, or null.
+     *
+     * Returns null for a product whose variant cannot be determined without
+     * guessing, which is any of:
+     *
+     *   - no `variant_id` on the line, or a zero one (a non-variant line);
+     *   - more than one line for the product carrying DIFFERENT variant ids.
+     *
+     * Keys are strings so a JSON id of 7 and an int 7 resolve the same.
+     *
+     * @return array<string, int|null>
+     */
+    protected function resolveVariantIdsFromOrder(Order $order): array
+    {
+        $lines = json_decode((string) $order->product_json, true);
+
+        if (!is_array($lines)) {
+            return [];
+        }
+
+        $seen = [];
+
+        foreach ($lines as $line) {
+            if (!is_array($line) || !isset($line['product_id'])) {
+                continue;
+            }
+
+            $productId = (string) $line['product_id'];
+            $variantId = $line['variant_id'] ?? null;
+            $variantId = is_numeric($variantId) ? (int) $variantId : null;
+
+            if ($variantId !== null && $variantId <= 0) {
+                $variantId = null;
+            }
+
+            if (!array_key_exists($productId, $seen)) {
+                $seen[$productId] = $variantId;
+
+                continue;
+            }
+
+            // A second line for the same product. Agreeing is fine; disagreeing
+            // makes the choice undecidable and must not be guessed.
+            if ($seen[$productId] !== $variantId) {
+                $seen[$productId] = null;
+            }
+        }
+
+        return $seen;
     }
 
     public function updateFinalPrice(Request $request, $id)
