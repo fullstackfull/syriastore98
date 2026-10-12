@@ -7,10 +7,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use GeneaLabs\LaravelModelCaching\Traits\Cachable;
 use Laravel\Sanctum\HasApiTokens;
+use App\Models\Concerns\BelongsToStore;
 
 class DeliveryBoy extends Authenticatable
 {
-    use Cachable, HasFactory,HasApiTokens;
+    use Cachable, HasFactory,HasApiTokens, BelongsToStore;
 	
 	protected $guard = 'deliveryboy';
     protected $guard_name = 'web';

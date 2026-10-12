@@ -3,9 +3,11 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Concerns\BelongsToStore;
 
 class StoreWallet extends Model
 {
+    use BelongsToStore;
     protected $table = 'store_wallets';
 
     protected $fillable = [

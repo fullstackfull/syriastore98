@@ -10,10 +10,11 @@ use Session;
 use App\Http\Controllers\CartController;
 use Illuminate\Support\Facades\Cache;
 use App\Traits\ApiResponser;
+use App\Models\Concerns\BelongsToStore;
 
 class Cart extends Model
 {
-    use HasFactory, Cachable;
+    use HasFactory, Cachable, BelongsToStore;
     use ApiResponser;
     protected $fillable = [
         'customer_id', 'product_id', 'variant_id', 'qty', 'price', 'cookie_session_id','store_id'

@@ -1,0 +1,113 @@
+# GATE F — PROVISIONAL schema drafts. NOT ACTIVE. NOT REVIEWED AGAINST PRODUCTION.
+
+## Why this directory is not `database/migrations/`
+
+Laravel discovers migrations with a **non-recursive** `glob($path . '/*_*.php')`, and nothing in
+this codebase registers a migration path under `database/migrations/`. Verified: there is no
+`loadMigrationsFrom` in `app/Providers/`, and `app/Console/Commands/PackageMigrate.php:55-61`
+only ever points `--path` at `packages/workdo/*/src/database/migrations`.
+
+So **no `php artisan migrate`, `migrate:fresh` or `PackageMigrate` invocation in this application
+will execute anything in this directory.** That is the entire reason it exists.
+
+As a second, independent layer, every draft is named `*.php.draft` rather than `*.php`, so it
+cannot match the `*_*.php` glob **even if someone later registers this directory as a migration
+path**. Two unrelated things have to go wrong before a provisional money-table definition can
+touch a database. `tests/Unit/Database/MigrationHygieneTest.php` asserts both properties.
+
+These drafts are deliberately held OUT of the live migration path, because putting them in it
+would be actively dangerous. `Schema::hasTable()` guards make a migration a no-op against a
+database that already holds the table — which means that if a *provisional* definition with a
+guessed column type ran first and created the table, the later *correct* migration would no-op
+and the wrong types would become permanent and invisible. A guarded migration is safe when the
+definition is right and a silent trap when it is a guess. These are guesses.
+
+## What these files are
+
+`SCHEMA-01` records **15 tables that live code reads and writes and that no migration creates**,
+6 of them money-bearing. `03-DATABASE-RECOVERY-PLAN.md` is the specification;
+`04-INCREMENTAL-IMPLEMENTATION-PLAN.md` holds the whole set to **Increment 18 behind GATE F**
+because the types are **not derivable from `$fillable`**, which omits types, lengths,
+nullability, defaults, indexes and foreign keys.
+
+What is in here is a **first draft of the 6 money-bearing tables**, derived from each model's
+`$fillable` and `$casts` plus `app/Services/OrderFinancialService.php:90-118`, so that clearing
+GATE F is a **diff against a production dump** rather than a write from scratch. Every file is
+marked PROVISIONAL in its own docblock and names what specifically must be reconciled.
+
+| # | Table | Draft here | Money-bearing | Evidence for the column list |
+|---|---|---|---|---|
+| 1 | `store_wallets` | YES | **YES — merchant balance of record** | `app/Models/StoreWallet.php:11,13-21` |
+| 2 | `store_wallet_transactions` | YES | **YES — the ledger** | `app/Models/StoreWalletTransaction.php:11,13-27` |
+| 3 | `store_withdrawals` | YES | **YES — payouts** | `app/Models/StoreWithdrawal.php:11,13-33` |
+| 4 | `store_order_financials` | YES | **YES — per-order P&L** | `app/Services/OrderFinancialService.php:90-118` (an 18-column insert) |
+| 5 | `delivery_earnings` | YES | **YES — courier commission** | `app/Models/DeliveryEarning.php:9,11-27` (`decimal:2` x3) |
+| 6 | `currency_rates` | YES | **YES — FX multiplier on every converted price** | `app/Models/CurrencyRate.php:9,11-24` (`rate_per_usd` -> `decimal:8`) |
+| 7 | `audit_logs` | no | no (compliance) | `app/Models/AuditLog.php:9,11-26`, `::record()` at `:28` |
+| 8 | `otp_integrations` | no | no (auth) | `app/Models/OtpIntegration.php:9,11-30` — note `api_secret` is cast `encrypted` |
+| 9 | `chatwoot_integrations` | no | no | `app/Models/ChatwootIntegration.php:9,11-26` — `api_access_token` cast `encrypted` |
+| 10 | `chatwoot_notification_templates` | no | no | `app/Models/ChatwootNotificationTemplate.php:9,11-24` |
+| 11 | `delivery_boy_devices` | no | no (push tokens) | `app/Models/DeliveryBoyDevice.php:12,14-24` |
+| 12 | `delivery_boy_notifications` | no | no | `app/Models/DeliveryBoyNotification.php:12,14-31` |
+| 13 | `zid_stores` | no | no — but **holds credentials** | `app/Models/ZidStore.php:15-29` |
+| 14 | `zid_orders` | no | indirect (order mapping) | `app/Console/Commands/ZidProcessEvents.php:77-101,160-175` |
+| 15 | `zid_events` | no | no | `app/Models/ZidEvent.php:15-29` |
+
+Tables 7–15 are not drafted here. Their absence fails **soft** — Eloquent returns null for an
+absent column and `app/Observers/OrderObserver.php:15-20` swallows `QueryException` — so they
+block no other increment, and a half-researched guess at a credential-bearing table is worse
+than no file at all. Their column lists are cited above so the dump diff is still cheap.
+
+## THE WARNING THE OWNER MUST HEAR BEFORE AUTHORISING ANY OF THIS
+
+`app/Observers/OrderObserver.php:15-20` wraps the financial write in `catch (\Exception $e)`, and
+`QueryException` descends from `\Exception`. So on a deployment missing `store_wallets` and
+`store_order_financials`, **orders save successfully and all financial tracking silently does
+nothing** — the rows go to `storage/logs`.
+
+Creating these tables therefore does not "fix a bug". It makes a **silently dead** subsystem
+**start working**. Phase 0 reports a hardcoded `payment_status = 'Paid'` at
+`app/Services/PaymentService.php:2280` (adjacent lane, NOT re-verified). If that holds, it must be
+resolved **before or with** this migration, or COD and bank-transfer orders will credit merchant
+wallets **against cash never collected**. Shipping the schema fix alone could convert a silent
+no-op into real incorrect payouts. This is the single most important thing to say about SCHEMA-01.
+
+## What GATE F must supply before any of this moves
+
+1. `SHOW CREATE TABLE` for all 15 tables, plus `users.plan_id`, `products.cost_price` and
+   `orders` — **from a RESTORED COPY of a backup, with a read-only account, never from the live
+   host.** Even a schema-only dump is sensitive: grep it for `DEFINER=` and `IDENTIFIED BY`, move
+   it privately, keep it out of git, delete it afterwards.
+2. A read-only NULL census: `SELECT COUNT(*) FROM <t> WHERE store_id IS NULL` across the 56
+   `store_id` tables.
+3. `SELECT DISTINCT type FROM users`.
+4. The resolution of the `payment_status = 'Paid'` question above.
+
+## Standing decisions these drafts already encode
+
+- Money columns are `decimal(18,4)`, **never** `float`. Do not copy the `float()` used for all six
+  `orders` money columns at
+  `database/migrations/2024_01_23_061635_create_orders_table.php:22-27`. Scale **4**, not 2,
+  because the seeded currency list includes 3-decimal KWD/BHD/OMR (GATE G, decision 1).
+- `currency_rates.rate_per_usd` is `decimal(18,8)`, to match the model's own `decimal:8` cast at
+  `app/Models/CurrencyRate.php:22`.
+- Foreign-key order: `store_wallets` -> `store_wallet_transactions` -> `store_withdrawals`, with
+  `store_order_financials` after `store_wallets` because it writes `wallet_id`
+  (`OrderFinancialService.php:21-23` resolves the wallet, `:90-92` writes the column).
+- No foreign key is declared to `stores` or `users` in these drafts. `users` is the highest-fan-in
+  table in the schema (14 FKs already reference it) and adding cascade semantics to money tables
+  is a behaviour decision, not schema catch-up. Confirm against the dump instead.
+- `store_id` is indexed on every table that has it: every query filters by it.
+
+## How to promote a draft
+
+1. Diff it against the dump from GATE F step 1. **The dump wins on every disagreement.**
+2. Move the file into `database/migrations/` with a fresh timestamp **and the `.draft` suffix
+   removed**, keeping the `Schema::hasTable()` guard, and delete the PROVISIONAL banner only once
+   the diff is clean.
+3. Build from zero into a **scratch** database and compare — never production, never
+   staging-with-data.
+4. Add the table to the skip-list exemptions in
+   `tests/Feature/Tenancy/CrossTenantModelIsolationTest.php`, which currently calls
+   `markTestSkipped()` for `store_wallets`, `store_wallet_transactions` and `store_withdrawals`
+   precisely because they do not exist yet.

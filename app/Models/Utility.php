@@ -2843,8 +2843,47 @@ class Utility extends Model
             'Edit currency',
             'Status Customer',
             'Edit Store Setting',
-            'Delete Language'
+            'Delete Language',
 
+            // ----------------------------------------------------------------------------
+            // FINANCE permissions. Requested by the authorization workstream (Agent 1).
+            //
+            // These six names are GATED ON but were never SEEDED: before this change
+            // app/Models/Utility.php contained ZERO occurrences of the string "Finance",
+            // while all six are enforced as hard denials —
+            //   routes/web.php:164  middleware 'permission:View Finance Dashboard'
+            //   StoreFinanceController.php:19   isAbleTo('Edit Finance Payment Status')
+            //   StoreFinanceController.php:71   isAbleTo('View Finance Dashboard')
+            //   StoreFinanceController.php:315  isAbleTo('Add Finance Balance')
+            //   StoreFinanceController.php:396  isAbleTo('Deduct Finance Balance')
+            //   StoreFinanceController.php:494  isAbleTo('Request Finance Withdrawal')
+            //   StoreFinanceController.php:624  isAbleTo('View Finance Withdrawal Requests')
+            //
+            // addNewData() is the ONLY permission-creation mechanism in the application, so a
+            // permission absent from here cannot exist in a from-source database, which means
+            // it can never be granted to any role through the UI and every gated route above
+            // is a permanent 403. Adding the names here is what makes them grantable.
+            //
+            // THIS LIST CREATES THE Permission ROWS ONLY — it does NOT grant them to any role.
+            // That is deliberate and is the whole reason they go in $arrPermissions rather than
+            // in $companyNewPermission or $superadminNewPermission below, both of which also
+            // call givePermission(). Four of these six move real money (Add / Deduct Finance
+            // Balance debit and credit the merchant balance of record; View Finance Withdrawal
+            // Requests and Edit Finance Payment Status drive payouts), so WHICH role holds them
+            // by default is a privilege decision for the owner, not something to infer from a
+            // route file. Rows exist and are tickable in the role editor; nobody is silently
+            // handed a money power by this change.
+            //
+            // SAFE FOR THE LIVE DATABASE: the loop below is additive and idempotent — it
+            // creates a Permission row only when no row of that name exists, and addNewData()
+            // runs on every login, so this converges without a migration and without touching
+            // any existing grant.
+            'View Finance Dashboard',
+            'Add Finance Balance',
+            'Deduct Finance Balance',
+            'Request Finance Withdrawal',
+            'View Finance Withdrawal Requests',
+            'Edit Finance Payment Status',
         ];
 
         $arrPermissions = array_unique($arrPermissions);
