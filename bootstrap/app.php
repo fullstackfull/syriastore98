@@ -29,6 +29,13 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
         // Append middleware to the 'web' group
         $middleware->appendToGroup('web', \App\Http\Middleware\SetLocate::class);
+        // SEC-R1-02 / R2-07 / NEW-throttle-bypass: the RateLimiter named 'api'
+        // is defined at app/Providers/RouteServiceProvider.php:27-29 but was
+        // never applied to the 'api' middleware group, so it was dead code and
+        // all 211 API route declarations were unthrottled. 120/min is a
+        // deliberately generous starting value -- APILog and AdminApiLog
+        // already instrument the traffic, so tune it down from real logs.
+        $middleware->throttleApi('120,1');
         // Exclude specific routes from CSRF protection
         $middleware->validateCsrfTokens(
             except: [
