@@ -60,6 +60,9 @@ class PaymentController extends Controller
     /** Derives an order's payment_status from a verification result. */
     private ?\App\Services\PaymentVerificationService $paymentVerifier = null;
 
+    /** Atomic stock decrement, replacing the read-modify-write pattern. */
+    private ?\App\Services\ProductStockService $stockService = null;
+
     public function __construct(PaymentService $paymentService)
     {
         $this->paymentService = $paymentService;
@@ -82,6 +85,66 @@ class PaymentController extends Controller
     private function paymentVerifier(): \App\Services\PaymentVerificationService
     {
         return $this->paymentVerifier ??= new \App\Services\PaymentVerificationService();
+    }
+
+    private function stockService(): \App\Services\ProductStockService
+    {
+        return $this->stockService ??= new \App\Services\ProductStockService();
+    }
+
+    /**
+     * Decrement stock atomically, remembering it so it can be given back.
+     *
+     * One copy for all three order paths in this controller
+     * (getProductStatus, getWhatsappUrl, whatsapp), which each carried an
+     * identical read-modify-write decrement.
+     *
+     * @param  array  $applied  Accumulator of applied decrements, by reference.
+     * @param  string $kind     'variant' or 'product'.
+     * @param  mixed  $model    The loaded ProductVariant or Product.
+     * @param  mixed  $qty      The cart quantity.
+     * @return array|null  null on success; a `['message' => ...]` payload when
+     *                     the caller must abandon the order. Any decrements
+     *                     already applied in this cart are given back first.
+     */
+    private function decrementStockOrFail(array &$applied, string $kind, $model, $qty): ?array
+    {
+        $result = $kind === 'variant'
+            ? $this->stockService()->decrementVariantStock($model, $qty)
+            : $this->stockService()->decrementProductStock($model, $qty);
+
+        if ($result['applied']) {
+            $applied[] = [
+                'kind' => $kind,
+                'id' => $model->id,
+                'quantity' => $result['quantity'],
+            ];
+
+            return null;
+        }
+
+        if ($result['reason'] !== \App\Services\ProductStockService::INSUFFICIENT) {
+            // Nothing to decrement (no quantity, or no row). Previously this
+            // subtracted zero and saved, so carrying on matches the old
+            // behaviour exactly.
+            return null;
+        }
+
+        $this->restoreStockDecrements($applied);
+
+        return ['message' => __('Insufficient stock. Please review your cart and try again.')];
+    }
+
+    /** Give back every decrement recorded by {@see decrementStockOrFail()}. */
+    private function restoreStockDecrements(array $applied): void
+    {
+        foreach ($applied as $change) {
+            if (($change['kind'] ?? null) === 'variant') {
+                $this->stockService()->restoreVariantStock($change['id'], $change['quantity']);
+            } else {
+                $this->stockService()->restoreProductStock($change['id'], $change['quantity']);
+            }
+        }
     }
 
 
@@ -1414,6 +1477,11 @@ public function handlePaymeraTrigger00($orderId)
 
         // Order stock decrease start
         $prodduct_id_array = [];
+        // Stock decrements applied in this loop, so they can be given back if
+        // a later product in the same cart cannot be fulfilled and the order is
+        // therefore never written. Without this, a rejected checkout would
+        // silently consume the inventory of the products it got through first.
+        $appliedStockChanges = [];
         if (!empty($products)) {
             foreach ($products as $key => $product) {
                 $prodduct_id_array[] = $product->product_id;
@@ -1431,9 +1499,14 @@ public function handlePaymeraTrigger00($orderId)
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductStock)) {
                             if ($option == true) {
-                                $remain_stock = $ProductStock->stock - $qtyy;
-                                $ProductStock->stock = $remain_stock;
-                                $ProductStock->save();
+                                // ATOMIC. This was a read-modify-write (`$remain_stock = $ProductStock->stock - $qtyy; ... ->save()`),
+                                // i.e. a lost update: two concurrent checkouts both wrote
+                                // `stock - qty` and the second overwrote the first, so the shop
+                                // oversold by the quantity it processed concurrently, and the
+                                // subtraction could also drive a SIGNED stock column negative.
+                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy)) {
+                                    return $this->error($stockFailure);
+                                }
 
                                 if ($ProductStock->stock <= $ProductStock->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
@@ -1451,9 +1524,14 @@ public function handlePaymeraTrigger00($orderId)
                                     }
                                 }
                             } else {
-                                $remain_stock = $datas->product_stock - $qtyy;
-                                $datas->product_stock = $remain_stock;
-                                $datas->save();
+                                // ATOMIC. This was a read-modify-write (`$remain_stock = $datas->product_stock - $qtyy; ... ->save()`),
+                                // i.e. a lost update: two concurrent checkouts both wrote
+                                // `stock - qty` and the second overwrote the first, so the shop
+                                // oversold by the quantity it processed concurrently, and the
+                                // subtraction could also drive a SIGNED stock column negative.
+                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy)) {
+                                    return $this->error($stockFailure);
+                                }
                                 if ($datas->product_stock <= $datas->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
@@ -1503,9 +1581,14 @@ public function handlePaymeraTrigger00($orderId)
                     } elseif (!empty($product_id) && $product_id != 0) {
 
                         if (!empty($Product)) {
-                            $remain_stock = $Product->product_stock - $qtyy;
-                            $Product->product_stock = $remain_stock;
-                            $Product->save();
+                            // ATOMIC. This was a read-modify-write (`$remain_stock = $Product->product_stock - $qtyy; ... ->save()`),
+                            // i.e. a lost update: two concurrent checkouts both wrote
+                            // `stock - qty` and the second overwrote the first, so the shop
+                            // oversold by the quantity it processed concurrently, and the
+                            // subtraction could also drive a SIGNED stock column negative.
+                            if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy)) {
+                                return $this->error($stockFailure);
+                            }
                             if ($Product->product_stock <= $Product->low_stock_threshold) {
                                 if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
                                     if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
@@ -2023,6 +2106,11 @@ $result = app(\App\Services\StoreNotificationService::class)
         }
 
         $prodduct_id_array = [];
+        // Stock decrements applied in this loop, so they can be given back if
+        // a later product in the same cart cannot be fulfilled and the order is
+        // therefore never written. Without this, a rejected checkout would
+        // silently consume the inventory of the products it got through first.
+        $appliedStockChanges = [];
         if (!empty($products)) {
             foreach ($products as $key => $product) {
                 $prodduct_id_array[] = $product->product_id;
@@ -2035,9 +2123,14 @@ $result = app(\App\Services\StoreNotificationService::class)
                 if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
                     $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();
                     if (!empty($ProductStock)) {
-                        $remain_stock = $ProductStock->stock - $qtyy;
-                        $ProductStock->stock = $remain_stock;
-                        $ProductStock->save();
+                        // ATOMIC. This was a read-modify-write (`$remain_stock = $ProductStock->stock - $qtyy; ... ->save()`),
+                        // i.e. a lost update: two concurrent checkouts both wrote
+                        // `stock - qty` and the second overwrote the first, so the shop
+                        // oversold by the quantity it processed concurrently, and the
+                        // subtraction could also drive a SIGNED stock column negative.
+                        if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy)) {
+                            return $this->error($stockFailure);
+                        }
                         $pro_qty[] = $product->qty . ' x ' . $product->name . '-' . $product->variant_name;
 
                         $lists[] = array(
@@ -2051,9 +2144,14 @@ $result = app(\App\Services\StoreNotificationService::class)
                     }
                 } elseif (!empty($product_id) && $product_id != 0) {
                     if (!empty($Product)) {
-                        $remain_stock = $Product->product_stock - $qtyy;
-                        $Product->product_stock = $remain_stock;
-                        $Product->save();
+                        // ATOMIC. This was a read-modify-write (`$remain_stock = $Product->product_stock - $qtyy; ... ->save()`),
+                        // i.e. a lost update: two concurrent checkouts both wrote
+                        // `stock - qty` and the second overwrote the first, so the shop
+                        // oversold by the quantity it processed concurrently, and the
+                        // subtraction could also drive a SIGNED stock column negative.
+                        if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy)) {
+                            return $this->error($stockFailure);
+                        }
                         $pro_qty[] = $product->qty . ' x ' . $product->name;
 
                         $lists[] = array(
@@ -2353,6 +2451,11 @@ $result = app(\App\Services\StoreNotificationService::class)
 
         // Order stock decrease start
         $prodduct_id_array = [];
+        // Stock decrements applied in this loop, so they can be given back if
+        // a later product in the same cart cannot be fulfilled and the order is
+        // therefore never written. Without this, a rejected checkout would
+        // silently consume the inventory of the products it got through first.
+        $appliedStockChanges = [];
         if (!empty($products)) {
             foreach ($products as $key => $product) {
                 $prodduct_id_array[] = $product->product_id;
@@ -2370,9 +2473,14 @@ $result = app(\App\Services\StoreNotificationService::class)
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductStock)) {
                             if ($option == true) {
-                                $remain_stock = $ProductStock->stock - $qtyy;
-                                $ProductStock->stock = $remain_stock;
-                                $ProductStock->save();
+                                // ATOMIC. This was a read-modify-write (`$remain_stock = $ProductStock->stock - $qtyy; ... ->save()`),
+                                // i.e. a lost update: two concurrent checkouts both wrote
+                                // `stock - qty` and the second overwrote the first, so the shop
+                                // oversold by the quantity it processed concurrently, and the
+                                // subtraction could also drive a SIGNED stock column negative.
+                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy)) {
+                                    return $this->error($stockFailure);
+                                }
 
                                 if ($ProductStock->stock <= $ProductStock->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
@@ -2390,9 +2498,14 @@ $result = app(\App\Services\StoreNotificationService::class)
                                     }
                                 }
                             } else {
-                                $remain_stock = $datas->product_stock - $qtyy;
-                                $datas->product_stock = $remain_stock;
-                                $datas->save();
+                                // ATOMIC. This was a read-modify-write (`$remain_stock = $datas->product_stock - $qtyy; ... ->save()`),
+                                // i.e. a lost update: two concurrent checkouts both wrote
+                                // `stock - qty` and the second overwrote the first, so the shop
+                                // oversold by the quantity it processed concurrently, and the
+                                // subtraction could also drive a SIGNED stock column negative.
+                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy)) {
+                                    return $this->error($stockFailure);
+                                }
                                 if ($datas->product_stock <= $datas->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
@@ -2442,9 +2555,14 @@ $result = app(\App\Services\StoreNotificationService::class)
                     } elseif (!empty($product_id) && $product_id != 0) {
 
                         if (!empty($Product)) {
-                            $remain_stock = $Product->product_stock - $qtyy;
-                            $Product->product_stock = $remain_stock;
-                            $Product->save();
+                            // ATOMIC. This was a read-modify-write (`$remain_stock = $Product->product_stock - $qtyy; ... ->save()`),
+                            // i.e. a lost update: two concurrent checkouts both wrote
+                            // `stock - qty` and the second overwrote the first, so the shop
+                            // oversold by the quantity it processed concurrently, and the
+                            // subtraction could also drive a SIGNED stock column negative.
+                            if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy)) {
+                                return $this->error($stockFailure);
+                            }
                             if ($Product->product_stock <= $Product->low_stock_threshold) {
                                 if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
                                     if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {

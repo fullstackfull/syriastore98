@@ -76,6 +76,9 @@ class PaymentService
     /** Derives an order's payment_status from a verification result. */
     private ?PaymentVerificationService $paymentVerifier = null;
 
+    /** Atomic stock decrement, replacing the read-modify-write pattern. */
+    private ?ProductStockService $stockService = null;
+
     /**
      * Lazily resolved rather than constructor-injected: this service is both
      * container-resolved and `new`-ed at several call sites, and neither
@@ -94,6 +97,62 @@ class PaymentService
     private function paymentVerifier(): PaymentVerificationService
     {
         return $this->paymentVerifier ??= new PaymentVerificationService();
+    }
+
+    private function stockService(): ProductStockService
+    {
+        return $this->stockService ??= new ProductStockService();
+    }
+
+    /**
+     * Decrement stock atomically, remembering it so it can be given back.
+     *
+     * @param  array  $applied  Accumulator of applied decrements, by reference.
+     * @param  string $kind     'variant' or 'product'.
+     * @param  mixed  $model    The loaded ProductVariant or Product.
+     * @param  mixed  $qty      The cart quantity.
+     * @return array|null  null on success; a `['message' => ...]` payload when
+     *                     the caller must abandon the order. Any decrements
+     *                     already applied in this cart are given back first.
+     */
+    private function decrementStockOrFail(array &$applied, string $kind, $model, $qty): ?array
+    {
+        $result = $kind === 'variant'
+            ? $this->stockService()->decrementVariantStock($model, $qty)
+            : $this->stockService()->decrementProductStock($model, $qty);
+
+        if ($result['applied']) {
+            $applied[] = [
+                'kind' => $kind,
+                'id' => $model->id,
+                'quantity' => $result['quantity'],
+            ];
+
+            return null;
+        }
+
+        if ($result['reason'] !== ProductStockService::INSUFFICIENT) {
+            // Nothing to decrement (no quantity, or no row). Previously this
+            // subtracted zero and saved, so carrying on matches the old
+            // behaviour exactly.
+            return null;
+        }
+
+        $this->restoreStockDecrements($applied);
+
+        return ['message' => __('Insufficient stock. Please review your cart and try again.')];
+    }
+
+    /** Give back every decrement recorded by {@see decrementStockOrFail()}. */
+    private function restoreStockDecrements(array $applied): void
+    {
+        foreach ($applied as $change) {
+            if (($change['kind'] ?? null) === 'variant') {
+                $this->stockService()->restoreVariantStock($change['id'], $change['quantity']);
+            } else {
+                $this->stockService()->restoreProductStock($change['id'], $change['quantity']);
+            }
+        }
     }
 
     /**
@@ -2178,6 +2237,11 @@ private function processPaymera00000($request, $slug)
 
         // Order stock decrease start
         $prodduct_id_array = [];
+        // Stock decrements applied in this loop, so they can be given back if
+        // a later product in the same cart cannot be fulfilled and the order is
+        // therefore never written. Without this, a rejected checkout would
+        // silently consume the inventory of the products it got through first.
+        $appliedStockChanges = [];
         if (!empty($products)) {
 
 $products_weight_array = [];
@@ -2207,9 +2271,14 @@ $products_weight_array[] = [
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductStock)) {
                             if ($option == true) {
-                                $remain_stock = $ProductStock->stock - $qtyy;
-                                $ProductStock->stock = $remain_stock;
-                                $ProductStock->save();
+                                // ATOMIC. This was a read-modify-write (`$remain_stock = $ProductStock->stock - $qtyy; ... ->save()`),
+                                // i.e. a lost update: two concurrent checkouts both wrote
+                                // `stock - qty` and the second overwrote the first, so the shop
+                                // oversold by the quantity it processed concurrently, and the
+                                // subtraction could also drive a SIGNED stock column negative.
+                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy)) {
+                                    return $this->error($stockFailure);
+                                }
 
                                 if ($ProductStock->stock <= $ProductStock->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
@@ -2227,9 +2296,14 @@ $products_weight_array[] = [
                                     }
                                 }
                             } else {
-                                $remain_stock = $datas->product_stock - $qtyy;
-                                $datas->product_stock = $remain_stock;
-                                $datas->save();
+                                // ATOMIC. This was a read-modify-write (`$remain_stock = $datas->product_stock - $qtyy; ... ->save()`),
+                                // i.e. a lost update: two concurrent checkouts both wrote
+                                // `stock - qty` and the second overwrote the first, so the shop
+                                // oversold by the quantity it processed concurrently, and the
+                                // subtraction could also drive a SIGNED stock column negative.
+                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy)) {
+                                    return $this->error($stockFailure);
+                                }
                                 if ($datas->product_stock <= $datas->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
@@ -2279,9 +2353,14 @@ $products_weight_array[] = [
                     } elseif (!empty($product_id) && $product_id != 0) {
 
                         if (!empty($Product)) {
-                            $remain_stock = $Product->product_stock - $qtyy;
-                            $Product->product_stock = $remain_stock;
-                            $Product->save();
+                            // ATOMIC. This was a read-modify-write (`$remain_stock = $Product->product_stock - $qtyy; ... ->save()`),
+                            // i.e. a lost update: two concurrent checkouts both wrote
+                            // `stock - qty` and the second overwrote the first, so the shop
+                            // oversold by the quantity it processed concurrently, and the
+                            // subtraction could also drive a SIGNED stock column negative.
+                            if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy)) {
+                                return $this->error($stockFailure);
+                            }
                             if ($Product->product_stock <= $Product->low_stock_threshold) {
                                 if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
                                     if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
@@ -2796,6 +2875,44 @@ if ($selectedMethodId) {
 
 
 
+/**
+ * How much cash the courier must collect on delivery.
+ *
+ * The amount owed is the order total for a cash-on-delivery order and nothing
+ * for an order that was settled online. The Delivery Syria payload used to send
+ * the literal '0' in every case, so a COD parcel was dispatched with an
+ * instruction to collect nothing.
+ *
+ * The format matches `selling_price` in the same payload, which is the order
+ * total cast to string, so the two figures are expressed identically.
+ *
+ * @param  \App\Models\Order $order
+ */
+private function codCashCollectionAmount($order): string
+{
+    $paymentType = strtolower(trim((string) ($order->payment_type ?? '')));
+
+    if (!in_array($paymentType, ['cod', 'cash_on_delivery', 'cash'], true)) {
+        return '0';
+    }
+
+    $amount = $order->final_price ?? 0;
+
+    if (!is_numeric($amount) || (float) $amount <= 0) {
+        // A COD order with no collectable total is a data problem, not a
+        // zero-value delivery: say so rather than silently shipping '0'.
+        Log::error('COD order has no collectable total; courier told to collect 0', [
+            'order_id' => $order->id ?? null,
+            'payment_type' => $paymentType,
+            'final_price' => (string) $amount,
+        ]);
+
+        return '0';
+    }
+
+    return (string) $amount;
+}
+
 private function webhook(
     $order,
     $billing,
@@ -2897,7 +3014,12 @@ private function webhook(
 
         'weight' => (string) $weight,
         'invoice_no' => (string) $order->product_order_id,
-        'cash_collection' => '0',
+        // The courier is now told how much to collect. This was the literal
+        // '0', so for a cash-on-delivery order Delivery Syria was dispatched
+        // with an instruction to collect NOTHING: the parcel was handed over and
+        // no cash was ever asked for. For an order already settled online it
+        // stays 0, which is correct.
+        'cash_collection' => $this->codCashCollectionAmount($order),
         'selling_price' => (string) $order->final_price,
         'customer_name' => $customerName,
         'customer_address' => $customerAddress,
