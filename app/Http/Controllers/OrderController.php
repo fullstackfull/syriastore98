@@ -701,27 +701,80 @@ public function store(Request $request)
 
     public function status_cancel(Request $request, $slug)
     {
+        // CRITICAL, AND ANONYMOUS. This endpoint took `order_id` straight off the request
+        // and had NO ownership check of any kind. Its route --
+        // routes/customer.php:142 `POST {storeSlug?}/status-cancel` -- sits in the
+        // storefront group whose only middleware is [ActiveTheme, themelanguage], so it
+        // required no session at all. An anonymous caller who guessed a numeric order id
+        // could cancel ANY order on the platform, in any store.
+        //
+        // AND IT INFLATED INVENTORY WITHOUT LIMIT. The stock-restore loop below used to run
+        // BEFORE `$responce['status']` was examined, so it added `qty` back to every line
+        // even when Order::order_status_change() REFUSED the cancellation. Repeating the
+        // same request therefore kept adding stock: order_status_change rejects a second
+        // attempt (`delivered_status != 0`, app/Models/Order.php), but the loop had already
+        // run. One guessed id was an unbounded inventory-inflation primitive.
+        //
+        // THE CONTROL, following the pattern orderDetails() already uses on this same route
+        // group (resolve the store from the slug, then filter and 404):
+        //   1. the store must resolve from the slug;
+        //   2. there must be an authenticated CUSTOMER -- this is a customer self-service
+        //      action, not a public one;
+        //   3. the order must belong to BOTH that store and that customer.
+        //
+        // DISCLOSED BEHAVIOUR CHANGE: `orders.customer_id` defaults to 0, so a GUEST order
+        // can no longer be cancelled through this endpoint. That is deliberate. Self-service
+        // cancellation of a guest order over an unauthenticated endpoint keyed on a
+        // guessable integer is the vulnerability itself, not a feature; a guest cancellation
+        // has to go through the merchant.
+        $store = getStore($slug);
+
+        if (! $store) {
+            abort(404);
+        }
+
+        $customer = auth('customers')->user();
+
+        if (! $customer) {
+            abort(403);
+        }
+
+        $order = Order::where('id', $request->order_id)
+            ->where('store_id', $store->id)
+            ->where('customer_id', $customer->id)
+            ->first();
+
+        if (! $order) {
+            abort(404);
+        }
 
         $data['order_id'] = $request->order_id;
         $data['order_status'] = $request->order_status;
 
         $responce = Order::order_status_change($data);
-        $order_detail = Order::order_detail($request->order_id);
 
-        foreach ($order_detail['product'] as $item) {
-            if ($item['variant_id'] == 0) {
-                $product = Product::where('id', $item['product_id'])->first();
-                $prdduct_stock = $product->product_stock + $item['qty'];
-                $product->product_stock = $prdduct_stock;
-                $product->save();
-            } else {
-                $product = ProductVariant::where('id', $item['variant_id'])->first();
-                $prdduct_stock = $product->stock + $item['qty'];
-                $product->stock = $prdduct_stock;
-                $product->save();
-            }
-        }
+        // STOCK IS RESTORED ONLY IF THE CANCELLATION ACTUALLY SUCCEEDED. Moving this inside
+        // the success branch is what makes the endpoint repeat-safe: a second attempt is
+        // refused by order_status_change and now adds nothing.
         if ($responce['status'] == 'success') {
+            $order_detail = Order::order_detail($request->order_id);
+
+            foreach ($order_detail['product'] as $item) {
+                if ($item['variant_id'] == 0) {
+                    $product = Product::where('id', $item['product_id'])->first();
+                    if (! empty($product)) {
+                        $product->product_stock += $item['qty'];
+                        $product->save();
+                    }
+                } else {
+                    $variant = ProductVariant::where('id', $item['variant_id'])->first();
+                    if (! empty($variant)) {
+                        $variant->stock += $item['qty'];
+                        $variant->save();
+                    }
+                }
+            }
+
             $return['status'] = 'success';
             $return['message'] = __('Order cancel successfully!');
             return response()->json($return);
