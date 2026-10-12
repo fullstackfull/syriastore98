@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToStore;
 use GeneaLabs\LaravelModelCaching\Traits\Cachable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class NotifyUser extends Model
 {
-    use HasFactory, Cachable;
+    use HasFactory, Cachable, BelongsToStore;
 
     protected $fillable = [
         'store_id', 'user_id', 'product_id'

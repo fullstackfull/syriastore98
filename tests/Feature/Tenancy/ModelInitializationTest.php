@@ -157,15 +157,67 @@ class ModelInitializationTest extends TestCase
         StoreScope::$enabled = false;
 
         $model = new $modelClass();
+
+        // THE COLUMN MUST BE COMPARED IN ITS WRAPPED FORM, and getting this wrong is how the
+        // original version of this test came to be VACUOUS. `qualifyColumn()` returns
+        // `support_tickets.store_id`, but the compiled SQL contains `"support_tickets"."store_id"`
+        // -- so the old `assertStringNotContainsString($model->qualifyColumn(...), $sql)` compared
+        // a string that can never appear in the SQL at all. It therefore passed for every model in
+        // every state, including states where the predicate WAS present, and could not have
+        // detected the regression it was written to catch. Running the corrected version is what
+        // exposed that: six allowlisted models immediately failed the new positive assertion while
+        // their SQL plainly contained the predicate.
+        $column = \DB::connection()->getQueryGrammar()->wrap($model->qualifyColumn($model->getStoreColumn()));
+
+        // THE PREMISE OF THIS TEST WAS CORRECTED, and the correction is declared rather than left
+        // to be discovered. It used to assert, for EVERY trait-carrying model, that no predicate
+        // is emitted -- on the grounds that the trait is behaviour-neutral "until GATE G2 clears".
+        // That is no longer true for every model: enforcement is now per-model via
+        // config/tenancy.php `scoped_models`, and for a model on that allowlist the scope is ON.
+        //
+        // The old assertion still PASSED for the allowlisted models, but for the wrong reason:
+        // nothing is authenticated in this test, so the tenant is UNRESOLVED and the fail-open
+        // policy adds no predicate anyway. A test that passes because of an unrelated condition
+        // is not evidence, so the two cases are now separated.
+        if (StoreScope::isAllowlisted($modelClass)) {
+            // Allowlisted: no predicate with no tenant (fail-open), and a predicate once a
+            // merchant is authenticated. The second half is what the old shape could not see.
+            $this->assertNull(auth()->user(), 'This test assumes an unauthenticated context.');
+            $this->assertStringNotContainsString($column, $modelClass::query()->toSql());
+
+            $merchant = new \App\Models\User();
+            $merchant->forceFill([
+                'name' => 'Merchant',
+                'email' => 'merchant-' . uniqid() . '@example.test',
+                'password' => bcrypt('not-a-real-credential'),
+                'type' => 'admin',
+                'current_store' => 4242,
+            ])->save();
+
+            $this->be($merchant);
+
+            $this->assertStringContainsString(
+                $column,
+                $modelClass::query()->toSql(),
+                $modelClass . ' is allowlisted in config/tenancy.php but emits NO tenant predicate '
+                . 'for an authenticated merchant, so it is not actually protected.'
+            );
+
+            return;
+        }
+
+        // NOT allowlisted: the original behaviour-neutrality claim stands and still matters,
+        // because every laravel-model-caching key is derived from the emitted SQL and 78 models
+        // use that package.
         $sql = $modelClass::query()->toSql();
 
         $this->assertIsString($sql);
         $this->assertStringNotContainsString(
-            $model->qualifyColumn($model->getStoreColumn()),
+            $column,
             $sql,
-            'The disabled scope added a tenant predicate to ' . $modelClass . '. Attaching the '
-            . 'trait is supposed to be behaviour-neutral until GATE G2 clears, and every '
-            . 'laravel-model-caching key is derived from this SQL.'
+            'The scope added a tenant predicate to ' . $modelClass . ', which is NOT on the '
+            . 'config/tenancy.php allowlist. Attaching the trait must stay behaviour-neutral for '
+            . 'un-allowlisted models, and every laravel-model-caching key derives from this SQL.'
         );
     }
 
