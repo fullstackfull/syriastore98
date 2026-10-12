@@ -1,0 +1,46 @@
+{
+    "_comment": "Recorded baseline of /api/admin/* routes with NO authentication middleware. Shrink this list as Agent 1 repairs each route; never grow it. check-auth-coverage.php fails on anything not listed here.",
+    "_source": "routes/api.php",
+    "_warning": "Every entry here is an endpoint reachable with no credentials.",
+    "_verified_by": "Agent 5, Phase 1B, real PHPUnit 11.5.57 run against baseline b4917c5b. Anonymous GET of categorylist/couponlist/taxlist/shippinglist/variantlist with store_id returned HTTP 200 {\"status\":1,\"message\":\"successfull\"}. Anonymous POST to orders/notes/create returned 200 and took order_notes from 0 rows to 1 with note_type=to_customer -- a confirmed unauthenticated write.",
+    "count": 13,
+    "legitimately_public": {
+        "/api/admin/adminlogin": "login endpoint -- must be reachable unauthenticated",
+        "/api/admin/delivery-login": "login endpoint -- must be reachable unauthenticated",
+        "/api/admin/base_url": "returns the image base URL; public by design"
+    },
+    "must_be_protected": [
+        "/api/admin/adminlogout",
+        "/api/admin/categorylist",
+        "/api/admin/couponlist",
+        "/api/admin/orderlist",
+        "/api/admin/orders/notes/create",
+        "/api/admin/orders/notes/delete",
+        "/api/admin/productlist",
+        "/api/admin/shippinglist",
+        "/api/admin/taxlist",
+        "/api/admin/variantlist"
+    ],
+    "routes": [
+        "/api/admin/adminlogin",
+        "/api/admin/adminlogout",
+        "/api/admin/base_url",
+        "/api/admin/categorylist",
+        "/api/admin/couponlist",
+        "/api/admin/delivery-login",
+        "/api/admin/orderlist",
+        "/api/admin/orders/notes/create",
+        "/api/admin/orders/notes/delete",
+        "/api/admin/productlist",
+        "/api/admin/shippinglist",
+        "/api/admin/taxlist",
+        "/api/admin/variantlist"
+    ],
+    "_post_integration_action": "This baseline was recorded against routes/api.php at b4917c5b. Agent 5 measured p1b/agent1-auth with this same script: it takes the count from 13 to 4, closing all 9 of categorylist, couponlist, orderlist, productlist, shippinglist, taxlist, variantlist, orders/notes/create and orders/notes/delete. AFTER Agent 1 is integrated, run `php tests/Support/ApiContract/bin/check-auth-coverage.php --update-baseline` and the list must shrink to those 4. Do not leave the stale 13 in place: a baseline wider than reality silently permits a regression back to it.",
+    "_remaining_after_agent1": {
+        "/api/admin/adminlogin": "legitimately public; Agent 1 added throttle:auth",
+        "/api/admin/delivery-login": "legitimately public; Agent 1 added throttle:auth",
+        "/api/admin/base_url": "public by design",
+        "/api/admin/adminlogout": "still has NO route middleware, but the baseline probe returned 401 Unauthenticated, so the controller rejects anonymous callers. Low severity; worth a route-level guard for consistency rather than relying on the handler."
+    }
+}

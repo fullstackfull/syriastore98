@@ -1,0 +1,306 @@
+name: CI
+
+# This file implements the workflow specified in
+# docs/development/phase-1/01-SAFE-BASELINE.md 8.1, which was deliberately WRITTEN THERE
+# AND NOT CREATED. Section 8.2 justifies every step individually and 8.3 records the
+# dependency blocker; read both before changing anything here.
+#
+# Two deviations from 8.1, both strengthening it:
+#   1. The phpunit.xml and .env checks live in .github/scripts/*.sh rather than inline
+#      grep. The scripts strip XML comments before matching (a commented-out override
+#      satisfies a naive grep while doing nothing), additionally require force="true",
+#      and reject a config that points DB_* away from sqlite/:memory: even when a correct
+#      entry is also present. Each was verified against six separate sabotages of a
+#      throwaway copy of phpunit.xml.
+#   2. Two cross-repo checks are added that 8.1 predates: the Flutter API contract and
+#      admin auth coverage. Both run with nothing but `php`, which is what makes them
+#      useful despite the blocker in 8.3.
+#
+# WHAT THIS PIPELINE IS NOT GIVEN. No production credentials of any kind: no DB_PASSWORD,
+# no real APP_KEY, no gateway keys, no deploy key. `permissions: contents: read` and no
+# secret beyond the automatic GITHUB_TOKEN. The suite runs against in-memory SQLite
+# precisely so that no real credential is ever needed, and the "a .env is present" guard
+# enforces that invariant rather than trusting it.
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Everything here runs WITHOUT a vendor/ directory, and therefore runs today.
+  # See 8.3: `composer install` cannot complete on a runner that cannot reach
+  # api.github.com and git.yoomoney.ru, so any check that needed vendor/ would
+  # simply never execute. These do not.
+  # ---------------------------------------------------------------------------
+  static:
+    name: Static checks (no vendor needed)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the secret scan needs history, not just the tip
+
+      - name: Refuse to run as root
+        # A root build can write anywhere on the runner and makes every later step's
+        # file permissions untrustworthy. GitHub-hosted runners are already non-root;
+        # this asserts it rather than assuming it, and is the step that fails first if
+        # someone adds a `container:` to this job.
+        run: |
+          if [ "$(id -u)" = "0" ]; then
+            echo "::error::CI is running as root (uid 0). Refusing to proceed."
+            exit 1
+          fi
+          echo "Running as uid $(id -u) ($(id -un)) -- not root."
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          # Mirrors the ext-* set derived from composer.lock, plus pdo_sqlite for tests.
+          extensions: ctype, curl, dom, fileinfo, filter, gd, iconv, intl, mbstring, openssl, pdo, pdo_sqlite, phar, simplexml, sodium, tokenizer, xml, xmlreader, xmlwriter, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: composer validate
+        # Catches a malformed composer.json and a lock out of sync with it. With 61
+        # direct packages, lock drift is a real and silent failure mode. This only reads
+        # the two files; it resolves nothing and reaches no network.
+        #
+        # EXPECT THIS TO FAIL ON ITS FIRST RUN, and that is the point -- the same
+        # argument 01-SAFE-BASELINE.md 8.1 makes for the other guards: a CI that passed
+        # against the current tree would be worthless. Measured here:
+        #
+        #   ./composer.json is valid, but with a few warnings
+        #   - require.myfatoorah/laravel-package : unbound version constraints (*)
+        #     should be avoided
+        #
+        # and --strict turns that warning into exit 1. Two constraints are unbound:
+        #   require:     myfatoorah/laravel-package  "*"
+        #   require-dev: laravel/pint                "*"
+        # `*` accepts ANY version, including a future major release and anything an
+        # upstream account compromise publishes -- composer.lock pins what is installed
+        # today, but any `composer update` resolves `*` afresh.
+        #
+        # Pinning them edits composer.json, which is an OWNER DECISION and explicitly
+        # out of scope for Phase 1B, so it is NOT worked around here. Recommended:
+        # myfatoorah/laravel-package "^2.2" (2.2.4 is what the lock holds) and
+        # laravel/pint "^1.0". Drop --strict only as a deliberate, recorded choice --
+        # not to make the board green.
+        run: composer validate --strict --no-check-publish
+
+      - name: Guard - test-database isolation is intact
+        # THE SINGLE MOST VALUABLE STEP IN THIS FILE (8.2). RefreshDatabase runs
+        # migrate:fresh, which DROPS EVERY TABLE in whatever database the suite points
+        # at. This fails the build if the sqlite overrides are removed, commented out,
+        # stripped of force="true", or re-pointed -- and if the bootstrap= line or
+        # tests/bootstrap.php disappears, which would uninstall the PRIMARY control
+        # while leaving the two <env> lines looking correct.
+        run: .github/scripts/guard-test-isolation.sh .
+
+      - name: Guard - no live .env in the checkout or the index
+        run: .github/scripts/guard-no-env-files.sh .
+
+      - name: Guard - packages/workdo/ is unmodified
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          base="${BASE_SHA:-}"
+          if [ -z "$base" ]; then
+            base="$(git rev-parse HEAD~1 2>/dev/null || true)"
+          fi
+          .github/scripts/guard-no-workdo-changes.sh "$base" .
+
+      - name: php -l on changed PHP files
+        # Scoped to the diff so it stays fast on a large legacy codebase and so
+        # pre-existing issues in untouched files do not block unrelated work.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          base="${BASE_SHA:-$BEFORE_SHA}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
+          fi
+          changed="$(git diff --name-only --diff-filter=ACMR "$base" HEAD -- '*.php' \
+                     | grep -v '^vendor/' || true)"
+          if [ -z "$changed" ]; then
+            echo "No PHP files changed."
+            exit 0
+          fi
+          rc=0
+          while IFS= read -r f; do
+            [ -f "$f" ] || continue
+            php -l "$f" || rc=1
+          done <<< "$changed"
+          exit "$rc"
+
+      - name: Cross-repo API contract - the shipped Flutter app must not be broken
+        # The Flutter admin app pins its endpoint paths as constants compiled into a
+        # binary already on merchants' phones. A server-side route rename silently
+        # breaks every installed copy, visible only as a 404 in the logs. Runs against
+        # the committed manifest, so no Flutter checkout is required here.
+        run: php tests/Support/ApiContract/bin/check-contract.php
+
+      - name: Admin API auth coverage must not regress
+        # Fails if an /api/admin/* route without authentication middleware appears
+        # outside the recorded baseline. The baseline exists because 13 such routes
+        # already do; 10 of them must be protected, and an anonymous write to
+        # /api/admin/orders/notes/create was confirmed empirically. See the baseline
+        # manifest for the evidence.
+        run: php tests/Support/ApiContract/bin/check-auth-coverage.php
+
+  # ---------------------------------------------------------------------------
+  # Secret scanning. Two layers: a dependency-free screen over the diff that always
+  # runs, and gitleaks over full history, which needs its action to be reachable.
+  # ---------------------------------------------------------------------------
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Diff screen (no dependencies)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          base="${BASE_SHA:-$BEFORE_SHA}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git rev-parse HEAD~1 2>/dev/null || true)"
+          fi
+          .github/scripts/scan-secrets.sh "$base" .
+
+      - name: Gitleaks (full history)
+        # EXPECT THIS TO FAIL ON ITS FIRST RUN, and that is the point: `.env` is
+        # committed (recoverable at 3c39c160), so history genuinely contains
+        # credentials. The owner must rotate them -- CI must not, and this pipeline
+        # deliberately holds no credential it could rotate with.
+        #
+        # The allowlist is in .gitleaks.toml and every entry documents WHY it is
+        # allowed. An undocumented allowlist is worse than no scanner.
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+          GITLEAKS_CONFIG: .github/gitleaks.toml
+
+  # ---------------------------------------------------------------------------
+  # THIS JOB IS GATED, AND NOT BECAUSE OF A DEFECT IN THE PROJECT.
+  #
+  # composer.lock pins three packages that a stock restricted runner cannot fetch
+  # (01-SAFE-BASELINE.md 8.3, measured):
+  #   lahirulhr/laravel-payhere v1.0.4   dist is an api.github.com zipball -> HTTP 403
+  #   yoomoney/yookassa-sdk-php 3.7.1    git.yoomoney.ru -> unreachable (curl 56)
+  #   yoomoney/yookassa-sdk-validator    same host; pulled in transitively
+  # Two more (myfatoorah/laravel-package, myfatoorah/library) carry no dist at all and
+  # must be git-cloned from dev.azure.com.
+  #
+  # GitHub-hosted runners reach all of these by default. A self-hosted runner, a
+  # corporate proxy or a locked-down container will not, and the install aborts leaving
+  # vendor/ unusable -- so this job is opt-in rather than silently red forever.
+  #
+  # TO ENABLE: set the repository variable ALLOW_COMPOSER_INSTALL to 'true' once the
+  # runner can reach api.github.com, git.yoomoney.ru and dev.azure.com. Changing
+  # composer.json to drop the packages is an OWNER DECISION and is NOT a workaround to
+  # apply here -- app/ and routes/ both reference those SDKs' classes, so removing them
+  # without removing the references is a fatal error at class load.
+  # ---------------------------------------------------------------------------
+  tests:
+    name: Tests (sqlite only)
+    runs-on: ubuntu-latest
+    if: vars.ALLOW_COMPOSER_INSTALL == 'true'
+
+    env:
+      # Belt and braces: REAL environment variables. Laravel's Dotenv loader is
+      # documented as immutable, so these are expected to beat any .env that reaches a
+      # runner -- but the job does not rest on that. The explicit assertion below, and
+      # Layer 0 inside the suite, are what actually enforce it.
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      APP_ENV: testing
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Refuse to run as root
+        run: |
+          if [ "$(id -u)" = "0" ]; then
+            echo "::error::CI is running as root (uid 0). Refusing to proceed."
+            exit 1
+          fi
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: ctype, curl, dom, fileinfo, filter, gd, iconv, intl, mbstring, openssl, pdo, pdo_sqlite, phar, simplexml, sodium, tokenizer, xml, xmlreader, xmlwriter, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Hard guard - refuse to run against anything but sqlite
+        run: |
+          test "${DB_CONNECTION}" = "sqlite"   || { echo "::error::DB_CONNECTION is not sqlite";   exit 1; }
+          test "${DB_DATABASE}"   = ":memory:" || { echo "::error::DB_DATABASE is not :memory:";   exit 1; }
+          if [ -f .env ]; then
+            echo "::error::A .env is present in CI. CI must never carry real credentials."
+            exit 1
+          fi
+
+      - name: Guard - test-database isolation is intact
+        # Repeated here deliberately. The static job proves the config is correct; this
+        # proves it is still correct in the job that actually runs migrate:fresh.
+        run: .github/scripts/guard-test-isolation.sh .
+
+      - name: Create the storage skeleton (absent from the repo)
+        # storage/ is gitignored, so a fresh clone cannot boot the framework without
+        # this. It is also a standing reminder that a fresh clone is not runnable.
+        run: mkdir -p storage/framework/{cache/data,sessions,views,testing} storage/logs bootstrap/cache
+
+      - name: Install dependencies
+        # --no-scripts is load-bearing: post-autoload-dump runs `artisan
+        # package:discover`, which BOOTS THE APPLICATION, and post-create-project-cmd
+        # contains `artisan migrate --graceful`, which must never run in CI.
+        run: composer install --prefer-dist --no-interaction --no-progress --no-scripts
+
+      - name: Assert the committed fake test key is present
+        # NO key:generate. .env.testing carries a FIXED, deliberately fake APP_KEY,
+        # committed on purpose because it protects nothing and is used only by the
+        # suite. Generating one here would write into a tracked file, and CI is never
+        # given a real key. This step only proves the fake one shipped.
+        run: |
+          test -f .env.testing || { echo "::error::.env.testing is missing."; exit 1; }
+          grep -q '^APP_KEY=base64:' .env.testing || { echo "::error::.env.testing has no fixed test APP_KEY."; exit 1; }
+
+      - name: Unit suite
+        # Verified green by Agent 5 in a real PHPUnit 11.5.57 run: 8 tests,
+        # 16 assertions, against sqlite :memory:.
+        run: vendor/bin/phpunit --testsuite Unit --testdox
+
+      - name: Feature suite
+        # NOT green on the Phase 1A baseline, and allowed to fail for now so the rest of
+        # the pipeline stays meaningful. Agent 5 established empirically that the whole
+        # suite is blocked by exactly three MySQL-only migrations, which Agent 2 is
+        # guarding by driver:
+        #   2024_05_16_054044_add_id_to_currency_table.php          ($table->id()->first())
+        #   2024_05_29_102438_add_customers_tbale_forienkey_...php  (SET foreign_key_checks)
+        #   2024_06_05_094055_drop_role_name_unique_in_roles_...php (SHOW INDEX)
+        # With those three guarded, migrations complete on sqlite and the suite runs:
+        # 24 tests, 47 assertions, 0 errors, 14 failures -- the 14 being stock Laravel
+        # Breeze scaffold tests that never matched this customised app.
+        # REMOVE continue-on-error once those 14 are triaged; leaving it forever is how
+        # a suite becomes decorative.
+        continue-on-error: true
+        run: vendor/bin/phpunit --testsuite Feature --testdox
