@@ -100,12 +100,32 @@ public function AddOrderNote(Request $request)
         ]);
     }
 
-    $store = Store::find($request->store_id);
+    // NEW-order-note-cross-tenant-write.
+    //
+    // This was `Store::find($request->store_id)`: the store was resolved from a
+    // REQUEST FIELD and never compared against the caller's tenant. The order
+    // lookup below then filtered on that attacker-chosen store, so the filter
+    // confirmed the attacker's own choice instead of constraining it. Any holder
+    // of ANY valid token could write a note -- including a `to_customer` note,
+    // which is merchant-to-shopper text -- onto any order in any store on the
+    // platform by changing one body field.
+    //
+    // This is the SAME defect class the Phase 1B repair closed in ChangeStore
+    // (:3650) and in the seven admin list methods, and the helper written for it
+    // is right here in this class. It is reused rather than re-derived, so there
+    // is one tenancy decision point: resolveOwnedStore() (:3590) scopes to
+    // `created_by = creatorId()` for everyone except a super admin, and
+    // creatorId() (User.php:95) resolves staff to their employer so delegated
+    // staff keep access.
+    //
+    // 403, NOT 401. repo-B lib/network/network.dart:285-287 maps any 401 into
+    // _handleUnauthorized(), which clears preferences and forces a re-login, so
+    // a 401 on an authorization denial would log the merchant out of the shipped
+    // app. storeAccessDenied() (:3609) returns 403.
+    $store = $this->resolveOwnedStore($request->store_id);
 
     if (!$store) {
-        return $this->error([
-            'message' => __('Store not found!'),
-        ]);
+        return $this->storeAccessDenied();
     }
 
     $order = Order::query()
@@ -121,7 +141,21 @@ public function AddOrderNote(Request $request)
 
     $note = new OrderNote();
     $note->order_id = $order->id;
-    $note->customer_id = $order->customer_id ?? 0;
+    // NEW-order-note-guest-order-500. Was `$order->customer_id ?? 0`, which
+    // yields the LITERAL 0 for a guest order -- orders.customer_id is 0, not
+    // null, for a guest (SecurityTestCase::makeOrder mirrors the production
+    // shape: customer_id 0, is_guest 1). order_notes.customer_id carries a
+    // foreign key to customers.id
+    // (database/migrations/2024_01_26_100237_create_order_notes_table.php:26)
+    // and 0 is never a valid customers.id, so the insert violated the
+    // constraint and the endpoint answered 500 for every guest order.
+    // Measured: "SQLSTATE[23000]: Integrity constraint violation: 19 FOREIGN
+    // KEY constraint failed ... values (1, 0, ...)".
+    //
+    // The column is nullable, so null is the representation the schema already
+    // provides for "no customer". Pinned by
+    // OrderNoteAuthorizationTest::test_api_note_create_and_delete_still_work_in_the_callers_own_store.
+    $note->customer_id = empty($order->customer_id) ? null : $order->customer_id;
     $note->notes = trim((string) $request->note);
     $note->note_type = $request->note_type;
 
@@ -161,12 +195,15 @@ public function DeleteOrderNote(Request $request)
         ]);
     }
 
-    $store = Store::find($request->store_id);
+    // NEW-order-note-cross-tenant-delete -- the sibling of the write above, and
+    // the same defect: the store came from a request field, so the three-way
+    // note/order/store filter below only ever re-asserted the attacker's own
+    // parameter. Any valid token could delete any store's order notes.
+    // resolveOwnedStore() + 403, for the reasons given on AddOrderNote.
+    $store = $this->resolveOwnedStore($request->store_id);
 
     if (!$store) {
-        return $this->error([
-            'message' => __('Store not found!'),
-        ]);
+        return $this->storeAccessDenied();
     }
 
     $order = Order::query()
