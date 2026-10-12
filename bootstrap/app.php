@@ -26,6 +26,11 @@ return Application::configure(basePath: dirname(__DIR__))
             'guest' => \App\Http\Middleware\RedirectIfAuthenticated::class,
             '2fa' => \PragmaRX\Google2FALaravel\Middleware::class,
             'demo_mode' => \App\Http\Middleware\DemoModeMiddleware::class,
+            // Finance route guard. Routes through the `finance` gate, which has a
+            // super-admin path that does not depend on a seeded permission row --
+            // see App\Http\Middleware\FinancePermission for why neither
+            // Laratrust's `permission:` nor Laravel's `can:` is usable here.
+            'finance.permission' => \App\Http\Middleware\FinancePermission::class,
         ]);
         // Append middleware to the 'web' group
         $middleware->appendToGroup('web', \App\Http\Middleware\SetLocate::class);

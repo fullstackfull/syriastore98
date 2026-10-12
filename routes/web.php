@@ -162,16 +162,36 @@ use Illuminate\Support\Facades\Http;
 // current_store resolves, with NO permission -- i.e. merchant staff escalating
 // past 'View Finance Withdrawal Requests'.
 //
-// Every permission name below already exists and is already used by this same
-// controller (:19, :71, :315, :396, :494, :624). None is invented.
+// CORRECTION TO THIS COMMENT'S EARLIER CLAIM. It previously said "every
+// permission name below already exists and is already used by this same
+// controller. None is invented." The second half was right -- the names match
+// the controller's own call sites -- but "already exists" was wrong, and the
+// distinction turned out to be the whole problem. The names exist as CALL SITES.
+// They do not exist as ROWS. Utility::addNewData() is the only mechanism that
+// creates permission rows and contains zero occurrences of "Finance", so on a
+// database built from source all six resolve to "denied" for everybody.
+// Verified by execution: isAbleTo() returned false for a super admin on all six.
+// One of them, View Finance Dashboard, was already in the baseline here, so this
+// is pre-existing rather than introduced.
 //
-// `permission:` is Laratrust's alias and is NOT in bootstrap/app.php's alias
-// map, so it is registered by Laratrust's own service provider. That could not
-// be verified in this environment (vendor/ is empty), but the alias was ALREADY
-// in use on the `/finance` GET below, so this change introduces no new alias
-// dependency: if it does not resolve, /finance was already broken before this
-// commit. Confirm with `php artisan route:list --path=finance` once vendor/ is
-// restored -- see the owner actions.
+// These routes therefore use `finance.permission:<name>`, which routes through
+// the `finance` gate in AuthServiceProvider and has a super-admin path that
+// needs no seeded row. Two alternatives were tried and rejected, both verified
+// by execution rather than by reading:
+//
+//   permission:<name>   Laratrust's own alias. Resolves purely through the pivot
+//                       tables, no super-admin bypass -> 403 for everyone.
+//   can:finance,<name>  Laravel's alias. Authorize::getModel() turns an UNQUOTED
+//                       literal into NULL, so the gate received null and raised
+//                       "Argument #2 ($permission) must be of type string" on the
+//                       first request. A quoted form works but makes an
+//                       authorization control depend on quote characters inside a
+//                       middleware string.
+//
+// Seeding the six names in Utility::addNewData() is still the clean completion
+// and is reported as a cross-agent dependency (Agent 2 owns Utility.php). The
+// gate keeps the platform operable without it and keeps delegated users working
+// once it lands. Pinned by tests/Feature/Security/FinancePermissionTest.php.
 //
 // CurrencyRateController::update already calls auth()->id() at :40, so it
 // assumes an authenticated user; it simply never had `auth` applied.
@@ -188,50 +208,56 @@ Route::middleware(['auth'])->group(function () {
     )->name('currency-rates.update');
 
     Route::get('/finance', [StoreFinanceController::class, 'index'])
-        ->middleware('permission:View Finance Dashboard')
+        ->middleware('finance.permission:View Finance Dashboard')
         ->name('finance.index');
 
     Route::post('/finance/add-balance', [StoreFinanceController::class, 'addBalance'])
-        ->middleware('permission:Add Finance Balance')
+        ->middleware('finance.permission:Add Finance Balance')
         ->name('finance.add.balance');
 
     Route::post('/finance/deduct-balance', [StoreFinanceController::class, 'deductBalance'])
-        ->middleware('permission:Deduct Finance Balance')
+        ->middleware('finance.permission:Deduct Finance Balance')
         ->name('finance.deduct.balance');
 
     Route::post(
         '/finance/withdrawal/request',
         [StoreFinanceController::class, 'requestWithdrawal']
-    )->middleware('permission:Request Finance Withdrawal')
+    )->middleware('finance.permission:Request Finance Withdrawal')
      ->name('finance.withdrawal.request');
 
     Route::get('/finance/withdrawals', [StoreFinanceController::class, 'withdrawals'])
-        ->middleware('permission:View Finance Withdrawal Requests')
+        ->middleware('finance.permission:View Finance Withdrawal Requests')
         ->name('finance.withdrawals');
 
     // approve / reject / pay had NO authorization of any kind, in the route file
-    // or in the controller. 'View Finance Withdrawal Requests' is the existing
-    // permission closest to these actions and is used here rather than inventing
-    // a name, which would need a seeder change. A dedicated
-    // 'Approve Finance Withdrawal' permission is an owner decision -- see the
-    // owner actions. The controller's DB::transaction + lockForUpdate at
-    // :650-665 are deliberately left untouched.
+    // or in the controller. The controller halves are now guarded too
+    // (StoreFinanceController::approveWithdrawal / rejectWithdrawal /
+    // payWithdrawal), so removing this middleware no longer leaves them open.
+    //
+    // 'View Finance Withdrawal Requests' is the existing permission closest to
+    // these actions and is used here rather than inventing a name. Note that it
+    // is a VIEW permission guarding three state-changing, money-moving actions:
+    // anyone who may read the withdrawal list may also approve and pay. A
+    // dedicated 'Approve Finance Withdrawal' permission is the right split and
+    // is an owner decision, because it needs a seeder entry -- see the owner
+    // actions. The controller's DB::transaction + lockForUpdate are deliberately
+    // left untouched.
     Route::post('/finance/withdrawals/{id}/approve', [StoreFinanceController::class, 'approveWithdrawal'])
-        ->middleware('permission:View Finance Withdrawal Requests')
+        ->middleware('finance.permission:View Finance Withdrawal Requests')
         ->name('finance.withdrawals.approve');
 
     Route::post('/finance/withdrawals/{id}/reject', [StoreFinanceController::class, 'rejectWithdrawal'])
-        ->middleware('permission:View Finance Withdrawal Requests')
+        ->middleware('finance.permission:View Finance Withdrawal Requests')
         ->name('finance.withdrawals.reject');
 
     Route::post('/finance/withdrawals/{id}/pay', [StoreFinanceController::class, 'payWithdrawal'])
-        ->middleware('permission:View Finance Withdrawal Requests')
+        ->middleware('finance.permission:View Finance Withdrawal Requests')
         ->name('finance.withdrawals.pay');
 
     Route::post(
         '/finance/order-financials/{id}/payment-status',
         [StoreFinanceController::class, 'updateFinancialPaymentStatus']
-    )->middleware('permission:Edit Finance Payment Status')
+    )->middleware('finance.permission:Edit Finance Payment Status')
      ->name('finance.order-financial.status');
 });
 

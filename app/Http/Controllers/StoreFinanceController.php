@@ -14,9 +14,61 @@ use Illuminate\Support\Facades\DB;
 
 class StoreFinanceController extends Controller
 {
+    /**
+     * Authorize a finance action.
+     *
+     * Routed through the `finance` gate (AuthServiceProvider), NOT through
+     * User::isAbleTo() directly. The difference is the whole point:
+     *
+     *   isAbleTo('Add Finance Balance')  -- false for EVERY user on a database
+     *                                       built from source, because
+     *                                       Utility::addNewData() never creates
+     *                                       any permission row containing
+     *                                       "Finance", and Laratrust has no
+     *                                       super-admin bypass.
+     *   Gate::allows('finance', $p)      -- true for a super admin regardless of
+     *                                       seeding, and the normal Laratrust
+     *                                       answer for everyone else.
+     *
+     * Verified by execution on a fresh sqlite schema: isAbleTo() returned false
+     * for a super admin on all six finance names while this gate returned true.
+     */
+    protected function canFinance(string $permission): bool
+    {
+        return \Illuminate\Support\Facades\Gate::allows('finance', $permission);
+    }
+
+    /**
+     * The tenant whose finance records this request may touch.
+     *
+     * Returned separately from the authorization decision so that "you may not
+     * do this" (403) stays distinguishable from "no store is selected", which
+     * previously surfaced as a confusing ModelNotFound 404 from a
+     * `where('store_id', null)` lookup.
+     */
+    protected function financeStoreId()
+    {
+        $storeId = getCurrentStore();
+
+        return empty($storeId) ? null : $storeId;
+    }
+
+    /**
+     * JSON refusal for the /api/admin/wallet/* endpoints, which reach this
+     * controller through `custom.auth` and must never emit an HTML redirect.
+     */
+    protected function financeApiDenied(string $message, int $status = 403)
+    {
+        return response()->json([
+            'status'  => 0,
+            'message' => 'fail',
+            'data'    => ['message' => $message],
+        ], $status);
+    }
+
     public function updateFinancialPaymentStatus(Request $request, $id)
     {
-        if (!auth()->user() || !auth()->user()->isAbleTo('Edit Finance Payment Status')) {
+        if (!$this->canFinance('Edit Finance Payment Status')) {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 
@@ -68,7 +120,7 @@ class StoreFinanceController extends Controller
 
     public function index(Request $request)
     {
-        if (!auth()->user() || !auth()->user()->isAbleTo('View Finance Dashboard')) {
+        if (!$this->canFinance('View Finance Dashboard')) {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 
@@ -312,7 +364,7 @@ class StoreFinanceController extends Controller
 
     public function addBalance(Request $request)
     {
-        if (!auth()->user() || !auth()->user()->isAbleTo('Add Finance Balance')) {
+        if (!$this->canFinance('Add Finance Balance')) {
             return redirect()->route('finance.index')->with('error', __('Permission denied.'));
         }
 
@@ -393,7 +445,7 @@ class StoreFinanceController extends Controller
 
     public function deductBalance(Request $request)
     {
-        if (!auth()->user() || !auth()->user()->isAbleTo('Deduct Finance Balance')) {
+        if (!$this->canFinance('Deduct Finance Balance')) {
             return redirect()->route('finance.index')->with('error', __('Permission denied.'));
         }
 
@@ -491,7 +543,7 @@ class StoreFinanceController extends Controller
 
     public function requestWithdrawal(Request $request)
     {
-        if (!auth()->user() || !auth()->user()->isAbleTo('Request Finance Withdrawal')) {
+        if (!$this->canFinance('Request Finance Withdrawal')) {
             return redirect()->route('finance.index')->with('error', __('Permission denied.'));
         }
 
@@ -621,7 +673,7 @@ class StoreFinanceController extends Controller
 
     public function withdrawals()
     {
-        if (!auth()->user() || !auth()->user()->isAbleTo('View Finance Withdrawal Requests')) {
+        if (!$this->canFinance('View Finance Withdrawal Requests')) {
             return redirect()->route('finance.index')->with('error', __('Permission denied.'));
         }
 
@@ -643,7 +695,15 @@ class StoreFinanceController extends Controller
 
     public function approveWithdrawal($id)
     {
-        $storeId = getCurrentStore();
+        if (!$this->canFinance('View Finance Withdrawal Requests')) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        $storeId = $this->financeStoreId();
+
+        if ($storeId === null) {
+            return redirect()->back()->with('error', __('No store selected.'));
+        }
 
         try {
 
@@ -720,12 +780,20 @@ class StoreFinanceController extends Controller
         Request $request,
         $id
     ) {
+        if (!$this->canFinance('View Finance Withdrawal Requests')) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        $storeId = $this->financeStoreId();
+
+        if ($storeId === null) {
+            return redirect()->back()->with('error', __('No store selected.'));
+        }
+
         $request->validate([
             'admin_note' =>
                 'nullable|string|max:500',
         ]);
-
-        $storeId = getCurrentStore();
 
         try {
 
@@ -887,7 +955,15 @@ class StoreFinanceController extends Controller
 
     public function payWithdrawal($id)
     {
-        $storeId = getCurrentStore();
+        if (!$this->canFinance('View Finance Withdrawal Requests')) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        $storeId = $this->financeStoreId();
+
+        if ($storeId === null) {
+            return redirect()->back()->with('error', __('No store selected.'));
+        }
 
         try {
 
@@ -1030,6 +1106,18 @@ public function walletTransactionsApi(Request $request)
                 'message' => 'fail',
                 'data' => ['message' => 'Unauthorized. Valid token is required.']
             ], 401);
+        }
+
+        // /api/admin/wallet/transactions reaches this method through
+        // `custom.auth` only -- api.php applies no permission middleware -- so
+        // before this check any authenticated token holder could read any
+        // store's wallet ledger that they owned. The ownership test below
+        // bounded WHICH store; nothing bounded WHETHER the caller may read
+        // wallet data at all.
+        if (!$this->canFinance('View Finance Dashboard')) {
+            return $this->financeApiDenied(
+                'Permission denied. You do not have permission to view wallet transactions.'
+            );
         }
 
         $storeId = $request->query('store_id');
@@ -1204,7 +1292,7 @@ public function walletTransactionsApi(Request $request)
             ], 401);
         }
 
-        if (!$adminUser->isAbleTo('Add Finance Balance')) {
+        if (!$this->canFinance('Add Finance Balance')) {
             return response()->json([
                 'status' => 0,
                 'message' => 'fail',
@@ -1347,7 +1435,16 @@ public function deductBalanceApi(Request $request)
             ], 401);
         }
 
-       
+        // THE EMPTY GAP. addBalanceApi checks 'Add Finance Balance' at the
+        // equivalent point; these three blank lines are where the matching
+        // check for the DEDUCT endpoint should always have been. Deducting is
+        // the more dangerous of the two -- it removes merchant funds -- and it
+        // was the one left unguarded.
+        if (!$this->canFinance('Deduct Finance Balance')) {
+            return $this->financeApiDenied(
+                'Permission denied. You do not have permission to deduct balance.'
+            );
+        }
 
         $storeId = $request->query('store_id');
 
