@@ -62,6 +62,32 @@ use Illuminate\Support\Facades\Log;
 class PaymentService
 {
     use ApiResponser;
+
+    /**
+     * Server-authoritative tax resolution. See App\Services\OrderTaxResolver:
+     * the tax component of a charged total is derived from the existing cart and
+     * shipping-method computations and never read from client input.
+     */
+    private ?OrderTaxResolver $taxResolver = null;
+
+    /** Exact-decimal reconciliation of a persisted total against its components. */
+    private ?OrderTotalReconciler $totalReconciler = null;
+
+    /**
+     * Lazily resolved rather than constructor-injected: this service is both
+     * container-resolved and `new`-ed at several call sites, and neither
+     * collaborator has dependencies of its own.
+     */
+    private function taxResolver(): OrderTaxResolver
+    {
+        return $this->taxResolver ??= new OrderTaxResolver();
+    }
+
+    private function totalReconciler(): OrderTotalReconciler
+    {
+        return $this->totalReconciler ??= new OrderTotalReconciler();
+    }
+
     public function paymentConfig()
     {
         if (auth()->guard('customers')->check()) {
@@ -1973,7 +1999,16 @@ private function processPaymera00000($request, $slug)
         $product_price = !empty($response['total_final_price']) ? $response['total_final_price'] : 0;
         $final_price = $response['total_final_price'];
         $total_sub_price = $response['total_sub_price'];
-        $tax_price = !empty($requests_data['tax_price']) ? $requests_data['tax_price'] : ($response['tax_price'] ?? 0);
+        // SERVER-DERIVED tax. This used to prefer `$requests_data['tax_price']`,
+        // i.e. the value the customer posted, and only fall back to the cart's
+        // own figure — so the tax component of the charged total was client
+        // controlled. $response is the server-built cart payload.
+        $tax_price = $this->taxResolver()->resolve(is_array($response) ? $response : []);
+        $this->taxResolver()->recordClientSuppliedTax(
+            $requests_data['tax_price'] ?? null,
+            $tax_price,
+            __METHOD__
+        );
         $billing = is_string($request->billing_info) ? (array) json_decode($request->billing_info) : $request->billing_info;
         $products = $response['product_list'];
         $coupon_price = 0;
@@ -2030,21 +2065,42 @@ private function processPaymera00000($request, $slug)
         }
         $delivery_price = 0;
         if ($plan->shipping_method == 'on') {
-            if (isset($requests_data['shipping_final_price'])) {
-                $delivery_price = $requests_data['shipping_final_price'];
-            } else {
-                if (!empty($request->method_id)) {
-                    $del_charge = new CartController();
-                    $delivery_charge = $del_charge->get_shipping_method($request, $slug);
-                    $content = $delivery_charge->getContent();
+            // The client short-circuit that used to sit here
+            // (`if (isset($requests_data['shipping_final_price'])) $delivery_price = ...`)
+            // is DELETED: it let the posted shipping price become the charged
+            // shipping price. Control now always falls through to the server
+            // computation below.
+            if (!empty($request->method_id)) {
+                $del_charge = new CartController();
+                $delivery_charge = $del_charge->get_shipping_method($request, $slug);
+                $content = $delivery_charge->getContent();
 
-                    $data = json_decode($content, true);
-                    $delivery_price = $data['total_final_price'];
-                    $tax_price = $requests_data['tax_price'] ?? ($content['final_tax_price'] ?? 0);
-                } 
-                // else {
-                //     return $this->error(['message' => 'Shipping Method not found']);
-                // }
+                $data = json_decode($content, true);
+                $delivery_price = $data['total_final_price'];
+                // SERVER-DERIVED tax; previously preferred the posted value.
+                // Note the old fallback read `$content['final_tax_price']` from
+                // the raw JSON STRING rather than from the decoded $data, so it
+                // could never fire.
+                $tax_price = $this->taxResolver()->resolve(
+                    is_array($response) ? $response : [],
+                    is_array($data) ? $data : null
+                );
+            }
+            // else {
+            //     return $this->error(['message' => 'Shipping Method not found']);
+            // }
+
+            if (isset($requests_data['shipping_final_price'])
+                && !OrderTotalReconciler::amountsMatch(
+                    (string) $requests_data['shipping_final_price'],
+                    (string) $delivery_price
+                )
+            ) {
+                Log::warning('Checkout: client-supplied shipping_final_price discarded (server value used)', [
+                    'site' => __METHOD__,
+                    'client_shipping_final_price' => (string) $requests_data['shipping_final_price'],
+                    'server_shipping_final_price' => (string) $delivery_price,
+                ]);
             }
         } else {
             if (!empty($tax_price)) {
@@ -2460,7 +2516,9 @@ $products_weight_array[] = [
                     $OrderTaxDetail->tax_id = $response['tax_id'];
                     $OrderTaxDetail->tax_name = $tax->name;
                     $OrderTaxDetail->tax_discount_amount = $tax->tax_rate;
-                    $OrderTaxDetail->tax_final_amount = $requests_data['tax_price'];
+                    // The tax ledger row records the SERVER-DERIVED tax, the same
+                    // figure persisted on the order, not the posted one.
+                    $OrderTaxDetail->tax_final_amount = $tax_price;
                     
                     $OrderTaxDetail->save();
                 }

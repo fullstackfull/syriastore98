@@ -47,9 +47,41 @@ class PaymentController extends Controller
     use ApiResponser;
     protected $paymentService;
 
+    /**
+     * Server-authoritative tax resolution. See App\Services\OrderTaxResolver:
+     * the tax component of a charged total is derived from the existing cart and
+     * shipping-method computations and never read from client input.
+     */
+    private ?\App\Services\OrderTaxResolver $taxResolver = null;
+
+    /** Exact-decimal reconciliation of a persisted total against its components. */
+    private ?\App\Services\OrderTotalReconciler $totalReconciler = null;
+
+    /** Derives an order's payment_status from a verification result. */
+    private ?\App\Services\PaymentVerificationService $paymentVerifier = null;
+
     public function __construct(PaymentService $paymentService)
     {
         $this->paymentService = $paymentService;
+    }
+
+    /**
+     * Lazily resolved so that `new PaymentController(...)` call sites and the
+     * container both keep working without a constructor signature change.
+     */
+    private function taxResolver(): \App\Services\OrderTaxResolver
+    {
+        return $this->taxResolver ??= new \App\Services\OrderTaxResolver();
+    }
+
+    private function totalReconciler(): \App\Services\OrderTotalReconciler
+    {
+        return $this->totalReconciler ??= new \App\Services\OrderTotalReconciler();
+    }
+
+    private function paymentVerifier(): \App\Services\PaymentVerificationService
+    {
+        return $this->paymentVerifier ??= new \App\Services\PaymentVerificationService();
     }
 
 
@@ -358,8 +390,9 @@ public function handlePaymeraTrigger00($orderId)
         $cartlist_final_price = $couponData['cartlist_final_price'];
         $coupon_price = $couponData['coupon_price'];
         $request->merge((array)$couponData);
-        // Process shipping
-        $shippingData = $this->processShipping($request, $plan, $slug);
+        // Process shipping. The cart's server-computed tax is handed in so the
+        // posted `tax_price` never reaches the total.
+        $shippingData = $this->processShipping($request, $plan, $slug, $cartData['tax_price'] ?? 0);
         $delivery_price = $shippingData['delivery_price'];
         $tax_price = $shippingData['tax_price'];
 
@@ -758,26 +791,41 @@ public function handlePaymeraTrigger00($orderId)
     /**
      * Process shipping
      */
-    private function processShipping(Request $request, $plan, $slug)
+    private function processShipping(Request $request, $plan, $slug, $serverTaxPrice = 0)
     {
         $delivery_price = 0;
-        $tax_price = $request->tax_price ?? 0;
-        
+
+        // The tax component of the charged total is SERVER-DERIVED. $serverTaxPrice
+        // is the cart's own `total_tax_price`, computed by Cart::cart_list_cookie()
+        // or ApiController::cart_list() in getCartData(); the posted `tax_price` is
+        // discarded (it used to be read straight into the total here).
+        $this->taxResolver()->recordClientSuppliedTax(
+            $request->input('tax_price'),
+            (float) $serverTaxPrice,
+            'PaymentController::processShipping'
+        );
+        $tax_price = $this->taxResolver()->resolve(['total_tax_price' => $serverTaxPrice]);
+
         if (!$plan || $plan->shipping_method != 'on' || empty($request->method_id)) {
             return [
                 'delivery_price' => $delivery_price,
                 'tax_price' => $tax_price
             ];
         }
-        
+
         $del_charge = new CartController();
         $delivery_charge = $del_charge->get_shipping_method($request, $slug);
         $content = $delivery_charge->getContent();
         $data = json_decode($content, true);
-        
+
         return [
             'delivery_price' => $data['total_final_price'] ?? 0,
-            'tax_price' => $data['final_tax_price'] ?? $tax_price
+            // get_shipping_method's `final_tax_price` already includes the tax on
+            // the shipping charge, so it supersedes the cart-only figure.
+            'tax_price' => $this->taxResolver()->resolve(
+                ['total_tax_price' => $serverTaxPrice],
+                is_array($data) ? $data : null
+            )
         ];
     }
 
@@ -1045,7 +1093,15 @@ public function handlePaymeraTrigger00($orderId)
             $cartlist_final_price = !empty($cartlist['final_price']) ? $cartlist['final_price'] : 0;
             $final_sub_total_price = !empty($cartlist['total_sub_price']) ? $cartlist['total_sub_price'] : 0;
             $final_price = $response->data->total_final_price;
-            $tax_price = !empty($requests_data['tax_price']) ? $requests_data['tax_price'] : '';
+            // SERVER-DERIVED tax. Previously `$requests_data['tax_price']`, i.e.
+            // whatever the customer posted at checkout, which went straight into
+            // $order->tax_price and into the charged final_price below.
+            $tax_price = $this->taxResolver()->resolve($cartlist);
+            $this->taxResolver()->recordClientSuppliedTax(
+                $requests_data['tax_price'] ?? null,
+                $tax_price,
+                __METHOD__ . '(guest)'
+            );
             $billing = $requests_data['billing_info'];
 
             $products = $cartlist['product_list'];
@@ -1065,7 +1121,13 @@ public function handlePaymeraTrigger00($orderId)
             $cartlist_final_price = !empty($cartlist['final_price']) ? $cartlist['final_price'] : 0;
             $final_sub_total_price = !empty($cartlist['total_sub_price']) ? $cartlist['total_sub_price'] : 0;
             $final_price = $cartlist['total_final_price'];
-            $tax_price = !empty($requests_data['tax_price']) ? $requests_data['tax_price'] : '';
+            // SERVER-DERIVED tax — see the guest branch above.
+            $tax_price = $this->taxResolver()->resolve($cartlist);
+            $this->taxResolver()->recordClientSuppliedTax(
+                $requests_data['tax_price'] ?? null,
+                $tax_price,
+                __METHOD__ . '(customer)'
+            );
             $billing = is_string($request->billing_info) ? (array) json_decode($request->billing_info) : $request->billing_info;
             $products = $cartlist['product_list'];
         } else {
@@ -1124,8 +1186,14 @@ public function handlePaymeraTrigger00($orderId)
                 $content = $delivery_charge->getContent();
                 $data = json_decode($content, true);
                 $delivery_price = $data['total_final_price'];
-                $tax_price = $requests_data['tax_price'] ?? 0;
-            } 
+                // SERVER-DERIVED tax, from get_shipping_method's own
+                // `final_tax_price` (shipping is taxable), falling back to the
+                // cart tax. Previously `$requests_data['tax_price']`.
+                $tax_price = $this->taxResolver()->resolve(
+                    $cartlist,
+                    is_array($data) ? $data : null
+                );
+            }
             // else {
             //     return $this->error(['message' => 'Shipping Method not found']);
             // }
@@ -1553,8 +1621,10 @@ $result = app(\App\Services\StoreNotificationService::class)
                     $OrderTaxDetail->tax_id = $tax->id;
                     $OrderTaxDetail->tax_name = $tax->name;
                     $OrderTaxDetail->tax_discount_amount = $tax->tax_rate;
-                    $OrderTaxDetail->tax_final_amount = $requests_data['tax_price'];
-                    
+                    // The tax ledger row records the SERVER-DERIVED tax, the same
+                    // figure persisted on the order, not the posted one.
+                    $OrderTaxDetail->tax_final_amount = $tax_price;
+
                     $OrderTaxDetail->save();
                 }
             }
@@ -1933,7 +2003,15 @@ $result = app(\App\Services\StoreNotificationService::class)
             $cartlist_final_price = !empty($cartlist['final_price']) ? $cartlist['final_price'] : 0;
             $final_sub_total_price = !empty($cartlist['total_sub_price']) ? $cartlist['total_sub_price'] : 0;
             $final_price = $response->data->total_final_price;
-            $tax_price = !empty($requests_data['tax_price']) ? $requests_data['tax_price'] : '';
+            // SERVER-DERIVED tax. Previously `$requests_data['tax_price']`, i.e.
+            // whatever the customer posted at checkout, which went straight into
+            // $order->tax_price and into the charged final_price below.
+            $tax_price = $this->taxResolver()->resolve($cartlist);
+            $this->taxResolver()->recordClientSuppliedTax(
+                $requests_data['tax_price'] ?? null,
+                $tax_price,
+                __METHOD__ . '(guest)'
+            );
             $billing = $requests_data['billing_info'];
 
             $products = $cartlist['product_list'];
@@ -1953,7 +2031,13 @@ $result = app(\App\Services\StoreNotificationService::class)
             $cartlist_final_price = !empty($cartlist['final_price']) ? $cartlist['final_price'] : 0;
             $final_sub_total_price = !empty($cartlist['total_sub_price']) ? $cartlist['total_sub_price'] : 0;
             $final_price = $cartlist['total_final_price'];
-            $tax_price = !empty($requests_data['tax_price']) ? $requests_data['tax_price'] : '';
+            // SERVER-DERIVED tax — see the guest branch above.
+            $tax_price = $this->taxResolver()->resolve($cartlist);
+            $this->taxResolver()->recordClientSuppliedTax(
+                $requests_data['tax_price'] ?? null,
+                $tax_price,
+                __METHOD__ . '(customer)'
+            );
             $billing = is_string($request->billing_info) ? (array) json_decode($request->billing_info) : $request->billing_info;
             $products = $cartlist['product_list'];
         } else {
@@ -2012,8 +2096,14 @@ $result = app(\App\Services\StoreNotificationService::class)
                 $content = $delivery_charge->getContent();
                 $data = json_decode($content, true);
                 $delivery_price = $data['total_final_price'];
-                $tax_price = $requests_data['tax_price'] ?? 0;
-            } 
+                // SERVER-DERIVED tax, from get_shipping_method's own
+                // `final_tax_price` (shipping is taxable), falling back to the
+                // cart tax. Previously `$requests_data['tax_price']`.
+                $tax_price = $this->taxResolver()->resolve(
+                    $cartlist,
+                    is_array($data) ? $data : null
+                );
+            }
             // else {
             //     return $this->error(['message' => 'Shipping Method not found']);
             // }
@@ -2407,8 +2497,10 @@ $result = app(\App\Services\StoreNotificationService::class)
                     $OrderTaxDetail->tax_id = $tax->id;
                     $OrderTaxDetail->tax_name = $tax->name;
                     $OrderTaxDetail->tax_discount_amount = $tax->tax_rate;
-                    $OrderTaxDetail->tax_final_amount = $requests_data['tax_price'];
-                    
+                    // The tax ledger row records the SERVER-DERIVED tax, the same
+                    // figure persisted on the order, not the posted one.
+                    $OrderTaxDetail->tax_final_amount = $tax_price;
+
                     $OrderTaxDetail->save();
                 }
             }
