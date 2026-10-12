@@ -135,6 +135,74 @@ class PaymentController extends Controller
         return ['message' => __('Insufficient stock. Please review your cart and try again.')];
     }
 
+    /**
+     * Check that a line is available WITHOUT changing any stock.
+     *
+     * NEW-whatsapp-url-anonymous-stock-decrement.
+     *
+     * `getWhatsappUrl()` (POST /{slug}/get-massage, name `get.whatsappurl`)
+     * used `decrementStockOrFail()`, i.e. it permanently decremented stock. Two
+     * facts make that indefensible:
+     *
+     *   1. The route sits in the routes/customer.php group whose only
+     *      middleware is [ActiveTheme, themelanguage] — no authentication and
+     *      no throttle — so ANY anonymous caller could POST a cart to it,
+     *      repeatedly, and drive a store's inventory to zero. Nothing is
+     *      created in exchange: `getWhatsappUrl()` builds a wa.me/Telegram URL
+     *      and returns a string. It writes no Order; `new Order()` does not
+     *      appear anywhere in it.
+     *
+     *   2. Even for a legitimate shopper it DOUBLE-COUNTED. The WhatsApp
+     *      checkout page calls both endpoints —
+     *      resources/views/payment/whatsapp.blade.php:42 posts to
+     *      `user.whatsapp` and :84 posts to `get.whatsappurl` — and
+     *      `whatsapp()` decrements the same lines again when it writes the
+     *      order. So one WhatsApp order consumed each line's stock twice.
+     *
+     * Because this path creates no order, there is nothing for a decrement here
+     * to correspond to, and no reservation record or release anywhere that
+     * would make it a hold. It is therefore removed rather than guarded, which
+     * is a correctness fix and not a product decision: inventory is still
+     * consumed, once, by `whatsapp()`, which is the path that actually writes
+     * the order.
+     *
+     * The availability CHECK is kept so the shopper-visible behaviour is
+     * unchanged — an out-of-stock cart still gets the same error, at the same
+     * point, with the same message. Only the write is gone.
+     *
+     * @return array|null null when the line may be ordered; an error payload
+     *                    otherwise.
+     */
+    private function assertStockAvailable(string $kind, $model, $qty): ?array
+    {
+        if ($model === null || !is_numeric($qty)) {
+            return null;
+        }
+
+        $quantity = (int) $qty;
+
+        if ($quantity <= 0) {
+            return null;
+        }
+
+        // Only a product that forbids ordering below stock can fail here; a
+        // backorder product is orderable at any quantity, exactly as in
+        // ProductStockService.
+        if (($model->stock_order_status ?? null) !== 'not_allow') {
+            return null;
+        }
+
+        $available = (int) ($kind === 'variant'
+            ? ($model->stock ?? 0)
+            : ($model->product_stock ?? 0));
+
+        if ($available >= $quantity) {
+            return null;
+        }
+
+        return ['message' => __('Insufficient stock. Please review your cart and try again.')];
+    }
+
     /** Give back every decrement recorded by {@see decrementStockOrFail()}. */
     private function restoreStockDecrements(array $applied): void
     {
@@ -2228,11 +2296,6 @@ $result = app(\App\Services\StoreNotificationService::class)
         }
 
         $prodduct_id_array = [];
-        // Stock decrements applied in this loop, so they can be given back if
-        // a later product in the same cart cannot be fulfilled and the order is
-        // therefore never written. Without this, a rejected checkout would
-        // silently consume the inventory of the products it got through first.
-        $appliedStockChanges = [];
         if (!empty($products)) {
             foreach ($products as $key => $product) {
                 $prodduct_id_array[] = $product->product_id;
@@ -2245,12 +2308,11 @@ $result = app(\App\Services\StoreNotificationService::class)
                 if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
                     $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();
                     if (!empty($ProductStock)) {
-                        // ATOMIC. This was a read-modify-write (`$remain_stock = $ProductStock->stock - $qtyy; ... ->save()`),
-                        // i.e. a lost update: two concurrent checkouts both wrote
-                        // `stock - qty` and the second overwrote the first, so the shop
-                        // oversold by the quantity it processed concurrently, and the
-                        // subtraction could also drive a SIGNED stock column negative.
-                        if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy)) {
+                        // CHECKED, NOT DECREMENTED. This route is anonymous and
+                        // creates no order, so decrementing here let any caller
+                        // destroy a store's inventory, and double-counted every
+                        // real WhatsApp order. See assertStockAvailable().
+                        if ($stockFailure = $this->assertStockAvailable('variant', $ProductStock, $qtyy)) {
                             return $this->error($stockFailure);
                         }
                         $pro_qty[] = $product->qty . ' x ' . $product->name . '-' . $product->variant_name;
@@ -2266,12 +2328,9 @@ $result = app(\App\Services\StoreNotificationService::class)
                     }
                 } elseif (!empty($product_id) && $product_id != 0) {
                     if (!empty($Product)) {
-                        // ATOMIC. This was a read-modify-write (`$remain_stock = $Product->product_stock - $qtyy; ... ->save()`),
-                        // i.e. a lost update: two concurrent checkouts both wrote
-                        // `stock - qty` and the second overwrote the first, so the shop
-                        // oversold by the quantity it processed concurrently, and the
-                        // subtraction could also drive a SIGNED stock column negative.
-                        if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy)) {
+                        // CHECKED, NOT DECREMENTED. See the note above and
+                        // assertStockAvailable().
+                        if ($stockFailure = $this->assertStockAvailable('product', $Product, $qtyy)) {
                             return $this->error($stockFailure);
                         }
                         $pro_qty[] = $product->qty . ' x ' . $product->name;
