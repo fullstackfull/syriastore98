@@ -417,7 +417,25 @@ private function processPaymera($request, $slug, $cartList)
                 }
                 $requestData = $request->except('attachment', 'payment_receipt');
 $requestData['payment_type'] = 'paymera';
-$requestData['payment_status'] = 'Paid';
+/*
+ * WAS the literal 'Paid', and this one is set at payment INITIATION -- before
+ * the shopper has even been redirected to Paymera, let alone paid. The pending
+ * record stored immediately below says `'status' => 'P'` (Pending) about the
+ * very same payment, so the two disagreed inside one array literal.
+ *
+ * SAFE TO CORRECT, verified rather than assumed: nothing reads this key.
+ * `grep -rn "requests_data\['payment_status'\]\|request_data\['payment_status'\]"`
+ * over app/, packages/, resources/ and themes/ returns no reader, and the order
+ * writers derive payment_status through
+ * PaymentVerificationService::resolveOrderPaymentStatus() instead
+ * (PaymentController:1948, PaymentService:2539). So this value reached no
+ * decision -- it was a false statement sitting in the session waiting for a
+ * future reader to trust it.
+ *
+ * It is set to the honest value rather than deleted, so a future reader finds
+ * the truth instead of nothing.
+ */
+$requestData['payment_status'] = PaymentVerificationService::STATUS_PENDING;
 $requestData['slug'] = $slug;
 $requestData['store_id'] = $store->id;
                 Session::put('request_data', $requestData);
@@ -2572,185 +2590,227 @@ $products_weight_array[] = [
             $order->final_price,
             __METHOD__
         );
-        $order->save();
+        // TRANSACTION BOUNDARY -- OPENS HERE. See the twin boundary in
+        // PaymentController::getProductStatus() for the full rationale; this is
+        // the same defect in the service-side writer, which is the one that
+        // actually runs for 'cod' and 'bank_transfer'
+        // (PaymentService::process() cases at :315 and :317).
+        //
+        // THE DEFECT. No DB::transaction existed anywhere in this method. The
+        // Order row, OrderBillingDetail, OrderCouponDetail, the UserCoupon
+        // consumption row and the OrderTaxDetail rows were each saved alone, so
+        // a failure part-way left an order without its billing address, or a
+        // coupon consumed with nothing recording what for, or recorded against
+        // the order but never marked used -- redeemable a second time.
+        //
+        // COVERS: every local write from the order row to the last tax row.
+        // DOES NOT COVER: the stock loop and the per-line cart deletion above,
+        // which stay outside because that loop makes SMTP and SMS calls on its
+        // low-stock branches; inventory is compensated in the catch instead.
+        // Cart rows deleted by that loop are still not restored -- pre-existing
+        // behaviour, reported rather than hidden.
+        //
+        // The exception is RE-THROWN, so the failure response is unchanged.
+        \Illuminate\Support\Facades\DB::beginTransaction();
+
+        try {
+            $order->save();
        
-        // add in  Order table end
-        if (module_is_active('CheckoutAttachment')) {
-            \Workdo\CheckoutAttachment\app\Models\CheckoutAttachment::CheckoutAttachment($order, $slug, $request);
-        }
-        // Utility::paymentWebhook($order);
-
-        $billing_city_id = $billing['billing_city'] ?? 0;
-        if (!empty($billing['billing_city'])) {
-            $cityy = City::where('id', $billing['billing_city'])->first();
-            if (!empty($cityy)) {
-                $billing_city_id = $cityy->id;
-            } else {
-                $new_billing_city = new City();
-                $new_billing_city->name = $billing['billing_city'];
-                $new_billing_city->state_id = $billing['billing_state'];
-                $new_billing_city->country_id = $billing['billing_country'];
-                $new_billing_city->save();
-                $billing_city_id = $new_billing_city->id;
+            // add in  Order table end
+            if (module_is_active('CheckoutAttachment')) {
+                \Workdo\CheckoutAttachment\app\Models\CheckoutAttachment::CheckoutAttachment($order, $slug, $request);
             }
-        }
+            // Utility::paymentWebhook($order);
 
-        $delivery_city_id = $billing['delivery_city'] ?? 0;
-        if (!empty($billing['delivery_city'])) {
-            $d_cityy = City::where('id', $billing['delivery_city'])->first();
-            if (!empty($d_cityy)) {
-                $delivery_city_id = $d_cityy->id;
-            } else {
-                $new_delivery_city = new City();
-                $new_delivery_city->name = $billing['delivery_city'];
-                $new_delivery_city->state_id = $billing['delivery_state'];
-                $new_delivery_city->country_id = $billing['delivery_country'];
-                $new_delivery_city->save();
-                $delivery_city_id = $new_delivery_city->id;
-            }
-        }
-
-        $OrderBillingDetail = new OrderBillingDetail();
-        $OrderBillingDetail->order_id = $order->id;
-        $OrderBillingDetail->product_order_id = $order->product_order_id;
-        $OrderBillingDetail->first_name = !empty($billing['firstname']) ? $billing['firstname'] : '';
-        $OrderBillingDetail->last_name = !empty($billing['lastname']) ? $billing['lastname'] : '';
-        $OrderBillingDetail->email = !empty($billing['email']) ? $billing['email'] : '';
-        $OrderBillingDetail->telephone = !empty($billing['billing_user_telephone']) ? $billing['billing_user_telephone'] : '';
-        $OrderBillingDetail->address = !empty($billing['billing_address']) ? $billing['billing_address'] : '';
-        $OrderBillingDetail->postcode = !empty($billing['billing_postecode']) ? $billing['billing_postecode'] : '';
-        $OrderBillingDetail->country = !empty($billing['billing_country']) ? $billing['billing_country'] : '';
-        $OrderBillingDetail->state = !empty($billing['billing_state']) ? $billing['billing_state'] : '';
-        $OrderBillingDetail->city = $billing_city_id;
-        
-        $OrderBillingDetail->delivery_address = !empty($billing['delivery_address']) ? $billing['delivery_address'] : '';
-        $OrderBillingDetail->delivery_city = $delivery_city_id;
-        $OrderBillingDetail->delivery_postcode = !empty($billing['delivery_postcode']) ? $billing['delivery_postcode'] : '';
-        $OrderBillingDetail->delivery_country = !empty($billing['delivery_country']) ? $billing['delivery_country'] : '';
-        $OrderBillingDetail->delivery_state = !empty($billing['delivery_state']) ? $billing['delivery_state'] : '';
-        $OrderBillingDetail->save();
-       
-
-        // add in Order Coupon Detail table start
-        if (!empty($requests_data['coupon_info'])) {
-            $coupon_data = $requests_data['coupon_info'];
-            $Coupon = Coupon::find($coupon_data['coupon_id']);
-            if ($Coupon) {
-                // coupon stock decrease end
-
-                // Order Coupon history
-                $OrderCouponDetail = new OrderCouponDetail();
-                $OrderCouponDetail->order_id = $order->id;
-                $OrderCouponDetail->product_order_id = $order->product_order_id;
-                $OrderCouponDetail->coupon_id = $coupon_data['coupon_id'];
-                $OrderCouponDetail->coupon_name = $coupon_data['coupon_name'];
-                $OrderCouponDetail->coupon_code = $coupon_data['coupon_code'];
-                $OrderCouponDetail->coupon_discount_type = $coupon_data['coupon_discount_type'];
-                $OrderCouponDetail->coupon_discount_number = $coupon_data['coupon_discount_number'];
-                $OrderCouponDetail->coupon_discount_amount = $coupon_data['coupon_discount_amount'];
-                $OrderCouponDetail->coupon_final_amount = $coupon_data['coupon_final_amount'];
-                
-                $OrderCouponDetail->save();
-
-                // Coupon history
-                $UserCoupon = new UserCoupon();
-                $UserCoupon->user_id = !empty($request->customer_id) ? $request->customer_id : null;
-                $UserCoupon->coupon_id = $Coupon->id;
-                $UserCoupon->amount = $coupon_data['coupon_discount_amount'];
-                $UserCoupon->order_id = $order->id;
-                $UserCoupon->date_used = now();
-                
-                $UserCoupon->save();
-            }
-
-
-            $discount_string = '-' . $coupon_data['coupon_discount_amount'];
-            $CURRENCY = Utility::GetValueByName('CURRENCY');
-            $CURRENCY_NAME = Utility::GetValueByName('CURRENCY_NAME');
-            if ($coupon_data['coupon_discount_type'] == 'flat') {
-                $discount_string .= $CURRENCY;
-            } else {
-                $discount_string .= '%';
-            }
-
-            $discount_string .= ' ' . __('for all products');
-            $order_array['coupon']['code'] = $coupon_data['coupon_code'] ?? null;
-            $order_array['coupon']['discount_string'] = $discount_string ?? null;
-            $order_array['coupon']['price'] = SetNumber($coupon_data['coupon_final_amount'] ?? 0.00);
-        } elseif (!empty($requests_data['cartlist']['coupon_code'])) {
-            $coupon_data = is_object($requests_data['cartlist']['coupon_info']) ? (array) $requests_data['cartlist']['coupon_info'] : $requests_data['cartlist']['coupon_info'];
-            $Coupon = Coupon::find($coupon_data['coupon_id']);
-            if ($Coupon) {
-                // coupon stock decrease end
-
-                // Order Coupon history
-                $OrderCouponDetail = new OrderCouponDetail();
-                $OrderCouponDetail->order_id = $order->id;
-                $OrderCouponDetail->product_order_id = $order->product_order_id;
-                $OrderCouponDetail->coupon_id = $coupon_data['coupon_id'];
-                $OrderCouponDetail->coupon_name = $coupon_data['coupon_name'];
-                $OrderCouponDetail->coupon_code = $coupon_data['coupon_code'];
-                $OrderCouponDetail->coupon_discount_type = $coupon_data['coupon_discount_type'];
-                $OrderCouponDetail->coupon_discount_number = $coupon_data['coupon_discount_number'];
-                $OrderCouponDetail->coupon_discount_amount = $coupon_data['coupon_discount_amount'];
-                $OrderCouponDetail->coupon_final_amount = $coupon_data['coupon_final_amount'];
-                
-                $OrderCouponDetail->save();
-
-                // Coupon history
-                $UserCoupon = new UserCoupon();
-                $UserCoupon->user_id = !empty($request->customer_id) ? $request->customer_id : null;
-                $UserCoupon->coupon_id = $Coupon->id;
-                $UserCoupon->amount = $coupon_data['coupon_discount_amount'];
-                $UserCoupon->order_id = $order->id;
-                $UserCoupon->date_used = now();
-                
-                $UserCoupon->save();
-            }
-
-
-            $discount_string = '-' . $coupon_data['coupon_discount_amount'];
-            $CURRENCY = Utility::GetValueByName('CURRENCY');
-            $CURRENCY_NAME = Utility::GetValueByName('CURRENCY_NAME');
-            if ($coupon_data['coupon_discount_type'] == 'flat') {
-                $discount_string .= $CURRENCY;
-            } else {
-                $discount_string .= '%';
-            }
-
-            $discount_string .= ' ' . __('for all products');
-            $order_array['coupon']['code'] = $coupon_data['coupon_code'] ?? null;
-            $order_array['coupon']['discount_string'] = $discount_string ?? null;
-            $order_array['coupon']['price'] = SetNumber($coupon_data['coupon_final_amount'] ?? 0.00);
-        }
-
-        // add in Order Coupon Detail table end
-        if ($response['tax_id']) {
-            $taxes = TaxMethod::where('tax_id', $response['tax_id'])->where('store_id', $store->id)->orderBy('priority', 'asc')->get();
-            $other_info = is_string($requests_data['billing_info']) ? (array) json_decode($requests_data['billing_info']) : $requests_data['billing_info'];
-            $country = !empty($other_info->delivery_country) ? $other_info->delivery_country : $other_info['delivery_country'];
-            $state_id = !empty($other_info->delivery_state) ? $other_info->delivery_state : $other_info['delivery_state'];
-            $city_id = !empty($other_info->delivery_city) ? $other_info->delivery_city : $other_info['delivery_city'];
-            foreach ($taxes as $tax) {
-                $countryMatch = (!$tax->country_id || $country == $tax->country_id);
-                $stateMatch = (!$tax->state_id || $state_id == $tax->state_id);
-                $cityMatch = (!$tax->city_id || $city_id == $tax->city_id);
-
-                if ($countryMatch && $stateMatch && $cityMatch) {
-                    $OrderTaxDetail = new OrderTaxDetail();
-                    $OrderTaxDetail->order_id = $order->id;
-                    $OrderTaxDetail->product_order_id = $order->product_order_id;
-                    $OrderTaxDetail->tax_id = $response['tax_id'];
-                    $OrderTaxDetail->tax_name = $tax->name;
-                    $OrderTaxDetail->tax_discount_amount = $tax->tax_rate;
-                    // The tax ledger row records the SERVER-DERIVED tax, the same
-                    // figure persisted on the order, not the posted one.
-                    $OrderTaxDetail->tax_final_amount = $tax_price;
-                    
-                    $OrderTaxDetail->save();
+            $billing_city_id = $billing['billing_city'] ?? 0;
+            if (!empty($billing['billing_city'])) {
+                $cityy = City::where('id', $billing['billing_city'])->first();
+                if (!empty($cityy)) {
+                    $billing_city_id = $cityy->id;
+                } else {
+                    $new_billing_city = new City();
+                    $new_billing_city->name = $billing['billing_city'];
+                    $new_billing_city->state_id = $billing['billing_state'];
+                    $new_billing_city->country_id = $billing['billing_country'];
+                    $new_billing_city->save();
+                    $billing_city_id = $new_billing_city->id;
                 }
             }
+
+            $delivery_city_id = $billing['delivery_city'] ?? 0;
+            if (!empty($billing['delivery_city'])) {
+                $d_cityy = City::where('id', $billing['delivery_city'])->first();
+                if (!empty($d_cityy)) {
+                    $delivery_city_id = $d_cityy->id;
+                } else {
+                    $new_delivery_city = new City();
+                    $new_delivery_city->name = $billing['delivery_city'];
+                    $new_delivery_city->state_id = $billing['delivery_state'];
+                    $new_delivery_city->country_id = $billing['delivery_country'];
+                    $new_delivery_city->save();
+                    $delivery_city_id = $new_delivery_city->id;
+                }
+            }
+
+            $OrderBillingDetail = new OrderBillingDetail();
+            $OrderBillingDetail->order_id = $order->id;
+            $OrderBillingDetail->product_order_id = $order->product_order_id;
+            $OrderBillingDetail->first_name = !empty($billing['firstname']) ? $billing['firstname'] : '';
+            $OrderBillingDetail->last_name = !empty($billing['lastname']) ? $billing['lastname'] : '';
+            $OrderBillingDetail->email = !empty($billing['email']) ? $billing['email'] : '';
+            $OrderBillingDetail->telephone = !empty($billing['billing_user_telephone']) ? $billing['billing_user_telephone'] : '';
+            $OrderBillingDetail->address = !empty($billing['billing_address']) ? $billing['billing_address'] : '';
+            $OrderBillingDetail->postcode = !empty($billing['billing_postecode']) ? $billing['billing_postecode'] : '';
+            $OrderBillingDetail->country = !empty($billing['billing_country']) ? $billing['billing_country'] : '';
+            $OrderBillingDetail->state = !empty($billing['billing_state']) ? $billing['billing_state'] : '';
+            $OrderBillingDetail->city = $billing_city_id;
+        
+            $OrderBillingDetail->delivery_address = !empty($billing['delivery_address']) ? $billing['delivery_address'] : '';
+            $OrderBillingDetail->delivery_city = $delivery_city_id;
+            $OrderBillingDetail->delivery_postcode = !empty($billing['delivery_postcode']) ? $billing['delivery_postcode'] : '';
+            $OrderBillingDetail->delivery_country = !empty($billing['delivery_country']) ? $billing['delivery_country'] : '';
+            $OrderBillingDetail->delivery_state = !empty($billing['delivery_state']) ? $billing['delivery_state'] : '';
+            $OrderBillingDetail->save();
+       
+
+            // add in Order Coupon Detail table start
+            if (!empty($requests_data['coupon_info'])) {
+                $coupon_data = $requests_data['coupon_info'];
+                $Coupon = Coupon::find($coupon_data['coupon_id']);
+                if ($Coupon) {
+                    // coupon stock decrease end
+
+                    // Order Coupon history
+                    $OrderCouponDetail = new OrderCouponDetail();
+                    $OrderCouponDetail->order_id = $order->id;
+                    $OrderCouponDetail->product_order_id = $order->product_order_id;
+                    $OrderCouponDetail->coupon_id = $coupon_data['coupon_id'];
+                    $OrderCouponDetail->coupon_name = $coupon_data['coupon_name'];
+                    $OrderCouponDetail->coupon_code = $coupon_data['coupon_code'];
+                    $OrderCouponDetail->coupon_discount_type = $coupon_data['coupon_discount_type'];
+                    $OrderCouponDetail->coupon_discount_number = $coupon_data['coupon_discount_number'];
+                    $OrderCouponDetail->coupon_discount_amount = $coupon_data['coupon_discount_amount'];
+                    $OrderCouponDetail->coupon_final_amount = $coupon_data['coupon_final_amount'];
+                
+                    $OrderCouponDetail->save();
+
+                    // Coupon history
+                    $UserCoupon = new UserCoupon();
+                    $UserCoupon->user_id = !empty($request->customer_id) ? $request->customer_id : null;
+                    $UserCoupon->coupon_id = $Coupon->id;
+                    $UserCoupon->amount = $coupon_data['coupon_discount_amount'];
+                    $UserCoupon->order_id = $order->id;
+                    $UserCoupon->date_used = now();
+                
+                    $UserCoupon->save();
+                }
+
+
+                $discount_string = '-' . $coupon_data['coupon_discount_amount'];
+                $CURRENCY = Utility::GetValueByName('CURRENCY');
+                $CURRENCY_NAME = Utility::GetValueByName('CURRENCY_NAME');
+                if ($coupon_data['coupon_discount_type'] == 'flat') {
+                    $discount_string .= $CURRENCY;
+                } else {
+                    $discount_string .= '%';
+                }
+
+                $discount_string .= ' ' . __('for all products');
+                $order_array['coupon']['code'] = $coupon_data['coupon_code'] ?? null;
+                $order_array['coupon']['discount_string'] = $discount_string ?? null;
+                $order_array['coupon']['price'] = SetNumber($coupon_data['coupon_final_amount'] ?? 0.00);
+            } elseif (!empty($requests_data['cartlist']['coupon_code'])) {
+                $coupon_data = is_object($requests_data['cartlist']['coupon_info']) ? (array) $requests_data['cartlist']['coupon_info'] : $requests_data['cartlist']['coupon_info'];
+                $Coupon = Coupon::find($coupon_data['coupon_id']);
+                if ($Coupon) {
+                    // coupon stock decrease end
+
+                    // Order Coupon history
+                    $OrderCouponDetail = new OrderCouponDetail();
+                    $OrderCouponDetail->order_id = $order->id;
+                    $OrderCouponDetail->product_order_id = $order->product_order_id;
+                    $OrderCouponDetail->coupon_id = $coupon_data['coupon_id'];
+                    $OrderCouponDetail->coupon_name = $coupon_data['coupon_name'];
+                    $OrderCouponDetail->coupon_code = $coupon_data['coupon_code'];
+                    $OrderCouponDetail->coupon_discount_type = $coupon_data['coupon_discount_type'];
+                    $OrderCouponDetail->coupon_discount_number = $coupon_data['coupon_discount_number'];
+                    $OrderCouponDetail->coupon_discount_amount = $coupon_data['coupon_discount_amount'];
+                    $OrderCouponDetail->coupon_final_amount = $coupon_data['coupon_final_amount'];
+                
+                    $OrderCouponDetail->save();
+
+                    // Coupon history
+                    $UserCoupon = new UserCoupon();
+                    $UserCoupon->user_id = !empty($request->customer_id) ? $request->customer_id : null;
+                    $UserCoupon->coupon_id = $Coupon->id;
+                    $UserCoupon->amount = $coupon_data['coupon_discount_amount'];
+                    $UserCoupon->order_id = $order->id;
+                    $UserCoupon->date_used = now();
+                
+                    $UserCoupon->save();
+                }
+
+
+                $discount_string = '-' . $coupon_data['coupon_discount_amount'];
+                $CURRENCY = Utility::GetValueByName('CURRENCY');
+                $CURRENCY_NAME = Utility::GetValueByName('CURRENCY_NAME');
+                if ($coupon_data['coupon_discount_type'] == 'flat') {
+                    $discount_string .= $CURRENCY;
+                } else {
+                    $discount_string .= '%';
+                }
+
+                $discount_string .= ' ' . __('for all products');
+                $order_array['coupon']['code'] = $coupon_data['coupon_code'] ?? null;
+                $order_array['coupon']['discount_string'] = $discount_string ?? null;
+                $order_array['coupon']['price'] = SetNumber($coupon_data['coupon_final_amount'] ?? 0.00);
+            }
+
+            // add in Order Coupon Detail table end
+            if ($response['tax_id']) {
+                $taxes = TaxMethod::where('tax_id', $response['tax_id'])->where('store_id', $store->id)->orderBy('priority', 'asc')->get();
+                $other_info = is_string($requests_data['billing_info']) ? (array) json_decode($requests_data['billing_info']) : $requests_data['billing_info'];
+                $country = !empty($other_info->delivery_country) ? $other_info->delivery_country : $other_info['delivery_country'];
+                $state_id = !empty($other_info->delivery_state) ? $other_info->delivery_state : $other_info['delivery_state'];
+                $city_id = !empty($other_info->delivery_city) ? $other_info->delivery_city : $other_info['delivery_city'];
+                foreach ($taxes as $tax) {
+                    $countryMatch = (!$tax->country_id || $country == $tax->country_id);
+                    $stateMatch = (!$tax->state_id || $state_id == $tax->state_id);
+                    $cityMatch = (!$tax->city_id || $city_id == $tax->city_id);
+
+                    if ($countryMatch && $stateMatch && $cityMatch) {
+                        $OrderTaxDetail = new OrderTaxDetail();
+                        $OrderTaxDetail->order_id = $order->id;
+                        $OrderTaxDetail->product_order_id = $order->product_order_id;
+                        $OrderTaxDetail->tax_id = $response['tax_id'];
+                        $OrderTaxDetail->tax_name = $tax->name;
+                        $OrderTaxDetail->tax_discount_amount = $tax->tax_rate;
+                        // The tax ledger row records the SERVER-DERIVED tax, the same
+                        // figure persisted on the order, not the posted one.
+                        $OrderTaxDetail->tax_final_amount = $tax_price;
+                    
+                        $OrderTaxDetail->save();
+                    }
+                }
+            }
+            \Illuminate\Support\Facades\DB::commit();
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\DB::rollBack();
+
+            // Give back the inventory this request consumed before the boundary
+            // opened; otherwise a failed order write silently ate stock.
+            $this->restoreStockDecrements($appliedStockChanges);
+
+            Log::critical('Order write failed and was rolled back; stock decrements were given back', [
+                'store_id' => $store->id ?? null,
+                'payment_type' => $requests_data['payment_type'] ?? null,
+                'restored_lines' => count($appliedStockChanges),
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
         }
+
         //activity log
         ActivityLog::order_entry([
             'customer_id' => $order->customer_id,
