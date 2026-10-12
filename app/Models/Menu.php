@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToStore;
 use GeneaLabs\LaravelModelCaching\Traits\Cachable;
 use Illuminate\Database\Eloquent\Model;
 
 class Menu extends Model
 {
-    use Cachable;
+    use Cachable, BelongsToStore;
 
     protected $fillable = [
         'name', 'store_id',
