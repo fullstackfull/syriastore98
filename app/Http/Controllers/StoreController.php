@@ -623,16 +623,35 @@ foreach ($defaultCurrencies as $currency) {
 
     public function changeStore($id)
     {
-        $store = Store::find($id);
-        if ($store && $store->is_active = 1) {
-            $user = auth()->user();
-            $user->current_store = $id;
-            $user->update();
+        $user = auth()->user();
 
-            return redirect()->back()->with('success', __('Store Change Successfully!'));
-        } else {
+        // R4-03: the tenant discriminator (users.current_store) is writable by the
+        // caller, so this lookup MUST be constrained to stores the caller owns.
+        // Without the predicate, pointing current_store at any store id nullified
+        // every `where('store_id', getCurrentStore())` filter in the application.
+        // creatorId() resolves staff members to their owning admin (User.php:95).
+        $query = Store::where('id', $id);
+
+        if ($user->type !== 'super admin') {
+            $query->where('created_by', $user->creatorId());
+        }
+
+        $store = $query->first();
+
+        if (!$store) {
+            abort(403, __('You do not have permission to access this store.'));
+        }
+
+        // `==`, not `=`: the original assignment always evaluated truthy, so the
+        // is_active guard was dead code and the error branch was unreachable.
+        if ($store->is_active != 1) {
             return redirect()->back()->with('error', __('Store is locked'));
         }
+
+        $user->current_store = $store->id;
+        $user->update();
+
+        return redirect()->back()->with('success', __('Store Change Successfully!'));
     }
 
     public function storeResetPassword($id)

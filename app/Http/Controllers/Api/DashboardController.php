@@ -3531,12 +3531,68 @@ public function DeleteReview($id)
         return $this->success(['message' => __('Email send Successfully.')]);
     }
 
+    /**
+     * Resolve a caller-supplied store_id to a Store the caller actually owns.
+     *
+     * This is the extraction of the predicate already written correctly four
+     * times in this file (DeleteStore :3607, and :4609 / :6604 with their
+     * super-admin limb). Returns null when the store does not exist or is
+     * outside the caller's tenant.
+     *
+     * creatorId() (User.php:95) resolves a staff member to their owning admin,
+     * so staff keep access to their employer's stores.
+     *
+     * Callers MUST answer null with 403, never 401: repo-B
+     * lib/network/network.dart:285-288 maps any 401 to _handleUnauthorized(),
+     * which clears preferences and forces a re-login, so a 401 on a tenancy
+     * denial would log the merchant out of the shipped app.
+     */
+    private function resolveOwnedStore($storeId)
+    {
+        $user = \Auth::user();
+
+        if (!$user || empty($storeId)) {
+            return null;
+        }
+
+        $query = Store::where('id', $storeId);
+
+        if ($user->type !== 'super admin') {
+            $query->where('created_by', $user->creatorId());
+        }
+
+        return $query->first();
+    }
+
+    /**
+     * The 403 denial used for every tenancy failure in this controller.
+     */
+    private function storeAccessDenied()
+    {
+        return $this->error(
+            ['message' => __('You do not have permission to access this store.')],
+            __('Forbidden.'),
+            403
+        );
+    }
+
     public function ChangeStore(Request $request)
     {
         $user = \Auth::user();
 
+        // R2-05 / NEW-unauthenticated-500s: there was no null check, so an
+        // unauthenticated caller reached `$user->current_store` and raised a 500.
+        // The sibling DeleteStore (:3601-3605) already guards this; copy it.
+        if (!$user) {
+            return $this->error(
+                ['message' => __('Unauthenticated user!')],
+                __('Unauthenticated.'),
+                401
+            );
+        }
+
         $rules = [
-            'store_id' => 'required',
+            'store_id' => 'required|integer',
         ];
 
         $validator = \Validator::make($request->all(), $rules);
@@ -3547,21 +3603,26 @@ public function DeleteReview($id)
             ]);
         }
 
-        $store = Store::find($request->store_id);
-        if (!empty($store)) {
-            $user->current_store = $store->id;
-            $user->update();
-            return $this->success(['message' => __('Store Change Successfully!')]);
-        } else {
-            return $this->error(['message' => __('Store not found!')]);
+        // R4-03: was Store::find($request->store_id) with no ownership check, so
+        // any caller could point users.current_store at any store on the
+        // platform and thereby satisfy every manual tenant filter as the victim.
+        $store = $this->resolveOwnedStore($request->store_id);
+
+        if (!$store) {
+            return $this->storeAccessDenied();
         }
+
+        $user->current_store = $store->id;
+        $user->update();
+        return $this->success(['message' => __('Store Change Successfully!')]);
     }
 
     public function ViewUsedCoupon(Request $request)
     {
-        $store = Store::find($request->store_id);
+        // Was Store::find(): resolved any store on the platform.
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
-            return $this->error(['message' => __('Store not found!')]);
+            return $this->storeAccessDenied();
         }
 
         $rules = [
@@ -3577,7 +3638,19 @@ public function DeleteReview($id)
         }
 
 
-        $UserCoupons = UserCoupon::where('coupon_id', $request->coupon_id)->get()->toArray();
+        // NEW-viewusedcoupon-unscoped: $store was resolved above and then never
+        // used in this query, so any caller read any store's coupon redemptions
+        // by incrementing coupon_id. Scope the redemptions through the owning
+        // coupon (coupons.store_id).
+        $coupon = Coupon::where('id', $request->coupon_id)
+            ->where('store_id', $store->id)
+            ->first();
+
+        if (!$coupon) {
+            return $this->error(['message' => __('Data not found!')]);
+        }
+
+        $UserCoupons = UserCoupon::where('coupon_id', $coupon->id)->get()->toArray();
         if (!empty($UserCoupons)) {
             return $this->success($UserCoupons);
         } else {
