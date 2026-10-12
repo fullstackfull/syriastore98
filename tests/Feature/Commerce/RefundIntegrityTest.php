@@ -77,23 +77,97 @@ class RefundIntegrityTest extends TestCase
      * today by OrderRefundController::updateRefundStatus, so it is a real
      * value, not one minted by this suite.
      */
+    /**
+     * CORRECTED ASSERTION, and the reason is recorded rather than quietly
+     * swapped.
+     *
+     * This test used to assert that the literal text `'refund_status' => 'Accept'`
+     * appeared in OrderRefundController's SOURCE. That mechanism was wrong in two
+     * directions:
+     *
+     *   - It passed on a mere textual match, so the string appearing inside a
+     *     comment would have satisfied it while nothing wrote the status.
+     *   - It failed the moment the controller stopped writing the value as an
+     *     inline literal. It now writes it through its own named state
+     *     vocabulary (OrderRefundController::STATE_ACCEPT / STATE_REFUNDED), so
+     *     the literal is gone while the behaviour it was standing in for is
+     *     strictly more explicit than before.
+     *
+     * The PROPERTY the old assertion was reaching for is kept and is now checked
+     * directly: the two statuses this service can return must be the same two
+     * values the refund controller recognises as states, and both must be
+     * reachable targets in its transition table. That is what makes "the views
+     * and the datatable already render this" true, and it cannot be satisfied by
+     * a comment.
+     */
     public function test_the_not_settled_status_is_a_status_the_application_already_writes(): void
     {
         $this->assertSame('Accept', RefundIntegrityService::STATUS_APPROVED_NOT_SETTLED);
-
-        $controller = file_get_contents(
-            base_path('app/Http/Controllers/OrderRefundController.php')
-        );
-
-        $this->assertStringContainsString(
-            "'refund_status' => 'Accept'",
-            $controller,
-            'the not-settled status must already be produced by the refund controller, '
-            . 'or this service would be inventing a status nothing downstream renders'
-        );
-
         $this->assertSame('Refunded', RefundIntegrityService::STATUS_SETTLED);
-        $this->assertStringContainsString("'refund_status' => 'Refunded'", $controller);
+
+        // The controller's own vocabulary, not a string in its source.
+        $this->assertSame(
+            RefundIntegrityService::STATUS_APPROVED_NOT_SETTLED,
+            \App\Http\Controllers\OrderRefundController::STATE_ACCEPT,
+            'the not-settled status must be a state the refund controller recognises'
+        );
+
+        $this->assertSame(
+            RefundIntegrityService::STATUS_SETTLED,
+            \App\Http\Controllers\OrderRefundController::STATE_REFUNDED
+        );
+
+        // And both must be states the controller can actually move a refund to,
+        // so neither is a value only this service believes in.
+        $reachable = array_unique(array_merge(
+            ...array_values(\App\Http\Controllers\OrderRefundController::LEGAL_TRANSITIONS)
+        ));
+
+        $this->assertContains(
+            RefundIntegrityService::STATUS_APPROVED_NOT_SETTLED,
+            $reachable,
+            'the not-settled status must be reachable in the controller transition table'
+        );
+
+        $this->assertContains(
+            RefundIntegrityService::STATUS_SETTLED,
+            $reachable
+        );
+    }
+
+    /**
+     * The service is actually CONNECTED.
+     *
+     * When this suite was written RefundIntegrityService had no production
+     * caller at all: `grep -rn RefundIntegrityService app/` matched only its own
+     * class definition, so every property proven above was proven about code
+     * that never ran. The whole suite passed while the live refund endpoint
+     * still stored a request-supplied amount and still claimed 'Refunded'
+     * without a gateway.
+     *
+     * This asserts the wiring itself, because "the service is correct" and "the
+     * service is used" are different claims and only the second one protects a
+     * merchant.
+     */
+    public function test_the_refund_controller_actually_uses_this_service(): void
+    {
+        $method = new \ReflectionMethod(
+            \App\Http\Controllers\OrderRefundController::class,
+            'RefundAmonut'
+        );
+
+        $source = implode("\n", array_slice(
+            file($method->getFileName()),
+            $method->getStartLine() - 1,
+            $method->getEndLine() - $method->getStartLine() + 1
+        ));
+
+        $this->assertStringContainsString('RefundIntegrityService', $source,
+            'the refund writer must go through the integrity service, not past it');
+        $this->assertStringContainsString('cappedRefundAmount', $source,
+            'the stored amount must be the capped one, not the requested one');
+        $this->assertStringContainsString('resolveRefundStatus', $source,
+            'the stored status must be the honest one, not the literal Refunded');
     }
 
     /**
