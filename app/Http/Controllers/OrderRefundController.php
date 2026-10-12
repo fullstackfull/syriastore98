@@ -17,6 +17,89 @@ use App\DataTables\OrderRefundDataTable;
 class OrderRefundController extends Controller
 {
     /**
+     * R4-04. Shared authorization + tenant scoping for the refund mutators.
+     *
+     * index() below already had the correct shape -- an isAbleTo() check plus
+     * `where('store_id', getCurrentStore())` -- while updateRefundStatus,
+     * CancelRefundStatus, RefundStock, updateFinalPrice and RefundAmonut each
+     * did a bare OrderRefund::findOrFail($request->refund_id) with no permission
+     * check and no store predicate. Any authenticated merchant could accept,
+     * cancel, re-stock or mark-refunded another store's refund request by
+     * guessing an id, and RefundAmonut and CancelRefundStatus also WRITE to the
+     * underlying order (final_price, product_json, delivery_price).
+     *
+     * `Manage Order Refund Request` is the permission index() uses, and unlike
+     * the finance names it IS created by Utility::addNewData() (two occurrences,
+     * verified), so gating on it is safe on a database built from source.
+     *
+     * The super-admin limb is the same shape as OrderPolicy::allow() and the
+     * `finance` gate: it keeps the platform operator working without depending
+     * on a seeded row, which is the defect class that locked the finance surface
+     * out for everybody.
+     */
+    protected function canManageRefunds(): bool
+    {
+        $user = auth()->user();
+
+        if ($user === null) {
+            return false;
+        }
+
+        if ($user->type === \App\Policies\UserPolicy::PLATFORM_ADMIN) {
+            return true;
+        }
+
+        return $user->isAbleTo('Manage Order Refund Request');
+    }
+
+    /**
+     * Resolve a refund request that genuinely belongs to the caller's tenant.
+     *
+     * Returns null rather than throwing so each caller can answer in its own
+     * shape -- these endpoints are called by JS and must stay JSON.
+     */
+    protected function findRefundInCurrentStore($refundId): ?OrderRefund
+    {
+        $storeId = getCurrentStore();
+
+        if (empty($storeId) || empty($refundId)) {
+            return null;
+        }
+
+        return OrderRefund::where('id', $refundId)
+            ->where('store_id', $storeId)
+            ->first();
+    }
+
+    /**
+     * Resolve an order inside the caller's tenant.
+     */
+    protected function findOrderInCurrentStore($orderId): ?Order
+    {
+        $storeId = getCurrentStore();
+
+        if (empty($storeId) || empty($orderId)) {
+            return null;
+        }
+
+        return Order::where('id', $orderId)
+            ->where('store_id', $storeId)
+            ->first();
+    }
+
+    /**
+     * A single JSON refusal shape for these endpoints.
+     *
+     * 403 for "not allowed", 404 for "not in your tenant" -- deliberately NOT
+     * 403 for the second case, so the response does not confirm that an id
+     * exists in some other store.
+     */
+    protected function refundDenied(string $message, int $status)
+    {
+        return response()->json(['message' => __($message)], $status);
+    }
+
+    /**
      * Display a listing of the resource.
      *
      * @return \Illuminate\Http\Response
@@ -130,9 +213,15 @@ class OrderRefundController extends Controller
 
     public function updateRefundStatus(Request $request)
     {
-        $RefundId = $request->refund_id;
+        if (!$this->canManageRefunds()) {
+            return $this->refundDenied('Permission denied.', 403);
+        }
 
-        $order = OrderRefund::findOrFail($RefundId);
+        $order = $this->findRefundInCurrentStore($request->refund_id);
+
+        if (!$order) {
+            return $this->refundDenied('Refund request not found.', 404);
+        }
 
         $order->update(['refund_status' => 'Accept']);
 
@@ -144,9 +233,24 @@ class OrderRefundController extends Controller
 
     public function CancelRefundStatus(Request $request)
     {
+        if (!$this->canManageRefunds()) {
+            return $this->refundDenied('Permission denied.', 403);
+        }
 
-        $order_refund = OrderRefund::findOrFail($request->refund_id);
-        $order = Order::findOrFail($order_refund->order_id);
+        $order_refund = $this->findRefundInCurrentStore($request->refund_id);
+
+        if (!$order_refund) {
+            return $this->refundDenied('Refund request not found.', 404);
+        }
+
+        // Scoped independently: this method WRITES final_price, product_price and
+        // product_json back onto the order, so the order's own tenancy is checked
+        // rather than inferred from the refund row.
+        $order = $this->findOrderInCurrentStore($order_refund->order_id);
+
+        if (!$order) {
+            return $this->refundDenied('Order not found.', 404);
+        }
 
         $productJson = json_decode($order->product_json, true);
         $productRefunds = json_decode($order_refund->product_refund_id, true);
@@ -183,15 +287,44 @@ class OrderRefundController extends Controller
 
     public function RefundStock(Request $request)
     {
-        $RefundId = $request->refundId;
-        $order_refund = OrderRefund::findOrFail($RefundId);
+        if (!$this->canManageRefunds()) {
+            return $this->refundDenied('Permission denied.', 403);
+        }
+
+        $order_refund = $this->findRefundInCurrentStore($request->refundId);
+
+        if (!$order_refund) {
+            return $this->refundDenied('Refund request not found.', 404);
+        }
+
+        $storeId = getCurrentStore();
 
         $product_refund_id_array = json_decode($order_refund->product_refund_id, true);
-        foreach ($product_refund_id_array as $product_refund) {
-            $product_id = $product_refund['product_refund_id'];
-            $quantity = $product_refund['quantity'];
 
-            $product = Product::find($product_id);
+        if (!is_array($product_refund_id_array)) {
+            return $this->refundDenied('Refund request has no refundable products.', 422);
+        }
+
+        foreach ($product_refund_id_array as $product_refund) {
+            $product_id = $product_refund['product_refund_id'] ?? null;
+            $quantity = $product_refund['quantity'] ?? null;
+
+            if ($product_id === null || $quantity === null) {
+                continue;
+            }
+
+            // product_refund_id comes out of a JSON blob on the refund row, so it
+            // is attacker-influenced input, not a validated foreign key. Without
+            // the store predicate this loop wrote product_stock onto any product
+            // in any store. The null guard matters too: Product::find() returned
+            // null for a deleted product and the next line dereferenced it.
+            $product = Product::where('id', $product_id)
+                ->where('store_id', $storeId)
+                ->first();
+
+            if (!$product) {
+                continue;
+            }
 
             if ($product->variant_product == 0) {
                 $final_stock = $product->product_stock + $quantity;
@@ -212,11 +345,19 @@ class OrderRefundController extends Controller
 
     public function updateFinalPrice(Request $request, $id)
     {
-        $order = Order::find($id);
-        $order_refund = OrderRefund::findorFail($request->refundId);
+        if (!$this->canManageRefunds()) {
+            return $this->refundDenied('Permission denied.', 403);
+        }
+
+        $order = $this->findOrderInCurrentStore($id);
+        $order_refund = $this->findRefundInCurrentStore($request->refundId);
 
         if (!$order) {
-            return response()->json(['message' => 'Order not found'], 404);
+            return $this->refundDenied('Order not found.', 404);
+        }
+
+        if (!$order_refund) {
+            return $this->refundDenied('Refund request not found.', 404);
         }
 
         $refundAmount = $request->finalPrice;
@@ -228,8 +369,21 @@ class OrderRefundController extends Controller
 
     public function RefundAmonut(Request $request, $id)
     {
-        $order = Order::find($id);
-        $order_refund = OrderRefund::findorFail($request->refundId);
+        if (!$this->canManageRefunds()) {
+            return $this->refundDenied('Permission denied.', 403);
+        }
+
+        $order = $this->findOrderInCurrentStore($id);
+        $order_refund = $this->findRefundInCurrentStore($request->refundId);
+
+        if (!$order) {
+            return $this->refundDenied('Order not found.', 404);
+        }
+
+        if (!$order_refund) {
+            return $this->refundDenied('Refund request not found.', 404);
+        }
+
         if($request->isTrendingChecked == 'true')
         {
             $order['delivery_price'] = 0.0;
