@@ -68,12 +68,11 @@ class FinancePermissionTest extends SecurityTestCase
      */
     public function test_the_six_finance_permissions_are_seeded_on_a_database_built_from_source(): void
     {
-        $this->assertGreaterThan(0, Permission::where('name', 'like', '%Finance%')->count(),
-            'A Finance permission row now exists. If Utility::addNewData() seeds '
-            . 'the six names, the cross-agent dependency is closed: invert this '
-            . 'assertion and keep the super-admin tests below as they are.'
-        );
-
+        // Deliberately NOT asserted against Permission rows. addNewData() is invoked at
+        // login, not by a migration, so a freshly migrated database has no rows yet and a
+        // row count here would say nothing about whether the names are seeded. The fact
+        // this test guards is a property of the SOURCE: the six names must be present in
+        // the only mechanism that can ever create them.
         $utility = file_get_contents(base_path('app/Models/Utility.php'));
 
         $this->assertGreaterThan(0, substr_count(strtolower($utility), 'finance'),
@@ -90,7 +89,12 @@ class FinancePermissionTest extends SecurityTestCase
      */
     public function test_a_super_admin_is_allowed_every_finance_action_with_no_seeded_row(): void
     {
-        $this->assertGreaterThan(0, Permission::where('name', 'like', '%Finance%')->count());
+        // Precondition, and it must stay an assertion of ABSENCE. Utility::addNewData()
+        // seeds the six names but is triggered at login, not by migrations, so a freshly
+        // migrated test database carries no Permission rows at all. That is exactly the
+        // state this test needs: it proves the Gate answers true for a platform admin
+        // when Laratrust answers false for want of a row.
+        $this->assertSame(0, Permission::where('name', 'like', '%Finance%')->count());
 
         $super = $this->makePlatformAdmin();
 
