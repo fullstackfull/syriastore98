@@ -16,9 +16,17 @@ useDefault = true
 [allowlist]
 description = """
 Verified non-secrets. Each entry was checked by hand in Phase 1B; see the comments.
-This allowlist does NOT cover the committed .env, which is a REAL finding: APP_KEY and
-the full database credential set are recoverable from history at 3c39c160. Rotating
-those is an owner action and is deliberately left failing until the owner acts.
+This allowlist does NOT cover the committed .env, and must never be made to. That is a
+REAL, OPEN finding: APP_KEY and the full database credential set are recoverable from
+history at 3c39c160.
+
+The project owner has since reviewed it and decided to defer rotation, to leave the
+deployed .env untouched, and to keep the finding OPEN rather than fixed -- while
+requiring that it not block ongoing development. So the scan is no longer expected to
+pass: the gitleaks step in .github/workflows/ci.yml carries continue-on-error and is
+REPORTING only, while the diff screen (.github/scripts/scan-secrets.sh) stays BLOCKING
+so a NEW secret still fails the build. Adding .env here instead would bury the finding,
+which is the one outcome the owner ruled out. See SECURITY.md.
 """
 
 paths = [

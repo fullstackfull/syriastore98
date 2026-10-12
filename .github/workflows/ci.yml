@@ -243,14 +243,28 @@ jobs:
           fi
           .github/scripts/scan-secrets.sh "$base" .
 
-      - name: Gitleaks (full history)
-        # EXPECT THIS TO FAIL ON ITS FIRST RUN, and that is the point: `.env` is
-        # committed (recoverable at 3c39c160), so history genuinely contains
-        # credentials. The owner must rotate them -- CI must not, and this pipeline
-        # deliberately holds no credential it could rotate with.
+      - name: Gitleaks (full history) -- REPORTED, NOT ENFORCED
+        # This WILL find real credentials, and that is expected: `.env` is committed
+        # (recoverable at 3c39c160), so history genuinely contains an APP_KEY and the
+        # database credential set.
         #
-        # The allowlist is in .gitleaks.toml and every entry documents WHY it is
-        # allowed. An undocumented allowlist is worse than no scanner.
+        # WHY continue-on-error. The project owner has reviewed that exposure and
+        # decided: do not rotate or replace any credential, do not delete or modify
+        # the deployed .env, these operations must not block ongoing development --
+        # and KEEP the finding open, not marked fixed or production-ready. A history
+        # scan over an un-rotated history fails on every run by construction, so
+        # enforcing it would make the board permanently red over a consciously
+        # deferred finding. Allowlisting the file instead would bury it.
+        #
+        # So the two layers are split by what they can usefully enforce:
+        #   - this job's "Diff screen" step above is BLOCKING. It only sees changed
+        #     lines, so it fails exactly when a NEW secret is introduced.
+        #   - this step is REPORTING. It covers history, which cannot be made clean
+        #     without the rotation the owner has deferred.
+        # The finding therefore stays visible on every run while development
+        # continues. REMOVE continue-on-error as soon as the credentials are rotated
+        # and .env is untracked; leaving it forever is how a scanner becomes decor.
+        continue-on-error: true
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -329,16 +343,21 @@ jobs:
         run: mkdir -p storage/framework/{cache/data,sessions,views,testing} storage/logs bootstrap/cache
 
       - name: Clear the committed-and-stale bootstrap cache
-        # bootstrap/cache/packages.php and services.php are COMMITTED (`git ls-files
-        # bootstrap/cache/` lists both) and they are STALE: they name providers from a
-        # vendor tree that no longer resolves, so the framework fatals on boot with
-        # "Class Lahirulhr\PayHere\PayHereServiceProvider not found" before a single
-        # test runs. They are regenerable artifacts, not source, so deleting them here
-        # is safe and non-destructive; `package:discover` rebuilds them on demand.
+        # NO LONGER STRICTLY NEEDED, and kept as cheap insurance.
         #
-        # This is one of three environment traps that silently break the suite. Do not
-        # remove this step without first checking whether those two files are still
-        # tracked -- if they are, the Feature job dies here with no useful output.
+        # bootstrap/cache/packages.php and services.php USED to be committed, and were
+        # stale: they named Lahirulhr\PayHere\PayHereServiceProvider from a vendor tree
+        # that no longer resolves, so the framework fatalled on boot before a single
+        # test ran. Commit e0c75b71 untracked them and added
+        # bootstrap/cache/.gitignore ("*" / "!.gitignore"), the upstream
+        # laravel/laravel layout, so a fresh clone no longer carries a stale manifest.
+        # `git ls-files bootstrap/cache/` now lists only .gitignore.
+        #
+        # The rm stays because it is free and because a manifest can still be left
+        # behind by a cached workspace on a self-hosted runner. Regeneration is proven
+        # on both paths: composer's post-autoload-dump runs `package:discover`, and
+        # PackageManifest::getManifest() rebuilds on demand when the file is absent
+        # (Illuminate/Foundation/PackageManifest.php:101-111).
         run: rm -f bootstrap/cache/packages.php bootstrap/cache/services.php
 
       - name: Satisfy the installer sentinel
@@ -374,17 +393,29 @@ jobs:
         run: vendor/bin/phpunit --testsuite Unit --testdox
 
       - name: Feature suite
-        # NOT green on the Phase 1A baseline, and allowed to fail for now so the rest of
-        # the pipeline stays meaningful. Agent 5 established empirically that the whole
-        # suite is blocked by exactly three MySQL-only migrations, which Agent 2 is
-        # guarding by driver:
+        # Allowed to fail so the rest of the pipeline stays meaningful, and the reason is
+        # now a KNOWN, BOUNDED set rather than an open question.
+        #
+        # The three MySQL-only migrations that used to block the whole suite are guarded
+        # by driver on p1b/agent2-db, which is merged here:
         #   2024_05_16_054044_add_id_to_currency_table.php          ($table->id()->first())
         #   2024_05_29_102438_add_customers_tbale_forienkey_...php  (SET foreign_key_checks)
         #   2024_06_05_094055_drop_role_name_unique_in_roles_...php (SHOW INDEX)
-        # With those three guarded, migrations complete on sqlite and the suite runs:
-        # 24 tests, 47 assertions, 0 errors, 14 failures -- the 14 being stock Laravel
-        # Breeze scaffold tests that never matched this customised app.
-        # REMOVE continue-on-error once those 14 are triaged; leaving it forever is how
-        # a suite becomes decorative.
+        #
+        # MEASURED on this integration branch with QA + database + commerce + security all
+        # merged (the earlier note here said "24 tests, 47 assertions", which was the
+        # pre-integration figure and is corrected):
+        #   Unit     OK -- 21 tests, 189 assertions
+        #   Feature  439 tests, 2557 assertions, 0 ERRORS, 14 failures, 8 skipped
+        #
+        # The 14 failures are the stock Laravel Breeze scaffold tests, which never matched
+        # this customised product. Root causes measured, not guessed: 6x the null-unsafe
+        # get_file() read at app/Helper/helper.php:143-145, 2x Route [profile.edit] not
+        # defined, 1x ExampleTest having no RefreshDatabase, 3x the Breeze ResetPassword
+        # notification, 2x the WorkDo auth flow differing from Breeze's expectations.
+        # The 8 skips are the GATE F money tables plus two that name their blocked table.
+        #
+        # REMOVE continue-on-error once those 14 are triaged -- they are pre-existing, not
+        # regressions, and nothing outside that set fails.
         continue-on-error: true
         run: vendor/bin/phpunit --testsuite Feature --testdox
