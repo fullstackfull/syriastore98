@@ -238,15 +238,37 @@ class UnauthenticatedRouteBoundaryTest extends TestCase
 
             $this->assertContains('auth', $middleware, "{$name} must require auth.");
 
+            // These used to assert Laratrust's `permission:` prefix. They now
+            // assert `finance.permission:`, and the change is the fix, not an
+            // accommodation of it: `permission:` resolves purely through the
+            // role/permission pivot tables with no super-admin bypass, and none
+            // of the six finance permission names is created by
+            // Utility::addNewData(), so every one of these routes was 403 for
+            // every user including the platform operator. See
+            // FinancePermissionTest and App\Http\Middleware\FinancePermission.
             $hasPermission = false;
             foreach ($middleware as $m) {
-                if (is_string($m) && str_starts_with($m, 'permission:')) {
+                if (is_string($m) && str_starts_with($m, 'finance.permission:')) {
                     $hasPermission = true;
                     break;
                 }
             }
 
-            $this->assertTrue($hasPermission, "{$name} must carry a permission: middleware.");
+            $this->assertTrue(
+                $hasPermission,
+                "{$name} must carry a finance.permission: middleware."
+            );
+
+            // And must NOT have regressed to the Laratrust alias.
+            foreach ($middleware as $m) {
+                if (is_string($m)) {
+                    $this->assertFalse(
+                        str_starts_with($m, 'permission:'),
+                        "{$name} uses Laratrust's permission:, which 403s a super "
+                        . 'admin while the row is unseeded.'
+                    );
+                }
+            }
         }
     }
 }
