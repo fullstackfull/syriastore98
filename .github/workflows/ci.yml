@@ -335,10 +335,21 @@ jobs:
 
       - name: Admin API auth coverage must not regress
         # Fails if an /api/admin/* route without authentication middleware appears
-        # outside the recorded baseline. The baseline exists because 13 such routes
-        # already do; 10 of them must be protected, and an anonymous write to
-        # /api/admin/orders/notes/create was confirmed empirically. See the baseline
-        # manifest for the evidence.
+        # outside the recorded baseline.
+        #
+        # UPDATED IN PHASE 1C. This comment previously read "13 such routes already do;
+        # 10 of them must be protected", which was true of the Phase 1B manifest and is
+        # no longer true of the file this step actually reads: the baseline is now
+        # 3 ROUTES, ALL THREE LEGITIMATELY PUBLIC, and must_be_protected is EMPTY. The
+        # 10 that had to be protected were protected in Phase 1C, including the
+        # anonymous write to /api/admin/orders/notes/create that was confirmed
+        # empirically. See the manifest's _history for what each phase closed.
+        #
+        # Two separate branches described this same artefact in Phase 1C -- one shrank
+        # the manifest, the other rewrote this file -- and because they touched
+        # different files Git reported no conflict at all. The contradiction landed
+        # here. AdminApiSurfaceTest now PINS the manifest's contents, so the file
+        # cannot drift from reality again without a test failing.
         run: php tests/Support/ApiContract/bin/check-auth-coverage.php
 
   # ---------------------------------------------------------------------------
