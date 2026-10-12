@@ -254,9 +254,38 @@ class RoleController extends Controller
     /**
      * Remove any permission the caller is not entitled to grant.
      *
-     * Accepts the permission-id array the form posts and drops the ids whose
-     * names appear in config/superadminaccess.php when the caller is not a
-     * platform administrator.
+     * Accepts the permission-id array the form posts and drops every id whose
+     * NAME the caller may not grant.
+     *
+     * ONE DECISION POINT -- NEW-rolepolicy-grantpermission-dead-code.
+     *
+     * RolePolicy::grantPermission() was called from NOWHERE. `grep -rn
+     * "grantPermission" app/` found the policy declaration and no call site,
+     * while store() and update() each re-implemented the same rule inline here.
+     * A dead policy method that READS like the control is worse than either
+     * having it or not: a reviewer checking "is privilege escalation gated?"
+     * finds a correct-looking policy and stops, and the two live paths are free
+     * to drift apart from it -- which is exactly the shape of the original
+     * defect, where update() filtered server-side and store() did not.
+     *
+     * So the rule now lives in the policy only, and this method is the single
+     * place that resolves ids to names and applies it. Both store() and
+     * update() call this, so there is one decision point for all three.
+     *
+     * The decision is reached through the Gate rather than by calling the
+     * policy class directly, so the policy stays overridable and testable the
+     * same way RolePolicy::update and ::delete are (both reached via
+     * $this->authorize()). Gate::callPolicyMethod drops a leading class-string
+     * argument (Gate.php:802-809), so `can('grantPermission', [Role::class,
+     * $name])` invokes RolePolicy::grantPermission($user, $name) -- verified by
+     * execution in RoleEscalationTest, not inferred.
+     *
+     * Behaviour is deliberately UNCHANGED for both branches: a platform admin
+     * may grant anything (policy :99-101), and anybody else may not grant a
+     * name listed in config/superadminaccess.php (policy :103). An id with no
+     * matching Permission row is dropped rather than passed through -- store()
+     * would have thrown on it at firstOrFail() and update() would have
+     * syncPermissions()'d a dangling id.
      */
     protected function filterGrantablePermissions($permissions)
     {
@@ -268,20 +297,34 @@ class RoleController extends Controller
 
         $actor = auth()->user();
 
-        if ($actor && $actor->type === RolePolicy::PLATFORM_ADMIN) {
-            return $permissions;
+        // Fail CLOSED. Reaching here with no principal means the permission
+        // check that guards both call sites was removed; granting nothing is
+        // the safe answer.
+        if (!$actor) {
+            return [];
         }
 
-        $restricted = (array) config('superadminaccess', []);
+        // Keys are normalised to int explicitly: pluck() keys come back as
+        // whatever the driver returns, and a string-keyed map silently misses
+        // every lookup -- which would drop EVERY permission and look like a
+        // working filter.
+        $names = [];
 
-        if (empty($restricted)) {
-            return $permissions;
+        foreach (
+            Permission::whereIn('id', array_map('intval', $permissions))->get(['id', 'name'])
+            as $permission
+        ) {
+            $names[(int) $permission->id] = $permission->name;
         }
 
-        $blockedIds = Permission::whereIn('name', $restricted)->pluck('id')->all();
+        return array_values(array_filter($permissions, function ($permissionId) use ($actor, $names) {
+            $name = $names[(int) $permissionId] ?? null;
 
-        return array_values(array_filter($permissions, function ($permissionId) use ($blockedIds) {
-            return !in_array((int) $permissionId, array_map('intval', $blockedIds), true);
+            if ($name === null) {
+                return false;
+            }
+
+            return $actor->can('grantPermission', [Role::class, $name]);
         }));
     }
 
