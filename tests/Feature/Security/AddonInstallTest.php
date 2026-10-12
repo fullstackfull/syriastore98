@@ -160,6 +160,102 @@ class AddonInstallTest extends SecurityTestCase
         $this->assertNotNull(InstallAddonRequest::archiveRejectionReason($path));
     }
 
+    /**
+     * THE DEFECT THIS PINS, and it closed the addon marketplace outright.
+     *
+     * The validator rejected EVERY entry whose basename began with '.', and
+     * separately every entry with no extension. Real WorkDo module archives
+     * contain both: packages/workdo holds 63 `.gitkeep` files -- WorkDo ships them
+     * to keep empty module directories in the archive -- 19 `.DS_Store` files, and
+     * packages/workdo/Marketing/src/resources/assets/custom/theme18/icon/color3/
+     * modal/web_url has no extension at all.
+     *
+     * So the FormRequest added to protect addon installation refused essentially
+     * every legitimate addon, and a platform super admin -- now the only account
+     * that can reach the endpoint at all -- could install nothing.
+     *
+     * A `.gitkeep` would also have failed the extension allowlist, because
+     * strrpos('.gitkeep', '.') is 0 and the derived extension is 'gitkeep', so both
+     * limbs had to be relaxed for the same files.
+     */
+    public function test_a_gitkeep_placeholder_is_accepted(): void
+    {
+        $path = $this->workDir . '/gitkeep.zip';
+        $zip = new ZipArchive;
+        $zip->open($path, ZipArchive::CREATE);
+        $zip->addFromString('MyMod/module.json', '{"name":"MyMod"}');
+        $zip->addFromString('MyMod/src/Entities/.gitkeep', '');
+        $zip->close();
+
+        $this->assertNull(
+            InstallAddonRequest::archiveRejectionReason($path),
+            'WorkDo ships .gitkeep in its module archives; rejecting it refuses every real addon.'
+        );
+    }
+
+    /** .DS_Store is inert macOS metadata that real archives carry. */
+    public function test_a_ds_store_entry_is_accepted(): void
+    {
+        $path = $this->workDir . '/dsstore.zip';
+        $zip = new ZipArchive;
+        $zip->open($path, ZipArchive::CREATE);
+        $zip->addFromString('MyMod/module.json', '{}');
+        $zip->addFromString('MyMod/.DS_Store', 'binary-ish');
+        $zip->close();
+
+        $this->assertNull(InstallAddonRequest::archiveRejectionReason($path));
+    }
+
+    /** An extension-less entry is mapped to no handler, and real archives have one. */
+    public function test_an_extensionless_entry_is_accepted(): void
+    {
+        $path = $this->workDir . '/noext.zip';
+        $zip = new ZipArchive;
+        $zip->open($path, ZipArchive::CREATE);
+        $zip->addFromString('MyMod/module.json', '{}');
+        $zip->addFromString('MyMod/src/resources/assets/icon/modal/web_url', 'https://example.test');
+        $zip->close();
+
+        $this->assertNull(InstallAddonRequest::archiveRejectionReason($path));
+    }
+
+    /**
+     * THE CONVERSE. Relaxing the dotfile rule must NOT admit the entries the rule
+     * existed for: anything that overwrites configuration or changes how the web
+     * server handles requests is still refused, by name, whatever its extension.
+     */
+    public function test_configuration_overwriting_entries_are_still_rejected(): void
+    {
+        foreach (['.htaccess', '.htpasswd', '.user.ini', '.npmrc', 'web.config', 'php.ini',
+                  '.env', '.env.production'] as $dangerous) {
+            $path = $this->workDir . '/danger.zip';
+            @unlink($path);
+            $zip = new ZipArchive;
+            $zip->open($path, ZipArchive::CREATE);
+            $zip->addFromString('MyMod/module.json', '{}');
+            $zip->addFromString('MyMod/' . $dangerous, 'x');
+            $zip->close();
+
+            $this->assertNotNull(
+                InstallAddonRequest::archiveRejectionReason($path),
+                "{$dangerous} must still be refused: that is the limb of the dotfile rule "
+                . 'that had real security value.'
+            );
+        }
+    }
+
+    /** And the traversal guard -- the actual control -- is untouched by the relaxation. */
+    public function test_a_dotfile_cannot_be_used_to_traverse(): void
+    {
+        $path = $this->workDir . '/dottrav.zip';
+        $zip = new ZipArchive;
+        $zip->open($path, ZipArchive::CREATE);
+        $zip->addFromString('MyMod/../.gitkeep', '');
+        $zip->close();
+
+        $this->assertNotNull(InstallAddonRequest::archiveRejectionReason($path));
+    }
+
     public function test_shell_script_entry_is_rejected(): void
     {
         $path = $this->workDir . '/sh.zip';

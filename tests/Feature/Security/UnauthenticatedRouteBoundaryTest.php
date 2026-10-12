@@ -52,6 +52,15 @@ class UnauthenticatedRouteBoundaryTest extends TestCase
     private const PUBLIC_ROUTE_ALLOWLIST = [
         // --- Genuinely public (admin side).
         'contacts.store',
+        // The storefront footer subscribe form, anonymous by design. This entry
+        // CORRECTS this allowlist rather than widening it: the first version of
+        // this test omitted newsletter.store while routes/web.php had swept that
+        // POST inside the `auth` group, so the suite passed while newsletter
+        // signup was broken on every storefront. Evidence it must be public:
+        // all three shipped themes post to it with no session --
+        // stylique/.../footer.blade.php:52, greentic/.../subscribe.blade.php:10,
+        // techzonix/.../subscribe.blade.php:2.
+        'newsletter.store',
         'change.languagestore',
         'payu.pay',
         'format.price',
@@ -269,6 +278,39 @@ class UnauthenticatedRouteBoundaryTest extends TestCase
                     );
                 }
             }
+        }
+    }
+
+    /**
+     * THE CONVERSE OF THIS SUITE'S MAIN ASSERTION, and the reason it is needed.
+     *
+     * The sweep above SKIPS every allowlisted name, so adding a name to the
+     * allowlist proves nothing about whether that route is actually reachable
+     * without a session. That gap is exactly how the storefront newsletter form
+     * broke: routes/web.php had swept the `newsletter.store` POST inside the
+     * ['auth','xss','setlocate','verified'] group, the allowlist did not mention
+     * it, and the suite stayed green while footer signup 404'd into a login
+     * redirect on every store.
+     *
+     * So the storefront endpoints that MUST be anonymous are asserted positively,
+     * against the real router.
+     */
+    public function test_the_storefront_public_endpoints_are_reachable_without_a_session(): void
+    {
+        $routes = app('router')->getRoutes();
+
+        foreach (['newsletter.store', 'contacts.store'] as $name) {
+            $route = $routes->getByName($name);
+
+            $this->assertNotNull($route, "Route {$name} does not exist at all.");
+
+            $middleware = $route->gatherMiddleware();
+
+            $this->assertNotContains('auth', $middleware,
+                "Route {$name} carries the `auth` middleware. It is a storefront form that "
+                . 'anonymous shoppers post to, so authenticating it breaks the storefront. '
+                . 'If it genuinely must move inside `auth`, the theme views that post to it '
+                . 'have to change in the same commit.');
         }
     }
 }

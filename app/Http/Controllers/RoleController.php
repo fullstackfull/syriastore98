@@ -101,6 +101,19 @@ class RoleController extends Controller
             $permissions      = $request['permissions'];
             $role->save();
 
+            // SAME CONTROL AS update() AT :227, which this path was missing.
+            //
+            // config/superadminaccess.php was enforced only in Blade
+            // (roles/create.blade.php:72,98), so a crafted POST to roles.store
+            // granted platform-operator permissions to any role. update() was
+            // filtered server-side and store() was not, which left the escalation
+            // fully open through the sibling endpoint: public registration grants
+            // type=admin, and the shared admin role carries 'Create Role'
+            // (Utility.php:2871), so a self-registered merchant could mint a role
+            // holding 'Create Plan', 'Manage Country', 'Manage currency' and the
+            // rest, then assign it to themselves.
+            $permissions = $this->filterGrantablePermissions($permissions);
+
             foreach($permissions as $permission)
             {
                 $p = Permission::where('id', '=', $permission)->firstOrFail();

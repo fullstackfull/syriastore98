@@ -3,6 +3,7 @@
 namespace Tests\Feature\Security;
 
 use App\Models\Permission;
+use App\Models\Role;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 /**
@@ -177,6 +178,70 @@ class RoleEscalationTest extends SecurityTestCase
         $this->assertDatabaseMissing('permission_role', [
             'role_id' => $ownRole->id,
             'permission_id' => $restricted->id,
+        ]);
+    }
+
+    /**
+     * THE SIBLING ENDPOINT, which the server-side filter was never applied to.
+     *
+     * SEC-F3 reported the superadminaccess escalation as closed because
+     * RoleController::update() filters the posted permission ids server-side
+     * (:240). RoleController::store() did not: it took $request['permissions']
+     * raw and called givePermission() on each id in a loop, so the escalation
+     * stayed fully open through role CREATION.
+     *
+     * The route is reachable by any merchant: public self-registration grants
+     * type=admin and the shared admin role carries 'Create Role'
+     * (Utility.php:2871). Nothing but the Blade template hid the restricted
+     * permissions, and a template hides nothing from a crafted POST.
+     */
+    public function test_role_create_cannot_grant_superadminaccess_permissions(): void
+    {
+        [$merchant] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Create Role');
+
+        $restrictedName = config('superadminaccess')[0] ?? 'Create Plan';
+        $restricted = Permission::firstOrCreate(
+            ['name' => $restrictedName],
+            ['display_name' => $restrictedName, 'guard_name' => 'web']
+        );
+
+        $this->actingAs($merchant)->post('/roles', [
+            'name' => 'escalated-role',
+            'permissions' => [$restricted->id],
+        ]);
+
+        $created = Role::where('name', 'escalated-role')->first();
+
+        if ($created !== null) {
+            $this->assertDatabaseMissing('permission_role', [
+                'role_id' => $created->id,
+                'permission_id' => $restricted->id,
+            ], 'A merchant must not be able to mint a role holding a platform-operator permission.');
+        }
+    }
+
+    /** The positive case: an ordinary permission is still grantable on create. */
+    public function test_role_create_still_grants_an_ordinary_permission(): void
+    {
+        [$merchant] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Create Role');
+
+        $ordinary = Permission::firstOrCreate(
+            ['name' => 'Manage Order'],
+            ['display_name' => 'Manage Order', 'guard_name' => 'web']
+        );
+
+        $this->actingAs($merchant)->post('/roles', [
+            'name' => 'ordinary-role',
+            'permissions' => [$ordinary->id],
+        ]);
+
+        $created = Role::where('name', 'ordinary-role')->first();
+        $this->assertNotNull($created, 'role creation must still work');
+        $this->assertDatabaseHas('permission_role', [
+            'role_id' => $created->id,
+            'permission_id' => $ordinary->id,
         ]);
     }
 

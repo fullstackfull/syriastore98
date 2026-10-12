@@ -33,6 +33,17 @@ class InstallAddonRequest extends FormRequest
         'xml', 'yml', 'yaml', 'lock', 'map', 'vue', 'mo', 'po', 'csv',
     ];
 
+    /**
+     * Entries refused by NAME, whatever their extension, because writing them
+     * into the install directory would overwrite configuration or change how the
+     * web server handles requests. This is the limb of the old blanket dotfile
+     * rejection that actually had security value; the rest of it did not.
+     */
+    public const DENIED_ENTRY_NAMES = [
+        '.htaccess', '.htpasswd', '.user.ini', '.npmrc', '.netrc',
+        'web.config', 'php.ini',
+    ];
+
     public function authorize(): bool
     {
         return Gate::allows('manage-platform-addons');
@@ -98,16 +109,40 @@ class InstallAddonRequest extends FormRequest
             }
 
             $basename = basename($normalised);
+            $lowerBasename = strtolower($basename);
 
-            // Reject dotfiles that could overwrite configuration.
-            if (str_starts_with($basename, '.')) {
+            // The real control: refuse by NAME anything that would overwrite
+            // configuration or alter request handling. Checked before anything
+            // else so no extension rule can let one of these through.
+            if (in_array($lowerBasename, self::DENIED_ENTRY_NAMES, true)
+                || str_starts_with($lowerBasename, '.env')
+            ) {
                 $zip->close();
-                return __('The zip file contains a hidden file, which is not permitted.');
+                return __('The zip file contains a configuration file, which is not permitted.');
             }
 
+            // A PLAIN DOT-ENTRY IS METADATA, NOT A FILE TYPE, and must be allowed.
+            //
+            // The previous blanket rejection of every basename starting with '.'
+            // refused essentially every legitimate addon: packages/workdo contains
+            // 63 `.gitkeep` files and 19 `.DS_Store` files today, and WorkDo ships
+            // `.gitkeep` to keep its empty module directories in the archive. So
+            // the validator added to protect the addon marketplace was in fact
+            // closing it -- a super admin could install nothing at all.
+            //
+            // Such an entry would ALSO have failed the extension check below, since
+            // strrpos('.gitkeep', '.') is 0 and the derived extension is 'gitkeep',
+            // so both limbs had to be relaxed for the same files.
+            if (str_starts_with($basename, '.') && !str_contains(substr($basename, 1), '.')) {
+                continue;
+            }
+
+            // An entry with no extension at all is not mapped to a handler by any
+            // default web-server configuration, so it is not executable, and real
+            // archives contain them -- packages/workdo/Marketing/src/resources/
+            // assets/custom/theme18/icon/color3/modal/web_url is one.
             if (!str_contains($basename, '.')) {
-                $zip->close();
-                return __('The zip file contains an entry with no file extension.');
+                continue;
             }
 
             $extension = strtolower(substr($basename, strrpos($basename, '.') + 1));

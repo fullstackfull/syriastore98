@@ -1028,7 +1028,11 @@ Route::get(
   // genuinely public routes, and the customer-reachable order READS that are
   // pending GATE C, stay outside the group below.
   // ===================================================================
-  Route::resource('newsletter', NewsletterController::class)->middleware('themelanguage');
+  // `store` is EXCLUDED and re-registered outside this group below. It is the
+  // storefront footer subscribe form, which is anonymous by design in all three
+  // shipped themes. Sweeping it inside `auth` stopped newsletter signup working
+  // on every store.
+  Route::resource('newsletter', NewsletterController::class)->except(['store'])->middleware('themelanguage');
   Route::get('shippinglabel/pdf/{id}', [OrderController::class, 'shippinglabel'])->name('shippinglabel.pdf');
   Route::post('order-status-change/{id}', [OrderController::class, 'order_status_change'])->name('order.status.change')->middleware('themelanguage');
   Route::post('order-payment-status', [OrderController::class, 'order_payment_status'])->name('order.payment.status')->middleware('themelanguage');
@@ -1052,6 +1056,20 @@ Route::get(
   // --- Genuinely public: these four are the PUBLIC_ROUTE_ALLOWLIST asserted by
   // --- tests/Feature/Security/UnauthenticatedRouteBoundaryTest.php.
   Route::post('contacts/{slug?}', [ContactController::class, 'store'])->name('contacts.store');
+  // The storefront footer subscribe form. All three shipped themes post here
+  // anonymously -- themes/stylique/views/front_end/partison/footer.blade.php:52,
+  // themes/greentic/views/front_end/common/subscribe.blade.php:10 and
+  // themes/techzonix/views/front_end/common/subscribe.blade.php:2, each
+  // `action="{{ route('newsletter.store', $slug) }}"`.
+  //
+  // Declared with NO uri parameter on purpose: NewsletterController::store()
+  // takes only a Request and recovers the store from the QUERY STRING
+  // (NewsletterController.php:44-48 walks $request->query() and uses the first
+  // key as the slug). `route('newsletter.store', $slug)` therefore renders
+  // /newsletter?<slug>, which is the URL shape the themes have always posted to
+  // and the shape the controller already parses. Adding a {slug?} segment here
+  // would change that URL and break the controller's own slug recovery.
+  Route::post('newsletter', [NewsletterController::class, 'store'])->name('newsletter.store')->middleware('themelanguage');
   Route::get('change-language-store/{lang}', [LanguageController::class, 'changeLanquageStore'])->name('change.languagestore');
 
   // --- PENDING GATE C: customer-reachable order READS and the two return
