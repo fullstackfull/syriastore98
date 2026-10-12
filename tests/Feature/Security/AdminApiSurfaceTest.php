@@ -218,6 +218,76 @@ class AdminApiSurfaceTest extends SecurityTestCase
         $this->assertSame(3, $checked, 'Expected exactly three forgot-password API routes.');
     }
 
+    // ---------------------------------------------------------------
+    // R2-03 half 2 / NEW-client-supplied-store-id: the CROSS-TENANT half.
+    //
+    // Closing the anonymous path (half 1) and repairing CustomAuth (half 3)
+    // still left every list method doing a bare Store::find($request->store_id)
+    // and then filtering on $store->id, so any caller with a VALID token read
+    // ANY store's rows by changing one query-string parameter.
+    // ---------------------------------------------------------------
+
+    /**
+     * 403, not 401: a 401 would log the shipped app out
+     * (network.dart:285-288 -> _handleUnauthorized -> Prefs.clear()).
+     *
+     * @param string $uri
+     */
+    #[DataProvider('adminListUriProvider')]
+    public function test_admin_list_routes_reject_a_store_the_caller_does_not_own(string $uri): void
+    {
+        [$merchantA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $token = $merchantA->createToken('auth_token')->plainTextToken;
+
+        $this->withHeader('Authorization', 'Bearer ' . $token)
+            ->getJson($uri . '?store_id=' . $storeB->id)
+            ->assertStatus(403);
+    }
+
+    /**
+     * THE POSITIVE CASE, parameterised so no endpoint is fixed while the others
+     * are forgotten: the caller's OWN store must still resolve. This is what
+     * the shipped app sends -- Prefs.getStoreID(), set from the server-provided
+     * owned-store list.
+     *
+     * @param string $uri
+     */
+    #[DataProvider('adminListUriProvider')]
+    public function test_admin_list_routes_still_accept_the_callers_own_store(string $uri): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+
+        $token = $merchant->createToken('auth_token')->plainTextToken;
+
+        $response = $this->withHeader('Authorization', 'Bearer ' . $token)
+            ->getJson($uri . '?store_id=' . $store->id);
+
+        $this->assertNotSame(
+            403,
+            $response->getStatusCode(),
+            $uri . ' must not deny the caller their own store.'
+        );
+    }
+
+    /**
+     * A super admin keeps the escape hatch, in the shape the controller already
+     * expresses it at :4613 and :6605.
+     */
+    public function test_platform_admin_can_read_any_store_list(): void
+    {
+        $platformAdmin = $this->makePlatformAdmin();
+        [, $store] = $this->makeTenant();
+
+        $token = $platformAdmin->createToken('auth_token')->plainTextToken;
+
+        $response = $this->withHeader('Authorization', 'Bearer ' . $token)
+            ->getJson('/api/admin/categorylist?store_id=' . $store->id);
+
+        $this->assertNotSame(403, $response->getStatusCode());
+    }
+
     /**
      * NEW-viewusedcoupon-unscoped: the method resolved $store and then never
      * used it in the redemption query.

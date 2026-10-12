@@ -831,10 +831,10 @@ public function logouto(Request $request)
 
     public function CategoryList(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
-            return $this->error(['message' => __('Store not found!')]);
-        }
+        return $this->storeAccessDenied();
+    }
 
         $Category = Category::where('store_id', $store->id)->OrderBy('id', 'desc')->paginate(10);
 
@@ -847,9 +847,9 @@ public function logouto(Request $request)
 
 public function ProductList(Request $request)
 {
-    $store = Store::find($request->store_id);
+    $store = $this->resolveOwnedStore($request->store_id);
     if (empty($store)) {
-        return $this->error(['message' => __('Store not found!')]);
+        return $this->storeAccessDenied();
     }
 
     $Products = Product::where('store_id', $store->id)
@@ -920,10 +920,10 @@ public function ProductList(Request $request)
 }
 public function VariantList(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
-            return $this->error(['message' => __('Store not found!')]);
-        }
+        return $this->storeAccessDenied();
+    }
 
         $ProductVariant = ProductVariant::where('store_id', $store->id)->OrderBy('id', 'desc')->paginate(10);
 
@@ -949,12 +949,10 @@ public function OrderList(Request $request)
         'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
     ]);
 
-    $store = Store::find($request->store_id);
+    $store = $this->resolveOwnedStore($request->store_id);
 
     if (!$store) {
-        return $this->error([
-            'message' => __('Store not found!'),
-        ]);
+        return $this->storeAccessDenied();
     }
 
     $query = Order::where('store_id', $store->id);
@@ -1053,10 +1051,10 @@ public function OrderList(Request $request)
 
     public function CouponList(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
-            return $this->error(['message' => __('Store not found!')]);
-        }
+        return $this->storeAccessDenied();
+    }
 
         $coupons = Coupon::where('store_id', $store->id)->OrderBy('id', 'desc')->paginate(10);
 
@@ -1069,10 +1067,10 @@ public function OrderList(Request $request)
 
     public function ShippingList(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
-            return $this->error(['message' => __('Store not found!')]);
-        }
+        return $this->storeAccessDenied();
+    }
 
         $shipping = Shipping::where('store_id', $store->id)->OrderBy('id', 'desc')->paginate(10);
 
@@ -1085,10 +1083,10 @@ public function OrderList(Request $request)
 
     public function TaxList(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
-            return $this->error(['message' => __('Store not found!')]);
-        }
+        return $this->storeAccessDenied();
+    }
 
         $tax = Tax::where('store_id', $store->id)->OrderBy('id', 'desc')->paginate(10);
 
@@ -3580,6 +3578,14 @@ public function DeleteReview($id)
      * lib/network/network.dart:285-288 maps any 401 to _handleUnauthorized(),
      * which clears preferences and forces a re-login, so a 401 on a tenancy
      * denial would log the merchant out of the shipped app.
+     */
+    /**
+     * Used by ChangeStore, ViewUsedCoupon and all seven admin list methods
+     * (CategoryList, ProductList, VariantList, OrderList, CouponList,
+     * ShippingList, TaxList), each of which previously did a bare
+     * Store::find($request->store_id) and then filtered on $store->id -- so a
+     * caller holding ANY valid token read ANY store's rows by changing one
+     * query-string parameter.
      */
     private function resolveOwnedStore($storeId)
     {
