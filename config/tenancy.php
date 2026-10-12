@@ -242,7 +242,7 @@ return [
         // stopped deleting for a multi-store merchant, orphaning cart rows against a deleted
         // product -- a data-integrity regression introduced by a security control, which is
         // exactly what this phase is told not to do.
-        // Writers: Cart.php:162 and :851, Api/ApiController.php:1537, CartController.php:382,
+        // Writers: Cart.php:162 and :851, Api/ApiController.php:1533, CartController.php:382,
         // and the FrequentlyProduct / BoostSales package inserts all set `store_id`.
         App\Models\Cart::class,
 
