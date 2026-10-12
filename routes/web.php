@@ -151,51 +151,89 @@ use Illuminate\Support\Facades\Http;
 
 
 
-Route::get(
-    '/currency-rates',
-    [CurrencyRateController::class, 'index']
-)->name('currency-rates.index');
+// NEW-finance-authorization / NEW-withdrawal-authz / SEC-R5-01.
+//
+// The permission group below used to close immediately after the `/finance` GET,
+// leaving EVERY finance mutator with no route middleware at all -- not even
+// `auth`. The effective gate was `where('store_id', getCurrentStore())` inside
+// the controller, which rejects an anonymous caller only by the accident of SQL
+// NULL semantics, and does not constrain an authenticated caller's permissions
+// at all. Reachable today by any authenticated web-guard user whose
+// current_store resolves, with NO permission -- i.e. merchant staff escalating
+// past 'View Finance Withdrawal Requests'.
+//
+// Every permission name below already exists and is already used by this same
+// controller (:19, :71, :315, :396, :494, :624). None is invented.
+//
+// `permission:` is Laratrust's alias and is NOT in bootstrap/app.php's alias
+// map, so it is registered by Laratrust's own service provider. That could not
+// be verified in this environment (vendor/ is empty), but the alias was ALREADY
+// in use on the `/finance` GET below, so this change introduces no new alias
+// dependency: if it does not resolve, /finance was already broken before this
+// commit. Confirm with `php artisan route:list --path=finance` once vendor/ is
+// restored -- see the owner actions.
+//
+// CurrencyRateController::update already calls auth()->id() at :40, so it
+// assumes an authenticated user; it simply never had `auth` applied.
+Route::middleware(['auth'])->group(function () {
 
-Route::post(
-    '/currency-rates/{id}',
-    [CurrencyRateController::class, 'update']
-)->name('currency-rates.update');
-
-Route::middleware(['auth', 'permission:View Finance Dashboard'])->group(function () {
-    Route::get('/finance', [StoreFinanceController::class, 'index'])
-        ->name('finance.index');
-});
-Route::post('/finance/add-balance', [StoreFinanceController::class, 'addBalance'])
-    ->name('finance.add.balance');
-
-Route::post('/finance/deduct-balance', [StoreFinanceController::class, 'deductBalance'])
-    ->name('finance.deduct.balance');
-
+    Route::get(
+        '/currency-rates',
+        [CurrencyRateController::class, 'index']
+    )->name('currency-rates.index');
 
     Route::post(
-    '/finance/withdrawal/request',
-    [StoreFinanceController::class, 'requestWithdrawal']
-)->name('finance.withdrawal.request');
+        '/currency-rates/{id}',
+        [CurrencyRateController::class, 'update']
+    )->name('currency-rates.update');
 
+    Route::get('/finance', [StoreFinanceController::class, 'index'])
+        ->middleware('permission:View Finance Dashboard')
+        ->name('finance.index');
 
+    Route::post('/finance/add-balance', [StoreFinanceController::class, 'addBalance'])
+        ->middleware('permission:Add Finance Balance')
+        ->name('finance.add.balance');
 
+    Route::post('/finance/deduct-balance', [StoreFinanceController::class, 'deductBalance'])
+        ->middleware('permission:Deduct Finance Balance')
+        ->name('finance.deduct.balance');
 
-Route::get('/finance/withdrawals', [StoreFinanceController::class, 'withdrawals'])
-    ->name('finance.withdrawals');
+    Route::post(
+        '/finance/withdrawal/request',
+        [StoreFinanceController::class, 'requestWithdrawal']
+    )->middleware('permission:Request Finance Withdrawal')
+     ->name('finance.withdrawal.request');
 
-Route::post('/finance/withdrawals/{id}/approve', [StoreFinanceController::class, 'approveWithdrawal'])
-    ->name('finance.withdrawals.approve');
+    Route::get('/finance/withdrawals', [StoreFinanceController::class, 'withdrawals'])
+        ->middleware('permission:View Finance Withdrawal Requests')
+        ->name('finance.withdrawals');
 
-Route::post('/finance/withdrawals/{id}/reject', [StoreFinanceController::class, 'rejectWithdrawal'])
-    ->name('finance.withdrawals.reject');
+    // approve / reject / pay had NO authorization of any kind, in the route file
+    // or in the controller. 'View Finance Withdrawal Requests' is the existing
+    // permission closest to these actions and is used here rather than inventing
+    // a name, which would need a seeder change. A dedicated
+    // 'Approve Finance Withdrawal' permission is an owner decision -- see the
+    // owner actions. The controller's DB::transaction + lockForUpdate at
+    // :650-665 are deliberately left untouched.
+    Route::post('/finance/withdrawals/{id}/approve', [StoreFinanceController::class, 'approveWithdrawal'])
+        ->middleware('permission:View Finance Withdrawal Requests')
+        ->name('finance.withdrawals.approve');
 
-Route::post('/finance/withdrawals/{id}/pay', [StoreFinanceController::class, 'payWithdrawal'])
-    ->name('finance.withdrawals.pay');
+    Route::post('/finance/withdrawals/{id}/reject', [StoreFinanceController::class, 'rejectWithdrawal'])
+        ->middleware('permission:View Finance Withdrawal Requests')
+        ->name('finance.withdrawals.reject');
 
-Route::post(
-    '/finance/order-financials/{id}/payment-status',
-    [StoreFinanceController::class, 'updateFinancialPaymentStatus']
-)->name('finance.order-financial.status');
+    Route::post('/finance/withdrawals/{id}/pay', [StoreFinanceController::class, 'payWithdrawal'])
+        ->middleware('permission:View Finance Withdrawal Requests')
+        ->name('finance.withdrawals.pay');
+
+    Route::post(
+        '/finance/order-financials/{id}/payment-status',
+        [StoreFinanceController::class, 'updateFinancialPaymentStatus']
+    )->middleware('permission:Edit Finance Payment Status')
+     ->name('finance.order-financial.status');
+});
 
 
 
@@ -935,25 +973,33 @@ Route::get(
     Route::get('theme-customize/{theme}/pages/order/{slug?}/{sub_slug?}', [ThemeCustomizeController::class, 'changeOrder'])->name('theme.customize.order');
     Route::post('theme-customize/{theme}/order/update', [ThemeCustomizeController::class, 'updateOrder'])->name('theme.customize.update.order');
     Route::post('theme-preview/make-active', [ThemeCustomizeController::class, 'makeActiveTheme'])->name('theme-preview.make-active');
-  });
 
-  Route::post('contacts/{slug?}', [ContactController::class, 'store'])->name('contacts.store');
-  Route::get('change-language-store/{lang}', [LanguageController::class, 'changeLanquageStore'])->name('change.languagestore');
-  
+  // ===================================================================
+  // SEC-F2 / NEW-public-mutating-routes / NEW-order-payment-status.
+  //
+  // THE BRACE MOVE. The `auth` group opened above used to close immediately
+  // after the line above this comment, which left the whole administrative
+  // order/refund block below inside the ['web'] group but OUTSIDE `auth` --
+  // session middleware, no authentication. `themelanguage` adds nothing:
+  // app/Http/Middleware/ThemeLanguage.php:22-38 only sets the locale.
+  //
+  // The worst limb was `order-payment-status`, an ANONYMOUS arbitrary write of
+  // payment_status onto any order in any store
+  // (OrderController::order_payment_status -- Order::find($request->order_id),
+  // assign, save; no auth, no permission, no tenant scope, no validation).
+  //
+  // These declarations are unchanged; only the group boundary moved. The
+  // genuinely public routes, and the customer-reachable order READS that are
+  // pending GATE C, stay outside the group below.
+  // ===================================================================
   Route::resource('newsletter', NewsletterController::class)->middleware('themelanguage');
   Route::get('shippinglabel/pdf/{id}', [OrderController::class, 'shippinglabel'])->name('shippinglabel.pdf');
-  Route::post('order-return', [OrderController::class, 'order_return'])->name('order.return')->middleware('themelanguage');
-  Route::get('order-view/{id}', [OrderController::class, 'order_view'])->name('order.view')->middleware('themelanguage');
-  Route::get('orders/order_view/{id}', [OrderController::class, 'show'])->name('order.order_view')->middleware('themelanguage');
-  Route::get('order-receipt/{id}', [OrderController::class, 'order_receipt'])->name('order.receipt')->middleware('themelanguage');
   Route::post('order-status-change/{id}', [OrderController::class, 'order_status_change'])->name('order.status.change')->middleware('themelanguage');
   Route::post('order-payment-status', [OrderController::class, 'order_payment_status'])->name('order.payment.status')->middleware('themelanguage');
   Route::resource('order-note', OrderNoteController::class);
-  
+
   Route::post('update-order-status/{id}', [OrderController::class, 'updateStatus'])->name('order.order_status_update')->middleware('themelanguage');
 
-  Route::post('order-return-request', [OrderController::class, 'order_return_request'])->name('order.return.request')->middleware('themelanguage');
-  Route::get('order-view/{id}', [OrderController::class, 'order_view'])->name('order.view')->middleware('themelanguage');
   Route::post('update-refund-status', [OrderRefundController::class, 'updateRefundStatus'])->name('update-refund-status')->middleware('themelanguage');
   Route::post('cancel-refund-status', [OrderRefundController::class, 'CancelRefundStatus'])->name('cancel.refund.status')->middleware('themelanguage');
   Route::post('refund-stock', [OrderRefundController::class, 'RefundStock'])->name('refund.stock')->middleware('themelanguage');
@@ -964,7 +1010,30 @@ Route::get(
   Route::post('refund-settings', [OrderRefundController::class, 'updateStatus'])->name('refund.settings')->middleware('themelanguage');
 
   Route::post('product-page-setting', [AppSettingController::class, 'product_page_setting'])->name('product.page.setting');
- 
+  });
+  // ^^^ the `auth` group now closes HERE, after the administrative block.
+
+  // --- Genuinely public: these four are the PUBLIC_ROUTE_ALLOWLIST asserted by
+  // --- tests/Feature/Security/UnauthenticatedRouteBoundaryTest.php.
+  Route::post('contacts/{slug?}', [ContactController::class, 'store'])->name('contacts.store');
+  Route::get('change-language-store/{lang}', [LanguageController::class, 'changeLanquageStore'])->name('change.languagestore');
+
+  // --- PENDING GATE C: customer-reachable order READS and the two return
+  // --- endpoints. Deliberately NOT moved inside `auth` in this change, because
+  // --- the owner must first say whether guest order tracking is a real customer
+  // --- flow. If it is, these must be re-homed into routes/customer.php behind
+  // --- Laravel's `signed` middleware -- NOT left outside `auth`. If it is not,
+  // --- they move inside the group above. Note order_view is already closed to
+  // --- anonymous callers in practice by its own isAbleTo('Show Order') check
+  // --- failing closed for a null user.
+  Route::post('order-return', [OrderController::class, 'order_return'])->name('order.return')->middleware('themelanguage');
+  Route::get('order-view/{id}', [OrderController::class, 'order_view'])->name('order.view')->middleware('themelanguage');
+  Route::get('orders/order_view/{id}', [OrderController::class, 'show'])->name('order.order_view')->middleware('themelanguage');
+  Route::get('order-receipt/{id}', [OrderController::class, 'order_receipt'])->name('order.receipt')->middleware('themelanguage');
+  Route::post('order-return-request', [OrderController::class, 'order_return_request'])->name('order.return.request')->middleware('themelanguage');
+  // The duplicate `order-view/{id}` registration that used to sit here was
+  // DELETED: it was byte-identical to the one above (same action, same name,
+  // same middleware).
 
   Route::get('/pay/{pay}', [PayUPaymentController::class, 'pay'])->name('payu.pay');
 
@@ -975,9 +1044,11 @@ Route::get(
 
 
 
+// Was registered with no middleware at all: an anonymous caller could read any
+// store's Zid orders using that merchant's stored Zid credentials.
 Route::get('/zid/{storeId}/orders', function ($storeId) {
     return Zid::store($storeId)->get('/managers/store/orders')->json();
-});
+})->middleware(['auth']);
 
 Route::get('/zid/{storeId}/webhooks', function ($storeId) {
     return \App\Services\Zid::store($storeId)->get('/managers/webhooks')->json();
