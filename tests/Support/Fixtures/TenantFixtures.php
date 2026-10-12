@@ -37,7 +37,7 @@ final class TenantFixtures
      * A fixed, obviously-synthetic password. Not a secret, not in use anywhere, and
      * shared by every fixture user so tests can authenticate without inventing one.
      */
-    public const PASSWORD = 'fixture-only-not-a-real-password';
+    public const PASSWORD = 'placeholder-fixture-password-not-a-secret';
 
     /** Reserved TLD (RFC 6761): guaranteed never to resolve. */
     private const EMAIL_DOMAIN = 'example.test';
