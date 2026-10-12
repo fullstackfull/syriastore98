@@ -39,6 +39,62 @@ class StoreFinanceController extends Controller
     }
 
     /**
+     * THE PERMISSIONS A WITHDRAWAL STATE CHANGE REQUIRES -- all of them.
+     *
+     * NEW-withdrawal-view-permission-authorises-state-change. approveWithdrawal,
+     * rejectWithdrawal and payWithdrawal were each gated on the single
+     * permission 'View Finance Withdrawal Requests', in the route file AND here
+     * in the controller. That is a VIEW permission authorising three
+     * state-changing, money-moving actions: whoever could READ the withdrawal
+     * list could APPROVE and PAY. Read must not imply write.
+     *
+     * 'Edit Finance Payment Status' is added rather than a new name because a
+     * name absent from Utility::addNewData() cannot exist as a ROW, and this
+     * controller is the exact place that lesson was learned: all six finance
+     * names were gated on while none was seeded, so every finance mutator was
+     * 403 for every user including the platform operator. A seventh unseeded
+     * name would recreate that lockout for delegated users. Of the six seeded
+     * names (Utility.php:2881-2886) it is the only one denoting a change to a
+     * finance record's payment state, which is precisely what approving,
+     * rejecting and paying a withdrawal is.
+     *
+     * A dedicated 'Approve Finance Withdrawal' permission remains the clean
+     * split and is reported as an owner decision, because it needs a seeder
+     * entry in a file this workstream does not own.
+     *
+     * ONE SOURCE OF TRUTH. routes/web.php builds its `finance.permission:`
+     * parameter list from this constant, so the route-level guard and the
+     * controller-level guard cannot drift apart -- which is how approve/reject/
+     * pay came to have the route guard and the controller guard disagree in the
+     * first place.
+     */
+    public const WITHDRAWAL_REVIEW_PERMISSIONS = [
+        'View Finance Withdrawal Requests',
+        'Edit Finance Payment Status',
+    ];
+
+    /**
+     * ALL-OF. Returns false on the first permission the caller lacks.
+     *
+     * Deliberately not a loose `||`: the whole defect being repaired is a single
+     * weak permission standing in for a stronger one.
+     */
+    protected function canFinanceAll(array $permissions): bool
+    {
+        if ($permissions === []) {
+            return false;
+        }
+
+        foreach ($permissions as $permission) {
+            if (!$this->canFinance($permission)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * The tenant whose finance records this request may touch.
      *
      * Returned separately from the authorization decision so that "you may not
@@ -695,7 +751,10 @@ class StoreFinanceController extends Controller
 
     public function approveWithdrawal($id)
     {
-        if (!$this->canFinance('View Finance Withdrawal Requests')) {
+        // ALL of WITHDRAWAL_REVIEW_PERMISSIONS, not just the view permission.
+        // See the constant for the evidence; the route-level guard in
+        // routes/web.php is built from the same constant.
+        if (!$this->canFinanceAll(self::WITHDRAWAL_REVIEW_PERMISSIONS)) {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 
@@ -780,7 +839,10 @@ class StoreFinanceController extends Controller
         Request $request,
         $id
     ) {
-        if (!$this->canFinance('View Finance Withdrawal Requests')) {
+        // ALL of WITHDRAWAL_REVIEW_PERMISSIONS, not just the view permission.
+        // See the constant for the evidence; the route-level guard in
+        // routes/web.php is built from the same constant.
+        if (!$this->canFinanceAll(self::WITHDRAWAL_REVIEW_PERMISSIONS)) {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 
@@ -955,7 +1017,10 @@ class StoreFinanceController extends Controller
 
     public function payWithdrawal($id)
     {
-        if (!$this->canFinance('View Finance Withdrawal Requests')) {
+        // ALL of WITHDRAWAL_REVIEW_PERMISSIONS, not just the view permission.
+        // See the constant for the evidence; the route-level guard in
+        // routes/web.php is built from the same constant.
+        if (!$this->canFinanceAll(self::WITHDRAWAL_REVIEW_PERMISSIONS)) {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 

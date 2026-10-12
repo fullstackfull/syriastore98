@@ -234,24 +234,45 @@ Route::middleware(['auth'])->group(function () {
     // (StoreFinanceController::approveWithdrawal / rejectWithdrawal /
     // payWithdrawal), so removing this middleware no longer leaves them open.
     //
-    // 'View Finance Withdrawal Requests' is the existing permission closest to
-    // these actions and is used here rather than inventing a name. Note that it
-    // is a VIEW permission guarding three state-changing, money-moving actions:
-    // anyone who may read the withdrawal list may also approve and pay. A
-    // dedicated 'Approve Finance Withdrawal' permission is the right split and
-    // is an owner decision, because it needs a seeder entry -- see the owner
-    // actions. The controller's DB::transaction + lockForUpdate are deliberately
-    // left untouched.
+    // NEW-withdrawal-view-permission-authorises-state-change -- FIXED HERE.
+    //
+    // These three used to carry `finance.permission:View Finance Withdrawal
+    // Requests`: a VIEW permission authorising three state-changing,
+    // money-moving actions, so anyone who could READ the withdrawal list could
+    // also APPROVE and PAY. The comment that used to sit here flagged exactly
+    // that and left it standing; it is closed now.
+    //
+    // The guard requires ALL of StoreFinanceController::
+    // WITHDRAWAL_REVIEW_PERMISSIONS -- the view permission AND 'Edit Finance
+    // Payment Status'. `finance.permission:A,B` is AND, never OR
+    // (App\Http\Middleware\FinancePermission::handle, which also fails closed
+    // on an empty parameter list). A delegated user holding only the view
+    // permission keeps the list at finance.withdrawals and loses approve/pay.
+    //
+    // WHY NOT A DEDICATED 'Approve Finance Withdrawal' PERMISSION. It would be
+    // the cleaner split, and it is reported as an owner decision rather than
+    // taken here, because a permission name absent from Utility::addNewData()
+    // cannot exist as a ROW -- and that is the precise defect that made all six
+    // finance names 403 for every user including the platform operator. A
+    // seventh unseeded name would recreate that lockout for every delegated
+    // user. Both names used here are already seeded (Utility.php:2881-2886).
+    //
+    // The parameter list is built from the controller's own constant so the
+    // route guard and the controller guard cannot drift apart. The controller's
+    // DB::transaction + lockForUpdate are deliberately left untouched.
+    $withdrawalReviewGate = 'finance.permission:'
+        . implode(',', StoreFinanceController::WITHDRAWAL_REVIEW_PERMISSIONS);
+
     Route::post('/finance/withdrawals/{id}/approve', [StoreFinanceController::class, 'approveWithdrawal'])
-        ->middleware('finance.permission:View Finance Withdrawal Requests')
+        ->middleware($withdrawalReviewGate)
         ->name('finance.withdrawals.approve');
 
     Route::post('/finance/withdrawals/{id}/reject', [StoreFinanceController::class, 'rejectWithdrawal'])
-        ->middleware('finance.permission:View Finance Withdrawal Requests')
+        ->middleware($withdrawalReviewGate)
         ->name('finance.withdrawals.reject');
 
     Route::post('/finance/withdrawals/{id}/pay', [StoreFinanceController::class, 'payWithdrawal'])
-        ->middleware('finance.permission:View Finance Withdrawal Requests')
+        ->middleware($withdrawalReviewGate)
         ->name('finance.withdrawals.pay');
 
     Route::post(

@@ -38,7 +38,38 @@ use Illuminate\Support\Facades\Gate;
  */
 class FinancePermission
 {
-    public function handle(Request $request, Closure $next, string $permission)
+    /**
+     * ALL-OF SEMANTICS, and why this takes a list.
+     *
+     * NEW-withdrawal-view-permission-authorises-state-change. approve / reject /
+     * pay were each gated on the single permission
+     * 'View Finance Withdrawal Requests' -- a VIEW permission guarding three
+     * state-changing, money-moving actions. Anyone entitled to READ the
+     * withdrawal list was thereby entitled to APPROVE and PAY, which is the
+     * classic read-implies-write escalation and is what the previous
+     * routes/web.php comment itself flagged as needing a split.
+     *
+     * The clean split is a dedicated 'Approve Finance Withdrawal' permission,
+     * and it is reported as an owner decision + cross-agent dependency, because
+     * a permission name that is not in Utility::addNewData() cannot exist as a
+     * ROW -- and this file's own history is the proof of what that costs: six
+     * finance names were gated on and never seeded, so every finance mutator
+     * was 403 for every user including the platform operator. Introducing a
+     * seventh unseeded name here would recreate exactly that lockout for
+     * delegated users.
+     *
+     * So the gate is tightened using only names that are already seeded
+     * (Utility.php:2881-2886): a withdrawal state change now requires the view
+     * permission AND 'Edit Finance Payment Status', the one seeded finance
+     * permission that denotes changing a finance record's payment state.
+     * `finance.permission:A,B` therefore means A AND B -- never A OR B. A
+     * delegated user who holds only the view permission can still read the list
+     * and can no longer approve or pay.
+     *
+     * A single argument behaves exactly as before, so the other six finance
+     * routes and the existing direct-invocation tests are unaffected.
+     */
+    public function handle(Request $request, Closure $next, string ...$permissions)
     {
         $user = $request->user();
 
@@ -49,12 +80,27 @@ class FinancePermission
             return $this->deny($request, __('Unauthenticated.'), 401);
         }
 
-        if (!Gate::forUser($user)->allows('finance', $permission)) {
-            return $this->deny(
-                $request,
-                __('Permission denied.') . ' (' . $permission . ')',
-                403
-            );
+        // Fail CLOSED on a mis-declared route. An empty parameter list would
+        // otherwise fall through the loop and admit everybody, which is how a
+        // typo in a middleware string becomes an open money-moving endpoint.
+        if ($permissions === []) {
+            return $this->deny($request, __('Permission denied.'), 403);
+        }
+
+        foreach ($permissions as $permission) {
+            $permission = trim($permission);
+
+            if ($permission === '') {
+                return $this->deny($request, __('Permission denied.'), 403);
+            }
+
+            if (!Gate::forUser($user)->allows('finance', $permission)) {
+                return $this->deny(
+                    $request,
+                    __('Permission denied.') . ' (' . $permission . ')',
+                    403
+                );
+            }
         }
 
         return $next($request);
