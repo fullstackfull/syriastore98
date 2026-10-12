@@ -536,9 +536,26 @@ public function noti(Request $request)
     public function currency(Request $request)
     {
         $user = Auth::user();
+
+        // NEW-unauthenticated-500s. CustomAuth now rejects anonymous callers
+        // before this point, so these guards are defence in depth: they turn a
+        // null dereference into a structured 401/404 rather than a 500 that
+        // leaks a stack trace.
+        if (!$user) {
+            return $this->error(
+                ['message' => __('Unauthenticated user!')],
+                __('Unauthenticated.'),
+                401
+            );
+        }
+
         $currentstore = $user->current_store;
 
         $store = Store::find($currentstore);
+
+        if (!$store) {
+            return $this->error(['message' => __('Store not found!')], __('fail'), 404);
+        }
         
         $array['currency'] = \App\Models\Utility::GetValByName('CURRENCY', $store->id);
         $array['currency_name'] = \App\Models\Utility::GetValByName('CURRENCY_NAME', $store->id);
@@ -646,6 +663,16 @@ public function logouto(Request $request)
     public function dashboard(Request $request)
     {
         $user = Auth::user();
+
+        // NEW-unauthenticated-500s: defence in depth behind the CustomAuth fix.
+        if (!$user) {
+            return $this->error(
+                ['message' => __('Unauthenticated user!')],
+                __('Unauthenticated.'),
+                401
+            );
+        }
+
         $currentstore = $user->current_store;
 
         $DashboardData = [];
@@ -674,9 +701,16 @@ public function logouto(Request $request)
         //statics
         $statics = [];
         $store = Store::find($currentstore);
-        $theme_url = route('landing_page', $store->slug);
-        $statics['url'] = $theme_url;
-        $statics['name'] = $store->name;
+
+        // $store was dereferenced unconditionally; a user whose current_store no
+        // longer exists produced a 500 here.
+        if ($store) {
+            $statics['url'] = route('landing_page', $store->slug);
+            $statics['name'] = $store->name;
+        } else {
+            $statics['url'] = null;
+            $statics['name'] = null;
+        }
 
         $DashboardData['qr-code'] = $statics;
 

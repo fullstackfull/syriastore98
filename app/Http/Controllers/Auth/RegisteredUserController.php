@@ -97,6 +97,26 @@ class RegisteredUserController extends Controller
                     return User::where('type','super admin')->first();
                 });
 
+                // NEW-registration-grants-admin -- DELIBERATELY NOT CHANGED HERE.
+                //
+                // type='admin' is the merchant tenant-OWNER type, not the
+                // platform-operator type ('super admin'). It is load-bearing:
+                // User::creatorId() returns $this->id for it, which is what makes
+                // a self-registered merchant the root of their own tenant, and
+                // the plan/expiry logic below branches on it. Changing it would
+                // break legitimate merchant onboarding, so it is left alone.
+                //
+                // The real hazard is the UNSCOPED Role::where('name','admin')
+                // lookup further down, which attaches every self-registered
+                // merchant to ONE SHARED GLOBAL role row (PermissionTableSeeder
+                // creates it with a null store_id). The escalation that made that
+                // critical -- rewriting that shared role, and the users.type
+                // mass-update it triggered -- is CLOSED in RoleController and
+                // RolePolicy, which now refuse to edit any role with a null
+                // store_id. Giving each store its own admin role is the remaining
+                // root-cause fix; it is a role_user + permission_role data
+                // migration that needs the live database and is an OWNER ACTION,
+                // not a code change that can be made safely from here.
                 $user = User::create([
                     'name' => $request->name,
                     'email' => $request->email,
@@ -177,6 +197,26 @@ class RegisteredUserController extends Controller
                 return User::where('type','super admin')->first();
             });
 
+                // NEW-registration-grants-admin -- DELIBERATELY NOT CHANGED HERE.
+                //
+                // type='admin' is the merchant tenant-OWNER type, not the
+                // platform-operator type ('super admin'). It is load-bearing:
+                // User::creatorId() returns $this->id for it, which is what makes
+                // a self-registered merchant the root of their own tenant, and
+                // the plan/expiry logic below branches on it. Changing it would
+                // break legitimate merchant onboarding, so it is left alone.
+                //
+                // The real hazard is the UNSCOPED Role::where('name','admin')
+                // lookup further down, which attaches every self-registered
+                // merchant to ONE SHARED GLOBAL role row (PermissionTableSeeder
+                // creates it with a null store_id). The escalation that made that
+                // critical -- rewriting that shared role, and the users.type
+                // mass-update it triggered -- is CLOSED in RoleController and
+                // RolePolicy, which now refuse to edit any role with a null
+                // store_id. Giving each store its own admin role is the remaining
+                // root-cause fix; it is a role_user + permission_role data
+                // migration that needs the live database and is an OWNER ACTION,
+                // not a code change that can be made safely from here.
             $user = User::create([
                 'name' => $request->name,
                 'email' => $request->email,
