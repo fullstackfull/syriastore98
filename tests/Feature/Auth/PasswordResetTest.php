@@ -30,37 +30,64 @@ use Tests\TestCase;
  * that user, and the token it carries really does reset the password. The old version
  * asserted the wrong class and therefore verified none of that.
  *
- * WHAT IS STILL RED HERE, ON PURPOSE.
- * test_reset_password_screen_can_be_rendered renders GET /reset-password/{token} and is
- * BLOCKED, not broken-by-assertion. MEASURED cause:
+ * WHAT IS STILL RED HERE, ON PURPOSE -- CAUSE RE-MEASURED 2026-10-12.
  *
- *   SQLSTATE[HY000]: no such table: owner_menu_settings
- *   (SQL: select * from "owner_menu_settings" where "created_by" = 1 limit 1)
+ * An earlier revision of this docblock named `owner_menu_settings` as the cause. That is
+ * NO LONGER THE PROXIMATE CAUSE and the claim is corrected here rather than left to
+ * mislead. Re-measured on this worktree, the render tests fail EARLIER, before the guest
+ * layout ever reaches its OwnerMenuSetting query:
+ *
+ *   ErrorException: Attempt to read property "current_store" on null
+ *   in app/Helper/helper.php:145
  *   (View: resources/views/layouts/guest.blade.php)
  *
- * raised from resources/views/layouts/guest.blade.php:96, which calls
- * \Workdo\LandingPage\Entities\OwnerMenuSetting::where('created_by', 1)->first().
- * The migration for that table DOES exist, at
- * packages/workdo/LandingPage/src/database/migrations/2024_08_05_060912_create_owner_menu_settings_table.php,
- * but no loadMigrationsFrom() registers any addon module's own
- * src/database/migrations directory under packages/workdo, so addon-module migrations
- * never run under RefreshDatabase and the table is
- * absent. Every guest and authenticated PAGE RENDER in this product hits that layout
- * and therefore 500s in the test database.
+ * Command: vendor/bin/phpunit --filter test_reset_password_link_screen_can_be_rendered
+ * `owner_menu_settings` appears ZERO times in that output (measured with grep -c).
  *
- * It is left failing rather than skipped because it is a real, reportable gap in the
- * test schema, and a skip would hide it. Fixing it means registering the addon
- * migration paths, which lives outside this agent's owned files -- recorded as a
- * cross-agent dependency.
+ * THE PROXIMATE DEFECT, app/Helper/helper.php:143-145:
+ *     $admin    = User::where('type', 'super admin')->first();
+ *     $settings = Setting::where('store_id', $admin->current_store)->...
+ * get_file() dereferences $admin with no null guard, so in any context with no
+ * super-admin row -- which is every fresh RefreshDatabase database -- every page that
+ * calls get_file() 500s. SEVEN of the suite's thirteen failures are this single line.
+ * app/ is owned by another agent this phase; recorded as a cross-agent dependency.
+ *
+ * THE SECOND DEFECT IS STILL REAL, JUST MASKED. Once helper.php:145 is guarded, the
+ * guest layout proceeds to resources/views/layouts/guest.blade.php:96
+ *     \Workdo\LandingPage\Entities\OwnerMenuSetting::where('created_by', 1)->first()
+ * and `owner_menu_settings` is still absent. MEASURED mechanism, and it is NOT the one
+ * previously recorded here ("no loadMigrationsFrom registers any addon module"): all 69
+ * modules DO call loadMigrationsFrom (69 occurrences under packages/). Two separate
+ * things keep their tables out of the test database:
+ *
+ *   1. LandingPage IS loaded statically -- app/Providers/PackageServiceProvider.php:16
+ *      hardcodes $staticAddons = ['LandingPage'] -- but its provider registers the WRONG
+ *      CASE: packages/workdo/LandingPage/src/Providers/LandingPageServiceProvider.php:28
+ *      loads __DIR__.'/../database/Migrations' while the directory on disk is
+ *      src/database/migrations (lowercase). On a case-sensitive filesystem that path does
+ *      not exist, so the three owner_menu* migrations are registered from nowhere. It is
+ *      the only one of the 69 that uses src/Providers/ and capital Migrations.
+ *   2. The other 68 load only if listed in `add_on_managers`
+ *      (PackageServiceProvider::loadDynamicAddons()), which is empty in a fresh test
+ *      database, so their providers never register at all.
+ *
+ * MEASURED CONSEQUENCE: the test database holds 95 tables; of the 80 distinct tables
+ * declared by addon-module migrations, 1 is present and 79 are ABSENT. No test in this
+ * suite exercises addon-module schema. packages/workdo/ is protected by
+ * .github/scripts/guard-no-workdo-changes.sh and must not be edited to fix this.
+ *
+ * Both are left failing rather than skipped because they are real, reportable gaps and a
+ * skip would hide them. Neither fix is in this agent's owned files.
  */
 class PasswordResetTest extends TestCase
 {
     use RefreshDatabase;
 
     /**
-     * BLOCKED, NOT A SCAFFOLD MISMATCH. See the class docblock: the guest layout queries
-     * owner_menu_settings, whose addon migration path is not registered, so no page in
-     * this product can render in the test database. Kept red so the gap stays visible.
+     * BLOCKED, NOT A SCAFFOLD MISMATCH. See the class docblock. MEASURED proximate cause
+     * is app/Helper/helper.php:145 dereferencing a null super-admin inside get_file(),
+     * which 500s every page render in a fresh test database. The owner_menu_settings gap
+     * sits behind it and surfaces once that line is guarded. Kept red so both stay visible.
      */
     public function test_reset_password_link_screen_can_be_rendered(): void
     {
@@ -84,7 +111,8 @@ class PasswordResetTest extends TestCase
 
     /**
      * BLOCKED on the page render only. The notification half of this test is corrected
-     * and does hold; the assertStatus(200) is the owner_menu_settings gap above.
+     * and does hold; the assertStatus(200) fails on the get_file() null dereference
+     * (helper.php:145) described above, with owner_menu_settings behind it.
      */
     public function test_reset_password_screen_can_be_rendered(): void
     {

@@ -8,7 +8,7 @@ use Tests\TestCase;
 /**
  * THIS SUITE IS EXPECTED TO FAIL, AND THE FAILURE IS THE FINDING.
  *
- * It exists because two of the fourteen red scaffold tests -- ProfileTest's
+ * It exists because two of the thirteen red scaffold tests -- ProfileTest's
  * test_profile_information_can_be_updated and
  * test_email_verification_status_is_unchanged_when_the_email_address_is_unchanged --
  * fail with `Route [profile.edit] not defined`, and the obvious reading of that ("Breeze
@@ -22,16 +22,16 @@ use Tests\TestCase;
  * share a method and a URI, the later one replaces the earlier one outright and the
  * earlier one's NAME disappears -- with no error, no warning and no startup failure.
  *
- * MEASURED against the booted router: 1357 routes registered, 1253 named; 509 distinct
+ * MEASURED against the booted router: 1357 routes registered, 1253 named; 508 distinct
  * ->name(...) literals are declared across routes/*.php; two of those names are not in
  * the registry at all.
  *
- *   profile.edit   routes/web.php:396
+ *   profile.edit   routes/web.php:417
  *                    Route::get('/profile', [ProfileController::class, 'edit'])
- *                  shadowed by routes/web.php:844
+ *                  shadowed by routes/web.php:865
  *                    Route::get('profile', [UserController::class, 'profile'])->name('profile')
  *                  Both sit in the same Route::middleware(['auth','xss','setlocate',
- *                  'verified']) group opened at routes/web.php:390, with no prefix, so
+ *                  'verified']) group opened at routes/web.php:411, with no prefix, so
  *                  both normalise to GET `profile`. Confirmed from the registry: the only
  *                  GET route on that URI is UserController@profile named `profile`.
  *                  ProfileController@edit is therefore UNREACHABLE DEAD CODE.
@@ -53,7 +53,7 @@ use Tests\TestCase;
  *                  break. It is reported because it is the same defect class and because
  *                  the next person to use that name would get a 500.
  *
- * NOT A FINDING, and the reason this test strips comments before matching: routes/web.php:375
+ * NOT A FINDING, and the reason this test strips comments before matching: routes/web.php:396
  * carries a COMMENTED-OUT declaration of the name `landing`
  *   //Route::get('/', [HomeController::class, 'Landing'])->name('landing')...
  * A naive regex over the raw file reports `landing` as a third lost name. It is not one.
@@ -109,8 +109,8 @@ class RouteRegistrationIntegrityTest extends TestCase
             'ProfileController::update() ends in Redirect::route(\'profile.edit\') '
             . '(app/Http/Controllers/ProfileController.php:37) and '
             . 'resources/views/layouts/navigation.blade.php:37,83 call route(\'profile.edit\'), '
-            . 'but no such route name is registered. routes/web.php:396 declares it on '
-            . 'GET /profile and routes/web.php:844 re-declares GET profile as name '
+            . 'but no such route name is registered. routes/web.php:417 declares it on '
+            . 'GET /profile and routes/web.php:865 re-declares GET profile as name '
             . '\'profile\', which replaces it in RouteCollection\'s method+URI index and '
             . 'drops the name. Every successful PATCH /profile therefore writes the record '
             . 'and then returns 500.'
@@ -163,7 +163,7 @@ class RouteRegistrationIntegrityTest extends TestCase
 
             // Rebuild the file with comment tokens blanked out, preserving line numbers
             // so the reported file:line stays accurate. A commented-out ->name() must not
-            // register as a declaration -- routes/web.php:375 is exactly that case.
+            // register as a declaration -- routes/web.php:396 is exactly that case.
             $stripped = '';
             foreach (token_get_all($source) as $token) {
                 if (is_array($token)) {
