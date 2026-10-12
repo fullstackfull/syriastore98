@@ -56,9 +56,20 @@ use Illuminate\Database\Eloquent\Builder;
  *     app/Console/Commands/ZidProcessEvents.php:78 casts the external payload with `(string)`).
  *     Column-name matching would compare a local integer against an external string and silently
  *     return zero rows, stopping the scheduled sync with no error anywhere.
- *   - Any PLATFORM-GLOBAL model -- `Country`, `State`, `City`, `Currency`, `Plan`, `Role`,
- *     `Permission`, `EmailTemplate`, `Template`, `Addon`, `Faq`, `Testimonial`. A scope on these
- *     BREAKS the platform: they have no `store_id` and every tenant must see all of their rows.
+ *   - PLATFORM-GLOBAL models with NO `store_id` column -- `Country`, `State`, `City`,
+ *     `Currency`, `Plan`, `Permission`, `EmailTemplate`, `Template`, `Addon`. A scope on these
+ *     BREAKS the platform: there is no column to filter on and every tenant must see all rows.
+ *   - `Role`, `Faq` and `Testimonial`, which DO have a `store_id` column and must STILL not be
+ *     scoped. The reason is different and matters, because "it has no store_id" is the test a
+ *     future reader would apply: verified against the migrations, `roles`
+ *     (2023_12_08_100022_laratrust_setup_tables.php), `faqs`
+ *     (2023_12_18_101636_create_faqs_table.php) and `testimonials`
+ *     (2023_12_26_095726_create_testimonials_table.php) all declare one. `Role` must not be
+ *     scoped because the shared global `admin` role is created with a NULL `store_id` and is
+ *     used by EVERY self-registered merchant, so a `store_id = ?` predicate would hide each
+ *     merchant's own role from them. `Faq` and `Testimonial` are storefront-public content read
+ *     by anonymous visitors, who resolve no tenant, so a scope buys no confidentiality while
+ *     risking a blank section -- the same trap that blanked the storefront menu.
  */
 trait BelongsToStore
 {

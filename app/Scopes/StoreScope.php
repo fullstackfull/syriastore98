@@ -10,7 +10,11 @@ use Throwable;
 /**
  * R4-01 / R4-02 / R4-04 / R4-05 — the tenant-isolation global scope.
  *
- * Laravel-native: one `Illuminate\Database\Eloquent\Scopes\Scope`, attached by the
+ * Laravel-native: one `Illuminate\Database\Eloquent\Scope` (NOT
+ * `Illuminate\Database\Eloquent\Scopes\Scope`, which DOES NOT EXIST in Laravel 11 -- that
+ * exact FQCN was shipped once in this project and fatalled all 11 trait-carrying models,
+ * and `php -l` cannot catch it, so it is spelled out here rather than left to memory),
+ * attached by the
  * `App\Models\Concerns\BelongsToStore` trait. It REPLACES nothing and runs ALONGSIDE the 1,261
  * hand-written `where('store_id', ...)` filters already in the codebase. It is not a second
  * tenancy system, a second resolver or a second database: the tenant still comes from the one

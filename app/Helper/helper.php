@@ -2315,8 +2315,25 @@ if (! function_exists('getStoreById')) {
 if (! function_exists('getNavMenu')) {
     function getNavMenu($menuId)
     {
-        // Fetch menu
-        $menu = Menu::with('store')->find($menuId);
+        // THE STOREFRONT NAV IS A PUBLIC READ OF PUBLIC DATA, so it bypasses the tenant
+        // scope explicitly.
+        //
+        // Menu is now on config/tenancy.php's `scoped_models`, which closes a real
+        // cross-tenant IDOR on the ADMIN paths (MenuController::findOrFail($id)->delete(),
+        // MenuItemsController's five bare Menu::find($menu_id) calls). But this function
+        // serves the storefront, and the predicate narrows it for any web-guard-
+        // authenticated visitor: a signed-in merchant browsing ANOTHER store's storefront
+        // got no menu at all, so the navigation AND the footer went blank in all three
+        // shipped themes. `find()` returning null here is indistinguishable from "no such
+        // menu", so it failed silently.
+        //
+        // Scoping buys NO confidentiality here -- a storefront menu is served to anonymous
+        // visitors by design, and an anonymous visitor resolves no tenant and so was never
+        // filtered. The admin paths keep the scope; this one read opts out, deliberately
+        // and visibly, which is what withoutGlobalScope is for.
+        $menu = Menu::withoutGlobalScope(\App\Scopes\StoreScope::class)
+            ->with('store')
+            ->find($menuId);
         if (! $menu) {
             return [];
         }
