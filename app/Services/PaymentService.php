@@ -96,6 +96,46 @@ class PaymentService
         return $this->paymentVerifier ??= new PaymentVerificationService();
     }
 
+    /**
+     * The server-side deposit amount for a PartialPayments order.
+     *
+     * The module's own ManageDeposit() derives the deposit from Product rows and
+     * the store's deposit settings; it is called here with the SERVER-derived
+     * components merged in, so neither the deposit nor its inputs come from the
+     * request. Nothing inside packages/workdo is modified.
+     *
+     * @param  array $serverComponents Server-derived component amounts.
+     * @param  mixed $fallbackTotal    Server total to fall back to. Never client input.
+     * @return mixed
+     */
+    private function resolvePartialPaymentDeposit(
+        $request,
+        $slug,
+        array $serverComponents,
+        $fallbackTotal
+    ) {
+        $request->merge($serverComponents);
+
+        try {
+            $updated = \Workdo\PartialPayments\app\Http\Controllers\PartialPaymentsController::ManageDeposit(
+                $request,
+                $slug
+            );
+        } catch (\Throwable $e) {
+            Log::error('PartialPayments deposit recomputation failed; using the server total', [
+                'site' => __METHOD__,
+                'error' => $e->getMessage(),
+            ]);
+
+            return $fallbackTotal;
+        }
+
+        return is_array($updated) && isset($updated['deposite_amount'])
+            && is_numeric($updated['deposite_amount'])
+                ? $updated['deposite_amount']
+                : $fallbackTotal;
+    }
+
     public function paymentConfig()
     {
         if (auth()->guard('customers')->check()) {
@@ -2333,7 +2373,22 @@ $products_weight_array[] = [
             }
 
         } elseif (module_is_active('PartialPayments') && \Auth::guard('customers')->user() && (isset($settings['enable_partial_payment']) && $settings['enable_partial_payment'] == 'on')) {
-            $order->final_price = $requests_data['cartlist_final_price'] ?? $total_sub_price;
+            // Was `$requests_data['cartlist_final_price']` — with this module
+            // active the order TOTAL came from the client. Recomputed through
+            // the module's own server-side ManageDeposit(); see
+            // PaymentController::resolvePartialPaymentAmounts() for the same
+            // repair on the storefront path.
+            $order->final_price = $this->resolvePartialPaymentDeposit(
+                $request,
+                $slug,
+                [
+                    'tax_price' => $tax_price,
+                    'shipping_price' => $delivery_price,
+                    'coupon_price' => $coupon_price,
+                    'total_sub_price' => $total_sub_price,
+                ],
+                $total_sub_price
+            );
             \Workdo\PartialPayments\app\Models\OrderPartialPayments::OrderPartialPayments($order, $slug, $request);
         } else {
 

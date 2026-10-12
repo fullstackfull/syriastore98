@@ -1029,6 +1029,60 @@ public function handlePaymeraTrigger00($orderId)
     }
 
     /**
+     * Server-side deposit amounts for a PartialPayments checkout.
+     *
+     * The module's own `ManageDeposit()` is the one source of truth for what a
+     * deposit is: it reads the Product rows and the store's deposit settings
+     * and derives the figure. It is called here with the SERVER-derived tax,
+     * shipping, coupon and subtotal merged in, so neither the deposit nor the
+     * components it is computed from can come from the request.
+     *
+     * Nothing inside packages/workdo is modified; the existing module method is
+     * called, exactly as prepareFinalRequestData() already calls it.
+     *
+     * @param  array $serverComponents The server-derived component amounts.
+     * @param  mixed $fallbackTotal    The server total to use if the module
+     *                                 cannot produce a figure. Never client input.
+     * @return array{final_price: mixed, delivery_price: mixed}
+     */
+    private function resolvePartialPaymentAmounts(
+        Request $request,
+        $slug,
+        array $serverComponents,
+        $fallbackTotal
+    ): array {
+        $request->merge($serverComponents);
+
+        try {
+            $updated = \Workdo\PartialPayments\app\Http\Controllers\PartialPaymentsController::ManageDeposit(
+                $request,
+                $slug
+            );
+        } catch (\Throwable $e) {
+            \Log::error('PartialPayments deposit recomputation failed; using the server total', [
+                'site' => __METHOD__,
+                'error' => $e->getMessage(),
+            ]);
+            $updated = null;
+        }
+
+        $depositAmount = is_array($updated) && isset($updated['deposite_amount'])
+            && is_numeric($updated['deposite_amount'])
+                ? $updated['deposite_amount']
+                : $fallbackTotal;
+
+        $shippingAmount = is_array($updated) && isset($updated['shipping_price_value'])
+            && is_numeric($updated['shipping_price_value'])
+                ? $updated['shipping_price_value']
+                : ($serverComponents['shipping_price'] ?? 0);
+
+        return [
+            'final_price' => $depositAmount,
+            'delivery_price' => $shippingAmount,
+        ];
+    }
+
+    /**
      * Process payment
      */
     private function processPayment(Request $request, $slug, $cartlist)
@@ -1546,8 +1600,28 @@ public function handlePaymeraTrigger00($orderId)
                 $order->final_price = $final_price + $tax_price - $coupon_price;
             }
         } elseif (module_is_active('PartialPayments') && \Auth::guard('customers')->user() && (isset($settings['enable_partial_payment']) && $settings['enable_partial_payment'] == 'on')) {
-            $order->final_price = $requests_data['cartlist_final_price'] ?? $total_sub_price;
-            $order->delivery_price = $requests_data['shipping_price'] ?? $delivery_price;
+            // With this module active the TOTAL ITSELF used to come from the
+            // client: final_price was `$requests_data['cartlist_final_price']`
+            // and delivery_price was `$requests_data['shipping_price']`, both
+            // request-derived. The deposit is now recomputed through the
+            // module's OWN server-side computation — ManageDeposit() derives it
+            // from Product rows and the store's deposit settings, which is the
+            // same call prepareFinalRequestData() already makes — with the
+            // server-derived components merged in first.
+            $partialAmounts = $this->resolvePartialPaymentAmounts(
+                $request,
+                $slug,
+                [
+                    'tax_price' => $tax_price,
+                    'shipping_price' => $delivery_price,
+                    'coupon_price' => $coupon_price,
+                    'total_sub_price' => $final_sub_total_price,
+                ],
+                $final_price + $tax_price - $coupon_price
+            );
+
+            $order->final_price = $partialAmounts['final_price'];
+            $order->delivery_price = $partialAmounts['delivery_price'];
             \Workdo\PartialPayments\app\Models\OrderPartialPayments::OrderPartialPayments($order, $slug, $request);
         } else {
             if (module_is_active('RewardClubPoint') && isset($requests_data['club_point_is_active']) && $requests_data['club_point_is_active'] == 'on') {
