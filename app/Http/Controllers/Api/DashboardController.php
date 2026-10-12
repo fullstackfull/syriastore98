@@ -74,6 +74,54 @@ use App\Models\StoreNotification;
 
 
 
+/**
+ * NEW-api-store-id-is-the-tenant -- the dominant finding of this pass, and the
+ * reason it is documented once here instead of 59 times inline.
+ *
+ * EVERY admin API route in this controller authenticates with `custom.auth`
+ * (routes/api.php: 211 declarations, all of them) and then took its TENANT from
+ * a caller-supplied field: `Store::find($request->store_id)`. Authentication
+ * proved only that the caller held SOME valid token. Nothing compared the
+ * requested store against the caller's own. A merchant who could log into the
+ * shipped Flutter app therefore reached every other merchant's data by changing
+ * one query parameter.
+ *
+ * MEASURED, not estimated. `grep -c "Store::find(\$request->store_id)"` found
+ * 62 occurrences; 3 are inside explanatory comments, leaving 59 live code sites
+ * in 59 distinct methods. 55 are routed in routes/api.php; the other 4
+ * (OrderList_backup, ViewOrder_backup, DeleteProduct_backup, DeleteStore_backup)
+ * are unrouted dead code and were repaired anyway so they cannot be wired up
+ * later and reintroduce the hole.
+ *
+ * The brief named 17 sites. The real number is 59. That is reported as measured
+ * rather than quoted.
+ *
+ * All 59 now go through resolveOwnedStore() (already present and already used
+ * by ChangeStore and the seven list methods -- this reuses the existing
+ * decision point rather than adding a second one).
+ *
+ * THE SECOND HALF OF THE DEFECT, and the reason resolveOwnedStore() alone was
+ * not enough. 42 of those methods never referenced $store->id at all: the store
+ * lookup was decoration and the real write keyed on a bare row id. With only
+ * the resolution fixed, an attacker would still have passed their OWN store_id
+ * together with a VICTIM's coupon/tax/product/order id. So 22 per-row lookups
+ * are additionally constrained to the tenant, and DeleteOrder -- which deleted
+ * an order plus its tax, coupon and billing detail rows with no store predicate
+ * whatever -- resolves the order through the owned store before any delete runs.
+ *
+ * WHAT IS DELIBERATELY NOT CHANGED: the response shape. A denial answers with
+ * each method's existing not-found envelope, not a new status code. Three
+ * reasons. (1) repo-B lib/network/network.dart maps any 401 into a forced
+ * logout, so an authorization denial must never be a 401. (2) Answering
+ * "not found" rather than "forbidden" does not confirm that the id exists --
+ * the same principle the status.cancel repair used. (3) The shipped Flutter app
+ * already handles these envelopes, so a legitimate merchant sees no contract
+ * change at all.
+ *
+ * Pinned by tests/Feature/Security/AdminApiTenancyTest.php, which asserts BOTH
+ * directions on representative routes: the cross-tenant call is refused AND the
+ * owner's own call still succeeds.
+ */
 class DashboardController extends Controller
 {
     use ApiResponser;
@@ -1072,7 +1120,7 @@ public function OrderList(Request $request)
 
     public function OrderList_backup(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -1136,7 +1184,7 @@ public function OrderList(Request $request)
 
     public function AddCategory(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -1197,7 +1245,7 @@ public function OrderList(Request $request)
 
     public function UpdateCategory(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -1214,7 +1262,9 @@ public function OrderList(Request $request)
             ]);
         }
 
-        $Category = Category::find($request->category_id);
+        $Category = Category::where('id', $request->category_id)
+            ->where('store_id', $store->id)
+            ->first();
         if (!empty($Category)) {
             $dir = 'uploads/' . $store->id;
             if ($request->image) {
@@ -1257,7 +1307,7 @@ public function OrderList(Request $request)
 
     public function DeleteCategory(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -1274,7 +1324,9 @@ public function OrderList(Request $request)
             ]);
         }
 
-        $Category = Category::find($request->category_id);
+        $Category = Category::where('id', $request->category_id)
+            ->where('store_id', $store->id)
+            ->first();
 
         if (!empty($Category)) {
             if (File::exists(base_path($Category->image_path))) {
@@ -1293,7 +1345,7 @@ public function OrderList(Request $request)
 
     public function AddCoupon(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -1334,7 +1386,7 @@ public function OrderList(Request $request)
 
 public function UpdateCoupon(Request $request)
 {
-    $store = Store::find($request->store_id);
+    $store = $this->resolveOwnedStore($request->store_id);
     if (empty($store)) {
         return $this->error(['message' => __('Store not found!')]);
     }
@@ -1353,7 +1405,9 @@ public function UpdateCoupon(Request $request)
         ]);
     }
 
-    $coupon = Coupon::find($request->coupon_id);
+    $coupon = Coupon::where('id', $request->coupon_id)
+        ->where('store_id', $store->id)
+        ->first();
     if (!$coupon) {
         return $this->error(['message' => __('Coupon not found!')]);
     }
@@ -1387,7 +1441,7 @@ public function UpdateCoupon(Request $request)
 }
     public function DeleteCoupon(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -1404,7 +1458,9 @@ public function UpdateCoupon(Request $request)
             ]);
         }
 
-        $coupon = Coupon::find($request->coupon_id);
+        $coupon = Coupon::where('id', $request->coupon_id)
+            ->where('store_id', $store->id)
+            ->first();
         if (!empty($coupon)) {
             $coupon->delete();
             return $this->success(['message' => __('Coupon deleted successfully!.')]);
@@ -1415,7 +1471,7 @@ public function UpdateCoupon(Request $request)
 
     public function GenerateCode(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -1433,7 +1489,7 @@ public function UpdateCoupon(Request $request)
 
     public function AddShipping(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -1464,7 +1520,7 @@ public function UpdateCoupon(Request $request)
 
     public function UpdateShipping(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -1481,7 +1537,9 @@ public function UpdateCoupon(Request $request)
             ]);
         }
 
-        $shipping = Shipping::find($request->shipping_id);
+        $shipping = Shipping::where('id', $request->shipping_id)
+            ->where('store_id', $store->id)
+            ->first();
 
         if (!empty($shipping)) {
             if (!empty($request->name)) {
@@ -1500,7 +1558,7 @@ public function UpdateCoupon(Request $request)
 
     public function DeleteShipping(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -1517,7 +1575,9 @@ public function UpdateCoupon(Request $request)
             ]);
         }
 
-        $shipping = Shipping::find($request->shipping_id);
+        $shipping = Shipping::where('id', $request->shipping_id)
+            ->where('store_id', $store->id)
+            ->first();
 
         if (!empty($shipping)) {
             $shipping->delete();
@@ -1529,7 +1589,7 @@ public function UpdateCoupon(Request $request)
 
     public function AddTax(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -1558,7 +1618,7 @@ public function UpdateCoupon(Request $request)
 
     public function UpdateTax(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -1577,7 +1637,21 @@ public function UpdateCoupon(Request $request)
             ]);
         }
 
-        $tax = Tax::find($request->tax_id);
+        $tax = Tax::where('id', $request->tax_id)
+            ->where('store_id', $store->id)
+            ->first();
+
+        // NULL GUARD, pre-existing and now load-bearing. This method wrote to
+        // the resolved row with no existence check, so an id matching nothing
+        // already raised "Attempt to read property on null" -- a 500 on bad
+        // input. Scoping the lookup to the caller's tenant makes a FOREIGN id
+        // resolve to null too, so the guard has to be here or a denial would
+        // surface as a 500 instead of a clean refusal. Same message as this
+        // file's other not-found branches, so a foreign id is indistinguishable
+        // from an absent one.
+        if (empty($tax)) {
+            return $this->error(['message' => __('Tax data not found.')]);
+        }
 
         if (!empty($request->name)) {
             $tax->name     = $request->name;
@@ -1588,7 +1662,7 @@ public function UpdateCoupon(Request $request)
 
     public function DeleteTax(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
 
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
@@ -1606,7 +1680,9 @@ public function UpdateCoupon(Request $request)
             ]);
         }
 
-        $tax = Tax::find($request->tax_id);
+        $tax = Tax::where('id', $request->tax_id)
+            ->where('store_id', $store->id)
+            ->first();
 
         if (!empty($tax)) {
             $tax->delete();
@@ -1618,7 +1694,7 @@ public function UpdateCoupon(Request $request)
 
     public function AddVariant(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -1649,7 +1725,7 @@ public function UpdateCoupon(Request $request)
 
     public function UpdateVariant(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -1668,7 +1744,21 @@ public function UpdateCoupon(Request $request)
             ]);
         }
 
-        $ProductVariant = ProductVariant::find($request->productvariant_id);
+        $ProductVariant = ProductVariant::where('id', $request->productvariant_id)
+            ->where('store_id', $store->id)
+            ->first();
+
+        // NULL GUARD, pre-existing and now load-bearing. This method wrote to
+        // the resolved row with no existence check, so an id matching nothing
+        // already raised "Attempt to read property on null" -- a 500 on bad
+        // input. Scoping the lookup to the caller's tenant makes a FOREIGN id
+        // resolve to null too, so the guard has to be here or a denial would
+        // surface as a 500 instead of a clean refusal. Same message as this
+        // file's other not-found branches, so a foreign id is indistinguishable
+        // from an absent one.
+        if (empty($ProductVariant)) {
+            return $this->error(['message' => __('Product Variant data not found.')]);
+        }
 
         if (!empty($request->name)) {
             $ProductVariant->variant       = $request->name;
@@ -1683,7 +1773,7 @@ public function UpdateCoupon(Request $request)
 
     public function DeleteVariant(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -1700,7 +1790,9 @@ public function UpdateCoupon(Request $request)
             ]);
         }
 
-        $ProductVariant = ProductVariant::find($request->variant_id);
+        $ProductVariant = ProductVariant::where('id', $request->variant_id)
+            ->where('store_id', $store->id)
+            ->first();
         if (!empty($ProductVariant)) {
             $ProductVariant->delete();
             return $this->success(['message' => __('Product Variant deleted successfully!.')]);
@@ -1711,7 +1803,7 @@ public function UpdateCoupon(Request $request)
 
     public function CreateProduct(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -1779,7 +1871,7 @@ public function ViewOrder(Request $request)
         ]);
     }
 
-    $store = Store::find($request->store_id);
+    $store = $this->resolveOwnedStore($request->store_id);
 
     if (!$store) {
         return $this->error([
@@ -1879,7 +1971,7 @@ public function ViewOrder(Request $request)
 
     public function ViewOrder_backup(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
 
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
@@ -1956,7 +2048,7 @@ public function DeleteProduct(Request $request)
         ]);
     }
 
-    $store = Store::find($request->store_id);
+    $store = $this->resolveOwnedStore($request->store_id);
 
     if (!$store) {
         return $this->error([
@@ -2050,7 +2142,7 @@ public function DeleteProduct(Request $request)
 
     public function DeleteProduct_backup(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -2115,7 +2207,7 @@ public function DeleteProduct(Request $request)
 
 public function AddProduct(Request $request)
 {
-    $store = Store::find($request->store_id);
+    $store = $this->resolveOwnedStore($request->store_id);
     if (empty($store)) {
         return $this->error(['message' => __('Store not found!')]);
     }
@@ -2258,7 +2350,7 @@ public function AddProduct(Request $request)
 
 public function UpdateProduct(Request $request)
 {
-    $store = Store::find($request->store_id);
+    $store = $this->resolveOwnedStore($request->store_id);
     if (empty($store)) {
         return $this->error(['message' => __('Store not found!')]);
     }
@@ -2297,7 +2389,9 @@ public function UpdateProduct(Request $request)
     }
 
     $dir = 'uploads/' . $store->id;
-    $product = Product::find($request->product_id);
+    $product = Product::where('id', $request->product_id)
+        ->where('store_id', $store->id)
+        ->first();
     
     if (empty($product)) {
         return $this->error(['message' => __('Product not found!')]);
@@ -2415,7 +2509,7 @@ public function UpdateProduct(Request $request)
 
 public function ViewProduct(Request $request)
 {
-    $store = Store::find($request->store_id);
+    $store = $this->resolveOwnedStore($request->store_id);
     if (empty($store)) {
         return $this->error(['message' => __('Store not found!')]);
     }
@@ -2436,7 +2530,9 @@ public function ViewProduct(Request $request)
     
     $ProductDetail = [];
 
-    $Products = Product::find($request->product_id);
+    $Products = Product::where('id', $request->product_id)
+        ->where('store_id', $store->id)
+        ->first();
     if (!empty($Products)) {
         $productArray = $Products->toArray();
 
@@ -2484,7 +2580,7 @@ public function ViewProduct(Request $request)
 
     public function DeleteOrder(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -2501,10 +2597,33 @@ public function ViewProduct(Request $request)
             ]);
         }
 
-        OrderTaxDetail::where('order_id', $request->order_id)->delete();
-        OrderCouponDetail::where('order_id', $request->order_id)->delete();
-        OrderBillingDetail::where('order_id', $request->order_id)->delete();
-        Order::where('id', $request->order_id)->delete();
+        // NEW-api-delete-any-order. This was the worst shape in the file: the
+        // store was resolved from the request and then NEVER USED -- the four
+        // deletes below keyed on $request->order_id alone, with no store
+        // predicate of any kind. Any holder of any valid admin token deleted
+        // any order on the platform, plus its tax, coupon and billing detail
+        // rows, by sending one integer. Irreversible.
+        //
+        // The order is now resolved through the owned store first, exactly as
+        // AddOrderNote (:122) already does, and the child-table deletes are
+        // moved BEHIND that check so the destructive side effect cannot run on
+        // a failed lookup -- the ordering rule the status.cancel repair
+        // established.
+        //
+        // A foreign order answers 'Order not found.' rather than a 403, so the
+        // response does not confirm that an order id exists.
+        $order = Order::where('id', $request->order_id)
+            ->where('store_id', $store->id)
+            ->first();
+
+        if (!$order) {
+            return $this->error(['message' => __('Order not found.')]);
+        }
+
+        OrderTaxDetail::where('order_id', $order->id)->delete();
+        OrderCouponDetail::where('order_id', $order->id)->delete();
+        OrderBillingDetail::where('order_id', $order->id)->delete();
+        $order->delete();
 
         return $this->success(['message' => __('Order deleted successfully!.')]);
     }
@@ -2527,7 +2646,7 @@ public function ViewProduct(Request $request)
 
     public function SearchData(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -2561,7 +2680,7 @@ public function ViewProduct(Request $request)
 
     public function CreateReview(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -2585,7 +2704,7 @@ public function ViewProduct(Request $request)
 
     public function CategoryProduct(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -2626,7 +2745,7 @@ public function ViewProduct(Request $request)
 
     public function AddReview(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -2648,7 +2767,9 @@ public function ViewProduct(Request $request)
                 'message' => $messages->first()
             ]);
         }
-        $Product = Product::find($request->product_id);
+        $Product = Product::where('id', $request->product_id)
+            ->where('store_id', $store->id)
+            ->first();
         if (empty($Product)) {
             return $this->error([
                 'message' => __('Product not found.')
@@ -2701,7 +2822,7 @@ public function DeleteReview($id)
 
     public function UpdateReview(Request $request)
 {
-    $store = Store::find($request->store_id);
+    $store = $this->resolveOwnedStore($request->store_id);
     if (empty($store)) {
         return $this->error(['message' => __('Store not found!')]);
     }
@@ -2719,7 +2840,9 @@ public function DeleteReview($id)
         ]);
     }
 
-    $review = Testimonial::find($request->id);
+    $review = Testimonial::where('id', $request->id)
+        ->where('store_id', $store->id)
+        ->first();
 
     if (!$review) {
         return $this->error(['message' => __('Review not found.')], 404);
@@ -2758,7 +2881,7 @@ public function DeleteReview($id)
 
     public function ReviewStatus(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -2777,7 +2900,9 @@ public function DeleteReview($id)
                 'message' => $messages->first()
             ]);
         }
-        $review = Testimonial::find($request->id);
+        $review = Testimonial::where('id', $request->id)
+            ->where('store_id', $store->id)
+            ->first();
         if (!empty($review)) {
 
             if ($review->status == '1') {
@@ -2796,7 +2921,7 @@ public function DeleteReview($id)
 
     public function ProductDropdown(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -2819,7 +2944,7 @@ public function DeleteReview($id)
 
     public function SearchProduct(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -2846,7 +2971,7 @@ public function DeleteReview($id)
 
     public function ReviewList(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -2874,7 +2999,7 @@ public function DeleteReview($id)
 
     public function StaticsData(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -3027,7 +3152,7 @@ public function DeleteReview($id)
 
     public function EditProfile(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -3045,7 +3170,14 @@ public function DeleteReview($id)
             ]);
         }
 
-        $admin = User::find($request->user_id);
+        // NEW-api-edit-any-user. Was `User::find($request->user_id)`: no
+        // comparison against the caller at all, so any valid admin token could
+        // rewrite any user's name and email -- including the platform
+        // operator's -- and then take the account over through password reset.
+        // See resolveManageableUser() for the predicate and why it keeps staff
+        // and multi-store merchants working.
+        $admin = $this->resolveManageableUser($request->user_id);
+
         if (!empty($admin)) {
             if (!empty($request->name)) {
                 $admin->name = $request->name;
@@ -3073,7 +3205,7 @@ public function DeleteReview($id)
 
     public function UpdatePassword(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -3093,10 +3225,23 @@ public function DeleteReview($id)
             ]);
         }
 
-        $admin = User::find($request->user_id);
-        $current_password = $admin->password;
+        // NEW-api-password-oracle + NEW-api-updatepassword-null-deref.
+        //
+        // Two defects on two adjacent lines. `User::find($request->user_id)`
+        // accepted any user id on the platform, turning this into an
+        // old-password guessing oracle against any account; and
+        // `$current_password = $admin->password` ran BEFORE the `!empty($admin)`
+        // check immediately below it, so a user_id that matched nothing raised
+        // "Attempt to read property 'password' on null" -- a 500 where the
+        // method's own error branch was already written and simply unreachable.
+        //
+        // The read is moved inside the guard, which is what the existing
+        // `!empty($admin)` branch was always for.
+        $admin = $this->resolveManageableUser($request->user_id);
 
         if (!empty($admin)) {
+            $current_password = $admin->password;
+
             if (Hash::check($request->old_password, $current_password)) {
                 $admin->password = bcrypt($request->password);
                 $admin->save();
@@ -3111,7 +3256,7 @@ public function DeleteReview($id)
 
     public function EmailSetting(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -3168,7 +3313,7 @@ public function DeleteReview($id)
 
     public function GetEmailSetting(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -3193,7 +3338,7 @@ public function DeleteReview($id)
 
     public function LoyalitySetting(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -3239,7 +3384,7 @@ public function DeleteReview($id)
 
     public function GetLoyalitySetting(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -3260,7 +3405,7 @@ public function DeleteReview($id)
     public function CodPayment(Request $request)
     {
 
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -3333,7 +3478,7 @@ public function DeleteReview($id)
 
     public function GetCodPayment(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -3356,7 +3501,7 @@ public function DeleteReview($id)
 
     public function BankPayment(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -3429,7 +3574,7 @@ public function DeleteReview($id)
 
     public function GetBankPayment(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -3452,7 +3597,7 @@ public function DeleteReview($id)
 
     public function StripePayment(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -3530,7 +3675,7 @@ public function DeleteReview($id)
 
     public function GetStripePayment(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -3555,7 +3700,7 @@ public function DeleteReview($id)
 
     public function TestMail(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -3639,6 +3784,107 @@ public function DeleteReview($id)
         }
 
         return $query->first();
+    }
+
+    /**
+     * Every store id inside the caller's tenant.
+     *
+     * WHY THIS EXISTS ALONGSIDE resolveOwnedStore(). Most rows in this
+     * controller are stamped with the REQUEST's store_id at creation time
+     * (AddCategory :1192, AddCoupon :1329, AddShipping :1459, AddTax :1553,
+     * AddVariant :1644, AddProduct :2234, AddReview :2672), so scoping a later
+     * lookup by `store_id = $store->id` is exact.
+     *
+     * ProductBrand and ProductLabel are the exception: AddProductBrand :4443,
+     * AddProductLable :4631 and :4664 stamp `store_id = getCurrentStore()`,
+     * which is the CALLER's users.current_store (app/Helper/helper.php:367) and
+     * is NOT required to equal the store_id query parameter. A merchant with two
+     * stores can therefore legitimately hold a brand whose store_id differs from
+     * the store_id they pass. Scoping those lookups by `$store->id` would have
+     * been a tighter predicate that BROKE a real merchant flow -- the failure
+     * mode this phase has already hit twice -- so they are scoped to the tenant
+     * instead. That still closes the cross-tenant boundary, which is the actual
+     * security property; crossing between a merchant's OWN stores is not a
+     * tenancy violation.
+     *
+     * Returns an empty array for an unauthenticated caller, which makes every
+     * whereIn() using it match nothing -- fail closed.
+     */
+    private function ownedStoreIds()
+    {
+        $user = \Auth::user();
+
+        if (!$user) {
+            return [];
+        }
+
+        $query = Store::query();
+
+        if ($user->type !== 'super admin') {
+            $query->where('created_by', $user->creatorId());
+        }
+
+        return $query->pluck('id')->all();
+    }
+
+    /**
+     * Resolve a caller-supplied user_id to a User the caller may administer.
+     *
+     * NEW-api-edit-any-user / NEW-api-password-oracle. EditProfile (:3030) and
+     * UpdatePassword (:3078) both did a bare `User::find($request->user_id)`
+     * after resolving a store they never compared the user against. The store
+     * lookup was pure decoration: neither method referenced $store->id when
+     * loading the user.
+     *
+     * EditProfile was the serious half -- it writes `name` and `email` on the
+     * resolved user, so ANY holder of ANY valid admin token could change the
+     * EMAIL ADDRESS of any user on the platform, the platform operator
+     * included, and then drive the password-reset flow to that address. That is
+     * a full account takeover out of a single unconstrained find().
+     *
+     * UpdatePassword still requires the old password (Hash::check :3100), so it
+     * is not a direct takeover, but against an arbitrary user_id it is a
+     * credential-guessing oracle on any account; and it read
+     * `$admin->password` BEFORE its own `!empty($admin)` check, so a
+     * nonexistent user_id raised "Attempt to read property on null" -- the
+     * same null-guard class as get_file().
+     *
+     * The predicate: yourself always; anyone in your tenant if you are an admin
+     * (created_by = creatorId(), the same predicate resolveOwnedStore and
+     * StoreController::changeStore:637 use, so staff keep working); anyone if
+     * you are the platform operator. Returns null otherwise, and callers answer
+     * null the way they already answered a missing user -- 'User not found.' --
+     * which also avoids confirming that a user id exists.
+     */
+    private function resolveManageableUser($userId)
+    {
+        $actor = \Auth::user();
+
+        if (!$actor || empty($userId)) {
+            return null;
+        }
+
+        $target = User::find($userId);
+
+        if (!$target) {
+            return null;
+        }
+
+        if ((int) $target->id === (int) $actor->id) {
+            return $target;
+        }
+
+        if ($actor->type === 'super admin') {
+            return $target;
+        }
+
+        $tenant = $actor->creatorId();
+
+        if (empty($tenant) || empty($target->created_by)) {
+            return null;
+        }
+
+        return (int) $target->created_by === (int) $tenant ? $target : null;
     }
 
     /**
@@ -3874,7 +4120,7 @@ public function DeleteStore(Request $request)
     public function DeleteStore_backup(Request $request)
     {
 
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -4392,7 +4638,7 @@ public function changeProfile(Request $request)
     public function AddProductBrand(Request $request)
     {
         $user = Auth::user();
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -4449,7 +4695,7 @@ public function changeProfile(Request $request)
     }
     public function UpdateProductBrand(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -4465,7 +4711,21 @@ public function changeProfile(Request $request)
                 'message' => $messages->first()
             ]);
         }
-        $productBrand = ProductBrand::find($request->productbrand_id);
+        $productBrand = ProductBrand::where('id', $request->productbrand_id)
+            ->whereIn('store_id', $this->ownedStoreIds())
+            ->first();
+
+        // NULL GUARD, pre-existing and now load-bearing. This method wrote to
+        // the resolved row with no existence check, so an id matching nothing
+        // already raised "Attempt to read property on null" -- a 500 on bad
+        // input. Scoping the lookup to the caller's tenant makes a FOREIGN id
+        // resolve to null too, so the guard has to be here or a denial would
+        // surface as a 500 instead of a clean refusal. Same message as this
+        // file's other not-found branches, so a foreign id is indistinguishable
+        // from an absent one.
+        if (empty($productBrand)) {
+            return $this->error(['message' => __('Product Brand data not found.')]);
+        }
 
         $url = null;
         if ($request->logo) {
@@ -4510,7 +4770,7 @@ public function changeProfile(Request $request)
 
     public function DeleteProductBrand(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
 
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
@@ -4528,7 +4788,9 @@ public function changeProfile(Request $request)
             ]);
         }
 
-        $productBrand = ProductBrand::find($request->productbrand_id);
+        $productBrand = ProductBrand::where('id', $request->productbrand_id)
+            ->whereIn('store_id', $this->ownedStoreIds())
+            ->first();
 
         if (!empty($productBrand)) {
             $productBrand->delete();
@@ -4539,7 +4801,7 @@ public function changeProfile(Request $request)
     }
     public function ChangeStatus(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
 
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
@@ -4555,7 +4817,9 @@ public function changeProfile(Request $request)
                 'message' => $messages->first()
             ]);
         }
-        $productBrand = ProductBrand::find($request->productbrand_id);
+        $productBrand = ProductBrand::where('id', $request->productbrand_id)
+            ->whereIn('store_id', $this->ownedStoreIds())
+            ->first();
 
         if ($productBrand) {
             $productBrand->status = $request->status;
@@ -4571,7 +4835,7 @@ public function changeProfile(Request $request)
     }
     public function ChangePopular(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
 
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
@@ -4587,7 +4851,9 @@ public function changeProfile(Request $request)
                 'message' => $messages->first()
             ]);
         }
-        $productBrand = ProductBrand::find($request->productbrand_id);
+        $productBrand = ProductBrand::where('id', $request->productbrand_id)
+            ->whereIn('store_id', $this->ownedStoreIds())
+            ->first();
 
         if ($productBrand) {
             $productBrand->is_popular = $request->is_popular;
@@ -4603,7 +4869,7 @@ public function changeProfile(Request $request)
     }
     public function AddProductLable(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -4640,7 +4906,7 @@ public function changeProfile(Request $request)
     }
     public function UpdateProductLable(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -4656,7 +4922,21 @@ public function changeProfile(Request $request)
                 'message' => $messages->first()
             ]);
         }
-        $productLabel = ProductLabel::find($request->lable_id);
+        $productLabel = ProductLabel::where('id', $request->lable_id)
+            ->whereIn('store_id', $this->ownedStoreIds())
+            ->first();
+
+        // NULL GUARD, pre-existing and now load-bearing. This method wrote to
+        // the resolved row with no existence check, so an id matching nothing
+        // already raised "Attempt to read property on null" -- a 500 on bad
+        // input. Scoping the lookup to the caller's tenant makes a FOREIGN id
+        // resolve to null too, so the guard has to be here or a denial would
+        // surface as a 500 instead of a clean refusal. Same message as this
+        // file's other not-found branches, so a foreign id is indistinguishable
+        // from an absent one.
+        if (empty($productLabel)) {
+            return $this->error(['message' => __('Product Label data not found.')]);
+        }
         $productLabel->name                = $request->name;
         if ($request->status) {
             $productLabel->status              = $request->status;
@@ -4670,7 +4950,7 @@ public function changeProfile(Request $request)
     }
     public function DeleteProductLable(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
         }
@@ -4686,7 +4966,9 @@ public function changeProfile(Request $request)
             ]);
         }
 
-        $productLabel = ProductLabel::find($request->lable_id);
+        $productLabel = ProductLabel::where('id', $request->lable_id)
+            ->whereIn('store_id', $this->ownedStoreIds())
+            ->first();
         if (!empty($productLabel)) {
             $productLabel->delete();
 
@@ -4697,7 +4979,7 @@ public function changeProfile(Request $request)
     }
     public function LableChangeStatus(Request $request)
     {
-        $store = Store::find($request->store_id);
+        $store = $this->resolveOwnedStore($request->store_id);
 
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
@@ -4713,7 +4995,9 @@ public function changeProfile(Request $request)
                 'message' => $messages->first()
             ]);
         }
-        $productLabel = ProductLabel::find($request->lable_id);
+        $productLabel = ProductLabel::where('id', $request->lable_id)
+            ->whereIn('store_id', $this->ownedStoreIds())
+            ->first();
 
         if ($productLabel) {
             $productLabel->status = $request->status;
