@@ -307,6 +307,60 @@ class MigrationHygieneTest extends TestCase
     }
 
     /**
+     * GATE F SAFETY. The provisional money-table drafts in
+     * database/migrations/_gate_f_pending/ must remain UNDISCOVERABLE.
+     *
+     * Why this matters more than it looks: Schema::hasTable() guards make a migration a no-op
+     * against a database that already holds the table. So if a PROVISIONAL definition with a
+     * guessed column type ever ran first and created the table, the later CORRECT migration would
+     * no-op and the wrong types would become permanent and invisible. A guarded migration is safe
+     * when the definition is right and a silent trap when it is a guess -- and these are guesses,
+     * for six money-bearing tables.
+     *
+     * Two independent properties are asserted, because one is a convention and the other is
+     * mechanical:
+     *   1. Laravel's migration lookup is a non-recursive glob over database/migrations, so a
+     *      subdirectory is not discovered at all.
+     *   2. Every draft is named *.php.draft, so it cannot match the `*_*.php` glob even if
+     *      someone later registers this directory as a migration path.
+     */
+    public function test_gate_f_provisional_drafts_are_not_discoverable_as_migrations(): void
+    {
+        $pending = dirname(__DIR__, 3) . '/database/migrations/_gate_f_pending';
+
+        if (! is_dir($pending)) {
+            $this->markTestSkipped('No GATE F staging directory in this tree.');
+        }
+
+        // Property 1: the non-recursive glob Laravel itself uses must not reach into it.
+        $discovered = glob(dirname(__DIR__, 3) . '/database/migrations/*_*.php') ?: [];
+
+        foreach ($discovered as $file) {
+            $this->assertStringNotContainsString(
+                '_gate_f_pending',
+                $file,
+                'A GATE F draft is discoverable by Laravel\'s migration glob. Provisional money-table '
+                . 'definitions must never be runnable: a hasTable() guard would then make the later '
+                . 'CORRECT migration a silent no-op and freeze the guessed types in place.'
+            );
+        }
+
+        // Property 2: nothing in the staging directory ends in .php at all.
+        $runnable = glob($pending . '/*.php') ?: [];
+
+        $this->assertSame(
+            [],
+            array_map('basename', $runnable),
+            'A GATE F draft is named *.php. Drafts must be *.php.draft so they cannot match the '
+            . '`*_*.php` migration glob even if this directory is registered as a migration path.'
+        );
+
+        // And the directory must actually hold the drafts, so this does not pass vacuously.
+        $this->assertNotEmpty(glob($pending . '/*.php.draft') ?: []);
+        $this->assertFileExists($pending . '/README.md');
+    }
+
+    /**
      * Map column name -> Blueprint type for one chunk of migration source.
      *
      * Index and constraint builders are excluded: `$table->unique('name')` and
