@@ -40,3 +40,8 @@
 /error_log
 composer.phar
 .DS_Store
+
+# PHPUnit's per-run cache. Regenerated on every run and machine-specific; it has no
+# business in version control and shows up as an untracked file after any test run.
+.phpunit.result.cache
+.phpunit.cache
