@@ -370,7 +370,27 @@ class RefundStateMachineTest extends TestCase
         $this->asSuperAdmin();
 
         $productId = $this->makeProduct(['product_stock' => 5]);
+
+        /*
+         * The refund is anchored to a real ORDER. It always was in production --
+         * AccountProfileController.php:965 sets `$order_refund->order_id = $id`,
+         * and the real migration puts a FOREIGN KEY on that column with
+         * ON DELETE CASCADE, so a refund whose order is missing cannot exist --
+         * but this fixture used to leave order_id null, which the nullable
+         * column allowed. RefundStock() now resolves the order (it needs
+         * `product_json` to tell which VARIANT was returned, and an order to
+         * anchor the idempotency marker to), so the fixture has to reflect what
+         * the data model actually guarantees. The ASSERTIONS are unchanged: an
+         * accepted refund still restocks, and still answers 200.
+         */
+        $orderId = $this->makeOrder([
+            'product_json' => json_encode([
+                ['product_id' => $productId, 'variant_id' => 0, 'qty' => 3],
+            ]),
+        ]);
+
         $refundId = $this->makeRefund('Accept', [
+            'order_id' => $orderId,
             'product_refund_id' => json_encode([
                 ['product_refund_id' => $productId, 'quantity' => 3],
             ]),
@@ -395,7 +415,17 @@ class RefundStateMachineTest extends TestCase
         $this->asSuperAdmin();
 
         $productId = $this->makeProduct(['product_stock' => 5]);
+
+        // Anchored to a real order -- see the note in
+        // test_an_accepted_refund_restores_stock().
+        $orderId = $this->makeOrder([
+            'product_json' => json_encode([
+                ['product_id' => $productId, 'variant_id' => 0, 'qty' => 3],
+            ]),
+        ]);
+
         $refundId = $this->makeRefund('Accept', [
+            'order_id' => $orderId,
             'product_refund_id' => json_encode([
                 ['product_refund_id' => $productId, 'quantity' => -4],
                 ['product_refund_id' => $productId, 'quantity' => 'lots'],
@@ -715,11 +745,29 @@ class RefundStateMachineTest extends TestCase
             $table->unsignedBigInteger('store_id')->nullable();
             $table->timestamps();
         });
+
+        /*
+         * ADDED in the stabilization phase. RefundStock() now writes a durable
+         * idempotency marker here, because replaying it used to add stock again
+         * every time and `order_refunds` has no column to record a restock. See
+         * OrderRefundController::STOCK_RESTORED_NOTE_TYPE and
+         * tests/Feature/Commerce/RefundStockIdempotencyTest.php.
+         */
+        Schema::create('order_notes', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('order_id')->nullable();
+            $table->unsignedBigInteger('customer_id')->nullable();
+            $table->string('notes')->nullable();
+            $table->string('note_type')->nullable();
+            $table->string('status')->nullable();
+            $table->unsignedBigInteger('store_id')->nullable();
+            $table->timestamps();
+        });
     }
 
     private function dropRefundSchema(): void
     {
-        foreach (['product_variants', 'products', 'order_refunds', 'orders', 'users'] as $table) {
+        foreach (['order_notes', 'product_variants', 'products', 'order_refunds', 'orders', 'users'] as $table) {
             Schema::dropIfExists($table);
         }
     }

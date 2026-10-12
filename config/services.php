@@ -126,6 +126,39 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Cash on delivery
+    |--------------------------------------------------------------------------
+    |
+    | WHEN A COD ORDER COUNTS AS PAID.
+    |
+    |   'order'    -- recorded Paid the moment the order is placed. THE DEFAULT,
+    |                 and the pre-existing behaviour, byte for byte.
+    |   'delivery' -- recorded Pending when placed, Paid when a merchant marks it
+    |                 delivered. The CORRECT machine: for cash on delivery no
+    |                 money has moved at checkout.
+    |
+    | THE DEFAULT IS DELIBERATELY THE OLD BEHAVIOUR, not the correct one. When an
+    | order counts as paid decides when a merchant's wallet is credited and which
+    | orders appear in a revenue report, so flipping it is a business change the
+    | owner has to choose -- not a defect fix to impose on a live shop. Set
+    | COD_SETTLEMENT=delivery to opt in. Read by
+    | App\Services\PaymentVerificationService::codSettlementPolicy(); an
+    | unrecognised value falls back to 'order' and is logged, because a typo here
+    | must not stop a shop taking orders.
+    |
+    | PER-STORE WOULD BE BETTER and is NOT done here. This is one global switch,
+    | whereas on a shared-database multi-tenant platform each merchant may run
+    | COD differently. Making it per store needs a field on the payment-settings
+    | screen (PaymentSettingController plus its view), which this agent does not
+    | own; recorded as a cross-agent dependency.
+    |
+    */
+    'cod' => [
+        'settlement' => env('COD_SETTLEMENT', 'order'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Paymera
     |--------------------------------------------------------------------------
     |

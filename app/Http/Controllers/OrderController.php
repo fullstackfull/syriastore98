@@ -57,6 +57,14 @@ class OrderController extends Controller
         return $this->stockService ??= new \App\Services\ProductStockService();
     }
 
+    /** Derives an order's payment_status, and owns the COD state machine. */
+    private ?\App\Services\PaymentVerificationService $paymentVerifier = null;
+
+    private function paymentVerifier(): \App\Services\PaymentVerificationService
+    {
+        return $this->paymentVerifier ??= new \App\Services\PaymentVerificationService();
+    }
+
 public function store(Request $request)
 {
     $validator = \Validator::make($request->all(), [
@@ -726,6 +734,60 @@ public function store(Request $request)
         $responce = Order::order_status_change($data);
         $order = Order::order_detail($data['order_id']);
         $d_order = Order::find($data['order_id']);
+
+        /*
+         * COD SETTLES HERE -- the other half of the cash-on-delivery state
+         * machine. See App\Services\PaymentVerificationService
+         * COD_SETTLEMENT_ON_DELIVERY for the full argument.
+         *
+         * THE DEFECT. PaymentService::process() routes 'cod' straight to
+         * getProductStatus() (:315) and the order writer recorded it 'Paid'
+         * immediately, so a cash-on-delivery order counted as paid before the
+         * courier had collected anything. An order placed and never delivered
+         * stayed Paid forever, and a CANCELLATION then had to UNDO a payment
+         * that never happened -- which is literally what
+         * Order::order_status_change() does, writing payment_status = 'Unpaid'
+         * on cancel (app/Models/Order.php:550) with a comment calling it the
+         * missing line needed to refund the amount. There is nothing to refund.
+         * An Observer reacts to that write by adjusting the wallet, so the
+         * premature Paid reaches the financial records and is then walked back.
+         *
+         * THE MISSING HALF. Nothing ever moved a COD order from unpaid to paid
+         * on delivery, because nothing had to: it was born Paid. With the
+         * correct machine the transition has to exist, and this is the one place
+         * a merchant declares an order delivered.
+         *
+         * INERT BY DEFAULT. codShouldSettleOnDelivery() returns false unless the
+         * owner has opted in to `services.cod.settlement = 'delivery'`, so for
+         * every existing deployment this block does nothing at all and COD
+         * behaviour is byte-for-byte what it was. That is deliberate: when an
+         * order counts as paid decides when a wallet is credited, which is the
+         * owner's business decision and not a fix to impose.
+         *
+         * IDEMPOTENT. The guard requires the order not to be Paid already, so a
+         * replayed 'delivered' status change settles once, not twice.
+         *
+         * The save is kept narrow -- only payment_status -- and the same
+         * OrderPaymentStatus event the model's own transitions fire is fired
+         * here too, so the wallet and notification listeners see this change the
+         * way they see every other payment-status change rather than being
+         * bypassed.
+         */
+        if (($responce['status'] ?? null) === 'success'
+            && strtolower(trim((string) $data['order_status'])) === 'delivered'
+            && $this->paymentVerifier()->codShouldSettleOnDelivery($d_order)
+        ) {
+            $d_order->payment_status = \App\Services\PaymentVerificationService::STATUS_PAID;
+            $d_order->save();
+
+            event(new \App\Events\OrderPaymentStatus($d_order));
+
+            \Log::info('COD order settled on delivery', [
+                'order_id' => $d_order->id,
+                'store_id' => $d_order->store_id,
+                'payment_type' => $d_order->payment_type,
+            ]);
+        }
         $store = getStoreById($d_order->store_id);
         $dArr = [
             'order_id' => $data['order_id'],
