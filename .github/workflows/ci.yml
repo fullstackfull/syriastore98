@@ -114,17 +114,116 @@ jobs:
         # composer.json/composer.lock, which is an explicit OWNER GATE and out of scope
         # for Phase 1B.
         #
-        # Agent 5 proved, by applying the bumps to a THROWAWAY COPY of the lock outside
-        # both repositories, that 65 of the 70 clear with NO composer.json change at all
-        # -- every vulnerable package is transitive and its requirers' constraints
-        # already permit the patched version. Residual 5: four laravel/framework
-        # advisories with no fix on the 11.x line (fixed only in 12.60+/13.x, so a major
-        # upgrade) and one low firebase/php-jwt whose 7.0.0 fix is blocked by
-        # laravel/socialite v5.16.0 requiring ^6.4.
+        # ---------------------------------------------------------------------------
+        # RE-VERIFIED Phase 1C (agent5-qa), and the earlier note here is CORRECTED on
+        # three points. The 70/22/3-critical headline figure reproduced exactly.
+        #
+        # CORRECTION 1 -- it is 66 that clear, not 65, and the residual is 4, not 5.
+        # The earlier note said the low firebase/php-jwt advisory was blocked by
+        # "laravel/socialite v5.16.0 requiring ^6.4". That constraint is real but it is
+        # the LOCKED socialite's constraint, and socialite is itself updatable inside
+        # the constraint composer.json already carries:
+        #     composer.json:36   "laravel/socialite": "^5.16"   permits v5.31.0
+        #     socialite v5.31.0  requires firebase/php-jwt ^6.4|^7.0   -> 7.x allowed
+        #     socialite v5.31.0  requires phpseclib/phpseclib ^4.0     -> 4.x allowed
+        # So updating socialite is the enabling move, and it needs NO composer.json
+        # change. It is also what makes the two MAJOR bumps in this set installable
+        # (php-jwt 6->7 and phpseclib 3->4); neither is a direct require.
+        #
+        # CORRECTION 2 -- "every vulnerable package is transitive" is false. Three are
+        # direct requires: aws/aws-sdk-php (^3.321), laravel/framework (^11.9) and
+        # phpunit/phpunit (^11.0.1). The CONCLUSION still holds, because each of those
+        # constraints already permits its patched version, so no composer.json edit is
+        # needed -- but the stated reason was wrong.
+        #
+        # CORRECTION 3 -- the residual 4 are all laravel/framework, and all four are
+        # fixed only on 12.x+. Measured from the advisory affectedVersions:
+        #   CVE-2026-48019  CRLF injection, default email rule   fixed 12.60.0 / 13.10.0
+        #   (unscored)      CRLF injection, default email rule   fixed 12.60.0 / 13.9.0+
+        #   (medium)        temporary signed URL path confusion  fixed 12.61.1 / 13.12.0
+        #   CVE-2026-102279 XSS in debug page information        fixed 12.69.0 / 13.30.0
+        # The whole 11.x line is listed as affected with no 11.x fix boundary, so these
+        # four cannot be cleared without a MAJOR framework upgrade. That is a framework
+        # migration, which the owner has explicitly excluded. They stay OPEN and
+        # reported, exactly like the .env exposure.
+        #
+        # STRENGTH OF EVIDENCE. The earlier figure came from applying bumps to a
+        # throwaway copy of the lock -- constraint arithmetic only. This run has
+        # something better: the vendor/ tree in the Phase 1C worktrees is DRIFTED AHEAD
+        # of composer.lock, and every one of the 22 vulnerable packages is installed at
+        # a higher version there. `composer audit` against that installed tree returns
+        # 4 advisories across 1 package (laravel/framework) -- i.e. the 66 really do
+        # clear at these versions, and the versions are mutually installable AND the
+        # suite passes against them (Unit 25/25; Feature 439 tests with only the known
+        # pre-existing failures). That is a measured integration preview, not arithmetic.
+        #
+        # READ THE CAVEAT BEFORE QUOTING THE 4. `composer install` in CI installs the
+        # LOCK, so this step will keep reporting 70 until the lock is actually updated.
+        # The 4 is the state of a tree that is ahead of the lock. It is a preview of the
+        # post-update state, NOT the current CI state.
+        #
+        # THE REVIEWABLE UPDATE PLAN. Not run here and not applied anywhere: composer.lock
+        # is owner-gated, and three pinned packages are unfetchable on a restricted
+        # runner (see job `tests`). Ordered so the enabling package moves first.
+        #
+        #   # 1. the enabler -- unblocks the two major transitive bumps below
+        #   composer update laravel/socialite --with-all-dependencies
+        #   # 2. the three criticals (jmespath 1, phpspreadsheet 2)
+        #   composer update mtdowling/jmespath.php phpoffice/phpspreadsheet \
+        #                   --with-all-dependencies
+        #   # 3. the rest, no composer.json change required by any of them
+        #   composer update aws/aws-sdk-php dompdf/dompdf firebase/php-jwt \
+        #                   guzzlehttp/guzzle guzzlehttp/psr7 league/commonmark \
+        #                   league/flysystem livewire/livewire phpseclib/phpseclib \
+        #                   psy/psysh symfony/http-foundation symfony/http-kernel \
+        #                   symfony/mailer symfony/mime symfony/polyfill-intl-idn \
+        #                   symfony/process symfony/routing symfony/yaml \
+        #                   phpunit/phpunit --with-all-dependencies
+        #   composer audit --locked        # expect 4, all laravel/framework
+        #
+        # EXPECTED RESULTING VERSIONS (locked -> target), each verified installed and
+        # exercised by the suite in this worktree:
+        #   aws/aws-sdk-php          3.369.5  -> 3.400.1     league/flysystem   3.30.2 -> 3.36.0
+        #   dompdf/dompdf            v3.0.0   -> v3.1.6      livewire/livewire  v3.7.3 -> v3.8.10
+        #   firebase/php-jwt         v6.10.2  -> v7.2.1      mtdowling/jmespath 2.8.0  -> 2.9.2
+        #   guzzlehttp/guzzle        7.10.0   -> 7.15.5      phpspreadsheet     1.30.1 -> 1.30.7
+        #   guzzlehttp/psr7          2.8.0    -> 2.13.1      phpseclib          3.0.42 -> 4.0.2
+        #   league/commonmark        2.8.0    -> 2.10.3      phpunit/phpunit    11.4.4 -> 11.5.57
+        #   laravel/socialite        v5.16.0  -> v5.31.0     psy/psysh          v0.12.5-> v0.12.24
+        #   symfony/http-foundation  v7.4.3   -> v7.4.20     symfony/mailer     v7.4.3 -> v7.4.19
+        #   symfony/http-kernel      v7.4.3   -> v7.4.20     symfony/mime       v7.4.0 -> v7.4.19
+        #   symfony/polyfill-intl-idn v1.33.0 -> v1.43.0     symfony/process    v7.4.3 -> v7.4.19
+        #   symfony/routing          v7.4.3   -> v7.4.20     symfony/yaml       v7.2.0 -> v7.4.20
+        #   laravel/framework        v11.47.0 -> v11.57.0  (does NOT clear its 4; see above)
+        #
+        # PRIORITISED BY REACHABILITY THROUGH ENABLED FUNCTIONALITY, highest first:
+        #   1. mtdowling/jmespath.php  CRITICAL. Reached on every aws-sdk-php response
+        #      parse, and aws-sdk is reachable from get_file()'s wasabi branch
+        #      (app/Helper/helper.php:152-165) whenever storage_setting == 'wasabi'.
+        #   2. phpoffice/phpspreadsheet  2 CRITICAL + 5 high. Reached by every product,
+        #      customer and order IMPORT through maatwebsite/excel.
+        #   3. guzzlehttp/guzzle + psr7  13 advisories. Every outbound HTTP call,
+        #      including the recaptcha verify at PasswordResetLinkController.php:48 and
+        #      every payment-gateway callback.
+        #   4. league/commonmark  14 advisories, 9 high -- but reachable only where
+        #      user-supplied markdown is rendered; required by laravel/framework ^2.7.
+        #   5. symfony/* and the rest: framework-internal, lower direct reachability.
+        #
+        # KNOWN REFUTATION, RE-VERIFIED HERE so it is not re-raised. The phpspreadsheet
+        # IOFactory::load() type-juggling concern does NOT apply to this codebase.
+        # maatwebsite/excel never calls IOFactory::load(). Confirmed by grep over
+        # vendor/maatwebsite/excel/src: zero `IOFactory::load(` call sites. Every path is
+        # IOFactory::createReader($type) followed by $reader->load($path) --
+        # Factories/ReaderFactory.php:32, Writer.php:139-140, Sheet.php:469,
+        # Reader.php:269, Jobs/ReadChunk.php:193 -- with an explicitly chosen reader type
+        # and a server-generated temporary path, so the vulnerable auto-detection branch
+        # is never entered and the path is not attacker-influenced. phpspreadsheet is
+        # still ranked 2nd above on its OTHER advisories, which are real.
         #
         # FLIP THIS TO ENFORCING (drop continue-on-error, and prefer
         # `--abandoned=ignore` over widening the audit) as soon as the owner approves the
         # bump. Leaving it advisory forever is how 70 advisories became 70 advisories.
+        # ---------------------------------------------------------------------------
         continue-on-error: true
         run: composer audit --locked
 
@@ -168,6 +267,29 @@ jobs:
 
       - name: Guard - no live .env in the checkout or the index
         run: .github/scripts/guard-no-env-files.sh .
+
+      - name: Guard - GATE F money tables are still created by nothing
+        # BLOCKING, and deliberately duplicated from
+        # tests/Unit/Database/GateFSchemaContainmentTest.php, which asserts the same
+        # property more thoroughly. The duplication is the point: that PHPUnit test only
+        # runs in the `tests` job, which is gated behind ALLOW_COMPOSER_INSTALL because
+        # three locked packages cannot be fetched on a restricted runner. So on most
+        # runners the project's strongest guard over six MONEY-BEARING tables never
+        # executes. This script needs no vendor/, so it runs on every push and PR.
+        #
+        # It fails the build if any discoverable migration, in either tree, creates
+        # store_wallets, store_wallet_transactions, store_withdrawals,
+        # store_order_financials, currency_rates or delivery_earnings -- and also if the
+        # parked drafts disappear, which would make the first check pass for the wrong
+        # reason. Seven of the suite's eight skips exist because three of these tables are
+        # absent, so there is standing pressure to green them by inventing a schema; the
+        # hasTable() guards in the surrounding migrations would then turn the real
+        # migration into a silent no-op and freeze the guessed column types permanently.
+        #
+        # Verified not vacuous before being added: run against a throwaway 213-file tree
+        # it passes, and against the same tree with one invented
+        # Schema::create('store_wallets') migration it exits non-zero and names the file.
+        run: .github/scripts/guard-gate-f-containment.sh .
 
       - name: Guard - packages/workdo/ is unmodified
         env:
@@ -388,8 +510,14 @@ jobs:
           grep -q '^APP_KEY=base64:' .env.testing || { echo "::error::.env.testing has no fixed test APP_KEY."; exit 1; }
 
       - name: Unit suite
-        # Verified green by Agent 5 in a real PHPUnit 11.5.57 run: 8 tests,
-        # 16 assertions, against sqlite :memory:.
+        # MEASURED green in a real PHPUnit 11.5.57 run against sqlite :memory:
+        # (agent5-qa, Phase 1C): 25 tests, 212 assertions, 0 failures, 0 skipped.
+        # The "8 tests, 16 assertions" previously recorded here was the pre-integration
+        # figure and is corrected. 21/189 was the figure before this branch added
+        # tests/Unit/Database/GateFSchemaContainmentTest.php (+4 tests, +23 assertions).
+        #
+        # This job is BLOCKING on purpose: the Unit suite has no known failures, so any
+        # red here is a real regression.
         run: vendor/bin/phpunit --testsuite Unit --testdox
 
       - name: Feature suite
@@ -402,20 +530,75 @@ jobs:
         #   2024_05_29_102438_add_customers_tbale_forienkey_...php  (SET foreign_key_checks)
         #   2024_06_05_094055_drop_role_name_unique_in_roles_...php (SHOW INDEX)
         #
-        # MEASURED on this integration branch with QA + database + commerce + security all
-        # merged (the earlier note here said "24 tests, 47 assertions", which was the
-        # pre-integration figure and is corrected):
+        # BASELINE MEASURED on the p1b/integration tip (bd6900bc) and reproduced
+        # independently on p1c/agent5-qa before any change:
         #   Unit     OK -- 21 tests, 189 assertions
         #   Feature  439 tests, 2557 assertions, 0 ERRORS, 14 failures, 8 skipped
         #
-        # The 14 failures are the stock Laravel Breeze scaffold tests, which never matched
-        # this customised product. Root causes measured, not guessed: 6x the null-unsafe
-        # get_file() read at app/Helper/helper.php:143-145, 2x Route [profile.edit] not
-        # defined, 1x ExampleTest having no RefreshDatabase, 3x the Breeze ResetPassword
-        # notification, 2x the WorkDo auth flow differing from Breeze's expectations.
-        # The 8 skips are the GATE F money tables plus two that name their blocked table.
+        # THE 14 WERE TRIAGED TEST-BY-TEST IN PHASE 1C (agent5-qa), and the root-cause
+        # breakdown previously recorded here is CORRECTED. It attributed 6 failures to
+        # get_file(), 1 to ExampleTest's missing RefreshDatabase, 3 to the Breeze
+        # ResetPassword notification, 2 to profile.edit and 2 to "the WorkDo auth flow
+        # differing from Breeze". Measured causes, each read off a real stack trace:
         #
-        # REMOVE continue-on-error once those 14 are triaged -- they are pre-existing, not
-        # regressions, and nothing outside that set fails.
+        #   6x PAGE RENDER -- blocked by TWO defects in sequence, not one.
+        #      First app/Helper/helper.php:145 reads $admin->current_store with no null
+        #      guard after User::where('type','super admin')->first(). Seeding a super
+        #      admin does NOT make them pass: the next failure is
+        #        no such table: owner_menu_settings
+        #      from resources/views/layouts/guest.blade.php:96. That migration EXISTS, at
+        #      packages/workdo/LandingPage/src/database/migrations/
+        #      2024_08_05_060912_create_owner_menu_settings_table.php, but no
+        #      loadMigrationsFrom() registers addon-module migration paths, so they never
+        #      run under RefreshDatabase. NO page in this product can render in the test
+        #      database. The earlier note named only the first defect.
+        #   2x profile.edit -- NOT "a Breeze feature never built". The route IS declared
+        #      at routes/web.php:396 and is silently dropped because routes/web.php:844
+        #      re-declares GET `profile`; RouteCollection indexes by method+URI, so the
+        #      later declaration replaces it and the NAME disappears. Live defect:
+        #      ProfileController.php:37 redirects to that name, so every successful
+        #      PATCH /profile writes the record and then 500s. See
+        #      tests/Feature/Platform/RouteRegistrationIntegrityTest.php, which also
+        #      finds a second lost name (contact.us, routes/customer.php:57).
+        #   1x ExampleTest -- confirmed: no RefreshDatabase. It ALSO asserted 200 on `/`,
+        #      which this product answers with 302 -> /login. Both corrected.
+        #   3x ResetPassword -- confirmed: the product sends its own
+        #      CustomResetPasswordNotification (PasswordResetLinkController.php:87).
+        #      Corrected; 2 now pass, 1 still blocked on the page render above.
+        #   2x "auth flow differing" -- resolved into two distinct REAL defects, not a
+        #      flow difference: login AUTHENTICATES successfully and then 500s on
+        #      Utility.php:3098 ($companyRole->hasPermission() on null), and registration
+        #      500s on RegisteredUserController.php:249 (addRole(null)). Both are
+        #      unguarded null derefs on a database whose roles are not seeded.
+        #
+        # VERDICT: 8 of the 14 are telling the truth about real defects and were KEPT RED.
+        # 6 asserted Breeze behaviour this product replaced and were CORRECTED in place,
+        # with the evidence recorded in each file. None was deleted or skipped.
+        #
+        # THE 8 SKIPS, read from a real run with --display-skipped rather than assumed.
+        # The split previously recorded here ("GATE F money tables plus two that name
+        # their blocked table") is CORRECTED: it is 7 + 1, not 6 + 2.
+        #   7 name a GATE F money table -- store_wallets (x3),
+        #     store_wallet_transactions (x2), store_withdrawals (x2) -- across
+        #     FinancePermissionTest, CrossTenantModelIsolationTest and
+        #     ModelInitializationTest. All MUST stay skipped: their column types are not
+        #     derivable from $fillable and inventing them is forbidden.
+        #   1 is DeliverySyriaWebhookTest::test_a_valid_token_cannot_move_another_stores_order,
+        #     blocked on `zid_orders`, which is NOT one of the six money tables. It is a
+        #     legitimate skip on the same class of defect (undeclared table).
+        #   Note the coverage gap: only 3 of the 6 GATE F tables appear in any skip.
+        #   store_order_financials and delivery_earnings are referenced but not isolation-
+        #   tested, and currency_rates appears in NO test at all.
+        # tests/Unit/Database/GateFSchemaContainmentTest.php now guards the whole six
+        # against being greened by an invented schema.
+        #
+        # EXPECTED AFTER THIS BRANCH: Feature failures fall from 14 to 13 -- 6 corrected
+        # away, 8 kept red, and 2 new intentional failures added by
+        # RouteRegistrationIntegrityTest, which names the route-shadowing mechanism the
+        # two profile.edit failures could only hint at. Skips stay at 8.
+        #
+        # REMOVE continue-on-error once the kept-red 8 have their defects fixed in app/
+        # and routes/ and the addon migration paths are registered. They are pre-existing,
+        # not regressions, and nothing outside that set fails.
         continue-on-error: true
         run: vendor/bin/phpunit --testsuite Feature --testdox
