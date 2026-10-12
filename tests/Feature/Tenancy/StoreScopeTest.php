@@ -8,6 +8,7 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Scopes\StoreScope;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
@@ -19,14 +20,22 @@ use Tests\TestCase;
  * escape hatches work. If any of these change silently, the platform breaks in ways that look
  * like missing data rather than like errors.
  *
- * EXECUTION STATUS: BLOCKED in the environment this was written in -- PHPUnit cannot be installed
- * in these checkouts (three locked packages are unreachable; see
- * tests/Unit/Database/MigrationPortabilityTest.php for the detail). The same assertions were
- * nevertheless EXECUTED against the real StoreScope and BelongsToStore classes using minimal
- * framework stubs, 39/39 passing, so the logic is verified even though this harness is not.
+ * EXECUTION STATUS: EXECUTED. A real vendor tree with PHPUnit 11.5.57 is now available, so the
+ * earlier "BLOCKED / verified with framework stubs" note on this class is withdrawn -- these
+ * assertions now run against the real framework, a real Eloquent builder and a real sqlite
+ * :memory: database. Running them for the first time is what exposed the defect below.
+ *
+ * WHY THIS CLASS NEEDS RefreshDatabase. It did not declare it, and every test here that calls
+ * tenantUser() therefore died on "no such table: users" -- 7 errors. The class is not a pure unit
+ * test: tenantUser() does a real INSERT so that auth()->user() returns a persisted model with a
+ * real current_store, which is what StoreScope::resolveStoreId() reads. A stubbed user would have
+ * made these tests pass without touching the resolver they exist to pin.
  */
 class StoreScopeTest extends TestCase
 {
+    use RefreshDatabase;
+
+
     protected function setUp(): void
     {
         parent::setUp();

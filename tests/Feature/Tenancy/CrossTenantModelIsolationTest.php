@@ -35,12 +35,11 @@ use Tests\TestCase;
  * R4-06 is preserved throughout: one shared database, one shared schema, tenancy enforced in the
  * application layer. Nothing here splits a database or duplicates a table per tenant.
  *
- * EXECUTION STATUS: BLOCKED in the environment this was written in. PHPUnit cannot be installed
- * in these checkouts -- three locked packages are unreachable (lahirulhr/laravel-payhere needs
- * api.github.com, which the proxy refuses for out-of-scope repositories; yoomoney/* is hosted on
- * git.yoomoney.ru). The underlying predicate and ownership logic WAS executed against the real
- * classes with framework stubs (39/39 assertions passing); the parts needing a real database and
- * a real Eloquent builder are unverified here and are honestly reported as such.
+ * EXECUTION STATUS: EXECUTED against the real framework, a real Eloquent builder and a real
+ * sqlite :memory: database. The earlier "BLOCKED / verified with framework stubs" note is
+ * withdrawn: a vendor tree with PHPUnit 11.5.57 is now available. That first real run is what
+ * found the 11 fixture errors described on requiredColumnStubs(), which the stub harness could
+ * not have found because stubs have no NOT NULL constraints.
  */
 class CrossTenantModelIsolationTest extends TestCase
 {
@@ -82,20 +81,142 @@ class CrossTenantModelIsolationTest extends TestCase
     /**
      * Insert one row per tenant directly, bypassing the scope entirely, so the fixture itself
      * cannot be shaped by the control under test.
+     *
+     * Every column this supplies beyond store_id is filled by requiredColumnStubs() from the
+     * LIVE SCHEMA, not from a hand-written list. See that method for why.
      */
     private function seedPair(string $table, array $base = []): array
     {
         $ids = [];
+        $required = $this->requiredColumnStubs($table);
 
         foreach ([self::STORE_A, self::STORE_B] as $storeId) {
-            $ids[$storeId] = \DB::table($table)->insertGetId($base + [
-                'store_id' => $storeId,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
+            // Explicit $base wins over a generated stub, and store_id wins over both: the
+            // tenant column is the thing under test and must never be stubbed.
+            $row = $required;
+            $row = $base + $row;
+            $row['store_id'] = $storeId;
+            $row['created_at'] = now();
+            $row['updated_at'] = now();
+
+            // Column-name collisions with a stub for a column the table does not have would
+            // throw, so the stub set is already restricted to real columns.
+            $ids[$storeId] = \DB::table($table)->insertGetId($row);
         }
 
         return $ids;
+    }
+
+    /**
+     * Placeholder values for every NOT NULL column of $table that has no default.
+     *
+     * WHY THIS IS SCHEMA-DRIVEN AND NOT A HAND-WRITTEN COLUMN LIST. The first real execution of
+     * this class produced 11 errors, all of the same shape:
+     *
+     *   SQLSTATE[23000]: NOT NULL constraint failed: products.track_stock
+     *   SQLSTATE[23000]: NOT NULL constraint failed: delivery_boys.email
+     *
+     * The fixture was listing a few columns per table by hand (name, slug, email) and the real
+     * tables require others it never mentioned -- products also needs track_stock and created_by,
+     * customers needs email, delivery_boys needs created_by, categories needs slug. A hand-
+     * maintained list is wrong the moment a migration adds a NOT NULL column, and it fails as a
+     * confusing fixture error in an unrelated test rather than as a clear schema error.
+     *
+     * Reading the requirement from `Schema::getColumns()` instead makes the fixture correct by
+     * construction on whatever the migrations actually produced, and keeps this class testing
+     * tenancy rather than testing whether someone updated a column list.
+     *
+     * These values are DELIBERATELY MEANINGLESS. Nothing here asserts on them; they exist only
+     * to satisfy constraints so the tenancy assertions can run. store_id is never stubbed.
+     *
+     * @return array<string, mixed>
+     */
+    private function requiredColumnStubs(string $table, int $depth = 0): array
+    {
+        $stubs = [];
+
+        // A required column that is a FOREIGN KEY cannot take an invented integer: sqlite
+        // enforces foreign keys under RefreshDatabase, and delivery_boys.created_by -> users.id
+        // (ON DELETE CASCADE) rejected a literal 1 with "FOREIGN KEY constraint failed". So FK
+        // columns are resolved to a row that genuinely exists.
+        $foreignKeys = [];
+
+        foreach (Schema::getForeignKeys($table) as $fk) {
+            if (count($fk['columns']) === 1 && count($fk['foreign_columns']) === 1) {
+                $foreignKeys[$fk['columns'][0]] = [$fk['foreign_table'], $fk['foreign_columns'][0]];
+            }
+        }
+
+        foreach (Schema::getColumns($table) as $column) {
+            $name = $column['name'];
+
+            if ($column['nullable'] || $column['default'] !== null || $column['auto_increment']) {
+                continue;
+            }
+
+            // The tenant column and the timestamps are set by seedPair() itself.
+            if (in_array($name, ['store_id', 'created_at', 'updated_at'], true)) {
+                continue;
+            }
+
+            if (isset($foreignKeys[$name])) {
+                [$foreignTable, $foreignColumn] = $foreignKeys[$name];
+                $stubs[$name] = $this->existingOrNewParentId($foreignTable, $foreignColumn, $depth);
+
+                continue;
+            }
+
+            $type = strtolower((string) $column['type_name']);
+
+            $stubs[$name] = match (true) {
+                str_contains($type, 'int') => 1,
+                str_contains($type, 'bool') => 0,
+                str_contains($type, 'dec'), str_contains($type, 'float'),
+                str_contains($type, 'double'), str_contains($type, 'numeric') => 0,
+                str_contains($type, 'date'), str_contains($type, 'time') => now(),
+                str_contains($type, 'json') => '{}',
+                // Unique-constrained text columns exist on these tables (products.slug), so a
+                // per-row unique value is required rather than a constant.
+                default => $name . '-' . uniqid(),
+            };
+        }
+
+        return $stubs;
+    }
+
+    /**
+     * Return a value that really exists in $foreignTable.$foreignColumn, creating a minimal row
+     * there if the table is empty.
+     *
+     * Reusing an existing row is preferred and is what happens in practice, because these
+     * fixtures create their merchant users first. The insert path exists so that a new FK on a
+     * tenant-owned table does not silently turn into a fixture error later.
+     *
+     * $depth caps the recursion: a parent whose own required FKs are unsatisfiable is reported
+     * as a skip rather than as a confusing constraint error inside an unrelated tenancy
+     * assertion.
+     */
+    private function existingOrNewParentId(string $foreignTable, string $foreignColumn, int $depth)
+    {
+        $existing = \DB::table($foreignTable)->value($foreignColumn);
+
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        if ($depth >= 2) {
+            $this->markTestSkipped(
+                "Could not satisfy a required foreign key into `{$foreignTable}` within two levels. "
+                . 'This is a fixture limitation, not a tenancy result, and is reported rather than '
+                . 'worked around.'
+            );
+        }
+
+        $parent = $this->requiredColumnStubs($foreignTable, $depth + 1);
+        $parent['created_at'] = now();
+        $parent['updated_at'] = now();
+
+        return \DB::table($foreignTable)->insertGetId($parent);
     }
 
     // ---------------------------------------------------------------------------------------
@@ -322,6 +443,10 @@ class CrossTenantModelIsolationTest extends TestCase
      */
     public function test_settings_are_isolated_by_explicit_predicate_and_never_globally_scoped(): void
     {
+        // settings.created_by is NOT NULL with no default, so this insert goes through the same
+        // schema-driven stub set as seedPair() rather than hand-listing columns.
+        $required = $this->requiredColumnStubs('settings');
+
         foreach ([self::STORE_A, self::STORE_B] as $storeId) {
             \DB::table('settings')->insert([
                 'name' => 'defult_currancy',
@@ -329,7 +454,7 @@ class CrossTenantModelIsolationTest extends TestCase
                 'store_id' => $storeId,
                 'created_at' => now(),
                 'updated_at' => now(),
-            ]);
+            ] + $required);
         }
 
         StoreScope::$enabled = true;
