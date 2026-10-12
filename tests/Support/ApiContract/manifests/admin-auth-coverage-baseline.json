@@ -35,5 +35,12 @@
         "/api/admin/shippinglist",
         "/api/admin/taxlist",
         "/api/admin/variantlist"
-    ]
+    ],
+    "_post_integration_action": "This baseline was recorded against routes/api.php at b4917c5b. Agent 5 measured p1b/agent1-auth with this same script: it takes the count from 13 to 4, closing all 9 of categorylist, couponlist, orderlist, productlist, shippinglist, taxlist, variantlist, orders/notes/create and orders/notes/delete. AFTER Agent 1 is integrated, run `php tests/Support/ApiContract/bin/check-auth-coverage.php --update-baseline` and the list must shrink to those 4. Do not leave the stale 13 in place: a baseline wider than reality silently permits a regression back to it.",
+    "_remaining_after_agent1": {
+        "/api/admin/adminlogin": "legitimately public; Agent 1 added throttle:auth",
+        "/api/admin/delivery-login": "legitimately public; Agent 1 added throttle:auth",
+        "/api/admin/base_url": "public by design",
+        "/api/admin/adminlogout": "still has NO route middleware, but the baseline probe returned 401 Unauthenticated, so the controller rejects anonymous callers. Low severity; worth a route-level guard for consistency rather than relying on the handler."
+    }
 }
