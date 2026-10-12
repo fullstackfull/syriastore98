@@ -5,6 +5,7 @@ namespace App\Scopes;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Scope;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
@@ -193,7 +194,22 @@ class StoreScope implements Scope
         $column = method_exists($model, 'getStoreColumn') ? $model->getStoreColumn() : 'store_id';
 
         // Qualified on purpose -- see "AMBIGUOUS COLUMN" in the class docblock.
-        $builder->where($model->qualifyColumn($column), $tenant['store_id']);
+        $qualified = $model->qualifyColumn($column);
+
+        $storeIds = $tenant['store_ids'];
+
+        // ONE ADMISSIBLE STORE -> the SAME single-column equality this scope has always
+        // emitted, bindings included. That is not a micro-optimisation: it is what keeps the
+        // emitted SQL -- and therefore every `genealabs/laravel-model-caching` cache key on the
+        // 78 models using `Cachable` -- byte-for-byte identical for a single-store merchant,
+        // which is the overwhelming majority of principals. See `admissibleStoreIds()`.
+        if (count($storeIds) === 1) {
+            $builder->where($qualified, $storeIds[0]);
+
+            return;
+        }
+
+        $builder->whereIn($qualified, $storeIds);
     }
 
     /**
@@ -366,7 +382,7 @@ class StoreScope implements Scope
      * the existing tests depend on that shape. `apply()` uses the richer form so that the
      * platform-operator bypass is a named branch instead of a shared null.
      *
-     * @return array{mode: string, store_id: int|null, reason: string}
+     * @return array{mode: string, store_id: int|null, store_ids: array<int, int>, reason: string}
      */
     public static function resolveTenant(): array
     {
@@ -376,6 +392,7 @@ class StoreScope implements Scope
             return [
                 'mode' => self::MODE_UNRESOLVED,
                 'store_id' => null,
+                'store_ids' => [],
                 'reason' => 'no auth container (console bootstrap or plain unit test)',
             ];
         }
@@ -386,6 +403,7 @@ class StoreScope implements Scope
             return [
                 'mode' => self::MODE_UNRESOLVED,
                 'store_id' => null,
+                'store_ids' => [],
                 'reason' => 'no web-guard principal (job, command, storefront, or customers/deliveryboy guard)',
             ];
         }
@@ -394,6 +412,7 @@ class StoreScope implements Scope
             return [
                 'mode' => self::MODE_SUPER_ADMIN,
                 'store_id' => null,
+                'store_ids' => [],
                 'reason' => 'platform operator: deliberate cross-store visibility',
             ];
         }
@@ -406,6 +425,7 @@ class StoreScope implements Scope
             return [
                 'mode' => self::MODE_UNRESOLVED,
                 'store_id' => null,
+                'store_ids' => [],
                 'reason' => 'authenticated user has no resolvable current_store',
             ];
         }
@@ -413,8 +433,235 @@ class StoreScope implements Scope
         return [
             'mode' => self::MODE_TENANT,
             'store_id' => (int) $storeId,
+            'store_ids' => static::admissibleStoreIds($user, (int) $storeId),
             'reason' => 'resolved from the web guard',
         ];
+    }
+
+    /**
+     * THE SET OF STORES THE PREDICATE ADMITS. This is the answer to the constraint that defeated
+     * the previous increment, so the argument is written out in full.
+     *
+     * ============================================================================================
+     *  THE PROBLEM, RE-ESTABLISHED FROM SOURCE RATHER THAN INHERITED.
+     * ============================================================================================
+     *
+     * The admin API resolves its tenant FROM THE REQUEST, not from the session:
+     * app/Http/Controllers/Api/DashboardController.php takes `$request->store_id` at ~100 sites
+     * and authorises it through `resolveOwnedStore()` (:3627-3641), which filters
+     * `Store::where('created_by', $user->creatorId())` -- that is, BY OWNERSHIP, and deliberately
+     * NOT by `current_store`.
+     *
+     * And that request really does carry a web-guard principal, which is the fact the earlier
+     * deferral left unproven: app/Http/Middleware/CustomAuth.php:80-81 answers a `User` token with
+     * `auth()->login($tokenable)` on the DEFAULT guard. So `auth()->user()` is populated,
+     * `resolveTenant()` returns MODE_TENANT, and the scope is live on every admin API call.
+     *
+     * A predicate of `store_id = current_store` therefore FIGHTS the controller: a merchant who
+     * owns stores 5 and 7, whose `current_store` is 5, calling `GET /productlist?store_id=7`
+     * passes `resolveOwnedStore()` and then meets `store_id = 7 AND store_id = 5` -> zero rows.
+     * A legitimate, authorised request answers empty with no error. That is why Product, Order,
+     * Category, Cart, Customer, Setting and Shipping were all deferred.
+     *
+     * ============================================================================================
+     *  THE FIX: SCOPE TO WHAT THE PRODUCT ITSELF CALLS AUTHORISED.
+     * ============================================================================================
+     *
+     * The predicate admits `{current_store} UNION {stores whose created_by = creatorId()}`, which
+     * is exactly `resolveOwnedStore()`'s own test plus today's value. Two properties follow, and
+     * both are asserted in tests/Feature/Tenancy/OwnedStoresTenantResolutionTest:
+     *
+     *   1. IT IS A STRICT SUPERSET OF THE OLD PREDICATE, because `current_store` is always a
+     *      member. So no query that returns rows today can return fewer under it. That is the
+     *      property that makes this safe to ship: the failure mode this scope has already caused
+     *      twice in this project -- a silently blank page, not an error -- is ruled out by
+     *      construction rather than by hoping the test suite covers every page.
+     *
+     *   2. IT STILL DENIES A STORE THE PRINCIPAL DOES NOT OWN. `store_id = 9 AND store_id IN (5,7)`
+     *      is zero rows, so the ~70 sites still doing a bare `Store::find($request->store_id)`
+     *      with no ownership check have their IDOR closed by the scope rather than widened by it.
+     *
+     * WHAT IT DOES NOT FIX, stated plainly. `current_store` is a mutable, attacker-writable column
+     * (R4-03), and including it keeps the scope keyed partly on attacker-controlled state. That is
+     * NOT a regression -- the old predicate was `= current_store` and so was keyed ENTIRELY on it,
+     * so exposure on that axis is unchanged and strictly reduced for multi-store owners. Fixing
+     * `current_store` integrity is the authorization workstream's, not this scope's.
+     *
+     * WHY `creatorId()` AND NOT `created_by`. User.php:95-104 returns `$this->id` for an `admin` or
+     * `super admin` and `$this->created_by` otherwise, so STAFF resolve to their employer and keep
+     * access to their employer's stores. Using `created_by` directly would lock every staff member
+     * out of every store. This is the same helper the controller authorises with, on purpose:
+     * two different definitions of "this merchant's stores" is how the previous attempt failed.
+     *
+     * @param  mixed  $user
+     * @return array<int, int> at least one id, ascending, de-duplicated
+     */
+    public static function admissibleStoreIds($user, int $currentStoreId): array
+    {
+        // 'current_store' restores the pre-batch-2 predicate exactly, for an operator who serves a
+        // single store per merchant and wants the strictest possible filter. Both modes are
+        // exercised in OwnedStoresTenantResolutionTest, so neither is a claim in a comment.
+        if (static::tenantScopeMode() === 'current_store') {
+            return [$currentStoreId];
+        }
+
+        $ids = [$currentStoreId];
+
+        foreach (static::ownedStoreIds($user) as $ownedId) {
+            if (! in_array($ownedId, $ids, true)) {
+                $ids[] = $ownedId;
+            }
+        }
+
+        // Ascending and de-duplicated so the compiled bindings -- and so the model-caching key
+        // derived from them (CacheKey::getBindingsSlug) -- are stable for a given principal
+        // regardless of the order `stores` happens to come back in.
+        sort($ids);
+
+        return $ids;
+    }
+
+    /**
+     * 'owned_stores' (default) or 'current_store'. An unrecognised value means 'owned_stores',
+     * because that is the branch that cannot blank a working page -- the same reasoning as
+     * `nullTenantPolicy()`, where a config typo must not take the shop offline.
+     */
+    public static function tenantScopeMode(): string
+    {
+        return strtolower(trim((string) static::configValue('tenancy.tenant_scope', 'owned_stores'))) === 'current_store'
+            ? 'current_store'
+            : 'owned_stores';
+    }
+
+    /**
+     * Memo of creatorId => owned store ids, so a request pays for this lookup ONCE however many
+     * scoped models it touches.
+     *
+     * @var array<int, array<int, int>>
+     */
+    protected static array $ownedStoreIdMemo = [];
+
+    /**
+     * The application instance the memo above belongs to.
+     *
+     * THE MEMO MUST NOT OUTLIVE ITS DATABASE. PHPUnit keeps static state for the whole process
+     * while RefreshDatabase rebuilds the schema and boots a new application per test, so a memo
+     * keyed only on creatorId would hand test N+1 the store ids of test N's dropped tables -- a
+     * tenancy test passing or failing on stale data, which is the worst kind of green. Keying on
+     * the application's object id makes the memo request-scoped (and test-scoped) without needing
+     * any cooperation from tests/TestCase.php, which this workstream does not own.
+     */
+    protected static ?int $ownedStoreIdMemoAppId = null;
+
+    /**
+     * Guard against re-entering the `stores` lookup from inside itself.
+     *
+     * `Store` carries no `store_id` column and is asserted platform-global by
+     * TenantModelClassificationTest, so it cannot carry this scope and cannot recurse through
+     * Eloquent. The lookup below is nonetheless a raw `DB::table()` query -- no Eloquent, no
+     * global scopes, no `Cachable` -- so it cannot re-enter the model-cache key machinery either.
+     * The flag is the third, cheap belt for a method that runs inside query compilation.
+     */
+    protected static bool $resolvingOwnedStoreIds = false;
+
+    /**
+     * The store ids this principal owns, per `stores.created_by` = `creatorId()`.
+     *
+     * Fails to an EMPTY array on any problem -- no container, no `stores` table (early migration,
+     * console bootstrap), an unresolvable creator. Empty means `admissibleStoreIds()` falls back to
+     * `[current_store]`, i.e. exactly the old predicate, so a failure here degrades to today's
+     * behaviour and never to zero rows and never to no predicate at all.
+     *
+     * @param  mixed  $user
+     * @return array<int, int>
+     */
+    protected static function ownedStoreIds($user): array
+    {
+        if (static::$resolvingOwnedStoreIds) {
+            return [];
+        }
+
+        $creatorId = static::creatorIdOf($user);
+
+        if ($creatorId === null) {
+            return [];
+        }
+
+        static::forgetOwnedStoreMemoIfStale();
+
+        if (array_key_exists($creatorId, static::$ownedStoreIdMemo)) {
+            return static::$ownedStoreIdMemo[$creatorId];
+        }
+
+        static::$resolvingOwnedStoreIds = true;
+
+        try {
+            $ids = array_values(array_map(
+                static fn ($id) => (int) $id,
+                DB::table('stores')->where('created_by', $creatorId)->pluck('id')->all()
+            ));
+        } catch (Throwable $e) {
+            // No database, no `stores` table, or a connection that is mid-migration. Degrade to
+            // the old predicate rather than to a broken one.
+            $ids = [];
+        } finally {
+            static::$resolvingOwnedStoreIds = false;
+        }
+
+        return static::$ownedStoreIdMemo[$creatorId] = $ids;
+    }
+
+    /**
+     * `creatorId()` when the principal has it (User.php:95), else the conservative equivalent.
+     *
+     * @param  mixed  $user
+     */
+    protected static function creatorIdOf($user): ?int
+    {
+        try {
+            if (is_object($user) && method_exists($user, 'creatorId')) {
+                $creatorId = $user->creatorId();
+
+                return is_numeric($creatorId) ? (int) $creatorId : null;
+            }
+        } catch (Throwable $e) {
+            // Fall through to the attribute reading below.
+        }
+
+        $fallback = $user->created_by ?? ($user->id ?? null);
+
+        return is_numeric($fallback) ? (int) $fallback : null;
+    }
+
+    /**
+     * Drop the memo when the application it was built against has been replaced.
+     */
+    protected static function forgetOwnedStoreMemoIfStale(): void
+    {
+        try {
+            $appId = spl_object_id(app());
+        } catch (Throwable $e) {
+            // No container: do not memoise at all rather than memoise against nothing.
+            static::$ownedStoreIdMemo = [];
+            static::$ownedStoreIdMemoAppId = null;
+
+            return;
+        }
+
+        if (static::$ownedStoreIdMemoAppId !== $appId) {
+            static::$ownedStoreIdMemo = [];
+            static::$ownedStoreIdMemoAppId = $appId;
+        }
+    }
+
+    /**
+     * Test-support only: forget the owned-store memo. Needed by a test that creates a store
+     * AFTER a scoped query has already run in the same application instance.
+     */
+    public static function forgetOwnedStoreIds(): void
+    {
+        static::$ownedStoreIdMemo = [];
+        static::$ownedStoreIdMemoAppId = null;
     }
 
     /**
