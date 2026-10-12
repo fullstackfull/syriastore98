@@ -246,7 +246,15 @@ class OrderRefundAuthorizationTest extends SecurityTestCase
 
         $refund = OrderRefund::forceCreate([
             'order_id' => $victimOrder->id,
-            'refund_status' => 'Pending',
+            // 'Processing' -- NOT 'Pending'. The application never writes or recognises a
+            // 'Pending' refund state: OrderRefundController declares exactly four
+            // (STATE_PROCESSING/ACCEPT/CANCEL/REFUNDED at :145-148), the only writes are
+            // 'Refunded', STATE_ACCEPT, STATE_CANCEL and the state machine's $targetStatus,
+            // and a sweep of refund_status comparisons across app/, resources/ and themes/
+            // yields only Accept, Cancel, Processing and Refunded. This fixture invented
+            // 'Pending', which was harmless while nothing validated the current state and
+            // became a 422 the moment agent3 added the transition guard.
+            'refund_status' => 'Processing',
             'refund_reason' => 'test',
             'product_refund_id' => json_encode([
                 ['product_refund_id' => 1, 'quantity' => 1, 'return_price' => 10],
@@ -261,8 +269,12 @@ class OrderRefundAuthorizationTest extends SecurityTestCase
 
         $this->assertSame(404, $response->getStatusCode());
 
+        // Asserted against the state the fixture actually created, not a hardcoded
+        // literal. The first version of this fix changed the fixture and left this
+        // assertion reading 'Pending', so the test still failed -- for the opposite
+        // reason. Reading it back from the model cannot drift from the fixture again.
         $this->assertSame(
-            'Pending',
+            $refund->refund_status,
             $refund->fresh()->refund_status,
             "A merchant changed another store's refund status."
         );
@@ -285,7 +297,15 @@ class OrderRefundAuthorizationTest extends SecurityTestCase
 
         $refund = OrderRefund::forceCreate([
             'order_id' => $order->id,
-            'refund_status' => 'Pending',
+            // 'Processing' -- NOT 'Pending'. The application never writes or recognises a
+            // 'Pending' refund state: OrderRefundController declares exactly four
+            // (STATE_PROCESSING/ACCEPT/CANCEL/REFUNDED at :145-148), the only writes are
+            // 'Refunded', STATE_ACCEPT, STATE_CANCEL and the state machine's $targetStatus,
+            // and a sweep of refund_status comparisons across app/, resources/ and themes/
+            // yields only Accept, Cancel, Processing and Refunded. This fixture invented
+            // 'Pending', which was harmless while nothing validated the current state and
+            // became a 422 the moment agent3 added the transition guard.
+            'refund_status' => 'Processing',
             'refund_reason' => 'test',
             'product_refund_id' => json_encode([
                 ['product_refund_id' => 1, 'quantity' => 1, 'return_price' => 10],
@@ -341,7 +361,15 @@ class OrderRefundAuthorizationTest extends SecurityTestCase
 
         $refund = OrderRefund::forceCreate([
             'order_id' => $attackerOrder->id,
-            'refund_status' => 'Pending',
+            // 'Processing' -- NOT 'Pending'. The application never writes or recognises a
+            // 'Pending' refund state: OrderRefundController declares exactly four
+            // (STATE_PROCESSING/ACCEPT/CANCEL/REFUNDED at :145-148), the only writes are
+            // 'Refunded', STATE_ACCEPT, STATE_CANCEL and the state machine's $targetStatus,
+            // and a sweep of refund_status comparisons across app/, resources/ and themes/
+            // yields only Accept, Cancel, Processing and Refunded. This fixture invented
+            // 'Pending', which was harmless while nothing validated the current state and
+            // became a 422 the moment agent3 added the transition guard.
+            'refund_status' => 'Processing',
             'refund_reason' => 'test',
             'product_refund_id' => json_encode([
                 ['product_refund_id' => $victimProduct->id, 'quantity' => 100],

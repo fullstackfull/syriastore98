@@ -527,16 +527,41 @@ public function store(Request $request)
 
         $order = Order::find($id);
         if (!empty($order)) {
+            // GATE C, THE HALF THAT WAS MISSING.
+            //
+            // Phase 1C moved order.return.request behind `auth`, which closed ANONYMOUS
+            // access. It did not close cross-tenant access: this method resolved the order
+            // with a bare Order::find($id) and had NO ownership check of any kind, so any
+            // authenticated merchant could approve or reject a return on ANY order in ANY
+            // store -- and, with $status == 2, restore stock onto another store's products.
+            // The route owner and the handler owner each took the other end to be carrying
+            // the control, so neither end did, and Git reported no conflict because the two
+            // changes were in different files.
+            //
+            // 'updateStatus' is the existing ability for "may change this order's state"
+            // and is reused deliberately rather than inventing a new permission name: it
+            // requires the SEEDED 'Manage Order' (Utility.php:2755) and OrderPolicy::allow
+            // checks isPlatformAdmin BEFORE isAbleTo, so platform operators are not locked
+            // out of the support workflow.
+            $this->authorize('updateStatus', $order);
+
             if ($status == 2) {
                 $product_json = json_decode($order->product_json, true);
                 foreach ($product_json as $key => $product) {
                     $product_id = $product['product_id'];
                     $variant_id = $product['variant_id'];
                     if ($variant_id == 0 || empty($variant_id)) {
-                        $product = Product::find($product_id);
-                        if (!empty($product)) {
-                            $product->product_stock += $product['qty'];
-                            $product->save();
+                        // $productModel, NOT $product. The previous line reassigned
+                        // $product -- the ARRAY element carrying 'qty' -- to the Product
+                        // MODEL, and then read $product['qty'] from that model. Product has
+                        // no `qty` attribute, so the expression was null and
+                        // `product_stock += null` added ZERO. Every non-variant line's stock
+                        // restore was a silent no-op on return approval, while the variant
+                        // branch below worked because it keeps $product as the array.
+                        $productModel = Product::find($product_id);
+                        if (!empty($productModel)) {
+                            $productModel->product_stock += $product['qty'];
+                            $productModel->save();
                         }
                     } else {
                         $productVariant = ProductVariant::where('product_id', $product_id)->where('id', $variant_id)->first();
