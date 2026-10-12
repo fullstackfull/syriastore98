@@ -153,7 +153,8 @@ class AddonInstallTest extends SecurityTestCase
         $path = $this->workDir . '/dotfile.zip';
         $zip = new ZipArchive;
         $zip->open($path, ZipArchive::CREATE);
-        $zip->addFromString('mod/.env', 'APP_KEY=stolen');
+        // Content is an inert placeholder; the entry NAME is what must be rejected.
+        $zip->addFromString('mod/.env', 'placeholder-content');
         $zip->close();
 
         $this->assertNotNull(InstallAddonRequest::archiveRejectionReason($path));
