@@ -181,6 +181,60 @@ jobs:
         #                   phpunit/phpunit --with-all-dependencies
         #   composer audit --locked        # expect 4, all laravel/framework
         #
+        # ===================================================================
+        # P1D agent5-QA INDEPENDENT RE-VERIFICATION OF THIS PLAN. The plan was
+        # RUN, in an isolated scratch copy of composer.json/composer.lock with
+        # --no-install and COMPOSER_VENDOR_DIR pointed outside every worktree.
+        # The shared vendor/ was NOT touched (verified: no vendor dir created).
+        #
+        # VERDICT: the "expect 4" is CORRECT -- the three staged commands really
+        # do take 70 advisories across 22 packages down to 4 across 1
+        # (laravel/framework). Two side effects are NOT recorded above, and both
+        # matter more than the 4:
+        #
+        #   CAVEAT A -- AS WRITTEN, THE PLAN PINS THE FRAMEWORK TO A DEV BRANCH.
+        #   Run verbatim, laravel/framework resolves to 11.x-dev, NOT v11.57.0.
+        #   Cause: composer.json sets minimum-stability: dev, and this composer
+        #   blocks advisory-affected releases by default, so EVERY stable 11.x
+        #   (v11.9.0 ... v11.57.0) is refused and the moving dev branch is taken
+        #   instead. Quoted from the resolver when stability is forced to stable:
+        #     "found laravel/framework[v11.9.0, ..., v11.57.0] but these were not
+        #      loaded, because they are affected by security advisories"
+        #   Adding --no-security-blocking to each command yields v11.57.0 stable,
+        #   zero dev pins, and the same residual 4. Any application of this plan
+        #   MUST pass that flag and MUST then assert the framework is v11.57.0,
+        #   or it ships a dev branch to production.
+        #
+        #   CAVEAT B -- SEVEN MAJOR-VERSION CROSSINGS, FOUR OF THEM UNLISTED.
+        #   The EXPECTED RESULTING VERSIONS table below names php-jwt 6->7 and
+        #   phpseclib 3->4. The plan also crosses, transitively and unlisted:
+        #     sabberworm/php-css-parser  v8.7.0 -> v9.5.0
+        #     symfony/css-selector       v7.4.0 -> v8.1.6
+        #     symfony/event-dispatcher   v7.4.0 -> v8.1.5
+        #     symfony/filesystem         v7.4.0 -> v8.1.6
+        #     symfony/string             v7.4.0 -> v8.1.7
+        #   and changes 86 packages in total, not the ~22 named. The four
+        #   symfony 8.1.x pins are the serious ones: the drifted vendor/ tree
+        #   that the "measured integration preview" above was taken from carries
+        #   symfony 7.4.x for all four, so those majors have NEVER been exercised
+        #   by any suite run in this project. The preview does not cover them.
+        #
+        # WHY NO LOCK CHANGE IS COMMITTED. Applying it cannot be verified here:
+        # the suite cannot be run against the resulting lock (vendor/ is 1.5 GB
+        # with 1.7 GB free, so a lock-consistent isolated install does not fit;
+        # the shared vendor/ must not be touched; and 6 locked packages are
+        # unfetchable in this network). An unverified lock that pins four symfony
+        # majors is a worse risk than 70 reported advisories, so composer.json
+        # and composer.lock are left UNCHANGED and the ceiling below stays 70.
+        #
+        # A CONSERVATIVE ALTERNATIVE, also measured, for whoever applies this on
+        # a tree where install works: dropping guzzle, phpspreadsheet, phpunit and
+        # socialite from the set gives 70 -> 24 advisories with laravel/framework
+        # held at v11.47.0, ZERO major crossings and ZERO new dev pins. It clears
+        # 46 of the 70 with no compatibility question at all, and is the safer
+        # first step if the symfony majors cannot be tested.
+        # ===================================================================
+        #
         # EXPECTED RESULTING VERSIONS (locked -> target), each verified installed and
         # exercised by the suite in this worktree:
         #   aws/aws-sdk-php          3.369.5  -> 3.400.1     league/flysystem   3.30.2 -> 3.36.0
@@ -609,40 +663,75 @@ jobs:
         # gained an end-to-end token test and a forged-token negative case that the three
         # original notification-class assertions never covered.
         #
-        # THE 8 SKIPS, read from a real run with --display-skipped rather than assumed.
-        # The split previously recorded here ("GATE F money tables plus two that name
-        # their blocked table") is CORRECTED: it is 7 + 1, not 6 + 2.
-        #   7 name a GATE F money table -- store_wallets (x3),
-        #     store_wallet_transactions (x2), store_withdrawals (x2) -- across
-        #     FinancePermissionTest, CrossTenantModelIsolationTest and
+        # THE 9 SKIPS, read from a real run with --display-skipped rather than assumed.
+        # RE-MEASURED on p1d/agent5-qa. The split recorded here for p1c ("7 + 1") is now
+        # 8 + 1, because WithdrawalAuthorizationTest added a fourth GATE F skip site.
+        #   8 name a GATE F money table -- store_wallets (x3),
+        #     store_wallet_transactions (x2), store_withdrawals (x2), plus
+        #     WithdrawalAuthorizationTest -- across FinancePermissionTest,
+        #     WithdrawalAuthorizationTest, CrossTenantModelIsolationTest and
         #     ModelInitializationTest. All MUST stay skipped: their column types are not
         #     derivable from $fillable and inventing them is forbidden.
         #   1 is DeliverySyriaWebhookTest::test_a_valid_token_cannot_move_another_stores_order,
-        #     blocked on `zid_orders`, which is NOT one of the six money tables. It is a
-        #     legitimate skip on the same class of defect (undeclared table).
-        #   Note the coverage gap: only 3 of the 6 GATE F tables appear in any skip.
-        #   store_order_financials and delivery_earnings are referenced but not isolation-
-        #   tested, and currency_rates appears in NO test at all.
-        # tests/Unit/Database/GateFSchemaContainmentTest.php now guards the whole six
-        # against being greened by an invented schema.
+        #     blocked on `zid_orders`/`zid_stores`, which are NOT among the six money
+        #     tables. A legitimate skip on the same defect class (undeclared table).
+        #     Re-verified: 0 discoverable migrations create either. NOTE its docblock is
+        #     now partly stale -- it still claims users.deliverysyria_secret is undeclared,
+        #     but database/migrations/2026_10_12_000103_add_deliverysyria_secret_to_users_table.php
+        #     declares it. The skip stays correct because its hasTable() guard is on the
+        #     two tables, not the column. That file is owned by another agent.
+        #   ALL NINE REASONS WERE RE-VERIFIED AND STILL HOLD. None is skipping for a
+        #   reason that has lapsed.
         #
-        # MEASURED AFTER THIS BRANCH, on p1c/agent5-qa, full suite:
-        #   Unit     OK -- 25 tests, 212 assertions          (baseline 21 / 189)
-        #   Feature  456 tests, 2605 assertions, 0 ERRORS, 13 failures, 8 skipped
-        #                                                   (baseline 439 / 2557 / 0 / 14 / 8)
-        # 13 = 11 of the original 14 kept red (see the verdict above) + 2 NEW INTENTIONAL
-        # failures from tests/Feature/Platform/RouteRegistrationIntegrityTest.php, which
-        # names the route-shadowing mechanism the two profile.edit failures could only
-        # hint at and finds a second lost name (contact.us) the old tests never saw.
-        # Errors stay 0 and skips stay 8. Per-suite, measured individually:
-        #   Security 188 tests / 1823 assertions / 0 failures / 2 skipped
-        #   Tenancy  129 tests /  346 assertions / 0 failures / 6 skipped
-        #   Commerce  98 tests /  341 assertions / 0 failures / 0 skipped  (OK)
-        #   Platform  14 tests /   34 assertions / 2 failures (intended)
-        #   Auth      20 tests /   43 assertions / 8 failures
+        # THE COVERAGE GAP IS CONFIRMED, and the note recorded here for p1c was right:
+        # only 3 of the 6 GATE F tables appear in any skip. The three that do are
+        # store_wallets, store_wallet_transactions and store_withdrawals. The three with
+        # NO reported skip are store_order_financials, currency_rates and
+        # delivery_earnings -- so the skip count makes the gate look better covered than
+        # it is. Per table: delivery_earnings has a financial assertion wrapped in
+        # `if ($hasEarnings)` at OrderMutationTest.php:160-173 that silently does not run
+        # (deliberate and argued at :147, but invisible in the skip count);
+        # store_order_financials has only a comment and an absence-tripwire;
+        # currency_rates has only a static model-to-table mapping, despite 6 live call
+        # sites in StoreCurrencyConversionService and Api/DashboardController.
+        # tests/Unit/Database/GateFSchemaContainmentTest.php guards the six against being
+        # greened by an invented schema, and tests/Unit/Database/GateFCoverageLedgerTest.php
+        # now makes this gap EXPLICIT and RATCHETED so it cannot silently grow.
         #
-        # REMOVE continue-on-error once the kept-red 8 have their defects fixed in app/
-        # and routes/ and the addon migration paths are registered. They are pre-existing,
-        # not regressions, and nothing outside that set fails.
+        # MEASURED ON THIS BRANCH, p1d/agent5-qa, full suite:
+        #   Unit     OK -- 30 tests, 232 assertions          (inherited 25 / 212)
+        #   Feature  661 tests, 3366 assertions, 0 ERRORS, 15 failures, 9 skipped
+        #                                                   (inherited 658 / 3353 / 0 / 13 / 9)
+        # 15 = the 13 inherited failures, every one still present and still red, + 2 NEW
+        # INTENTIONAL failures from tests/Feature/Platform/NullTenantGuardCanaryTest.php,
+        # which call the two app/ null-dereference sites DIRECTLY instead of reaching them
+        # through a page render, so the exact line is named and a landed guard is provable.
+        # Errors stay 0 and skips stay 9. Nothing was skipped, disabled, deleted or
+        # weakened. Per-suite, measured individually:
+        #   Security 231 tests / 1965 assertions / 0 failures / 3 skipped
+        #   Tenancy  235 tests /  748 assertions / 0 failures / 6 skipped
+        #   Commerce 151 tests /  545 assertions / 0 failures / 0 skipped  (OK)
+        #
+        # ROOT CAUSES OF THE 15, measured per test rather than attributed:
+        #   7  app/Helper/helper.php:143-145 -- get_file() reads ->current_store off a null
+        #      super admin, so every page render 500s.
+        #   2  the two canaries above (helper.php:145 and Utility.php:3098/:3144).
+        #   1  app/Models/Utility.php:3098 via the login path.
+        #   1  app/Http/Controllers/Auth/RegisteredUserController.php:249 -- addRole(null)
+        #      AFTER the user, store and login are committed (half-provisioned merchant).
+        #   4  the route-shadowing defect: profile.edit (routes/web.php:417 shadowed by
+        #      :865) and contact.us (routes/customer.php:57 shadowed by :68).
+        #   NONE of the 15 is a stock-Breeze assertion about unimplemented behaviour. Every
+        #   one traces to a real defect in app/ or routes/, so none may be retired.
+        #
+        # IMPORTANT, MEASURED: guarding helper.php:145 ALONE does not green the 7 render
+        # failures. With a temporary local guard applied (and reverted), they still fail --
+        # on `no such table: owner_menu_settings` from guest.blade.php. And guarding
+        # Utility.php:3098 alone moves the error to :3144, a SECOND unguarded role
+        # dereference. Do not expect the board to clear from the null guards alone.
+        #
+        # REMOVE continue-on-error once those defects are fixed in app/ and routes/ and the
+        # addon migration paths are registered. They are pre-existing, not regressions, and
+        # nothing outside that set fails.
         continue-on-error: true
         run: vendor/bin/phpunit --testsuite Feature --testdox
