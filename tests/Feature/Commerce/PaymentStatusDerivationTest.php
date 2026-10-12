@@ -183,4 +183,87 @@ class PaymentStatusDerivationTest extends TestCase
     {
         $this->assertSame(['paymera'], PaymentVerificationService::ENFORCED_PAYMENT_TYPES);
     }
+
+    // -----------------------------------------------------------------
+    // THE FOUR ORDER WRITERS. The literal must be gone from all of them.
+    // -----------------------------------------------------------------
+
+    /**
+     * ApiController's order-save path derives the status too.
+     *
+     * POST /api/{slug}/order-save still carried
+     * `$order->payment_status = 'Paid'` at ApiController:7133 after the first
+     * round reported the payment-verification finding FIXED, which is why that
+     * claim was too broad. It is an order-creating path, so the literal is gone
+     * and the seam is used instead.
+     *
+     * Asserted by INSTANTIATING the controller and driving the accessor the
+     * order writer calls, not by linting: a private accessor that does not
+     * resolve would pass php -l and fatal on every order.
+     */
+    public function test_the_api_order_save_path_has_a_working_verifier_seam(): void
+    {
+        $controller = new \App\Http\Controllers\Api\ApiController();
+
+        $accessor = new \ReflectionMethod(
+            \App\Http\Controllers\Api\ApiController::class,
+            'paymentVerifier'
+        );
+
+        $verifier = $accessor->invoke($controller);
+
+        $this->assertInstanceOf(PaymentVerificationService::class, $verifier);
+
+        // The same instance each call, so consumeVerification() is single-use
+        // across one request rather than being reset by a second accessor call.
+        $this->assertSame($verifier, $accessor->invoke($controller));
+
+        // And it behaves: an enforced gateway with no verification is Pending.
+        $this->assertSame(
+            PaymentVerificationService::STATUS_PENDING,
+            $verifier->resolveOrderPaymentStatus('paymera', null, '1250.50', __METHOD__)
+        );
+    }
+
+    /**
+     * No literal `payment_status = 'Paid'` survives in either file this agent
+     * owns that writes an order.
+     *
+     * Structural, and labelled so. It is the regression this round existed to
+     * catch: the first round's claim was made on the strength of having fixed
+     * three of four sites, and nothing asserted the fourth.
+     */
+    public function test_no_order_writer_in_these_files_asserts_paid_as_a_literal(): void
+    {
+        foreach ([
+            'app/Http/Controllers/Api/ApiController.php',
+            'app/Http/Controllers/PaymentController.php',
+        ] as $file) {
+            $source = file_get_contents(base_path($file));
+
+            // Strip comments, so the explanatory notes that QUOTE the old line
+            // are not mistaken for the line itself.
+            $stripped = '';
+
+            foreach (token_get_all($source) as $token) {
+                if (!is_array($token)) {
+                    // A single-character token, e.g. ';' or '='.
+                    $stripped .= $token;
+                    continue;
+                }
+
+                if (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                    continue;
+                }
+
+                $stripped .= $token[1];
+            }
+
+            $this->assertDoesNotMatchRegularExpression(
+                '/payment_status\s*=\s*[\'"]Paid[\'"]/',
+                $stripped,
+                $file . ' must derive payment_status, never assert it'
+            );
+        }
+    }
 }
