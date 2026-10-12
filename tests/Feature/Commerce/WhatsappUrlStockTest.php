@@ -251,10 +251,180 @@ class WhatsappUrlStockTest extends TestCase
      * `decrementStockOrFail()` takes its accumulator by reference, so it cannot
      * be called through the plain reflection helper above.
      */
-    private function invokeByRef(PaymentController $c, array &$applied, string $kind, $model, $qty): ?array
+
+    // -----------------------------------------------------------------
+    // POST-CAPTURE: a writer past the point of no return must never abandon
+    // the order. Regression cover for the merge-gate blocker.
+    // -----------------------------------------------------------------
+
+    /**
+     * THE DEFECT THIS PINS. `decrementStockOrFail()` returned an error payload on a
+     * short line, and all three order writers did `return $this->error(...)` with it
+     * from INSIDE their product loop. But `new Order()` sits AFTER that loop
+     * (PaymentController.php:1839 and :2820, PaymentService.php:2436), the cart row
+     * of each processed line is deleted inside it (:1815, :2799, :2416), and no
+     * transaction wraps any of it. On `getProductStatus` -- the return target for a
+     * dozen gateways via route name `store.payment.status` -- the gateway has
+     * already captured the money by then.
+     *
+     * So a single short line meant: payment taken, NO order row, part of the cart
+     * destroyed, nothing refunded. The pre-existing code had no availability test on
+     * these paths at all; it subtracted and saved, so stock simply went negative.
+     * Overselling and reporting it is the SAME outcome the platform always had, and
+     * strictly better than losing a paid basket.
+     */
+    public function test_a_post_capture_writer_oversells_rather_than_abandoning_a_paid_order(): void
+    {
+        $this->createStockSchema();
+
+        $controller = $this->controller();
+        $short = $this->makeProduct(['product_stock' => 1, 'stock_order_status' => 'not_allow']);
+
+        $applied = [];
+        $outcome = $this->invokeByRef($controller, $applied, 'product', $short, 4, false);
+
+        $this->assertNull($outcome,
+            'a writer past the point of no return must NOT return a failure payload; '
+            . 'returning one is what abandoned the order after the money was taken');
+        $this->assertSame(-3, $this->stockOf($short->id),
+            'the decrement is applied anyway, which is exactly the pre-existing unguarded behaviour');
+        $this->assertCount(1, $applied, 'and it is still recorded, so the bookkeeping stays honest');
+
+        $this->dropStockSchema();
+    }
+
+    /** The same line, with the default, still refuses -- the rejecting path is untouched. */
+    public function test_the_default_still_refuses_a_short_line(): void
+    {
+        $this->createStockSchema();
+
+        $short = $this->makeProduct(['product_stock' => 1, 'stock_order_status' => 'not_allow']);
+
+        $applied = [];
+        $outcome = $this->invokeByRef($this->controller(), $applied, 'product', $short, 4);
+
+        $this->assertIsArray($outcome, 'the pre-flight behaviour is deliberately unchanged');
+        $this->assertSame(1, $this->stockOf($short->id), 'and nothing was taken');
+
+        $this->dropStockSchema();
+    }
+
+    /** A post-capture shortfall must not claw back the lines that already succeeded. */
+    public function test_a_post_capture_shortfall_keeps_the_lines_that_succeeded(): void
+    {
+        $this->createStockSchema();
+
+        $controller = $this->controller();
+        $ok = $this->makeProduct(['product_stock' => 10, 'stock_order_status' => 'not_allow']);
+        $short = $this->makeProduct(['product_stock' => 1, 'stock_order_status' => 'not_allow']);
+
+        $applied = [];
+        $this->assertNull($this->invokeByRef($controller, $applied, 'product', $ok, 4, false));
+        $this->assertNull($this->invokeByRef($controller, $applied, 'product', $short, 5, false));
+
+        $this->assertSame(6, $this->stockOf($ok->id),
+            'the order IS going to be written, so giving line 1 back would oversell in the other direction');
+        $this->assertSame(-4, $this->stockOf($short->id));
+
+        $this->dropStockSchema();
+    }
+
+    /**
+     * STRUCTURAL, and labelled as such. The property is "no order writer rejects
+     * from inside its loop", which is precisely what a future edit regresses by
+     * pasting a rejecting call back in. Every `decrementStockOrFail` call site in
+     * both writers must pass the non-rejecting argument.
+     */
+    public function test_every_order_writer_call_site_is_non_rejecting(): void
+    {
+        foreach ([
+            base_path('app/Http/Controllers/PaymentController.php'),
+            base_path('app/Services/PaymentService.php'),
+        ] as $file) {
+            $source = file_get_contents($file);
+
+            preg_match_all('/\$this->decrementStockOrFail\((.*?)\);/s', $source, $matches);
+
+            $this->assertNotEmpty($matches[1], "no call sites found in {$file} -- the test has gone stale");
+
+            foreach ($matches[1] as $args) {
+                $this->assertStringContainsString('false', $args,
+                    "A decrementStockOrFail() call in {$file} does not pass rejectOnShortfall=false. "
+                    . 'Every call site lives inside a product loop that has already deleted cart rows, '
+                    . 'and on the payment-return paths the money is already captured, so rejecting '
+                    . 'there abandons the order. See the note on the method.');
+            }
+        }
+    }
+
+    /**
+     * STRUCTURAL. `getWhatsappUrl()` returns a bare URL string (`return $url;`) and
+     * its only caller, resources/views/payment/whatsapp.blade.php, opens a browser
+     * window on whatever comes back. `$this->error()` answers HTTP 200 with a JSON
+     * envelope (app/Traits/ApiResponser.php:54-60), so the caller's success branch
+     * ran and the shopper got a window full of serialised JSON. The method must
+     * never return an error from anywhere.
+     */
+    public function test_get_whatsapp_url_never_returns_an_error_envelope(): void
+    {
+        $m = new \ReflectionMethod(PaymentController::class, 'getWhatsappUrl');
+        $lines = file(base_path('app/Http/Controllers/PaymentController.php'));
+        $source = implode('', array_slice(
+            $lines,
+            $m->getStartLine() - 1,
+            $m->getEndLine() - $m->getStartLine() + 1
+        ));
+
+        // Scoped to the STOCK check specifically, not to the whole method. There is a
+        // pre-existing `return $this->error(['message' => 'Cart is empty.'])` early
+        // guard in here that predates this work and is out of scope: it fires before
+        // anything has been written, so it is not the defect being fixed, even though
+        // it shares the same string-vs-envelope contract mismatch. Banning every error
+        // return in the method would therefore fail for the wrong reason -- as the
+        // first version of this very test did.
+        $this->assertStringContainsString('assertStockAvailable', $source,
+            'the availability check itself stays -- the shortfall is recorded, not ignored');
+        $this->assertStringContainsString('return $url;', $source,
+            'and the contract is still to return the URL');
+
+        $sourceLines = explode("\n", $source);
+        $checks = 0;
+
+        foreach ($sourceLines as $i => $line) {
+            // Anchored on the real call, not on a mention: the surrounding comments say
+            // "See assertStockAvailable()", which a looser substring match also hits --
+            // and a comment-anchored window has no Log:: in it, so the first version of
+            // this test failed on its own prose.
+            if (!str_contains($line, '$this->assertStockAvailable(')) {
+                continue;
+            }
+
+            $checks++;
+            $block = implode("\n", array_slice($sourceLines, $i, 6));
+
+            $this->assertStringNotContainsString('return $this->error(', $block,
+                'A stock check in getWhatsappUrl returns an error envelope. This method '
+                . 'returns a bare URL string and its only caller opens a browser window on '
+                . 'whatever comes back, so an envelope shows the shopper serialised JSON. '
+                . 'This route writes no Order and the earlier lines have already had their '
+                . 'cart rows deleted, so there is nothing here to refuse.');
+
+            $this->assertStringContainsString('Log::', $block,
+                'and the shortfall must still be recorded rather than silently dropped');
+        }
+
+        $this->assertSame(2, $checks,
+            'expected the variant and product stock checks; the test has gone stale if not');
+    }
+
+    private function invokeByRef(PaymentController $c, array &$applied, string $kind, $model, $qty, ?bool $reject = null): ?array
     {
         $m = new \ReflectionMethod(PaymentController::class, 'decrementStockOrFail');
         $args = [&$applied, $kind, $model, $qty];
+
+        if ($reject !== null) {
+            $args[] = $reject;
+        }
 
         return $m->invokeArgs($c, $args);
     }

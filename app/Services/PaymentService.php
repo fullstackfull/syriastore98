@@ -115,8 +115,13 @@ class PaymentService
      *                     the caller must abandon the order. Any decrements
      *                     already applied in this cart are given back first.
      */
-    private function decrementStockOrFail(array &$applied, string $kind, $model, $qty): ?array
-    {
+    private function decrementStockOrFail(
+        array &$applied,
+        string $kind,
+        $model,
+        $qty,
+        bool $rejectOnShortfall = true
+    ): ?array {
         $result = $kind === 'variant'
             ? $this->stockService()->decrementVariantStock($model, $qty)
             : $this->stockService()->decrementProductStock($model, $qty);
@@ -135,6 +140,44 @@ class PaymentService
             // Nothing to decrement (no quantity, or no row). Previously this
             // subtracted zero and saved, so carrying on matches the old
             // behaviour exactly.
+            return null;
+        }
+
+        // PAST THE POINT OF NO RETURN.
+        //
+        // $rejectOnShortfall is false in every writer that has already done
+        // irreversible work by the time this line runs. In those methods the cart
+        // rows of the lines processed BEFORE this one have already been deleted,
+        // `new Order()` has not been reached yet, and no transaction wraps any of
+        // it -- and on the payment-return paths the gateway has already captured
+        // the money. Returning an error there abandoned the checkout with no order
+        // row, a partly destroyed cart and nothing refunded.
+        //
+        // The pre-existing code had no availability test at all on these paths: it
+        // simply subtracted and saved, so stock could go negative. Overselling and
+        // reporting it is therefore the SAME outcome the platform always had, and
+        // strictly better than losing the order. The shortfall is a merchant
+        // operations problem, not a reason to discard a paid basket.
+        if (!$rejectOnShortfall) {
+            $forced = $kind === 'variant'
+                ? $this->stockService()->decrementVariantStock($model, $qty, true)
+                : $this->stockService()->decrementProductStock($model, $qty, true);
+
+            if ($forced['applied']) {
+                $applied[] = [
+                    'kind' => $kind,
+                    'id' => $model->id,
+                    'quantity' => $forced['quantity'],
+                ];
+            }
+
+            Log::critical('Insufficient stock on an order path that cannot refuse; order kept, stock oversold', [
+                'kind' => $kind,
+                'model_id' => $model->id ?? null,
+                'requested_quantity' => $qty,
+                'outcome' => $forced['reason'] ?? null,
+            ]);
+
             return null;
         }
 
@@ -2276,7 +2319,7 @@ $products_weight_array[] = [
                                 // `stock - qty` and the second overwrote the first, so the shop
                                 // oversold by the quantity it processed concurrently, and the
                                 // subtraction could also drive a SIGNED stock column negative.
-                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy)) {
+                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy, false)) {
                                     return $this->error($stockFailure);
                                 }
 
@@ -2301,7 +2344,7 @@ $products_weight_array[] = [
                                 // `stock - qty` and the second overwrote the first, so the shop
                                 // oversold by the quantity it processed concurrently, and the
                                 // subtraction could also drive a SIGNED stock column negative.
-                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy)) {
+                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy, false)) {
                                     return $this->error($stockFailure);
                                 }
                                 if ($datas->product_stock <= $datas->low_stock_threshold) {
@@ -2358,7 +2401,7 @@ $products_weight_array[] = [
                             // `stock - qty` and the second overwrote the first, so the shop
                             // oversold by the quantity it processed concurrently, and the
                             // subtraction could also drive a SIGNED stock column negative.
-                            if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy)) {
+                            if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy, false)) {
                                 return $this->error($stockFailure);
                             }
                             if ($Product->product_stock <= $Product->low_stock_threshold) {

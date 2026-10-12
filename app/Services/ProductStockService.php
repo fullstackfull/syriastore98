@@ -63,6 +63,12 @@ class ProductStockService
     public const SKIPPED = 'skipped';
 
     /**
+     * The decrement was applied even though stock was short, because the caller
+     * had passed the point where refusing is possible -- see $allowOversell.
+     */
+    public const OVERSOLD = 'applied_oversold';
+
+    /**
      * Decrement a product's own stock.
      *
      * @param  \App\Models\Product $product A loaded Product. Its in-memory
@@ -73,7 +79,7 @@ class ProductStockService
      * @param  mixed $qty
      * @return array{applied: bool, reason: string, quantity: int, remaining: ?int}
      */
-    public function decrementProductStock($product, $qty): array
+    public function decrementProductStock($product, $qty, bool $allowOversell = false): array
     {
         $quantity = $this->normaliseQuantity($qty);
 
@@ -83,7 +89,12 @@ class ProductStockService
 
         $query = Product::query()->whereKey($product->id);
 
-        if ($this->mustNotOversell($product)) {
+        // $allowOversell is set ONLY by a caller that has already passed the point
+        // where refusing is possible -- a post-capture order writer. Dropping the
+        // guard there restores the exact pre-existing unguarded decrement rather
+        // than abandoning an order whose money is already taken. The atomic
+        // conditional UPDATE is still the only write; only its predicate changes.
+        if ($this->mustNotOversell($product) && !$allowOversell) {
             $query->where('product_stock', '>=', $quantity);
         }
 
@@ -101,6 +112,22 @@ class ProductStockService
 
         $remaining = $this->refreshStock($product, Product::class, 'product_stock');
 
+        // A negative remainder on a product that forbids overselling means the
+        // guard was deliberately bypassed and the shop is now oversold. That is a
+        // real operational exception for the merchant to resolve, so it is reported
+        // at critical -- but it is NOT an error for the shopper, whose payment
+        // succeeded.
+        if ($allowOversell && $this->mustNotOversell($product) && $remaining !== null && $remaining < 0) {
+            Log::critical('Stock decremented below zero on an order path that cannot refuse', [
+                'model' => Product::class,
+                'id' => $product->id,
+                'requested_quantity' => $quantity,
+                'remaining_stock' => $remaining,
+            ]);
+
+            return $this->result(true, self::OVERSOLD, $quantity, $remaining);
+        }
+
         return $this->result(true, self::APPLIED, $quantity, $remaining);
     }
 
@@ -112,7 +139,7 @@ class ProductStockService
      * @param  mixed $qty
      * @return array{applied: bool, reason: string, quantity: int, remaining: ?int}
      */
-    public function decrementVariantStock($variant, $qty): array
+    public function decrementVariantStock($variant, $qty, bool $allowOversell = false): array
     {
         $quantity = $this->normaliseQuantity($qty);
 
@@ -122,7 +149,12 @@ class ProductStockService
 
         $query = ProductVariant::query()->whereKey($variant->id);
 
-        if ($this->mustNotOversell($variant)) {
+        // $allowOversell is set ONLY by a caller that has already passed the point
+        // where refusing is possible -- a post-capture order writer. Dropping the
+        // guard there restores the exact pre-existing unguarded decrement rather
+        // than abandoning an order whose money is already taken. The atomic
+        // conditional UPDATE is still the only write; only its predicate changes.
+        if ($this->mustNotOversell($variant) && !$allowOversell) {
             $query->where('stock', '>=', $quantity);
         }
 
@@ -140,6 +172,22 @@ class ProductStockService
         }
 
         $remaining = $this->refreshStock($variant, ProductVariant::class, 'stock');
+
+        // A negative remainder on a product that forbids overselling means the
+        // guard was deliberately bypassed and the shop is now oversold. That is a
+        // real operational exception for the merchant to resolve, so it is reported
+        // at critical -- but it is NOT an error for the shopper, whose payment
+        // succeeded.
+        if ($allowOversell && $this->mustNotOversell($variant) && $remaining !== null && $remaining < 0) {
+            Log::critical('Stock decremented below zero on an order path that cannot refuse', [
+                'model' => ProductVariant::class,
+                'id' => $variant->id,
+                'requested_quantity' => $quantity,
+                'remaining_stock' => $remaining,
+            ]);
+
+            return $this->result(true, self::OVERSOLD, $quantity, $remaining);
+        }
 
         return $this->result(true, self::APPLIED, $quantity, $remaining);
     }

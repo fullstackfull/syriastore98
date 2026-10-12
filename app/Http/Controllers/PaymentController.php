@@ -107,8 +107,13 @@ class PaymentController extends Controller
      *                     the caller must abandon the order. Any decrements
      *                     already applied in this cart are given back first.
      */
-    private function decrementStockOrFail(array &$applied, string $kind, $model, $qty): ?array
-    {
+    private function decrementStockOrFail(
+        array &$applied,
+        string $kind,
+        $model,
+        $qty,
+        bool $rejectOnShortfall = true
+    ): ?array {
         $result = $kind === 'variant'
             ? $this->stockService()->decrementVariantStock($model, $qty)
             : $this->stockService()->decrementProductStock($model, $qty);
@@ -127,6 +132,44 @@ class PaymentController extends Controller
             // Nothing to decrement (no quantity, or no row). Previously this
             // subtracted zero and saved, so carrying on matches the old
             // behaviour exactly.
+            return null;
+        }
+
+        // PAST THE POINT OF NO RETURN.
+        //
+        // $rejectOnShortfall is false in every writer that has already done
+        // irreversible work by the time this line runs. In those methods the cart
+        // rows of the lines processed BEFORE this one have already been deleted,
+        // `new Order()` has not been reached yet, and no transaction wraps any of
+        // it -- and on the payment-return paths the gateway has already captured
+        // the money. Returning an error there abandoned the checkout with no order
+        // row, a partly destroyed cart and nothing refunded.
+        //
+        // The pre-existing code had no availability test at all on these paths: it
+        // simply subtracted and saved, so stock could go negative. Overselling and
+        // reporting it is therefore the SAME outcome the platform always had, and
+        // strictly better than losing the order. The shortfall is a merchant
+        // operations problem, not a reason to discard a paid basket.
+        if (!$rejectOnShortfall) {
+            $forced = $kind === 'variant'
+                ? $this->stockService()->decrementVariantStock($model, $qty, true)
+                : $this->stockService()->decrementProductStock($model, $qty, true);
+
+            if ($forced['applied']) {
+                $applied[] = [
+                    'kind' => $kind,
+                    'id' => $model->id,
+                    'quantity' => $forced['quantity'],
+                ];
+            }
+
+            \Illuminate\Support\Facades\Log::critical('Insufficient stock on an order path that cannot refuse; order kept, stock oversold', [
+                'kind' => $kind,
+                'model_id' => $model->id ?? null,
+                'requested_quantity' => $qty,
+                'outcome' => $forced['reason'] ?? null,
+            ]);
+
             return null;
         }
 
@@ -1675,7 +1718,7 @@ public function handlePaymeraTrigger00($orderId)
                                 // `stock - qty` and the second overwrote the first, so the shop
                                 // oversold by the quantity it processed concurrently, and the
                                 // subtraction could also drive a SIGNED stock column negative.
-                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy)) {
+                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy, false)) {
                                     return $this->error($stockFailure);
                                 }
 
@@ -1700,7 +1743,7 @@ public function handlePaymeraTrigger00($orderId)
                                 // `stock - qty` and the second overwrote the first, so the shop
                                 // oversold by the quantity it processed concurrently, and the
                                 // subtraction could also drive a SIGNED stock column negative.
-                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy)) {
+                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy, false)) {
                                     return $this->error($stockFailure);
                                 }
                                 if ($datas->product_stock <= $datas->low_stock_threshold) {
@@ -1757,7 +1800,7 @@ public function handlePaymeraTrigger00($orderId)
                             // `stock - qty` and the second overwrote the first, so the shop
                             // oversold by the quantity it processed concurrently, and the
                             // subtraction could also drive a SIGNED stock column negative.
-                            if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy)) {
+                            if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy, false)) {
                                 return $this->error($stockFailure);
                             }
                             if ($Product->product_stock <= $Product->low_stock_threshold) {
@@ -2312,8 +2355,25 @@ $result = app(\App\Services\StoreNotificationService::class)
                         // creates no order, so decrementing here let any caller
                         // destroy a store's inventory, and double-counted every
                         // real WhatsApp order. See assertStockAvailable().
+                        // DO NOT RETURN AN ERROR HERE. This method's contract is to
+                        // return a bare URL string (see `return $url;` at the end), and its
+                        // only caller -- resources/views/payment/whatsapp.blade.php -- opens
+                        // a browser window on whatever comes back. $this->error() answers
+                        // HTTP 200 with a JSON envelope (app/Traits/ApiResponser.php:54-60),
+                        // so the caller's success branch ran and the shopper got a window
+                        // full of serialised JSON instead of a WhatsApp link.
+                        //
+                        // There is nothing here to refuse: this route writes no Order, and
+                        // the lines processed before this one have already had their cart
+                        // rows deleted. The shortfall is recorded and the URL is still
+                        // built. A shopper-visible refusal belongs on the order-writing
+                        // whatsapp() path, before anything is destroyed -- not on a URL
+                        // builder.
                         if ($stockFailure = $this->assertStockAvailable('variant', $ProductStock, $qtyy)) {
-                            return $this->error($stockFailure);
+                            \Illuminate\Support\Facades\Log::warning(
+                                'WhatsApp URL built for a cart line that is short on stock',
+                                ['kind' => 'variant', 'model_id' => $ProductStock->id ?? null, 'requested_quantity' => $qtyy]
+                            );
                         }
                         $pro_qty[] = $product->qty . ' x ' . $product->name . '-' . $product->variant_name;
 
@@ -2330,8 +2390,25 @@ $result = app(\App\Services\StoreNotificationService::class)
                     if (!empty($Product)) {
                         // CHECKED, NOT DECREMENTED. See the note above and
                         // assertStockAvailable().
+                        // DO NOT RETURN AN ERROR HERE. This method's contract is to
+                        // return a bare URL string (see `return $url;` at the end), and its
+                        // only caller -- resources/views/payment/whatsapp.blade.php -- opens
+                        // a browser window on whatever comes back. $this->error() answers
+                        // HTTP 200 with a JSON envelope (app/Traits/ApiResponser.php:54-60),
+                        // so the caller's success branch ran and the shopper got a window
+                        // full of serialised JSON instead of a WhatsApp link.
+                        //
+                        // There is nothing here to refuse: this route writes no Order, and
+                        // the lines processed before this one have already had their cart
+                        // rows deleted. The shortfall is recorded and the URL is still
+                        // built. A shopper-visible refusal belongs on the order-writing
+                        // whatsapp() path, before anything is destroyed -- not on a URL
+                        // builder.
                         if ($stockFailure = $this->assertStockAvailable('product', $Product, $qtyy)) {
-                            return $this->error($stockFailure);
+                            \Illuminate\Support\Facades\Log::warning(
+                                'WhatsApp URL built for a cart line that is short on stock',
+                                ['kind' => 'product', 'model_id' => $Product->id ?? null, 'requested_quantity' => $qtyy]
+                            );
                         }
                         $pro_qty[] = $product->qty . ' x ' . $product->name;
 
@@ -2659,7 +2736,7 @@ $result = app(\App\Services\StoreNotificationService::class)
                                 // `stock - qty` and the second overwrote the first, so the shop
                                 // oversold by the quantity it processed concurrently, and the
                                 // subtraction could also drive a SIGNED stock column negative.
-                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy)) {
+                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy, false)) {
                                     return $this->error($stockFailure);
                                 }
 
@@ -2684,7 +2761,7 @@ $result = app(\App\Services\StoreNotificationService::class)
                                 // `stock - qty` and the second overwrote the first, so the shop
                                 // oversold by the quantity it processed concurrently, and the
                                 // subtraction could also drive a SIGNED stock column negative.
-                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy)) {
+                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy, false)) {
                                     return $this->error($stockFailure);
                                 }
                                 if ($datas->product_stock <= $datas->low_stock_threshold) {
@@ -2741,7 +2818,7 @@ $result = app(\App\Services\StoreNotificationService::class)
                             // `stock - qty` and the second overwrote the first, so the shop
                             // oversold by the quantity it processed concurrently, and the
                             // subtraction could also drive a SIGNED stock column negative.
-                            if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy)) {
+                            if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy, false)) {
                                 return $this->error($stockFailure);
                             }
                             if ($Product->product_stock <= $Product->low_stock_threshold) {
