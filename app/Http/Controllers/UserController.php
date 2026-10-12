@@ -375,7 +375,7 @@ AuditLog::record('user_deleted', $user, [
         }
 
         if ($request->hasFile('profile_image')) {
-            $fileName = rand(10,100).'_'.time() . "_" . $request->profile_image->getClientOriginalName();
+            $fileName = rand(10,100).'_'.time() . "_" . basename($request->profile_image->getClientOriginalName());
             $path = Utility::upload_file($request,'profile_image',$fileName,$dir,[]);
             if ($path['flag'] == '0') {
                 return redirect()->back()->with('error', $path['msg']);

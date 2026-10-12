@@ -94,7 +94,16 @@ public function destroy(Customer $customer)
 {
     $user = auth()->user();
 
-    if (!$user || !$user->isAbleTo('Manage Customer')) {
+    if (!$user) {
+        return redirect()->back()->with('error', __('Permission denied.'));
+    }
+
+    // Operator path first. This ORDER is a fix: isAbleTo() has no super-admin
+    // bypass, so the previous `!$user->isAbleTo('Manage Customer')` ahead of
+    // the exemption below denied the platform operator outright. Same shape as
+    // AuthServiceProvider's `finance` gate (:80-83).
+    if ($user->type !== \App\Policies\UserPolicy::PLATFORM_ADMIN
+        && !$user->isAbleTo('Manage Customer')) {
         return redirect()->back()->with('error', __('Permission denied.'));
     }
 
@@ -130,9 +139,41 @@ public function destroy(Customer $customer)
     /**
      * Display the specified resource.
      */
+    /**
+     * NEW-customer-show-cross-tenant.
+     *
+     * The 'Show Customer' permission was checked; OWNERSHIP was not. Every
+     * query below keys on the customer id alone, so a merchant holding a
+     * permission every merchant holds could read another store's customer and
+     * that customer's orders by changing the id in the URL.
+     *
+     * The ownership limb is added ahead of the queries, matching destroy().
+     */
     public function show($id)
     {
-        if (auth()->user() && auth()->user()->isAbleTo('Show Customer')) {
+        $actor = auth()->user();
+        // Operator path first -- see customerStatus() above for why.
+        $mayShow = $actor
+            && ($actor->type === \App\Policies\UserPolicy::PLATFORM_ADMIN
+                || $actor->isAbleTo('Show Customer'));
+
+        if ($mayShow) {
+            $user = $actor;
+            $customer = Customer::find($id);
+
+            if ($user->type !== \App\Policies\UserPolicy::PLATFORM_ADMIN) {
+                $currentStore = getCurrentStore();
+
+                if (
+                    !$customer
+                    || empty($currentStore)
+                    || empty($customer->store_id)
+                    || (int) $customer->store_id !== (int) $currentStore
+                ) {
+                    return redirect()->back()->with('error', __('Customer not found.'));
+                }
+            }
+
             $users_id = Order::where('customer_id', $id)->get();
             if ($users_id->count() == 0) {
                 $customers = Customer::find($id);
@@ -151,17 +192,129 @@ public function destroy(Customer $customer)
         }
     }
 
+    /**
+     * NEW-customer-status-unauthorized.
+     *
+     * This had NO permission check, NO ownership check and NO null guard:
+     *   $customer = Customer::find($request->customer_id);
+     *   $customer->status = $request->status;
+     *   $customer->save();
+     * The route carries ['web','auth','xss','setlocate','verified'] (measured
+     * from the real router, routes/web.php:950), so authentication was the only
+     * control. Any logged-in web user -- including a staff member holding no
+     * permissions at all -- could enable or DISABLE any customer account on the
+     * platform, in any store, by sending one id. Disabling a customer locks a
+     * shopper out of the store they bought from. The bare find() was also a
+     * null dereference on an unmatched id.
+     *
+     * The predicate is copied from destroy() in this same controller rather
+     * than invented, so there is one shape for customer ownership here:
+     * 'Manage Customer' (a real seeded row -- app/Models/Utility.php:2821, NOT
+     * an invented name), a platform-operator exemption so the operator is not
+     * locked out, and customers.store_id compared against getCurrentStore().
+     */
     public function customerStatus(Request $request)
     {
+        $user = auth()->user();
+
+        if (!$user) {
+            return response()->json(['error' => __('Permission denied.')], 403);
+        }
+
+        // OPERATOR PATH FIRST, then the permission. The order is the fix, not a
+        // style choice.
+        //
+        // Laratrust's isAbleTo() resolves purely through the role/permission
+        // pivot tables and has NO super-admin bypass. makePlatformAdmin-shaped
+        // operators hold no role, so checking the permission BEFORE the
+        // operator exemption denies the platform operator outright -- which is
+        // exactly the lockout the finance permissions suffered when all six
+        // names resolved to "denied" for everybody. The seed-independent
+        // operator path is the shape AuthServiceProvider's `finance` gate
+        // (:80-83) and OrderPolicy::allow() already use.
+        //
+        // This also corrects destroy() below, which had the checks in the
+        // other order and locked the operator out of customer deletion. Caught
+        // by test_the_platform_operator_is_not_locked_out, which failed with
+        // "The platform operator was locked out of customer administration."
+        $isOperator = $user->type === \App\Policies\UserPolicy::PLATFORM_ADMIN;
+
+        if (!$isOperator && !$user->isAbleTo('Manage Customer')) {
+            return response()->json(['error' => __('Permission denied.')], 403);
+        }
+
         $customer = Customer::find($request->customer_id);
+
+        if (!$customer) {
+            return response()->json(['error' => __('Customer not found.')], 404);
+        }
+
+        if (!$isOperator) {
+            $currentStore = getCurrentStore();
+
+            if (
+                empty($currentStore)
+                || empty($customer->store_id)
+                || (int) $customer->store_id !== (int) $currentStore
+            ) {
+                // 404, not 403: a customer outside the caller's store is
+                // indistinguishable from one that does not exist, so the
+                // response does not confirm that an id is in use.
+                return response()->json(['error' => __('Customer not found.')], 404);
+            }
+        }
+
         $customer->status = $request->status;
         $customer->save();
 
         return response()->json(['success' => __('Status change successfully.')]);
     }
 
+    /**
+     * NEW-customer-timeline-unauthorized.
+     *
+     * No permission check and no ownership check. Any logged-in web user could
+     * read ANY customer's activity log, total spend and profile row in any
+     * store by walking the id in the URL -- a cross-tenant disclosure of
+     * shopper behaviour and lifetime value.
+     *
+     * 'Show Customer' is the permission this controller's own show() already
+     * uses for the same data class, and it is a real seeded row
+     * (app/Models/Utility.php:2822).
+     */
     public function customerTimeline($ids)
     {
+        $user = auth()->user();
+
+        if (!$user) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        // Operator path first -- see customerStatus() above for why.
+        $isOperator = $user->type === \App\Policies\UserPolicy::PLATFORM_ADMIN;
+
+        if (!$isOperator && !$user->isAbleTo('Show Customer')) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        $customer = Customer::find($ids);
+
+        if (!$customer) {
+            return redirect()->back()->with('error', __('Customer not found.'));
+        }
+
+        if (!$isOperator) {
+            $currentStore = getCurrentStore();
+
+            if (
+                empty($currentStore)
+                || empty($customer->store_id)
+                || (int) $customer->store_id !== (int) $currentStore
+            ) {
+                return redirect()->back()->with('error', __('Customer not found.'));
+            }
+        }
+
         $activityLog = ActivityLog::where('customer_id', $ids)
             ->groupBy('customer_id')
             ->first();
