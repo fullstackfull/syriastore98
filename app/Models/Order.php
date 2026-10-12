@@ -44,6 +44,10 @@ class Order extends Model
         'additional_note',
         'deliveryboy_id',
         'store_id',
+        'created_by',   // orders.created_by added by the schema work; without this
+                        // entry Laravel silently discards the value that
+                        // OrderController.php:161 passes to Order::create().
+
     ];
 
     /**
