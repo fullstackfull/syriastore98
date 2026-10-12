@@ -42,6 +42,25 @@
  *   3. No call site filters it by a FOREIGN store id (the 785 above).
  *   4. It is NOT reachable through the admin API's request-supplied `store_id` path. See the
  *      DEFERRED note below -- this is the condition that excludes the big commerce models.
+ *   5. NO STOREFRONT READ SITE FILTERS IT BY A SLUG-RESOLVED STORE ID. This condition was
+ *      missing from the list, and it is the one Cart and Customer fail.
+ *
+ *      Storefronts are path-prefixed ({storeSlug?}) on the SAME host, and routes/customer.php
+ *      is `require`d from routes/web.php:1222, so storefront routes sit INSIDE the `web`
+ *      middleware group -- confirmed from the router, which reports status.cancel as
+ *      [web, ActiveTheme, themelanguage]. config/session.php:146 sets the cookie path to '/'.
+ *      So a merchant or staff member with a live admin session is a POPULATED WEB-GUARD
+ *      PRINCIPAL on every storefront request, and getCurrentStore() returns their ADMIN
+ *      store -- not the store whose storefront they are viewing.
+ *
+ *      A storefront query of the form `where('store_id', $slugResolvedStore->id)` is then
+ *      ANDed with this scope's predicate and returns zero rows, SILENTLY, because a find()
+ *      or get() that returns nothing is indistinguishable from "no such record".
+ *
+ *      That is a broken storefront, and this project has already shipped that failure twice:
+ *      a brace move behind `auth` killed newsletter signup on every store, and scoping Menu
+ *      blanked the storefront navigation until an explicit withoutGlobalScope was added at
+ *      app/Helper/helper.php. A control that breaks the storefront is a defect, not a fix.
  *
  * THE ADMIN-API CONSTRAINT IS NOW SOLVED, NOT DEFERRED. Batch 1 deferred Product, Order,
  * Category, Cart, Customer, Setting and Shipping on one argument: the admin API resolves its
@@ -228,7 +247,19 @@ return [
         // (GoogleLogin:123, SignInWithFacebook:186, SignInWithLinkedIn:129, Signinwithgithub:117,
         // SignInWithSlack:119, SignInWithTwitter:114, SignInWithBitbucket:109,
         // SignInWithOutlook:172).
-        App\Models\Customer::class,
+        // ***** NOT ENABLED. The analysis above is kept because it is sound as far as it
+        // ***** goes, but its premise -- that this model is "always" read on the `customers`
+        // ***** guard or anonymously -- is FALSE, and condition 5 above explains why. A
+        // ***** merchant with a live admin session is a populated WEB-GUARD principal on every
+        // ***** storefront request (routes/customer.php is require'd from routes/web.php:1222,
+        // ***** so storefront routes carry the `web` group; config/session.php:146 sets the
+        // ***** cookie path to '/'), and getCurrentStore() then returns their ADMIN store.
+        // ***** Enabling this model made a storefront read return zero rows, silently, for
+        // ***** that principal on any store they do not own. Re-enable ONLY after every
+        // ***** storefront read site has an explicit withoutGlobalScope escape AND a test
+        // ***** drives the authenticated-web-guard case (the anonymous case fails open and so
+        // ***** passes trivially).
+        // ***** Breaking sites: CustomerLoginController.php:87, :585, :751, :796, :847.
 
         // Cart -- abandoned-cart rows. Read on the storefront and in every payment controller,
         // but always on the `customers` guard or anonymously by `cookie_session_id`, so the scope
@@ -244,7 +275,19 @@ return [
         // exactly what this phase is told not to do.
         // Writers: Cart.php:162 and :851, Api/ApiController.php:1533, CartController.php:382,
         // and the FrequentlyProduct / BoostSales package inserts all set `store_id`.
-        App\Models\Cart::class,
+        // ***** NOT ENABLED. The analysis above is kept because it is sound as far as it
+        // ***** goes, but its premise -- that this model is "always" read on the `customers`
+        // ***** guard or anonymously -- is FALSE, and condition 5 above explains why. A
+        // ***** merchant with a live admin session is a populated WEB-GUARD principal on every
+        // ***** storefront request (routes/customer.php is require'd from routes/web.php:1222,
+        // ***** so storefront routes carry the `web` group; config/session.php:146 sets the
+        // ***** cookie path to '/'), and getCurrentStore() then returns their ADMIN store.
+        // ***** Enabling this model made a storefront read return zero rows, silently, for
+        // ***** that principal on any store they do not own. Re-enable ONLY after every
+        // ***** storefront read site has an explicit withoutGlobalScope escape AND a test
+        // ***** drives the authenticated-web-guard case (the anonymous case fails open and so
+        // ***** passes trivially).
+        // ***** Breaking sites: app/Models/Cart.php:166 and :208.
 
     ],
 

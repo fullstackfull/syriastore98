@@ -92,8 +92,13 @@ class Batch2ModelIsolationTest extends TestCase
             // name            model class                        table            mutable column
             'order refunds' => [\App\Models\OrderRefund::class, 'order_refunds', 'refund_status'],
             'order notes' => [\App\Models\OrderNote::class, 'order_notes', 'notes'],
-            'customers' => [\App\Models\Customer::class, 'customers', 'first_name'],
-            'abandoned carts' => [\App\Models\Cart::class, 'carts', 'qty'],
+            // Customer and Cart were enabled in this batch and have been REMOVED from the
+            // allowlist on integration, so their data sets are removed from this provider
+            // rather than left asserting a property the platform deliberately no longer
+            // enforces. The decision and its evidence are pinned instead by
+            // StorefrontWebGuardScopeTest, which drives the case this suite never did: an
+            // AUTHENTICATED web-guard principal on a foreign storefront. See condition 5 in
+            // config/tenancy.php.
         ];
     }
 
