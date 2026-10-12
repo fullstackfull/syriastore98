@@ -75,6 +75,27 @@ jobs:
         # Catches a malformed composer.json and a lock out of sync with it. With 61
         # direct packages, lock drift is a real and silent failure mode. This only reads
         # the two files; it resolves nothing and reaches no network.
+        #
+        # EXPECT THIS TO FAIL ON ITS FIRST RUN, and that is the point -- the same
+        # argument 01-SAFE-BASELINE.md 8.1 makes for the other guards: a CI that passed
+        # against the current tree would be worthless. Measured here:
+        #
+        #   ./composer.json is valid, but with a few warnings
+        #   - require.myfatoorah/laravel-package : unbound version constraints (*)
+        #     should be avoided
+        #
+        # and --strict turns that warning into exit 1. Two constraints are unbound:
+        #   require:     myfatoorah/laravel-package  "*"
+        #   require-dev: laravel/pint                "*"
+        # `*` accepts ANY version, including a future major release and anything an
+        # upstream account compromise publishes -- composer.lock pins what is installed
+        # today, but any `composer update` resolves `*` afresh.
+        #
+        # Pinning them edits composer.json, which is an OWNER DECISION and explicitly
+        # out of scope for Phase 1B, so it is NOT worked around here. Recommended:
+        # myfatoorah/laravel-package "^2.2" (2.2.4 is what the lock holds) and
+        # laravel/pint "^1.0". Drop --strict only as a deliberate, recorded choice --
+        # not to make the board green.
         run: composer validate --strict --no-check-publish
 
       - name: Guard - test-database isolation is intact
