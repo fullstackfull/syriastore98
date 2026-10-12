@@ -154,15 +154,99 @@ class PaymentController extends Controller
 
 
 
+/**
+ * Sentinel returned by {@see pollPaymentStatus()} when the status call could
+ * not be made authentically. It is deliberately NOT a status value: the caller
+ * must branch on it explicitly rather than have "no answer" fall through the
+ * `status != 'A'` test and look like an ordinary decline.
+ */
+public const PAYMERA_STATUS_UNAUTHENTICATED = '__paymera_status_unauthenticated';
+
+/**
+ * The bearer credential for Paymera's status API, or null when there isn't one.
+ *
+ * NEW-paymera-poll-unauthenticated. `config('services.paymera.username')` was
+ * read directly into an Authorization header, and there is NO `paymera` block
+ * anywhere under `config/` — `grep -rn paymera config/` returns nothing. So the
+ * header that went out was the literal string "Bearer " with an empty
+ * credential, and every status poll was unauthenticated.
+ *
+ * That matters because the response of that call is the ONLY thing deciding
+ * whether the order is created: whatever an unauthenticated endpoint chose to
+ * return was treated as Paymera's authoritative word on whether money moved.
+ *
+ * Never logs or returns the credential's value — only whether one is present.
+ */
+private function paymeraStatusCredential(): ?string
+{
+    $credential = config('services.paymera.username');
+
+    if (!is_string($credential) || trim($credential) === '') {
+        return null;
+    }
+
+    return trim($credential);
+}
+
+/**
+ * Ask Paymera what happened to a payment.
+ *
+ * FAILS CLOSED. With no credential configured this makes no call at all and
+ * returns the unauthenticated sentinel, so a missing credential can never be
+ * mistaken for a successful capture. The previous behaviour — send an empty
+ * bearer token and trust the reply — is gone.
+ *
+ * Note for the owner, reported rather than changed because it is a deployment
+ * decision: the host below is `egate-t.paymera.cc`, which is Paymera's TEST
+ * gateway. It is hardcoded, so there is no way to point production at the live
+ * gateway without editing this line.
+ */
 public function pollPaymentStatus($paymentId)
 {
-    $response = Http::withHeaders([
-        'Authorization' => 'Bearer ' . config('services.paymera.username'), // أو حسب الستور
-        'Accept'        => 'application/json',
-    ])->get('https://egate-t.paymera.cc/api/payment-status/' . $paymentId);
+    $credential = $this->paymeraStatusCredential();
 
-    return $response->json();
+    if ($credential === null) {
+        \Log::critical('Paymera status poll ABANDONED: no API credential is configured', [
+            'payment_id' => $paymentId,
+            'config_key' => 'services.paymera.username',
+            'note' => 'There is no paymera block under config/ at all, so this header '
+                . 'was previously sent as an empty bearer token and the reply to an '
+                . 'unauthenticated request was treated as authoritative.',
+        ]);
+
+        return ['status' => self::PAYMERA_STATUS_UNAUTHENTICATED];
+    }
+
+    try {
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $credential,
+            'Accept'        => 'application/json',
+        ])->timeout(30)->get('https://egate-t.paymera.cc/api/payment-status/' . $paymentId);
+    } catch (\Throwable $e) {
+        // An unreachable gateway is not a successful payment.
+        \Log::error('Paymera status poll failed', [
+            'payment_id' => $paymentId,
+            'exception' => get_class($e),
+            'message' => $e->getMessage(),
+        ]);
+
+        return ['status' => self::PAYMERA_STATUS_UNAUTHENTICATED];
+    }
+
+    if (!$response->successful()) {
+        \Log::error('Paymera status poll returned an unsuccessful response', [
+            'payment_id' => $paymentId,
+            'http_status' => $response->status(),
+        ]);
+
+        return ['status' => self::PAYMERA_STATUS_UNAUTHENTICATED];
+    }
+
+    $body = $response->json();
+
+    return is_array($body) ? $body : ['status' => self::PAYMERA_STATUS_UNAUTHENTICATED];
 }
+
 
 
 
@@ -192,6 +276,25 @@ public function handlePaymeraCallback(Request $request, string $orderId)
     $statusData = $this->pollPaymentStatus(
         $pending['payment_id']
     );
+
+    /*
+     * FAIL CLOSED on "we could not ask". An unauthenticated, unreachable or
+     * unsuccessful status call is NOT a decline and must not be allowed to
+     * look like one: it is the absence of an answer, and no order is created.
+     * Branched on explicitly so this can never silently become the `!= 'A'`
+     * path again. See pollPaymentStatus() and NEW-paymera-poll-unauthenticated.
+     */
+    if (($statusData['status'] ?? null) === self::PAYMERA_STATUS_UNAUTHENTICATED) {
+        \Log::critical('Paymera callback REJECTED: the payment status could not be established', [
+            'paymera_reference' => $orderId,
+        ]);
+
+        return redirect()
+            ->route('store.payment.status', [
+                $pending['slug'],
+                '&return_type=cancel&payment_processor=paymera',
+            ]);
+    }
 
     if (($statusData['status'] ?? null) != 'A') {
         return redirect()
