@@ -2510,6 +2510,25 @@ $products_weight_array[] = [
         $order->additional_note = $request->additional_note;
         $order->payment_receipt = $payment_receipt ?? null;
         $order->store_id = $store->id;
+        // Reconcile the total against its own components before it is
+        // persisted. WARN-ONLY on purpose: the two pricing branches above build
+        // final_price from different bases (one adds tax and subtracts the
+        // coupon, the other takes the cart's own pre-summed total), so a
+        // rejecting assertion here would fail legitimate orders in the second
+        // branch. Logging the mismatch is what produces the evidence for the
+        // cutover; App\Services\OrderTotalReconciler::assertConsistent() is the
+        // rejecting variant and is ready for the write paths whose component
+        // maps are unambiguous.
+        $this->totalReconciler()->warnIfInconsistent(
+            [
+                'product_price' => $order->product_price,
+                'tax_price' => $order->tax_price,
+                'delivery_price' => $order->delivery_price,
+                'coupon_price' => $order->coupon_price,
+            ],
+            $order->final_price,
+            __METHOD__
+        );
         $order->save();
        
         // add in  Order table end

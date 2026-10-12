@@ -184,6 +184,78 @@ class OrderTotalReconciler
     }
 
     /**
+     * Sum order line items exactly: Σ (unit price × quantity).
+     *
+     * This is what the merchant-admin order writer needs and does not have:
+     * `OrderController::store` persists a `final_price` that is never checked
+     * against the lines it is supposed to be the total of, and hardcodes
+     * `coupon_price = 0`, so an order whose total disagrees with its own line
+     * items is accepted silently.
+     *
+     * The multiplication is exact — integer minor units times an integer
+     * quantity — so no rounding is introduced by the summing itself.
+     *
+     * @param  array<int, array{price: mixed, qty: mixed}> $lines
+     * @return string|null The sum as a fixed-scale decimal, or null if any line
+     *                     is not exactly representable.
+     */
+    public function sumLineItems(array $lines): ?string
+    {
+        $totalMinor = 0;
+
+        foreach ($lines as $line) {
+            $priceMinor = $this->tryToMinorUnits($line['price'] ?? null);
+
+            if ($priceMinor === null) {
+                return null;
+            }
+
+            $qty = $line['qty'] ?? 1;
+
+            if (!is_numeric($qty)) {
+                return null;
+            }
+
+            $quantity = (int) $qty;
+
+            if ((string) $quantity !== (string) $qty && (float) $quantity !== (float) $qty) {
+                // A fractional quantity cannot be multiplied exactly here; say
+                // so rather than rounding it away.
+                return null;
+            }
+
+            $totalMinor += $priceMinor * $quantity;
+        }
+
+        return $this->fromMinorUnits($totalMinor);
+    }
+
+    /**
+     * Reconcile a claimed total against order LINE ITEMS plus adjustments.
+     *
+     * The line-item sum becomes the `product_price` component and the
+     * adjustments (tax, delivery, coupon …) are applied with the signs
+     * {@see SUBTRACTIVE_COMPONENTS} defines.
+     *
+     * @param  array<int, array{price: mixed, qty: mixed}> $lines
+     * @param  array<string, mixed> $adjustments
+     * @param  mixed $claimedTotal
+     */
+    public function reconcileLineItems(array $lines, array $adjustments, $claimedTotal): array
+    {
+        $lineSum = $this->sumLineItems($lines);
+
+        if ($lineSum === null) {
+            return $this->result(false, 'line_items_not_representable', null, null, null, []);
+        }
+
+        return $this->reconcile(
+            ['product_price' => $lineSum] + $adjustments,
+            $claimedTotal
+        );
+    }
+
+    /**
      * Exact equality of two money amounts at {@see SCALE}.
      *
      * Returns false when either side is not exactly representable at that
