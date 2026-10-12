@@ -16,11 +16,13 @@ use PHPUnit\Framework\TestCase;
  * store_wallet_transactions, store_withdrawals, store_order_financials, currency_rates
  * and delivery_earnings -- are read and written by live code and created by no migration.
  * Their column types are not derivable from $fillable, so inventing them is FORBIDDEN,
- * and seven of the suite's eight skips are tests that skip precisely because these tables
- * are absent.
+ * and EIGHT of the suite's NINE skips are tests that skip precisely because these tables
+ * are absent (re-measured with --display-skipped; the ninth is `zid_orders`, a different
+ * undeclared table). Those eight skips name only THREE of the six money tables -- see
+ * GateFCoverageLedgerTest for the resulting coverage gap.
  *
  * That makes those skips a standing temptation: a single Schema::create() anywhere in
- * either migration tree would turn seven reported gaps into seven green ticks while
+ * either migration tree would turn eight reported gaps into eight green ticks while
  * freezing guessed column types into the schema. Worse, the existing migrations are
  * written with Schema::hasTable() guards, so once a wrong definition has created a table,
  * the later CORRECT migration becomes a silent no-op and the wrong types become permanent
@@ -172,7 +174,7 @@ class GateFSchemaContainmentTest extends TestCase
 
     /**
      * The skips that report GATE F must keep NAMING the table and the reason. A skip with
-     * no reason is indistinguishable from a disabled test, and these seven skips are the
+     * no reason is indistinguishable from a disabled test, and these eight skips are the
      * project's only standing record that six money tables have no schema.
      *
      * Asserted against the suites that actually skip, which were measured from a real run
@@ -182,6 +184,7 @@ class GateFSchemaContainmentTest extends TestCase
     {
         $suites = [
             'tests/Feature/Security/FinancePermissionTest.php',
+            'tests/Feature/Security/WithdrawalAuthorizationTest.php',
             'tests/Feature/Tenancy/CrossTenantModelIsolationTest.php',
             'tests/Feature/Tenancy/ModelInitializationTest.php',
         ];
