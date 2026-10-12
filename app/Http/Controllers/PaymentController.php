@@ -138,6 +138,27 @@ public function handlePaymeraCallback(Request $request, string $orderId)
             ]);
     }
 
+    /*
+     * VERIFY WHAT WE ARE BEING TOLD, BEFORE creating the order.
+     *
+     * The status test above is a bare `!= 'A'` and is the only check this
+     * callback used to perform: it never compared a captured amount against the
+     * order total and never verified any inbound signature, and then marked the
+     * order Paid and created it. Verification now happens here, ahead of both.
+     *
+     * Fails closed: an unverifiable amount or signature returns the customer to
+     * the payment-status page and creates nothing.
+     */
+    $verification = $this->verifyPaymeraPayment($pending, $statusData, $request->all(), $orderId);
+
+    if (!$verification->allowsPaid()) {
+        return redirect()
+            ->route('store.payment.status', [
+                $pending['slug'],
+                '&return_type=cancel&payment_processor=paymera',
+            ]);
+    }
+
     $lock = Cache::lock(
         'paymera_lock_' . $orderId,
         10
@@ -156,8 +177,19 @@ public function handlePaymeraCallback(Request $request, string $orderId)
          * هذا يحل مشكلة حفظها COD.
          */
         $requestData['payment_type'] = 'paymera';
-        $requestData['payment_status'] = 'Paid';
         $requestData['slug'] = $pending['slug'];
+
+        /*
+         * The `payment_status = 'Paid'` that used to be set here is gone. The
+         * order writer derives the status from the verification result instead,
+         * which is recorded server-side (in the session, not in the request, so
+         * it cannot be forged) and is single-use.
+         */
+        $this->paymentVerifier()->recordVerification(
+            'paymera',
+            $verification,
+            $pending['expected_total'] ?? ($verification->expectedAmount ?? '')
+        );
 
         Session::put('request_data', $requestData);
 
@@ -199,6 +231,83 @@ public function handlePaymeraCallback(Request $request, string $orderId)
     } finally {
         $lock->release();
     }
+}
+
+
+/**
+ * Verify a Paymera payment: the captured amount, and the inbound signature.
+ *
+ * ONE copy, used by BOTH routed Paymera entry points — handlePaymeraCallback
+ * (the customer's browser returning) and handlePaymeraTrigger (the gateway's
+ * server-to-server poke). Both created orders and marked them paid on the same
+ * unverified `status == 'A'` test, so verifying in only one of them would leave
+ * the other open.
+ *
+ * The two unrouted copies, handlePaymeraCallback_backup and
+ * handlePaymeraCallback00, are deliberately NOT wired in: they are dead code
+ * reachable from no route, and "fixing" them in parallel would create a second
+ * verification path to keep in step with this one.
+ *
+ * @param  array  $pending        The server-side pending-payment record.
+ * @param  array  $statusData     The gateway's status response.
+ * @param  array  $callbackPayload The inbound request parameters.
+ * @param  string $reference      The Paymera payment reference, for the log.
+ */
+private function verifyPaymeraPayment(
+    array $pending,
+    array $statusData,
+    array $callbackPayload,
+    string $reference
+): \App\Services\PaymentVerificationResult {
+    $verifier = $this->paymentVerifier();
+
+    // 1. The signature. BLOCKED on GATE G(4) — the field names, algorithm and
+    //    secret delivery exist only in Paymera's integration document — so this
+    //    returns "unverifiable" until it is configured. Unverifiable is treated
+    //    as failure, not as success.
+    $signature = $verifier->verifyPaymeraSignature($callbackPayload);
+
+    if (!$signature->isVerified()) {
+        if ($verifier->paymeraSignatureIsRequired()) {
+            \Log::critical('Paymera callback REJECTED: inbound signature not verified', [
+                'paymera_reference' => $reference,
+                'store_id' => $pending['request_data']['store_id'] ?? null,
+                'signature' => $signature->context(),
+                'owner_action' => 'GATE G(4): supply the Paymera callback signature field '
+                    . 'name, algorithm and secret delivery, or set '
+                    . 'services.paymera.require_callback_signature to false to '
+                    . 'restore the previous unverified behaviour deliberately.',
+            ]);
+
+            return $signature;
+        }
+
+        // Enforcement explicitly switched off by the owner. The callback
+        // proceeds on the amount check alone, and says so every time.
+        \Log::warning('Paymera callback signature NOT verified and not enforced', [
+            'paymera_reference' => $reference,
+            'signature' => $signature->context(),
+        ]);
+    }
+
+    // 2. The captured amount against what this payment was initiated for.
+    $amount = $verifier->verifyPaymeraCapture(
+        $statusData,
+        $pending['expected_total'] ?? null,
+        $pending['amount_sent'] ?? null
+    );
+
+    if (!$amount->allowsPaid()) {
+        \Log::critical('Paymera callback REJECTED: captured amount not verified', [
+            'paymera_reference' => $reference,
+            'store_id' => $pending['request_data']['store_id'] ?? null,
+            'amount' => $amount->context(),
+            'owner_action' => 'GATE G(4): supply the Paymera response field name that '
+                . 'carries the captured amount (services.paymera.callback_amount_field).',
+        ]);
+    }
+
+    return $amount;
 }
 
 
@@ -255,9 +364,34 @@ public function handlePaymeraTrigger($orderId)
         return response()->json(['status' => 'A', 'ok' => true]);
     }
 
+    /*
+     * Already processed — by this trigger or by the browser callback. Do not
+     * create a second order. The `processed` flag the callback sets was never
+     * set here, so a trigger followed by a callback created the order TWICE.
+     */
+    if (($pending['processed'] ?? false) === true) {
+        return response()->json([
+            'status' => 'A',
+            'ok' => true,
+            'product_order_id' => $pending['product_order_id'] ?? null,
+        ]);
+    }
+
     $statusData = $this->pollPaymentStatus($pending['payment_id']);
 
     if (($statusData['status'] ?? null) == 'A') {
+        // Same verification as the browser callback, same single copy, before
+        // anything is created. Fails closed.
+        $verification = $this->verifyPaymeraPayment($pending, $statusData, request()->all(), $orderId);
+
+        if (!$verification->allowsPaid()) {
+            return response()->json([
+                'status' => $statusData['status'] ?? 'unknown',
+                'ok' => false,
+                'error' => 'payment_not_verified',
+            ], 422);
+        }
+
         $lock = Cache::lock('paymera_lock_' . $orderId, 10);
 
         if ($lock->get()) {
@@ -265,9 +399,26 @@ public function handlePaymeraTrigger($orderId)
                 $pending['status'] = 'A';
                 Cache::put('paymera_pending_' . $orderId, $pending, now()->addHours(2));
 
+                $this->paymentVerifier()->recordVerification(
+                    'paymera',
+                    $verification,
+                    $pending['expected_total'] ?? ($verification->expectedAmount ?? '')
+                );
+
                 Session::put('request_data', $pending['request_data']);
                 $freshRequest = Request::create('/', 'POST', $pending['request_data']);
                 $this->getProductStatus($freshRequest, $pending['slug']);
+
+                // Close the double-processing window the callback relies on.
+                $latestOrder = Order::where('store_id', $pending['request_data']['store_id'] ?? null)
+                    ->where('payment_type', 'paymera')
+                    ->latest('id')
+                    ->first();
+
+                $pending['processed'] = true;
+                $pending['order_id'] = $latestOrder?->id;
+                $pending['product_order_id'] = $latestOrder?->product_order_id;
+                Cache::put('paymera_pending_' . $orderId, $pending, now()->addHours(2));
             } finally {
                 $lock->release();
             }
@@ -1419,7 +1570,16 @@ public function handlePaymeraTrigger00($orderId)
         event(new AddAdditionalFields($order, $request->all(), $store));
         $order->payment_comment = !empty($requests_data['payment_comment']) ? $requests_data['payment_comment'] : '';
         $order->payment_type = $requests_data['payment_type'];
-        $order->payment_status = 'Paid';
+        // DERIVED, not asserted. This was the literal `'Paid'`, with nothing
+        // between the customer's browser and this line having asked a gateway
+        // whether any money moved. See App\Services\PaymentVerificationService
+        // for what is enforced today and what is still preserved behaviour.
+        $order->payment_status = $this->paymentVerifier()->resolveOrderPaymentStatus(
+            $requests_data['payment_type'] ?? null,
+            $this->paymentVerifier()->consumeVerification(),
+            $order->final_price,
+            __METHOD__
+        );
         $order->delivery_id = $requests_data['method_id'] ?? 0;
         $order->delivery_comment = !empty($requests_data['delivery_comment']) ? $requests_data['delivery_comment'] : '';
         if (module_is_active('PreOrder') && \Auth::guard('customers')->user() && isset($requests_data['order_type']) && $requests_data['order_type'] == 'pre_order') {
@@ -2322,7 +2482,16 @@ $result = app(\App\Services\StoreNotificationService::class)
         }
         $order->payment_comment = !empty($requests_data['payment_comment']) ? $requests_data['payment_comment'] : '';
         $order->payment_type = $requests_data['payment_type'];
-        $order->payment_status = 'Paid';
+        // DERIVED, not asserted. This was the literal `'Paid'`, with nothing
+        // between the customer's browser and this line having asked a gateway
+        // whether any money moved. See App\Services\PaymentVerificationService
+        // for what is enforced today and what is still preserved behaviour.
+        $order->payment_status = $this->paymentVerifier()->resolveOrderPaymentStatus(
+            $requests_data['payment_type'] ?? null,
+            $this->paymentVerifier()->consumeVerification(),
+            $order->final_price,
+            __METHOD__
+        );
         $order->delivery_id = $requests_data['method_id'] ?? 0;
         $order->delivery_comment = !empty($requests_data['delivery_comment']) ? $requests_data['delivery_comment'] : '';
         if (module_is_active('PreOrder') && \Auth::guard('customers')->user() && isset($requests_data['order_type']) && $requests_data['order_type'] == 'pre_order') {

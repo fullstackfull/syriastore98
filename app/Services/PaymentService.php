@@ -73,6 +73,9 @@ class PaymentService
     /** Exact-decimal reconciliation of a persisted total against its components. */
     private ?OrderTotalReconciler $totalReconciler = null;
 
+    /** Derives an order's payment_status from a verification result. */
+    private ?PaymentVerificationService $paymentVerifier = null;
+
     /**
      * Lazily resolved rather than constructor-injected: this service is both
      * container-resolved and `new`-ed at several call sites, and neither
@@ -86,6 +89,11 @@ class PaymentService
     private function totalReconciler(): OrderTotalReconciler
     {
         return $this->totalReconciler ??= new OrderTotalReconciler();
+    }
+
+    private function paymentVerifier(): PaymentVerificationService
+    {
+        return $this->paymentVerifier ??= new PaymentVerificationService();
     }
 
     public function paymentConfig()
@@ -277,6 +285,22 @@ $requestData['store_id'] = $store->id;
                     'slug'       => $slug,
                     'request_data' => $requestData,
                     'status'     => 'P', // Pending
+                    // The amount this payment is FOR, recorded server-side at
+                    // initiation so the callback can compare what Paymera says
+                    // it captured against what was asked for. Without this the
+                    // callback had nothing to compare against at all.
+                    //
+                    // Two forms are stored because the unit Paymera expects is
+                    // unresolved (GATE G(3)): $raw_price above strips '.', so
+                    // 1250.50 is sent as 125050 while 1250 is sent as 1250.
+                    // 'expected_total' is the decimal the order is for;
+                    // 'amount_sent' is the exact integer handed to the gateway.
+                    'expected_total' => str_replace(
+                        [' ', ','],
+                        '',
+                        str_replace($CURRENCY, '', (string) $cartlist_final_price)
+                    ),
+                    'amount_sent' => $totalprice,
                 ], now()->addHours(2));
 
                 return $responseData['Data']['url'];
@@ -2333,7 +2357,14 @@ $products_weight_array[] = [
         event(new AddAdditionalFields($order, $request->all(), $store));
         $order->payment_comment = !empty($requests_data['payment_comment']) ? $requests_data['payment_comment'] : '';
         $order->payment_type = $requests_data['payment_type'];
-        $order->payment_status = 'Paid';
+        // DERIVED, not asserted — see App\Services\PaymentVerificationService.
+        // This was the literal `'Paid'`.
+        $order->payment_status = $this->paymentVerifier()->resolveOrderPaymentStatus(
+            $requests_data['payment_type'] ?? null,
+            $this->paymentVerifier()->consumeVerification(),
+            $order->final_price,
+            __METHOD__
+        );
         $order->delivery_id = $requests_data['method_id'] ?? 0;
         $order->delivery_comment = !empty($requests_data['delivery_comment']) ? $requests_data['delivery_comment'] : '';
         if (module_is_active('PreOrder') && \Auth::guard('customers')->user() && isset($requests_data['order_type']) && $requests_data['order_type'] == 'pre_order') {
