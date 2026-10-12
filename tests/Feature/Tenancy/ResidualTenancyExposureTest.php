@@ -97,7 +97,7 @@ class ResidualTenancyExposureTest extends TestCase
      * `wishlist`. packages/ cannot be edited by this workstream, so the ONLY lever is which models
      * are scoped -- which is why this list is the deliverable.
      */
-    public function test_the_bulk_delete_models_the_scope_now_protects_are_exactly_these_five(): void
+    public function test_the_bulk_delete_models_the_scope_now_protects_are_exactly_these_three(): void
     {
         $protected = [];
 
@@ -109,10 +109,13 @@ class ResidualTenancyExposureTest extends TestCase
 
         sort($protected);
 
+        // THREE, not five. Cart and Customer were removed from the allowlist on integration:
+        // every storefront read site filters them by a slug-resolved store id, so scoping
+        // them silently broke the storefront for an authenticated web-guard principal. See
+        // condition 5 in config/tenancy.php and StorefrontWebGuardScopeTest. They now appear
+        // in the EXPOSED list below, which is the honest accounting of the trade.
         $this->assertSame(
             [
-                \App\Models\Cart::class,       // batch 2 -- and the `customer_id` delete shape at :113
-                \App\Models\Customer::class,   // batch 2
                 \App\Models\Menu::class,       // batch 1
                 \App\Models\OrderRefund::class, // batch 2
                 \App\Models\SupportTicket::class, // batch 1
@@ -152,7 +155,7 @@ class ResidualTenancyExposureTest extends TestCase
      *     its 37 admin-API call sites plus every payment-gateway callback need the same
      *     per-site audit the four batch-2 models got. Reported as OPEN, not as safe.
      */
-    public function test_the_bulk_delete_models_still_exposed_are_exactly_these_twenty_five(): void
+    public function test_the_bulk_delete_models_still_exposed_are_exactly_these_twenty_seven(): void
     {
         $exposed = [];
 
@@ -177,9 +180,11 @@ class ResidualTenancyExposureTest extends TestCase
         $this->assertSame([
             \App\Models\Blog::class,
             \App\Models\BlogCategory::class,
+            \App\Models\Cart::class,
             \App\Models\Category::class,
             \App\Models\Contact::class,
             \App\Models\Coupon::class,
+            \App\Models\Customer::class,
             \App\Models\Faq::class,
             \App\Models\FlashSale::class,
             \App\Models\Newsletter::class,
