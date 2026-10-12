@@ -3828,6 +3828,121 @@ public function DeleteReview($id)
     }
 
     /**
+     * Resolve a caller-supplied delivery-boy id to one the caller may act on.
+     *
+     * NEW-api-deliveryboy-unscoped. changeProfile (:4521), logout (:4563) and
+     * delete_user (:4592) each did a bare DeliveryBoy::find() on a request
+     * field and then wrote, revoked tokens, or DELETED the row. Every one of
+     * those routes carries only `custom.auth` (routes/api.php:341-343), so any
+     * holder of any valid token -- merchant, delivery boy, or customer --
+     * could edit any driver's name and email, force any driver off the road by
+     * deleting their tokens, or delete any driver account on the platform.
+     *
+     * Two legitimate principals, so two limbs:
+     *   - a DELIVERY BOY acting on themselves. custom.auth logs a DeliveryBoy
+     *     token into the `deliveryboy` guard (App\Http\Middleware\CustomAuth),
+     *     which is how the driver app authenticates, and self-service is the
+     *     only thing these three endpoints are for from that side.
+     *   - a MERCHANT or the platform operator managing their own drivers.
+     *     delivery_boys.store_id (create_delivery_boys_table:23) is the tenant
+     *     link, so the driver must sit in one of the caller's own stores.
+     *
+     * Anything else resolves to null and the caller gets the method's existing
+     * 'not found' envelope, which also avoids confirming that a driver id
+     * exists.
+     */
+    private function resolveManageableDeliveryBoy($deliveryBoyId)
+    {
+        if (empty($deliveryBoyId)) {
+            return null;
+        }
+
+        $boy = DeliveryBoy::find($deliveryBoyId);
+
+        if (!$boy) {
+            return null;
+        }
+
+        $self = auth('deliveryboy')->user();
+
+        if ($self && (int) $self->id === (int) $boy->id) {
+            return $boy;
+        }
+
+        $actor = \Auth::user();
+
+        if ($actor) {
+            if ($actor->type === 'super admin') {
+                return $boy;
+            }
+
+            if (in_array((int) $boy->store_id, array_map('intval', $this->ownedStoreIds()), true)) {
+                return $boy;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve a caller-supplied order id to one the caller may change.
+     *
+     * NEW-api-status-change-any-order and NEW-api-order-cancel-any-order: the
+     * API-side twins of the status.cancel defect.
+     *
+     * statusChange (:4294) called Order::order_status_change() on
+     * $request->id with NO predicate of any kind and then dereferenced
+     * Order::find($request->id) with no null check.
+     *
+     * orderCancel (:4616) is the more instructive one, because it LOOKED
+     * guarded:
+     *     if ($user && $order->deliveryboy_id == $user->id) {
+     *         ... $order->delivered_status = 2; $order->save();
+     *     } else {
+     *         ... $order->delivered_status = 2; $order->save();
+     *     }
+     * Both branches cancelled the order. The ownership test changed only
+     * whether deliveryboy_id was also cleared, so it read as a control while
+     * authorising nothing -- the same "decoration" shape as the store lookups
+     * elsewhere in this file.
+     *
+     * Legitimate principals: the delivery boy the order is ASSIGNED to, and
+     * the merchant (or platform operator) who owns the order's store.
+     */
+    private function resolveChangeableOrder($orderId)
+    {
+        if (empty($orderId)) {
+            return null;
+        }
+
+        $order = Order::find($orderId);
+
+        if (!$order) {
+            return null;
+        }
+
+        $boy = auth('deliveryboy')->user();
+
+        if ($boy && (int) $order->deliveryboy_id === (int) $boy->id) {
+            return $order;
+        }
+
+        $actor = \Auth::user();
+
+        if ($actor) {
+            if ($actor->type === 'super admin') {
+                return $order;
+            }
+
+            if (in_array((int) $order->store_id, array_map('intval', $this->ownedStoreIds()), true)) {
+                return $order;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Resolve a caller-supplied user_id to a User the caller may administer.
      *
      * NEW-api-edit-any-user / NEW-api-password-oracle. EditProfile (:3030) and
@@ -4287,11 +4402,28 @@ public function DeleteStore(Request $request)
             ]);
         }
 
-        $data['order_id'] = $request->id;
+        // NEW-api-status-change-any-order. The API-side status.cancel. This
+        // called Order::order_status_change() on the request's id with no
+        // predicate at all, so any valid token changed any order's delivery
+        // status on the platform -- and then dereferenced
+        // Order::find($request->id) with no null check, so an unmatched id was
+        // a 500 rather than the 'Order not found.' this method can now give.
+        //
+        // The predicate runs BEFORE the state change, which is the ordering
+        // rule the status.cancel repair established: no destructive side
+        // effect ahead of the success check.
+        $order = $this->resolveChangeableOrder($request->id);
+
+        if (!$order) {
+            return $this->error(['message' => __('Order not found.')]);
+        }
+
+        $data['order_id'] = $order->id;
         $data['order_status'] = $request->delivered;
         $responce = Order::order_status_change($data);
 
-        $order = Order::find($request->id);
+        $order = $order->fresh();
+
         if ($order->delivered_status == 0) {
             $responce['order_status'] = __('Pending');
         }
@@ -4518,7 +4650,9 @@ public function changeProfile(Request $request)
                 'message' => $messages->first()
             ]);
         }
-        $deliveryboy = DeliveryBoy::find($request->id);
+        // NEW-api-deliveryboy-unscoped: was DeliveryBoy::find($request->id),
+        // so any valid token rewrote any driver's name, email and contact.
+        $deliveryboy = $this->resolveManageableDeliveryBoy($request->id);
 
         $dir        = 'uploads';
 
@@ -4560,7 +4694,12 @@ public function changeProfile(Request $request)
 
     public function logout(Request $request)
     {
-        $user = DeliveryBoy::find($request->user_id);
+        // NEW-api-deliveryboy-unscoped: was DeliveryBoy::find($request->user_id)
+        // followed by $user->tokens()->delete(). Any valid token could revoke
+        // ANY driver's tokens and force them off the road -- a denial of
+        // service against a delivery fleet from one request body field.
+        $user = $this->resolveManageableDeliveryBoy($request->user_id);
+
         if (!empty($user)) {
             return $this->success([
                 'message' => __('User Logout'),
@@ -4587,7 +4726,12 @@ public function changeProfile(Request $request)
             ]);
         }
 
-        $user = DeliveryBoy::find($request->user_id);
+        // NEW-api-deliveryboy-unscoped, the worst of the three: this was
+        // DeliveryBoy::find($request->user_id) then $user->delete(). Any
+        // holder of any valid token DELETED any delivery boy account on the
+        // platform. Irreversible.
+        $user = $this->resolveManageableDeliveryBoy($request->user_id);
+
         if (!empty($user)) {
             $user->delete();
 
@@ -4613,8 +4757,21 @@ public function changeProfile(Request $request)
             ]);
         }
 
-        $user = DeliveryBoy::find($request->user_id);
-        $order = Order::find($request->order_id);
+        // NEW-api-order-cancel-any-order. This LOOKED guarded and was not:
+        //   if ($user && $order->deliveryboy_id == $user->id) { ...save... }
+        //   else                                              { ...save... }
+        // BOTH branches set delivered_status = 2 and saved. The ownership test
+        // decided only whether deliveryboy_id was ALSO cleared, so it read as
+        // an authorization control while authorising nothing. Any valid token
+        // cancelled any pending order on the platform.
+        //
+        // The order is now resolved through the caller first -- the assigned
+        // delivery boy, or the merchant who owns the order's store -- and the
+        // deliveryboy_id reset keeps its original meaning: it is the
+        // ASSIGNED DRIVER cancelling, so the assignment is released. A
+        // merchant cancelling leaves the assignment alone, exactly as before.
+        $order = $this->resolveChangeableOrder($request->order_id);
+        $user = $order ? $this->resolveManageableDeliveryBoy($request->user_id) : null;
 
         if (!empty($order)) {
             if ($order->delivered_status == '0') {
