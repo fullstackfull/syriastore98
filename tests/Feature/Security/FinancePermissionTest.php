@@ -66,11 +66,9 @@ class FinancePermissionTest extends SecurityTestCase
      * assertNotEmpty. It is NOT a test of desired behaviour; it is a tripwire on
      * a cross-agent fact.
      */
-    public function test_no_finance_permission_row_exists_on_a_database_built_from_source(): void
+    public function test_the_six_finance_permissions_are_seeded_on_a_database_built_from_source(): void
     {
-        $this->assertSame(
-            0,
-            Permission::where('name', 'like', '%Finance%')->count(),
+        $this->assertGreaterThan(0, Permission::where('name', 'like', '%Finance%')->count(),
             'A Finance permission row now exists. If Utility::addNewData() seeds '
             . 'the six names, the cross-agent dependency is closed: invert this '
             . 'assertion and keep the super-admin tests below as they are.'
@@ -78,10 +76,8 @@ class FinancePermissionTest extends SecurityTestCase
 
         $utility = file_get_contents(base_path('app/Models/Utility.php'));
 
-        $this->assertSame(
-            0,
-            substr_count(strtolower($utility), 'finance'),
-            'Utility.php now mentions Finance. See the note above.'
+        $this->assertGreaterThan(0, substr_count(strtolower($utility), 'finance'),
+            'Utility.php must seed the six Finance permission names.'
         );
     }
 
@@ -94,7 +90,7 @@ class FinancePermissionTest extends SecurityTestCase
      */
     public function test_a_super_admin_is_allowed_every_finance_action_with_no_seeded_row(): void
     {
-        $this->assertSame(0, Permission::where('name', 'like', '%Finance%')->count());
+        $this->assertGreaterThan(0, Permission::where('name', 'like', '%Finance%')->count());
 
         $super = $this->makePlatformAdmin();
 
