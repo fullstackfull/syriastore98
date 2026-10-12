@@ -136,7 +136,25 @@ Route::prefix('admin')->as('admin.')->group(function(){
 
 
 
-  Route::post('adminlogout', [DashboardController::class, 'logouto']);
+  // FIX-1 / admin-auth-coverage-baseline: adminlogout was the last /api/admin/*
+  // route with NO route middleware of any kind. It was LOW severity rather than
+  // open, because the handler verifies the token itself
+  // (Api/DashboardController::logouto:614-651 parses `{id}|{secret}`, loads the
+  // personal_access_tokens row and compares with hash_equals before deleting
+  // it), which is why the Phase 1A anonymous probe got 401 rather than 200.
+  //
+  // It is guarded at the route level now so the control is declared where every
+  // sibling declares it, instead of depending on one handler continuing to
+  // re-implement token verification correctly. `custom.auth` performs exactly
+  // the same hash_equals check (App\Http\Middleware\CustomAuth:62-66) and
+  // returns the same 401 envelope via ApiResponser, so the wire contract the
+  // Flutter app sees on a bad or missing token is unchanged -- still 401, which
+  // repo-B lib/network/network.dart:285-287 turns into the forced logout that a
+  // logout call wants anyway.
+  //
+  // AdminApiLog is added for parity with every other admin route; it only logs.
+  Route::post('adminlogout', [DashboardController::class, 'logouto'])
+      ->middleware(['custom.auth', 'AdminApiLog']);
 
 
 Route::get('/customer/orders', [DashboardController::class, 'getCustomerOrdersApi'])

@@ -280,4 +280,138 @@ class RoleEscalationTest extends SecurityTestCase
         $this->assertSame('floor-manager', $ownRole->fresh()->name);
         $this->assertSame($store->id, (int) $ownRole->fresh()->store_id);
     }
+
+    // ---------------------------------------------------------------
+    // NEW-rolepolicy-grantpermission-dead-code
+    // ---------------------------------------------------------------
+
+    /**
+     * RolePolicy::grantPermission() was called from NOWHERE. `grep -rn
+     * "grantPermission" app/` found the policy declaration and no call site,
+     * while RoleController::store() and ::update() each re-implemented the same
+     * rule inline in filterGrantablePermissions().
+     *
+     * That is worse than either having the control or not having it: a reviewer
+     * asking "is privilege escalation gated?" finds a correct-looking policy
+     * method and stops, while the two live paths are free to drift from it --
+     * which is the exact shape of the original defect, where update() filtered
+     * server-side and store() did not.
+     *
+     * filterGrantablePermissions() now asks the policy, through the Gate, so
+     * there is ONE decision point for both paths. This test invokes the policy
+     * directly: if it ever goes dead again, this is the test that keeps it
+     * honest about what it is for.
+     */
+    public function test_the_grant_permission_policy_decides_and_is_reachable_through_the_gate(): void
+    {
+        [$merchant] = $this->makeTenant();
+        $super = $this->makePlatformAdmin();
+
+        $restrictedName = config('superadminaccess')[0] ?? 'Create Plan';
+
+        $policy = new \App\Policies\RolePolicy();
+
+        // The policy's own answers.
+        $this->assertFalse(
+            $policy->grantPermission($merchant, $restrictedName),
+            'A merchant must not be able to grant a platform-operator permission.'
+        );
+        $this->assertTrue(
+            $policy->grantPermission($merchant, 'Manage Order'),
+            'An ordinary permission must stay grantable.'
+        );
+        $this->assertTrue(
+            $policy->grantPermission($super, $restrictedName),
+            'A platform admin may grant anything.'
+        );
+
+        // And the SAME answers through the Gate, which is how the controller
+        // reaches it. Gate::callPolicyMethod drops a leading class-string
+        // argument (Gate.php:802-809), so this resolves to
+        // RolePolicy::grantPermission($user, $name). Asserted by execution
+        // rather than inferred from the framework source.
+        $this->assertFalse(
+            $merchant->can('grantPermission', [Role::class, $restrictedName]),
+            'The Gate must reach RolePolicy::grantPermission. If this is false for every '
+            . 'name the controller would grant NOTHING; if it is true for the restricted '
+            . 'name the policy is not being consulted at all.'
+        );
+        $this->assertTrue(
+            $merchant->can('grantPermission', [Role::class, 'Manage Order'])
+        );
+        $this->assertTrue(
+            $super->can('grantPermission', [Role::class, $restrictedName])
+        );
+    }
+
+    /**
+     * The platform-operator branch, end to end: a super admin creating a role
+     * with a restricted permission must still succeed. Without this, routing
+     * store() through the policy could silently have become "nobody may grant
+     * the superadminaccess permissions", locking the operator out of their own
+     * plan and currency screens.
+     */
+    public function test_a_platform_admin_can_still_grant_a_restricted_permission(): void
+    {
+        $super = $this->makePlatformAdmin();
+        [, $store] = $this->makeTenant();
+        $super->current_store = $store->id;
+        $super->save();
+
+        $this->grantPermission($super, 'Create Role');
+
+        $restrictedName = config('superadminaccess')[0] ?? 'Create Plan';
+        $restricted = Permission::firstOrCreate(
+            ['name' => $restrictedName],
+            ['display_name' => $restrictedName, 'guard_name' => 'web']
+        );
+
+        $this->actingAs($super->fresh())->post('/roles', [
+            'name' => 'operator-role',
+            'permissions' => [$restricted->id],
+        ]);
+
+        $created = Role::where('name', 'operator-role')->first();
+
+        $this->assertNotNull($created, 'A platform admin must still be able to create a role.');
+        $this->assertDatabaseHas('permission_role', [
+            'role_id' => $created->id,
+            'permission_id' => $restricted->id,
+        ]);
+    }
+
+    /**
+     * A permission id with no matching row is dropped rather than passed
+     * through. store() used to reach firstOrFail() on it (a 500) and update()
+     * used to syncPermissions() a dangling id.
+     */
+    public function test_an_unknown_permission_id_is_dropped_rather_than_passed_through(): void
+    {
+        [$merchant] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Create Role');
+
+        $ordinary = Permission::firstOrCreate(
+            ['name' => 'Manage Order'],
+            ['display_name' => 'Manage Order', 'guard_name' => 'web']
+        );
+
+        $unknownId = (int) Permission::max('id') + 9999;
+
+        $this->actingAs($merchant->fresh())->post('/roles', [
+            'name' => 'mixed-role',
+            'permissions' => [$ordinary->id, $unknownId],
+        ]);
+
+        $created = Role::where('name', 'mixed-role')->first();
+
+        $this->assertNotNull($created, 'The valid half of the request must still be honoured.');
+        $this->assertDatabaseHas('permission_role', [
+            'role_id' => $created->id,
+            'permission_id' => $ordinary->id,
+        ]);
+        $this->assertDatabaseMissing('permission_role', [
+            'role_id' => $created->id,
+            'permission_id' => $unknownId,
+        ]);
+    }
 }

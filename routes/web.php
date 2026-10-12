@@ -234,24 +234,45 @@ Route::middleware(['auth'])->group(function () {
     // (StoreFinanceController::approveWithdrawal / rejectWithdrawal /
     // payWithdrawal), so removing this middleware no longer leaves them open.
     //
-    // 'View Finance Withdrawal Requests' is the existing permission closest to
-    // these actions and is used here rather than inventing a name. Note that it
-    // is a VIEW permission guarding three state-changing, money-moving actions:
-    // anyone who may read the withdrawal list may also approve and pay. A
-    // dedicated 'Approve Finance Withdrawal' permission is the right split and
-    // is an owner decision, because it needs a seeder entry -- see the owner
-    // actions. The controller's DB::transaction + lockForUpdate are deliberately
-    // left untouched.
+    // NEW-withdrawal-view-permission-authorises-state-change -- FIXED HERE.
+    //
+    // These three used to carry `finance.permission:View Finance Withdrawal
+    // Requests`: a VIEW permission authorising three state-changing,
+    // money-moving actions, so anyone who could READ the withdrawal list could
+    // also APPROVE and PAY. The comment that used to sit here flagged exactly
+    // that and left it standing; it is closed now.
+    //
+    // The guard requires ALL of StoreFinanceController::
+    // WITHDRAWAL_REVIEW_PERMISSIONS -- the view permission AND 'Edit Finance
+    // Payment Status'. `finance.permission:A,B` is AND, never OR
+    // (App\Http\Middleware\FinancePermission::handle, which also fails closed
+    // on an empty parameter list). A delegated user holding only the view
+    // permission keeps the list at finance.withdrawals and loses approve/pay.
+    //
+    // WHY NOT A DEDICATED 'Approve Finance Withdrawal' PERMISSION. It would be
+    // the cleaner split, and it is reported as an owner decision rather than
+    // taken here, because a permission name absent from Utility::addNewData()
+    // cannot exist as a ROW -- and that is the precise defect that made all six
+    // finance names 403 for every user including the platform operator. A
+    // seventh unseeded name would recreate that lockout for every delegated
+    // user. Both names used here are already seeded (Utility.php:2881-2886).
+    //
+    // The parameter list is built from the controller's own constant so the
+    // route guard and the controller guard cannot drift apart. The controller's
+    // DB::transaction + lockForUpdate are deliberately left untouched.
+    $withdrawalReviewGate = 'finance.permission:'
+        . implode(',', StoreFinanceController::WITHDRAWAL_REVIEW_PERMISSIONS);
+
     Route::post('/finance/withdrawals/{id}/approve', [StoreFinanceController::class, 'approveWithdrawal'])
-        ->middleware('finance.permission:View Finance Withdrawal Requests')
+        ->middleware($withdrawalReviewGate)
         ->name('finance.withdrawals.approve');
 
     Route::post('/finance/withdrawals/{id}/reject', [StoreFinanceController::class, 'rejectWithdrawal'])
-        ->middleware('finance.permission:View Finance Withdrawal Requests')
+        ->middleware($withdrawalReviewGate)
         ->name('finance.withdrawals.reject');
 
     Route::post('/finance/withdrawals/{id}/pay', [StoreFinanceController::class, 'payWithdrawal'])
-        ->middleware('finance.permission:View Finance Withdrawal Requests')
+        ->middleware($withdrawalReviewGate)
         ->name('finance.withdrawals.pay');
 
     Route::post(
@@ -938,7 +959,37 @@ Route::get(
     Route::get('order/export', [OrderController::class, 'fileExport'])->name('order.export');
     Route::resource('order', OrderController::class);
     Route::get('order/all', [OrderController::class, 'allOrders']);
-    Route::get('order-view/{id}', [OrderController::class, 'order_view'])->name('order.view');
+    // GATE C, limb 1 -- NEW-order-view-auth-shadowed-by-duplicate-registration.
+    //
+    // THIS registration was DEAD. `order-view/{id}` was declared twice: here,
+    // inside the ['auth','xss','setlocate','verified'] group, and again in the
+    // public block further down with ['themelanguage']. Laravel's
+    // RouteCollection::addToCollections keys allRoutes by method+domain+uri, so
+    // the SECOND declaration REPLACED this one -- the surviving route was the
+    // UNAUTHENTICATED one. Measured, not inferred: a route-table dump on
+    // bd6900bc printed exactly one `GET|HEAD order-view/{id}` and its middleware
+    // was [web,themelanguage]. The earlier comment claiming the duplicate had
+    // been deleted was wrong; only one of the two copies had been.
+    //
+    // UnauthenticatedRouteBoundaryTest::test_order_view_is_registered_exactly_once
+    // counted 1 and passed, because the replacement had already happened by the
+    // time it looked. It was asserting the symptom away.
+    //
+    // The public copy is deleted and this one survives. Nothing customer-facing
+    // is lost: OrderController::order_view:287 requires isAbleTo('Show Order'),
+    // a merchant permission no shopper holds, and not one of the three shipped
+    // themes references this route (`grep -rn "order.view\|order-view" themes/`
+    // returns nothing). Every caller is an admin screen or DataTable --
+    // app/DataTables/OrderDataTable.php:31, resources/views/order/action.blade.php:20,
+    // resources/views/order/grid.blade.php:89,112, resources/views/dashboard.blade.php:364,
+    // resources/views/customer/view.blade.php:44,185, plus four workdo admin packages.
+    //
+    // `themelanguage` is added here so the effective middleware is what was
+    // actually running before PLUS auth, rather than silently dropping the
+    // locale middleware the surviving copy carried.
+    Route::get('order-view/{id}', [OrderController::class, 'order_view'])
+        ->name('order.view')
+        ->middleware('themelanguage');
 
     Route::get('order-grid', [OrderController::class, 'order_grid_view'])->name('order.grid');
     // Pos Route
@@ -1040,6 +1091,89 @@ Route::get(
 
   Route::post('update-order-status/{id}', [OrderController::class, 'updateStatus'])->name('order.order_status_update')->middleware('themelanguage');
 
+  // ===================================================================
+  // GATE C, limbs 2-5 -- CLOSED. These four were in
+  // UnauthenticatedRouteBoundaryTest's PUBLIC_ROUTE_ALLOWLIST marked "PENDING
+  // GATE C", awaiting the owner's answer on whether guest order tracking is a
+  // real customer flow. The evidence answers it: it is NOT this flow.
+  //
+  //   1. NOT ONE of the three shipped storefront themes references any of them.
+  //      `grep -rn "order.receipt\|order.order_view\|order.return\|order-receipt\|
+  //      order-return\|order-view" themes/` returns NOTHING across
+  //      themes/stylique, themes/greentic and themes/techzonix.
+  //   2. Every caller is an ADMIN view:
+  //        order.receipt      resources/views/order/view.blade.php:31 (the admin
+  //                           order screen that order_view itself renders)
+  //        order.order_view   resources/views/order/action.blade.php:13,
+  //                           resources/views/order/grid.blade.php:105,
+  //                           packages/workdo/PreOrder/.../preorder/action.blade.php:19
+  //        order.return       resources/views/order/view.blade.php:635 (admin AJAX)
+  //        order.return.request
+  //                           resources/views/order/index.blade.php:56,
+  //                           resources/views/order/grid.blade.php:153,
+  //                           packages/workdo/AuctionProduct/.../auctionorder/index.blade.php:37,
+  //                           packages/workdo/PreOrder/.../preorder/index.blade.php:37
+  //   3. The customer-facing order flow is a SEPARATE set of routes in
+  //      routes/customer.php -- order.track:63, track.order:72,
+  //      customer.order:208, order.return.list:193, order.refund:210,
+  //      order.refund.request:211 -- served by AccountProfileController and
+  //      rendering `front_end.sections.order_view`
+  //      (AccountProfileController.php:831), not `order.*`. So guest/customer
+  //      order tracking is not served by these routes at all and nothing
+  //      storefront-facing breaks.
+  //
+  // WHAT WAS ACTUALLY OPEN, and it is worse than two unguarded reads:
+  //
+  //   order.return.request  POST, ANONYMOUS, arbitrary write.
+  //                         OrderController::order_return_request:451 does
+  //                         `Order::find($request->id)` -- no auth, no
+  //                         permission, no tenant predicate -- then on
+  //                         status==2 walks product_json and does
+  //                         `$product->product_stock += ...; $product->save()`
+  //                         on ANY store's products (:460-471), then writes
+  //                         return_price and return_status onto that order
+  //                         (:474-476). An anonymous caller could inflate any
+  //                         merchant's stock and mark any order returned.
+  //   order.return          POST, ANONYMOUS, arbitrary write. Reaches
+  //                         Order::product_return (app/Models/Order.php:637),
+  //                         which does `Order::find($order_id)` and then
+  //                         increments Product::product_stock /
+  //                         ProductVariant::stock and re-saves product_json on
+  //                         ANY store's order. It also dereferences
+  //                         `$Order->delivered_status` with no null check, so an
+  //                         unknown id is a 500.
+  //   order.order_view      GET, ANONYMOUS, full read. OrderController::show:276
+  //                         has NO auth and NO permission check whatsoever --
+  //                         it decrypts the id and renders the ADMIN blade
+  //                         order.order_show with the complete order detail.
+  //   order.receipt         GET, ANONYMOUS, full read. order_receipt:416 is the
+  //                         same shape: decrypt, Order::order_detail, render.
+  //
+  // This is the same class as `order-payment-status` above, which was already
+  // closed for exactly this reason. Crypt::decrypt() of the id is NOT an
+  // authorization control: it is an encoding, it is keyed by the one shared
+  // APP_KEY, and an id that leaks once (a link, a referrer, a browser history,
+  // a shared screenshot) stays valid forever.
+  //
+  // Each keeps `themelanguage`, so the only change to their effective
+  // middleware is the addition of auth/xss/setlocate/verified -- the same set
+  // their siblings order.status.change and order.payment.status directly above
+  // already carry.
+  //
+  // IF the owner later decides guest order tracking IS wanted, the READS
+  // (order.receipt, order.order_view) are the two candidates, and the right
+  // home is routes/customer.php behind Laravel's `signed` middleware, so the
+  // link itself carries a verifiable grant. The two WRITES must not go back
+  // outside auth under any decision: they are merchant return-approval
+  // actions, as their own response strings say -- "Return request approve
+  // successfully" / "Return request reject successfully"
+  // (OrderController.php:484-487).
+  // ===================================================================
+  Route::post('order-return', [OrderController::class, 'order_return'])->name('order.return')->middleware('themelanguage');
+  Route::get('orders/order_view/{id}', [OrderController::class, 'show'])->name('order.order_view')->middleware('themelanguage');
+  Route::get('order-receipt/{id}', [OrderController::class, 'order_receipt'])->name('order.receipt')->middleware('themelanguage');
+  Route::post('order-return-request', [OrderController::class, 'order_return_request'])->name('order.return.request')->middleware('themelanguage');
+
   Route::post('update-refund-status', [OrderRefundController::class, 'updateRefundStatus'])->name('update-refund-status')->middleware('themelanguage');
   Route::post('cancel-refund-status', [OrderRefundController::class, 'CancelRefundStatus'])->name('cancel.refund.status')->middleware('themelanguage');
   Route::post('refund-stock', [OrderRefundController::class, 'RefundStock'])->name('refund.stock')->middleware('themelanguage');
@@ -1072,22 +1206,14 @@ Route::get(
   Route::post('newsletter', [NewsletterController::class, 'store'])->name('newsletter.store')->middleware('themelanguage');
   Route::get('change-language-store/{lang}', [LanguageController::class, 'changeLanquageStore'])->name('change.languagestore');
 
-  // --- PENDING GATE C: customer-reachable order READS and the two return
-  // --- endpoints. Deliberately NOT moved inside `auth` in this change, because
-  // --- the owner must first say whether guest order tracking is a real customer
-  // --- flow. If it is, these must be re-homed into routes/customer.php behind
-  // --- Laravel's `signed` middleware -- NOT left outside `auth`. If it is not,
-  // --- they move inside the group above. Note order_view is already closed to
-  // --- anonymous callers in practice by its own isAbleTo('Show Order') check
-  // --- failing closed for a null user.
-  Route::post('order-return', [OrderController::class, 'order_return'])->name('order.return')->middleware('themelanguage');
-  Route::get('order-view/{id}', [OrderController::class, 'order_view'])->name('order.view')->middleware('themelanguage');
-  Route::get('orders/order_view/{id}', [OrderController::class, 'show'])->name('order.order_view')->middleware('themelanguage');
-  Route::get('order-receipt/{id}', [OrderController::class, 'order_receipt'])->name('order.receipt')->middleware('themelanguage');
-  Route::post('order-return-request', [OrderController::class, 'order_return_request'])->name('order.return.request')->middleware('themelanguage');
-  // The duplicate `order-view/{id}` registration that used to sit here was
-  // DELETED: it was byte-identical to the one above (same action, same name,
-  // same middleware).
+  // --- GATE C: CLOSED. The five order routes that used to sit here -- the two
+  // --- reads (order.receipt, order.order_view), the two writes (order.return,
+  // --- order.return.request) and the duplicate order-view/{id} -- have moved
+  // --- inside the administrative `auth` group above. The evidence for each,
+  // --- including the route-table measurement showing that the duplicate
+  // --- order-view/{id} declared HERE was shadowing the authenticated one, is
+  // --- recorded at both ends. Nothing replaces them in this public block: the
+  // --- customer-facing order flow lives in routes/customer.php.
 
   Route::get('/pay/{pay}', [PayUPaymentController::class, 'pay'])->name('payu.pay');
 

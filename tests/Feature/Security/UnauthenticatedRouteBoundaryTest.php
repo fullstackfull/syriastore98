@@ -65,29 +65,76 @@ class UnauthenticatedRouteBoundaryTest extends TestCase
         'payu.pay',
         'format.price',
 
-        // --- PENDING GATE C: customer-reachable order reads and returns. If
-        // --- the owner says guest order tracking is real, these must be
-        // --- re-homed into routes/customer.php behind Laravel's `signed`
-        // --- middleware -- NOT left outside `auth` -- and removed from here.
-        'order.return',
-        'order.view',
-        'order.order_view',
-        'order.receipt',
-        'order.return.request',
+        // --- GATE C IS CLOSED. order.return, order.view, order.order_view,
+        // --- order.receipt and order.return.request were here, and all five
+        // --- have been REMOVED from this allowlist rather than re-justified:
+        // --- they now sit inside the administrative `auth` group in
+        // --- routes/web.php, so the sweep below checks them instead of
+        // --- skipping them. The evidence is recorded at the routes and pinned
+        // --- by test_the_gate_c_order_routes_are_behind_auth() below.
+        // ---
+        // --- The decisive facts were (a) not one of the three shipped themes
+        // --- references any of the five, (b) every caller is an admin view or
+        // --- DataTable, and (c) the customer order flow is a separate set of
+        // --- routes in routes/customer.php served by AccountProfileController.
+        // --- Two of the five were anonymous arbitrary WRITES that incremented
+        // --- any store's product stock, not reads.
 
         // --- STOREFRONT CHECKOUT. OrderController serves both the admin
         // --- screens and the public storefront, so a controller-level sweep
         // --- necessarily catches these. They are the customer checkout flow on
-        // --- the {storeSlug?} prefix and MUST stay public, or no one can buy
-        // --- anything. Listed explicitly so that the exemption is reviewed
-        // --- rather than inferred.
+        // --- the {storeSlug?} prefix in routes/customer.php and MUST stay
+        // --- public, or no one can buy anything. Listed explicitly so that the
+        // --- exemption is reviewed rather than inferred.
+        // ---
+        // --- EACH ONE RE-EXAMINED, with the storefront caller that proves it
+        // --- must stay anonymous:
+        // ---   place.order     routes/customer.php:122, guest checkout submit.
+        // ---   applycoupon     resources/views/front_end/jQueryRoute.blade.php
+        // ---   paymentlist     resources/views/front_end/jQueryRoute.blade.php
+        // ---   additionalnote  resources/views/front_end/jQueryRoute.blade.php
+        // ---                   -- renders a partial only, no writes
+        // ---                   (OrderController::additionalnote:696-706).
+        // ---   order.details   front_end/pages/account.blade.php,
+        // ---                   front_end/pages/order_list_filter.blade.php
+        // ---   order.complete  the post-payment landing page.
+        // --- Asserted positively by
+        // --- test_the_storefront_public_endpoints_are_reachable_without_a_session.
         'place.order',
         'applycoupon',
         'paymentlist',
         'additionalnote',
-        'status.cancel',
         'order.details',
         'order.complete',
+
+        // --- status.cancel STAYS PUBLIC, AND IS A REPORTED OPEN FINDING.
+        // ---
+        // --- It is a genuine storefront route: three shipped customer views
+        // --- post to it -- front_end/sections/order_detail.blade.php,
+        // --- front_end/pages/order-detail.blade.php and
+        // --- front_end/pages/auction_order_detail.blade.php -- and guest
+        // --- orders exist (orders.is_guest), so a guest must be able to cancel
+        // --- from the link they were given. Sweeping it behind `auth:customers`
+        // --- would break guest cancellation on every store.
+        // ---
+        // --- BUT IT HAS NO OWNERSHIP CHECK AT ALL.
+        // --- OrderController::status_cancel:604-612 takes order_id straight off
+        // --- the request, calls Order::order_status_change() on it, and then
+        // --- walks Order::order_detail($request->order_id) adding every line
+        // --- item's qty back onto Product::product_stock / ProductVariant::stock
+        // --- (:613-626). No auth, no customer binding, no tenant predicate, no
+        // --- signature. An anonymous caller who guesses a numeric order id can
+        // --- cancel any order on the platform and inflate any merchant's stock.
+        // ---
+        // --- NOT FIXED HERE, and deliberately so: the repair is an ownership
+        // --- predicate inside OrderController::status_cancel, and
+        // --- app/Http/Controllers/OrderController.php belongs to the commerce
+        // --- workstream. Recorded as a cross-agent dependency with this
+        // --- evidence rather than papered over at the route, because the two
+        // --- route-level options -- `auth:customers` (breaks guest
+        // --- cancellation) and `signed` (requires re-issuing every order link)
+        // --- are both product decisions.
+        'status.cancel',
 
         // --- NEW-addon-session-routes-dead: these two sit outside `auth` in
         // --- the "module page before login" block of routes/web.php, and they
@@ -173,18 +220,105 @@ class UnauthenticatedRouteBoundaryTest extends TestCase
     /**
      * The duplicate `order-view/{id}` registration was deleted. Two identical
      * declarations of one URI is how the boundary defect hid in review.
+     *
+     * THIS TEST WAS ASSERTING THE SYMPTOM AWAY, and the count was never the
+     * point. `order-view/{id}` was declared TWICE -- once inside the
+     * administrative `auth` group (routes/web.php:941) and once in the public
+     * block -- but Laravel's RouteCollection::addToCollections keys allRoutes
+     * by method+domain+uri, so the second declaration REPLACED the first and
+     * only one route was ever in the table. The count has always been 1. The
+     * copy that survived was the UNAUTHENTICATED one.
+     *
+     * Measured on bd6900bc by dumping the real route table: exactly one
+     * `GET|HEAD order-view/{id}`, middleware [web, themelanguage] -- no auth.
+     *
+     * So the count assertion is KEPT, because two declarations of one URI is
+     * still the defect worth forbidding, and the middleware assertion is ADDED,
+     * because that is the property the old test was believed to be proving.
      */
-    public function test_order_view_is_registered_exactly_once(): void
+    public function test_order_view_is_registered_exactly_once_and_is_the_authenticated_copy(): void
     {
-        $count = 0;
+        $found = [];
 
         foreach (Route::getRoutes() as $route) {
             if ($route->uri() === 'order-view/{id}') {
-                $count++;
+                $found[] = $route;
             }
         }
 
-        $this->assertSame(1, $count, 'order-view/{id} must be registered exactly once.');
+        $this->assertCount(1, $found, 'order-view/{id} must be registered exactly once.');
+
+        $middleware = $found[0]->gatherMiddleware();
+
+        $this->assertContains(
+            'auth',
+            $middleware,
+            'The surviving order-view/{id} route must be the authenticated copy. '
+            . 'A duplicate declaration in a public block REPLACES the one inside the '
+            . '`auth` group, so a second declaration silently removes the gate: '
+            . 'middleware was [' . implode(', ', array_map('strval', $middleware)) . '].'
+        );
+    }
+
+    /**
+     * GATE C, pinned. The five routes that were allowlisted "PENDING GATE C"
+     * must each carry `auth`.
+     *
+     * Two of them were anonymous arbitrary WRITES, not reads:
+     * OrderController::order_return_request:451 did `Order::find($request->id)`
+     * with no auth, permission or tenant predicate and then incremented
+     * Product::product_stock on any store's products; order.return reached
+     * Order::product_return (app/Models/Order.php:637) and did the same.
+     *
+     * Kept as its own test, separate from the controller sweep above, so that
+     * re-adding any of these names to PUBLIC_ROUTE_ALLOWLIST cannot make the
+     * check pass again -- the sweep skips allowlisted names, this does not.
+     */
+    public function test_the_gate_c_order_routes_are_behind_auth(): void
+    {
+        foreach ([
+            'order.view',
+            'order.order_view',
+            'order.receipt',
+            'order.return',
+            'order.return.request',
+        ] as $name) {
+            $this->assertTrue(Route::has($name), "Route {$name} is missing.");
+
+            $middleware = Route::getRoutes()->getByName($name)->gatherMiddleware();
+
+            $this->assertContains(
+                'auth',
+                $middleware,
+                "Route {$name} must require auth: it is an administrative order "
+                . 'screen or a merchant return-approval action, referenced by no '
+                . 'storefront theme. Middleware was ['
+                . implode(', ', array_map('strval', $middleware)) . '].'
+            );
+        }
+    }
+
+    /**
+     * And the converse, so closing Gate C cannot be mistaken for closing the
+     * customer order flow: the customer-facing order routes in
+     * routes/customer.php are a DIFFERENT set and are untouched.
+     */
+    public function test_the_customer_order_flow_routes_still_exist(): void
+    {
+        foreach ([
+            'order.track',
+            'track.order',
+            'customer.order',
+            'order.return.list',
+            'order.refund',
+            'order.refund.request',
+        ] as $name) {
+            $this->assertTrue(
+                Route::has($name),
+                "Route {$name} is missing. The customer-facing order flow lives in "
+                . 'routes/customer.php and must survive the Gate C closure.'
+            );
+        }
     }
 
     /**
@@ -299,7 +433,26 @@ class UnauthenticatedRouteBoundaryTest extends TestCase
     {
         $routes = app('router')->getRoutes();
 
-        foreach (['newsletter.store', 'contacts.store'] as $name) {
+        foreach ([
+            'newsletter.store',
+            'contacts.store',
+            // The checkout flow. Closing Gate C moved five ADMIN order routes
+            // behind `auth`; these are the customer-facing ones and must not
+            // follow them, or nobody can buy anything.
+            'place.order',
+            'applycoupon',
+            'paymentlist',
+            'additionalnote',
+            'order.details',
+            'order.complete',
+            'status.cancel',
+            // The storefront language switcher, linked from all three themes --
+            // techzonix/.../announcement.blade.php,
+            // greentic/.../announcement.blade.php,
+            // stylique/.../header.blade.php.
+            'change.languagestore',
+            'format.price',
+        ] as $name) {
             $route = $routes->getByName($name);
 
             $this->assertNotNull($route, "Route {$name} does not exist at all.");
@@ -307,10 +460,51 @@ class UnauthenticatedRouteBoundaryTest extends TestCase
             $middleware = $route->gatherMiddleware();
 
             $this->assertNotContains('auth', $middleware,
-                "Route {$name} carries the `auth` middleware. It is a storefront form that "
-                . 'anonymous shoppers post to, so authenticating it breaks the storefront. '
-                . 'If it genuinely must move inside `auth`, the theme views that post to it '
+                "Route {$name} carries the `auth` middleware. It is a storefront endpoint "
+                . 'anonymous shoppers reach, so authenticating it breaks the storefront. '
+                . 'If it genuinely must move inside `auth`, the theme views that reach it '
                 . 'have to change in the same commit.');
+        }
+    }
+
+    /**
+     * NEW-addon-session-routes-dead, kept as a TRIPWIRE rather than a claim.
+     *
+     * `add-on.session.create` and `add-on.session.save` sit outside `auth` in
+     * the "module page before login" block of routes/web.php:408-409 and point
+     * at ModuleController::AddOnSessioncreate / AddOnSessionSave, which DO NOT
+     * EXIST -- `grep -rn "AddOnSession" app/` returns nothing, so no handler can
+     * run and the routes can only produce a 500. Not exploitable, but dead
+     * unauthenticated scaffolding, and reported for the owner to decide between
+     * deleting and implementing.
+     *
+     * This test fails the moment somebody implements either method, which forces
+     * the authentication question to be answered in the same change instead of
+     * shipping a live unauthenticated module endpoint. It is not asserting that
+     * dead code is desirable.
+     */
+    public function test_the_dead_addon_session_handlers_have_not_been_implemented_while_unauthenticated(): void
+    {
+        foreach ([
+            'add-on.session.create' => 'AddOnSessioncreate',
+            'add-on.session.save'   => 'AddOnSessionSave',
+        ] as $name => $method) {
+            $this->assertTrue(Route::has($name), "Route {$name} is missing.");
+
+            $middleware = Route::getRoutes()->getByName($name)->gatherMiddleware();
+
+            if (in_array('auth', $middleware, true)) {
+                // Somebody gated them. Then there is nothing left to warn about.
+                continue;
+            }
+
+            $this->assertFalse(
+                method_exists(\App\Http\Controllers\ModuleController::class, $method),
+                "ModuleController::{$method} now exists, so route {$name} is a LIVE "
+                . 'unauthenticated module endpoint. Either put it behind `auth` or '
+                . 'delete the route; it must not become reachable by implementation '
+                . 'alone.'
+            );
         }
     }
 }
