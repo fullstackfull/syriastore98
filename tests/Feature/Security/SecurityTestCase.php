@@ -34,6 +34,72 @@ abstract class SecurityTestCase extends TestCase
         // This is a test-fixture concern, not a production defect: in
         // production, permissions are seeded long before they are checked.
         config(['laratrust.cache.enabled' => false]);
+
+        $this->satisfyUpdaterGate();
+    }
+
+    /**
+     * XSS::handle() (app/Http/Middleware/XSS.php:27-48) contains an UPDATER GATE that
+     * fires for `type == 'super admin'` ONLY. It globs every migration filename on disk --
+     * database/migrations plus, for each of the 69 modules, packages/workdo/<Module>/src/
+     * Database/Migrations and .../src/database/migrations -- diffs that against the
+     * `migrations` table, and on any difference returns
+     * `redirect()->route('LaravelUpdater::welcome')` BEFORE $next($request).
+     *
+     * RefreshDatabase runs database/migrations only; the module migrations are never
+     * recorded. So in every test, for a platform admin, the gate sees ~hundreds of pending
+     * migrations and redirects to /update. The controller is never reached.
+     *
+     * That silently invalidates super-admin web-route tests in BOTH directions:
+     *   - a test asserting the platform admin IS allowed fails, because nothing happened;
+     *   - and far worse, a test asserting the platform admin is DENIED, or that some row
+     *     was NOT modified, PASSES WITHOUT EXERCISING THE CONTROL AT ALL, because the
+     *     request was redirected before it reached the code under test. A green assertion
+     *     then proves nothing.
+     *
+     * This records every on-disk migration name as already run, which is the state of a
+     * fully migrated production install -- the state these suites mean to test against.
+     * It touches only the framework's `migrations` bookkeeping table; no application table,
+     * no application code, and no production behaviour is changed. The globbing mirrors the
+     * middleware's own so the two cannot drift apart silently.
+     */
+    protected function satisfyUpdaterGate(): void
+    {
+        if (!\Illuminate\Support\Facades\Schema::hasTable('migrations')) {
+            return;
+        }
+
+        $onDisk = collect(\Illuminate\Support\Facades\File::glob(base_path('database/migrations/*.php')))
+            ->map(fn ($path) => \Illuminate\Support\Facades\File::name($path));
+
+        foreach (\App\Facades\ModuleFacade::allModules() as $module) {
+            foreach ([
+                base_path("packages/workdo/{$module->name}/src/Database/Migrations"),
+                base_path("packages/workdo/{$module->name}/src/database/migrations"),
+            ] as $dir) {
+                if (\Illuminate\Support\Facades\File::exists($dir)) {
+                    $onDisk = $onDisk->merge(
+                        collect(\Illuminate\Support\Facades\File::glob("{$dir}/*.php"))
+                            ->map(fn ($path) => \Illuminate\Support\Facades\File::name($path))
+                    );
+                }
+            }
+        }
+
+        $recorded = \Illuminate\Support\Facades\DB::table('migrations')->pluck('migration');
+        $missing = $onDisk->unique()->diff($recorded)->values();
+
+        if ($missing->isEmpty()) {
+            return;
+        }
+
+        $batch = (int) (\Illuminate\Support\Facades\DB::table('migrations')->max('batch') ?? 0) + 1;
+
+        $missing->chunk(200)->each(function ($chunk) use ($batch) {
+            \Illuminate\Support\Facades\DB::table('migrations')->insert(
+                $chunk->map(fn ($name) => ['migration' => $name, 'batch' => $batch])->all()
+            );
+        });
     }
 
     /**

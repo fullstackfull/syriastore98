@@ -328,6 +328,13 @@ class OrderRefundAuthorizationTest extends SecurityTestCase
             'slug' => 'victim-' . uniqid(),
             'product_stock' => 5,
             'variant_product' => 0,
+            // products.track_stock is declared integer('track_stock') with NO default and
+            // NOT NULL (database/migrations/2023_12_26_092822_create_products_table.php:29),
+            // so an insert that omits it is rejected outright on sqlite and on any MySQL
+            // running in strict mode. Supplied explicitly rather than worked around by
+            // relaxing the column, which would be a schema change and is not this
+            // increment's to make.
+            'track_stock' => 0,
             'store_id' => $victimStore->id,
             'created_by' => $victim->id,
         ]);
