@@ -49,6 +49,24 @@ class ApiController extends Controller
 {
     use ApiResponser;
 
+    /** @var \App\Services\PaymentVerificationService|null */
+    private $paymentVerifierInstance = null;
+
+    /**
+     * The single seam that answers "may this order be recorded as Paid?".
+     *
+     * Lazily constructed rather than injected, because this controller is
+     * instantiated directly in several places (`new ApiController()`) as well as
+     * resolved from the container, and a constructor argument would break those
+     * call sites.
+     *
+     * @see \App\Services\PaymentVerificationService
+     */
+    private function paymentVerifier(): \App\Services\PaymentVerificationService
+    {
+        return $this->paymentVerifierInstance ??= new \App\Services\PaymentVerificationService();
+    }
+
 
 
 
@@ -7130,7 +7148,22 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         event(new AddAdditionalFields($order, $request->all(), $store));
         $order->payment_comment = !empty($request->payment_comment) ? $request->payment_comment : '-';
         $order->payment_type = $request->payment_type;
-        $order->payment_status = 'Paid';
+        // DERIVED, not asserted. This was the literal `'Paid'` on the public
+        // POST /api/{slug}/order-save path: an unauthenticated caller could
+        // create an order and have it recorded as paid with nothing having
+        // asked a gateway whether any money moved. It is the same seam the two
+        // PaymentController order writers use, so the four order-creating paths
+        // now derive this status identically.
+        //
+        // Note `$order->final_price` is read AFTER the block above has set it,
+        // so the amount the verification is checked against is the amount the
+        // order is actually for.
+        $order->payment_status = $this->paymentVerifier()->resolveOrderPaymentStatus(
+            $request->payment_type ?? null,
+            $this->paymentVerifier()->consumeVerification(),
+            $order->final_price,
+            __METHOD__
+        );
         $order->delivery_id = $request['method_id'] ?? 0;
         $order->delivery_comment = !empty($request->shipping_comment) ? $request->shipping_comment : '-';
         $order->delivered_status = !empty($request->delivered_status) ? $request->delivered_status : '-';

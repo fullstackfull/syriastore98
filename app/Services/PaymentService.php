@@ -62,6 +62,182 @@ use Illuminate\Support\Facades\Log;
 class PaymentService
 {
     use ApiResponser;
+
+    /**
+     * Server-authoritative tax resolution. See App\Services\OrderTaxResolver:
+     * the tax component of a charged total is derived from the existing cart and
+     * shipping-method computations and never read from client input.
+     */
+    private ?OrderTaxResolver $taxResolver = null;
+
+    /** Exact-decimal reconciliation of a persisted total against its components. */
+    private ?OrderTotalReconciler $totalReconciler = null;
+
+    /** Derives an order's payment_status from a verification result. */
+    private ?PaymentVerificationService $paymentVerifier = null;
+
+    /** Atomic stock decrement, replacing the read-modify-write pattern. */
+    private ?ProductStockService $stockService = null;
+
+    /**
+     * Lazily resolved rather than constructor-injected: this service is both
+     * container-resolved and `new`-ed at several call sites, and neither
+     * collaborator has dependencies of its own.
+     */
+    private function taxResolver(): OrderTaxResolver
+    {
+        return $this->taxResolver ??= new OrderTaxResolver();
+    }
+
+    private function totalReconciler(): OrderTotalReconciler
+    {
+        return $this->totalReconciler ??= new OrderTotalReconciler();
+    }
+
+    private function paymentVerifier(): PaymentVerificationService
+    {
+        return $this->paymentVerifier ??= new PaymentVerificationService();
+    }
+
+    private function stockService(): ProductStockService
+    {
+        return $this->stockService ??= new ProductStockService();
+    }
+
+    /**
+     * Decrement stock atomically, remembering it so it can be given back.
+     *
+     * @param  array  $applied  Accumulator of applied decrements, by reference.
+     * @param  string $kind     'variant' or 'product'.
+     * @param  mixed  $model    The loaded ProductVariant or Product.
+     * @param  mixed  $qty      The cart quantity.
+     * @return array|null  null on success; a `['message' => ...]` payload when
+     *                     the caller must abandon the order. Any decrements
+     *                     already applied in this cart are given back first.
+     */
+    private function decrementStockOrFail(
+        array &$applied,
+        string $kind,
+        $model,
+        $qty,
+        bool $rejectOnShortfall = true
+    ): ?array {
+        $result = $kind === 'variant'
+            ? $this->stockService()->decrementVariantStock($model, $qty)
+            : $this->stockService()->decrementProductStock($model, $qty);
+
+        if ($result['applied']) {
+            $applied[] = [
+                'kind' => $kind,
+                'id' => $model->id,
+                'quantity' => $result['quantity'],
+            ];
+
+            return null;
+        }
+
+        if ($result['reason'] !== ProductStockService::INSUFFICIENT) {
+            // Nothing to decrement (no quantity, or no row). Previously this
+            // subtracted zero and saved, so carrying on matches the old
+            // behaviour exactly.
+            return null;
+        }
+
+        // PAST THE POINT OF NO RETURN.
+        //
+        // $rejectOnShortfall is false in every writer that has already done
+        // irreversible work by the time this line runs. In those methods the cart
+        // rows of the lines processed BEFORE this one have already been deleted,
+        // `new Order()` has not been reached yet, and no transaction wraps any of
+        // it -- and on the payment-return paths the gateway has already captured
+        // the money. Returning an error there abandoned the checkout with no order
+        // row, a partly destroyed cart and nothing refunded.
+        //
+        // The pre-existing code had no availability test at all on these paths: it
+        // simply subtracted and saved, so stock could go negative. Overselling and
+        // reporting it is therefore the SAME outcome the platform always had, and
+        // strictly better than losing the order. The shortfall is a merchant
+        // operations problem, not a reason to discard a paid basket.
+        if (!$rejectOnShortfall) {
+            $forced = $kind === 'variant'
+                ? $this->stockService()->decrementVariantStock($model, $qty, true)
+                : $this->stockService()->decrementProductStock($model, $qty, true);
+
+            if ($forced['applied']) {
+                $applied[] = [
+                    'kind' => $kind,
+                    'id' => $model->id,
+                    'quantity' => $forced['quantity'],
+                ];
+            }
+
+            Log::critical('Insufficient stock on an order path that cannot refuse; order kept, stock oversold', [
+                'kind' => $kind,
+                'model_id' => $model->id ?? null,
+                'requested_quantity' => $qty,
+                'outcome' => $forced['reason'] ?? null,
+            ]);
+
+            return null;
+        }
+
+        $this->restoreStockDecrements($applied);
+
+        return ['message' => __('Insufficient stock. Please review your cart and try again.')];
+    }
+
+    /** Give back every decrement recorded by {@see decrementStockOrFail()}. */
+    private function restoreStockDecrements(array $applied): void
+    {
+        foreach ($applied as $change) {
+            if (($change['kind'] ?? null) === 'variant') {
+                $this->stockService()->restoreVariantStock($change['id'], $change['quantity']);
+            } else {
+                $this->stockService()->restoreProductStock($change['id'], $change['quantity']);
+            }
+        }
+    }
+
+    /**
+     * The server-side deposit amount for a PartialPayments order.
+     *
+     * The module's own ManageDeposit() derives the deposit from Product rows and
+     * the store's deposit settings; it is called here with the SERVER-derived
+     * components merged in, so neither the deposit nor its inputs come from the
+     * request. Nothing inside packages/workdo is modified.
+     *
+     * @param  array $serverComponents Server-derived component amounts.
+     * @param  mixed $fallbackTotal    Server total to fall back to. Never client input.
+     * @return mixed
+     */
+    private function resolvePartialPaymentDeposit(
+        $request,
+        $slug,
+        array $serverComponents,
+        $fallbackTotal
+    ) {
+        $request->merge($serverComponents);
+
+        try {
+            $updated = \Workdo\PartialPayments\app\Http\Controllers\PartialPaymentsController::ManageDeposit(
+                $request,
+                $slug
+            );
+        } catch (\Throwable $e) {
+            Log::error('PartialPayments deposit recomputation failed; using the server total', [
+                'site' => __METHOD__,
+                'error' => $e->getMessage(),
+            ]);
+
+            return $fallbackTotal;
+        }
+
+        return is_array($updated) && isset($updated['deposite_amount'])
+            && is_numeric($updated['deposite_amount'])
+                ? $updated['deposite_amount']
+                : $fallbackTotal;
+    }
+
     public function paymentConfig()
     {
         if (auth()->guard('customers')->check()) {
@@ -251,6 +427,22 @@ $requestData['store_id'] = $store->id;
                     'slug'       => $slug,
                     'request_data' => $requestData,
                     'status'     => 'P', // Pending
+                    // The amount this payment is FOR, recorded server-side at
+                    // initiation so the callback can compare what Paymera says
+                    // it captured against what was asked for. Without this the
+                    // callback had nothing to compare against at all.
+                    //
+                    // Two forms are stored because the unit Paymera expects is
+                    // unresolved (GATE G(3)): $raw_price above strips '.', so
+                    // 1250.50 is sent as 125050 while 1250 is sent as 1250.
+                    // 'expected_total' is the decimal the order is for;
+                    // 'amount_sent' is the exact integer handed to the gateway.
+                    'expected_total' => str_replace(
+                        [' ', ','],
+                        '',
+                        str_replace($CURRENCY, '', (string) $cartlist_final_price)
+                    ),
+                    'amount_sent' => $totalprice,
                 ], now()->addHours(2));
 
                 return $responseData['Data']['url'];
@@ -1973,7 +2165,16 @@ private function processPaymera00000($request, $slug)
         $product_price = !empty($response['total_final_price']) ? $response['total_final_price'] : 0;
         $final_price = $response['total_final_price'];
         $total_sub_price = $response['total_sub_price'];
-        $tax_price = !empty($requests_data['tax_price']) ? $requests_data['tax_price'] : ($response['tax_price'] ?? 0);
+        // SERVER-DERIVED tax. This used to prefer `$requests_data['tax_price']`,
+        // i.e. the value the customer posted, and only fall back to the cart's
+        // own figure — so the tax component of the charged total was client
+        // controlled. $response is the server-built cart payload.
+        $tax_price = $this->taxResolver()->resolve(is_array($response) ? $response : []);
+        $this->taxResolver()->recordClientSuppliedTax(
+            $requests_data['tax_price'] ?? null,
+            $tax_price,
+            __METHOD__
+        );
         $billing = is_string($request->billing_info) ? (array) json_decode($request->billing_info) : $request->billing_info;
         $products = $response['product_list'];
         $coupon_price = 0;
@@ -2030,21 +2231,42 @@ private function processPaymera00000($request, $slug)
         }
         $delivery_price = 0;
         if ($plan->shipping_method == 'on') {
-            if (isset($requests_data['shipping_final_price'])) {
-                $delivery_price = $requests_data['shipping_final_price'];
-            } else {
-                if (!empty($request->method_id)) {
-                    $del_charge = new CartController();
-                    $delivery_charge = $del_charge->get_shipping_method($request, $slug);
-                    $content = $delivery_charge->getContent();
+            // The client short-circuit that used to sit here
+            // (`if (isset($requests_data['shipping_final_price'])) $delivery_price = ...`)
+            // is DELETED: it let the posted shipping price become the charged
+            // shipping price. Control now always falls through to the server
+            // computation below.
+            if (!empty($request->method_id)) {
+                $del_charge = new CartController();
+                $delivery_charge = $del_charge->get_shipping_method($request, $slug);
+                $content = $delivery_charge->getContent();
 
-                    $data = json_decode($content, true);
-                    $delivery_price = $data['total_final_price'];
-                    $tax_price = $requests_data['tax_price'] ?? ($content['final_tax_price'] ?? 0);
-                } 
-                // else {
-                //     return $this->error(['message' => 'Shipping Method not found']);
-                // }
+                $data = json_decode($content, true);
+                $delivery_price = $data['total_final_price'];
+                // SERVER-DERIVED tax; previously preferred the posted value.
+                // Note the old fallback read `$content['final_tax_price']` from
+                // the raw JSON STRING rather than from the decoded $data, so it
+                // could never fire.
+                $tax_price = $this->taxResolver()->resolve(
+                    is_array($response) ? $response : [],
+                    is_array($data) ? $data : null
+                );
+            }
+            // else {
+            //     return $this->error(['message' => 'Shipping Method not found']);
+            // }
+
+            if (isset($requests_data['shipping_final_price'])
+                && !OrderTotalReconciler::amountsMatch(
+                    (string) $requests_data['shipping_final_price'],
+                    (string) $delivery_price
+                )
+            ) {
+                Log::warning('Checkout: client-supplied shipping_final_price discarded (server value used)', [
+                    'site' => __METHOD__,
+                    'client_shipping_final_price' => (string) $requests_data['shipping_final_price'],
+                    'server_shipping_final_price' => (string) $delivery_price,
+                ]);
             }
         } else {
             if (!empty($tax_price)) {
@@ -2058,6 +2280,11 @@ private function processPaymera00000($request, $slug)
 
         // Order stock decrease start
         $prodduct_id_array = [];
+        // Stock decrements applied in this loop, so they can be given back if
+        // a later product in the same cart cannot be fulfilled and the order is
+        // therefore never written. Without this, a rejected checkout would
+        // silently consume the inventory of the products it got through first.
+        $appliedStockChanges = [];
         if (!empty($products)) {
 
 $products_weight_array = [];
@@ -2087,9 +2314,14 @@ $products_weight_array[] = [
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductStock)) {
                             if ($option == true) {
-                                $remain_stock = $ProductStock->stock - $qtyy;
-                                $ProductStock->stock = $remain_stock;
-                                $ProductStock->save();
+                                // ATOMIC. This was a read-modify-write (`$remain_stock = $ProductStock->stock - $qtyy; ... ->save()`),
+                                // i.e. a lost update: two concurrent checkouts both wrote
+                                // `stock - qty` and the second overwrote the first, so the shop
+                                // oversold by the quantity it processed concurrently, and the
+                                // subtraction could also drive a SIGNED stock column negative.
+                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy, false)) {
+                                    return $this->error($stockFailure);
+                                }
 
                                 if ($ProductStock->stock <= $ProductStock->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
@@ -2107,9 +2339,14 @@ $products_weight_array[] = [
                                     }
                                 }
                             } else {
-                                $remain_stock = $datas->product_stock - $qtyy;
-                                $datas->product_stock = $remain_stock;
-                                $datas->save();
+                                // ATOMIC. This was a read-modify-write (`$remain_stock = $datas->product_stock - $qtyy; ... ->save()`),
+                                // i.e. a lost update: two concurrent checkouts both wrote
+                                // `stock - qty` and the second overwrote the first, so the shop
+                                // oversold by the quantity it processed concurrently, and the
+                                // subtraction could also drive a SIGNED stock column negative.
+                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy, false)) {
+                                    return $this->error($stockFailure);
+                                }
                                 if ($datas->product_stock <= $datas->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
@@ -2159,9 +2396,14 @@ $products_weight_array[] = [
                     } elseif (!empty($product_id) && $product_id != 0) {
 
                         if (!empty($Product)) {
-                            $remain_stock = $Product->product_stock - $qtyy;
-                            $Product->product_stock = $remain_stock;
-                            $Product->save();
+                            // ATOMIC. This was a read-modify-write (`$remain_stock = $Product->product_stock - $qtyy; ... ->save()`),
+                            // i.e. a lost update: two concurrent checkouts both wrote
+                            // `stock - qty` and the second overwrote the first, so the shop
+                            // oversold by the quantity it processed concurrently, and the
+                            // subtraction could also drive a SIGNED stock column negative.
+                            if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy, false)) {
+                                return $this->error($stockFailure);
+                            }
                             if ($Product->product_stock <= $Product->low_stock_threshold) {
                                 if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
                                     if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
@@ -2253,7 +2495,22 @@ $products_weight_array[] = [
             }
 
         } elseif (module_is_active('PartialPayments') && \Auth::guard('customers')->user() && (isset($settings['enable_partial_payment']) && $settings['enable_partial_payment'] == 'on')) {
-            $order->final_price = $requests_data['cartlist_final_price'] ?? $total_sub_price;
+            // Was `$requests_data['cartlist_final_price']` — with this module
+            // active the order TOTAL came from the client. Recomputed through
+            // the module's own server-side ManageDeposit(); see
+            // PaymentController::resolvePartialPaymentAmounts() for the same
+            // repair on the storefront path.
+            $order->final_price = $this->resolvePartialPaymentDeposit(
+                $request,
+                $slug,
+                [
+                    'tax_price' => $tax_price,
+                    'shipping_price' => $delivery_price,
+                    'coupon_price' => $coupon_price,
+                    'total_sub_price' => $total_sub_price,
+                ],
+                $total_sub_price
+            );
             \Workdo\PartialPayments\app\Models\OrderPartialPayments::OrderPartialPayments($order, $slug, $request);
         } else {
 
@@ -2277,7 +2534,14 @@ $products_weight_array[] = [
         event(new AddAdditionalFields($order, $request->all(), $store));
         $order->payment_comment = !empty($requests_data['payment_comment']) ? $requests_data['payment_comment'] : '';
         $order->payment_type = $requests_data['payment_type'];
-        $order->payment_status = 'Paid';
+        // DERIVED, not asserted — see App\Services\PaymentVerificationService.
+        // This was the literal `'Paid'`.
+        $order->payment_status = $this->paymentVerifier()->resolveOrderPaymentStatus(
+            $requests_data['payment_type'] ?? null,
+            $this->paymentVerifier()->consumeVerification(),
+            $order->final_price,
+            __METHOD__
+        );
         $order->delivery_id = $requests_data['method_id'] ?? 0;
         $order->delivery_comment = !empty($requests_data['delivery_comment']) ? $requests_data['delivery_comment'] : '';
         if (module_is_active('PreOrder') && \Auth::guard('customers')->user() && isset($requests_data['order_type']) && $requests_data['order_type'] == 'pre_order') {
@@ -2289,6 +2553,25 @@ $products_weight_array[] = [
         $order->additional_note = $request->additional_note;
         $order->payment_receipt = $payment_receipt ?? null;
         $order->store_id = $store->id;
+        // Reconcile the total against its own components before it is
+        // persisted. WARN-ONLY on purpose: the two pricing branches above build
+        // final_price from different bases (one adds tax and subtracts the
+        // coupon, the other takes the cart's own pre-summed total), so a
+        // rejecting assertion here would fail legitimate orders in the second
+        // branch. Logging the mismatch is what produces the evidence for the
+        // cutover; App\Services\OrderTotalReconciler::assertConsistent() is the
+        // rejecting variant and is ready for the write paths whose component
+        // maps are unambiguous.
+        $this->totalReconciler()->warnIfInconsistent(
+            [
+                'product_price' => $order->product_price,
+                'tax_price' => $order->tax_price,
+                'delivery_price' => $order->delivery_price,
+                'coupon_price' => $order->coupon_price,
+            ],
+            $order->final_price,
+            __METHOD__
+        );
         $order->save();
        
         // add in  Order table end
@@ -2460,7 +2743,9 @@ $products_weight_array[] = [
                     $OrderTaxDetail->tax_id = $response['tax_id'];
                     $OrderTaxDetail->tax_name = $tax->name;
                     $OrderTaxDetail->tax_discount_amount = $tax->tax_rate;
-                    $OrderTaxDetail->tax_final_amount = $requests_data['tax_price'];
+                    // The tax ledger row records the SERVER-DERIVED tax, the same
+                    // figure persisted on the order, not the posted one.
+                    $OrderTaxDetail->tax_final_amount = $tax_price;
                     
                     $OrderTaxDetail->save();
                 }
@@ -2652,6 +2937,44 @@ if ($selectedMethodId) {
 
 
 
+/**
+ * How much cash the courier must collect on delivery.
+ *
+ * The amount owed is the order total for a cash-on-delivery order and nothing
+ * for an order that was settled online. The Delivery Syria payload used to send
+ * the literal '0' in every case, so a COD parcel was dispatched with an
+ * instruction to collect nothing.
+ *
+ * The format matches `selling_price` in the same payload, which is the order
+ * total cast to string, so the two figures are expressed identically.
+ *
+ * @param  \App\Models\Order $order
+ */
+private function codCashCollectionAmount($order): string
+{
+    $paymentType = strtolower(trim((string) ($order->payment_type ?? '')));
+
+    if (!in_array($paymentType, ['cod', 'cash_on_delivery', 'cash'], true)) {
+        return '0';
+    }
+
+    $amount = $order->final_price ?? 0;
+
+    if (!is_numeric($amount) || (float) $amount <= 0) {
+        // A COD order with no collectable total is a data problem, not a
+        // zero-value delivery: say so rather than silently shipping '0'.
+        Log::error('COD order has no collectable total; courier told to collect 0', [
+            'order_id' => $order->id ?? null,
+            'payment_type' => $paymentType,
+            'final_price' => (string) $amount,
+        ]);
+
+        return '0';
+    }
+
+    return (string) $amount;
+}
+
 private function webhook(
     $order,
     $billing,
@@ -2753,7 +3076,12 @@ private function webhook(
 
         'weight' => (string) $weight,
         'invoice_no' => (string) $order->product_order_id,
-        'cash_collection' => '0',
+        // The courier is now told how much to collect. This was the literal
+        // '0', so for a cash-on-delivery order Delivery Syria was dispatched
+        // with an instruction to collect NOTHING: the parcel was handed over and
+        // no cash was ever asked for. For an order already settled online it
+        // stays 0, which is correct.
+        'cash_collection' => $this->codCashCollectionAmount($order),
         'selling_price' => (string) $order->final_price,
         'customer_name' => $customerName,
         'customer_address' => $customerAddress,
