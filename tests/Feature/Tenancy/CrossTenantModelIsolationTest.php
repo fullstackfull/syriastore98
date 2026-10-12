@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Scopes\StoreScope;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Schema;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -308,8 +309,8 @@ class CrossTenantModelIsolationTest extends TestCase
      * wipes all local storage and force-navigates to login (:333-341), so a 401 here would log
      * the merchant out of the Flutter app on every tenancy denial.
      *
-     * @dataProvider tenantOwnedDomains
      */
+    #[DataProvider('tenantOwnedDomains')]
     public function test_ownership_check_denies_the_other_tenant(string $modelClass, string $table, array $extra): void
     {
         if (! Schema::hasTable($table)) {
