@@ -214,10 +214,13 @@ class RoleEscalationTest extends SecurityTestCase
         $created = Role::where('name', 'escalated-role')->first();
 
         if ($created !== null) {
+            // No third argument: assertDatabaseMissing's third parameter is the
+            // CONNECTION name, not a message, so passing prose there makes Laravel
+            // look for a connection by that name.
             $this->assertDatabaseMissing('permission_role', [
                 'role_id' => $created->id,
                 'permission_id' => $restricted->id,
-            ], 'A merchant must not be able to mint a role holding a platform-operator permission.');
+            ]);
         }
     }
 
