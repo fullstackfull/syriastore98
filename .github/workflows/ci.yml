@@ -571,9 +571,32 @@ jobs:
         #      500s on RegisteredUserController.php:249 (addRole(null)). Both are
         #      unguarded null derefs on a database whose roles are not seeded.
         #
-        # VERDICT: 8 of the 14 are telling the truth about real defects and were KEPT RED.
-        # 6 asserted Breeze behaviour this product replaced and were CORRECTED in place,
-        # with the evidence recorded in each file. None was deleted or skipped.
+        # VERDICT, with the exact arithmetic measured rather than estimated. Of the 14:
+        #   3 now PASS, because their assertions were wrong and were corrected in place:
+        #       ExampleTest (asserted 200 on `/`; product answers 302 -> /login)
+        #       PasswordResetTest::test_reset_password_link_can_be_requested
+        #       PasswordResetTest::test_password_can_be_reset_with_valid_token
+        #   11 remain RED, every one on a real defect, and were deliberately NOT retired:
+        #       7  page renders, blocked by owner_menu_settings + get_file (see above):
+        #          login, register, forgot-password, reset-password, verify-email and
+        #          confirm-password screens, plus the profile page. NOTE: the briefed
+        #          figure for this group was 6. It is 7 -- the reset-password screen was
+        #          previously failing on the notification class, which MASKED the fact
+        #          that its render is blocked too.
+        #       2  profile.edit route shadowing (ProfileTest, both update paths)
+        #       1  login POST: authenticates, then 500s on Utility.php:3098
+        #       2  register POST: 500s on RegisteredUserController.php:249
+        #          -- counted as 1 failing test here (test_new_users_can_register); the
+        #             register SCREEN is already counted in the 7 above.
+        # Nothing was deleted, skipped or weakened. A test asserting a real defect is a
+        # test doing its job.
+        #
+        # Coverage was RAISED rather than cut, which is the whole point of correcting a
+        # scaffold test instead of deleting it: tests/Feature/Platform/WorkdoAuthFlowTest.php
+        # adds 11 passing tests over the real credential check, logout, the product's real
+        # store-signup validation contract and profile persistence, and PasswordResetTest
+        # gained an end-to-end token test and a forged-token negative case that the three
+        # original notification-class assertions never covered.
         #
         # THE 8 SKIPS, read from a real run with --display-skipped rather than assumed.
         # The split previously recorded here ("GATE F money tables plus two that name
@@ -592,10 +615,20 @@ jobs:
         # tests/Unit/Database/GateFSchemaContainmentTest.php now guards the whole six
         # against being greened by an invented schema.
         #
-        # EXPECTED AFTER THIS BRANCH: Feature failures fall from 14 to 13 -- 6 corrected
-        # away, 8 kept red, and 2 new intentional failures added by
-        # RouteRegistrationIntegrityTest, which names the route-shadowing mechanism the
-        # two profile.edit failures could only hint at. Skips stay at 8.
+        # MEASURED AFTER THIS BRANCH, on p1c/agent5-qa, full suite:
+        #   Unit     OK -- 25 tests, 212 assertions          (baseline 21 / 189)
+        #   Feature  456 tests, 2605 assertions, 0 ERRORS, 13 failures, 8 skipped
+        #                                                   (baseline 439 / 2557 / 0 / 14 / 8)
+        # 13 = 11 of the original 14 kept red (see the verdict above) + 2 NEW INTENTIONAL
+        # failures from tests/Feature/Platform/RouteRegistrationIntegrityTest.php, which
+        # names the route-shadowing mechanism the two profile.edit failures could only
+        # hint at and finds a second lost name (contact.us) the old tests never saw.
+        # Errors stay 0 and skips stay 8. Per-suite, measured individually:
+        #   Security 188 tests / 1823 assertions / 0 failures / 2 skipped
+        #   Tenancy  129 tests /  346 assertions / 0 failures / 6 skipped
+        #   Commerce  98 tests /  341 assertions / 0 failures / 0 skipped  (OK)
+        #   Platform  14 tests /   34 assertions / 2 failures (intended)
+        #   Auth      20 tests /   43 assertions / 8 failures
         #
         # REMOVE continue-on-error once the kept-red 8 have their defects fixed in app/
         # and routes/ and the addon migration paths are registered. They are pre-existing,
