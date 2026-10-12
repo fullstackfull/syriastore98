@@ -660,9 +660,16 @@ public function store(Request $request)
         // returned null for a bad id which the next line dereferenced into a
         // 500 (NEW-unauthenticated-500s).
         //
-        // OrderPolicy::updateStatus carries an explicit delivery-boy limb so an
-        // assigned delivery boy can STILL mark their own order delivered -- the
-        // positive case this fix would otherwise break.
+        // NOTE: OrderPolicy::updateStatus deliberately carries NO delivery-boy limb.
+        // An earlier revision of this comment claimed it did; that was false and is
+        // corrected here. A limb comparing $order->deliveryboy_id to $actor->id was
+        // considered and refused for two reasons, recorded in OrderPolicy:74-91:
+        // the actor here is type-hinted User (the web guard) while delivery boys
+        // authenticate on the separate deliveryboy guard against the separate
+        // delivery_boys table, so it could never fire; and the two id sequences are
+        // unrelated and both start at 1, so it would have let a merchant whose
+        // users.id collided with an order's deliveryboy_id change that order's
+        // status in ANY store. The delivery-boy flow has its own guard and routes.
         $order = Order::findOrFail($id);
 
         $this->authorize('updateStatus', $order);

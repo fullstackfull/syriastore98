@@ -83,7 +83,7 @@ class OrderMutationTest extends SecurityTestCase
     public function test_payment_status_must_be_a_known_value(): void
     {
         [$merchant, $store] = $this->makeTenant();
-        $this->grantPermission($merchant, 'Edit Order');
+        $this->grantPermission($merchant, 'Manage Order');
         $order = $this->makeOrder($store, ['payment_status' => 'Unpaid']);
 
         $this->actingAs($merchant)->post('/order-payment-status', [
@@ -104,7 +104,7 @@ class OrderMutationTest extends SecurityTestCase
     public function test_merchant_cannot_change_another_stores_payment_status(): void
     {
         [$attacker] = $this->makeTenant();
-        $this->grantPermission($attacker, 'Edit Order');
+        $this->grantPermission($attacker, 'Manage Order');
 
         [, $victimStore] = $this->makeTenant();
         $order = $this->makeOrder($victimStore, ['payment_status' => 'Unpaid']);
@@ -129,7 +129,7 @@ class OrderMutationTest extends SecurityTestCase
     public function test_merchant_cannot_assign_another_stores_order(): void
     {
         [$attacker] = $this->makeTenant();
-        $this->grantPermission($attacker, 'Edit Order');
+        $this->grantPermission($attacker, 'Manage Order');
 
         [, $victimStore] = $this->makeTenant();
         $order = $this->makeOrder($victimStore, ['deliveryboy_id' => null]);
@@ -179,7 +179,7 @@ class OrderMutationTest extends SecurityTestCase
     public function test_merchant_can_change_their_own_stores_payment_status(): void
     {
         [$merchant, $store] = $this->makeTenant();
-        $this->grantPermission($merchant, 'Edit Order');
+        $this->grantPermission($merchant, 'Manage Order');
         $order = $this->makeOrder($store, ['payment_status' => 'Unpaid']);
 
         $this->actingAs($merchant)->post('/order-payment-status', [
@@ -194,29 +194,47 @@ class OrderMutationTest extends SecurityTestCase
     }
 
     /**
-     * THE POSITIVE CASE PROTECTING THE FLOW THIS FIX MOST LIKELY BREAKS.
-     * OrderPolicy::updateStatus carries an explicit delivery-boy limb; without
-     * it the whole delivery flow stops.
+     * Asserts the refusal the policy DELIBERATELY implements.
+     *
+     * An earlier version of this test asserted the opposite — that a delivery boy
+     * could update their own assigned order through this web route — on the basis
+     * of a delivery-boy limb in OrderPolicy::updateStatus. No such limb exists
+     * (see OrderPolicy:74-91 for why it was refused), so that assertion was
+     * testing a feature that was never built.
+     *
+     * It could not work in any case: this route sits behind the web `auth`
+     * middleware and the policy is type-hinted User, while delivery boys
+     * authenticate on the separate `deliveryboy` guard against the separate
+     * delivery_boys table. And deliveryboy_id is a delivery_boys.id while
+     * $actor->id is a users.id, two unrelated sequences that both start at 1 —
+     * so the limb would have been a cross-tenant bypass, not a feature.
+     *
+     * The delivery-boy flow has its own guard and its own endpoints. If it ever
+     * needs a policy it needs one written against the DeliveryBoy model.
      */
-    public function test_delivery_boy_can_still_update_their_own_assigned_order(): void
+    public function test_a_web_guard_user_is_not_granted_access_by_a_matching_deliveryboy_id(): void
     {
         [, $store] = $this->makeTenant();
 
-        // The delivery-boy limb compares $order->deliveryboy_id against the
-        // acting user's id, so the actor here is a user whose id is recorded on
-        // the order.
-        $courier = $this->makeMerchant(['type' => 'deliveryboy']);
+        // A user with NO order permission whose users.id is deliberately recorded
+        // as the order's deliveryboy_id. Under the refused limb this would have
+        // granted access to another store's order; it must not.
+        $actor = $this->makeMerchant(['type' => 'deliveryboy']);
         $order = $this->makeOrder($store, [
-            'deliveryboy_id' => $courier->id,
+            'deliveryboy_id' => $actor->id,
             'delivered_status' => 0,
         ]);
 
-        $this->actingAs($courier)->post("/update-order-status/{$order->id}");
+        $this->actingAs($actor)->post("/update-order-status/{$order->id}");
 
-        $this->assertSame(1, (int) $order->fresh()->delivered_status);
+        $this->assertSame(
+            0,
+            (int) $order->fresh()->delivered_status,
+            'A matching deliveryboy_id must not confer access on a web-guard user.'
+        );
     }
 
-    public function test_user_without_edit_order_permission_is_denied(): void
+    public function test_user_without_manage_order_permission_is_denied(): void
     {
         [$merchant, $store] = $this->makeTenant();
         // Deliberately NO permission granted.
@@ -238,7 +256,7 @@ class OrderMutationTest extends SecurityTestCase
     public function test_unknown_order_id_is_a_404_not_a_500(): void
     {
         [$merchant] = $this->makeTenant();
-        $this->grantPermission($merchant, 'Edit Order');
+        $this->grantPermission($merchant, 'Manage Order');
 
         $response = $this->actingAs($merchant)->post('/update-order-status/999999');
 

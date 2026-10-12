@@ -48,12 +48,17 @@ class OrderPolicy
 
     protected function allow(User $actor, Order $order, string $permission): bool
     {
-        if (!$actor->isAbleTo($permission)) {
-            return false;
-        }
-
+        // The platform-admin check MUST come first. Previously isAbleTo() ran ahead of
+        // it and returned false, so this method was unreachable for a platform operator:
+        // on a database built from source no role holds 'Manage Order', which locked the
+        // operator out of updatePaymentStatus, updateStatus, assign and delete entirely.
+        // UserPolicy::resetPassword already had the correct order; this now matches it.
         if ($this->isPlatformAdmin($actor)) {
             return true;
+        }
+
+        if (!$actor->isAbleTo($permission)) {
+            return false;
         }
 
         return $this->sameStore($actor, $order);
