@@ -1650,9 +1650,45 @@ $Product->cost_price = $request->cost_price;
     /**
      * Remove the specified resource from storage.
      */
+    /**
+     * R4-04 cross-tenant IDOR exemplar.
+     *
+     * The permission check here was already correct -- 'Delete Products' IS
+     * created by Utility::addNewData() (verified, double-quoted at Utility.php
+     * :2680, which is why a single-quoted grep misses it) -- but it was the ONLY
+     * check. The parameter is route-model bound, so Laravel resolved any product
+     * id in the table, and holding 'Delete Products' in your own store was
+     * enough to destroy a product in someone else's.
+     *
+     * That made it worse than a database-only IDOR: before any row is deleted
+     * this method unlinks files from disk (File::delete on each ProductImage
+     * image_path, the cover image, the downloadable product and a video
+     * preview), so a cross-tenant call destroyed another merchant's uploaded
+     * media irreversibly, and called Utility::changeproductStorageLimit against
+     * the CALLER's creatorId(), mis-accounting the victim's storage against the
+     * attacker.
+     *
+     * The ownership check is therefore placed before any deletion or unlink.
+     */
     public function destroy(Product $product)
     {
         if (auth()->user() && auth()->user()->isAbleTo('Delete Products')) {
+            $actor = auth()->user();
+
+            // Ownership, before anything is removed from the database or disk.
+            // A super admin is exempt, matching OrderPolicy::allow.
+            if ($actor->type !== \App\Policies\UserPolicy::PLATFORM_ADMIN) {
+                $currentStore = getCurrentStore();
+
+                if (
+                    empty($currentStore)
+                    || empty($product->store_id)
+                    || (int) $product->store_id !== (int) $currentStore
+                ) {
+                    return redirect()->back()->with('error', __('Permission denied.'));
+                }
+            }
+
             $ProductImages = ProductImage::where('product_id', $product->id)->get();
 
             $Product = Product::find($product->id);

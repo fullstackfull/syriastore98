@@ -72,8 +72,46 @@ public function create()
         return view('customer.create');
     }
 
+/**
+ * R4-04 cross-tenant IDOR exemplar.
+ *
+ * This had NO checks at all -- no permission, no tenant scope -- while its two
+ * siblings in this same controller both check: index() gates on
+ * 'Manage Customer' and show() on 'Show Customer'. The parameter is route-model
+ * bound, so Laravel resolved ANY customer id in the table and deleted it. Any
+ * authenticated user could delete any other store's customer by id.
+ *
+ * Gated on 'Manage Customer', the permission index() already uses, and NOT on a
+ * 'Delete Customer' permission. That name does not exist: the only
+ * customer-related rows Utility::addNewData() creates are 'Manage Customer',
+ * 'Show Customer' and 'Status Customer' (verified by counting both quote styles
+ * in Utility.php -- there is no 'Delete Customer', 'Create Customer' or
+ * 'Edit Customer'). Gating on an invented name would make this 403 for
+ * everybody on a database built from source, which is exactly the defect that
+ * locked out the finance surface.
+ */
 public function destroy(Customer $customer)
 {
+    $user = auth()->user();
+
+    if (!$user || !$user->isAbleTo('Manage Customer')) {
+        return redirect()->back()->with('error', __('Permission denied.'));
+    }
+
+    // Ownership. A super admin is exempt, matching OrderPolicy::allow and the
+    // finance gate, so the operator is not locked out.
+    if ($user->type !== \App\Policies\UserPolicy::PLATFORM_ADMIN) {
+        $currentStore = getCurrentStore();
+
+        if (
+            empty($currentStore)
+            || empty($customer->store_id)
+            || (int) $customer->store_id !== (int) $currentStore
+        ) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+    }
+
     $customer->delete();
 
     return redirect()->route('customer.index')
