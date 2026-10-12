@@ -1209,7 +1209,7 @@ public function OrderList(Request $request)
 
         $dir = 'uploads/' . $store->id;
         if ($request->image) {
-            $fileName = rand(10, 100) . '_' . time() . "_" . $request->image->getClientOriginalName();
+            $fileName = rand(10, 100) . '_' . time() . "_" . basename($request->image->getClientOriginalName());
             $path = Utility::upload_file($request, 'image', $fileName, $dir, []);
             if ($path['flag'] == 0) {
                 $msg['flag'] = 'error';
@@ -1220,7 +1220,7 @@ public function OrderList(Request $request)
         }
 
         if ($request->icon_image) {
-            $fileName = rand(10, 100) . '_' . time() . "_" . $request->icon_image->getClientOriginalName();
+            $fileName = rand(10, 100) . '_' . time() . "_" . basename($request->icon_image->getClientOriginalName());
             $paths = Utility::upload_file($request, 'icon_image', $fileName, $dir, []);
             if ($paths['flag'] == 0) {
                 $msg['flag'] = 'error';
@@ -1268,7 +1268,7 @@ public function OrderList(Request $request)
         if (!empty($Category)) {
             $dir = 'uploads/' . $store->id;
             if ($request->image) {
-                $fileName = rand(10, 100) . '_' . time() . "_" . $request->image->getClientOriginalName();
+                $fileName = rand(10, 100) . '_' . time() . "_" . basename($request->image->getClientOriginalName());
                 $path = Utility::upload_file($request, 'image', $fileName, $dir, []);
                 if ($path['flag'] == 0) {
                     $msg['flag'] = 'error';
@@ -1281,7 +1281,7 @@ public function OrderList(Request $request)
             }
 
             if ($request->icon_image) {
-                $fileName = rand(10, 100) . '_' . time() . "_" . $request->icon_image->getClientOriginalName();
+                $fileName = rand(10, 100) . '_' . time() . "_" . basename($request->icon_image->getClientOriginalName());
                 $paths = Utility::upload_file($request, 'icon_image', $fileName, $dir, []);
                 if ($paths['flag'] == 0) {
                     $msg['flag'] = 'error';
@@ -2260,7 +2260,7 @@ public function AddProduct(Request $request)
                 $theme_image = !empty($value['value']) ? $value['value'] : '';
                 $upload_image_path = !empty($value['value']) ? $value['value'] : '';
                 if (gettype($theme_image) == 'object') {
-                    $fileName = rand(10, 100) . '_' . time() . "_" . $theme_image->getClientOriginalName();
+                    $fileName = rand(10, 100) . '_' . time() . "_" . basename($theme_image->getClientOriginalName());
                     $upload = Utility::jsonUpload_file($request, 'value', $theme_image, $fileName, $dir, []);
                     if ($upload['flag'] == true) {
                         $upload_image_path = $upload['image_path'];
@@ -2277,7 +2277,7 @@ public function AddProduct(Request $request)
     
     if ($total_products < $plan->max_products || $plan->max_products == -1) {
         if ($request->hasFile('cover_image')) {
-            $fileName = rand(10, 100) . '_' . time() . "_" . $request->cover_image->getClientOriginalName();
+            $fileName = rand(10, 100) . '_' . time() . "_" . basename($request->cover_image->getClientOriginalName());
             $path = Utility::upload_file($request, 'cover_image', $fileName, $dir, []);
             if ($path['flag'] == 0) {
                 return $this->error(['message' => $path['msg']]);
@@ -2329,7 +2329,7 @@ public function AddProduct(Request $request)
 
         if ($request->hasFile('product_image')) {
             foreach ($request->product_image as $key => $image) {
-                $fileName = rand(10, 100) . '_' . time() . "_" . $image->getClientOriginalName();
+                $fileName = rand(10, 100) . '_' . time() . "_" . basename($image->getClientOriginalName());
                 $pathss = Utility::keyWiseUpload_file($request, 'product_image', $fileName, $dir, $key, []);
 
                 $ProductImage = new ProductImage();
@@ -2421,7 +2421,7 @@ public function UpdateProduct(Request $request)
                         File::delete(base_path($image_path));
                     }
 
-                    $fileName = rand(10, 100) . '_' . time() . "_" . $theme_image->getClientOriginalName();
+                    $fileName = rand(10, 100) . '_' . time() . "_" . basename($theme_image->getClientOriginalName());
                     $upload = Utility::jsonUpload_file($request, 'value', $theme_image, $fileName, $dir, []);
 
                     if ($upload['flag'] == true) {
@@ -2477,7 +2477,7 @@ public function UpdateProduct(Request $request)
             File::delete(base_path($product->cover_image_path));
         }
 
-        $fileName = rand(10, 100) . '_' . time() . "_" . $request->cover_image->getClientOriginalName();
+        $fileName = rand(10, 100) . '_' . time() . "_" . basename($request->cover_image->getClientOriginalName());
         $path = Utility::upload_file($request, 'cover_image', $fileName, $dir, []);
         
         if ($path['flag'] == 1) {
@@ -2491,7 +2491,7 @@ public function UpdateProduct(Request $request)
         ProductImage::where('product_id', $product->id)->delete();
 
         foreach ($request->product_image as $key => $image) {
-            $fileName = rand(10, 100) . '_' . time() . "_" . $image->getClientOriginalName();
+            $fileName = rand(10, 100) . '_' . time() . "_" . basename($image->getClientOriginalName());
             $pathss = Utility::keyWiseUpload_file($request, 'product_image', $fileName, $dir, $key, []);
 
             $ProductImage = new ProductImage();
@@ -3186,7 +3186,7 @@ public function DeleteReview($id)
                 $admin->email = $request->email;
             }
             if ($request->hasFile('profile_image')) {
-                $fileName = rand(10, 100) . '_' . time() . "_" . $request->profile_image->getClientOriginalName();
+                $fileName = rand(10, 100) . '_' . time() . "_" . basename($request->profile_image->getClientOriginalName());
                 $path = Utility::upload_file($request, 'profile_image', $fileName, $dir, []);
                 if ($path['flag'] == 0) {
                     $msg['flag'] = 'error';
@@ -4534,7 +4534,7 @@ public function changeProfile(Request $request)
             }
 
             if ($request->hasFile('profile_image')) {
-                $fileName = rand(10, 100) . '_' . time() . "_" . $request->profile_image->getClientOriginalName();
+                $fileName = rand(10, 100) . '_' . time() . "_" . basename($request->profile_image->getClientOriginalName());
                 $path = Utility::upload_file($request, 'profile_image', $fileName, $dir, []);
                 if ($path['flag'] == 0) {
                     $msg['flag'] = 'error';
@@ -4663,7 +4663,7 @@ public function changeProfile(Request $request)
             $image_size = $request->file('logo')->getSize();
             $result = Utility::updateStorageLimit($user->creatorId(), $image_size);
             if ($result == 1) {
-                $fileName = rand(10, 100) . '_' . time() . "_" . $request->logo->getClientOriginalName();
+                $fileName = rand(10, 100) . '_' . time() . "_" . basename($request->logo->getClientOriginalName());
                 $path = Utility::upload_file($request, 'logo', $fileName, $dir, []);
                 
                 if ($path['flag'] == 1) {
@@ -4735,7 +4735,7 @@ public function changeProfile(Request $request)
             $result = Utility::updateStorageLimit(\Auth::user()->creatorId(), $image_size);
             if ($result == 1) {
                 Utility::changeStorageLimit(\Auth::user()->creatorId(), $file_path);
-                $fileName = rand(10, 100) . '_' . time() . "_" . $request->logo->getClientOriginalName();
+                $fileName = rand(10, 100) . '_' . time() . "_" . basename($request->logo->getClientOriginalName());
                 $path = Utility::upload_file($request, 'logo', $fileName, $dir, []);
                 if ($path['flag'] == 1) {
                     $url = $path['url'];
@@ -7457,7 +7457,7 @@ public function updateStoreOwnerInfo(Request $request)
 
             if ($request->hasFile('invoice_logo')) {
                 $file = $request->file('invoice_logo');
-                $fileName = time() . '_' . $file->getClientOriginalName(); 
+                $fileName = time() . '_' . basename($file->getClientOriginalName()); 
                 $file->move($uploadPath, $fileName);
                 
                 $relativePath = 'uploads/' . $storeId . '/' . $fileName;
@@ -7470,7 +7470,7 @@ public function updateStoreOwnerInfo(Request $request)
 
             if ($request->hasFile('store_image')) {
                 $file = $request->file('store_image');
-                $fileName = time() . '_' . $file->getClientOriginalName(); 
+                $fileName = time() . '_' . basename($file->getClientOriginalName()); 
                 $file->move($uploadPath, $fileName);
 
                 $relativePath = 'uploads/' . $storeId . '/' . $fileName;
