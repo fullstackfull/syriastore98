@@ -32,6 +32,7 @@ use Illuminate\Support\Facades\Cache;
 use App\DataTables\StoreDataTable;
 use App\Models\StoreWallet;
 use App\Models\CurrencyRate;
+use App\Models\AuditLog;
 
 class StoreController extends Controller
 {
@@ -623,22 +624,49 @@ foreach ($defaultCurrencies as $currency) {
 
     public function changeStore($id)
     {
-        $store = Store::find($id);
-        if ($store && $store->is_active = 1) {
-            $user = auth()->user();
-            $user->current_store = $id;
-            $user->update();
+        $user = auth()->user();
 
-            return redirect()->back()->with('success', __('Store Change Successfully!'));
-        } else {
+        // R4-03: the tenant discriminator (users.current_store) is writable by the
+        // caller, so this lookup MUST be constrained to stores the caller owns.
+        // Without the predicate, pointing current_store at any store id nullified
+        // every `where('store_id', getCurrentStore())` filter in the application.
+        // creatorId() resolves staff members to their owning admin (User.php:95).
+        $query = Store::where('id', $id);
+
+        if ($user->type !== 'super admin') {
+            $query->where('created_by', $user->creatorId());
+        }
+
+        $store = $query->first();
+
+        if (!$store) {
+            abort(403, __('You do not have permission to access this store.'));
+        }
+
+        // `==`, not `=`: the original assignment always evaluated truthy, so the
+        // is_active guard was dead code and the error branch was unreachable.
+        if ($store->is_active != 1) {
             return redirect()->back()->with('error', __('Store is locked'));
         }
+
+        $user->current_store = $store->id;
+        $user->update();
+
+        return redirect()->back()->with('success', __('Store Change Successfully!'));
     }
 
     public function storeResetPassword($id)
     {
+        // SEC-F1. Crypt::decrypt() on the route parameter is NOT an
+        // authorization control: APP_KEY is in git history, so an encrypted
+        // parameter is forgeable for any user id. Treating it as a control is
+        // exactly what produced this bug -- and note the update sibling below
+        // never even used the encrypted form, it took the raw id, which is what
+        // resources/views/store/reset.blade.php:1 posts.
         $eId = \Crypt::decrypt($id);
-        $user = User::find($eId);
+        $user = User::findOrFail($eId);
+
+        $this->authorize('resetPassword', $user);
 
         return view('store.reset', compact('user'));
     }
@@ -659,11 +687,20 @@ foreach ($defaultCurrencies as $currency) {
             return redirect()->back()->with('error', $messages->first());
         }
 
-        $user = User::find($id);
+        // SEC-F1. This method had ZERO authorization: no permission check, no
+        // ownership check, no authenticated-user check. Any caller could set the
+        // password of any account on the platform, including the platform super
+        // admin, and User.php casts 'password' => 'hashed' so the write produced
+        // a WORKING credential.
+        $user = User::findOrFail($id);
+
+        $this->authorize('resetPassword', $user);
 
         $user->forceFill([
             'password' => Hash::make($request->password),
         ])->save();
+
+        AuditLog::record('store_user_password_reset', $user);
 
         return redirect()->back()->with('success', 'User Password successfully updated.');
     }
@@ -713,19 +750,55 @@ foreach ($defaultCurrencies as $currency) {
         }
     }
 
+    /**
+     * SEC-F6 -- IMPERSONATION, PLATFORM TAKEOVER. Previously the ONLY gate here
+     * was `auth()->check()`: "is ANYONE logged in", not "may YOU do this". There
+     * was no ownership check, no permission check, no type check and no Policy.
+     *
+     * The reachability chain was: public self-registration (routes/auth.php:18)
+     * grants type=admin -> forge an encrypted id, because APP_KEY is in git
+     * history -> GET this route -> a fully authenticated session as ANY account,
+     * including the platform super admin.
+     *
+     * The authorize() call below is the control. The decrypt() is not, and must
+     * never again be described as one. canImpersonate()/canBeImpersonated() are
+     * additionally overridden on App\Models\User so that the vendor trait's
+     * unverifiable defaults are not relied upon either.
+     */
     public function LoginWithAdmin(Request $request, $id)
     {
-        $user = User::find(decrypt($id));
-        if ($user && auth()->check()) {
-            Impersonate::take($request->user(), $user);
-            return redirect('dashboard');
-        }
+        // findOrFail so a bad or forged id is a 404 rather than a silent
+        // fall-through that returned no response at all.
+        $user = User::findOrFail(decrypt($id));
+
+        $this->authorize('impersonate', $user);
+
+        Impersonate::take($request->user(), $user);
+
+        return redirect('dashboard');
     }
 
     public function ExitAdmin(Request $request)
     {
-        Auth::user()->leaveImpersonation($request->user());
-        //return redirect('dashboard');
+        $actor = Auth::user();
+
+        // Previously called leaveImpersonation() unconditionally, which raised a
+        // 500 when no impersonation session was active.
+        //
+        // The trait's isImpersonated() is preferred, but vendor/lab404 is empty
+        // in this environment so its presence could not be verified; the session
+        // key the package writes is checked as the fallback. Either way this
+        // fails CLOSED -- no active impersonation means no leaveImpersonation().
+        $isImpersonating = method_exists($actor, 'isImpersonated')
+            ? $actor->isImpersonated()
+            : Session::has('impersonated_by');
+
+        if (!$actor || !$isImpersonating) {
+            return redirect('stores')->with('error', __('You are not impersonating anyone.'));
+        }
+
+        $actor->leaveImpersonation($request->user());
+
         return redirect('stores');
     }
 

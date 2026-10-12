@@ -352,4 +352,32 @@ class User extends Authenticatable implements LaratrustUser, MustVerifyEmail
             $this->flushRolesCache();
         }
     }
+
+    /**
+     * SEC-F6 -- IMPERSONATION. Explicit overrides of the two methods supplied by
+     * the Lab404\Impersonate\Models\Impersonate trait used at :25.
+     *
+     * These are written out rather than inherited because the trait's own
+     * defaults could NOT be verified in this environment (vendor/lab404 is
+     * empty), and a control whose behaviour cannot be verified is not a control.
+     * Phase 0 reported those defaults as permissive.
+     *
+     * These overrides and the explicit $this->authorize('impersonate', $user)
+     * in StoreController::LoginWithAdmin are BOTH required: either one alone is
+     * a single upstream default change, or a single forgotten call site, away
+     * from reopening a platform takeover.
+     */
+    public function canImpersonate(): bool
+    {
+        return $this->type === \App\Policies\UserPolicy::PLATFORM_ADMIN;
+    }
+
+    /**
+     * A platform administrator can never be impersonated by anyone, so a lower
+     * account can never assume platform root.
+     */
+    public function canBeImpersonated(): bool
+    {
+        return $this->type !== \App\Policies\UserPolicy::PLATFORM_ADMIN;
+    }
 }
