@@ -79,9 +79,10 @@ final class RouteFileParser
                     $unsupported[] = ['line' => $lineNo, 'snippet' => trim($line)];
                 } else {
                     $routes[] = [
-                        'uri'     => self::join('api', self::currentPrefix($prefixStack), $uri),
-                        'methods' => $verb === 'any' ? ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] : [strtoupper($verb)],
-                        'line'    => $lineNo,
+                        'uri'        => self::join('api', self::currentPrefix($prefixStack), $uri),
+                        'methods'    => $verb === 'any' ? ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] : [strtoupper($verb)],
+                        'line'       => $lineNo,
+                        'middleware' => self::middlewareOf($lines, $i),
                     ];
                 }
             }
@@ -131,6 +132,40 @@ final class RouteFileParser
         }
 
         return null;
+    }
+
+    /**
+     * The middleware names attached to the route registration starting at $startIndex.
+     *
+     * Reads the `->middleware([...])` / `->middleware('x')` chained onto the call, across
+     * the few lines a wrapped registration can span. Group-level middleware is NOT
+     * included -- only what is written on the route itself -- because the question this
+     * feeds is "does this route carry an auth check of its own", and a group in this file
+     * contributes only `prefix`/`as`.
+     *
+     * @return array<int, string>
+     */
+    private static function middlewareOf(array $lines, int $startIndex): array
+    {
+        $window = '';
+
+        for ($i = $startIndex, $max = min($startIndex + 6, count($lines) - 1); $i <= $max; $i++) {
+            $window .= $lines[$i] . "\n";
+
+            // Stop at the end of this statement so the next route's middleware is not
+            // attributed to this one.
+            if (str_contains($lines[$i], ';')) {
+                break;
+            }
+        }
+
+        if (preg_match('/->middleware\s*\((?<args>.*?)\)/s', $window, $m) !== 1) {
+            return [];
+        }
+
+        preg_match_all('/([\'"])(?<name>[^\'"]+)\1/', $m['args'], $names);
+
+        return array_values(array_unique($names['name'] ?? []));
     }
 
     private static function currentPrefix(array $stack): string
