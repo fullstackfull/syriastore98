@@ -620,6 +620,28 @@ public function handlePaymeraCallback(Request $request, string $orderId)
     }
 
     try {
+        /*
+         * RE-CHECK UNDER THE LOCK. See freshPaymeraPendingOrNull(): the
+         * pre-lock test above and this use of the record straddled the lock,
+         * so a concurrent trigger that finished first did not stop this one
+         * from creating a second order.
+         */
+        $fresh = $this->freshPaymeraPendingOrNull($orderId);
+
+        if ($fresh === null) {
+            // Already processed, or the record is gone. Either way this request
+            // must not create an order. Answering with the same completion
+            // redirect the pre-lock branch above uses keeps the customer's
+            // experience identical to a replay that lost the race by a wider
+            // margin. (`$pending` here is only read for display values; it is
+            // never used to WRITE anything, which is the whole point.)
+            return redirect()
+                ->route('order.complete', $pending['slug'])
+                ->with('data', $pending['product_order_id'] ?? '');
+        }
+
+        $pending = $fresh;
+
         $requestData = $pending['request_data'] ?? [];
 
         /*
@@ -680,6 +702,68 @@ public function handlePaymeraCallback(Request $request, string $orderId)
     } finally {
         $lock->release();
     }
+}
+
+
+/**
+ * Re-read the pending-payment record now that the lock is held.
+ *
+ * THE DEFECT THIS CLOSES: a replayed callback created a SECOND ORDER.
+ *
+ * Both routed Paymera entry points tested `$pending['processed']` BEFORE taking
+ * the lock, and then, inside the lock, went on using the `$pending` array they
+ * had read before it. So the check and the use straddled the lock instead of
+ * both being inside it:
+ *
+ *   gateway trigger            browser callback
+ *   ---------------            ----------------
+ *   read pending (processed=false)
+ *                              read pending (processed=false)
+ *   check passes
+ *                              check passes
+ *   acquire lock
+ *   create order
+ *   processed = true
+ *   release lock
+ *                              acquire lock   <-- succeeds, nothing stops it
+ *                              create order   <-- SECOND ORDER, second stock
+ *                                                 decrement, second wallet
+ *                                                 credit
+ *
+ * A gateway retrying its callback is normal, not exceptional, and the two entry
+ * points are a browser return and a server-to-server poke for the SAME payment,
+ * so they race by design rather than by accident. The pre-lock check is a
+ * cheap-path optimisation and is kept; this is the authoritative one, and it
+ * returns the record to actually use so a caller cannot keep the stale copy by
+ * mistake.
+ *
+ * Returns null when the payment has already been processed, which the caller
+ * must treat as "done, do not create anything".
+ */
+private function freshPaymeraPendingOrNull(string $orderId): ?array
+{
+    $pending = Cache::get('paymera_pending_' . $orderId);
+
+    if (!is_array($pending)) {
+        // The record expired while we waited for the lock. Creating an order
+        // from a stale copy of it is exactly what must not happen.
+        \Log::warning('Paymera pending record vanished before the order was created', [
+            'paymera_reference' => $orderId,
+        ]);
+
+        return null;
+    }
+
+    if (($pending['processed'] ?? false) === true) {
+        \Log::info('Paymera callback replay ignored: this payment already produced an order', [
+            'paymera_reference' => $orderId,
+            'order_id' => $pending['order_id'] ?? null,
+        ]);
+
+        return null;
+    }
+
+    return $pending;
 }
 
 
@@ -845,6 +929,25 @@ public function handlePaymeraTrigger($orderId)
 
         if ($lock->get()) {
             try {
+                /*
+                 * RE-CHECK UNDER THE LOCK -- see freshPaymeraPendingOrNull().
+                 * The pre-lock test at the top of this method and this use of
+                 * the record straddled the lock, so a browser callback that
+                 * finished first did not stop this trigger creating a second
+                 * order for the same payment.
+                 */
+                $fresh = $this->freshPaymeraPendingOrNull($orderId);
+
+                if ($fresh === null) {
+                    return response()->json([
+                        'status' => 'A',
+                        'ok' => true,
+                        'product_order_id' => $pending['product_order_id'] ?? null,
+                    ]);
+                }
+
+                $pending = $fresh;
+
                 $pending['status'] = 'A';
                 Cache::put('paymera_pending_' . $orderId, $pending, now()->addHours(2));
 
@@ -3229,6 +3332,59 @@ $result = app(\App\Services\StoreNotificationService::class)
             $order->final_price,
             __METHOD__
         );
+        /*
+         * TRANSACTION BOUNDARY -- OPENS HERE.
+         *
+         * THE DEFECT. This is the THIRD order writer, and the only one that
+         * still had no transaction: the twins in
+         * PaymentController::getProductStatus() (:2207) and
+         * PaymentService::getProductStatus() (:2614) each got a boundary, this
+         * one did not, although it writes the Order row plus the same FOUR
+         * child tables in the same way -- OrderBillingDetail,
+         * OrderCouponDetail, UserCoupon and OrderTaxDetail, each saved on its
+         * own. A failure part-way left an order with no billing address, or a
+         * coupon marked consumed with no OrderCouponDetail recording what it
+         * was consumed for, or the reverse -- a coupon recorded as applied to
+         * the order but never marked used, so redeemable again. It also
+         * auto-creates City rows (billing and delivery), which were likewise
+         * uncommitted siblings.
+         *
+         * WHAT THIS COVERS. Every LOCAL write from the order row through the
+         * last OrderTaxDetail row. They now commit together or not at all.
+         *
+         * WHAT THIS DOES NOT COVER, stated precisely rather than implied:
+         *
+         *  1. The stock loop and the per-line cart deletion above are OUTSIDE
+         *     it, deliberately. That loop calls Utility::sendEmailTemplate and
+         *     Utility::SendMsgs -- SMTP and SMS -- on its low-stock and
+         *     back-in-stock branches. Holding row locks across a third party's
+         *     response time is a worse defect than the one being fixed, so
+         *     inventory is COMPENSATED in the catch instead of rolled back,
+         *     via the $appliedStockChanges accumulator the loop already keeps.
+         *
+         *  2. The cart rows deleted inside that loop are NOT restored. They go
+         *     before this boundary opens and recreating them would mean
+         *     reconstructing cart state this method no longer holds. A failed
+         *     order therefore still empties the cart. Unchanged, pre-existing
+         *     behaviour, reported rather than hidden.
+         *
+         *  3. NOTHING EXTERNAL IS INSIDE. In particular there is no gateway
+         *     call here at all -- whatsapp() builds a wa.me URL, it does not
+         *     POST to anyone -- so the boundary wraps local writes only, which
+         *     is the rule the other two boundaries follow.
+         *
+         * The exception is RE-THROWN, so the caller sees exactly what it saw
+         * before: this adds atomicity and stock compensation without changing
+         * the happy path or the failure response.
+         *
+         * The body below is NOT re-indented. A 170-line reindent of a 3,500-line
+         * file that five agents are editing concurrently is a merge hazard that
+         * buys nothing: PHP does not read indentation, and the begin/commit
+         * markers delimit the block unambiguously.
+         */
+        \Illuminate\Support\Facades\DB::beginTransaction();
+
+        try {
         $order->save();
         // add in  Order table end
         if (module_is_active('CheckoutAttachment')) {
@@ -3400,6 +3556,26 @@ $result = app(\App\Services\StoreNotificationService::class)
                     $OrderTaxDetail->save();
                 }
             }
+        }
+
+            \Illuminate\Support\Facades\DB::commit();
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\DB::rollBack();
+
+            // Compensate the inventory this request consumed before the
+            // boundary opened. Without this a failed order write left stock
+            // decremented with no order to account for it.
+            $this->restoreStockDecrements($appliedStockChanges);
+
+            \Log::critical('Order write failed and was rolled back; stock decrements were given back', [
+                'site' => __METHOD__,
+                'store_id' => $store->id ?? null,
+                'payment_type' => $requests_data['payment_type'] ?? null,
+                'restored_lines' => count($appliedStockChanges),
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
         }
 
         //activity log
