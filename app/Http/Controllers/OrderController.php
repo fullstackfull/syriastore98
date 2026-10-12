@@ -140,6 +140,66 @@ public function store(Request $request)
 
         $orderNumber = 'ORD-' . strtoupper(uniqid()) . '-' . rand(1000, 9999);
 
+        /*
+         * SERVER-DERIVED TOTAL.
+         *
+         * THE DEFECT. `final_price` was persisted straight from the request --
+         * `'final_price' => $request->final_price` -- and was never compared
+         * against the lines it is supposed to be the total of. The loop above
+         * already builds $totalProductPrice from the Product rows, so the
+         * authoritative figure was being computed and then thrown away in favour
+         * of whatever the browser posted. An order whose total disagreed with its
+         * own line items was accepted silently, and `coupon_price` is hardcoded
+         * to 0 here so there was not even a discount field to explain a
+         * difference.
+         *
+         * THE FIX. The total is recomputed from its components and the computed
+         * value is what is stored, so Laravel is the source of truth. The posted
+         * figure is still reconciled against the computed one, so a divergence is
+         * MEASURED rather than silently discarded -- that log is how a mismatched
+         * admin form gets found.
+         *
+         * This wires App\Services\OrderTotalReconciler, which already existed
+         * and whose own docblock (OrderTotalReconciler.php:202-212) names this
+         * exact method as "what the merchant-admin order writer needs and does
+         * not have". It had no caller here at all. No second total engine is
+         * introduced.
+         *
+         * WHAT IS STILL REQUEST-SUPPLIED, and reported rather than changed:
+         * each line's unit `price` ($item['price']), plus `delivery_price` and
+         * `tax_price`. On a MANUAL admin order those are legitimately
+         * merchant-entered -- manual pricing, a negotiated shipping charge --
+         * so overriding them from the catalogue would break the feature. They
+         * are validated as numeric and non-negative by the validator above. The
+         * TOTAL, however, is arithmetic, and arithmetic is not an opinion.
+         */
+        $reconciler = app(\App\Services\OrderTotalReconciler::class);
+
+        $totalComponents = [
+            'product_price' => $totalProductPrice,
+            'delivery_price' => $request->delivery_price ?? 0,
+            'tax_price' => $request->tax_price ?? 0,
+            'coupon_price' => 0,
+        ];
+
+        $reconciliation = $reconciler->reconcile($totalComponents, $request->final_price);
+
+        if (!$reconciliation['matches']) {
+            \Log::warning('Manual order total did not match its components; the computed total was stored', [
+                'site' => __METHOD__,
+                'reason' => $reconciliation['reason'],
+                'computed' => $reconciliation['expected'],
+                'posted' => $reconciliation['claimed'],
+                'difference' => $reconciliation['difference'],
+                'store_id' => $storeId,
+            ]);
+        }
+
+        // Fall back to the posted value ONLY if a component was not
+        // representable at all, in which case there is no computed total to
+        // prefer and behaviour is left exactly as it was.
+        $serverFinalPrice = $reconciliation['expected'] ?? $request->final_price;
+
         $order = \App\Models\Order::create([
             'product_order_id' => $orderNumber,
             'order_date' => now(),
@@ -151,8 +211,20 @@ public function store(Request $request)
             'delivery_price' => $request->delivery_price ?? 0,
             'tax_price' => $request->tax_price ?? 0,
             'coupon_price' => 0,
-            'final_price' => $request->final_price,
+            // The computed total, not the posted one. See the block above.
+            'final_price' => $serverFinalPrice,
             'payment_type' => $request->payment_type,
+            /*
+             * REPORTED, NOT CHANGED, and the reason matters. On every OTHER
+             * writer a literal 'Paid' was a false claim because nothing had
+             * asked a gateway whether money moved -- that is why
+             * PaymentVerificationService exists. Here it is different: this is
+             * a MANUAL order an authenticated merchant is entering, so
+             * payment_status is the merchant ASSERTING an out-of-band fact
+             * ("I have the cash"), not the platform inferring a gateway result.
+             * It is already constrained to the Paid/Unpaid vocabulary by the
+             * validator above, so it is left as the merchant's statement.
+             */
             'payment_status' => $request->payment_status,
             'delivered_status' => 0,
             'return_status' => 0,
