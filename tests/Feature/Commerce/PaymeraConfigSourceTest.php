@@ -16,12 +16,18 @@ use Tests\TestCase;
  * `config('services.paymera.*')` lookup in the codebase resolved to null. Two of
  * those lookups matter:
  *
- *   - PaymentController::paymeraStatusCredential() reads
- *     config('services.paymera.username'). That key has never existed, and it
- *     dates to the initial commit (3c39c160), so the status poll could never
- *     authenticate in any deployment. The real per-store credential is a
- *     SETTING -- Utility::GetValueByName('PAYMERA_USERNAME', $store->id), used
- *     by PaymentService.php:383 -- not an env var.
+ *   - PaymentController::paymeraStatusCredential() read
+ *     config('services.paymera.username') AND NOTHING ELSE. That key has never
+ *     existed, and it dates to the initial commit (3c39c160), so the status poll
+ *     could never authenticate in any deployment. The real per-store credential
+ *     is a SETTING -- Utility::GetValueByName('PAYMERA_USERNAME', $store->id),
+ *     used by PaymentService.php:340 and :428 -- not an env var.
+ *
+ *     UPDATED IN THE STABILIZATION PHASE: the SOURCE is now corrected -- the
+ *     per-store setting first, this global key only as a fallback. See
+ *     PaymeraStatusCredentialSourceTest. This suite's job is unchanged: it
+ *     asserts that the global key still carries NO VALUE, which is now a
+ *     statement about the fallback rather than about the only source.
  *
  *   - PaymentVerificationService::paymeraSignatureIsRequired() reads
  *     config('services.paymera.require_callback_signature') and DEFAULTS TO
@@ -37,9 +43,12 @@ use Tests\TestCase;
  * "helpfully" filled in later.
  *
  * WHAT IS NOT PROVEN, and must not be. Nothing here asserts that Paymera
- * checkout works. It does not: the signature scheme is GATE G(4) and the status
- * credential is pointed at a key that is not the real source. Both remain open
- * and are reported, not papered over.
+ * checkout works. It does not: the callback signature scheme is GATE G(4), is
+ * unconfigured, and `require_callback_signature` defaults TRUE, so every Paymera
+ * callback is still rejected after the status poll. Correcting the credential
+ * SOURCE (see above) does not change that and does not open checkout. Whether
+ * Paymera accepts that credential on its status API is likewise unverified --
+ * no Paymera host is reachable from this container and none was contacted.
  */
 class PaymeraConfigSourceTest extends TestCase
 {

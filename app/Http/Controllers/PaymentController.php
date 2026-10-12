@@ -448,21 +448,66 @@ public const PAYMERA_STATUS_UNAUTHENTICATED = '__paymera_status_unauthenticated'
 /**
  * The bearer credential for Paymera's status API, or null when there isn't one.
  *
- * NEW-paymera-poll-unauthenticated. `config('services.paymera.username')` was
- * read directly into an Authorization header, and there is NO `paymera` block
- * anywhere under `config/` — `grep -rn paymera config/` returns nothing. So the
- * header that went out was the literal string "Bearer " with an empty
- * credential, and every status poll was unauthenticated.
+ * THE CONFIGURATION-SOURCE DEFECT, now corrected.
  *
- * That matters because the response of that call is the ONLY thing deciding
- * whether the order is created: whatever an unauthenticated endpoint chose to
- * return was treated as Paymera's authoritative word on whether money moved.
+ * This read `config('services.paymera.username')` and nothing else. That key
+ * has never existed in any deployment -- it dates to the initial commit
+ * (3c39c160) -- so the credential was always null, the poll always abandoned,
+ * and PAYMERA CHECKOUT COULD NEVER COMPLETE. Not "was broken recently": could
+ * not complete, ever.
  *
- * Never logs or returns the credential's value — only whether one is present.
+ * Meanwhile the credential the merchant actually fills in is a PER-STORE
+ * SETTING, not an env var:
+ *
+ *     Utility::GetValueByName('PAYMERA_USERNAME', $store->id)
+ *
+ * which is what PaymentService::processPaymera() already uses to authorise the
+ * CREATE-payment call (PaymentService.php:340, :428), what the settings screen
+ * writes (PaymentSettingController.php:177-178 lists PAYMERA_TERMINAL_ID and
+ * PAYMERA_USERNAME as Paymera's required_fields) and what Setting.php:1059-1074
+ * reads back per store. A single global env var cannot express a per-store
+ * credential on a shared-database multi-tenant platform, so the env key was
+ * never going to be right.
+ *
+ * So the SOURCE is corrected: the per-store setting first, the global config key
+ * only as a fallback for a single-tenant deployment that had set it. No
+ * credential value is invented, written or printed here, and no live credential
+ * is changed -- this reads the value the merchant already saved.
+ *
+ * WHY THIS CANNOT BY ITSELF CAUSE A PAID ORDER, which is the question a reviewer
+ * should ask of any change to a payment path. The callback verifies in this
+ * order: poll (here), then verifyPaymeraPayment() -- amount AND signature.
+ * `services.paymera.require_callback_signature` defaults TRUE and the signature
+ * scheme is unconfigured (GATE G(4)), so verifyPaymeraSignature() returns
+ * UNVERIFIABLE and the callback is still REJECTED after this. The net effect of
+ * this change is therefore that the status poll now authenticates instead of
+ * sending an empty bearer token. It does not open checkout.
+ *
+ * NOT VERIFIED, and not claimed to be: nothing here establishes that Paymera
+ * accepts this credential as a bearer token, or that PAYMERA_USERNAME is the
+ * right field for the status API rather than only for the create call. No
+ * Paymera host is reachable from this container. The flag
+ * `services.paymera.status_credential_from_store_setting` exists so the owner
+ * can switch this back to the old global-only lookup without a code change.
+ *
+ * Never logs or returns the credential's value -- only whether one is present.
+ *
+ * @param mixed $storeId The store the payment belongs to. Null falls back to the
+ *                       global key only, which is the pre-existing behaviour.
  */
-private function paymeraStatusCredential(): ?string
+private function paymeraStatusCredential($storeId = null): ?string
 {
-    $credential = config('services.paymera.username');
+    $credential = null;
+
+    if (!empty($storeId) && (bool) config('services.paymera.status_credential_from_store_setting', true)) {
+        $credential = \App\Models\Utility::GetValueByName('PAYMERA_USERNAME', $storeId);
+    }
+
+    if (!is_string($credential) || trim($credential) === '') {
+        // Fallback for a single-tenant deployment that set the env var, and the
+        // only source when no store is in scope.
+        $credential = config('services.paymera.username');
+    }
 
     if (!is_string($credential) || trim($credential) === '') {
         return null;
@@ -479,22 +524,31 @@ private function paymeraStatusCredential(): ?string
  * mistaken for a successful capture. The previous behaviour — send an empty
  * bearer token and trust the reply — is gone.
  *
- * Note for the owner, reported rather than changed because it is a deployment
- * decision: the host below is `egate-t.paymera.cc`, which is Paymera's TEST
- * gateway. It is hardcoded, so there is no way to point production at the live
- * gateway without editing this line.
+ * THE GATEWAY HOST. `egate-t.paymera.cc` is Paymera's TEST gateway and it was
+ * HARDCODED here, so there was no way to point production at the live gateway
+ * without editing this line. It now comes from
+ * `services.paymera.status_base_url`, whose default is that exact host, so
+ * behaviour is unchanged until the owner sets the key. Which host is correct for
+ * production is Paymera's to say and is NOT guessed.
+ *
+ * @param mixed $storeId The store whose per-store credential to use. See
+ *                       paymeraStatusCredential().
  */
-public function pollPaymentStatus($paymentId)
+public function pollPaymentStatus($paymentId, $storeId = null)
 {
-    $credential = $this->paymeraStatusCredential();
+    $credential = $this->paymeraStatusCredential($storeId);
 
     if ($credential === null) {
         \Log::critical('Paymera status poll ABANDONED: no API credential is configured', [
             'payment_id' => $paymentId,
-            'config_key' => 'services.paymera.username',
-            'note' => 'There is no paymera block under config/ at all, so this header '
-                . 'was previously sent as an empty bearer token and the reply to an '
-                . 'unauthenticated request was treated as authoritative.',
+            'store_id' => $storeId,
+            'sources_tried' => [
+                'per-store setting PAYMERA_USERNAME',
+                'config services.paymera.username',
+            ],
+            'note' => 'Neither source holds a credential, so the header would have been '
+                . 'sent as an empty bearer token and the reply to an unauthenticated '
+                . 'request treated as authoritative. No value is logged.',
         ]);
 
         return ['status' => self::PAYMERA_STATUS_UNAUTHENTICATED];
@@ -504,7 +558,12 @@ public function pollPaymentStatus($paymentId)
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $credential,
             'Accept'        => 'application/json',
-        ])->timeout(30)->get('https://egate-t.paymera.cc/api/payment-status/' . $paymentId);
+        ])->timeout(30)->get(
+            rtrim(
+                (string) config('services.paymera.status_base_url', 'https://egate-t.paymera.cc'),
+                '/'
+            ) . '/api/payment-status/' . $paymentId
+        );
     } catch (\Throwable $e) {
         // An unreachable gateway is not a successful payment.
         \Log::error('Paymera status poll failed', [
@@ -556,8 +615,12 @@ public function handlePaymeraCallback(Request $request, string $orderId)
      * استخدم نفس شرط النجاح القديم الذي كان يعمل عندك.
      * لا تغيّر آلية التحقق الآن.
      */
+    // The store is passed so the PER-STORE credential is used. See
+    // paymeraStatusCredential(): the global config key it used to read alone has
+    // never existed in any deployment.
     $statusData = $this->pollPaymentStatus(
-        $pending['payment_id']
+        $pending['payment_id'],
+        $pending['request_data']['store_id'] ?? null
     );
 
     /*
@@ -910,7 +973,10 @@ public function handlePaymeraTrigger($orderId)
         ]);
     }
 
-    $statusData = $this->pollPaymentStatus($pending['payment_id']);
+    $statusData = $this->pollPaymentStatus(
+        $pending['payment_id'],
+        $pending['request_data']['store_id'] ?? null
+    );
 
     if (($statusData['status'] ?? null) == 'A') {
         // Same verification as the browser callback, same single copy, before
