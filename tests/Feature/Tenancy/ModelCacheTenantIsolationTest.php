@@ -210,22 +210,65 @@ class ModelCacheTenantIsolationTest extends TestCase
     }
 
     /**
-     * The guard on the guard: if someone enables the scope while this gate is still skipped, this
-     * test fails and says why. It needs no cache package and no database introspection, so it
-     * runs even in the blocked environment.
+     * The guard on the guard: the ALL-MODELS flip must stay off.
+     *
+     * THIS ASSERTION WAS DELIBERATELY RE-SCOPED, AND THE CHANGE IS DECLARED RATHER THAN SLIPPED
+     * IN. It previously read as "the scope must not be enabled at all", and that reading is now
+     * out of date in one direction and still correct in the other:
+     *
+     *   - STILL CORRECT, and still asserted below: `StoreScope::$enabled` turns the predicate on
+     *     for EVERY model carrying the trait at once. That remains unsafe and remains off. The
+     *     measurement behind it is unchanged -- 785 of the 1,282 existing `where('store_id', ...)`
+     *     filters pass a store id other than the current one, and against those a current-store
+     *     scope compiles `store_id = A AND store_id = B`, i.e. zero rows.
+     *
+     *   - OUT OF DATE: it implied that NOTHING may be enforced until that whole-codebase audit is
+     *     finished. That is too strong, and following it literally is what left tenancy inert.
+     *     The audit does not have to be global to be sound -- it has to be complete FOR THE MODEL
+     *     BEING ENABLED. `config/tenancy.php` now carries a per-model allowlist, and each of the
+     *     six models on it was audited individually: every insert path populates `store_id`, no
+     *     call site filters it by a foreign store id, and it is not reachable through the admin
+     *     API's request-supplied `store_id` path. tests/Feature/Tenancy/EnforcedModelIsolationTest
+     *     proves read, update, delete and bulk-delete isolation for each one under the SHIPPED
+     *     configuration, with no test-only flag set.
+     *
+     * So the property this test protects is kept and made more precise: the blanket flip stays
+     * off, AND the allowlist must stay a small reviewed list rather than quietly growing into the
+     * blanket flip by another name.
      */
-    public function test_scope_must_not_be_enabled_while_this_gate_is_unproven(): void
+    public function test_the_all_models_flip_must_stay_off_in_favour_of_the_per_model_allowlist(): void
     {
         $this->assertFalse(
             StoreScope::$enabled,
-            'App\\Scopes\\StoreScope::$enabled is TRUE. The model-cache half of GATE G2 now PASSES '
-            . '(see the proof above), but that was never the only reason the scope is off, and '
-            . 'passing it does NOT authorise enabling the scope. The larger unresolved risk is '
-            . 'measured in App\\Scopes\\StoreScope: 780 of the 1,261 existing where(store_id) '
-            . 'filters pass a FOREIGN store id, and against those a scope keyed on the CURRENT '
-            . 'store compiles `store_id = A AND store_id = B`, i.e. zero rows -- a storefront and '
-            . 'an API that return empty rather than error. Enabling the scope requires that '
-            . 'call-site audit, not this cache proof.'
+            'App\\Scopes\\StoreScope::$enabled is TRUE, which enables the predicate on EVERY model '
+            . 'carrying the trait at once. 785 of the 1,282 existing where(store_id) filters pass '
+            . 'a FOREIGN store id, and against those the scope compiles `store_id = A AND '
+            . 'store_id = B` -- zero rows, so a storefront and an API that return empty rather '
+            . 'than error. Enable models one at a time through config/tenancy.php `scoped_models` '
+            . 'instead, and audit each one before you add it.'
+        );
+
+        $this->assertFalse(StoreScope::isActive());
+
+        // The allowlist is the supported path, and it must stay a REVIEWED list. This is not a
+        // cap on how many models may ever be enforced -- it is a tripwire so that a batch large
+        // enough to be the blanket flip in disguise gets a deliberate look, and a new batch
+        // updates this number along with the evidence for it.
+        $allowlisted = StoreScope::allowlistedModels();
+
+        $this->assertNotEmpty(
+            $allowlisted,
+            'Nothing is allowlisted, so tenant isolation is enforced nowhere.'
+        );
+
+        $this->assertLessThanOrEqual(
+            12,
+            count($allowlisted),
+            'The allowlist has grown past the reviewed batch size (currently ' . count($allowlisted)
+            . ' entries: ' . implode(', ', $allowlisted) . '). Each entry needs the four-point '
+            . 'audit recorded in config/tenancy.php and cross-tenant proofs in '
+            . 'EnforcedModelIsolationTest. If this batch really is audited, raise this number in '
+            . 'the same commit as the evidence.'
         );
     }
 }
