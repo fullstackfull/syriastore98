@@ -292,8 +292,96 @@ class PayHereRemovedTest extends PlanPaymentTestCase
     }
 
     // -----------------------------------------------------------------------------------------
+    // 5. THE REFUSAL IS UNCONDITIONAL, NOT A SIDE EFFECT OF THE MISSING CLASS.
+    // -----------------------------------------------------------------------------------------
+
+    /**
+     * WHY THIS IS A SOURCE ASSERTION AND NOT A RUNTIME ONE.
+     *
+     * While the package is absent, the class_exists() guards refuse these paths all by
+     * themselves -- so deleting the deliberate refusal changes NO observable behaviour and
+     * every runtime test above keeps passing. That makes the behavioural tests blind to
+     * exactly the property the owner asked for: refuse because the integration is retired,
+     * not because a class happens to be missing.
+     *
+     * The only way to detect it while the class is unloadable is to assert the ORDER of the two
+     * guards in the source, which is what this does. It is the same technique
+     * PlanPaymentInitiatorAvailabilityTest uses for guard placement on this controller.
+     *
+     * COMMENTS ARE STRIPPED FIRST. Both methods' own comments discuss class_exists() by name, so
+     * a naive substring search over the raw source matches the prose and reports the opposite of
+     * the truth. That trap has already caught this project once.
+     */
+    public function test_both_payhere_paths_refuse_before_they_check_for_the_class(): void
+    {
+        $targets = [
+            'PaymentService::processPayHere' => [
+                app_path('Services/PaymentService.php'),
+                'function processPayHere',
+            ],
+            'PayHerePaymnetController::planPayWithPayHere' => [
+                app_path('Http/Controllers/PayHerePaymnetController.php'),
+                'function planPayWithPayHere',
+            ],
+        ];
+
+        foreach ($targets as $label => [$path, $needle]) {
+            $src = $this->codeWithoutComments((string) file_get_contents($path));
+
+            $start = strpos($src, $needle);
+            $this->assertNotFalse($start, $label . ' has been renamed or removed.');
+
+            $body = substr($src, $start);
+
+            $refusal = strpos($body, 'the integration is retired');
+            $guard   = strpos($body, 'class_exists');
+
+            $this->assertNotFalse(
+                $refusal,
+                $label . ' no longer contains the deliberate retired-integration refusal. The '
+                . 'class_exists() guard alone is NOT the owner\'s disable: it refuses because a '
+                . 'package is missing, so a tree that vendored the SDK back in would resume '
+                . 'charging through a retired gateway.'
+            );
+
+            $this->assertNotFalse($guard, $label . ' lost its class_exists() second line of defence.');
+
+            $this->assertLessThan(
+                $guard,
+                $refusal,
+                $label . ' checks for the class BEFORE it refuses, which makes the refusal '
+                . 'conditional on the SDK being absent. The deliberate refusal must come first '
+                . 'and be unconditional; class_exists() is only the fallback behind it.'
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
     // Helpers.
     // -----------------------------------------------------------------------------------------
+
+    private function codeWithoutComments(string $src): string
+    {
+        $out = '';
+
+        foreach (token_get_all($src) as $token) {
+            if (is_array($token)) {
+                if (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                    $out .= str_repeat("\n", substr_count($token[1], "\n"));
+
+                    continue;
+                }
+
+                $out .= $token[1];
+
+                continue;
+            }
+
+            $out .= $token;
+        }
+
+        return $out;
+    }
 
     private function composerJson(): array
     {
