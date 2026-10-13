@@ -11,9 +11,11 @@ use App\Models\PlanCoupon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class IyziPayController extends Controller
 {
+    use GuardsPlanActivation;
     //
 
 
@@ -122,6 +124,11 @@ class IyziPayController extends Controller
 
     public function iyzipayCallback(Request $request, $planID, $price, $coupanCode = null)
     {
+        // FAIL CLOSED FIRST. This handler had NO gate whatsoever: it wrote the PlanOrder and
+        // called assignPlan() unconditionally, with the plan AND the price taken from route
+        // parameters and the USER taken from $request->user_id. See config/payments.php.
+        $this->assertPlanActivationEnabled('iyzipay', $planID);
+
         $plan = Plan::find($planID);
         // $user = $request->user_id;
         $user = User::find($request->user_id);

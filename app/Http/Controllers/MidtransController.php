@@ -31,9 +31,11 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\Crypt;
 use Session;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class MidtransController extends Controller
 {
+    use GuardsPlanActivation;
     public function paywithMidtrans(Request $request)
     {
         $payment_setting = getSuperAdminAllSetting();
@@ -188,6 +190,13 @@ class MidtransController extends Controller
 
     public function planGetMidtransStatus(Request $request)
     {
+        // FAIL CLOSED FIRST. The gate below reads status_code out of a JSON document the
+        // BROWSER posts back (the Snap.js client result), and the plan is taken from
+        // $request['plan_id'] while the order that gets flipped to 'succeeded' is found by
+        // $request['order_id'] -- two independent caller-supplied values. See
+        // config/payments.php.
+        $this->assertPlanActivationEnabled('midtrans', $request->input('plan_id'));
+
         $response = json_decode($request->json, true);
         if (isset($response['status_code']) && $response['status_code'] == 200) {
             $plan = Plan::find($request['plan_id']);

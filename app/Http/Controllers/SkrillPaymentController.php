@@ -29,9 +29,11 @@ use App\Models\Product;
 use App\Models\Setting;
 use App\Models\UserCoupon;
 use Illuminate\Support\Facades\Crypt;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class SkrillPaymentController extends Controller
 {
+    use GuardsPlanActivation;
     public $email;
     public $is_enabled;
 
@@ -188,6 +190,14 @@ class SkrillPaymentController extends Controller
 
     public function getPaymentStatus(Request $request, $plan)
     {
+        // FAIL CLOSED FIRST. The gate below is `session()->has('skrill_data')` -- Yookassa's
+        // defect exactly. That key is written by the INITIATOR at :176, before the browser ever
+        // leaves for Skrill, so an ABANDONED checkout satisfies it; the initiator also registers
+        // the cancel_url as the SAME route as the return_url. And the plan is taken from
+        // $request->ORDERID while the price comes from the session, so a cheap checkout's amount
+        // can be recorded against an expensive plan. See config/payments.php.
+        $this->assertPlanActivationEnabled('skrill', $request->input('ORDERID'));
+
         $this->paymentConfig();
         $planID  = decrypt($plan);
         $plan_id               = $request->ORDERID;

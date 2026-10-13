@@ -12,9 +12,11 @@ use Http;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class MercadoPaymentController extends Controller
 {
+    use GuardsPlanActivation;
     //
     public $token;
     public $is_enabled;
@@ -160,6 +162,10 @@ class MercadoPaymentController extends Controller
 
     public function getPaymentStatus(Request $request, $plan)
     {
+        // FAIL CLOSED FIRST. The gate below is `$request->status == 'approved' &&
+        // $request->flag == 'success'` -- two query parameters -- and this route takes the plan
+        // id UNENCRYPTED. See config/payments.php.
+        $this->assertPlanActivationEnabled('mercado', $plan);
 
         $this->paymentConfig();
         $planID = $plan;

@@ -20,6 +20,40 @@ class PayHerePaymnetController extends Controller
 
     public function planPayWithPayHere(Request $request)
     {
+        // THE INITIATOR CANNOT RUN AT ALL, SO SAY SO INSTEAD OF RAISING A 500.
+        //
+        // :92 calls PayHere::checkOut(), and Lahirulhr\PayHere\PayHere is absent from vendor/ --
+        // measured, not assumed:
+        //     php -r '... class_exists("Lahirulhr\PayHere\PayHere")'  =>  false
+        //     ls vendor/lahirulhr                                     =>  No such file or directory
+        // A missing class raises \Error, which is a Throwable but NOT an \Exception, so the
+        // catch below (widened to \Throwable in the same change) never saw it and a merchant who
+        // clicked "pay with PayHere" got an uncaught 500.
+        //
+        // lahirulhr/laravel-payhere is externally blocked rather than merely uninstalled: its
+        // pinned commit no longer exists upstream and all eight published versions resolve to
+        // two GitHub repositories that answer neither a zipball fetch nor an unauthenticated
+        // git ls-remote. So this is the permanent state of this deployment, not a transient
+        // vendor gap.
+        //
+        // This is the same redirect-with-error the method already produces when the plan has
+        // been deleted, and it runs BEFORE the coupon lookup, the config() write and the hash
+        // computation, so a purchase that cannot proceed leaves no side effect behind.
+        //
+        // NOT A SECURITY CHANGE, and not a substitute for one: the free-activation gate for
+        // this provider is assertPlanActivationEnabled('payhere') on the RETURN handler at
+        // :134, where it belongs, and payhere remains shipped-disabled in config/payments.php.
+        // An initiator that 500s is a broken checkout, not an open door.
+        if (! class_exists(PayHere::class)) {
+            \Log::warning('PayHere plan checkout refused: the PayHere SDK is not installed.', [
+                'class'   => PayHere::class,
+                'user_id' => optional(\Auth::user())->id,
+            ]);
+
+            return redirect()->route('plan.index')
+                ->with('error', __('This payment method is not available for subscription purchases.'));
+        }
+
         try {
         $user = User::find(\Auth::user()->id);
         $planID = \Illuminate\Support\Facades\Crypt::decrypt($request->plan_id);
@@ -106,7 +140,11 @@ class PayHerePaymnetController extends Controller
         } else {
             return redirect()->route('plan.index')->with('error', __('Plan is deleted.'));
         }
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
+        // \Throwable, not \Exception: a missing class or a bad method call raises \Error, which
+        // does not extend \Exception, so the narrower catch let those out as a 500. The
+        // class_exists() guard above handles the one case known to occur here; this widening is
+        // what stops the NEXT one from reaching the merchant as a stack trace.
         \Log::debug($e->getMessage());
         return redirect()->route('plan.index')->with('error', $e->getMessage());
     }

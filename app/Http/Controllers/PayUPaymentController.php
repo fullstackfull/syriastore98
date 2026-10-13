@@ -19,9 +19,11 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Cache;
 use App\Traits\ApiResponser;
 use Illuminate\Support\Facades\Cookie;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class PayUPaymentController extends Controller
 {
+    use GuardsPlanActivation;
     use ApiResponser;
 
     public function planPayWithPayU(Request $request)
@@ -93,6 +95,13 @@ class PayUPaymentController extends Controller
 
     public function planGetPayUStatus(Request $request, $plan_id)
     {
+        // FAIL CLOSED FIRST. The gate below is `$data['status'] == 'true'`, read from a blob
+        // this server sealed at checkout start -- and plans/payu_request.blade.php:14 renders
+        // that surl into a hidden input in the caller's own browser, so they hold it before
+        // paying. PayU's reverse hash is never recomputed here (generateHash is outbound-only).
+        // See config/payments.php.
+        $this->assertPlanActivationEnabled('payu', $plan_id);
+
         $data = Crypt::decrypt($request->data);
         $orderID = $data['order_id'];
         Session::forget($data['order_id']);
