@@ -179,17 +179,28 @@ class PlatformApiClient
      *
      * @return array{id:int,email:string}
      */
-    public function createUser(string $name, string $email, string $password): array
+    public function createUser(string $name, string $email, string $password, array $customAttributes = []): array
     {
-        $body = $this->send('post', '/platform/api/v1/users', [
+        $payload = [
             'name' => $name,
             'email' => $email,
             'password' => $password,
-        ]);
+        ];
+
+        if ($customAttributes !== []) {
+            $payload['custom_attributes'] = $customAttributes;
+        }
+
+        $body = $this->send('post', '/platform/api/v1/users', $payload);
 
         return [
             'id' => $this->requireInt($body, 'id'),
             'email' => (string) ($body['email'] ?? $email),
+            // UPSTREAM APPLIES THE PARAMS ONLY WHEN IT CREATES. For an address that already
+            // exists it returns the EXISTING user untouched, so these attributes come back
+            // only if this integration is the one that made it. That is what lets the caller
+            // tell "we created this" from "somebody got here first" -- see AccountProvisioner.
+            'custom_attributes' => (array) ($body['custom_attributes'] ?? []),
         ];
     }
 

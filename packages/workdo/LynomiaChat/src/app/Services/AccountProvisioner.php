@@ -187,8 +187,29 @@ class AccountProvisioner
                     // exists because the upstream endpoint requires a password field. A
                     // resumed attempt generates a different one, which changes nothing:
                     // upstream ignores it for a user that already exists.
-                    Str::password(32)
+                    Str::password(32),
+                    $marker = $this->marker($store)
                 );
+
+                // THE "CANNOT BELONG TO A REAL PERSON" CLAIM IS NOW CHECKED, NOT ASSERTED.
+                //
+                // POST /platform/api/v1/users resolves `User.from_email(...) || User.new(...)`
+                // and grants this app a permissible on whatever it resolved -- the documented
+                // takeover primitive. The service address is derived from public facts (a
+                // store id and the installation host), so on an installation with open signup
+                // somebody can register it first and simply wait. The adopted user would then
+                // be attached to the new workspace as an ADMINISTRATOR.
+                //
+                // Upstream applies the submitted params only on the create path, so the
+                // marker comes back only when this integration is the thing that made the
+                // user. Absent means somebody got there first, and the right answer is to
+                // stop -- loudly, with the workspace already recorded so nothing is orphaned.
+                if (! $this->matchesMarker(['custom_attributes' => $user['custom_attributes']], $marker)) {
+                    throw new LynomiaApiException(
+                        LynomiaApiException::KIND_CONFLICT,
+                        'The service identity for this store is already in use. Please contact support.'
+                    );
+                }
 
                 $this->record($link, [
                     'lynomia_user_id' => $user['id'],

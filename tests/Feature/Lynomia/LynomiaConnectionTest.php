@@ -255,7 +255,17 @@ class LynomiaConnectionTest extends TestCase
             return match (true) {
                 $key === 'GET /platform/api/v1/accounts' => Http::response($inventory, 200),
                 $key === 'POST /platform/api/v1/accounts' => Http::response(['id' => $accountId, 'name' => 'WS'], 200),
-                $key === 'POST /platform/api/v1/users' => Http::response(['id' => $userId, 'email' => 'x@y.z'], 200),
+                // Upstream echoes the submitted custom_attributes only when it CREATES the
+                // user; for an address that already exists it returns that user untouched.
+                // `squatted_user` scripts the second case, which is what the provisioner has
+                // to be able to tell apart.
+                $key === 'POST /platform/api/v1/users' => Http::response(array_filter([
+                    'id' => $userId,
+                    'email' => 'x@y.z',
+                    'custom_attributes' => ($this->lynomiaScript['squatted_user'] ?? false)
+                        ? null
+                        : (json_decode($request->body(), true)['custom_attributes'] ?? []),
+                ], static fn ($value) => $value !== null), 200),
                 $key === "POST /platform/api/v1/accounts/{$accountId}/account_users" => Http::response(['id' => 1], 200),
                 $key === "GET /platform/api/v1/users/{$userId}/login" => Http::response(
                     ['url' => self::FAKE_BASE . '/app/login?email=x&sso_auth_token=SECRET'],
@@ -1728,5 +1738,55 @@ class LynomiaConnectionTest extends TestCase
         // The successor's own release still works.
         $release->invoke($provisioner, $link, $successor);
         $this->assertNull($link->fresh()->provisioning_started_at);
+    }
+
+    /**
+     * The class docblock rests on the service address not belonging to a real person, and the
+     * address is derived from public facts: a store id and the installation host. On an
+     * installation with open signup somebody can register it first and wait. Upstream would
+     * then resolve THEIR user, grant this app a permissible on it, and attach it to the new
+     * workspace as an administrator.
+     */
+    public function test_provisioning_stops_if_the_service_identity_was_taken_first(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+        $this->fakeLynomia(['squatted_user' => true]);
+
+        try {
+            app(AccountProvisioner::class)->provision($store, $owner);
+            $this->fail('provisioning adopted a user it did not create');
+        } catch (LynomiaApiException $e) {
+            $this->assertSame(LynomiaApiException::KIND_CONFLICT, $e->kind);
+        }
+
+        // It stops BEFORE attaching, so the squatter is never made an administrator.
+        $this->assertSame(0, $this->sentCount('POST', '/account_users'));
+
+        // The workspace it already created is recorded, so nothing is orphaned and an
+        // operator resuming after clearing the squatter picks up from here.
+        $link = LynomiaStoreLink::forStore((int) $store->id)->first();
+        $this->assertSame(7001, (int) $link->lynomia_account_id);
+        $this->assertNull($link->lynomia_user_id);
+        $this->assertNotSame(LinkState::ACTIVE, $link->state);
+    }
+
+    public function test_provisioning_stamps_the_service_user_so_ownership_is_checkable(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+        $this->fakeLynomia();
+
+        app(AccountProvisioner::class)->provision($store, $owner);
+
+        $create = collect(Http::recorded())
+            ->first(fn ($pair) => strtoupper($pair[0]->method()) === 'POST'
+                && str_ends_with((string) parse_url($pair[0]->url(), PHP_URL_PATH), '/platform/api/v1/users'));
+
+        $this->assertSame(
+            [
+                'store_syria_store_id' => (int) $store->id,
+                'store_syria_installation' => config('lynomia.installation_ref'),
+            ],
+            $create[0]->data()['custom_attributes']
+        );
     }
 }
