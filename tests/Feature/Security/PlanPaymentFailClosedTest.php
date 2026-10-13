@@ -966,24 +966,57 @@ class PlanPaymentFailClosedTest extends PlanPaymentTestCase
     }
 
     /**
-     * YooKassa's SDK IS NOT INSTALLED HERE, which is why its verification was not implemented.
+     * YooKassa activation stays REFUSED, and the reason is no longer "the SDK is missing".
      *
-     * composer.lock pins yoomoney/yookassa-sdk-php 3.7.1, but nothing under vendor/ provides it:
-     * no file declares `namespace YooKassa` and vendor/composer/installed.json has no 'yoomoney'
-     * entry. `new Client()` at YookassaController:180 therefore raises an Error -- which the
-     * handler's `catch (\Exception $e)` does NOT catch.
+     * This test previously asserted `class_exists('YooKassa\Client') === false` and called the
+     * verification "unimplementable". That was measured in this development container, where
+     * vendor/ is an incomplete tree, and it was WRONG as a statement about the project: a clean
+     * `composer install` from composer.lock installs yoomoney/yookassa-sdk-php 3.7.1 and the
+     * class DOES exist. CI proved it -- the first run of the degraded gate failed this very
+     * assertion on a correct install. An environment artifact had been recorded as a fact.
      *
-     * This test pins the fact, not the opinion. If the SDK is installed later, it reddens, and
-     * whoever installs it is pointed at the verification that then becomes implementable.
+     * So the classification changes: YooKassa is NOT "blocked, external evidence required".
+     * Its contract is readable wherever the lock is honoured, which means the verification is
+     * OWED, not impossible. What has not changed is the exposure: the handler constructs a
+     * Client and never asks it anything, activating on the strength of having been returned to
+     * the URL, so it remains shipped-disabled and refused.
+     *
+     * This test now pins only what is environment-independent: the provider ships disabled, and
+     * the SDK is pinned in the lock so nobody can claim it is unobtainable. It deliberately does
+     * NOT assert class_exists() in either direction -- that is precisely the mistake being
+     * corrected. The fail-closed behaviour itself is covered by the 403 tests above.
      */
-    public function test_yookassa_verification_is_unimplementable_because_its_sdk_is_absent(): void
+    public function test_yookassa_ships_disabled_and_its_verification_is_owed_not_impossible(): void
     {
+        $shipped = require __DIR__ . '/../../../config/payments.php';
+
+        $this->assertArrayHasKey(
+            'yookassa',
+            $shipped['plan_activation'],
+            'yookassa left the plan_activation map. assertPlanActivationEnabled() aborts on a '
+            . 'MISSING key, so this is fail-safe, but the entry documents the reason and the '
+            . 're-enable conditions and must not be dropped silently.'
+        );
+
         $this->assertFalse(
-            class_exists(\YooKassa\Client::class),
-            'YooKassa\Client now exists. Its payment-info contract is readable, so '
-            . 'YookassaController::planGetYooKassaStatus can and should verify the stored '
-            . 'payment id before activating -- and config/payments.php can then be re-enabled. '
-            . 'Remove this test as part of that work.'
+            $shipped['plan_activation']['yookassa'],
+            'yookassa now ALLOWS plan activation. Its return handler builds a YooKassa\Client '
+            . 'and never queries it, so activation turns on having reached the return URL -- '
+            . 'which the caller can do from an abandoned checkout. Before enabling it, make '
+            . 'planGetYooKassaStatus fetch the payment by its stored id and require a captured '
+            . 'status and the plan price, then replace this test with one that proves it.'
+        );
+
+        $lock = json_decode(file_get_contents(__DIR__ . '/../../../composer.lock'), true);
+        $locked = array_column($lock['packages'], 'version', 'name');
+
+        $this->assertArrayHasKey(
+            'yoomoney/yookassa-sdk-php',
+            $locked,
+            'The YooKassa SDK left composer.lock. While it was pinned, the payment-info contract '
+            . 'was readable from a correct install and the verification above was implementable. '
+            . 'If the dependency is really gone, the honest move is to remove the integration, '
+            . 'not to describe the verification as impossible.'
         );
     }
 }

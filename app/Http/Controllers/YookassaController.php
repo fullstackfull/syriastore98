@@ -173,15 +173,19 @@ class YookassaController extends Controller
      * A YooKassa\Client IS constructed at :180 and then never asked anything, which is the
      * whole defect in one line: the verification call is missing, not the client.
      *
-     * WHY THE VERIFICATION IS NOT IMPLEMENTED HERE, contrary to the expectation that the SDK is
-     * vendored and readable. It is NOT installed in this environment:
-     *   - `class_exists('YooKassa\Client')` is false at runtime;
-     *   - no file under vendor/ declares `namespace YooKassa`;
-     *   - vendor/composer/installed.json contains no 'yoomoney' entry,
-     * even though composer.lock pins yoomoney/yookassa-sdk-php 3.7.1. So `new Client()` below
-     * raises an Error -- which the `catch (\Exception $e)` does NOT catch -- and the SDK's
-     * payment-info contract cannot be read, let alone tested, from here. Guessing it is exactly
-     * what must not be done with a money API.
+     * WHY THE VERIFICATION IS STILL NOT IMPLEMENTED -- and it is NOT because the SDK is
+     * missing. An earlier revision of this docblock said the SDK is absent, that
+     * `class_exists('YooKassa\Client')` is false and that the contract therefore cannot be
+     * read. That was measured in a development container whose vendor/ tree is incomplete, and
+     * it is false as a statement about the project: composer.lock pins
+     * yoomoney/yookassa-sdk-php 3.7.1 and a clean install from the lock provides the class. CI
+     * demonstrated this by failing a test that had asserted the absence.
+     *
+     * The verification is therefore OWED, not impossible: fetch the payment by the id this
+     * handler already has and require a captured status and the plan's own price before
+     * activating. It is not implemented here only because this environment cannot reach the
+     * package to read the exact method and response shape, and guessing the response shape of a
+     * money API is the one thing that must not be done.
      *
      * Activation is therefore refused. The guard runs FIRST, before the unresolvable `new
      * Client()`, so the refusal is a clean 403 rather than a fatal.
