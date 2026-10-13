@@ -590,7 +590,7 @@ class LynomiaConnectionTest extends TestCase
         $this->assertFalse(LynomiaStoreLink::forStore((int) $store->id)->exists());
     }
 
-    public function test_a_claim_on_a_workspace_another_store_holds_is_refused_and_the_grant_handed_back(): void
+    public function test_a_claim_on_a_workspace_another_store_holds_is_refused_and_their_grant_left_alone(): void
     {
         [$ownerA, $storeA] = $this->entitledTenant();
         $this->fakeLynomia();
@@ -848,7 +848,18 @@ class LynomiaConnectionTest extends TestCase
             );
         }
 
-        $this->assertNull(session('lynomia_sso_url'));
+        // The WHOLE flashed bag, not one guessed key. An earlier version asserted
+        // session('lynomia_sso_url') was null -- a key no production code writes, so it
+        // could never fail, while layouts/app.blade.php renders Session::get('success')
+        // UNESCAPED into a toast. Scanning everything is the only version that would catch
+        // a url flashed under a name nobody predicted.
+        foreach (session()->all() as $key => $value) {
+            $this->assertStringNotContainsString(
+                'sso_auth_token',
+                is_scalar($value) ? (string) $value : json_encode($value),
+                "the SSO url was flashed under session key {$key}"
+            );
+        }
     }
 
     // ================================================================ tenant isolation
@@ -1200,7 +1211,15 @@ class LynomiaConnectionTest extends TestCase
         Http::assertNothingSent();
     }
 
-    /** The guard has to be the UPDATE itself: only one of two callers may come away with it. */
+    /**
+     * The guard has to be the UPDATE itself: only one of two callers may come away with it.
+     *
+     * DRIVEN THROUGH THE REAL acquireLock, not a copy of its query. An earlier version of
+     * this test rebuilt the conditional UPDATE in the test body and asserted 1 then 0 on
+     * that -- which passed with the production method replaced by `return now();`, because
+     * the production method was never called. A test that restates the implementation
+     * measures the restatement.
+     */
     public function test_only_one_caller_can_take_the_provisioning_claim(): void
     {
         [$owner, $store] = $this->entitledTenant();
@@ -1213,16 +1232,16 @@ class LynomiaConnectionTest extends TestCase
             'provisioning_stage' => ProvisioningStage::CLAIMED,
         ]);
 
-        $take = fn (): int => LynomiaStoreLink::query()
-            ->whereKey($link->getKey())
-            ->where(function ($query) {
-                $query->whereNull('provisioning_started_at')
-                      ->orWhere('provisioning_started_at', '<', now()->subMinutes(5));
-            })
-            ->update(['provisioning_started_at' => now()]);
+        $acquire = new \ReflectionMethod(AccountProvisioner::class, 'acquireLock');
+        $acquire->setAccessible(true);
+        $provisioner = app(AccountProvisioner::class);
 
-        $this->assertSame(1, $take(), 'the first caller must take the claim');
-        $this->assertSame(0, $take(), 'the second caller must find nothing to take');
+        $first = $acquire->invoke($provisioner, $link);
+        $second = $acquire->invoke($provisioner, $link->fresh());
+
+        $this->assertNotNull($first, 'the first caller must take the claim');
+        $this->assertNull($second, 'the second caller must find nothing to take');
+        $this->assertSame(1, (int) $link->fresh()->provisioning_attempts, 'only one attempt was counted');
     }
 
     /**
@@ -1490,7 +1509,15 @@ class LynomiaConnectionTest extends TestCase
 
         $email = $create[0]->data()['email'];
         $this->assertStringContainsString((string) $store->id, $email);
-        $this->assertStringNotContainsString('@', substr($email, 0, strpos($email, '@')));
+        $this->assertStringContainsString(
+            (string) config('lynomia.installation_ref'),
+            $email,
+            'the address must carry the installation, or two installations share a service user'
+        );
+        // The merchant's own address must not appear anywhere in it. An earlier version
+        // asserted that the local part contained no '@', which is true of every string by
+        // construction and therefore guarded nothing.
+        $this->assertStringNotContainsString((string) $owner->email, $email);
         $this->assertNotSame(
             sprintf('store-%d@stores.storesyria.invalid', $store->id),
             $email,
