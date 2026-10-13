@@ -329,10 +329,26 @@ class PlanPaymentFailClosedTest extends PlanPaymentTestCase
     // =========================================================================================
 
     /**
+     * OZOW RETRY: THE SECOND ARRIVAL MUST SUCCEED, NOT ERROR.
+     *
      * Ozow registers ONE url as cancelUrl, errorUrl, successUrl AND notifyUrl (OzowController
      * :81-104), so the same transaction legitimately arrives twice on every successful payment.
+     *
+     * WHAT THIS TEST ASSERTS, AND WHY IT IS NOT THE OBVIOUS THING. The obvious assertion --
+     * "exactly one PlanOrder after two calls" -- IS TRUE WITHOUT THE GUARD, and this test was
+     * written that way first and PASSED with the guard deleted. The reason is incidental to
+     * this one provider: Ozow is the only handler that writes the provider's transaction id
+     * into plan_orders.order_id, which is UNIQUE, so the second insert already died on a
+     * constraint violation. A measurement, not a guess -- removing the guard and re-running
+     * showed one row and a flashed 'Oops something went wrong.'
+     *
+     * So the row count is kept below only as a regression guard, and the assertion with teeth
+     * is the one on the OUTCOME: the duplicate notification for a payment that genuinely
+     * succeeded must flash success, not an error. Without the guard the merchant is told their
+     * payment failed, on the retry of a payment that worked, because a DB exception was being
+     * caught and rewritten as a user-facing error.
      */
-    public function test_ozow_replaying_the_same_transaction_leaves_one_order_and_one_entitlement(): void
+    public function test_ozow_retrying_the_same_transaction_succeeds_without_a_second_purchase(): void
     {
         $this->seedSuperAdminCurrency();
         $this->enableProvider('ozow');
@@ -348,14 +364,27 @@ class PlanPaymentFailClosedTest extends PlanPaymentTestCase
             'coupon_code'   => '',
         ]);
 
-        $this->actingAs($merchant)->get($url)->assertStatus(302);
-        $this->actingAs($merchant)->get($url)->assertStatus(302);
+        $this->actingAs($merchant)->get($url)
+            ->assertStatus(302)
+            ->assertSessionHas('success');
 
+        // THE THING THAT ACTUALLY DIFFERS.
+        $second = $this->actingAs($merchant)->get($url);
+
+        $second->assertStatus(302);
+        $second->assertSessionMissing('error');
+        $second->assertSessionHas(
+            'success',
+            __('Plan activated Successfully.')
+        );
+
+        // Regression guards. Both of these also hold without the guard, for the incidental
+        // reason described above; they are here so that a future change which stops writing the
+        // transaction id into order_id does not silently remove the backstop as well.
         $this->assertSame(
             1,
             DB::table('plan_orders')->where('plan_id', $plan->id)->count(),
-            'Two identical Ozow notifications produced two PlanOrders. A gateway retry must be '
-            . 'a no-op, keyed on the provider transaction id.'
+            'Two identical Ozow notifications produced two PlanOrders.'
         );
 
         $this->assertSame(
@@ -364,6 +393,8 @@ class PlanPaymentFailClosedTest extends PlanPaymentTestCase
             'The provider transaction id was not recorded, so there is nothing to key '
             . 'idempotency on. Upstream wrote time() and then overwrote it with an empty string.'
         );
+
+        $this->assertSame((string) $plan->id, (string) $merchant->fresh()->plan_id);
     }
 
     public function test_ozow_refuses_a_return_with_no_transaction_id_to_key_on(): void
