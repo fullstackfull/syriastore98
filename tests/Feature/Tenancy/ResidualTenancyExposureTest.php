@@ -97,7 +97,7 @@ class ResidualTenancyExposureTest extends TestCase
      * `wishlist`. packages/ cannot be edited by this workstream, so the ONLY lever is which models
      * are scoped -- which is why this list is the deliverable.
      */
-    public function test_the_bulk_delete_models_the_scope_now_protects_are_exactly_these_three(): void
+    public function test_the_bulk_delete_models_the_scope_now_protects_are_exactly_these_five(): void
     {
         $protected = [];
 
@@ -109,14 +109,30 @@ class ResidualTenancyExposureTest extends TestCase
 
         sort($protected);
 
-        // THREE, not five. Cart and Customer were removed from the allowlist on integration:
-        // every storefront read site filters them by a slug-resolved store id, so scoping
-        // them silently broke the storefront for an authenticated web-guard principal. See
-        // condition 5 in config/tenancy.php and StorefrontWebGuardScopeTest. They now appear
-        // in the EXPOSED list below, which is the honest accounting of the trade.
+        // FIVE. It was three for one increment, because Cart and Customer had to be removed on
+        // integration: every storefront read site filters them by a SLUG-resolved store id, so a
+        // predicate derived from the actor's ADMIN store ANDed to zero rows and silently broke
+        // the storefront for any web-guard principal. That condition no longer holds. The scope
+        // now resolves the tenant PER CONTEXT -- on a storefront request the slug-resolved store
+        // is admissible -- so those reads work and the two models are back, this time with the
+        // authenticated-web-guard case driven explicitly rather than assumed.
+        //
+        // Evidence for the re-enablement, in the order it should be read:
+        //   App\Scopes\StoreScope::resolveTenant()                     (the contexts)
+        //   config/tenancy.php `storefront_tenant`                     (why additive)
+        //   tests/Feature/Tenancy/StorefrontContextTenantResolutionTest (the resolver)
+        //   tests/Feature/Tenancy/StorefrontContextModelIsolationTest   (the model matrix)
+        //   tests/Feature/Tenancy/StorefrontWebGuardScopeTest           (the five exact sites)
+        //
+        // WHAT THIS BUYS ON THIS PATH SPECIFICALLY: BulkDeleteController.php:115 deletes
+        // `customer` by bare id and :113 deletes `abandoncart` by `customer_id` -- not even by
+        // id -- with no tenant predicate at all, so one merchant could clear another merchant's
+        // carts for any customer id. Both are now constrained.
         $this->assertSame(
             [
-                \App\Models\Menu::class,       // batch 1
+                \App\Models\Cart::class,        // batch 3 (re-enabled)
+                \App\Models\Customer::class,    // batch 3 (re-enabled)
+                \App\Models\Menu::class,        // batch 1
                 \App\Models\OrderRefund::class, // batch 2
                 \App\Models\SupportTicket::class, // batch 1
             ],
@@ -154,8 +170,17 @@ class ResidualTenancyExposureTest extends TestCase
      *     Order -- deferred here only because it does not yet carry the BelongsToStore trait and
      *     its 37 admin-API call sites plus every payment-gateway callback need the same
      *     per-site audit the four batch-2 models got. Reported as OPEN, not as safe.
+     *
+     * TWENTY-FIVE, DOWN FROM TWENTY-SEVEN. Cart and Customer have LEFT this list -- they are
+     * enforced again, and per this test's own failure message that move "needs its own
+     * negative/positive isolation proof". It has one:
+     * tests/Feature/Tenancy/StorefrontContextModelIsolationTest asserts every negative through
+     * raw `DB::table()` so the scope cannot hide damage it failed to prevent, and asserts the
+     * legitimate storefront and admin workflows still work. The condition that forced their
+     * removal (one predicate serving five contexts) is gone, not waived -- see
+     * App\Scopes\StoreScope::resolveTenant().
      */
-    public function test_the_bulk_delete_models_still_exposed_are_exactly_these_twenty_seven(): void
+    public function test_the_bulk_delete_models_still_exposed_are_exactly_these_twenty_five(): void
     {
         $exposed = [];
 
@@ -180,11 +205,9 @@ class ResidualTenancyExposureTest extends TestCase
         $this->assertSame([
             \App\Models\Blog::class,
             \App\Models\BlogCategory::class,
-            \App\Models\Cart::class,
             \App\Models\Category::class,
             \App\Models\Contact::class,
             \App\Models\Coupon::class,
-            \App\Models\Customer::class,
             \App\Models\Faq::class,
             \App\Models\FlashSale::class,
             \App\Models\Newsletter::class,
@@ -349,8 +372,30 @@ class ResidualTenancyExposureTest extends TestCase
 
     private const RAW_EXPRESSION_PATTERN = '/\\\\?DB::raw\\s*\\(/';
 
-    public function test_the_raw_query_entry_points_in_the_owned_files_are_exactly_these_thirteen(): void
+    /**
+     * WHY THIS ASSERTION IS SPLIT IN TWO, which is a correction to how it was written.
+     *
+     * The inventory used to be one exact `path:line` list covering all fourteen sites, including
+     * the two inside App\Scopes\StoreScope. That made it BRITTLE IN A WAY THAT HURT: this
+     * workstream edits StoreScope's docblocks every increment, so adding a paragraph of
+     * explanation above a method shifted the two line numbers and turned this test red -- twice
+     * in this increment alone -- for a change that altered no query and introduced no bypass.
+     * A ratchet that cries wolf gets its expectations rubber-stamped, and then it stops catching
+     * the thing it exists for. Worse, it would fire again during integration if another
+     * workstream's change to an owned file landed above any of these lines.
+     *
+     * So the twelve sites in files this workstream rarely edits keep their exact `path:line`
+     * form, which is the most navigable, and StoreScope's own two are asserted BY WHAT THEY DO
+     * instead -- same strictness (a third raw query in that class still fails the count), no
+     * sensitivity to prose above them.
+     */
+    public function test_the_raw_query_entry_points_in_the_owned_models_are_exactly_these_twelve(): void
     {
+        $sites = array_values(array_filter(
+            $this->rawSqlSites(self::RAW_ENTRY_POINT_PATTERN),
+            fn (string $site) => ! str_starts_with($site, 'app/Scopes/StoreScope.php:')
+        ));
+
         $this->assertSame([
             // ------------------------------------------------------------------------------
             // THE SLUG-UNIQUENESS HELPER. Five live copies of one method, each
@@ -404,15 +449,60 @@ class ResidualTenancyExposureTest extends TestCase
             'app/Models/Utility.php:3212',
             'app/Models/Utility.php:3214',
 
-            // ------------------------------------------------------------------------------
-            // The scope's OWN owned-store lookup, raw ON PURPOSE: no Eloquent, no global scopes,
-            // no Cachable, so it cannot re-enter the model-cache key machinery from inside query
-            // compilation. See StoreScope::ownedStoreIds().
-            'app/Scopes/StoreScope.php:601',
-        ], $this->rawSqlSites(self::RAW_ENTRY_POINT_PATTERN), 'The raw-query inventory in the owned '
-            . 'files changed. A NEW site here is invisible to every global scope and needs an '
-            . 'explicit predicate written at the call site; a REMOVED one means a finding above was '
-            . 'addressed and its note should go with it.');
+        ], $sites, 'The raw-query inventory in the owned models changed. A NEW site here is '
+            . 'invisible to every global scope and needs an explicit predicate written at the '
+            . 'call site; a REMOVED one means a finding above was addressed and its note should '
+            . 'go with it.');
+    }
+
+    /**
+     * THE SCOPE'S OWN TWO RAW LOOKUPS, asserted by what they query rather than by line number.
+     *
+     * Both are raw ON PURPOSE and the reasons are worth stating, because "the tenancy scope
+     * contains two unscoped raw queries" reads like a contradiction until you see why:
+     *   - no Eloquent, so neither can re-enter this scope from inside query compilation;
+     *   - no `Cachable`, so neither can re-enter the model-cache key machinery either;
+     *   - and `stores` is the tenant REGISTRY -- a `stores` row has no tenant above it, so there
+     *     is no predicate that could correctly be written here.
+     * They are the machinery that WRITES the predicate, so the "needs an explicit predicate"
+     * remedy that applies to every other site in this file does not apply to these two.
+     *
+     * The COUNT is what makes this a real ratchet: a third raw query appearing in this class
+     * fails here regardless of what it does.
+     */
+    public function test_the_scopes_own_raw_lookups_are_exactly_two_and_both_read_the_store_registry(): void
+    {
+        $file = 'app/Scopes/StoreScope.php';
+
+        $sites = array_values(array_filter(
+            $this->rawSqlSites(self::RAW_ENTRY_POINT_PATTERN),
+            fn (string $site) => str_starts_with($site, $file . ':')
+        ));
+
+        $this->assertCount(2, $sites,
+            'App\Scopes\StoreScope must contain EXACTLY two raw queries. A third one is a new '
+            . 'scope bypass written inside the scope itself. Found: ' . implode(', ', $sites));
+
+        $statements = [];
+
+        foreach ($sites as $site) {
+            $line = (int) substr($site, strlen($file) + 1);
+            $statements[] = trim(preg_replace('/\s+/', ' ', (file(base_path($file)) ?: [])[$line - 1] ?? ''));
+        }
+
+        sort($statements);
+
+        // Sorted, so the order below is byte order ('$' < 'D') rather than a choice.
+        $this->assertSame([
+            // StoreScope::storeIdForSlug() -- slug => store id, i.e. the STOREFRONT tenant. This
+            // one is new in this increment and is what makes per-context resolution possible.
+            "\$id = DB::table('stores')->where('slug', \$slug)->value('id');",
+            // StoreScope::ownedStoreIds() -- creatorId => the stores this principal owns.
+            "DB::table('stores')->where('created_by', \$creatorId)->pluck('id')->all()",
+        ], $statements, 'The two raw lookups inside the scope changed shape. Both must read the '
+            . '`stores` registry and nothing else -- a raw read of a TENANT-OWNED table from '
+            . 'inside the scope would be an unscoped cross-tenant query in the one place that '
+            . 'cannot be defended by adding a predicate.');
     }
 
     public function test_the_single_db_raw_expression_site_is_inside_an_eloquent_query(): void

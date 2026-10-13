@@ -34,9 +34,43 @@ use Illuminate\Database\Eloquent\Builder;
  *
  * For a model that is NOT on that list, `apply()` adds no predicate at all, so attaching the trait
  * alone still leaves the emitted queries -- and therefore every `genealabs/laravel-model-caching`
- * cache key on the 78 models using `Cachable` -- byte-identical. The 11 trait-carrying models that
- * are not allowlisted (Category, DeliveryBoy, Product, Shipping, StoreWallet,
- * StoreWalletTransaction, StoreWithdrawal and the rest) are in exactly that position.
+ * cache key on the 78 models using `Cachable` -- byte-identical. SEVEN trait-carrying models are
+ * not allowlisted and are in exactly that position: Category, DeliveryBoy, Product, Shipping,
+ * StoreWallet, StoreWalletTransaction, StoreWithdrawal. (This sentence read "the 11" while the
+ * one above it read "TEN models are now really scoped", which cannot both be true of 17
+ * carriers -- it was left stale by the batch-2 revert and is corrected here by counting:
+ * 17 carriers minus 10 allowlisted = 7. The count is asserted at runtime, not trusted, by
+ * tests/Feature/Tenancy/TenantModelClassificationTest.)
+ *
+ * ============================================================================================
+ *  TWO ELOQUENT METHODS ESCAPE THIS SCOPE ENTIRELY. NEITHER IS FIXED. BOTH ARE UNREACHED.
+ * ============================================================================================
+ *
+ * Global scopes are applied only via `Builder::toBase()`
+ * (vendor/laravel/framework/src/Illuminate/Database/Eloquent/Builder.php:1907-1910), so any
+ * builder method that touches `$this->query` directly is a bypass. Enumerated mechanically over
+ * the whole class, there are exactly two:
+ *
+ *   - `forceDelete()` (Builder.php:1397-1400, `return $this->query->delete()`) -- the ONLY
+ *     method in the class whose body is a direct `$this->query->` call. `delete()` at
+ *     :1381-1388 DOES go through `toBase()` and so is scoped.
+ *   - `truncate()` via the `__call` fallback (Builder.php:2123) -- not a macro, not a named
+ *     scope, and NOT in `$passthru` (:105-137, which does route through `toBase()`), so it is
+ *     forwarded to the base query builder and empties the WHOLE TABLE for EVERY tenant.
+ *
+ * NOT FIXED HERE, and the reason is a fatal rather than a preference: the natural fix is
+ * `newEloquentBuilder()` on this trait, but
+ * vendor/genealabs/laravel-model-caching/src/Traits/ModelCaching.php:109 already declares that
+ * method and `Cachable` composes `ModelCaching`, which every allowlisted model uses. Declaring
+ * it here is a TRAIT METHOD COLLISION and fatals every model carrying both -- the same
+ * composition-error class as the `Eloquent\Scopes\Scope` FQCN that fatalled eleven models here
+ * once, and equally invisible to `php -l`.
+ *
+ * Proportionate because MEASURED UNREACHED: zero first-party `forceDelete()` call sites in app/,
+ * packages/, routes/, resources/, themes/ or database/; three `truncate()` sites, all on
+ * platform-global geographic reference models (City, State, Country -- no `store_id`, no trait).
+ * Both are pinned, ratcheted and reported OPEN by
+ * tests/Feature/Tenancy/EloquentScopeBypassInventoryTest.
  *
  * Everything the trait adds beyond the scope is a NEW named scope or a NEW helper method; nothing
  * existing is overridden. Verified: none of the models this trait is applied to already declares

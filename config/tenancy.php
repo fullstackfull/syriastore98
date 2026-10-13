@@ -247,19 +247,25 @@ return [
         // (GoogleLogin:123, SignInWithFacebook:186, SignInWithLinkedIn:129, Signinwithgithub:117,
         // SignInWithSlack:119, SignInWithTwitter:114, SignInWithBitbucket:109,
         // SignInWithOutlook:172).
-        // ***** NOT ENABLED. The analysis above is kept because it is sound as far as it
-        // ***** goes, but its premise -- that this model is "always" read on the `customers`
-        // ***** guard or anonymously -- is FALSE, and condition 5 above explains why. A
-        // ***** merchant with a live admin session is a populated WEB-GUARD principal on every
-        // ***** storefront request (routes/customer.php is require'd from routes/web.php:1222,
-        // ***** so storefront routes carry the `web` group; config/session.php:146 sets the
-        // ***** cookie path to '/'), and getCurrentStore() then returns their ADMIN store.
-        // ***** Enabling this model made a storefront read return zero rows, silently, for
-        // ***** that principal on any store they do not own. Re-enable ONLY after every
-        // ***** storefront read site has an explicit withoutGlobalScope escape AND a test
-        // ***** drives the authenticated-web-guard case (the anonymous case fails open and so
-        // ***** passes trivially).
-        // ***** Breaking sites: CustomerLoginController.php:87, :585, :751, :796, :847.
+        // ***** RE-ENABLED IN BATCH 3, and the condition that blocked it is GONE rather than
+        // ***** waived. The revert note said: "Re-enable ONLY after every storefront read site
+        // ***** has an explicit withoutGlobalScope escape AND a test drives the
+        // ***** authenticated-web-guard case (the anonymous case fails open and so passes
+        // ***** trivially)."
+        // *****
+        // ***** Both halves are met, and the first is met BETTER than it was asked for. Rather
+        // ***** than bolting a withoutGlobalScope escape onto each of the five breaking sites
+        // ***** (CustomerLoginController.php:87, :585, :751, :796, :847) -- which would have
+        // ***** meant five chances to miss one, forever, on a model this sensitive -- the
+        // ***** PREDICATE ITSELF now resolves per context, so on a storefront request the
+        // ***** slug-resolved store is admissible and those five reads need no escape at all.
+        // ***** See `storefront_tenant` below and App\Scopes\StoreScope::resolveTenant().
+        // ***** The authenticated-web-guard case is driven explicitly, in BOTH directions, by
+        // ***** tests/Feature/Tenancy/StorefrontContextModelIsolationTest (a logged-in merchant
+        // ***** browsing another merchant's storefront) and
+        // ***** StorefrontContextTenantResolutionTest, and the exact shape of each of the five
+        // ***** sites is asserted by StorefrontWebGuardScopeTest.
+        App\Models\Customer::class,
 
         // Cart -- abandoned-cart rows. Read on the storefront and in every payment controller,
         // but always on the `customers` guard or anonymously by `cookie_session_id`, so the scope
@@ -275,19 +281,69 @@ return [
         // exactly what this phase is told not to do.
         // Writers: Cart.php:162 and :851, Api/ApiController.php:1533, CartController.php:382,
         // and the FrequentlyProduct / BoostSales package inserts all set `store_id`.
-        // ***** NOT ENABLED. The analysis above is kept because it is sound as far as it
-        // ***** goes, but its premise -- that this model is "always" read on the `customers`
-        // ***** guard or anonymously -- is FALSE, and condition 5 above explains why. A
-        // ***** merchant with a live admin session is a populated WEB-GUARD principal on every
-        // ***** storefront request (routes/customer.php is require'd from routes/web.php:1222,
-        // ***** so storefront routes carry the `web` group; config/session.php:146 sets the
-        // ***** cookie path to '/'), and getCurrentStore() then returns their ADMIN store.
-        // ***** Enabling this model made a storefront read return zero rows, silently, for
-        // ***** that principal on any store they do not own. Re-enable ONLY after every
-        // ***** storefront read site has an explicit withoutGlobalScope escape AND a test
-        // ***** drives the authenticated-web-guard case (the anonymous case fails open and so
-        // ***** passes trivially).
-        // ***** Breaking sites: app/Models/Cart.php:166 and :208.
+        // ***** RE-ENABLED IN BATCH 3, on the same evidence as Customer above. The two
+        // ***** breaking sites -- app/Models/Cart.php:166 (`Cart::where('cookie_session_id',
+        // ***** $session_id)->where('store_id', $store_id)` in Cart::cart_add) and :208 (the
+        // ***** same shape in Cart::cart_list_cookie, where `$store_id` comes from
+        // ***** `Store::find($storeid)`, i.e. the SLUG-resolved store) -- now meet an
+        // ***** admissible set that CONTAINS that slug store, so they return their rows
+        // ***** instead of nothing. Proven for the authenticated-web-guard principal, not
+        // ***** just the anonymous one, by StorefrontWebGuardScopeTest and
+        // ***** StorefrontContextModelIsolationTest.
+        App\Models\Cart::class,
+
+        /*
+        |----------------------------------------------------------------------------------------
+        | STILL NOT ENABLED, with the per-model evidence -- Product, Category, Shipping
+        |----------------------------------------------------------------------------------------
+        |
+        | These three carry the BelongsToStore trait and their tables really do have `store_id`,
+        | so each is one config line from enforcement -- EXCEPT that a test already forbids it.
+        | All three are named in TenantModelClassificationTest::publicStorefrontModels() with the
+        | storefront surface each one renders ("the catalogue itself, on every shop page";
+        | "the category navigation and listing pages"; "shipping options at checkout"), and
+        | test_no_public_storefront_model_is_enforced asserts that none of them is allowlisted.
+        | So adding one here turns that suite RED, deliberately, and the failure message says what
+        | evidence is needed first. `Setting` and `Order` are in that list too.
+        |
+        | THEY ARE NOT ENABLED, and the reason is a measurement rather than caution:
+        |
+        | THEY ARE READ BY BARE PRIMARY KEY ON THE STOREFRONT, WHERE NOTHING NAMES A STORE.
+        | The per-context repair above fixes the reads that filter on a slug-resolved store id;
+        | it does nothing for a read that carries NO store predicate at all, because the scope
+        | then becomes the only filter and silently narrows it. Measured on this branch:
+        |
+        |   $ grep -rnE "\bProduct::(find|findOrFail)\(" app/ packages/ --include=*.php | wc -l
+        |   159
+        |   $ grep -rnE "\bCategory::(find|findOrFail)\(" app/ packages/ --include=*.php | wc -l
+        |   18
+        |   $ grep -rnE "\bShipping::(find|findOrFail)\(" app/ packages/ --include=*.php | wc -l
+        |   13
+        |
+        | A storefront product-detail page resolves its product from the PRODUCT slug, not the
+        | store slug, and `{storeSlug?}` is optional -- so a product URL that matched without the
+        | store prefix has a resolvable product and NO resolvable store. Under 'additive' that
+        | request resolves CONTEXT_MERCHANT_ADMIN for a signed-in merchant, and the catalogue
+        | read is then narrowed to their own stores: the storefront blanks for exactly the
+        | principal batch 2 broke. Closing that needs each of those 190 sites classified as
+        | storefront or admin, which is a reviewed per-site exercise and NOT something to infer
+        | from a grep count.
+        |
+        | Order and Setting are a step further back still: NEITHER CARRIES THE TRAIT
+        | (app/Models/Order.php:13 and app/Models/Setting.php:12 are `use HasFactory, Cachable`),
+        | so enabling them means ADDING the trait as well -- and `Setting` is read on every page
+        | render through `getAdminAllSetting()` (app/Helper/helper.php:350-382), which already
+        | passes an explicit `store_id` that is frequently NOT the current store:
+        |
+        |   $ grep -rn "Setting::where('store_id'" app/ packages/ --include=*.php \
+        |       | grep -vc getCurrentStore
+        |   76
+        |
+        | That is the widest blast radius in the codebase and must not be changed on a grep.
+        |
+        | Each of the five is reported OPEN with this evidence rather than quietly enabled.
+        |
+        */
 
     ],
 
@@ -358,6 +414,61 @@ return [
     */
 
     'tenant_scope' => env('TENANCY_TENANT_SCOPE', 'owned_stores'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | How a STOREFRONT request resolves its tenant
+    |--------------------------------------------------------------------------
+    |
+    | THIS KEY IS THE REPAIR FOR THE BATCH-2 REVERT. Condition 5 above describes a defect whose
+    | cause was not that Cart and Customer are unscopeable -- it was that ONE predicate was being
+    | asked to serve FIVE different contexts. A storefront request's tenant is the store the URL
+    | names; a merchant-admin request's tenant is the stores that merchant owns. Resolving both
+    | from `getCurrentStore()` alone is what returned zero rows on every storefront read made by a
+    | principal with a live admin session.
+    |
+    | The contexts are now named constants on App\Scopes\StoreScope and each returns its own
+    | admissible set (CONTEXT_SUPER_ADMIN, CONTEXT_MERCHANT_ADMIN, CONTEXT_STOREFRONT_WEB,
+    | CONTEXT_STOREFRONT_PUBLIC, CONTEXT_EXPLICIT, CONTEXT_CONSOLE, CONTEXT_UNRESOLVED). This key
+    | controls only the two storefront ones:
+    |
+    | 'additive'  -- DEFAULT. On a storefront request the slug-resolved store is ADDED to the
+    |                admissible set: `{slug store} UNION {current_store} UNION {owned stores}`. An
+    |                anonymous or `customers`-guard storefront request is left exactly as it is
+    |                today -- fail-open, no predicate.
+    |
+    |                WHY ADDITIVE IS THE DEFAULT, and it is the same argument that made
+    |                'owned_stores' safe: the set stays a STRICT SUPERSET of what the predicate
+    |                admits today, so NO query that returns rows today can return fewer. A replace
+    |                would NARROW every already-allowlisted model on every storefront request, and
+    |                a silently blank storefront is the exact failure this project has already
+    |                shipped twice (a brace move behind `auth` killed newsletter signup; scoping
+    |                Menu blanked the navigation).
+    |
+    |                AND IT GRANTS NOTHING NEW. On the same URL an anonymous visitor resolves no
+    |                tenant and so gets NO predicate at all, which means the slug store's rows are
+    |                already fully readable by anyone who can load the page. Admitting that one
+    |                store for an authenticated principal removes a predicate that was WRONG, not
+    |                one that was holding anything back.
+    |
+    | 'slug_only' -- the strict per-context predicate: a storefront request is scoped to the
+    |                slug-resolved store and NOTHING else, including for anonymous and
+    |                `customers`-guard requests. Strictly stronger isolation -- it closes the
+    |                storefront fail-open hole that `null_tenant` documents -- at the cost of
+    |                being a narrowing, so it must be chosen deliberately. Not the default.
+    |
+    | Both branches are exercised by tests/Feature/Tenancy/StorefrontContextTenantResolutionTest,
+    | so the choice is evidence-backed either way rather than a claim in a comment.
+    |
+    | THE SLUG IS READ FROM THE SAME PLACE THE STOREFRONT READS IT: the `storeSlug` route
+    | parameter, which is what `getStore()` uses at app/Helper/helper.php:2332, falling back to the
+    | first path segment ONLY for routes carrying the ActiveTheme middleware -- which is what
+    | ActiveTheme itself does at app/Http/Middleware/ActiveTheme.php:21. There is no second
+    | resolver and no new source of truth.
+    |
+    */
+
+    'storefront_tenant' => env('TENANCY_STOREFRONT_TENANT', 'additive'),
 
     /*
     |--------------------------------------------------------------------------

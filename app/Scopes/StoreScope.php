@@ -28,7 +28,10 @@ use Throwable;
  * The switch is no longer one boolean. `config/tenancy.php` carries:
  *   - `enforcement_enabled` -- a kill switch, default TRUE;
  *   - `scoped_models`       -- the reviewed per-model allowlist, which is the ONLY production
- *                              path to a predicate. BATCH 1 holds 6 models;
+ *                              path to a predicate. It holds TEN models: 6 from batch 1, 2 from
+ *                              batch 2, and Cart + Customer re-enabled in batch 3 once the
+ *                              tenant was resolved per context. Counted at runtime by
+ *                              StorefrontContextTenantResolutionTest, not described here;
  *   - `null_tenant`         -- 'open' (default) or 'closed';
  * and that file argues each choice with the measurement behind it. `static::$enabled` remains
  * the ALL-MODELS flip and remains FALSE: 785 of the 1,282 existing `where('store_id', ...)`
@@ -89,6 +92,18 @@ use Throwable;
  * ============================================================================================
  *  WHAT THIS SCOPE CANNOT SEE -- measured, not assumed.
  * ============================================================================================
+ *   - TWO ELOQUENT BUILDER METHODS ESCAPE THIS SCOPE, enumerated mechanically over the whole
+ *     class rather than guessed: `forceDelete()` (Builder.php:1397-1400, `return
+ *     $this->query->delete()` -- the only method in the class whose body is a direct
+ *     `$this->query->` call; `delete()` at :1381-1388 DOES use `toBase()` and so is scoped) and
+ *     `truncate()` through the `__call` fallback at Builder.php:2123, which is not in `$passthru`
+ *     and so empties the WHOLE TABLE for EVERY tenant. Found by a FAILING cross-tenant test, not
+ *     by reading. NOT fixed: `newEloquentBuilder()` is already declared by
+ *     vendor/genealabs/laravel-model-caching/src/Traits/ModelCaching.php:109 and `Cachable`
+ *     composes it, so declaring it on the trait is a trait method collision that FATALS every
+ *     allowlisted model. Measured unreached (0 first-party `forceDelete()` sites; 3 `truncate()`
+ *     sites, all on platform-global City/State/Country) and reported OPEN, pinned by
+ *     tests/Feature/Tenancy/EloquentScopeBypassInventoryTest.
  *   - `DB::table()` sites bypass Eloquent entirely, so NO global scope reaches them
  *     (app/Http/Controllers/RoleController.php:182 is a live example). Proven, not assumed, by
  *     EnforcedModelIsolationTest::test_raw_db_table_queries_bypass_the_scope_entirely. The remedy
@@ -144,6 +159,44 @@ class StoreScope implements Scope
     public const MODE_UNRESOLVED = 'unresolved';
 
     /**
+     * THE REQUEST CONTEXTS, which are the answer to why batch 2 had to be reverted.
+     *
+     * ============================================================================================
+     *  ONE PREDICATE SERVED FIVE CONTEXTS. THAT -- NOT "Cart is unscopeable" -- WAS THE DEFECT.
+     * ============================================================================================
+     *
+     * Cart and Customer were allowlisted last increment and reverted, and the measured reason is
+     * recorded in tests/Feature/Tenancy/StorefrontWebGuardScopeTest. The mechanism is structural:
+     *
+     *   - routes/customer.php is `require`d from routes/web.php:1222, so every storefront route
+     *     sits INSIDE the `web` middleware group (the router reports status.cancel as
+     *     [web, ActiveTheme, themelanguage]);
+     *   - config/session.php:146 sets the session cookie path to '/';
+     *   - storefronts are path-prefixed (`{storeSlug?}`, 106 declarations in routes/customer.php)
+     *     on the SAME host.
+     *
+     * So a merchant or staff member with a live admin session is a POPULATED WEB-GUARD PRINCIPAL
+     * on every storefront request, and `getCurrentStore()` returns their ADMIN store -- never the
+     * store whose storefront they are looking at. The storefront's own reads filter on the
+     * SLUG-resolved store (app/Models/Cart.php:166 and :208;
+     * app/Http/Controllers/Customer/Auth/CustomerLoginController.php:87, :585, :751, :796, :847,
+     * all via `getStore()` at app/Helper/helper.php:2332, which reads
+     * `request()->route('storeSlug')`). ANDing an admin-derived predicate onto those produced
+     * `store_id = <slug store> AND store_id = <admin store>` -> ZERO ROWS, silently.
+     *
+     * The repair is to stop asking one predicate to serve five different questions. The tenant is
+     * now resolved PER CONTEXT, and each context is a named constant so the decision is visible in
+     * `resolveTenant()`'s return value and assertable in a test rather than implied.
+     */
+    public const CONTEXT_SUPER_ADMIN = 'super-admin';
+    public const CONTEXT_MERCHANT_ADMIN = 'merchant-admin';
+    public const CONTEXT_STOREFRONT_WEB = 'storefront-web';
+    public const CONTEXT_STOREFRONT_PUBLIC = 'storefront-public';
+    public const CONTEXT_EXPLICIT = 'explicit';
+    public const CONTEXT_CONSOLE = 'console';
+    public const CONTEXT_UNRESOLVED = 'unresolved';
+
+    /**
      * THE ALL-MODELS FLIP. Still FALSE, and it should stay that way.
      *
      * This is not the enforcement switch any more. Enforcement is per-model and lives in
@@ -160,6 +213,36 @@ class StoreScope implements Scope
      * boolean so nested blocks cannot have an inner one re-enable the scope on exit.
      */
     protected static int $suppressionDepth = 0;
+
+    /**
+     * The stack of explicit tenant contexts opened by `forStoreContext()`.
+     *
+     * A STACK, not a single value, so a nested block cannot have its exit re-open the outer
+     * block's tenant, and so an exception inside one cannot leave an ambient tenant behind. It is
+     * empty by default and is NEVER populated implicitly, which is what makes the stale-context
+     * trap -- a queue worker serving job N+1 with job N's tenant -- structurally impossible.
+     *
+     * @var array<int, array<int, int>>
+     */
+    protected static array $explicitContextStack = [];
+
+    /**
+     * Memo of store slug => store id (or null for "no such slug") for the current application
+     * instance. See `storeIdForSlug()` for why it is keyed on the application object.
+     *
+     * @var array<string, int|null>
+     */
+    protected static array $slugStoreIdMemo = [];
+
+    /**
+     * The application instance `$slugStoreIdMemo` belongs to.
+     */
+    protected static ?int $slugStoreIdMemoAppId = null;
+
+    /**
+     * Guard against re-entering the slug `stores` lookup from inside itself.
+     */
+    protected static bool $resolvingStorefrontStore = false;
 
     /**
      * Apply the scope.
@@ -221,6 +304,15 @@ class StoreScope implements Scope
      *      including the all-models flip. A kill switch with exceptions is not a kill switch;
      *   3. the reviewed allowlist in `tenancy.scoped_models`;
      *   4. failing all that, the legacy all-models flip, which is off by default.
+     *
+     * WHERE `forStoreContext()` SITS IN THAT ORDER, since it is not on this list: it decides WHICH
+     * STORES a predicate admits, not WHETHER one is added, so it lives in `resolveTenant()` and is
+     * consulted only after this method has already said yes. The consequence is that
+     * `allowCrossTenant()` still wins over it -- a cross-tenant block nested inside an explicit
+     * context removes the predicate entirely rather than narrowing it. That is the intended
+     * reading of both hatches (one says "act as this tenant", the other says "act as none"), and
+     * it is asserted by StoreScopeContextStackTest so the order is a decision rather than an
+     * accident of where the two checks happen to be written.
      *
      * NOTE. Allowlisting a model that does NOT use the BelongsToStore trait silently achieves
      * nothing, because the trait is what registers this scope at all. That trap is closed by
@@ -386,6 +478,21 @@ class StoreScope implements Scope
      */
     public static function resolveTenant(): array
     {
+        // CONTEXT 1 -- AN EXPLICIT CONTEXT, which is the ONLY tenant a queued job, a scheduled
+        // command or a test ever gets, and it always wins. It is a stack restored in a `finally`
+        // (see forStoreContext()), so it cannot leak out of the block that opened it.
+        $explicit = static::explicitStoreIds();
+
+        if ($explicit !== null) {
+            return [
+                'mode' => self::MODE_TENANT,
+                'store_id' => $explicit[0],
+                'store_ids' => $explicit,
+                'reason' => 'explicit context opened by forStoreContext()',
+                'context' => self::CONTEXT_EXPLICIT,
+            ];
+        }
+
         try {
             $user = auth()->user();
         } catch (Throwable $e) {
@@ -394,26 +501,73 @@ class StoreScope implements Scope
                 'store_id' => null,
                 'store_ids' => [],
                 'reason' => 'no auth container (console bootstrap or plain unit test)',
+                'context' => self::CONTEXT_CONSOLE,
             ];
         }
 
-        // Anonymous, or authenticated on the `customers` / `deliveryboy` guard, or a job or
-        // command with no authenticated principal at all. See the R4-02 trap.
-        if (! $user) {
-            return [
-                'mode' => self::MODE_UNRESOLVED,
-                'store_id' => null,
-                'store_ids' => [],
-                'reason' => 'no web-guard principal (job, command, storefront, or customers/deliveryboy guard)',
-            ];
-        }
+        // The slug-resolved store: the tenant the STOREFRONT is actually serving. Null on every
+        // non-storefront request and in console. Resolved here, once, for both branches below.
+        $slugStoreId = static::storefrontStoreId();
 
-        if (static::isSuperAdmin($user)) {
+        if ($user && static::isSuperAdmin($user)) {
+            // THE ONE PLATFORM-OPERATOR BYPASS, unchanged and deliberately ahead of the storefront
+            // branch: narrowing a super admin to the storefront they happen to be viewing would
+            // hide the platform behind what looks like missing data, which is the same failure
+            // mode this whole class is built to avoid.
             return [
                 'mode' => self::MODE_SUPER_ADMIN,
                 'store_id' => null,
                 'store_ids' => [],
                 'reason' => 'platform operator: deliberate cross-store visibility',
+                'context' => self::CONTEXT_SUPER_ADMIN,
+            ];
+        }
+
+        // CONTEXT 2 -- PUBLIC / CUSTOMER STOREFRONT. No web-guard principal: an anonymous
+        // visitor, a shopper on the `customers` guard, a delivery boy on `deliveryboy`, a queued
+        // job or a console command. See the R4-02 trap.
+        //
+        // WHY THE `customers` GUARD IS NOT CONSULTED HERE, and this is a correctness constraint
+        // rather than a simplification: the customers guard's provider loads App\Models\Customer,
+        // Customer is an allowlisted model, so that load runs through this very scope -- calling
+        // `auth('customers')->check()` from inside `resolveTenant()` would re-enter
+        // `resolveTenant()` and recurse without bound. The web guard is safe to consult because
+        // `User` carries no `store_id` and is on the documented DO-NOT-SCOPE list
+        // (app/Models/Concerns/BelongsToStore.php), so it is never scoped and never re-enters.
+        // The customer and anonymous cases therefore share one context, which is accurate: the
+        // `web` guard genuinely cannot tell them apart.
+        if (! $user) {
+            if ($slugStoreId !== null) {
+                // 'slug_only' TIGHTENS this from fail-open to the slug store. It is NOT the
+                // default, because that is a NARROWING of queries that work today and this
+                // project has already shipped a storefront-blanking control twice. See
+                // `tenancy.storefront_tenant`.
+                if (static::storefrontTenantMode() === 'slug_only') {
+                    return [
+                        'mode' => self::MODE_TENANT,
+                        'store_id' => $slugStoreId,
+                        'store_ids' => [$slugStoreId],
+                        'reason' => 'public/customer storefront, scoped to the slug-resolved store',
+                        'context' => self::CONTEXT_STOREFRONT_PUBLIC,
+                    ];
+                }
+
+                return [
+                    'mode' => self::MODE_UNRESOLVED,
+                    'store_id' => null,
+                    'store_ids' => [],
+                    'reason' => 'public/customer storefront (slug-resolved store ' . $slugStoreId
+                        . '); fail-open by tenancy.storefront_tenant=additive',
+                    'context' => self::CONTEXT_STOREFRONT_PUBLIC,
+                ];
+            }
+
+            return [
+                'mode' => self::MODE_UNRESOLVED,
+                'store_id' => null,
+                'store_ids' => [],
+                'reason' => 'no web-guard principal (job, command, storefront, or customers/deliveryboy guard)',
+                'context' => static::hasResolvedRoute() ? self::CONTEXT_UNRESOLVED : self::CONTEXT_CONSOLE,
             ];
         }
 
@@ -422,20 +576,387 @@ class StoreScope implements Scope
         $storeId = function_exists('getCurrentStore') ? getCurrentStore() : ($user->current_store ?? null);
 
         if ($storeId === null || $storeId === '' || ! is_numeric($storeId)) {
+            // A principal with no usable `current_store` ON A STOREFRONT still has a tenant: the
+            // store the URL names. Falling back to "unresolved" here would be fail-open on a
+            // request where the correct answer is known.
+            if ($slugStoreId !== null) {
+                return [
+                    'mode' => self::MODE_TENANT,
+                    'store_id' => $slugStoreId,
+                    'store_ids' => [$slugStoreId],
+                    'reason' => 'storefront request by a principal with no resolvable current_store',
+                    'context' => self::CONTEXT_STOREFRONT_WEB,
+                ];
+            }
+
             return [
                 'mode' => self::MODE_UNRESOLVED,
                 'store_id' => null,
                 'store_ids' => [],
                 'reason' => 'authenticated user has no resolvable current_store',
+                'context' => self::CONTEXT_MERCHANT_ADMIN,
             ];
         }
 
+        $ownedIds = static::admissibleStoreIds($user, (int) $storeId);
+
+        // CONTEXT 3 -- STOREFRONT, WEB-GUARD PRINCIPAL. THE CASE THAT BROKE BATCH 2.
+        //
+        // The admissible set ADMITS THE SLUG-RESOLVED STORE, so a storefront read of the form
+        // `where('store_id', $slugStore->id)` returns its rows again instead of nothing.
+        //
+        // WHY THE SLUG STORE IS *ADDED* TO THE OWNED SET RATHER THAN REPLACING IT (default
+        // 'additive'), and this is the single most important safety property of this change:
+        //
+        //   1. IT CANNOT BLANK A PAGE THAT WORKS TODAY. The set stays a STRICT SUPERSET of the
+        //      owned-stores set, which is itself a strict superset of `= current_store`. That is
+        //      the same by-construction argument that made batch 2 shippable, and it is what a
+        //      replace would throw away -- replacing would NARROW every already-allowlisted model
+        //      (Menu, SupportTicket, SupportConversion, FlashSaleCondition, ThemeCustomizeOrder,
+        //      NotifyUser, OrderRefund, OrderNote) on storefront requests, and this project has
+        //      shipped a storefront-blanking control twice already.
+        //   2. IT GRANTS NO READ THAT IS NOT ALREADY GRANTED. On the very same URL an ANONYMOUS
+        //      visitor resolves no tenant and gets NO predicate at all (`tenancy.null_tenant` =
+        //      'open'), so the slug store's rows are already fully admissible to anyone who can
+        //      load the page. Admitting that one store for an authenticated principal therefore
+        //      widens nothing: it removes a predicate that was WRONG, not one that was holding.
+        //   3. THE ADMIN-CONTEXT DENIAL IS UNAFFECTED. An admin route carries no `storeSlug` and
+        //      no ActiveTheme middleware, so `$slugStoreId` is null there and the admissible set
+        //      is the owned set exactly. A merchant reading another merchant's cart from the admin
+        //      panel or the admin API is still denied -- which is the whole point of enabling
+        //      these models.
+        //
+        // 'slug_only' is available for an operator who wants the strictly stronger per-context
+        // predicate and accepts the narrowing. Both branches are exercised by
+        // tests/Feature/Tenancy/StorefrontContextTenantResolutionTest.
+        if ($slugStoreId !== null) {
+            if (static::storefrontTenantMode() === 'slug_only') {
+                return [
+                    'mode' => self::MODE_TENANT,
+                    'store_id' => $slugStoreId,
+                    'store_ids' => [$slugStoreId],
+                    'reason' => 'storefront request, scoped to the slug-resolved store only',
+                    'context' => self::CONTEXT_STOREFRONT_WEB,
+                ];
+            }
+
+            $ids = $ownedIds;
+
+            if (! in_array($slugStoreId, $ids, true)) {
+                $ids[] = $slugStoreId;
+                sort($ids);
+            }
+
+            return [
+                'mode' => self::MODE_TENANT,
+                // `store_id` stays the ADMIN store: it is what `resolveStoreId()` has always
+                // returned and what the BelongsToStore helpers compare against, and widening an
+                // authorization helper is a permission change wearing a tenancy change's clothes.
+                'store_id' => (int) $storeId,
+                'store_ids' => $ids,
+                'reason' => 'storefront request; slug-resolved store ' . $slugStoreId
+                    . ' admitted alongside the owned stores',
+                'context' => self::CONTEXT_STOREFRONT_WEB,
+            ];
+        }
+
+        // CONTEXT 4 -- MERCHANT ADMINISTRATION. The owned-stores predicate, unchanged.
         return [
             'mode' => self::MODE_TENANT,
             'store_id' => (int) $storeId,
-            'store_ids' => static::admissibleStoreIds($user, (int) $storeId),
+            'store_ids' => $ownedIds,
             'reason' => 'resolved from the web guard',
+            'context' => self::CONTEXT_MERCHANT_ADMIN,
         ];
+    }
+
+    /**
+     * Which named context the current request is in. For assertions, logging and reporting.
+     */
+    public static function currentContext(): string
+    {
+        return static::resolveTenant()['context'] ?? self::CONTEXT_UNRESOLVED;
+    }
+
+    /**
+     * 'additive' (default) or 'slug_only'. Anything unrecognised means 'additive', for the same
+     * reason `nullTenantPolicy()` treats a typo as 'open': a config mistake must not be able to
+     * take the shop offline.
+     */
+    public static function storefrontTenantMode(): string
+    {
+        return strtolower(trim((string) static::configValue('tenancy.storefront_tenant', 'additive'))) === 'slug_only'
+            ? 'slug_only'
+            : 'additive';
+    }
+
+    /**
+     * THE STOREFRONT TENANT: the store id the current REQUEST names, or null if this is not a
+     * storefront request.
+     *
+     * Two resolution steps, in order, and nothing else:
+     *
+     *   1. the `storeSlug` ROUTE PARAMETER. This is the one parameter the storefront group uses
+     *      (106 declarations in routes/customer.php, plus package storefront routes), and it is
+     *      the exact value `getStore()` reads at app/Helper/helper.php:2332, so the scope and the
+     *      storefront's own reads resolve the SAME store from the SAME source. `slug` is
+     *      deliberately NOT consulted: on `{storeSlug?}/article/{slug}` and
+     *      `{storeSlug?}/product/{product_slug}` that parameter is the ARTICLE or PRODUCT slug, so
+     *      reading it would resolve a confidently WRONG tenant. (EnsureCustomerAuthenticated.php:63
+     *      does fall back to `slug`; that file is another workstream's and is not copied here.)
+     *   2. failing that -- `{storeSlug?}` is OPTIONAL, so a storefront route can match with the
+     *      parameter absent -- the FIRST PATH SEGMENT, but ONLY for a route that carries the
+     *      ActiveTheme middleware. That is exactly what ActiveTheme itself does
+     *      (app/Http/Middleware/ActiveTheme.php:21 `Store::where('slug', request()->segment(1))`),
+     *      and gating it on the middleware is what stops `/admin/...`, `/api/...` or `/login`
+     *      from ever being read as a store slug.
+     *
+     * Returns null -- never a guess -- when there is no request, no route, no slug, or no store
+     * with that slug.
+     */
+    protected static function storefrontStoreId(): ?int
+    {
+        // Re-entrancy belt: the `stores` lookup below must never be able to ask for itself.
+        if (static::$resolvingStorefrontStore) {
+            return null;
+        }
+
+        try {
+            $request = request();
+
+            if (! $request) {
+                return null;
+            }
+
+            // THE CONSOLE / QUEUE-WORKER DISCRIMINATOR, and it is `route() === null` rather than
+            // `app()->runningInConsole()` FOR A MEASURED REASON. Laravel answers
+            // runningInConsole() from PHP_SAPI, which is 'cli' under PHPUnit, so gating on it
+            // would have switched this entire resolver off in every test while leaving it on in
+            // production -- a vacuous suite proving nothing. A queue worker and an artisan command
+            // both have a Request synthesised from $_SERVER, so `request()` is never null there,
+            // but NO ROUTE WAS MATCHED, so `route()` is null. That discriminator behaves
+            // identically in a test and in production, which is the only kind worth having.
+            $route = $request->route();
+
+            if (! $route) {
+                return null;
+            }
+
+            $slug = $route->parameter('storeSlug');
+
+            // Route::bind('storeSlug') exists in app/Providers/StoreRedirectServiceProvider.php
+            // and can return a model or a RedirectResponse rather than a string. That provider is
+            // NOT registered in bootstrap/providers.php today, so the parameter is a plain string
+            // -- but the type check below means this resolver stays correct if it ever is.
+            if (! is_string($slug) || $slug === '') {
+                $slug = static::routeIsStorefront($route) ? $request->segment(1) : null;
+            }
+
+            if (! is_string($slug) || $slug === '') {
+                return null;
+            }
+
+            return static::storeIdForSlug($slug);
+        } catch (Throwable $e) {
+            // A scope must never be the reason a request fails. No storefront tenant resolved
+            // means the other branches decide, exactly as before this method existed.
+            return null;
+        }
+    }
+
+    /**
+     * Does this route belong to the storefront group? Measured from the route's own middleware,
+     * not from a URL pattern, because the group is declared once --
+     * `Route::middleware([ActiveTheme::class, 'themelanguage'])` at routes/customer.php:49 --
+     * and every storefront route inherits it.
+     */
+    protected static function routeIsStorefront($route): bool
+    {
+        try {
+            foreach ((array) $route->middleware() as $middleware) {
+                if (is_string($middleware) && str_contains($middleware, 'ActiveTheme')) {
+                    return true;
+                }
+            }
+        } catch (Throwable $e) {
+            return false;
+        }
+
+        return false;
+    }
+
+    /**
+     * slug -> store id, through a raw `DB::table()` query.
+     *
+     * RAW ON PURPOSE, three reasons: `Store` uses `Cachable`, so an Eloquent read here would
+     * enter the model-cache key machinery from inside query compilation; a raw query carries no
+     * global scopes, so it cannot re-enter this class; and it is one indexed lookup.
+     *
+     * Memoised per application instance for the same reason `$ownedStoreIdMemo` is -- PHPUnit
+     * keeps statics for the whole process while RefreshDatabase rebuilds the schema and boots a
+     * new application per test, so a memo that outlived its database would hand one test the
+     * store ids of another test's dropped tables. A null result is memoised too: an unknown slug
+     * must not cost a query per model per request.
+     */
+    protected static function storeIdForSlug(string $slug): ?int
+    {
+        static::forgetSlugMemoIfStale();
+
+        if (array_key_exists($slug, static::$slugStoreIdMemo)) {
+            return static::$slugStoreIdMemo[$slug];
+        }
+
+        static::$resolvingStorefrontStore = true;
+
+        try {
+            $id = DB::table('stores')->where('slug', $slug)->value('id');
+            $id = is_numeric($id) ? (int) $id : null;
+        } catch (Throwable $e) {
+            // No database, no `stores` table, or a connection mid-migration. Do NOT memoise a
+            // failure as "no such store": the next call may well succeed.
+            static::$resolvingStorefrontStore = false;
+
+            return null;
+        } finally {
+            static::$resolvingStorefrontStore = false;
+        }
+
+        return static::$slugStoreIdMemo[$slug] = $id;
+    }
+
+    /**
+     * Drop the slug memo when the application it was built against has been replaced.
+     */
+    protected static function forgetSlugMemoIfStale(): void
+    {
+        try {
+            $appId = spl_object_id(app());
+        } catch (Throwable $e) {
+            static::$slugStoreIdMemo = [];
+            static::$slugStoreIdMemoAppId = null;
+
+            return;
+        }
+
+        if (static::$slugStoreIdMemoAppId !== $appId) {
+            static::$slugStoreIdMemo = [];
+            static::$slugStoreIdMemoAppId = $appId;
+        }
+    }
+
+    /**
+     * Test-support only: forget the slug memo. Needed by a test that renames or creates a store
+     * slug after a scoped query has already run in the same application instance.
+     */
+    public static function forgetSlugStoreIds(): void
+    {
+        static::$slugStoreIdMemo = [];
+        static::$slugStoreIdMemoAppId = null;
+    }
+
+    /**
+     * Did the router match a route for this process at all?
+     *
+     * FALSE means console, queue worker, or a plain unit test with no request lifecycle -- the
+     * contexts that have no request and therefore no storefront. See the note in
+     * `storefrontStoreId()` for why this and not `app()->runningInConsole()`.
+     */
+    protected static function hasResolvedRoute(): bool
+    {
+        try {
+            $request = request();
+
+            return $request !== null && $request->route() !== null;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * ESCAPE HATCH 3 -- RUN A CALLBACK IN AN EXPLICIT TENANT CONTEXT.
+     *
+     * THIS IS THE ANSWER TO THE BACKGROUND-JOB / CONSOLE QUESTION, and it is a decision rather
+     * than a default. A queued job and a scheduled command have no request, no slug and no
+     * web-guard principal, so `resolveTenant()` returns MODE_UNRESOLVED and
+     * `tenancy.null_tenant` = 'open' means NO PREDICATE. That fail-open is retained as the
+     * DEFAULT because 'closed' would silently stop every job (routes/console.php drives the Zid
+     * sync), and a control that stops the scheduled work would simply be switched off.
+     *
+     * But fail-open on a scoped Product or Customer is a much bigger hole than on a scoped Menu,
+     * so the fix is not a different default -- it is giving a job a way to SAY which tenant it is
+     * acting for, in one line, at the top of its handle():
+     *
+     *     StoreScope::forStoreContext($this->storeId, fn () => $this->sync());
+     *
+     * Inside the callback the admissible set is exactly the ids given, for every model, whoever
+     * happens to be authenticated. It is a STACK restored in a `finally`, so:
+     *   - an exception cannot leave a context behind;
+     *   - nesting cannot have an inner block re-open an outer one's tenant on exit;
+     *   - and NO CONTEXT IS EVER INHERITED. A job that does not open one gets no context, so the
+     *     stale-context trap -- a worker process serving job N+1 with job N's tenant -- cannot
+     *     occur: there is no ambient state to go stale. That property is asserted directly by
+     *     StorefrontContextTenantResolutionTest::test_an_explicit_context_does_not_leak_past_its_block.
+     *
+     * It is also how a test drives a context deterministically, which the request-derived
+     * branches cannot do from a plain Eloquent call with no route.
+     *
+     * @template TReturn
+     * @param  int|array<int, int>  $storeIds
+     * @param  callable():TReturn  $callback
+     * @return TReturn
+     */
+    public static function forStoreContext($storeIds, callable $callback)
+    {
+        $ids = array_values(array_unique(array_map(
+            static fn ($id) => (int) $id,
+            is_array($storeIds) ? $storeIds : [$storeIds]
+        )));
+
+        if ($ids === []) {
+            throw new \InvalidArgumentException(
+                'StoreScope::forStoreContext() needs at least one store id. An empty context '
+                . 'would compile to `store_id IN ()`, which is a silent zero-row query -- say '
+                . 'what you mean with allowCrossTenant() instead.'
+            );
+        }
+
+        sort($ids);
+
+        static::$explicitContextStack[] = $ids;
+
+        try {
+            return $callback();
+        } finally {
+            array_pop(static::$explicitContextStack);
+        }
+    }
+
+    /**
+     * The innermost explicit context, or null when none is open.
+     *
+     * @return array<int, int>|null
+     */
+    protected static function explicitStoreIds(): ?array
+    {
+        $depth = count(static::$explicitContextStack);
+
+        return $depth === 0 ? null : static::$explicitContextStack[$depth - 1];
+    }
+
+    /**
+     * True while inside a `forStoreContext()` block. For assertions and logging.
+     */
+    public static function hasExplicitContext(): bool
+    {
+        return static::$explicitContextStack !== [];
+    }
+
+    /**
+     * Test-support only: forget any explicit context left behind by a failed test.
+     */
+    public static function resetExplicitContext(): void
+    {
+        static::$explicitContextStack = [];
     }
 
     /**
