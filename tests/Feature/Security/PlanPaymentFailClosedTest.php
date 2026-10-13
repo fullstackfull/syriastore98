@@ -143,23 +143,30 @@ class PlanPaymentFailClosedTest extends PlanPaymentTestCase
         $response = $this->actingAs($merchant)
             ->get(route($routeName, $this->withPlanId($params, $plan->id)));
 
-        // 403, never 401: a 401 reaching repo B's network layer forces a logout and clears the
-        // merchant's stored preferences.
-        $response->assertForbidden();
-
+        // THE SUBSTANTIVE ASSERTIONS COME FIRST, ON PURPOSE.
+        //
+        // A status-code assertion can be vacuous -- this project has already shipped one that
+        // passed with the defect reintroduced. If assertForbidden() ran first it would shadow
+        // these two, and a reviewer reintroducing the defect would see only "expected 403, got
+        // 302" and never learn whether a plan had actually been sold for nothing. Asserting the
+        // rows and the entitlement first means the failure names the real damage.
         $this->assertSame(
             $ordersBefore,
             DB::table('plan_orders')->count(),
-            $provider . ': a refused return still wrote a plan_orders row. The guard must run '
-            . 'BEFORE the PlanOrder is built.'
+            $provider . ': a refused return still wrote a plan_orders row -- a paid plan was '
+            . 'recorded as purchased. The guard must run BEFORE the PlanOrder is built.'
         );
 
         $this->assertSame(
             $planBefore,
             $merchant->fresh()->plan_id,
-            $provider . ': a refused return still changed the user\'s entitlement. The guard '
-            . 'must run BEFORE assignPlan().'
+            $provider . ': a refused return still changed the user\'s entitlement -- a paid '
+            . 'plan was ACTIVATED for free. The guard must run BEFORE assignPlan().'
         );
+
+        // 403, never 401: a 401 reaching repo B's network layer forces a logout and clears the
+        // merchant's stored preferences.
+        $response->assertForbidden();
     }
 
     // =========================================================================================
