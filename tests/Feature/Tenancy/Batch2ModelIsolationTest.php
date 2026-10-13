@@ -92,13 +92,24 @@ class Batch2ModelIsolationTest extends TestCase
             // name            model class                        table            mutable column
             'order refunds' => [\App\Models\OrderRefund::class, 'order_refunds', 'refund_status'],
             'order notes' => [\App\Models\OrderNote::class, 'order_notes', 'notes'],
-            // Customer and Cart were enabled in this batch and have been REMOVED from the
-            // allowlist on integration, so their data sets are removed from this provider
-            // rather than left asserting a property the platform deliberately no longer
-            // enforces. The decision and its evidence are pinned instead by
-            // StorefrontWebGuardScopeTest, which drives the case this suite never did: an
-            // AUTHENTICATED web-guard principal on a foreign storefront. See condition 5 in
-            // config/tenancy.php.
+
+            // RESTORED IN BATCH 3. These two were enabled in batch 2, REMOVED on integration,
+            // and are back -- because the condition that removed them is gone, not waived.
+            //
+            // The removal note read: "their data sets are removed from this provider rather than
+            // left asserting a property the platform deliberately no longer enforces", and it
+            // was right about the code it was written against. One predicate was serving five
+            // contexts, so a storefront read filtered on a slug-resolved store met a predicate
+            // derived from the actor's ADMIN store and ANDed to zero rows. That is a defect in
+            // the RESOLVER, not a property of these two models.
+            //
+            // App\Scopes\StoreScope::resolveTenant() now resolves per context, so the storefront
+            // reads work. This suite is the ADMIN-context matrix for them (13 tests each,
+            // negatives read back through raw DB::table()); the storefront-context matrix that
+            // this suite never drove is StorefrontWebGuardScopeTest, and the resolver itself is
+            // StorefrontContextTenantResolutionTest.
+            'customers' => [\App\Models\Customer::class, 'customers', 'first_name'],
+            'abandoned carts' => [\App\Models\Cart::class, 'carts', 'qty'],
         ];
     }
 

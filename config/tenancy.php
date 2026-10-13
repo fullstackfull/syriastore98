@@ -247,19 +247,25 @@ return [
         // (GoogleLogin:123, SignInWithFacebook:186, SignInWithLinkedIn:129, Signinwithgithub:117,
         // SignInWithSlack:119, SignInWithTwitter:114, SignInWithBitbucket:109,
         // SignInWithOutlook:172).
-        // ***** NOT ENABLED. The analysis above is kept because it is sound as far as it
-        // ***** goes, but its premise -- that this model is "always" read on the `customers`
-        // ***** guard or anonymously -- is FALSE, and condition 5 above explains why. A
-        // ***** merchant with a live admin session is a populated WEB-GUARD principal on every
-        // ***** storefront request (routes/customer.php is require'd from routes/web.php:1222,
-        // ***** so storefront routes carry the `web` group; config/session.php:146 sets the
-        // ***** cookie path to '/'), and getCurrentStore() then returns their ADMIN store.
-        // ***** Enabling this model made a storefront read return zero rows, silently, for
-        // ***** that principal on any store they do not own. Re-enable ONLY after every
-        // ***** storefront read site has an explicit withoutGlobalScope escape AND a test
-        // ***** drives the authenticated-web-guard case (the anonymous case fails open and so
-        // ***** passes trivially).
-        // ***** Breaking sites: CustomerLoginController.php:87, :585, :751, :796, :847.
+        // ***** RE-ENABLED IN BATCH 3, and the condition that blocked it is GONE rather than
+        // ***** waived. The revert note said: "Re-enable ONLY after every storefront read site
+        // ***** has an explicit withoutGlobalScope escape AND a test drives the
+        // ***** authenticated-web-guard case (the anonymous case fails open and so passes
+        // ***** trivially)."
+        // *****
+        // ***** Both halves are met, and the first is met BETTER than it was asked for. Rather
+        // ***** than bolting a withoutGlobalScope escape onto each of the five breaking sites
+        // ***** (CustomerLoginController.php:87, :585, :751, :796, :847) -- which would have
+        // ***** meant five chances to miss one, forever, on a model this sensitive -- the
+        // ***** PREDICATE ITSELF now resolves per context, so on a storefront request the
+        // ***** slug-resolved store is admissible and those five reads need no escape at all.
+        // ***** See `storefront_tenant` below and App\Scopes\StoreScope::resolveTenant().
+        // ***** The authenticated-web-guard case is driven explicitly, in BOTH directions, by
+        // ***** tests/Feature/Tenancy/StorefrontContextModelIsolationTest (a logged-in merchant
+        // ***** browsing another merchant's storefront) and
+        // ***** StorefrontContextTenantResolutionTest, and the exact shape of each of the five
+        // ***** sites is asserted by StorefrontWebGuardScopeTest.
+        App\Models\Customer::class,
 
         // Cart -- abandoned-cart rows. Read on the storefront and in every payment controller,
         // but always on the `customers` guard or anonymously by `cookie_session_id`, so the scope
@@ -275,19 +281,62 @@ return [
         // exactly what this phase is told not to do.
         // Writers: Cart.php:162 and :851, Api/ApiController.php:1533, CartController.php:382,
         // and the FrequentlyProduct / BoostSales package inserts all set `store_id`.
-        // ***** NOT ENABLED. The analysis above is kept because it is sound as far as it
-        // ***** goes, but its premise -- that this model is "always" read on the `customers`
-        // ***** guard or anonymously -- is FALSE, and condition 5 above explains why. A
-        // ***** merchant with a live admin session is a populated WEB-GUARD principal on every
-        // ***** storefront request (routes/customer.php is require'd from routes/web.php:1222,
-        // ***** so storefront routes carry the `web` group; config/session.php:146 sets the
-        // ***** cookie path to '/'), and getCurrentStore() then returns their ADMIN store.
-        // ***** Enabling this model made a storefront read return zero rows, silently, for
-        // ***** that principal on any store they do not own. Re-enable ONLY after every
-        // ***** storefront read site has an explicit withoutGlobalScope escape AND a test
-        // ***** drives the authenticated-web-guard case (the anonymous case fails open and so
-        // ***** passes trivially).
-        // ***** Breaking sites: app/Models/Cart.php:166 and :208.
+        // ***** RE-ENABLED IN BATCH 3, on the same evidence as Customer above. The two
+        // ***** breaking sites -- app/Models/Cart.php:166 (`Cart::where('cookie_session_id',
+        // ***** $session_id)->where('store_id', $store_id)` in Cart::cart_add) and :208 (the
+        // ***** same shape in Cart::cart_list_cookie, where `$store_id` comes from
+        // ***** `Store::find($storeid)`, i.e. the SLUG-resolved store) -- now meet an
+        // ***** admissible set that CONTAINS that slug store, so they return their rows
+        // ***** instead of nothing. Proven for the authenticated-web-guard principal, not
+        // ***** just the anonymous one, by StorefrontWebGuardScopeTest and
+        // ***** StorefrontContextModelIsolationTest.
+        App\Models\Cart::class,
+
+        /*
+        |----------------------------------------------------------------------------------------
+        | STILL NOT ENABLED, with the per-model evidence -- Product, Category, Shipping
+        |----------------------------------------------------------------------------------------
+        |
+        | These three carry the BelongsToStore trait and their tables really do have `store_id`,
+        | so they are one line each from enforcement. They are NOT enabled, and the reason is a
+        | measurement rather than caution:
+        |
+        | THEY ARE READ BY BARE PRIMARY KEY ON THE STOREFRONT, WHERE NOTHING NAMES A STORE.
+        | The per-context repair above fixes the reads that filter on a slug-resolved store id;
+        | it does nothing for a read that carries NO store predicate at all, because the scope
+        | then becomes the only filter and silently narrows it. Measured on this branch:
+        |
+        |   $ grep -rnE "\bProduct::(find|findOrFail)\(" app/ packages/ --include=*.php | wc -l
+        |   159
+        |   $ grep -rnE "\bCategory::(find|findOrFail)\(" app/ packages/ --include=*.php | wc -l
+        |   18
+        |   $ grep -rnE "\bShipping::(find|findOrFail)\(" app/ packages/ --include=*.php | wc -l
+        |   13
+        |
+        | A storefront product-detail page resolves its product from the PRODUCT slug, not the
+        | store slug, and `{storeSlug?}` is optional -- so a product URL that matched without the
+        | store prefix has a resolvable product and NO resolvable store. Under 'additive' that
+        | request resolves CONTEXT_MERCHANT_ADMIN for a signed-in merchant, and the catalogue
+        | read is then narrowed to their own stores: the storefront blanks for exactly the
+        | principal batch 2 broke. Closing that needs each of those 190 sites classified as
+        | storefront or admin, which is a reviewed per-site exercise and NOT something to infer
+        | from a grep count.
+        |
+        | Order and Setting are a step further back still: NEITHER CARRIES THE TRAIT
+        | (app/Models/Order.php:13 and app/Models/Setting.php:12 are `use HasFactory, Cachable`),
+        | so enabling them means ADDING the trait as well -- and `Setting` is read on every page
+        | render through `getAdminAllSetting()` (app/Helper/helper.php:350-382), which already
+        | passes an explicit `store_id` that is frequently NOT the current store:
+        |
+        |   $ grep -rn "Setting::where('store_id'" app/ packages/ --include=*.php \
+        |       | grep -vc getCurrentStore
+        |   76
+        |
+        | That is the widest blast radius in the codebase and must not be changed on a grep.
+        |
+        | Each of the five is reported OPEN with this evidence rather than quietly enabled.
+        |
+        */
 
     ],
 

@@ -28,7 +28,10 @@ use Throwable;
  * The switch is no longer one boolean. `config/tenancy.php` carries:
  *   - `enforcement_enabled` -- a kill switch, default TRUE;
  *   - `scoped_models`       -- the reviewed per-model allowlist, which is the ONLY production
- *                              path to a predicate. BATCH 1 holds 6 models;
+ *                              path to a predicate. It holds TEN models: 6 from batch 1, 2 from
+ *                              batch 2, and Cart + Customer re-enabled in batch 3 once the
+ *                              tenant was resolved per context. Counted at runtime by
+ *                              StorefrontContextTenantResolutionTest, not described here;
  *   - `null_tenant`         -- 'open' (default) or 'closed';
  * and that file argues each choice with the measurement behind it. `static::$enabled` remains
  * the ALL-MODELS flip and remains FALSE: 785 of the 1,282 existing `where('store_id', ...)`
@@ -89,6 +92,18 @@ use Throwable;
  * ============================================================================================
  *  WHAT THIS SCOPE CANNOT SEE -- measured, not assumed.
  * ============================================================================================
+ *   - TWO ELOQUENT BUILDER METHODS ESCAPE THIS SCOPE, enumerated mechanically over the whole
+ *     class rather than guessed: `forceDelete()` (Builder.php:1397-1400, `return
+ *     $this->query->delete()` -- the only method in the class whose body is a direct
+ *     `$this->query->` call; `delete()` at :1381-1388 DOES use `toBase()` and so is scoped) and
+ *     `truncate()` through the `__call` fallback at Builder.php:2123, which is not in `$passthru`
+ *     and so empties the WHOLE TABLE for EVERY tenant. Found by a FAILING cross-tenant test, not
+ *     by reading. NOT fixed: `newEloquentBuilder()` is already declared by
+ *     vendor/genealabs/laravel-model-caching/src/Traits/ModelCaching.php:109 and `Cachable`
+ *     composes it, so declaring it on the trait is a trait method collision that FATALS every
+ *     allowlisted model. Measured unreached (0 first-party `forceDelete()` sites; 3 `truncate()`
+ *     sites, all on platform-global City/State/Country) and reported OPEN, pinned by
+ *     tests/Feature/Tenancy/EloquentScopeBypassInventoryTest.
  *   - `DB::table()` sites bypass Eloquent entirely, so NO global scope reaches them
  *     (app/Http/Controllers/RoleController.php:182 is a live example). Proven, not assumed, by
  *     EnforcedModelIsolationTest::test_raw_db_table_queries_bypass_the_scope_entirely. The remedy
