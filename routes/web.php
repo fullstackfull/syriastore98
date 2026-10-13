@@ -292,36 +292,76 @@ Route::middleware(['auth'])->group(function () {
 
 
 
-Route::post(
-    '/otp-integration/test',
-    [OtpIntegrationController::class, 'test']
-)->name('otp.integration.test');
+// NEW-ANON-SETTINGS-ROUTES-01. These five declarations sat at the TOP LEVEL of this
+// file, outside every group, so they carried only the `web` group: no auth, no
+// verified, nothing. They are MERCHANT SETTINGS endpoints -- the only callers in
+// either repository are resources/views/setting/otp_setting.blade.php:8 and :380 and
+// resources/views/setting/partials/abandoned-carts.blade.php:411, all admin-side
+// screens. No theme and no storefront view references any of them, so nothing
+// anonymous is lost by requiring a session.
+//
+// MEASURED ANONYMOUSLY, before the fix, with no session at all:
+//   POST /otp-integration                  -> 500 (it reached the write; the 500 is
+//                                             the undeclared `otp_integrations`
+//                                             table, which is in the GATE F family)
+//   GET  /otp-integration                  -> 500 (same, through the view)
+//   POST /chatwoot/abandoned-carts/send    -> 302 from the CONTROLLER, i.e. it ran
+//                                             the loop over caller-supplied
+//                                             customer_ids
+//
+// WHY IT MATTERS MORE THAN A JUNK ROW. OtpIntegrationController::save() writes
+// `OtpIntegration::firstOrNew(['store_id' => $storeId])` and $storeId is
+// getCurrentStore(), which is NULL for an anonymous caller by documented decision
+// (R4-02, app/Helper/helper.php:357-381). Illuminate's Builder::where() turns a null
+// value into `whereNull`, so the row an anonymous caller writes with store_id NULL is
+// the SAME row that OtpIntegrationController::test() then reads back with
+// `OtpIntegration::where('store_id', $storeId)->first()`. test() posts to
+// $integration->base_url. The two endpoints together were therefore an anonymous
+// outbound-request primitive with a caller-chosen URL -- an SSRF, reachable without
+// any credential, and the stored api_secret is attacker-chosen too.
+//
+// Gated with the same stack the rest of the admin surface uses. A permission check
+// on top of `auth` would be better still and is NOT added here: the controllers are
+// not this workstream's files, and a permission name that Utility::addNewData() does
+// not seed cannot exist as a row -- the precise defect that made all six finance
+// names 403 for everyone. Recorded as a cross-agent dependency.
+//
+// Pinned in both directions by tests/Feature/Security/AnonymousSettingsRoutesTest.
+Route::middleware(['auth', 'xss', 'setlocate', 'verified'])->group(function () {
+    Route::post(
+        '/otp-integration/test',
+        [OtpIntegrationController::class, 'test']
+    )->name('otp.integration.test');
+
+    Route::get('/otp-integration', [OtpIntegrationController::class, 'index'])
+        ->name('otp.integration');
+
+    Route::post('/otp-integration', [OtpIntegrationController::class, 'save'])
+        ->name('otp.integration.save');
 
 
 
-Route::get('/otp-integration', [OtpIntegrationController::class, 'index'])
-    ->name('otp.integration');
-
-Route::post('/otp-integration', [OtpIntegrationController::class, 'save'])
-    ->name('otp.integration.save');
 
 
 
 
 
 
+    Route::get(
+        '/chatwoot/abandoned-carts',
+        [AbandonedCartController::class, 'index']
+    )->name('chatwoot.abandoned-carts');
 
-
-
-Route::get(
-    '/chatwoot/abandoned-carts',
-    [AbandonedCartController::class, 'index']
-)->name('chatwoot.abandoned-carts');
-
-Route::post(
-    '/chatwoot/abandoned-carts/send',
-    [AbandonedCartController::class, 'send']
-)->name('chatwoot.abandoned-carts.send');
+    // Anonymous before this group existed: it validated `customer_ids` off the
+    // request and asked ChatwootAbandonedCartNotificationService to message each one
+    // (app/Http/Controllers/newsyria/AbandonedCartController.php:49-80), so an
+    // unauthenticated caller could drive outbound WhatsApp/Chatwoot traffic at
+    // caller-chosen customer ids. Measured: it answered 302 FROM THE CONTROLLER.
+    Route::post(
+        '/chatwoot/abandoned-carts/send',
+        [AbandonedCartController::class, 'send']
+    )->name('chatwoot.abandoned-carts.send');
+});
 
 
 
