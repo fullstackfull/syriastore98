@@ -15,14 +15,24 @@ use PHPUnit\Framework\TestCase;
  * WHY THIS GUARD EXISTS. Six money-bearing tables -- store_wallets,
  * store_wallet_transactions, store_withdrawals, store_order_financials, currency_rates
  * and delivery_earnings -- are read and written by live code and created by no migration.
- * Their column types are not derivable from $fillable, so inventing them is FORBIDDEN,
- * and EIGHT of the suite's NINE skips are tests that skip precisely because these tables
- * are absent (re-measured with --display-skipped; the ninth is `zid_orders`, a different
- * undeclared table). Those eight skips name only THREE of the six money tables -- see
- * GateFCoverageLedgerTest for the resulting coverage gap.
+ * Their column types are not derivable from $fillable, so inventing them is FORBIDDEN.
+ *
+ * RE-MEASURED on p1e/agent5-qa at de8646b7 with
+ * `vendor/bin/phpunit --testsuite Feature --display-skipped`, because the counts here were
+ * stale: the suite now reports 17 skips, not 9. FIFTEEN of the 17 name one of the six
+ * money tables -- FinancialSurfaceCoverageTest 7, CrossTenantModelIsolationTest 3,
+ * ModelInitializationTest 3, FinancePermissionTest 1, WithdrawalAuthorizationTest 1. The
+ * other TWO are a different undeclared-schema family and not the money six:
+ * DeliverySyriaWebhookTest (`zid_orders`) and CustomerAccountBoundaryTest
+ * (`newsletters.user_id`, an undeclared COLUMN rather than a table).
+ *
+ * The coverage gap GateFCoverageLedgerTest was written to record is now CLOSED on the
+ * naming side: all six money tables are named by at least one skip, where previously only
+ * three were. Every skip reason was read individually and all 17 still hold; none is
+ * skipping for a reason that has lapsed.
  *
  * That makes those skips a standing temptation: a single Schema::create() anywhere in
- * either migration tree would turn eight reported gaps into eight green ticks while
+ * either migration tree would turn fifteen reported gaps into fifteen green ticks while
  * freezing guessed column types into the schema. Worse, the existing migrations are
  * written with Schema::hasTable() guards, so once a wrong definition has created a table,
  * the later CORRECT migration becomes a silent no-op and the wrong types become permanent
