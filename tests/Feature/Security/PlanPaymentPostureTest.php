@@ -54,6 +54,12 @@ class PlanPaymentPostureTest extends TestCase
             'PayTR'       => ['paytr', 'PLAN_ACTIVATION_PAYTR'],
             'PaiementPro' => ['paiementpro', 'PLAN_ACTIVATION_PAIEMENTPRO'],
             'Ozow'        => ['ozow', 'PLAN_ACTIVATION_OZOW'],
+
+            // Found by closing a hole in the audit's own census rather than by the census; see
+            // PlanPaymentVerificationInventoryTest for the four price-write shapes it missed.
+            'CoinGate'    => ['coingate', 'PLAN_ACTIVATION_COINGATE'],
+            'PayTabs'     => ['paytabs', 'PLAN_ACTIVATION_PAYTABS'],
+            'SSLCommerz'  => ['sslcommerz', 'PLAN_ACTIVATION_SSLCOMMERZ'],
         ];
     }
 
@@ -73,6 +79,9 @@ class PlanPaymentPostureTest extends TestCase
             'PayTR'       => ['paytr', 'PaytrController'],
             'PaiementPro' => ['paiementpro', 'PaiementProPaymentController'],
             'Ozow'        => ['ozow', 'OzowController'],
+            'CoinGate'    => ['coingate', 'CoingateController'],
+            'PayTabs'     => ['paytabs', 'PaytabsController'],
+            'SSLCommerz'  => ['sslcommerz', 'SSLCommerzPaymentController'],
         ];
     }
 
@@ -222,6 +231,9 @@ class PlanPaymentPostureTest extends TestCase
             'XenditPaymentController',
             'CinetPayController',
             'PowertranzPaymentController',
+            'CyberSourceController',
+            'MolliePaymentController',
+            'StripePaymentController',
         ];
 
         foreach ($expected as $controller) {

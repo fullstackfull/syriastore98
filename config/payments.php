@@ -235,6 +235,75 @@ return [
          *          outbound string, so it must come from Ozow's documentation.
          */
         'ozow' => env('PLAN_ACTIVATION_OZOW', false),
+
+        /*
+         * ------------------------------------------------------------------------------------
+         * THE THREE BELOW WERE FOUND BY CLOSING A HOLE IN THE AUDIT'S OWN CENSUS, not by the
+         * census. It looked for `$order->price = ...`, so it never saw a handler that writes
+         * `$planorder->price` (CoinGate), one that writes through `PlanOrder::create([...])`
+         * (PayTabs, CyberSource), or one that writes NO price at all because it flips an
+         * existing order (SSLCommerz). Nine assignPlan() callers were outside the inventory
+         * entirely. PlanPaymentVerificationInventoryTest now covers all four shapes.
+         * ------------------------------------------------------------------------------------
+         */
+
+        /*
+         * CoingateController::coingatePlanGetPayment
+         * env key: PLAN_ACTIVATION_COINGATE
+         * REASON:  No gate of any kind. route('coingate.coingate.callback') is a plain GET
+         *          (routes/web.php:607); the handler reads plan_id off the request, writes
+         *          `$planorder->payment_status = 'success'` and calls assignPlan(). The price
+         *          was already server-owned, so this is a free activation that records the
+         *          CORRECT price for a payment that never happened -- harder to spot in the
+         *          books than a zero-amount row.
+         * RE-ENABLE WHEN: CoinGate's order-status API is consulted for the order id and a paid
+         *          state is required, with amount and currency checked, covered by a test over
+         *          a faked provider response.
+         */
+        'coingate' => env('PLAN_ACTIVATION_COINGATE', false),
+
+        /*
+         * PaytabsController::planGetPaymentStatus
+         * env key: PLAN_ACTIVATION_PAYTABS
+         * REASON:  The real verification is computed and then discarded. $this->Verify()
+         *          (PaytabsController:46) posts payment/query to PayTabs with the server key
+         *          and the stored tran_ref and returns ['success' => bool]; the handler assigns
+         *          it to $status and never reads it. The actual gate is
+         *          `$request->respMessage == "Authorised"`, a string the caller supplies. Same
+         *          family as Yookassa building a client and never calling it. The price here
+         *          was already server-owned.
+         * RE-ENABLE WHEN: the gate becomes `$status['success'] === true`. That is a ONE-LINE
+         *          change whose contract is fully readable in this repo, and because Verify()
+         *          uses the Http facade it is testable with Http::fake(). It was not made here
+         *          for one measurable reason: Verify() resolves the server key, region and
+         *          tran_ref from Session::get($order_id), written by PaytabsPaymentPrepare, so
+         *          a server-to-server callback would carry no session and would be REFUSED.
+         *          Confirm PayTabs returns the customer through the browser with the session
+         *          intact before switching the gate, or key the tran_ref off the order row
+         *          instead of the session.
+         */
+        'paytabs' => env('PLAN_ACTIVATION_PAYTABS', false),
+
+        /*
+         * SSLCommerzPaymentController::planGetSSLCommerzStatus
+         * env key: PLAN_ACTIVATION_SSLCOMMERZ
+         * REASON:  The most damaging of the set. The gate is `if (!$request->success == 0)` --
+         *          which parses as `(!$request->success) == 0`, true whenever `success` is
+         *          truthy, and caller-supplied either way. Worse, THE PLAN AND THE ORDER COME
+         *          FROM DIFFERENT PLACES: the order is found by `$request['tran_id']` while the
+         *          plan comes from the {plan_id} ROUTE parameter. A merchant can check out for
+         *          the CHEAPEST plan, take their own real tran_id, and call this route naming
+         *          the MOST EXPENSIVE plan -- their cheap order is flipped to 'succeeded' and
+         *          the expensive plan is assigned, with the cheap price recorded against the
+         *          expensive entitlement. The books stay internally consistent, so nothing
+         *          looks wrong. assignPlan() is also called twice (:157 and :175).
+         * RE-ENABLE WHEN: the transaction is validated through SSLCommerz's validator API AND
+         *          the order found by tran_id is required to belong to the caller and to name
+         *          the SAME plan as the route parameter. The second half is necessary even with
+         *          provider validation, because provider validation says the cheap payment was
+         *          real -- not that it paid for the expensive plan.
+         */
+        'sslcommerz' => env('PLAN_ACTIVATION_SSLCOMMERZ', false),
     ],
 
     /**
@@ -266,5 +335,17 @@ return [
         'XenditPaymentController'       => "\$getInvoice['status'] == 'PAID'",
         'CinetPayController'            => "\$this->getPaymentStatus(...) then \$response_body['code'] == '00'",
         'PowertranzPaymentController'   => "Http::post(.../api/spi/Payment) then ['Approved'] === true && ['IsoResponseCode'] == '00'",
+
+        // ALSO OUTSIDE THE OLD CENSUS -- they write through PlanOrder::create([...]) or
+        // $planorder->price -- and all three resolve onto the SAFE side on reading.
+        //
+        // Stripe deserves a note: it fabricates ['paid'] = 1 and ['captured'] = 1 in an `else`
+        // branch, which looks self-fulfilling until you read the condition. It is
+        // `if ($price > 0.0)`, and $price is computed from $plan->price minus a validated
+        // coupon -- so the fabricated success only happens on a SERVER-computed zero price,
+        // i.e. a free plan where no charge is due. That is legitimate.
+        'CyberSourceController'         => '"AUTHORIZED"',
+        'MolliePaymentController'       => '$payment->isPaid()',
+        'StripePaymentController'       => "Stripe\\Charge::create(...) then ['paid'] == 1 && ['captured'] == 1",
     ],
 ];

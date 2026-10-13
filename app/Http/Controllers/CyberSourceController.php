@@ -11,8 +11,12 @@ use App\Models\Coupon;
 use App\Models\PlanUserCoupon;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Auth;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
+
 class CyberSourceController extends Controller
 {
+    use GuardsPlanActivation;
+
     public function planPayWithCyberSource(Request $request)
     {
 
@@ -154,7 +158,19 @@ class CyberSourceController extends Controller
                         'card_exp_year'     => !empty($input['year']) ? $input['year'] : 0,
                         'plan_name'         => !empty($plan->name) ? $plan->name : 'Basic Package',
                         'plan_id'           => $plan->id,
-                        'price'             => $amount,
+                        // Server-owned: was `$amount`, taken from
+                        // json_decode($input['data'])['amount'] -- i.e. from the request body.
+                        //
+                        // CyberSource IS verified on this path: the handler posts to
+                        // apitest.cybersource.com/pts/v2/payments and requires
+                        // $result['status'] == "AUTHORIZED" above, so a forged return cannot
+                        // activate a plan and this provider is NOT on the config/payments.php
+                        // map. Only the RECORDED price changes, which is why no
+                        // amount-mismatch refusal is added -- see GuardsPlanActivation.
+                        //
+                        // This handler was also missing from the plan-purchase census, because
+                        // it writes through PlanOrder::create([...]) rather than $order->price.
+                        'price'             => $this->serverOwnedPlanPrice($plan, $coupon_code),
                         'price_currency'    => $admin_currancy,
                         'txn_id'            => time(),
                         'payment_type'      => __('Cybersource'),

@@ -67,6 +67,9 @@ class PlanPaymentVerificationInventoryTest extends TestCase
         'PaytrController',
         'PaiementProPaymentController',
         'OzowController',
+        'CoingateController',
+        'PaytabsController',
+        'SSLCommerzPaymentController',
     ];
 
     /**
@@ -94,6 +97,11 @@ class PlanPaymentVerificationInventoryTest extends TestCase
             'Xendit: invoice status lookup'     => ['XenditPaymentController', "'PAID'"],
             'CinetPay: outbound status lookup'  => ['CinetPayController', "\$response_body['code'] == '00'"],
             'Powertranz: outbound SPI payment'  => ['PowertranzPaymentController', "\$response_data['IsoResponseCode'] == \"00\""],
+
+            // Also outside the old census, and all three resolve onto the SAFE side on reading.
+            'CyberSource: outbound payments API' => ['CyberSourceController', '"AUTHORIZED"'],
+            'Mollie: SDK payment lookup'         => ['MolliePaymentController', '$payment->isPaid()'],
+            'Stripe: live charge creation'       => ['StripePaymentController', 'Stripe\\Charge::create'],
         ];
     }
 
@@ -103,6 +111,75 @@ class PlanPaymentVerificationInventoryTest extends TestCase
         $this->assertFileExists($path, $controller . ' has moved or been deleted; update this inventory.');
 
         return (string) file_get_contents($path);
+    }
+
+    /**
+     * THE SAME SOURCE WITH COMMENTS AND STRING LITERALS REMOVED, for the price scan.
+     *
+     * Learned the hard way, twice over. The scan matched `$price = $request->total_price`
+     * inside a COMMENT that was explaining the very defect being fixed, and reported the
+     * repaired controller as still broken -- with half a paragraph of prose as the "offending
+     * expression". A scanner that reads comments as code produces false alarms in exactly the
+     * files someone has just taken the trouble to document.
+     *
+     * token_get_all() is used rather than a regex because PHP's own lexer is the only thing that
+     * reliably knows where a comment ends.
+     */
+    private function codeOnly(string $src): string
+    {
+        $out = '';
+
+        foreach (token_get_all($src) as $token) {
+            if (is_array($token)) {
+                if (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                    // Keep the newlines so reported line context stays roughly honest.
+                    $out .= str_repeat("\n", substr_count($token[1], "\n"));
+
+                    continue;
+                }
+
+                $out .= $token[1];
+
+                continue;
+            }
+
+            $out .= $token;
+        }
+
+        return $out;
+    }
+
+    /**
+     * The text of one parenthesised call, from its opening '(' to the matching ')'.
+     *
+     * A FIXED-SIZE WINDOW IS NOT GOOD ENOUGH, measured: a 2000-character window opened at
+     * PaytabsController's PlanOrder::create(...) ran 35 lines past the end of the call and
+     * swallowed
+     *   route('plan.paytabs.callback', ['plan_id' => ..., 'price' => $request->total_price])
+     * which is a route parameter, not a PlanOrder field -- so the census reported a repaired
+     * controller as broken. Counting parentheses costs four lines and removes the guesswork.
+     *
+     * Comments and strings are already gone by the time this runs (see codeOnly()), so a
+     * parenthesis inside a string literal cannot unbalance the count.
+     */
+    private function balancedCall(string $src, int $openParenAt): string
+    {
+        $depth = 0;
+        $len   = strlen($src);
+
+        for ($i = $openParenAt; $i < $len; $i++) {
+            if ($src[$i] === '(') {
+                $depth++;
+            } elseif ($src[$i] === ')') {
+                $depth--;
+
+                if ($depth === 0) {
+                    return substr($src, $openParenAt, $i - $openParenAt + 1);
+                }
+            }
+        }
+
+        return substr($src, $openParenAt);
     }
 
     #[DataProvider('verifiedHandlers')]
@@ -133,9 +210,22 @@ class PlanPaymentVerificationInventoryTest extends TestCase
         $flagged = [];
 
         foreach ((glob(app_path('Http/Controllers') . '/*.php') ?: []) as $file) {
-            $src = (string) file_get_contents($file);
+            $src = $this->codeOnly((string) file_get_contents($file));
 
-            if (! str_contains($src, 'assignPlan(') || ! preg_match('/\$order->price\s*=/', $src)) {
+            if (! str_contains($src, 'assignPlan(')) {
+                continue;
+            }
+
+            // FOUR WRITE SHAPES, NOT ONE. The previous scan required `$order->price =` and so
+            // never saw CoinGate (`$planorder->price`), PayTabs and CyberSource
+            // (`PlanOrder::create([... 'price' => ...])`) or SSLCommerz (no price write at all,
+            // because it flips an existing row). Three of those four turned out to be
+            // free-activation paths.
+            if (
+                ! preg_match('/\$order->price\s*=/', $src)
+                && ! preg_match('/\$planorder->price\s*=/', $src)
+                && ! preg_match("/PlanOrder::create\s*\(/", $src)
+            ) {
                 continue;
             }
 
@@ -171,6 +261,24 @@ class PlanPaymentVerificationInventoryTest extends TestCase
             'SenangPayController',
             'BraintreeController',
             'MyFatoorahController',
+
+            /**
+             * PROVIDER-PRICED, which is better than either session or recompute, and also a
+             * cross-method false positive of the one-hop tracer.
+             *
+             * MolliePaymentController::getPaymentStatus prices from `$payment->amount->value`
+             * (:211), where `$payment = $mollie->payments->get(session()->get('mollie_payment_id'))`
+             * (:179) -- i.e. the amount MOLLIE reports for the payment it actually took. The
+             * tracer flags it because a DIFFERENT method, planPayWithMollie, assigns
+             * `$payment = $mollie->payments->create([...])` (:130) and that array literal
+             * mentions $request->plan_id in its redirectUrl. Same file-scoped one-hop limitation
+             * as Braintree and MyFatoorah.
+             *
+             * Not rewritten to a recompute on purpose: the provider's own figure is the most
+             * authoritative amount available, and this handler verifies with Mollie
+             * ($payment->isPaid()) before using it.
+             */
+            'MolliePaymentController',
         ];
 
         $unexpected = array_diff_key($flagged, array_flip($sessionPriced));
@@ -196,11 +304,11 @@ class PlanPaymentVerificationInventoryTest extends TestCase
         // Guard the floor. If this collapses, the scan has broken rather than the problem having
         // gone away. 42 plan-purchase writers were measured when this inventory was retaken.
         $this->assertGreaterThanOrEqual(
-            35,
+            40,
             count($writers),
-            'Only ' . count($writers) . ' plan-purchase writers were found; 42 were measured '
-            . 'when this inventory was retaken, so the scan has probably broken and this file '
-            . 'is now asserting nothing.'
+            'Only ' . count($writers) . ' plan-purchase writers were found; the widened scan '
+            . 'measured more than forty, so the scan has probably broken and this file is now '
+            . 'asserting nothing.'
         );
     }
 
@@ -220,11 +328,40 @@ class PlanPaymentVerificationInventoryTest extends TestCase
      */
     private function requestSourcedPrice(string $src): ?string
     {
-        if (! preg_match_all('/\$order->price\s*=\s*([^;]+);/s', $src, $m)) {
+        $exprs = [];
+
+        foreach (['/\$order->price\s*=\s*([^;]+);/s', '/\$planorder->price\s*=\s*([^;]+);/s'] as $pattern) {
+            if (preg_match_all($pattern, $src, $m)) {
+                $exprs = array_merge($exprs, $m[1]);
+            }
+        }
+
+        // THE ARRAY-LITERAL FORM, PlanOrder::create([... 'price' => <expr> ...]) -- scanned
+        // only INSIDE such a call, not file-wide.
+        //
+        // A file-wide scan for `'price' =>` over-matches, and it did: PaytabsController builds
+        // its callback URL as
+        //   route('plan.paytabs.callback', ['plan_id' => ..., 'price' => $request->total_price])
+        // which is a ROUTE PARAMETER named price, not a PlanOrder field, and the handler on the
+        // other end ignores it and prices from $plan->price. Flagging it would have sent the
+        // next reader to fix something that is not broken -- and a census that cries wolf is a
+        // census people learn to override.
+        $offset = 0;
+
+        while (($at = strpos($src, 'PlanOrder::create(', $offset)) !== false) {
+            $call   = $this->balancedCall($src, $at + strlen('PlanOrder::create'));
+            $offset = $at + strlen('PlanOrder::create(');
+
+            if (preg_match_all("/'price'\\s*=>\\s*([^,\\n]+)/", $call, $m)) {
+                $exprs = array_merge($exprs, $m[1]);
+            }
+        }
+
+        if ($exprs === []) {
             return null;
         }
 
-        foreach ($m[1] as $expr) {
+        foreach ($exprs as $expr) {
             if (str_contains($expr, 'serverOwnedPlanPrice(')) {
                 continue;
             }
@@ -287,6 +424,13 @@ class PlanPaymentVerificationInventoryTest extends TestCase
         // SenangPay keeps its session price (see the census above), so it does not price through
         // the helper -- but it must still carry the guard, which PlanPaymentPostureTest asserts.
         $exempt[] = 'SenangPayController';
+
+        // SSLCommerz writes NO price at all: planGetSSLCommerzStatus UPDATES an existing
+        // PlanOrder (found by tran_id) and flips its payment_status. There is nothing for a
+        // pricing rule to own. That is also precisely why it was invisible to the old census,
+        // which required a price assignment. Its guard is asserted by PlanPaymentPostureTest and
+        // its refusal by PlanPaymentFailClosedTest.
+        $exempt[] = 'SSLCommerzPaymentController';
 
         foreach (self::REPAIRED as $controller) {
             if (in_array($controller, $exempt, true)) {

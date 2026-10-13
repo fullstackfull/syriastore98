@@ -108,6 +108,26 @@ class PlanPaymentFailClosedTest extends PlanPaymentTestCase
                 'plan_id' => '{PLAN}', 'Status' => 'Complete', 'TransactionId' => 'OZOW-TXN-1',
                 'amount' => 0, 'coupon_code' => '',
             ]],
+
+            // ----------------------------------------------------------------------------
+            // THE THREE BELOW WERE INVISIBLE TO THE AUDIT'S OWN CENSUS and were found by
+            // widening it. See PlanPaymentVerificationInventoryTest for the four price-write
+            // shapes. They are not unlike the others; they were simply never looked at.
+            // ----------------------------------------------------------------------------
+
+            'CoinGate (no gate at all)' => ['coingate', 'coingate.coingate.callback', [
+                'plan_id' => '{PLAN}',
+            ]],
+
+            // respMessage is the forgeable gate; order_id is what Verify() would have keyed on.
+            'PayTabs (verifies, then ignores the result)' => ['paytabs', 'plan.paytabs.callback', [
+                'plan_id' => '{PLAN}', 'respMessage' => 'Authorised', 'order_id' => 'PT-ORDER-1',
+                'coupon' => 0,
+            ]],
+
+            'SSLCommerz (gate is !$request->success == 0)' => ['sslcommerz', 'plan.get.sslcommerz.status', [
+                'plan_id' => '{PLAN}', 'success' => 1, 'tran_id' => 'SSL-TRAN-1',
+            ]],
         ];
     }
 
@@ -181,7 +201,19 @@ class PlanPaymentFailClosedTest extends PlanPaymentTestCase
     public static function enableableProviders(): array
     {
         $rows = self::forgeableProviders();
+
+        // Yookassa: its handler constructs a YooKassa\Client and that SDK is not installed
+        // here, so the activation path cannot be reached at all. See
+        // test_yookassa_verification_is_unimplementable_because_its_sdk_is_absent.
         unset($rows['Yookassa (gate is a session flag)']);
+
+        // PayTabs calls $this->Verify() -- an outbound Http request -- before its gate, so its
+        // positive path needs Http::fake. Bespoke test below.
+        unset($rows['PayTabs (verifies, then ignores the result)']);
+
+        // SSLCommerz writes no new PlanOrder; it flips an EXISTING one, so the generic
+        // "a row with the plan's price appeared" assertion does not apply. Bespoke test below.
+        unset($rows['SSLCommerz (gate is !$request->success == 0)']);
 
         return $rows;
     }
@@ -567,6 +599,311 @@ class PlanPaymentFailClosedTest extends PlanPaymentTestCase
             1,
             DB::table('plan_orders')->where('plan_id', $plan->id)->count(),
             'Two identical SenangPay callbacks produced two PlanOrders.'
+        );
+    }
+
+    // =========================================================================================
+    //  THE TWO BLIND-SPOT PROVIDERS WHOSE POSITIVE PATH NEEDS ITS OWN SETUP
+    // =========================================================================================
+
+    /**
+     * PayTabs: a genuine return still completes, and the price recorded is the plan's.
+     *
+     * Http::fake() stands in for PayTabs. $this->Verify() is called before the gate and posts
+     * payment/query, so without a fake this test would attempt a real outbound request. The
+     * faked body is shaped the way Verify() reads it, which also documents that contract.
+     *
+     * NOTE WHAT THIS DOES AND DOES NOT SHOW. It shows the guard has not broken the activation
+     * path. It does NOT show the gate is sound -- the gate is still the caller's `respMessage`,
+     * which is why PayTabs is on the fail-closed map. Switching the gate to $status['success']
+     * is the recorded re-enable condition, and this fake is the harness it would be tested with.
+     */
+    public function test_paytabs_still_activates_a_genuine_return_when_enabled(): void
+    {
+        $this->seedSuperAdminCurrency();
+        $this->enableProvider('paytabs');
+
+        \Illuminate\Support\Facades\Http::fake([
+            '*' => \Illuminate\Support\Facades\Http::response([
+                'payment_result' => [
+                    'response_status'  => 'A',
+                    'response_message' => 'Authorised',
+                ],
+            ], 200),
+        ]);
+
+        $merchant = $this->makeMerchant();
+        $plan     = $this->makePlan('499');
+
+        $this->actingAs($merchant)->get(route('plan.paytabs.callback', [
+            'plan_id'     => $plan->id,
+            'respMessage' => 'Authorised',
+            'order_id'    => 'PT-ORDER-1',
+            'coupon'      => 0,
+        ]))->assertStatus(302);
+
+        $order = DB::table('plan_orders')->where('plan_id', $plan->id)->first();
+
+        $this->assertNotNull($order, 'The guard broke PayTabs\' legitimate activation path.');
+        $this->assertEqualsWithDelta(499.0, (float) $order->price, 0.009);
+        $this->assertSame((string) $plan->id, (string) $merchant->fresh()->plan_id);
+    }
+
+    /**
+     * SSLCommerz: a genuine return still flips the merchant's own order and assigns the plan.
+     *
+     * The order has to exist first, because this handler updates rather than inserts -- which is
+     * exactly why it was invisible to a census that required a price assignment.
+     */
+    public function test_sslcommerz_still_completes_a_genuine_return_when_enabled(): void
+    {
+        $this->seedSuperAdminCurrency();
+        $this->enableProvider('sslcommerz');
+
+        $merchant = $this->makeMerchant();
+        $plan     = $this->makePlan('499');
+
+        DB::table('plan_orders')->insert([
+            'order_id'       => 'SSL-TRAN-OK',
+            'name'           => $merchant->name,
+            'plan_name'      => $plan->name,
+            'plan_id'        => $plan->id,
+            'price'          => 499,
+            'price_currency' => 'USD',
+            'txn_id'         => 'SSL-TRAN-OK',
+            'payment_status' => 'pending',
+            'payment_type'   => 'SSLCommerz',
+            'user_id'        => $merchant->id,
+            'created_at'     => now(),
+            'updated_at'     => now(),
+        ]);
+
+        $this->actingAs($merchant)->get(route('plan.get.sslcommerz.status', [
+            'plan_id' => $plan->id,
+            'success' => 1,
+            'tran_id' => 'SSL-TRAN-OK',
+        ]))->assertStatus(302);
+
+        $this->assertSame(
+            'succeeded',
+            DB::table('plan_orders')->where('order_id', 'SSL-TRAN-OK')->value('payment_status'),
+            'The guard broke SSLCommerz\' legitimate completion path.'
+        );
+
+        $this->assertSame((string) $plan->id, (string) $merchant->fresh()->plan_id);
+
+        $this->assertSame(
+            1,
+            DB::table('plan_orders')->count(),
+            'SSLCommerz inserted a second order row; it is supposed to update the existing one.'
+        );
+    }
+
+    // =========================================================================================
+    //  THE FREE-PLAN SHORTCUT IN THE CHECKOUT INITIATOR -- A SHAPE NO EARLIER AUDIT EXAMINED
+    // =========================================================================================
+
+    /**
+     * Two checkout INITIATORS activated a paid plan from a price the merchant POSTed.
+     *
+     * Every previous pass over this code examined the RETURN handlers. Neither CoinGate's nor
+     * PayTabs' initiator was ever looked at, and both contained a shorter path than any return
+     * handler: `$price = $request->total_price` near the top, then `if ($price <= 0)` sixty
+     * lines later setting the user's plan, saving, and calling assignPlan(). The shortcut exists
+     * so that a 100% coupon need not round-trip through the gateway. With the price read from
+     * the request, one authenticated POST with total_price=0 activated any paid plan -- no
+     * callback, no forged provider field, and the gateway never contacted at all.
+     *
+     * PayTabs was the worse of the two: line 94 sets `$request->coupon = 0` unconditionally, so
+     * its coupon block never ran and never recomputed, leaving $price ALWAYS equal to the
+     * POSTed value.
+     *
+     * THESE TESTS ARE PAIRED, and the pairing is the point. The negative test alone could pass
+     * for the wrong reason -- after the fix a paid plan falls through to the real gateway call,
+     * which cannot be reached from this environment, so "no plan was activated" would also be
+     * true of a controller that simply threw on the way out. The positive test, on a genuinely
+     * FREE plan, proves the shortcut is still live and reachable. Together they say the path
+     * works and no longer takes its price from the caller.
+     *
+     * @return array<string,array{0:string,1:string}>
+     */
+    public static function initiatorFreePlanShortcuts(): array
+    {
+        return [
+            'CoinGate initiator' => ['coingate.prepare.plan', 'coingate'],
+            'PayTabs initiator'  => ['paytabs.prepare.plan', 'paytabs'],
+        ];
+    }
+
+    #[DataProvider('initiatorFreePlanShortcuts')]
+    public function test_an_initiator_refuses_to_activate_a_paid_plan_from_a_posted_zero_price(
+        string $routeName,
+        string $provider
+    ): void {
+        $this->seedSuperAdminCurrency();
+
+        [$merchant] = $this->makeTenant();
+        $plan       = $this->makePlan('499');
+
+        $planBefore = $merchant->plan_id;
+
+        $this->actingAs($merchant)->post(route($routeName), [
+            'plan_id'     => \Illuminate\Support\Facades\Crypt::encrypt($plan->id),
+            'total_price' => 0,
+        ]);
+
+        $this->assertSame(
+            $planBefore,
+            $merchant->fresh()->plan_id,
+            $provider . ' initiator: a POSTed total_price of 0 activated a 499 plan. The free-plan '
+            . 'shortcut must price from $plan->price, not from the request.'
+        );
+
+        $this->assertSame(
+            0,
+            DB::table('plan_orders')->where('plan_id', $plan->id)->count(),
+            $provider . ' initiator: a POSTed total_price of 0 recorded a purchase of a 499 plan.'
+        );
+    }
+
+    /**
+     * THE BRANCH DECISION IS NOW MADE ON SERVER DATA. This is the assertion with teeth.
+     *
+     * "No plan was activated" (the test above) is necessary but not sufficient: after the fix a
+     * paid plan falls through to the real gateway call, which cannot be reached from this
+     * environment, so that assertion would also hold for a controller that simply threw on the
+     * way out. These two tests assert WHICH BRANCH was taken, and the two branches fail in
+     * distinguishable ways:
+     *
+     *   free-plan shortcut taken  -> dies on `no such column: plan` (see the test below)
+     *   gateway path taken        -> dies on `Undefined array key "coingate_mode"`
+     *
+     * Measured, not assumed. So a paid plan with a POSTed zero price must produce the GATEWAY
+     * failure, and a genuinely free plan must produce the SHORTCUT one. Reinstating
+     * `$price = $request->total_price` flips both.
+     *
+     * CoinGate only. PayTabs' initiator bails on "Currency Not Supported" before reaching its
+     * `$price <= 0` branch under this fixture, so its branch decision is not observable here and
+     * no claim is made about it beyond the refusal asserted above.
+     */
+    public function test_the_coingate_initiator_sends_a_posted_zero_price_down_the_gateway_path(): void
+    {
+        $this->seedSuperAdminCurrency();
+
+        [$merchant] = $this->makeTenant();
+        $plan       = $this->makePlan('499');
+
+        $this->actingAs($merchant)->post(route('coingate.prepare.plan'), [
+            'plan_id'     => \Illuminate\Support\Facades\Crypt::encrypt($plan->id),
+            'total_price' => 0,
+        ]);
+
+        $error = (string) session('error');
+
+        $this->assertStringNotContainsString(
+            'no such column: plan',
+            $error,
+            'A POSTed total_price of 0 still entered the FREE-PLAN SHORTCUT for a 499 plan. The '
+            . 'shortcut is reached only when the price is <= 0, so the price is still being read '
+            . "from the request.\n  Observed error: " . $error
+        );
+
+        $this->assertSame(
+            0,
+            DB::table('plan_orders')->count(),
+            'A POSTed total_price of 0 recorded a purchase of a 499 plan.'
+        );
+    }
+
+    /**
+     * A GENUINELY FREE PLAN STILL REACHES THE SHORTCUT -- the positive half.
+     *
+     * It does not COMPLETE, and that is a pre-existing defect this test documents rather than
+     * hides: see test_the_free_plan_shortcut_writes_a_users_column_that_no_migration_creates.
+     * What it proves is that server-owned pricing has not stolen the shortcut from a plan that
+     * really is free -- the branch is still entered when $plan->price is 0.
+     *
+     * The assertion accepts EITHER outcome on purpose, so that it keeps meaning the same thing
+     * once the users.plan question is resolved: the plan is activated (column exists), or the
+     * shortcut was entered and died on the missing column. Both say the branch was taken. What
+     * it rejects is the branch NOT being taken.
+     */
+    public function test_the_coingate_initiator_still_reaches_the_shortcut_for_a_genuinely_free_plan(): void
+    {
+        $this->seedSuperAdminCurrency();
+
+        [$merchant] = $this->makeTenant();
+        $plan       = $this->makePlan('0');
+
+        // The request claims 999; the plan is free. The server's figure must decide.
+        $this->actingAs($merchant)->post(route('coingate.prepare.plan'), [
+            'plan_id'     => \Illuminate\Support\Facades\Crypt::encrypt($plan->id),
+            'total_price' => 999,
+        ]);
+
+        $error     = (string) session('error');
+        $activated = (string) $merchant->fresh()->plan_id === (string) $plan->id;
+
+        $this->assertTrue(
+            $activated || str_contains($error, 'no such column: plan'),
+            'A genuinely free plan no longer reaches the free-plan shortcut, so server-owned '
+            . "pricing has broken a legitimate workflow.\n  Observed error: " . $error
+        );
+    }
+
+    /**
+     * THE FREE-PLAN SHORTCUT IS BROKEN REPO-WIDE, AND NOT BY ANYTHING IN THIS BRANCH.
+     *
+     * Fifteen call sites across app/Http/Controllers do `$user->plan = $plan->id;` followed by
+     * save(). There is no `plan` column on users: the table has plan_id, plan_expire_date,
+     * plan_is_active and requested_plan, and NO migration under database/ or packages/ creates
+     * one. Every one of those saves therefore throws --
+     *   SQLSTATE[HY000]: General error: 1 no such column: plan
+     *     (SQL: update "users" set "plan" = 1, ... where "id" = 2)
+     * -- which is caught by the enclosing handler and shown as a generic error. So a 100% coupon
+     * or a zero-price plan cannot be activated through any of these gateways on this schema.
+     *
+     * WHY THIS MATTERS FOR THE SEVERITY OF THE INITIATOR DEFECT, and it cuts BOTH ways. The save
+     * runs BEFORE assignPlan() at every one of those sites, so on THIS schema the forged
+     * zero-price initiator attack also dies there and does not actually activate anything. The
+     * fix in CoingateController and PaytabsController is still correct and costs nothing, but it
+     * must not be reported as closing a live exploit: on this schema the hole was plugged by
+     * accident, by an unrelated missing column. If the production database HAS a `users.plan`
+     * column -- plausible for a customised copy of an upstream product whose schema cannot be
+     * inspected from here -- then it was live there.
+     *
+     * NOT FIXED HERE, deliberately: adding a column is a migration, database/ is outside this
+     * agent's file set, and whether the right answer is a new column or deleting fifteen stray
+     * assignments is an owner decision, not a guess. This test pins the fact so it cannot be
+     * rediscovered a fourth time.
+     */
+    public function test_the_free_plan_shortcut_writes_a_users_column_that_no_migration_creates(): void
+    {
+        $writeSites = [];
+
+        foreach ((glob(app_path('Http/Controllers') . '/*.php') ?: []) as $file) {
+            if (preg_match('/->plan = \$plan->id/', (string) file_get_contents($file))) {
+                $writeSites[] = basename($file, '.php');
+            }
+        }
+
+        $this->assertGreaterThanOrEqual(
+            10,
+            count($writeSites),
+            'The `$user->plan = $plan->id` write sites have mostly disappeared. If they were '
+            . 'removed, good -- delete this test and say so. If the scan broke, fix the scan.'
+        );
+
+        $this->assertFalse(
+            \Illuminate\Support\Facades\Schema::hasColumn('users', 'plan'),
+            "A `users.plan` column now exists, so the fifteen `\$user->plan = \$plan->id` writes "
+            . "in app/Http/Controllers will now SUCCEED.\n\nThat is the resolution of a "
+            . "pre-existing defect, and it has a consequence worth checking before this test is "
+            . "deleted: those writes sit immediately before assignPlan() inside free-plan "
+            . "shortcuts, and until now they threw and stopped execution there. Re-read the "
+            . "CoingateController and PaytabsController initiators and confirm the price "
+            . "reaching `if (\$price <= 0)` is server-computed, because that branch is now "
+            . "actually reachable.\n\nSites: " . implode(', ', $writeSites)
         );
     }
 
