@@ -102,7 +102,11 @@ Two subtleties worth your attention because no test on SQLite could catch either
 
 ## 4. The adversarial review, and what it found
 
-I ran a six-dimension adversarial review across both repositories after the work was written, with every finding independently verified. **24 findings were reported across six dimensions; 14 were real defects in code I had just written and described as well-defended.** All are fixed; each has a regression test that goes red when the fix is reverted.
+I ran a six-dimension adversarial review across both repositories after the work was written, each finding then independently verified by an agent told to refute it.
+
+**24 findings were reported. I triaged and acted on every one of them, and after merging duplicates they resolve to roughly 19 distinct defects in production code plus 7 weak tests — all in code I had just written and described as well-defended.** Each fix has a regression test that goes red when the fix is reverted; I checked that by reverting, running, and restoring, one fix at a time.
+
+**Only 2 findings survived the verification pass, both rated LOW, and both are addressed** — the unbound code (§7.1, mitigated) and a pending→pending race (`92f606ef`). The other 22 verdicts read "not a bug" because the verifiers were reading HEAD *after* I had already fixed them; one verifier says so in as many words ("reporter read a superseded commit"). **Those verdicts are not evidence the findings were wrong** — they are evidence the fixes landed first, and I am reporting it that way rather than letting a clean verification tally stand in for a clean first draft.
 
 The two that matter most:
 
