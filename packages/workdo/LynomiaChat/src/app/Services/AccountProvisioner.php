@@ -211,6 +211,19 @@ class AccountProvisioner
                 'last_error' => null,
                 'last_synced_at' => now(),
             ]);
+        } catch (QueryException $e) {
+            // WRITING A DISCOVERED ID CAN ITSELF FAIL, and it must not escape as a raw
+            // database error. The only way it does is the unique index on
+            // lynomia_account_id -- another store adopted this workspace between the lookup
+            // and the write -- which is a conflict to report, not a 500 to show a merchant.
+            if (! $this->isUniqueViolation($e)) {
+                throw $e;
+            }
+
+            throw new LynomiaApiException(
+                LynomiaApiException::KIND_CONFLICT,
+                'That Lynomia workspace is already connected to another store.'
+            );
         } catch (LynomiaApiException $e) {
             // The row is KEPT, carrying both the reason and every id discovered so far.
             // Deleting it would let a retry storm create a workspace per attempt; keeping it
@@ -251,11 +264,11 @@ class AccountProvisioner
      */
     private function adoptOrCreateAccount(Store $store): array
     {
-        $marker = ['store_syria_store_id' => (int) $store->id];
+        $marker = $this->marker($store);
 
         $candidates = array_values(array_filter(
             $this->api->listAccounts($marker),
-            fn (array $account): bool => (int) ($account['custom_attributes']['store_syria_store_id'] ?? 0) === (int) $store->id
+            fn (array $account): bool => $this->matchesMarker($account, $marker)
         ));
 
         if (count($candidates) > 1) {
@@ -270,6 +283,52 @@ class AccountProvisioner
         }
 
         return $this->api->createAccount($this->accountName($store), $marker);
+    }
+
+    /**
+     * What identifies "this store, on this installation", on the Lynomia side.
+     *
+     * THE INSTALLATION HALF IS NOT DECORATION. Store ids are per-database autoincrements, so
+     * two installations sharing a Platform App -- which is what restoring a production dump
+     * into staging gives you -- collide on every id they have in common. With only the store
+     * id, the lookup below does not fail closed: it finds exactly one candidate, adopts it,
+     * and signs a staging merchant into a production workspace.
+     *
+     * @return array<string,int|string>
+     */
+    private function marker(Store $store): array
+    {
+        return [
+            'store_syria_store_id' => (int) $store->id,
+            'store_syria_installation' => $this->installationRef(),
+        ];
+    }
+
+    /**
+     * Re-check the marker on the client side.
+     *
+     * Lynomia filters too, and scopes the lookup to this app's own permissibles, but a
+     * workspace is adopted on the strength of this match and an adoption is irreversible in
+     * practice -- so the predicate the decision rests on is evaluated here, where it can be
+     * read next to the decision. Compared as strings because a JSON number and a query-string
+     * value are the same fact in two types.
+     */
+    private function matchesMarker(array $account, array $marker): bool
+    {
+        $attributes = $account['custom_attributes'] ?? [];
+
+        foreach ($marker as $key => $value) {
+            if (! is_array($attributes) || (string) ($attributes[$key] ?? '') !== (string) $value) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function installationRef(): string
+    {
+        return (string) config('lynomia.installation_ref', 'localhost');
     }
 
     /**
@@ -359,7 +418,14 @@ class AccountProvisioner
      */
     private function serviceEmail(Store $store): string
     {
-        return sprintf('store-%d@%s', $store->id, 'stores.storesyria.invalid');
+        // THE INSTALLATION IS IN THE LOCAL PART FOR THE SAME REASON IT IS IN THE MARKER, one
+        // layer down. Upstream resolves `User.from_email(...) || User.new(...)`, so a shared
+        // address does not create a second user -- it hands this installation the OTHER
+        // installation's service user, which is an administrator of that installation's
+        // workspace. Slugged because an address is not a free-text field.
+        $installation = preg_replace('/[^a-z0-9]+/', '-', strtolower($this->installationRef())) ?: 'local';
+
+        return sprintf('store-%d.%s@%s', $store->id, trim($installation, '-'), 'stores.storesyria.invalid');
     }
 
     private function isUniqueViolation(QueryException $e): bool

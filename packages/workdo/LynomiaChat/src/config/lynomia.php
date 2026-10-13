@@ -66,4 +66,30 @@ return [
      * still running.
      */
     'provisioning_lock_minutes' => (int) env('LYNOMIA_PROVISIONING_LOCK_MINUTES', 5),
+
+    /*
+     * WHICH INSTALLATION THIS IS. It is stamped on every workspace this installation creates
+     * and folded into the service address of every user it creates.
+     *
+     * WHY IT CANNOT BE LEFT OUT. Recovery works by asking Lynomia "does a workspace for store
+     * 42 already exist?", and store ids are per-database autoincrements. Restore a production
+     * dump into staging -- an ordinary thing to do -- and staging's store 42 is production's
+     * store 42. Pointed at the same Platform App, staging's first provisioning attempt would
+     * find production's live workspace, see exactly one candidate, and ADOPT it: a staging
+     * merchant signed into a production merchant's conversations, through a path whose whole
+     * job is to avoid creating something twice.
+     *
+     * It is in the service address for the same reason one layer down. Upstream resolves
+     * `User.from_email(...) || User.new(...)`, so a shared address does not create a second
+     * user -- it hands this installation the OTHER installation's service user, which is an
+     * administrator of the other installation's workspace.
+     *
+     * Defaulted from APP_URL's host because that is the one value a clone almost always
+     * changes, and set explicitly where it does not. Two installations that genuinely share
+     * this value are, as far as this integration is concerned, one installation.
+     */
+    'installation_ref' => (string) env(
+        'LYNOMIA_INSTALLATION_REF',
+        parse_url((string) env('APP_URL', 'localhost'), PHP_URL_HOST) ?: 'localhost'
+    ),
 ];

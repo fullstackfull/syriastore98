@@ -273,13 +273,16 @@ class LynomiaConnectionTest extends TestCase
         });
     }
 
-    /** One workspace already registered to a store, as GET /accounts would report it. */
-    private function inventoryFor(int $storeId, int $accountId = 7001, string $name = 'WS'): array
+    /** One workspace already registered to a store ON THIS INSTALLATION, as GET /accounts reports it. */
+    private function inventoryFor(int $storeId, int $accountId = 7001, string $name = 'WS', ?string $installation = null): array
     {
         return [[
             'id' => $accountId,
             'name' => $name,
-            'custom_attributes' => ['store_syria_store_id' => $storeId],
+            'custom_attributes' => [
+                'store_syria_store_id' => $storeId,
+                'store_syria_installation' => $installation ?? config('lynomia.installation_ref'),
+            ],
         ]];
     }
 
@@ -590,9 +593,16 @@ class LynomiaConnectionTest extends TestCase
 
         $this->assertFalse(LynomiaStoreLink::forStore((int) $storeB->id)->exists());
 
-        // The redemption already made Lynomia trust this app with that workspace. Refusing
-        // locally while keeping the grant is exactly the orphaned access this must not leave.
-        $this->assertSame(1, $this->sentCount('DELETE', '/account_links/7001'));
+        // AND STORE A IS LEFT ALONE. The index that fired is lynomia_account_id, which means
+        // store A's live link owns this workspace -- so the grant is not something store B's
+        // redemption created, it is what store A's link runs on. Handing it back here would
+        // break SSO for a store that did nothing wrong, hide its workspace from the recovery
+        // lookup, and make the only operator remedy produce a second workspace with all the
+        // conversations stranded in the first.
+        $this->assertSame(0, $this->sentCount('DELETE', '/account_links/7001'));
+
+        $a = LynomiaStoreLink::forStore((int) $storeA->id)->first();
+        $this->assertSame(7001, (int) $a->lynomia_account_id);
     }
 
     public function test_approval_requires_the_code_issued_for_that_claim(): void
@@ -1261,9 +1271,10 @@ class LynomiaConnectionTest extends TestCase
     {
         [$owner, $store] = $this->entitledTenant();
 
+        $install = config('lynomia.installation_ref');
         $this->fakeLynomia(['inventory' => [
-            ['id' => 7001, 'name' => 'A', 'custom_attributes' => ['store_syria_store_id' => (int) $store->id]],
-            ['id' => 7002, 'name' => 'B', 'custom_attributes' => ['store_syria_store_id' => (int) $store->id]],
+            ['id' => 7001, 'name' => 'A', 'custom_attributes' => ['store_syria_store_id' => (int) $store->id, 'store_syria_installation' => $install]],
+            ['id' => 7002, 'name' => 'B', 'custom_attributes' => ['store_syria_store_id' => (int) $store->id, 'store_syria_installation' => $install]],
         ]]);
 
         try {
@@ -1303,9 +1314,13 @@ class LynomiaConnectionTest extends TestCase
                 && str_ends_with((string) parse_url($pair[0]->url(), PHP_URL_PATH), '/platform/api/v1/accounts'));
 
         // Without this stamp there is no way to find the workspace again after a lost answer,
-        // and the whole recovery path above has nothing to match on.
+        // and the whole recovery path above has nothing to match on. The installation half is
+        // what stops a cloned database adopting the workspace it was cloned from.
         $this->assertSame(
-            ['store_syria_store_id' => (int) $store->id],
+            [
+                'store_syria_store_id' => (int) $store->id,
+                'store_syria_installation' => config('lynomia.installation_ref'),
+            ],
             $create[0]->data()['custom_attributes']
         );
     }
@@ -1345,5 +1360,152 @@ class LynomiaConnectionTest extends TestCase
         }
 
         Http::assertNothingSent();
+    }
+
+    // ------------------------------------------- regressions from the adversarial review
+
+    /**
+     * A merchant with two tabs could abandon a half-finished provision by starting a claim in
+     * the other one. The row was pending_verification, which assertClaimable accepted without
+     * looking at link_mode, so the claim overwrote it -- and the workspace provisioning had
+     * already created was left with nothing referencing it, no revocation to hand its grant
+     * back, and provision() refusing the store forever because the mode no longer matched.
+     */
+    public function test_a_claim_cannot_abandon_a_half_finished_provision(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+
+        // Provisioning gets as far as creating the workspace, then dies.
+        $this->fakeLynomia(['fail' => ['POST /platform/api/v1/users' => Http::failedConnection()]]);
+        try {
+            app(AccountProvisioner::class)->provision($store, $owner);
+        } catch (LynomiaApiException) {
+            // expected
+        }
+
+        $this->assertSame(7001, (int) LynomiaStoreLink::forStore((int) $store->id)->first()->lynomia_account_id);
+
+        $this->fakeLynomia(['account_id' => 8500, 'user_id' => 8600]);
+
+        try {
+            app(AccountLinker::class)->request($store->fresh(), $owner->fresh(), 'ABCD2345EFGH6789');
+            $this->fail('a claim overwrote an unfinished provision');
+        } catch (LynomiaApiException $e) {
+            $this->assertSame(LynomiaApiException::KIND_CONFLICT, $e->kind);
+        }
+
+        $link = LynomiaStoreLink::forStore((int) $store->id)->first();
+        $this->assertSame(LynomiaStoreLink::MODE_PROVISION, $link->link_mode);
+        $this->assertSame(7001, (int) $link->lynomia_account_id, 'the provisioned workspace was orphaned');
+        // No code was even redeemed: the refusal happens before anything is spent.
+        $this->assertSame(0, $this->sentCount('POST', '/account_links'));
+
+        // And the merchant is not wedged -- "Continue setup" still finishes what they started.
+        $this->fakeLynomia();
+        $resumed = app(AccountProvisioner::class)->provision($store->fresh(), $owner->fresh());
+        $this->assertSame(LinkState::ACTIVE, $resumed->state);
+        $this->assertSame(7001, (int) $resumed->lynomia_account_id);
+    }
+
+    public function test_a_claim_cannot_abandon_a_provision_that_created_nothing_yet(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+
+        // The create itself dropped -- so this row has no id, but a workspace may exist
+        // upstream and only the adopt-before-create lookup can find it. Converting the row to
+        // a claim would retire that lookup and strand it.
+        $this->fakeLynomia(['fail' => ['POST /platform/api/v1/accounts' => Http::failedConnection()]]);
+        try {
+            app(AccountProvisioner::class)->provision($store, $owner);
+        } catch (LynomiaApiException) {
+            // expected
+        }
+
+        $this->fakeLynomia();
+
+        try {
+            app(AccountLinker::class)->request($store->fresh(), $owner->fresh(), 'ABCD2345EFGH6789');
+            $this->fail('a claim overwrote a provisioning row');
+        } catch (LynomiaApiException $e) {
+            $this->assertSame(LynomiaApiException::KIND_CONFLICT, $e->kind);
+        }
+
+        $this->assertSame(
+            LynomiaStoreLink::MODE_PROVISION,
+            LynomiaStoreLink::forStore((int) $store->id)->first()->link_mode
+        );
+    }
+
+    /**
+     * A cloned database is the ordinary way two installations come to share store ids. With
+     * only the store id in the marker the lookup does not fail closed -- it finds exactly one
+     * candidate and adopts it, signing a staging merchant into a production workspace.
+     */
+    public function test_a_workspace_from_another_installation_is_never_adopted(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+
+        // Same store id, same Platform App, different installation.
+        $this->fakeLynomia([
+            'inventory' => $this->inventoryFor((int) $store->id, 7050, 'Production WS', 'production.example'),
+        ]);
+
+        $link = app(AccountProvisioner::class)->provision($store, $owner);
+
+        $this->assertSame(7001, (int) $link->lynomia_account_id, "it adopted another installation's workspace");
+        $this->assertSame(1, $this->sentCount('POST', '/platform/api/v1/accounts'));
+    }
+
+    /**
+     * The same collision one layer down: upstream resolves an existing user by address, so a
+     * shared service address hands this installation the other one's service user -- an
+     * administrator of the other installation's workspace.
+     */
+    public function test_the_service_address_is_scoped_to_this_installation(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+        $this->fakeLynomia();
+
+        app(AccountProvisioner::class)->provision($store, $owner);
+
+        $create = collect(Http::recorded())
+            ->first(fn ($pair) => strtoupper($pair[0]->method()) === 'POST'
+                && str_ends_with((string) parse_url($pair[0]->url(), PHP_URL_PATH), '/platform/api/v1/users'));
+
+        $email = $create[0]->data()['email'];
+        $this->assertStringContainsString((string) $store->id, $email);
+        $this->assertStringNotContainsString('@', substr($email, 0, strpos($email, '@')));
+        $this->assertNotSame(
+            sprintf('store-%d@stores.storesyria.invalid', $store->id),
+            $email,
+            'the address must not be derived from the store id alone'
+        );
+    }
+
+    /**
+     * Another store adopting the workspace between the lookup and the write is a conflict to
+     * report, not a raw database error to show a merchant.
+     */
+    public function test_losing_the_workspace_between_lookup_and_write_is_reported_as_a_conflict(): void
+    {
+        [$ownerA, $storeA] = $this->entitledTenant();
+        $ownerB = $this->merchant();
+        $storeB = $this->storeFor($ownerB);
+        $this->entitle($ownerB);
+
+        $this->fakeLynomia();
+        app(AccountProvisioner::class)->provision($storeA, $ownerA);
+
+        // Store B's attempt is handed the SAME account id -- the unique index is the arbiter.
+        $this->fakeLynomia();
+
+        try {
+            app(AccountProvisioner::class)->provision($storeB, $ownerB->fresh());
+            $this->fail('two stores were allowed to hold one workspace');
+        } catch (LynomiaApiException $e) {
+            $this->assertSame(LynomiaApiException::KIND_CONFLICT, $e->kind);
+        }
+
+        $this->assertSame(1, LynomiaStoreLink::whereNotNull('lynomia_account_id')->count());
     }
 }

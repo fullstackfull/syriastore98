@@ -120,11 +120,23 @@ class AccountLinker
             // lynomia_account_id is the "no unauthorized cross-store sharing" rule, enforced
             // by the database rather than by a check that could lose the race.
             //
-            // THE GRANT IS HANDED BACK. The redemption above already made Lynomia trust this
-            // app with the merchant's workspace. Refusing locally while keeping that grant
-            // would leave exactly the orphaned mapping this flow is supposed to prevent: an
-            // access nobody in Store Syria has a record of.
-            $this->handBackGrant($proof['account_id']);
+            // THE GRANT IS HANDED BACK ONLY IF NOTHING ELSE IS STANDING ON IT.
+            //
+            // Refusing locally while keeping the grant would leave the orphaned access this
+            // flow exists to prevent. But the index that fired here is almost always
+            // lynomia_account_id, and that index firing MEANS another store's link already
+            // owns this workspace -- so the grant is not a thing the redemption just created,
+            // it is the thing that store's working link depends on. Revoking it unprompted
+            // breaks SSO for an innocent store, removes the workspace from the recovery
+            // lookup, and makes the only operator remedy produce a second workspace with all
+            // the conversations stranded in the first.
+            //
+            // Not hypothetical and not an attack: one merchant with two stores, following the
+            // instructions on the page, pasting the code for store A's workspace into store
+            // B's form.
+            if (! LynomiaStoreLink::where('lynomia_account_id', $proof['account_id'])->exists()) {
+                $this->handBackGrant($proof['account_id']);
+            }
 
             throw new LynomiaApiException(
                 LynomiaApiException::KIND_CONFLICT,
@@ -158,7 +170,38 @@ class AccountLinker
      */
     private function assertClaimable(?LynomiaStoreLink $existing): void
     {
-        if ($existing === null || $existing->state === LinkState::PENDING_VERIFICATION) {
+        if ($existing === null) {
+            return;
+        }
+
+        // A PROVISIONING ROW IS NEVER CLAIMABLE, WHATEVER STATE IT IS IN.
+        //
+        // An unfinished provision looks exactly like an open claim -- pending_verification --
+        // but it may already own a workspace. Overwriting it turns the row into a claim on a
+        // different account and leaves the one this app created with NOTHING referencing it:
+        // no row to find it by, no revocation to hand its grant back, and provision() refusing
+        // to touch the store again because the mode no longer matches. That is an unreachable
+        // workspace holding a merchant's conversations plus a grant Lynomia still honours --
+        // both of the outcomes this whole flow exists to prevent, reachable by a merchant with
+        // two tabs open.
+        //
+        // The null-id case is no safer: a create whose answer was lost leaves no id here while
+        // the workspace exists upstream, and converting the row to a claim retires the
+        // adopt-before-create lookup that was going to recover it.
+        //
+        // So an unfinished provision is finished ("Continue setup", which resumes it) or
+        // released by an operator. It is not something a merchant can abandon by starting a
+        // different flow.
+        if ($existing->link_mode === LynomiaStoreLink::MODE_PROVISION) {
+            throw new LynomiaApiException(
+                LynomiaApiException::KIND_CONFLICT,
+                $existing->state === LinkState::ACTIVE
+                    ? 'This store already has a Lynomia workspace.'
+                    : 'Setting up this store\'s workspace is still in progress. Finish it, or contact support to start over.'
+            );
+        }
+
+        if ($existing->state === LinkState::PENDING_VERIFICATION) {
             return;
         }
 
