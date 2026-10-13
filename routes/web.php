@@ -125,8 +125,6 @@ use App\Http\Controllers\SSLCommerzPaymentController;
 use App\Http\Controllers\PaymentSettingController;
 use App\Http\Controllers\ThemeCustomizeController;
 use App\Http\Controllers\DeliverySyriaController;
-use App\Http\Controllers\newsyria\ChatwootIntegrationController;
-use App\Http\Controllers\newsyria\AbandonedCartController;
 use App\Http\Controllers\OtpIntegrationController;
 use App\Http\Controllers\StoreFinanceController;
 use App\Http\Controllers\CurrencyRateController;
@@ -308,6 +306,10 @@ Route::middleware(['auth'])->group(function () {
 //   POST /chatwoot/abandoned-carts/send    -> 302 from the CONTROLLER, i.e. it ran
 //                                             the loop over caller-supplied
 //                                             customer_ids
+//                                             [RETIRED: this route, its controller and the
+//                                             blade named above no longer exist. The record
+//                                             is kept because it is why the OTP routes below
+//                                             are inside this group.]
 //
 // WHY IT MATTERS MORE THAN A JUNK ROW. OtpIntegrationController::save() writes
 // `OtpIntegration::firstOrNew(['store_id' => $storeId])` and $storeId is
@@ -347,69 +349,16 @@ Route::middleware(['auth', 'xss', 'setlocate', 'verified'])->group(function () {
 
 
 
-    Route::get(
-        '/chatwoot/abandoned-carts',
-        [AbandonedCartController::class, 'index']
-    )->name('chatwoot.abandoned-carts');
-
-    // Anonymous before this group existed: it validated `customer_ids` off the
-    // request and asked ChatwootAbandonedCartNotificationService to message each one
-    // (app/Http/Controllers/newsyria/AbandonedCartController.php:49-80), so an
-    // unauthenticated caller could drive outbound WhatsApp/Chatwoot traffic at
-    // caller-chosen customer ids. Measured: it answered 302 FROM THE CONTROLLER.
-    Route::post(
-        '/chatwoot/abandoned-carts/send',
-        [AbandonedCartController::class, 'send']
-    )->name('chatwoot.abandoned-carts.send');
 });
 
 
 
 
 
-Route::post(
-    '/settings/chatwoot/connect',
-    [ChatwootIntegrationController::class, 'connect']
-)->name('chatwoot.connect')->middleware('auth');
-
-
-Route::post(
-    '/settings/chatwoot/inbox',
-    [ChatwootIntegrationController::class, 'saveInbox']
-)->name('chatwoot.inbox.save')->middleware('auth');
-
-Route::get(
-    '/settings/chatwoot/inboxes',
-    [ChatwootIntegrationController::class, 'getInboxes']
-)->name('chatwoot.inboxes')->middleware('auth');
-
-Route::get(
-    '/settings/chatwoot/templates',
-    [ChatwootIntegrationController::class, 'getTemplates']
-)->name('chatwoot.templates')->middleware('auth');
-
-Route::post(
-    '/settings/chatwoot/notification-templates',
-    [ChatwootIntegrationController::class, 'saveNotificationTemplates']
-)->name('chatwoot.notification.templates.save')->middleware('auth');
-
-Route::get(
-    '/settings/chatwoot/notification-templates',
-    [ChatwootIntegrationController::class, 'getNotificationTemplates']
-)->name('chatwoot.notification.templates')->middleware('auth');
-
-
-
-
-
-
-
-
-
-Route::get(
-    '/settings/chatwoot/test-order-notification/{order}',
-    [ChatwootIntegrationController::class, 'testOrderNotification']
-)->name('chatwoot.test.order.notification')->middleware('auth');
+// The legacy Chatwoot integration lived here: seven /settings/chatwoot/* routes plus two
+// /chatwoot/abandoned-carts routes in the group above. All nine are retired along with their
+// controllers, services, models and views. The replacement is the Store Syria x Lynomia Chat
+// integration, which is a separate project and is NOT started here -- no placeholder routes.
 
 
 

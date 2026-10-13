@@ -45,13 +45,28 @@ marked PROVISIONAL in its own docblock and names what specifically must be recon
 | 6 | `currency_rates` | YES | **YES — FX multiplier on every converted price** | `app/Models/CurrencyRate.php:9,11-24` (`rate_per_usd` -> `decimal:8`) |
 | 7 | `audit_logs` | no | no (compliance) | `app/Models/AuditLog.php:9,11-26`, `::record()` at `:28` |
 | 8 | `otp_integrations` | no | no (auth) | `app/Models/OtpIntegration.php:9,11-30` — note `api_secret` is cast `encrypted` |
-| 9 | `chatwoot_integrations` | no | no | `app/Models/ChatwootIntegration.php:9,11-26` — `api_access_token` cast `encrypted` |
-| 10 | `chatwoot_notification_templates` | no | no | `app/Models/ChatwootNotificationTemplate.php:9,11-24` |
+| 9 | `chatwoot_integrations` | no | no | **MODEL RETIRED.** Table RETAINED in production — see note below |
+| 10 | `chatwoot_notification_templates` | no | no | **MODEL RETIRED.** Table RETAINED in production — see note below |
 | 11 | `delivery_boy_devices` | no | no (push tokens) | `app/Models/DeliveryBoyDevice.php:12,14-24` |
 | 12 | `delivery_boy_notifications` | no | no | `app/Models/DeliveryBoyNotification.php:12,14-31` |
 | 13 | `zid_stores` | no | no — but **holds credentials** | `app/Models/ZidStore.php:15-29` |
 | 14 | `zid_orders` | no | indirect (order mapping) | `app/Console/Commands/ZidProcessEvents.php:77-101,160-175` |
 | 15 | `zid_events` | no | no | `app/Models/ZidEvent.php:15-29` |
+
+**Tables 9 and 10 — the retired Chatwoot pair.** The Eloquent models, controllers, services and
+views that used these two tables were removed when the legacy Chatwoot integration was retired.
+**The tables themselves are deliberately NOT dropped, and no drop migration exists or should be
+written without owner authorization.** They are the only record of which Store Syria store maps to
+which Chatwoot `account_id` and `inbox_id`, plus each store's per-event notification template
+configuration. That mapping is the migration input for the replacement Store Syria × Lynomia Chat
+integration, and the only way to reconstruct what a merchant had configured. Dropping them is
+irreversible and would destroy data no backup of the application code can regenerate.
+
+Note `chatwoot_integrations.api_access_token` was written through Laravel's `encrypted` cast under
+the application `APP_KEY`. Two consequences: that column is unreadable if `APP_KEY` is rotated
+before the data is migrated, and — because `APP_KEY` was published in the tracked `.env` — it is
+currently readable by anyone with a copy of the database. Treat every stored agent token as
+compromised and re-issue rather than migrate it. See `docs/security/SECRET-ROTATION-CHECKLIST.md`.
 
 Tables 7–15 are not drafted here. Their absence fails **soft** — Eloquent returns null for an
 absent column and `app/Observers/OrderObserver.php:15-20` swallows `QueryException` — so they

@@ -61,8 +61,9 @@ class AnonymousSettingsRoutesTest extends SecurityTestCase
             ]],
             'otp settings test' => ['POST', '/otp-integration/test', ['phone' => '0000000000']],
             'otp settings screen' => ['GET', '/otp-integration', []],
-            'abandoned cart send' => ['POST', '/chatwoot/abandoned-carts/send', ['customer_ids' => [1, 2]]],
-            'abandoned cart screen' => ['GET', '/chatwoot/abandoned-carts', []],
+            // The two /chatwoot/abandoned-carts limbs that used to be listed here were
+            // retired with the legacy Chatwoot integration. LegacyChatwootRemovedTest now
+            // asserts they are absent rather than merely gated.
         ];
     }
 
@@ -107,14 +108,12 @@ class AnonymousSettingsRoutesTest extends SecurityTestCase
      * surface, asserted against the route table so a future declaration outside the
      * group fails here and not in production.
      */
-    public function test_all_five_routes_carry_the_admin_middleware_stack(): void
+    public function test_all_three_remaining_routes_carry_the_admin_middleware_stack(): void
     {
         foreach ([
             'otp.integration',
             'otp.integration.save',
             'otp.integration.test',
-            'chatwoot.abandoned-carts',
-            'chatwoot.abandoned-carts.send',
         ] as $name) {
             $this->assertTrue(Route::has($name), "Route {$name} is missing.");
 
@@ -177,8 +176,12 @@ class AnonymousSettingsRoutesTest extends SecurityTestCase
 
         Http::fake();
 
-        $response = $this->actingAs($merchant->fresh())->post('/chatwoot/abandoned-carts/send', [
-            'customer_ids' => [1],
+        // Was POST /chatwoot/abandoned-carts/send, retired with the legacy integration. The
+        // regression this guards is the `auth` group bouncing a legitimate merchant, which is
+        // a property of the GROUP, not of any one route -- so it is re-pointed at a surviving
+        // member of the same group rather than deleted.
+        $response = $this->actingAs($merchant->fresh())->post('/otp-integration/test', [
+            'phone' => '0000000000',
         ]);
 
         $this->assertNotSame(
