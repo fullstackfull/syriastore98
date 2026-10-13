@@ -16,6 +16,8 @@
 | `2849445d` | `fix(lynomia): three orphaning paths found by adversarial review` |
 | `87aec2f3` | `fix(lynomia): lost update, displaced grants, dead state and an unfenced lock` |
 | `0201c003` | `fix(lynomia): check the service identity instead of asserting it cannot be taken` |
+| `39d1334a` | `test(lynomia): fix four assertions that proved less than their names claimed` |
+| `92f606ef` | `fix(lynomia): fence a claim on the workspace it displaces, not only on state` |
 
 ### Lynomia Chat — `fullstackfull/lynomiachat`
 
@@ -26,6 +28,8 @@
 | `d0ab4796` | `test(integrations): pin the cross-repo wire contract for the account filter` |
 | `63069ac3` | `fix(integrations): grant a scoped service user, not the person who authorized it` |
 | `dd0b4e4b` | `fix(integrations): derive revocation from the grants held, not the account's membership` |
+| `679a77ce` | `test(integrations): fix three specs that proved less than their names claimed` |
+| `b4d64e06` | `fix(integrations): name the app that took the code, so a misdirection is visible` |
 
 The Lynomia branch was restarted from `origin/lynomia-custom` @ `86a43252`: the branch of that name already existed locally but carried only already-merged history.
 
@@ -98,7 +102,7 @@ Two subtleties worth your attention because no test on SQLite could catch either
 
 ## 4. The adversarial review, and what it found
 
-I ran a six-dimension adversarial review across both repositories after the work was written, with every finding independently verified. **It found eleven real defects in code I had just written and described as well-defended.** All are fixed; each has a regression test that goes red when the fix is reverted.
+I ran a six-dimension adversarial review across both repositories after the work was written, with every finding independently verified. **24 findings were reported across six dimensions; 14 were real defects in code I had just written and described as well-defended.** All are fixed; each has a regression test that goes red when the fix is reverted.
 
 The two that matter most:
 
@@ -108,7 +112,7 @@ The grant now goes to a service user that belongs to that one account. **The tra
 
 **An operator's approval could be silently repointed.** `assertClaimable` ran against a snapshot taken before a remote call that can take fifteen seconds, and an operator could approve inside that window. A plain `save()` writes only the columns dirty relative to that stale snapshot — `state` matched in both, so it was never in the `UPDATE` — and the operator's `state=active` survived while the ids they approved were replaced. An ACTIVE link, carrying their `verified_by`, to a workspace nobody approved.
 
-The other nine: a claim could abandon a half-finished provision and orphan its workspace; a refused claim revoked an innocent store's live grant; re-claiming orphaned the workspace it displaced; revocation derived its set from mutable membership, so a granted user who left kept their grant; the SSO sweep killed other platform apps' and super-admin impersonation links; two concurrent mints left two live codes; a concurrent redemption 500'd and burned the code; the provisioning service identity could be pre-registered and adopted as administrator; and revocation was a one-way door with no restore.
+The other twelve: a claim could abandon a half-finished provision and orphan its workspace; a refused claim revoked an innocent store's live grant; re-claiming orphaned the workspace it displaced; revocation derived its set from mutable membership, so a granted user who left kept their grant; the SSO sweep killed other platform apps' and super-admin impersonation links; two concurrent mints left two live codes; a concurrent redemption 500'd and burned the code; the provisioning service identity could be pre-registered and adopted as administrator; revocation was a one-way door with no restore; a second concurrent claim over one pending row orphaned a workspace; and four of my own test assertions proved less than their names claimed (see §5).
 
 ### Where I was wrong earlier
 
@@ -127,9 +131,9 @@ Every figure below is from a run executed in this session. The Lynomia Ruby suit
 
 | Suite | Result |
 |---|---|
-| `tests/Feature/Lynomia/LynomiaConnectionTest` | **61 tests, 257 assertions, all passing** (was 25) |
+| `tests/Feature/Lynomia/LynomiaConnectionTest` | **62 tests, 263 assertions, all passing** (was 25) |
 | Unit | **173 tests, 1,010 assertions — all passing** |
-| Feature | **1,473 tests, 13 failures, 17 skipped** |
+| Feature | **1,474 tests, 13 failures, 17 skipped** |
 
 The 13 are the identical pre-existing set, compared name by name, with the census numbers unmoved (`app=113` vs 114, `93` vs `95`, `12` vs `14`). Out of scope per your instruction.
 
@@ -137,9 +141,9 @@ The 13 are the identical pre-existing set, compared name by name, with the censu
 
 | Suite | Result |
 |---|---|
-| New integration specs (service + both request specs) | **53 examples, 0 failures** |
+| New integration specs (service + both request specs) | **55 examples, 0 failures** |
 | `AccountLink.spec.js` (vitest) | **7 tests, 0 failures** |
-| `spec/requests` + `spec/controllers/platform` + `spec/services/integrations` + `spec/swagger` | **0 failures** |
+| `spec/requests` + `spec/controllers/platform` + `spec/services/integrations` + `spec/swagger` | **1,110 examples, 0 failures**, 16 pending |
 
 RuboCop, ESLint and Prettier clean on every file touched.
 
@@ -155,7 +159,9 @@ RuboCop, ESLint and Prettier clean on every file touched.
 
 **A harness bug made four recovery tests vacuous before it was found.** `Http::fake()` *merges* stub callbacks rather than replacing them, and the earliest answers first — so re-faking between the two phases of a recovery test changed nothing and phase two re-ran phase one's failure. The fake is now registered once and rescripted through a property. `sentCount()` also matched paths by substring, counting `/accounts/7001/account_users` as an account create.
 
-**One of my own regression tests passed for the wrong reason** and I caught it by mutation testing rather than by reading. It approved the link *before* calling `request()`, so the refusal came from an unrelated guard. Rewritten to drive the approval from inside the redemption, which is where the window actually opens. **Every fix in this task was mutation-checked**: the fix reverted, the suite run, the expected tests confirmed red, the fix restored.
+**Seven of my own test assertions proved less than their names claimed**, and a review dimension aimed only at the tests found them by mutating the production code. The worst: the lock test rebuilt `acquireLock`'s query in the test body and asserted on *that*, so replacing the whole production method with `return now();` left it green; an assertion that the service address's local part contained no `@` is true of every string by construction; a "never flashed" check named a session key no production code writes; and a cross-account leak spec redeemed the wrong account's code, staying green while a collapsed key made `redeem(A)` return account B. All seven are fixed and each now fails against the mutation that exposed it.
+
+**One regression test passed for the wrong reason** and I caught it the same way. It approved the link *before* calling `request()`, so the refusal came from an unrelated guard. Rewritten to drive the approval from inside the redemption, which is where the window actually opens. **Every fix in this task was mutation-checked**: the fix reverted, the suite run, the expected tests confirmed red, the fix restored.
 
 **What the concurrency tests do and do not prove.** The test database is SQLite `:memory:`, where two connections are two different databases and `lockForUpdate` compiles to nothing. These tests prove the *logic* — that a guarded `UPDATE` affects one row and not two, that a held claim turns a caller away, that a fencing token refuses a stale release. They do not prove behaviour under genuine parallelism, and no test in this suite could. The same applies on the Lynomia side, where MockRedis makes `WATCH` a no-op.
 
@@ -171,7 +177,9 @@ The guard is right about what it was written for — a vendored module edited in
 
 ## 7. Open items
 
-**1. A code is not bound to the platform app it was minted for.** Whichever app presents it first wins. On an installation with more than one PlatformApp, a merchant pasting their code into the wrong integration's field hands that app a permanent grant plus SSO on their workspace; the legitimate attempt then fails with the deliberately indistinguishable "Invalid or expired code", and neither side shows where the grant went. Binding at mint time means the merchant picks the target app, which is a product decision about how that list is presented — **I did not pick one unilaterally.** A cheaper partial mitigation (show the redeeming app's name in the merchant's status) is also not done.
+**1. A code is still not bound to the platform app it was minted for.** Whichever app presents it first wins. This was **verified by execution** during review: an unintended app redeemed a merchant's code, received the account and service-user grants, minted a working SSO session, and the intended app saw only the deliberately indistinguishable "Invalid or expired code".
+
+The mitigation the review proposed as the minimum is now in: the redeeming app's name is recorded and shown on the merchant's own status page, so a misdirected grant is something they can notice and undo rather than something nobody can see. **The binding itself is not done**, because it means the merchant picks a target integration at mint time, and how that list is presented is a product decision I did not make unilaterally.
 
 **2. SSO identity is now the integration's service user, not the merchant.** §4 explains why. If you would rather merchants arrive as themselves, the alternative is to scope the SSO artifact to an account, which means changing `generate_sso_link` — a shared Chatwoot primitive with other callers. That is a larger change and I did not make it speculatively.
 
