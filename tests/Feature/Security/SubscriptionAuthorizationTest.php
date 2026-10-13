@@ -436,7 +436,15 @@ class SubscriptionAuthorizationTest extends SecurityTestCase
     public function test_a_merchant_cannot_deactivate_another_merchants_store(): void
     {
         [$attacker] = $this->makeTenant();
-        [, $victimStore] = $this->makeTenant();
+        [$victim, $victimStore] = $this->makeTenant();
+
+        // THE VICTIM NEEDS A SECOND ACTIVE STORE, and this is not fixture padding. changeStatus
+        // refuses to deactivate a merchant's LAST active store (:1030-1036), so with only one
+        // store the row survives for a reason that has nothing to do with authorization -- which
+        // a teeth proof caught: with the ownership predicate removed, this test still passed on
+        // its database assertion and failed only on the status code. A negative that can pass
+        // without the control is not a negative.
+        $this->makeStore($victim);
 
         $response = $this->actingAs($attacker)
             ->get(route('store.active.status', ['id' => $victimStore->id, 'status' => 0]));
@@ -489,13 +497,19 @@ class SubscriptionAuthorizationTest extends SecurityTestCase
         [$attacker] = $this->makeTenant();
         [, $victimStore] = $this->makeTenant();
 
-        $before = DB::table('stores')->where('id', $victimStore->id)->value('enable_pwa_store');
+        // THE VICTIM'S FLAG STARTS AT 'on' AND THE ATTACKER POSTS 'off'. The other way round is
+        // vacuous: the column defaults to 'off' (2023_12_14_090259_create_stores_table.php:23),
+        // so posting 'off' writes the value it already had and the assertion passes with the
+        // control removed -- which a teeth proof caught. 'off' is also what the attacker sends
+        // deliberately, so the request does NOT enter the manifest-writing branch and this test
+        // measures the cross-tenant WRITE and nothing else.
+        DB::table('stores')->where('id', $victimStore->id)->update(['enable_pwa_store' => 'on']);
 
         $response = $this->actingAs($attacker)
             ->post(route('pwa.setting', [$victimStore->id]), ['pwa_store' => 'off']);
 
         $this->assertSame(
-            $before,
+            'on',
             DB::table('stores')->where('id', $victimStore->id)->value('enable_pwa_store'),
             'A merchant rewrote another store\'s PWA setting.'
         );
