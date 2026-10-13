@@ -62,9 +62,13 @@ use Tests\TestCase;
  *                                    changes store currency.
  *
  *   App\Http\Controllers\OrderController
- *     :1074, :1094 DeliveryEarning delete and create -- delivery_earnings.
- *     Not covered here and not in this agent's test scope for this phase; the
- *     table is GATE F either way.
+ *     order_assign() -- a DeliveryEarning delete and a DeliveryEarning create,
+ *     both against delivery_earnings. The line numbers are NOT pinned here:
+ *     they were :1074 and :1094 when first surveyed and moved to :1268 and
+ *     :1288 when this phase added a transaction boundary and a restock helper
+ *     earlier in the same file. test_delivery_earnings_writes_are_blocked()
+ *     therefore derives them from the source at run time instead, so the skip
+ *     reason cannot go stale. The table is GATE F either way.
  *
  * WALLET AND WITHDRAWAL AUTHORIZATION specifically: none of it lives in the
  * paths this agent owns. StoreFinanceController holds it and belongs to another
@@ -295,15 +299,66 @@ class FinancialSurfaceCoverageTest extends TestCase
         );
     }
 
-    /** `delivery_earnings` is written from OrderController but is undeclared. */
+    /**
+     * `delivery_earnings` is written from OrderController but is undeclared.
+     *
+     * THE CITATIONS ARE DERIVED, NOT TYPED. A hardcoded line number in a skip
+     * reason silently rots: these two were :1074 and :1094 when the survey was
+     * written and are :1268 and :1288 after this phase inserted a restock
+     * helper and a transaction boundary earlier in the same file. A stale
+     * citation in a BLOCKED message is a false statement about the codebase, so
+     * the lines are located in the source each run.
+     *
+     * This also makes the skip self-checking: if the DeliveryEarning writes are
+     * ever removed or renamed, the reason says so instead of naming lines that
+     * no longer hold them.
+     */
     public function test_delivery_earnings_writes_are_blocked(): void
     {
         $this->markTestSkipped(
             'BLOCKED -- EXTERNAL DEPENDENCY (GATE F): `delivery_earnings` is declared by no '
-            . 'migration, yet OrderController::order_assign() deletes from it (:1074) and '
-            . 'creates in it (:1094). A delivery boy\'s earnings are therefore written by '
-            . 'code whose table has no schema of record.'
+            . 'migration, yet OrderController::order_assign() writes it at '
+            . $this->deliveryEarningWriteSites() . '. A delivery boy\'s earnings are '
+            . 'therefore written by code whose table has no schema of record.'
         );
+    }
+
+    /**
+     * Where OrderController touches DeliveryEarning, as `:line (kind)` pairs
+     * read out of the file now.
+     */
+    private function deliveryEarningWriteSites(): string
+    {
+        $path = app_path('Http/Controllers/OrderController.php');
+
+        if (!is_file($path)) {
+            return 'OrderController.php (NOT FOUND -- the survey needs re-deriving)';
+        }
+
+        $found = [];
+
+        foreach (file($path) as $index => $line) {
+            // Skip comment lines: a comment mentioning the model is not a write.
+            if (preg_match('/^\s*(\*|\/\/|\/\*)/', $line)) {
+                continue;
+            }
+
+            if (!str_contains($line, 'DeliveryEarning::')) {
+                continue;
+            }
+
+            if (str_contains($line, '->delete()')) {
+                $found[] = ':' . ($index + 1) . ' (delete)';
+            } elseif (str_contains($line, '::create(')) {
+                $found[] = ':' . ($index + 1) . ' (create)';
+            } else {
+                $found[] = ':' . ($index + 1) . ' (other)';
+            }
+        }
+
+        return $found === []
+            ? 'NO DeliveryEarning write found any more -- re-derive this survey'
+            : implode(', ', $found);
     }
 
     /*

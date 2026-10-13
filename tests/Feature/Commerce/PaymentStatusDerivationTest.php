@@ -184,6 +184,85 @@ class PaymentStatusDerivationTest extends TestCase
         $this->assertSame(['paymera'], PaymentVerificationService::ENFORCED_PAYMENT_TYPES);
     }
 
+    /**
+     * THE POS AND LOTTERY DECISION, which the brief called for explicitly.
+     *
+     * Two of the nine remaining literal `payment_status = 'Paid'` writes are
+     * NOT gateway returns, and were carried forward as needing a decision
+     * rather than a fix:
+     *
+     *   - `app/Http/Controllers/PosController.php:244`, whose line above it
+     *     sets `payment_type = __('POS')` (:243). A point-of-sale sale is cash
+     *     taken across a counter before the sale is rung up. No gateway is
+     *     involved, so there is no capture to verify and no
+     *     PaymentVerificationResult that could exist.
+     *
+     *   - `packages/workdo/LotteryPrizes/src/app/Http/Controllers/
+     *     LotteryResultController.php:136`, inside an order whose
+     *     `payment_type` is `'Lottery Product'` (:134) and whose
+     *     `product_order_status` is `'lottery_order'` (:137). That order is a
+     *     PRIZE AWARD created by the draw, not a purchase -- the ticket was
+     *     paid for earlier, through a different flow. Nothing is outstanding.
+     *
+     * THE DECISION: neither is wired, and this test is the evidence for why
+     * rather than an assertion that it is fine.
+     *
+     *   1. SUBSTANTIVELY, wiring them changes nothing. Measured below: for both
+     *      payment types the service already returns exactly 'Paid', because
+     *      neither is in ENFORCED_PAYMENT_TYPES. Wiring would add a log line
+     *      and no behaviour.
+     *   2. STRUCTURALLY, neither file may be edited from here. PosController is
+     *      not in this agent's ownership, and LotteryResultController is under
+     *      `packages/workdo/`, which `.github/scripts/guard-no-workdo-changes.sh`
+     *      fails the build for touching -- vendored commercial module code that
+     *      the owner's preserve-first instruction puts off limits.
+     *
+     * WHAT THIS TEST IS FOR: it makes the decision falsifiable. The equivalence
+     * holds only while these two types stay unenforced. The moment either is
+     * added to ENFORCED_PAYMENT_TYPES, these assertions go red and name the two
+     * sites that then genuinely diverge -- which is the point at which the
+     * wiring stops being a no-op and becomes an owner decision about editing a
+     * vendored module.
+     */
+    public function test_the_pos_and_lottery_literals_are_equivalent_to_the_derivation_today(): void
+    {
+        foreach (['POS', 'Lottery Product'] as $type) {
+            $this->assertNotContains(
+                strtolower($type),
+                PaymentVerificationService::ENFORCED_PAYMENT_TYPES,
+                $type . ' has become an enforced type, so its literal Paid write is no '
+                    . 'longer equivalent to the derivation. Read this test\'s docblock: the '
+                    . 'two sites it names now need wiring, and one of them is vendored '
+                    . 'module code, so that is an owner decision.'
+            );
+
+            $this->assertSame(
+                PaymentVerificationService::STATUS_PAID,
+                $this->verifier->resolveOrderPaymentStatus($type, null, '1250.50', self::class),
+                $type . ' is settled off-gateway, so the derivation must agree with the '
+                    . 'literal the unwired site writes'
+            );
+        }
+    }
+
+    /**
+     * The contrast that stops the test above being vacuous.
+     *
+     * If the service returned 'Paid' for everything, the equivalence proved
+     * above would be worthless. It does not: an ENFORCED type with no
+     * verification record derives to 'Pending', so the agreement measured above
+     * is a property of the unenforced set and not of the service.
+     */
+    public function test_the_derivation_does_diverge_for_an_enforced_type(): void
+    {
+        $this->assertNotSame(
+            PaymentVerificationService::STATUS_PAID,
+            $this->verifier->resolveOrderPaymentStatus('paymera', null, '1250.50', self::class),
+            'an enforced gateway with no verification record must not derive to Paid, '
+                . 'or every equivalence measured in this file is vacuous'
+        );
+    }
+
     // -----------------------------------------------------------------
     // THE FOUR ORDER WRITERS. The literal must be gone from all of them.
     // -----------------------------------------------------------------
