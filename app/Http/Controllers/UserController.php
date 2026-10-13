@@ -18,6 +18,8 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use App\DataTables\UserDataTable;
 use App\Models\AuditLog;
+use App\Http\Requests\UpdateUserRequest;
+use App\Policies\RolePolicy;
 
 
 class UserController extends Controller
@@ -204,65 +206,76 @@ AuditLog::record('user_created', $user, [], [
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
-    public function update(Request $request, $id)
+    public function update(UpdateUserRequest $request, $id)
     {
+        $user = User::findOrFail($id);
 
-        if (auth()->user() && auth()->user()->isAbleTo('Edit User'))
-        {
-            $user = User::findOrFail($id);
+        // SEC-F4. This method was gated on the 'Edit User' permission alone --
+        // which every merchant holds for their own tenant -- and then operated
+        // on User::findOrFail($id) with no ownership test, so any merchant could
+        // edit any user on the platform, including user id 1. The permission
+        // check now lives inside UserPolicy::update alongside the tenancy test.
+        $this->authorize('update', $user);
 
-            $exitUser = User::where('email', $request->email)->where('id', '!=', $id)->first();
-            if ($exitUser && $exitUser->created_by != auth()->user()->id) {
-                return redirect()->back()->with('error', __('The email is already being used in another account. please choose another email'));
-            }
-
-            $validator = \Validator::make(
-                $request->all(),
-                [
-                    'name' => 'required',
-                    'email' => ['required',
-                                Rule::unique('users')->where(function ($query)  use ($user) {
-                                return $query->whereNotIn('id',[$user->id])->where('created_by',  \Auth::user()->creatorId())->where('current_store', getCurrentStore());
-                            })
-                    ],
-                ]
-            );
-            if($validator->fails())
-            {
-                $messages = $validator->getMessageBag();
-
-                return redirect()->back()->with('error', $messages->first());
-            }
-
-
-            $role          = Role::find($request->role);
-            $input         = $request->all();
-            if ($role) {
-                $input['type'] = $role->name;
-            }
-
-            $user->fill($input)->save();
-
-AuditLog::record('user_updated', $user, $oldValues, [
-    'name' => $user->name,
-    'email' => $user->email,
-    'type' => $user->type,
-]);
-
-$oldValues = [
-    'name' => $user->name,
-    'email' => $user->email,
-    'type' => $user->type,
-];
-
-            if ($role && !$user->hasRole($role->name)) {
-                $user->addRole($role);
-            }
-            return redirect()->back()->with('success', 'User successfully updated.');
+        $exitUser = User::where('email', $request->email)->where('id', '!=', $id)->first();
+        if ($exitUser && $exitUser->created_by != auth()->user()->id) {
+            return redirect()->back()->with('error', __('The email is already being used in another account. please choose another email'));
         }
-        else{
-            return response()->json(['error' => __('Permission denied.')], 401);
+
+        // NEW-audit-oldvalues. The snapshot is taken BEFORE the write. It was
+        // previously passed to AuditLog::record while being defined six lines
+        // AFTER that call, so $oldValues was null at the call site and the audit
+        // trail recorded no previous values at all.
+        $oldValues = [
+            'name' => $user->name,
+            'email' => $user->email,
+            'type' => $user->type,
+        ];
+
+        // The role lookup was Role::find($request->role) -- unscoped, so a
+        // merchant could attach any role on the platform and, via the type
+        // derivation below, name themselves anything. Scoped here exactly as the
+        // sibling edit() above already scopes the role list it renders.
+        $role = null;
+        if ($request->filled('role')) {
+            $role = Role::where('id', $request->input('role'))
+                ->where('created_by', '=', auth()->user()->creatorId())
+                ->where('store_id', getCurrentStore())
+                ->first();
+
+            if (!$role) {
+                return redirect()->back()->with('error', __('The selected role is not available in this store.'));
+            }
         }
+
+        // Only the allow-listed attributes from the edit form. `type`,
+        // `password`, `created_by`, `plan_id`, `storage_limit` and
+        // `email_verified_at` are all in User::$fillable and were all writable
+        // by the caller through $request->all().
+        $input = $request->userAttributes();
+
+        if ($role) {
+            // Deriving type server-side from a SCOPED role is correct and is
+            // preserved. Reserved names are refused as defence in depth.
+            if (in_array(strtolower($role->name), RolePolicy::RESERVED_NAMES, true)) {
+                return redirect()->back()->with('error', __('That role cannot be assigned.'));
+            }
+            $input['type'] = $role->name;
+        }
+
+        $user->fill($input)->save();
+
+        AuditLog::record('user_updated', $user, $oldValues, [
+            'name' => $user->name,
+            'email' => $user->email,
+            'type' => $user->type,
+        ]);
+
+        if ($role && !$user->hasRole($role->name)) {
+            $user->addRole($role);
+        }
+
+        return redirect()->back()->with('success', 'User successfully updated.');
     }
 
     /**
@@ -295,48 +308,50 @@ AuditLog::record('user_deleted', $user, [
 
     public function reset($id)
     {
-        if (auth()->user() && auth()->user()->isAbleTo('Reset Password'))
-        {
-            $Id        = \Crypt::decrypt($id);
-            $user = User::find($Id);
-            $employee = User::where('id', $Id)->first();
+        // SEC-F1. The 'Reset Password' permission was the ONLY gate, so any
+        // holder of it could reset any account on the platform. The Crypt
+        // wrapper on the route parameter is not an authorization control --
+        // APP_KEY is in git history, so an encrypted parameter is forgeable.
+        // The authorize() call below is the control.
+        $Id = \Crypt::decrypt($id);
+        $user = User::findOrFail($Id);
 
-            return view('users.reset', compact('user', 'employee'));
-        }
-        else
-        {
-            return redirect()->back()->with('error', __('Permission denied.'));
-        }
+        $this->authorize('resetPassword', $user);
+
+        $employee = $user;
+
+        return view('users.reset', compact('user', 'employee'));
     }
 
     public function updatePassword(Request $request, $id)
     {
-        if (auth()->user() && auth()->user()->isAbleTo('Reset Password'))
-        {
-            $validator = \Validator::make(
-                $request->all(),
-                [
-                    'password' => 'required|confirmed|same:password_confirmation',
-                ]
-            );
+        // SEC-F1. Resolve and authorize the TARGET before any write. Previously
+        // the permission alone admitted a reset of any account, and the write at
+        // forceFill() happened with no ownership test whatsoever.
+        $user = User::findOrFail($id);
 
-            if ($validator->fails()) {
-                $messages = $validator->getMessageBag();
+        $this->authorize('resetPassword', $user);
 
-                return redirect()->back()->with('error', $messages->first());
-            }
+        $validator = \Validator::make(
+            $request->all(),
+            [
+                'password' => 'required|confirmed|same:password_confirmation',
+            ]
+        );
 
-            $user                 = User::where('id', $id)->first();
-            $user->forceFill([
-                'password' => Hash::make($request->password),
-            ])->save();
-AuditLog::record('user_password_reset', $user);
-            return redirect()->back()->with( 'success', __('User Password successfully updated.'));
+        if ($validator->fails()) {
+            $messages = $validator->getMessageBag();
+
+            return redirect()->back()->with('error', $messages->first());
         }
-        else
-        {
-            return redirect()->back()->with('error', __('Permission denied.'));
-        }
+
+        $user->forceFill([
+            'password' => Hash::make($request->password),
+        ])->save();
+
+        AuditLog::record('user_password_reset', $user);
+
+        return redirect()->back()->with('success', __('User Password successfully updated.'));
     }
 
     public function profile()
@@ -360,7 +375,7 @@ AuditLog::record('user_password_reset', $user);
         }
 
         if ($request->hasFile('profile_image')) {
-            $fileName = rand(10,100).'_'.time() . "_" . $request->profile_image->getClientOriginalName();
+            $fileName = rand(10,100).'_'.time() . "_" . basename($request->profile_image->getClientOriginalName());
             $path = Utility::upload_file($request,'profile_image',$fileName,$dir,[]);
             if ($path['flag'] == '0') {
                 return redirect()->back()->with('error', $path['msg']);
@@ -395,7 +410,9 @@ AuditLog::record('user_password_reset', $user);
             return redirect()->back()->with('error', $messages->first());
         }
 
-        if (!empty($request->type) && ($request->type = 'admin' || $request->type = 'superadmin')) {
+        // `==`, not `=`: the original assignments overwrote $request->type and
+        // always evaluated truthy, so this guard was dead code.
+        if (!empty($request->type) && ($request->type == 'admin' || $request->type == 'superadmin')) {
             #Match The Old Password
             if (!Hash::check($request->old_password, Auth::guard()->user()->password)) {
                 return redirect()->back()->with('error', __("Old Password Does not match!"));

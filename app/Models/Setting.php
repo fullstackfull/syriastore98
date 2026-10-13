@@ -6,6 +6,7 @@ use GeneaLabs\LaravelModelCaching\Traits\Cachable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Database\Eloquent\Model;
+use App\Payments\RetiredGateways;
 
 class Setting extends Model
 {
@@ -503,7 +504,8 @@ class Setting extends Model
             $yookassa_image = asset(Storage::url('uploads/payment/yookassa.png'));
         }
 
-        $Setting_array[25]['status'] = !empty($is_yookassa_enabled) ? $is_yookassa_enabled : 'off';
+        // RETIRED (RetiredGateways::PROVIDERS): published 'off' whatever the tenant's row says.
+        $Setting_array[25]['status'] = RetiredGateways::status('yookassa', $is_yookassa_enabled);
         $Setting_array[25]['name_string'] = __('Yookassa');
         $Setting_array[25]['name'] = 'yookassa';
         $Setting_array[25]['detail'] = $yookassa_unfo;
@@ -598,7 +600,8 @@ class Setting extends Model
             $payhere_image = asset(Storage::url('uploads/payment/payhere.png'));
         }
 
-        $Setting_array[30]['status'] = !empty($is_payhere_enabled) ? $is_payhere_enabled : 'off';
+        // RETIRED (RetiredGateways::PROVIDERS): published 'off' whatever the tenant's row says.
+        $Setting_array[30]['status'] = RetiredGateways::status('payhere', $is_payhere_enabled);
         $Setting_array[30]['name_string'] = __('PayHere');
         $Setting_array[30]['name'] = 'PayHere';
         $Setting_array[30]['detail'] = $payhere_unfo;

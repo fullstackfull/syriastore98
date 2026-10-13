@@ -47,9 +47,387 @@ class PaymentController extends Controller
     use ApiResponser;
     protected $paymentService;
 
+    /**
+     * Server-authoritative tax resolution. See App\Services\OrderTaxResolver:
+     * the tax component of a charged total is derived from the existing cart and
+     * shipping-method computations and never read from client input.
+     */
+    private ?\App\Services\OrderTaxResolver $taxResolver = null;
+
+    /** Exact-decimal reconciliation of a persisted total against its components. */
+    private ?\App\Services\OrderTotalReconciler $totalReconciler = null;
+
+    /** Derives an order's payment_status from a verification result. */
+    private ?\App\Services\PaymentVerificationService $paymentVerifier = null;
+
+    /** Atomic stock decrement, replacing the read-modify-write pattern. */
+    private ?\App\Services\ProductStockService $stockService = null;
+
     public function __construct(PaymentService $paymentService)
     {
         $this->paymentService = $paymentService;
+    }
+
+    /**
+     * Lazily resolved so that `new PaymentController(...)` call sites and the
+     * container both keep working without a constructor signature change.
+     */
+    private function taxResolver(): \App\Services\OrderTaxResolver
+    {
+        return $this->taxResolver ??= new \App\Services\OrderTaxResolver();
+    }
+
+    private function totalReconciler(): \App\Services\OrderTotalReconciler
+    {
+        return $this->totalReconciler ??= new \App\Services\OrderTotalReconciler();
+    }
+
+    private function paymentVerifier(): \App\Services\PaymentVerificationService
+    {
+        return $this->paymentVerifier ??= new \App\Services\PaymentVerificationService();
+    }
+
+    private function stockService(): \App\Services\ProductStockService
+    {
+        return $this->stockService ??= new \App\Services\ProductStockService();
+    }
+
+    /**
+     * Decrement stock atomically, remembering it so it can be given back.
+     *
+     * One copy for all three order paths in this controller
+     * (getProductStatus, getWhatsappUrl, whatsapp), which each carried an
+     * identical read-modify-write decrement.
+     *
+     * @param  array  $applied  Accumulator of applied decrements, by reference.
+     * @param  string $kind     'variant' or 'product'.
+     * @param  mixed  $model    The loaded ProductVariant or Product.
+     * @param  mixed  $qty      The cart quantity.
+     * @return array|null  null on success; a `['message' => ...]` payload when
+     *                     the caller must abandon the order. Any decrements
+     *                     already applied in this cart are given back first.
+     */
+    private function decrementStockOrFail(
+        array &$applied,
+        string $kind,
+        $model,
+        $qty,
+        bool $rejectOnShortfall = true
+    ): ?array {
+        $result = $kind === 'variant'
+            ? $this->stockService()->decrementVariantStock($model, $qty)
+            : $this->stockService()->decrementProductStock($model, $qty);
+
+        if ($result['applied']) {
+            $applied[] = [
+                'kind' => $kind,
+                'id' => $model->id,
+                'quantity' => $result['quantity'],
+            ];
+
+            return null;
+        }
+
+        if ($result['reason'] !== \App\Services\ProductStockService::INSUFFICIENT) {
+            // Nothing to decrement (no quantity, or no row). Previously this
+            // subtracted zero and saved, so carrying on matches the old
+            // behaviour exactly.
+            return null;
+        }
+
+        // PAST THE POINT OF NO RETURN.
+        //
+        // $rejectOnShortfall is false in every writer that has already done
+        // irreversible work by the time this line runs. In those methods the cart
+        // rows of the lines processed BEFORE this one have already been deleted,
+        // `new Order()` has not been reached yet, and no transaction wraps any of
+        // it -- and on the payment-return paths the gateway has already captured
+        // the money. Returning an error there abandoned the checkout with no order
+        // row, a partly destroyed cart and nothing refunded.
+        //
+        // The pre-existing code had no availability test at all on these paths: it
+        // simply subtracted and saved, so stock could go negative. Overselling and
+        // reporting it is therefore the SAME outcome the platform always had, and
+        // strictly better than losing the order. The shortfall is a merchant
+        // operations problem, not a reason to discard a paid basket.
+        if (!$rejectOnShortfall) {
+            $forced = $kind === 'variant'
+                ? $this->stockService()->decrementVariantStock($model, $qty, true)
+                : $this->stockService()->decrementProductStock($model, $qty, true);
+
+            if ($forced['applied']) {
+                $applied[] = [
+                    'kind' => $kind,
+                    'id' => $model->id,
+                    'quantity' => $forced['quantity'],
+                ];
+            }
+
+            \Illuminate\Support\Facades\Log::critical('Insufficient stock on an order path that cannot refuse; order kept, stock oversold', [
+                'kind' => $kind,
+                'model_id' => $model->id ?? null,
+                'requested_quantity' => $qty,
+                'outcome' => $forced['reason'] ?? null,
+            ]);
+
+            return null;
+        }
+
+        $this->restoreStockDecrements($applied);
+
+        return ['message' => __('Insufficient stock. Please review your cart and try again.')];
+    }
+
+    /**
+     * Check that a line is available WITHOUT changing any stock.
+     *
+     * NEW-whatsapp-url-anonymous-stock-decrement.
+     *
+     * `getWhatsappUrl()` (POST /{slug}/get-massage, name `get.whatsappurl`)
+     * used `decrementStockOrFail()`, i.e. it permanently decremented stock. Two
+     * facts make that indefensible:
+     *
+     *   1. The route sits in the routes/customer.php group whose only
+     *      middleware is [ActiveTheme, themelanguage] — no authentication and
+     *      no throttle — so ANY anonymous caller could POST a cart to it,
+     *      repeatedly, and drive a store's inventory to zero. Nothing is
+     *      created in exchange: `getWhatsappUrl()` builds a wa.me/Telegram URL
+     *      and returns a string. It writes no Order; `new Order()` does not
+     *      appear anywhere in it.
+     *
+     *   2. Even for a legitimate shopper it DOUBLE-COUNTED. The WhatsApp
+     *      checkout page calls both endpoints —
+     *      resources/views/payment/whatsapp.blade.php:42 posts to
+     *      `user.whatsapp` and :84 posts to `get.whatsappurl` — and
+     *      `whatsapp()` decrements the same lines again when it writes the
+     *      order. So one WhatsApp order consumed each line's stock twice.
+     *
+     * Because this path creates no order, there is nothing for a decrement here
+     * to correspond to, and no reservation record or release anywhere that
+     * would make it a hold. It is therefore removed rather than guarded, which
+     * is a correctness fix and not a product decision: inventory is still
+     * consumed, once, by `whatsapp()`, which is the path that actually writes
+     * the order.
+     *
+     * The availability CHECK is kept so the shopper-visible behaviour is
+     * unchanged — an out-of-stock cart still gets the same error, at the same
+     * point, with the same message. Only the write is gone.
+     *
+     * @return array|null null when the line may be ordered; an error payload
+     *                    otherwise.
+     */
+    private function assertStockAvailable(string $kind, $model, $qty): ?array
+    {
+        if ($model === null || !is_numeric($qty)) {
+            return null;
+        }
+
+        $quantity = (int) $qty;
+
+        if ($quantity <= 0) {
+            return null;
+        }
+
+        // Only a product that forbids ordering below stock can fail here; a
+        // backorder product is orderable at any quantity, exactly as in
+        // ProductStockService.
+        if (($model->stock_order_status ?? null) !== 'not_allow') {
+            return null;
+        }
+
+        $available = (int) ($kind === 'variant'
+            ? ($model->stock ?? 0)
+            : ($model->product_stock ?? 0));
+
+        if ($available >= $quantity) {
+            return null;
+        }
+
+        return ['message' => __('Insufficient stock. Please review your cart and try again.')];
+    }
+
+    /**
+     * PRE-FLIGHT availability check for a WHOLE cart, before anything is
+     * written and before the shopper is handed to a gateway.
+     *
+     * WHY THIS EXISTS, AND WHY IT IS THE ONLY PLACE A REFUSAL BELONGS
+     * ---------------------------------------------------------------
+     * `decrementStockOrFail()` above takes `bool $rejectOnShortfall = true`, and
+     * ALL NINE of its production call sites pass FALSE
+     * (PaymentController:1721, :1746, :1803, :2739, :2764, :2821 and
+     * PaymentService:2322, :2347, :2404). That is correct and must stay correct:
+     * each of those sites sits inside a product loop that has already deleted
+     * the cart rows of the lines before it, has not yet reached `new Order()`,
+     * and on the payment-return paths runs AFTER the gateway captured the money.
+     * Refusing there abandoned a paid checkout with no order row, a partly
+     * destroyed cart and nothing refunded — strictly worse than overselling.
+     *
+     * So the rejecting behaviour has to live somewhere a refusal is free. That
+     * is here: before the destructive loop, before any cart row is deleted, and
+     * before `PaymentService::process()` sends the shopper to a gateway. Nothing
+     * is written and nothing is destroyed by this method — it only reads.
+     *
+     * WHAT IT DOES NOT DO, deliberately
+     * ---------------------------------
+     *  - It does NOT refuse a malformed line or a missing product row. The
+     *    destructive loop has its own shopper-visible answers for those
+     *    ('Product not found .', 'Please fill proper product json field .') and
+     *    those answers stay the loop's to give, so this check cannot change an
+     *    existing response.
+     *  - It does NOT run when the store has stock management off, so it can
+     *    never refuse a merchant who does not track stock.
+     *  - It only ever refuses a product whose `stock_order_status` is
+     *    'not_allow', which is the platform's existing marker for "do not sell
+     *    when out of stock" (App\Models\Cart, ApiController, and
+     *    ProductStockService::mustNotOversell()). A backorder product is still
+     *    orderable at any quantity.
+     *
+     * It is therefore a STRICT SUBSET of what the destructive loop would check,
+     * which is what makes it safe to add to a live checkout.
+     *
+     * @param  mixed      $products The cart's product_list (objects or arrays).
+     * @param  mixed      $store    The store the cart belongs to.
+     * @param  array|null $settings Already-loaded store settings, when the
+     *                              caller has them, so this costs no extra query.
+     * @return array|null null when every line may be ordered; an error payload
+     *                    naming the first unavailable line otherwise.
+     */
+    private function assertCartAvailable($products, $store, ?array $settings = null): ?array
+    {
+        if (empty($products)) {
+            return null;
+        }
+
+        $stockManaged = $settings === null
+            ? $this->stockManagementIsOn($store)
+            : (($settings['stock_management'] ?? null) === 'on');
+
+        if (!$stockManaged) {
+            return null;
+        }
+
+        foreach ($products as $line) {
+            $productId = $this->cartLineValue($line, 'product_id');
+            $variantId = $this->cartLineValue($line, 'variant_id');
+            $qty = $this->cartLineValue($line, 'qty');
+
+            if (empty($productId) || !is_numeric($qty) || (int) $qty <= 0) {
+                continue;
+            }
+
+            $product = Product::where('id', $productId)->first();
+
+            if ($product === null) {
+                continue;
+            }
+
+            $kind = 'product';
+            $row = $product;
+
+            if (!empty($variantId) && (int) $variantId !== 0) {
+                $variant = ProductVariant::where('id', $variantId)
+                    ->where('product_id', $productId)
+                    ->first();
+
+                if ($variant === null) {
+                    continue;
+                }
+
+                // The SAME test the destructive loop uses to decide which row
+                // holds a variant line's stock: with 'manage_stock' among the
+                // variation options the variant's own `stock` is decremented,
+                // otherwise the parent product's `product_stock` is. Checking the
+                // other row would make this guard disagree with the loop it
+                // guards.
+                if (in_array('manage_stock', explode(',', (string) $variant->variation_option), true)) {
+                    $kind = 'variant';
+                    $row = $variant;
+                }
+            }
+
+            if ($this->assertStockAvailable($kind, $row, $qty) !== null) {
+                return [
+                    'message' => __('Insufficient stock. Please review your cart and try again.'),
+                    'product_name' => $product->name ?? null,
+                    'product_id' => $product->id,
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Whether this store tracks stock at all.
+     *
+     * NOTE, reported and NOT changed: the two destructive loops test this
+     * setting as `$settings['stock_management'] ?? '' == 'on'`
+     * (PaymentController:1709 and :2727). `??` binds LOOSER than `==`, so that
+     * parses as `$settings['stock_management'] ?? ('' == 'on')` — i.e. the key's
+     * VALUE is used as the condition whenever it exists, so a store with
+     * stock_management = 'off' still has its stock decremented. The twin writer
+     * gets it right (PaymentService:2310 uses
+     * `isset(...) && $settings['stock_management'] == 'on'`), which is the
+     * evidence that the controller form is a precedence bug and not a decision.
+     *
+     * It is NOT corrected here because correcting it would STOP inventory being
+     * consumed for every merchant who has the setting off — a merchant-facing
+     * behaviour change, not a reliability fix. This pre-flight uses the CORRECT
+     * test, which only ever makes the guard apply to FEWER carts than the loop,
+     * so it cannot refuse an order the loop would have accepted on this account.
+     */
+    private function stockManagementIsOn($store): bool
+    {
+        if (empty($store) || empty($store->id)) {
+            return false;
+        }
+
+        return Setting::where('store_id', $store->id)
+            ->where('name', 'stock_management')
+            ->value('value') === 'on';
+    }
+
+    /** Read a field from a cart line, which may be an object or an array. */
+    private function cartLineValue($line, string $key)
+    {
+        if (is_object($line)) {
+            return $line->{$key} ?? null;
+        }
+
+        if (is_array($line)) {
+            return $line[$key] ?? null;
+        }
+
+        return null;
+    }
+
+    /**
+     * The shopper-visible text for a pre-flight refusal.
+     *
+     * The base sentence is the one `decrementStockOrFail()` and
+     * `assertStockAvailable()` already use, so a shopper who hits the shortfall
+     * at either point reads the same thing; the product name is appended only
+     * when there is one, because naming the line is the difference between an
+     * actionable message and a dead end.
+     */
+    private function stockErrorMessage(array $unavailable): string
+    {
+        $message = $unavailable['message'] ?? __('Insufficient stock. Please review your cart and try again.');
+        $name = $unavailable['product_name'] ?? null;
+
+        return empty($name) ? $message : $message . ' (' . $name . ')';
+    }
+
+    /** Give back every decrement recorded by {@see decrementStockOrFail()}. */
+    private function restoreStockDecrements(array $applied): void
+    {
+        foreach ($applied as $change) {
+            if (($change['kind'] ?? null) === 'variant') {
+                $this->stockService()->restoreVariantStock($change['id'], $change['quantity']);
+            } else {
+                $this->stockService()->restoreProductStock($change['id'], $change['quantity']);
+            }
+        }
     }
 
 
@@ -59,15 +437,158 @@ class PaymentController extends Controller
 
 
 
-public function pollPaymentStatus($paymentId)
-{
-    $response = Http::withHeaders([
-        'Authorization' => 'Bearer ' . config('services.paymera.username'), // أو حسب الستور
-        'Accept'        => 'application/json',
-    ])->get('https://egate-t.paymera.cc/api/payment-status/' . $paymentId);
+/**
+ * Sentinel returned by {@see pollPaymentStatus()} when the status call could
+ * not be made authentically. It is deliberately NOT a status value: the caller
+ * must branch on it explicitly rather than have "no answer" fall through the
+ * `status != 'A'` test and look like an ordinary decline.
+ */
+public const PAYMERA_STATUS_UNAUTHENTICATED = '__paymera_status_unauthenticated';
 
-    return $response->json();
+/**
+ * The bearer credential for Paymera's status API, or null when there isn't one.
+ *
+ * THE CONFIGURATION-SOURCE DEFECT, now corrected.
+ *
+ * This read `config('services.paymera.username')` and nothing else. That key
+ * has never existed in any deployment -- it dates to the initial commit
+ * (3c39c160) -- so the credential was always null, the poll always abandoned,
+ * and PAYMERA CHECKOUT COULD NEVER COMPLETE. Not "was broken recently": could
+ * not complete, ever.
+ *
+ * Meanwhile the credential the merchant actually fills in is a PER-STORE
+ * SETTING, not an env var:
+ *
+ *     Utility::GetValueByName('PAYMERA_USERNAME', $store->id)
+ *
+ * which is what PaymentService::processPaymera() already uses to authorise the
+ * CREATE-payment call (PaymentService.php:340, :428), what the settings screen
+ * writes (PaymentSettingController.php:177-178 lists PAYMERA_TERMINAL_ID and
+ * PAYMERA_USERNAME as Paymera's required_fields) and what Setting.php:1059-1074
+ * reads back per store. A single global env var cannot express a per-store
+ * credential on a shared-database multi-tenant platform, so the env key was
+ * never going to be right.
+ *
+ * So the SOURCE is corrected: the per-store setting first, the global config key
+ * only as a fallback for a single-tenant deployment that had set it. No
+ * credential value is invented, written or printed here, and no live credential
+ * is changed -- this reads the value the merchant already saved.
+ *
+ * WHY THIS CANNOT BY ITSELF CAUSE A PAID ORDER, which is the question a reviewer
+ * should ask of any change to a payment path. The callback verifies in this
+ * order: poll (here), then verifyPaymeraPayment() -- amount AND signature.
+ * `services.paymera.require_callback_signature` defaults TRUE and the signature
+ * scheme is unconfigured (GATE G(4)), so verifyPaymeraSignature() returns
+ * UNVERIFIABLE and the callback is still REJECTED after this. The net effect of
+ * this change is therefore that the status poll now authenticates instead of
+ * sending an empty bearer token. It does not open checkout.
+ *
+ * NOT VERIFIED, and not claimed to be: nothing here establishes that Paymera
+ * accepts this credential as a bearer token, or that PAYMERA_USERNAME is the
+ * right field for the status API rather than only for the create call. No
+ * Paymera host is reachable from this container. The flag
+ * `services.paymera.status_credential_from_store_setting` exists so the owner
+ * can switch this back to the old global-only lookup without a code change.
+ *
+ * Never logs or returns the credential's value -- only whether one is present.
+ *
+ * @param mixed $storeId The store the payment belongs to. Null falls back to the
+ *                       global key only, which is the pre-existing behaviour.
+ */
+private function paymeraStatusCredential($storeId = null): ?string
+{
+    $credential = null;
+
+    if (!empty($storeId) && (bool) config('services.paymera.status_credential_from_store_setting', true)) {
+        $credential = \App\Models\Utility::GetValueByName('PAYMERA_USERNAME', $storeId);
+    }
+
+    if (!is_string($credential) || trim($credential) === '') {
+        // Fallback for a single-tenant deployment that set the env var, and the
+        // only source when no store is in scope.
+        $credential = config('services.paymera.username');
+    }
+
+    if (!is_string($credential) || trim($credential) === '') {
+        return null;
+    }
+
+    return trim($credential);
 }
+
+/**
+ * Ask Paymera what happened to a payment.
+ *
+ * FAILS CLOSED. With no credential configured this makes no call at all and
+ * returns the unauthenticated sentinel, so a missing credential can never be
+ * mistaken for a successful capture. The previous behaviour — send an empty
+ * bearer token and trust the reply — is gone.
+ *
+ * THE GATEWAY HOST. `egate-t.paymera.cc` is Paymera's TEST gateway and it was
+ * HARDCODED here, so there was no way to point production at the live gateway
+ * without editing this line. It now comes from
+ * `services.paymera.status_base_url`, whose default is that exact host, so
+ * behaviour is unchanged until the owner sets the key. Which host is correct for
+ * production is Paymera's to say and is NOT guessed.
+ *
+ * @param mixed $storeId The store whose per-store credential to use. See
+ *                       paymeraStatusCredential().
+ */
+public function pollPaymentStatus($paymentId, $storeId = null)
+{
+    $credential = $this->paymeraStatusCredential($storeId);
+
+    if ($credential === null) {
+        \Log::critical('Paymera status poll ABANDONED: no API credential is configured', [
+            'payment_id' => $paymentId,
+            'store_id' => $storeId,
+            'sources_tried' => [
+                'per-store setting PAYMERA_USERNAME',
+                'config services.paymera.username',
+            ],
+            'note' => 'Neither source holds a credential, so the header would have been '
+                . 'sent as an empty bearer token and the reply to an unauthenticated '
+                . 'request treated as authoritative. No value is logged.',
+        ]);
+
+        return ['status' => self::PAYMERA_STATUS_UNAUTHENTICATED];
+    }
+
+    try {
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $credential,
+            'Accept'        => 'application/json',
+        ])->timeout(30)->get(
+            rtrim(
+                (string) config('services.paymera.status_base_url', 'https://egate-t.paymera.cc'),
+                '/'
+            ) . '/api/payment-status/' . $paymentId
+        );
+    } catch (\Throwable $e) {
+        // An unreachable gateway is not a successful payment.
+        \Log::error('Paymera status poll failed', [
+            'payment_id' => $paymentId,
+            'exception' => get_class($e),
+            'message' => $e->getMessage(),
+        ]);
+
+        return ['status' => self::PAYMERA_STATUS_UNAUTHENTICATED];
+    }
+
+    if (!$response->successful()) {
+        \Log::error('Paymera status poll returned an unsuccessful response', [
+            'payment_id' => $paymentId,
+            'http_status' => $response->status(),
+        ]);
+
+        return ['status' => self::PAYMERA_STATUS_UNAUTHENTICATED];
+    }
+
+    $body = $response->json();
+
+    return is_array($body) ? $body : ['status' => self::PAYMERA_STATUS_UNAUTHENTICATED];
+}
+
 
 
 
@@ -94,11 +615,55 @@ public function handlePaymeraCallback(Request $request, string $orderId)
      * استخدم نفس شرط النجاح القديم الذي كان يعمل عندك.
      * لا تغيّر آلية التحقق الآن.
      */
+    // The store is passed so the PER-STORE credential is used. See
+    // paymeraStatusCredential(): the global config key it used to read alone has
+    // never existed in any deployment.
     $statusData = $this->pollPaymentStatus(
-        $pending['payment_id']
+        $pending['payment_id'],
+        $pending['request_data']['store_id'] ?? null
     );
 
+    /*
+     * FAIL CLOSED on "we could not ask". An unauthenticated, unreachable or
+     * unsuccessful status call is NOT a decline and must not be allowed to
+     * look like one: it is the absence of an answer, and no order is created.
+     * Branched on explicitly so this can never silently become the `!= 'A'`
+     * path again. See pollPaymentStatus() and NEW-paymera-poll-unauthenticated.
+     */
+    if (($statusData['status'] ?? null) === self::PAYMERA_STATUS_UNAUTHENTICATED) {
+        \Log::critical('Paymera callback REJECTED: the payment status could not be established', [
+            'paymera_reference' => $orderId,
+        ]);
+
+        return redirect()
+            ->route('store.payment.status', [
+                $pending['slug'],
+                '&return_type=cancel&payment_processor=paymera',
+            ]);
+    }
+
     if (($statusData['status'] ?? null) != 'A') {
+        return redirect()
+            ->route('store.payment.status', [
+                $pending['slug'],
+                '&return_type=cancel&payment_processor=paymera',
+            ]);
+    }
+
+    /*
+     * VERIFY WHAT WE ARE BEING TOLD, BEFORE creating the order.
+     *
+     * The status test above is a bare `!= 'A'` and is the only check this
+     * callback used to perform: it never compared a captured amount against the
+     * order total and never verified any inbound signature, and then marked the
+     * order Paid and created it. Verification now happens here, ahead of both.
+     *
+     * Fails closed: an unverifiable amount or signature returns the customer to
+     * the payment-status page and creates nothing.
+     */
+    $verification = $this->verifyPaymeraPayment($pending, $statusData, $request->all(), $orderId);
+
+    if (!$verification->allowsPaid()) {
         return redirect()
             ->route('store.payment.status', [
                 $pending['slug'],
@@ -118,14 +683,47 @@ public function handlePaymeraCallback(Request $request, string $orderId)
     }
 
     try {
+        /*
+         * RE-CHECK UNDER THE LOCK. See freshPaymeraPendingOrNull(): the
+         * pre-lock test above and this use of the record straddled the lock,
+         * so a concurrent trigger that finished first did not stop this one
+         * from creating a second order.
+         */
+        $fresh = $this->freshPaymeraPendingOrNull($orderId);
+
+        if ($fresh === null) {
+            // Already processed, or the record is gone. Either way this request
+            // must not create an order. Answering with the same completion
+            // redirect the pre-lock branch above uses keeps the customer's
+            // experience identical to a replay that lost the race by a wider
+            // margin. (`$pending` here is only read for display values; it is
+            // never used to WRITE anything, which is the whole point.)
+            return redirect()
+                ->route('order.complete', $pending['slug'])
+                ->with('data', $pending['product_order_id'] ?? '');
+        }
+
+        $pending = $fresh;
+
         $requestData = $pending['request_data'] ?? [];
 
         /*
          * هذا يحل مشكلة حفظها COD.
          */
         $requestData['payment_type'] = 'paymera';
-        $requestData['payment_status'] = 'Paid';
         $requestData['slug'] = $pending['slug'];
+
+        /*
+         * The `payment_status = 'Paid'` that used to be set here is gone. The
+         * order writer derives the status from the verification result instead,
+         * which is recorded server-side (in the session, not in the request, so
+         * it cannot be forged) and is single-use.
+         */
+        $this->paymentVerifier()->recordVerification(
+            'paymera',
+            $verification,
+            $pending['expected_total'] ?? ($verification->expectedAmount ?? '')
+        );
 
         Session::put('request_data', $requestData);
 
@@ -167,6 +765,145 @@ public function handlePaymeraCallback(Request $request, string $orderId)
     } finally {
         $lock->release();
     }
+}
+
+
+/**
+ * Re-read the pending-payment record now that the lock is held.
+ *
+ * THE DEFECT THIS CLOSES: a replayed callback created a SECOND ORDER.
+ *
+ * Both routed Paymera entry points tested `$pending['processed']` BEFORE taking
+ * the lock, and then, inside the lock, went on using the `$pending` array they
+ * had read before it. So the check and the use straddled the lock instead of
+ * both being inside it:
+ *
+ *   gateway trigger            browser callback
+ *   ---------------            ----------------
+ *   read pending (processed=false)
+ *                              read pending (processed=false)
+ *   check passes
+ *                              check passes
+ *   acquire lock
+ *   create order
+ *   processed = true
+ *   release lock
+ *                              acquire lock   <-- succeeds, nothing stops it
+ *                              create order   <-- SECOND ORDER, second stock
+ *                                                 decrement, second wallet
+ *                                                 credit
+ *
+ * A gateway retrying its callback is normal, not exceptional, and the two entry
+ * points are a browser return and a server-to-server poke for the SAME payment,
+ * so they race by design rather than by accident. The pre-lock check is a
+ * cheap-path optimisation and is kept; this is the authoritative one, and it
+ * returns the record to actually use so a caller cannot keep the stale copy by
+ * mistake.
+ *
+ * Returns null when the payment has already been processed, which the caller
+ * must treat as "done, do not create anything".
+ */
+private function freshPaymeraPendingOrNull(string $orderId): ?array
+{
+    $pending = Cache::get('paymera_pending_' . $orderId);
+
+    if (!is_array($pending)) {
+        // The record expired while we waited for the lock. Creating an order
+        // from a stale copy of it is exactly what must not happen.
+        \Log::warning('Paymera pending record vanished before the order was created', [
+            'paymera_reference' => $orderId,
+        ]);
+
+        return null;
+    }
+
+    if (($pending['processed'] ?? false) === true) {
+        \Log::info('Paymera callback replay ignored: this payment already produced an order', [
+            'paymera_reference' => $orderId,
+            'order_id' => $pending['order_id'] ?? null,
+        ]);
+
+        return null;
+    }
+
+    return $pending;
+}
+
+
+/**
+ * Verify a Paymera payment: the captured amount, and the inbound signature.
+ *
+ * ONE copy, used by BOTH routed Paymera entry points — handlePaymeraCallback
+ * (the customer's browser returning) and handlePaymeraTrigger (the gateway's
+ * server-to-server poke). Both created orders and marked them paid on the same
+ * unverified `status == 'A'` test, so verifying in only one of them would leave
+ * the other open.
+ *
+ * The two unrouted copies, handlePaymeraCallback_backup and
+ * handlePaymeraCallback00, are deliberately NOT wired in: they are dead code
+ * reachable from no route, and "fixing" them in parallel would create a second
+ * verification path to keep in step with this one.
+ *
+ * @param  array  $pending        The server-side pending-payment record.
+ * @param  array  $statusData     The gateway's status response.
+ * @param  array  $callbackPayload The inbound request parameters.
+ * @param  string $reference      The Paymera payment reference, for the log.
+ */
+private function verifyPaymeraPayment(
+    array $pending,
+    array $statusData,
+    array $callbackPayload,
+    string $reference
+): \App\Services\PaymentVerificationResult {
+    $verifier = $this->paymentVerifier();
+
+    // 1. The signature. BLOCKED on GATE G(4) — the field names, algorithm and
+    //    secret delivery exist only in Paymera's integration document — so this
+    //    returns "unverifiable" until it is configured. Unverifiable is treated
+    //    as failure, not as success.
+    $signature = $verifier->verifyPaymeraSignature($callbackPayload);
+
+    if (!$signature->isVerified()) {
+        if ($verifier->paymeraSignatureIsRequired()) {
+            \Log::critical('Paymera callback REJECTED: inbound signature not verified', [
+                'paymera_reference' => $reference,
+                'store_id' => $pending['request_data']['store_id'] ?? null,
+                'signature' => $signature->context(),
+                'owner_action' => 'GATE G(4): supply the Paymera callback signature field '
+                    . 'name, algorithm and secret delivery, or set '
+                    . 'services.paymera.require_callback_signature to false to '
+                    . 'restore the previous unverified behaviour deliberately.',
+            ]);
+
+            return $signature;
+        }
+
+        // Enforcement explicitly switched off by the owner. The callback
+        // proceeds on the amount check alone, and says so every time.
+        \Log::warning('Paymera callback signature NOT verified and not enforced', [
+            'paymera_reference' => $reference,
+            'signature' => $signature->context(),
+        ]);
+    }
+
+    // 2. The captured amount against what this payment was initiated for.
+    $amount = $verifier->verifyPaymeraCapture(
+        $statusData,
+        $pending['expected_total'] ?? null,
+        $pending['amount_sent'] ?? null
+    );
+
+    if (!$amount->allowsPaid()) {
+        \Log::critical('Paymera callback REJECTED: captured amount not verified', [
+            'paymera_reference' => $reference,
+            'store_id' => $pending['request_data']['store_id'] ?? null,
+            'amount' => $amount->context(),
+            'owner_action' => 'GATE G(4): supply the Paymera response field name that '
+                . 'carries the captured amount (services.paymera.callback_amount_field).',
+        ]);
+    }
+
+    return $amount;
 }
 
 
@@ -223,19 +960,83 @@ public function handlePaymeraTrigger($orderId)
         return response()->json(['status' => 'A', 'ok' => true]);
     }
 
-    $statusData = $this->pollPaymentStatus($pending['payment_id']);
+    /*
+     * Already processed — by this trigger or by the browser callback. Do not
+     * create a second order. The `processed` flag the callback sets was never
+     * set here, so a trigger followed by a callback created the order TWICE.
+     */
+    if (($pending['processed'] ?? false) === true) {
+        return response()->json([
+            'status' => 'A',
+            'ok' => true,
+            'product_order_id' => $pending['product_order_id'] ?? null,
+        ]);
+    }
+
+    $statusData = $this->pollPaymentStatus(
+        $pending['payment_id'],
+        $pending['request_data']['store_id'] ?? null
+    );
 
     if (($statusData['status'] ?? null) == 'A') {
+        // Same verification as the browser callback, same single copy, before
+        // anything is created. Fails closed.
+        $verification = $this->verifyPaymeraPayment($pending, $statusData, request()->all(), $orderId);
+
+        if (!$verification->allowsPaid()) {
+            return response()->json([
+                'status' => $statusData['status'] ?? 'unknown',
+                'ok' => false,
+                'error' => 'payment_not_verified',
+            ], 422);
+        }
+
         $lock = Cache::lock('paymera_lock_' . $orderId, 10);
 
         if ($lock->get()) {
             try {
+                /*
+                 * RE-CHECK UNDER THE LOCK -- see freshPaymeraPendingOrNull().
+                 * The pre-lock test at the top of this method and this use of
+                 * the record straddled the lock, so a browser callback that
+                 * finished first did not stop this trigger creating a second
+                 * order for the same payment.
+                 */
+                $fresh = $this->freshPaymeraPendingOrNull($orderId);
+
+                if ($fresh === null) {
+                    return response()->json([
+                        'status' => 'A',
+                        'ok' => true,
+                        'product_order_id' => $pending['product_order_id'] ?? null,
+                    ]);
+                }
+
+                $pending = $fresh;
+
                 $pending['status'] = 'A';
                 Cache::put('paymera_pending_' . $orderId, $pending, now()->addHours(2));
+
+                $this->paymentVerifier()->recordVerification(
+                    'paymera',
+                    $verification,
+                    $pending['expected_total'] ?? ($verification->expectedAmount ?? '')
+                );
 
                 Session::put('request_data', $pending['request_data']);
                 $freshRequest = Request::create('/', 'POST', $pending['request_data']);
                 $this->getProductStatus($freshRequest, $pending['slug']);
+
+                // Close the double-processing window the callback relies on.
+                $latestOrder = Order::where('store_id', $pending['request_data']['store_id'] ?? null)
+                    ->where('payment_type', 'paymera')
+                    ->latest('id')
+                    ->first();
+
+                $pending['processed'] = true;
+                $pending['order_id'] = $latestOrder?->id;
+                $pending['product_order_id'] = $latestOrder?->product_order_id;
+                Cache::put('paymera_pending_' . $orderId, $pending, now()->addHours(2));
             } finally {
                 $lock->release();
             }
@@ -353,13 +1154,24 @@ public function handlePaymeraTrigger00($orderId)
         $cartlist = $cartData['cartlist'];
         $cartlist_final_price = $cartData['cartlist_final_price'];
 
+        // PRE-FLIGHT STOCK CHECK. This is the only point in the whole checkout
+        // where refusing an unfulfillable cart is free: no cart row has been
+        // deleted, no order row exists, and processPayment() below has not yet
+        // handed the shopper to a gateway. Every one of the nine
+        // decrementStockOrFail() call sites is past that point, which is why all
+        // nine pass $rejectOnShortfall = false. See assertCartAvailable().
+        if ($unavailable = $this->assertCartAvailable($cartData['products'] ?? null, $store)) {
+            return redirect()->back()->with('error', $this->stockErrorMessage($unavailable));
+        }
+
         // Process coupon
         $couponData = $this->processCoupon($request, $cartlist_final_price, $slug);
         $cartlist_final_price = $couponData['cartlist_final_price'];
         $coupon_price = $couponData['coupon_price'];
         $request->merge((array)$couponData);
-        // Process shipping
-        $shippingData = $this->processShipping($request, $plan, $slug);
+        // Process shipping. The cart's server-computed tax is handed in so the
+        // posted `tax_price` never reaches the total.
+        $shippingData = $this->processShipping($request, $plan, $slug, $cartData['tax_price'] ?? 0);
         $delivery_price = $shippingData['delivery_price'];
         $tax_price = $shippingData['tax_price'];
 
@@ -758,26 +1570,41 @@ public function handlePaymeraTrigger00($orderId)
     /**
      * Process shipping
      */
-    private function processShipping(Request $request, $plan, $slug)
+    private function processShipping(Request $request, $plan, $slug, $serverTaxPrice = 0)
     {
         $delivery_price = 0;
-        $tax_price = $request->tax_price ?? 0;
-        
+
+        // The tax component of the charged total is SERVER-DERIVED. $serverTaxPrice
+        // is the cart's own `total_tax_price`, computed by Cart::cart_list_cookie()
+        // or ApiController::cart_list() in getCartData(); the posted `tax_price` is
+        // discarded (it used to be read straight into the total here).
+        $this->taxResolver()->recordClientSuppliedTax(
+            $request->input('tax_price'),
+            (float) $serverTaxPrice,
+            'PaymentController::processShipping'
+        );
+        $tax_price = $this->taxResolver()->resolve(['total_tax_price' => $serverTaxPrice]);
+
         if (!$plan || $plan->shipping_method != 'on' || empty($request->method_id)) {
             return [
                 'delivery_price' => $delivery_price,
                 'tax_price' => $tax_price
             ];
         }
-        
+
         $del_charge = new CartController();
         $delivery_charge = $del_charge->get_shipping_method($request, $slug);
         $content = $delivery_charge->getContent();
         $data = json_decode($content, true);
-        
+
         return [
             'delivery_price' => $data['total_final_price'] ?? 0,
-            'tax_price' => $data['final_tax_price'] ?? $tax_price
+            // get_shipping_method's `final_tax_price` already includes the tax on
+            // the shipping charge, so it supersedes the cart-only figure.
+            'tax_price' => $this->taxResolver()->resolve(
+                ['total_tax_price' => $serverTaxPrice],
+                is_array($data) ? $data : null
+            )
         ];
     }
 
@@ -827,6 +1654,60 @@ public function handlePaymeraTrigger00($orderId)
         }
         
         $request->merge($new_array);
+    }
+
+    /**
+     * Server-side deposit amounts for a PartialPayments checkout.
+     *
+     * The module's own `ManageDeposit()` is the one source of truth for what a
+     * deposit is: it reads the Product rows and the store's deposit settings
+     * and derives the figure. It is called here with the SERVER-derived tax,
+     * shipping, coupon and subtotal merged in, so neither the deposit nor the
+     * components it is computed from can come from the request.
+     *
+     * Nothing inside packages/workdo is modified; the existing module method is
+     * called, exactly as prepareFinalRequestData() already calls it.
+     *
+     * @param  array $serverComponents The server-derived component amounts.
+     * @param  mixed $fallbackTotal    The server total to use if the module
+     *                                 cannot produce a figure. Never client input.
+     * @return array{final_price: mixed, delivery_price: mixed}
+     */
+    private function resolvePartialPaymentAmounts(
+        Request $request,
+        $slug,
+        array $serverComponents,
+        $fallbackTotal
+    ): array {
+        $request->merge($serverComponents);
+
+        try {
+            $updated = \Workdo\PartialPayments\app\Http\Controllers\PartialPaymentsController::ManageDeposit(
+                $request,
+                $slug
+            );
+        } catch (\Throwable $e) {
+            \Log::error('PartialPayments deposit recomputation failed; using the server total', [
+                'site' => __METHOD__,
+                'error' => $e->getMessage(),
+            ]);
+            $updated = null;
+        }
+
+        $depositAmount = is_array($updated) && isset($updated['deposite_amount'])
+            && is_numeric($updated['deposite_amount'])
+                ? $updated['deposite_amount']
+                : $fallbackTotal;
+
+        $shippingAmount = is_array($updated) && isset($updated['shipping_price_value'])
+            && is_numeric($updated['shipping_price_value'])
+                ? $updated['shipping_price_value']
+                : ($serverComponents['shipping_price'] ?? 0);
+
+        return [
+            'final_price' => $depositAmount,
+            'delivery_price' => $shippingAmount,
+        ];
     }
 
     /**
@@ -1045,7 +1926,15 @@ public function handlePaymeraTrigger00($orderId)
             $cartlist_final_price = !empty($cartlist['final_price']) ? $cartlist['final_price'] : 0;
             $final_sub_total_price = !empty($cartlist['total_sub_price']) ? $cartlist['total_sub_price'] : 0;
             $final_price = $response->data->total_final_price;
-            $tax_price = !empty($requests_data['tax_price']) ? $requests_data['tax_price'] : '';
+            // SERVER-DERIVED tax. Previously `$requests_data['tax_price']`, i.e.
+            // whatever the customer posted at checkout, which went straight into
+            // $order->tax_price and into the charged final_price below.
+            $tax_price = $this->taxResolver()->resolve($cartlist);
+            $this->taxResolver()->recordClientSuppliedTax(
+                $requests_data['tax_price'] ?? null,
+                $tax_price,
+                __METHOD__ . '(guest)'
+            );
             $billing = $requests_data['billing_info'];
 
             $products = $cartlist['product_list'];
@@ -1065,7 +1954,13 @@ public function handlePaymeraTrigger00($orderId)
             $cartlist_final_price = !empty($cartlist['final_price']) ? $cartlist['final_price'] : 0;
             $final_sub_total_price = !empty($cartlist['total_sub_price']) ? $cartlist['total_sub_price'] : 0;
             $final_price = $cartlist['total_final_price'];
-            $tax_price = !empty($requests_data['tax_price']) ? $requests_data['tax_price'] : '';
+            // SERVER-DERIVED tax — see the guest branch above.
+            $tax_price = $this->taxResolver()->resolve($cartlist);
+            $this->taxResolver()->recordClientSuppliedTax(
+                $requests_data['tax_price'] ?? null,
+                $tax_price,
+                __METHOD__ . '(customer)'
+            );
             $billing = is_string($request->billing_info) ? (array) json_decode($request->billing_info) : $request->billing_info;
             $products = $cartlist['product_list'];
         } else {
@@ -1124,8 +2019,14 @@ public function handlePaymeraTrigger00($orderId)
                 $content = $delivery_charge->getContent();
                 $data = json_decode($content, true);
                 $delivery_price = $data['total_final_price'];
-                $tax_price = $requests_data['tax_price'] ?? 0;
-            } 
+                // SERVER-DERIVED tax, from get_shipping_method's own
+                // `final_tax_price` (shipping is taxable), falling back to the
+                // cart tax. Previously `$requests_data['tax_price']`.
+                $tax_price = $this->taxResolver()->resolve(
+                    $cartlist,
+                    is_array($data) ? $data : null
+                );
+            }
             // else {
             //     return $this->error(['message' => 'Shipping Method not found']);
             // }
@@ -1141,6 +2042,15 @@ public function handlePaymeraTrigger00($orderId)
 
         // Order stock decrease start
         $prodduct_id_array = [];
+        // Stock decrements applied in this loop, so they can be given back if
+        // a later product in the same cart cannot be fulfilled and the order is
+        // therefore never written. Without this, a rejected checkout would
+        // silently consume the inventory of the products it got through first.
+        $appliedStockChanges = [];
+
+        // Cart lines to empty once the order has COMMITTED -- see the
+        // accumulation site inside the loop below.
+        $cartLinesToClear = [];
         if (!empty($products)) {
             foreach ($products as $key => $product) {
                 $prodduct_id_array[] = $product->product_id;
@@ -1158,9 +2068,14 @@ public function handlePaymeraTrigger00($orderId)
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductStock)) {
                             if ($option == true) {
-                                $remain_stock = $ProductStock->stock - $qtyy;
-                                $ProductStock->stock = $remain_stock;
-                                $ProductStock->save();
+                                // ATOMIC. This was a read-modify-write (`$remain_stock = $ProductStock->stock - $qtyy; ... ->save()`),
+                                // i.e. a lost update: two concurrent checkouts both wrote
+                                // `stock - qty` and the second overwrote the first, so the shop
+                                // oversold by the quantity it processed concurrently, and the
+                                // subtraction could also drive a SIGNED stock column negative.
+                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy, false)) {
+                                    return $this->error($stockFailure);
+                                }
 
                                 if ($ProductStock->stock <= $ProductStock->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
@@ -1178,9 +2093,14 @@ public function handlePaymeraTrigger00($orderId)
                                     }
                                 }
                             } else {
-                                $remain_stock = $datas->product_stock - $qtyy;
-                                $datas->product_stock = $remain_stock;
-                                $datas->save();
+                                // ATOMIC. This was a read-modify-write (`$remain_stock = $datas->product_stock - $qtyy; ... ->save()`),
+                                // i.e. a lost update: two concurrent checkouts both wrote
+                                // `stock - qty` and the second overwrote the first, so the shop
+                                // oversold by the quantity it processed concurrently, and the
+                                // subtraction could also drive a SIGNED stock column negative.
+                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy, false)) {
+                                    return $this->error($stockFailure);
+                                }
                                 if ($datas->product_stock <= $datas->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
@@ -1230,9 +2150,14 @@ public function handlePaymeraTrigger00($orderId)
                     } elseif (!empty($product_id) && $product_id != 0) {
 
                         if (!empty($Product)) {
-                            $remain_stock = $Product->product_stock - $qtyy;
-                            $Product->product_stock = $remain_stock;
-                            $Product->save();
+                            // ATOMIC. This was a read-modify-write (`$remain_stock = $Product->product_stock - $qtyy; ... ->save()`),
+                            // i.e. a lost update: two concurrent checkouts both wrote
+                            // `stock - qty` and the second overwrote the first, so the shop
+                            // oversold by the quantity it processed concurrently, and the
+                            // subtraction could also drive a SIGNED stock column negative.
+                            if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy, false)) {
+                                return $this->error($stockFailure);
+                            }
                             if ($Product->product_stock <= $Product->low_stock_threshold) {
                                 if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
                                     if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
@@ -1284,8 +2209,41 @@ public function handlePaymeraTrigger00($orderId)
                         return $this->error(['message' => 'Please fill proper product json field .']);
                     }
                 }
-                // remove from cart
-                Cart::where('customer_id', $request->customer_id)->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id', $store->id)->delete();
+                /*
+                 * CART ROWS ARE NO LONGER DESTROYED BY A FAILED CHECKOUT.
+                 *
+                 * THE DEFECT. This was a `Cart::...->delete()` executed HERE,
+                 * per line, inside the stock loop -- while `new Order()` does
+                 * not happen until after the loop. So a failure part-way through
+                 * (a product that cannot be found, a stock shortfall, a thrown
+                 * exception) had already deleted the lines processed so far, and
+                 * left the rest. The shopper got no order AND a half-empty cart,
+                 * with no way to recover what was in it: nothing restored those
+                 * rows, and the loop's own `return $this->error(...)` paths skip
+                 * any cleanup.
+                 *
+                 * THE FIX is to defer rather than to compensate. The line's
+                 * identity is remembered and the delete happens AFTER the order
+                 * has committed, so the cart is emptied only once there is an
+                 * order to show for it. Deferring is strictly better than
+                 * restoring: nothing has to reconstruct cart state that this
+                 * method no longer holds.
+                 *
+                 * FAILURE DIRECTION, stated because it is a deliberate choice:
+                 * if the deferred delete itself fails, the order exists and the
+                 * cart still holds its rows -- the shopper may re-see items they
+                 * have bought. That is a visible, recoverable annoyance. The
+                 * previous direction -- cart gone, no order -- destroyed data.
+                 *
+                 * The predicate is unchanged, including `store_id`, so no row
+                 * outside the shopper's own cart in this store is touched.
+                 */
+                $cartLinesToClear[] = [
+                    'customer_id' => $request->customer_id,
+                    'product_id' => $product_id,
+                    'variant_id' => $variant_id,
+                    'store_id' => $store->id,
+                ];
             }
         }
         if (isset($request->customer_id) && !empty($request->customer_id)) {
@@ -1327,8 +2285,28 @@ public function handlePaymeraTrigger00($orderId)
                 $order->final_price = $final_price + $tax_price - $coupon_price;
             }
         } elseif (module_is_active('PartialPayments') && \Auth::guard('customers')->user() && (isset($settings['enable_partial_payment']) && $settings['enable_partial_payment'] == 'on')) {
-            $order->final_price = $requests_data['cartlist_final_price'] ?? $total_sub_price;
-            $order->delivery_price = $requests_data['shipping_price'] ?? $delivery_price;
+            // With this module active the TOTAL ITSELF used to come from the
+            // client: final_price was `$requests_data['cartlist_final_price']`
+            // and delivery_price was `$requests_data['shipping_price']`, both
+            // request-derived. The deposit is now recomputed through the
+            // module's OWN server-side computation — ManageDeposit() derives it
+            // from Product rows and the store's deposit settings, which is the
+            // same call prepareFinalRequestData() already makes — with the
+            // server-derived components merged in first.
+            $partialAmounts = $this->resolvePartialPaymentAmounts(
+                $request,
+                $slug,
+                [
+                    'tax_price' => $tax_price,
+                    'shipping_price' => $delivery_price,
+                    'coupon_price' => $coupon_price,
+                    'total_sub_price' => $final_sub_total_price,
+                ],
+                $final_price + $tax_price - $coupon_price
+            );
+
+            $order->final_price = $partialAmounts['final_price'];
+            $order->delivery_price = $partialAmounts['delivery_price'];
             \Workdo\PartialPayments\app\Models\OrderPartialPayments::OrderPartialPayments($order, $slug, $request);
         } else {
             if (module_is_active('RewardClubPoint') && isset($requests_data['club_point_is_active']) && $requests_data['club_point_is_active'] == 'on') {
@@ -1351,7 +2329,16 @@ public function handlePaymeraTrigger00($orderId)
         event(new AddAdditionalFields($order, $request->all(), $store));
         $order->payment_comment = !empty($requests_data['payment_comment']) ? $requests_data['payment_comment'] : '';
         $order->payment_type = $requests_data['payment_type'];
-        $order->payment_status = 'Paid';
+        // DERIVED, not asserted. This was the literal `'Paid'`, with nothing
+        // between the customer's browser and this line having asked a gateway
+        // whether any money moved. See App\Services\PaymentVerificationService
+        // for what is enforced today and what is still preserved behaviour.
+        $order->payment_status = $this->paymentVerifier()->resolveOrderPaymentStatus(
+            $requests_data['payment_type'] ?? null,
+            $this->paymentVerifier()->consumeVerification(),
+            $order->final_price,
+            __METHOD__
+        );
         $order->delivery_id = $requests_data['method_id'] ?? 0;
         $order->delivery_comment = !empty($requests_data['delivery_comment']) ? $requests_data['delivery_comment'] : '';
         if (module_is_active('PreOrder') && \Auth::guard('customers')->user() && isset($requests_data['order_type']) && $requests_data['order_type'] == 'pre_order') {
@@ -1362,8 +2349,276 @@ public function handlePaymeraTrigger00($orderId)
         $order->reward_points = SetNumber($product_reward_point);
         $order->additional_note = $request->additional_note;
         $order->store_id = $store->id;
-        $order->save();
+        // Reconcile the total against its own components before it is
+        // persisted. WARN-ONLY on purpose: the two pricing branches above build
+        // final_price from different bases (one adds tax and subtracts the
+        // coupon, the other takes the cart's own pre-summed total), so a
+        // rejecting assertion here would fail legitimate orders in the second
+        // branch. Logging the mismatch is what produces the evidence for the
+        // cutover; App\Services\OrderTotalReconciler::assertConsistent() is the
+        // rejecting variant and is ready for the write paths whose component
+        // maps are unambiguous.
+        $this->totalReconciler()->warnIfInconsistent(
+            [
+                'product_price' => $order->product_price,
+                'tax_price' => $order->tax_price,
+                'delivery_price' => $order->delivery_price,
+                'coupon_price' => $order->coupon_price,
+            ],
+            $order->final_price,
+            __METHOD__
+        );
+        // TRANSACTION BOUNDARY -- OPENS HERE.
+        //
+        // THE DEFECT. There was NO DB::transaction anywhere in this method: the
+        // order row, its billing detail, its coupon detail, the UserCoupon
+        // consumption row and its tax detail rows were each saved on their own.
+        // A failure part-way left an order with no billing address, or a coupon
+        // marked consumed with no OrderCouponDetail recording what it was
+        // consumed for, or the reverse -- a coupon recorded as applied to the
+        // order but never marked used, so it could be redeemed again.
+        //
+        // WHAT THIS COVERS. Every LOCAL write from the order row through the
+        // last OrderTaxDetail row: Order, City (billing and delivery
+        // auto-create), OrderBillingDetail, OrderCouponDetail, UserCoupon and
+        // OrderTaxDetail. They now commit together or not at all.
+        //
+        // WHAT THIS DOES NOT COVER, stated precisely rather than implied:
+        //
+        //  1. The stock loop and the per-line cart deletion above are OUTSIDE
+        //     it, and deliberately so. That loop calls Utility::sendEmailTemplate
+        //     and Utility::SendMsgs -- SMTP and SMS -- on the low-stock and
+        //     back-in-stock branches. Holding row locks across an external
+        //     call is the mistake this boundary exists to avoid, so inventory
+        //     is compensated instead of rolled back: the catch below gives back
+        //     every decrement this request applied, via the accumulator the
+        //     loop already maintains.
+        //
+        //  2. The cart rows deleted inside that loop are NOT restored. They are
+        //     deleted per line before this boundary opens, and recreating them
+        //     would mean reconstructing cart state this method no longer holds.
+        //     A failed order therefore still empties the cart. That is
+        //     unchanged, pre-existing behaviour and it is reported, not hidden.
+        //
+        //  3. The Firebase push in StoreNotificationService::orderCreated() is
+        //     moved to AFTER the commit, below. It calls
+        //     $this->firebase->sendToToken() (StoreNotificationService:169) --
+        //     an outbound HTTP call. It must not sit inside a transaction, and
+        //     notifying about an order that may still roll back is wrong
+        //     regardless.
+        //
+        // The exception is RE-THROWN, so the caller sees exactly what it saw
+        // before: the transaction adds atomicity and stock compensation without
+        // changing the happy path or the failure response.
+        \Illuminate\Support\Facades\DB::beginTransaction();
 
+        try {
+            $order->save();
+
+
+
+
+
+
+            // add in  Order table end
+            if (module_is_active('CheckoutAttachment')) {
+                \Workdo\CheckoutAttachment\app\Models\CheckoutAttachment::CheckoutAttachment($order, $slug, $request);
+            }
+            // Utility::paymentWebhook($order);
+
+            $billing_city_id = $billing['billing_city'] ?? 0;
+            if (!empty($billing['billing_city'])) {
+                $cityy = City::where('id', $billing['billing_city'])->first();
+                if (!empty($cityy)) {
+                    $billing_city_id = $cityy->id;
+                } else {
+                    $new_billing_city = new City();
+                    $new_billing_city->name = $billing['billing_city'];
+                    $new_billing_city->state_id = $billing['billing_state'];
+                    $new_billing_city->country_id = $billing['billing_country'];
+                    $new_billing_city->save();
+                    $billing_city_id = $new_billing_city->id;
+                }
+            }
+
+            $delivery_city_id = $billing['delivery_city'] ?? 0;
+            if (!empty($billing['delivery_city'])) {
+                $d_cityy = City::where('id', $billing['delivery_city'])->first();
+                if (!empty($d_cityy)) {
+                    $delivery_city_id = $d_cityy->id;
+                } else {
+                    $new_delivery_city = new City();
+                    $new_delivery_city->name = $billing['delivery_city'];
+                    $new_delivery_city->state_id = $billing['delivery_state'];
+                    $new_delivery_city->country_id = $billing['delivery_country'];
+                    $new_delivery_city->save();
+                    $delivery_city_id = $new_delivery_city->id;
+                }
+            }
+
+            $OrderBillingDetail = new OrderBillingDetail();
+            $OrderBillingDetail->order_id = $order->id;
+            $OrderBillingDetail->product_order_id = $order->product_order_id;
+            $OrderBillingDetail->first_name = !empty($billing['firstname']) ? $billing['firstname'] : '';
+            $OrderBillingDetail->last_name = !empty($billing['lastname']) ? $billing['lastname'] : '';
+            $OrderBillingDetail->email = !empty($billing['email']) ? $billing['email'] : '';
+            $OrderBillingDetail->telephone = !empty($billing['billing_user_telephone']) ? $billing['billing_user_telephone'] : '';
+            $OrderBillingDetail->address = !empty($billing['billing_address']) ? $billing['billing_address'] : '';
+            $OrderBillingDetail->postcode = !empty($billing['billing_postecode']) ? $billing['billing_postecode'] : '';
+            $OrderBillingDetail->country = !empty($billing['billing_country']) ? $billing['billing_country'] : '';
+            $OrderBillingDetail->state = !empty($billing['billing_state']) ? $billing['billing_state'] : '';
+            $OrderBillingDetail->city = $billing_city_id;
+        
+            $OrderBillingDetail->delivery_address = !empty($billing['delivery_address']) ? $billing['delivery_address'] : '';
+            $OrderBillingDetail->delivery_city = $delivery_city_id;
+            $OrderBillingDetail->delivery_postcode = !empty($billing['delivery_postcode']) ? $billing['delivery_postcode'] : '';
+            $OrderBillingDetail->delivery_country = !empty($billing['delivery_country']) ? $billing['delivery_country'] : '';
+            $OrderBillingDetail->delivery_state = !empty($billing['delivery_state']) ? $billing['delivery_state'] : '';
+            $OrderBillingDetail->save();
+
+            // add in Order Coupon Detail table start
+            if (!empty($requests_data['coupon_info'])) {
+                $coupon_data = $requests_data['coupon_info'];
+                $Coupon = Coupon::find($coupon_data['coupon_id']);
+                // coupon stock decrease end
+
+                // Order Coupon history
+                $OrderCouponDetail = new OrderCouponDetail();
+                $OrderCouponDetail->order_id = $order->id;
+                $OrderCouponDetail->product_order_id = $order->product_order_id;
+                $OrderCouponDetail->coupon_id = $coupon_data['coupon_id'];
+                $OrderCouponDetail->coupon_name = $coupon_data['coupon_name'];
+                $OrderCouponDetail->coupon_code = $coupon_data['coupon_code'];
+                $OrderCouponDetail->coupon_discount_type = $coupon_data['coupon_discount_type'];
+                $OrderCouponDetail->coupon_discount_number = $coupon_data['coupon_discount_number'];
+                $OrderCouponDetail->coupon_discount_amount = $coupon_data['coupon_discount_amount'];
+                $OrderCouponDetail->coupon_final_amount = $coupon_data['coupon_final_amount'];
+            
+                $OrderCouponDetail->save();
+
+                // Coupon history
+                if (isset($Coupon)) {
+                    $UserCoupon = new UserCoupon();
+                    $UserCoupon->user_id = !empty($requests_data['customer_id']) ? $requests_data['customer_id'] : null;
+                    $UserCoupon->coupon_id = $Coupon->id;
+                    $UserCoupon->amount = $coupon_data['coupon_final_amount'];
+                    $UserCoupon->order_id = $order->id;
+                    $UserCoupon->date_used = now();
+                
+                    $UserCoupon->save();
+                }
+
+                $discount_string = '-' . $coupon_data['coupon_discount_amount'];
+                $CURRENCY = Utility::GetValueByName('CURRENCY', $store->id);
+                $CURRENCY_NAME = Utility::GetValueByName('CURRENCY_NAME', $store->id);
+                if ($coupon_data['coupon_discount_type'] == 'flat') {
+                    $discount_string .= $CURRENCY;
+                } else {
+                    $discount_string .= '%';
+                }
+
+                $discount_string .= ' ' . __('for all products');
+                $order_array['coupon']['code'] = $coupon_data['coupon_code'];
+                $order_array['coupon']['discount_string'] = $discount_string;
+                $order_array['coupon']['price'] = SetNumber($coupon_data['coupon_final_amount']);
+            } elseif (!empty($requests_data['cartlist']['coupon_code'])) {
+                $coupon_data = is_object($requests_data['cartlist']['coupon_info']) ? (array) $requests_data['cartlist']['coupon_info'] : $requests_data['cartlist']['coupon_info'];
+                $Coupon = Coupon::find($coupon_data['coupon_id']);
+                if ($Coupon) {
+                    // coupon stock decrease end
+
+                    // Order Coupon history
+                    $OrderCouponDetail = new OrderCouponDetail();
+                    $OrderCouponDetail->order_id = $order->id;
+                    $OrderCouponDetail->product_order_id = $order->product_order_id;
+                    $OrderCouponDetail->coupon_id = $coupon_data['coupon_id'];
+                    $OrderCouponDetail->coupon_name = $coupon_data['coupon_name'];
+                    $OrderCouponDetail->coupon_code = $coupon_data['coupon_code'];
+                    $OrderCouponDetail->coupon_discount_type = $coupon_data['coupon_discount_type'];
+                    $OrderCouponDetail->coupon_discount_number = $coupon_data['coupon_discount_number'];
+                    $OrderCouponDetail->coupon_discount_amount = $coupon_data['coupon_discount_amount'];
+                    $OrderCouponDetail->coupon_final_amount = $coupon_data['coupon_final_amount'];
+                
+                    $OrderCouponDetail->save();
+
+                    // Coupon history
+                    $UserCoupon = new UserCoupon();
+                    $UserCoupon->user_id = !empty($request->customer_id) ? $request->customer_id : null;
+                    $UserCoupon->coupon_id = $Coupon->id;
+                    $UserCoupon->amount = $coupon_data['coupon_discount_amount'];
+                    $UserCoupon->order_id = $order->id;
+                    $UserCoupon->date_used = now();
+                
+                    $UserCoupon->save();
+                }
+
+
+                $discount_string = '-' . $coupon_data['coupon_discount_amount'];
+                $CURRENCY = Utility::GetValueByName('CURRENCY');
+                $CURRENCY_NAME = Utility::GetValueByName('CURRENCY_NAME');
+                if ($coupon_data['coupon_discount_type'] == 'flat') {
+                    $discount_string .= $CURRENCY;
+                } else {
+                    $discount_string .= '%';
+                }
+
+                $discount_string .= ' ' . __('for all products');
+                $order_array['coupon']['code'] = $coupon_data['coupon_code'] ?? null;
+                $order_array['coupon']['discount_string'] = $discount_string ?? null;
+                $order_array['coupon']['price'] = SetNumber($coupon_data['coupon_final_amount'] ?? 0.00);
+            }
+            // add in Order Coupon Detail table end
+            if (isset($requests_data['tax_id_value'])) {
+                $taxes = TaxMethod::where('tax_id', $request['tax_id_value'])->where('store_id', $store->id)->orderBy('priority', 'asc')->get();
+                $other_info = !is_array($requests_data['billing_info']) ? json_decode($requests_data['billing_info']) : $requests_data['billing_info'];
+                $country = !empty($other_info->delivery_country) ? $other_info->delivery_country : '';
+                $state_id = !empty($other_info->delivery_state) ? $other_info->delivery_state : '';
+                $city_id = !empty($other_info->delivery_city) ? $other_info->delivery_city : '';
+                foreach ($taxes as $tax) {
+                    $countryMatch = (!$tax->country_id || $country == $tax->country_id);
+                    $stateMatch = (!$tax->state_id || $state_id == $tax->state_id);
+                    $cityMatch = (!$tax->city_id || $city_id == $tax->city_id);
+
+                    if ($countryMatch && $stateMatch && $cityMatch) {
+                        $OrderTaxDetail = new OrderTaxDetail();
+                        $OrderTaxDetail->order_id = $order->id;
+                        $OrderTaxDetail->product_order_id = $order->product_order_id;
+                        $OrderTaxDetail->tax_id = $tax->id;
+                        $OrderTaxDetail->tax_name = $tax->name;
+                        $OrderTaxDetail->tax_discount_amount = $tax->tax_rate;
+                        // The tax ledger row records the SERVER-DERIVED tax, the same
+                        // figure persisted on the order, not the posted one.
+                        $OrderTaxDetail->tax_final_amount = $tax_price;
+
+                        $OrderTaxDetail->save();
+                    }
+                }
+            }
+
+            \Illuminate\Support\Facades\DB::commit();
+
+            // The order exists now, so the cart may be emptied. Inside the
+            // try but after the commit: a cart row that will not delete must
+            // not roll back an order whose money has already moved, which is
+            // why clearCartLines() swallows and logs per line.
+            $this->clearCartLines($cartLinesToClear);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\DB::rollBack();
+
+            // Compensate the inventory this request consumed before the
+            // boundary opened. Without this, a failed order write left stock
+            // decremented with no order to account for it.
+            $this->restoreStockDecrements($appliedStockChanges);
+
+            \Log::critical('Order write failed and was rolled back; stock decrements were given back', [
+                'store_id' => $store->id ?? null,
+                'payment_type' => $requests_data['payment_type'] ?? null,
+                'restored_lines' => count($appliedStockChanges),
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
 
 /*
 |--------------------------------------------------------------------------
@@ -1381,185 +2636,6 @@ $result = app(\App\Services\StoreNotificationService::class)
 \Log::info('After StoreNotificationService', [
     'notification_id' => $result?->id,
 ]);
-
-
-
-
-
-
-        // add in  Order table end
-        if (module_is_active('CheckoutAttachment')) {
-            \Workdo\CheckoutAttachment\app\Models\CheckoutAttachment::CheckoutAttachment($order, $slug, $request);
-        }
-        // Utility::paymentWebhook($order);
-
-        $billing_city_id = $billing['billing_city'] ?? 0;
-        if (!empty($billing['billing_city'])) {
-            $cityy = City::where('id', $billing['billing_city'])->first();
-            if (!empty($cityy)) {
-                $billing_city_id = $cityy->id;
-            } else {
-                $new_billing_city = new City();
-                $new_billing_city->name = $billing['billing_city'];
-                $new_billing_city->state_id = $billing['billing_state'];
-                $new_billing_city->country_id = $billing['billing_country'];
-                $new_billing_city->save();
-                $billing_city_id = $new_billing_city->id;
-            }
-        }
-
-        $delivery_city_id = $billing['delivery_city'] ?? 0;
-        if (!empty($billing['delivery_city'])) {
-            $d_cityy = City::where('id', $billing['delivery_city'])->first();
-            if (!empty($d_cityy)) {
-                $delivery_city_id = $d_cityy->id;
-            } else {
-                $new_delivery_city = new City();
-                $new_delivery_city->name = $billing['delivery_city'];
-                $new_delivery_city->state_id = $billing['delivery_state'];
-                $new_delivery_city->country_id = $billing['delivery_country'];
-                $new_delivery_city->save();
-                $delivery_city_id = $new_delivery_city->id;
-            }
-        }
-
-        $OrderBillingDetail = new OrderBillingDetail();
-        $OrderBillingDetail->order_id = $order->id;
-        $OrderBillingDetail->product_order_id = $order->product_order_id;
-        $OrderBillingDetail->first_name = !empty($billing['firstname']) ? $billing['firstname'] : '';
-        $OrderBillingDetail->last_name = !empty($billing['lastname']) ? $billing['lastname'] : '';
-        $OrderBillingDetail->email = !empty($billing['email']) ? $billing['email'] : '';
-        $OrderBillingDetail->telephone = !empty($billing['billing_user_telephone']) ? $billing['billing_user_telephone'] : '';
-        $OrderBillingDetail->address = !empty($billing['billing_address']) ? $billing['billing_address'] : '';
-        $OrderBillingDetail->postcode = !empty($billing['billing_postecode']) ? $billing['billing_postecode'] : '';
-        $OrderBillingDetail->country = !empty($billing['billing_country']) ? $billing['billing_country'] : '';
-        $OrderBillingDetail->state = !empty($billing['billing_state']) ? $billing['billing_state'] : '';
-        $OrderBillingDetail->city = $billing_city_id;
-        
-        $OrderBillingDetail->delivery_address = !empty($billing['delivery_address']) ? $billing['delivery_address'] : '';
-        $OrderBillingDetail->delivery_city = $delivery_city_id;
-        $OrderBillingDetail->delivery_postcode = !empty($billing['delivery_postcode']) ? $billing['delivery_postcode'] : '';
-        $OrderBillingDetail->delivery_country = !empty($billing['delivery_country']) ? $billing['delivery_country'] : '';
-        $OrderBillingDetail->delivery_state = !empty($billing['delivery_state']) ? $billing['delivery_state'] : '';
-        $OrderBillingDetail->save();
-
-        // add in Order Coupon Detail table start
-        if (!empty($requests_data['coupon_info'])) {
-            $coupon_data = $requests_data['coupon_info'];
-            $Coupon = Coupon::find($coupon_data['coupon_id']);
-            // coupon stock decrease end
-
-            // Order Coupon history
-            $OrderCouponDetail = new OrderCouponDetail();
-            $OrderCouponDetail->order_id = $order->id;
-            $OrderCouponDetail->product_order_id = $order->product_order_id;
-            $OrderCouponDetail->coupon_id = $coupon_data['coupon_id'];
-            $OrderCouponDetail->coupon_name = $coupon_data['coupon_name'];
-            $OrderCouponDetail->coupon_code = $coupon_data['coupon_code'];
-            $OrderCouponDetail->coupon_discount_type = $coupon_data['coupon_discount_type'];
-            $OrderCouponDetail->coupon_discount_number = $coupon_data['coupon_discount_number'];
-            $OrderCouponDetail->coupon_discount_amount = $coupon_data['coupon_discount_amount'];
-            $OrderCouponDetail->coupon_final_amount = $coupon_data['coupon_final_amount'];
-            
-            $OrderCouponDetail->save();
-
-            // Coupon history
-            if (isset($Coupon)) {
-                $UserCoupon = new UserCoupon();
-                $UserCoupon->user_id = !empty($requests_data['customer_id']) ? $requests_data['customer_id'] : null;
-                $UserCoupon->coupon_id = $Coupon->id;
-                $UserCoupon->amount = $coupon_data['coupon_final_amount'];
-                $UserCoupon->order_id = $order->id;
-                $UserCoupon->date_used = now();
-                
-                $UserCoupon->save();
-            }
-
-            $discount_string = '-' . $coupon_data['coupon_discount_amount'];
-            $CURRENCY = Utility::GetValueByName('CURRENCY', $store->id);
-            $CURRENCY_NAME = Utility::GetValueByName('CURRENCY_NAME', $store->id);
-            if ($coupon_data['coupon_discount_type'] == 'flat') {
-                $discount_string .= $CURRENCY;
-            } else {
-                $discount_string .= '%';
-            }
-
-            $discount_string .= ' ' . __('for all products');
-            $order_array['coupon']['code'] = $coupon_data['coupon_code'];
-            $order_array['coupon']['discount_string'] = $discount_string;
-            $order_array['coupon']['price'] = SetNumber($coupon_data['coupon_final_amount']);
-        } elseif (!empty($requests_data['cartlist']['coupon_code'])) {
-            $coupon_data = is_object($requests_data['cartlist']['coupon_info']) ? (array) $requests_data['cartlist']['coupon_info'] : $requests_data['cartlist']['coupon_info'];
-            $Coupon = Coupon::find($coupon_data['coupon_id']);
-            if ($Coupon) {
-                // coupon stock decrease end
-
-                // Order Coupon history
-                $OrderCouponDetail = new OrderCouponDetail();
-                $OrderCouponDetail->order_id = $order->id;
-                $OrderCouponDetail->product_order_id = $order->product_order_id;
-                $OrderCouponDetail->coupon_id = $coupon_data['coupon_id'];
-                $OrderCouponDetail->coupon_name = $coupon_data['coupon_name'];
-                $OrderCouponDetail->coupon_code = $coupon_data['coupon_code'];
-                $OrderCouponDetail->coupon_discount_type = $coupon_data['coupon_discount_type'];
-                $OrderCouponDetail->coupon_discount_number = $coupon_data['coupon_discount_number'];
-                $OrderCouponDetail->coupon_discount_amount = $coupon_data['coupon_discount_amount'];
-                $OrderCouponDetail->coupon_final_amount = $coupon_data['coupon_final_amount'];
-                
-                $OrderCouponDetail->save();
-
-                // Coupon history
-                $UserCoupon = new UserCoupon();
-                $UserCoupon->user_id = !empty($request->customer_id) ? $request->customer_id : null;
-                $UserCoupon->coupon_id = $Coupon->id;
-                $UserCoupon->amount = $coupon_data['coupon_discount_amount'];
-                $UserCoupon->order_id = $order->id;
-                $UserCoupon->date_used = now();
-                
-                $UserCoupon->save();
-            }
-
-
-            $discount_string = '-' . $coupon_data['coupon_discount_amount'];
-            $CURRENCY = Utility::GetValueByName('CURRENCY');
-            $CURRENCY_NAME = Utility::GetValueByName('CURRENCY_NAME');
-            if ($coupon_data['coupon_discount_type'] == 'flat') {
-                $discount_string .= $CURRENCY;
-            } else {
-                $discount_string .= '%';
-            }
-
-            $discount_string .= ' ' . __('for all products');
-            $order_array['coupon']['code'] = $coupon_data['coupon_code'] ?? null;
-            $order_array['coupon']['discount_string'] = $discount_string ?? null;
-            $order_array['coupon']['price'] = SetNumber($coupon_data['coupon_final_amount'] ?? 0.00);
-        }
-        // add in Order Coupon Detail table end
-        if (isset($requests_data['tax_id_value'])) {
-            $taxes = TaxMethod::where('tax_id', $request['tax_id_value'])->where('store_id', $store->id)->orderBy('priority', 'asc')->get();
-            $other_info = !is_array($requests_data['billing_info']) ? json_decode($requests_data['billing_info']) : $requests_data['billing_info'];
-            $country = !empty($other_info->delivery_country) ? $other_info->delivery_country : '';
-            $state_id = !empty($other_info->delivery_state) ? $other_info->delivery_state : '';
-            $city_id = !empty($other_info->delivery_city) ? $other_info->delivery_city : '';
-            foreach ($taxes as $tax) {
-                $countryMatch = (!$tax->country_id || $country == $tax->country_id);
-                $stateMatch = (!$tax->state_id || $state_id == $tax->state_id);
-                $cityMatch = (!$tax->city_id || $city_id == $tax->city_id);
-
-                if ($countryMatch && $stateMatch && $cityMatch) {
-                    $OrderTaxDetail = new OrderTaxDetail();
-                    $OrderTaxDetail->order_id = $order->id;
-                    $OrderTaxDetail->product_order_id = $order->product_order_id;
-                    $OrderTaxDetail->tax_id = $tax->id;
-                    $OrderTaxDetail->tax_name = $tax->name;
-                    $OrderTaxDetail->tax_discount_amount = $tax->tax_rate;
-                    $OrderTaxDetail->tax_final_amount = $requests_data['tax_price'];
-                    
-                    $OrderTaxDetail->save();
-                }
-            }
-        }
-
         //activity log
         ActivityLog::order_entry([
             'customer_id' => $order->customer_id,
@@ -1731,9 +2807,30 @@ $result = app(\App\Services\StoreNotificationService::class)
                 if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
                     $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();
                     if (!empty($ProductStock)) {
-                        $remain_stock = $ProductStock->stock - $qtyy;
-                        $ProductStock->stock = $remain_stock;
-                        $ProductStock->save();
+                        // CHECKED, NOT DECREMENTED. This route is anonymous and
+                        // creates no order, so decrementing here let any caller
+                        // destroy a store's inventory, and double-counted every
+                        // real WhatsApp order. See assertStockAvailable().
+                        // DO NOT RETURN AN ERROR HERE. This method's contract is to
+                        // return a bare URL string (see `return $url;` at the end), and its
+                        // only caller -- resources/views/payment/whatsapp.blade.php -- opens
+                        // a browser window on whatever comes back. $this->error() answers
+                        // HTTP 200 with a JSON envelope (app/Traits/ApiResponser.php:54-60),
+                        // so the caller's success branch ran and the shopper got a window
+                        // full of serialised JSON instead of a WhatsApp link.
+                        //
+                        // There is nothing here to refuse: this route writes no Order, and
+                        // the lines processed before this one have already had their cart
+                        // rows deleted. The shortfall is recorded and the URL is still
+                        // built. A shopper-visible refusal belongs on the order-writing
+                        // whatsapp() path, before anything is destroyed -- not on a URL
+                        // builder.
+                        if ($stockFailure = $this->assertStockAvailable('variant', $ProductStock, $qtyy)) {
+                            \Illuminate\Support\Facades\Log::warning(
+                                'WhatsApp URL built for a cart line that is short on stock',
+                                ['kind' => 'variant', 'model_id' => $ProductStock->id ?? null, 'requested_quantity' => $qtyy]
+                            );
+                        }
                         $pro_qty[] = $product->qty . ' x ' . $product->name . '-' . $product->variant_name;
 
                         $lists[] = array(
@@ -1747,9 +2844,28 @@ $result = app(\App\Services\StoreNotificationService::class)
                     }
                 } elseif (!empty($product_id) && $product_id != 0) {
                     if (!empty($Product)) {
-                        $remain_stock = $Product->product_stock - $qtyy;
-                        $Product->product_stock = $remain_stock;
-                        $Product->save();
+                        // CHECKED, NOT DECREMENTED. See the note above and
+                        // assertStockAvailable().
+                        // DO NOT RETURN AN ERROR HERE. This method's contract is to
+                        // return a bare URL string (see `return $url;` at the end), and its
+                        // only caller -- resources/views/payment/whatsapp.blade.php -- opens
+                        // a browser window on whatever comes back. $this->error() answers
+                        // HTTP 200 with a JSON envelope (app/Traits/ApiResponser.php:54-60),
+                        // so the caller's success branch ran and the shopper got a window
+                        // full of serialised JSON instead of a WhatsApp link.
+                        //
+                        // There is nothing here to refuse: this route writes no Order, and
+                        // the lines processed before this one have already had their cart
+                        // rows deleted. The shortfall is recorded and the URL is still
+                        // built. A shopper-visible refusal belongs on the order-writing
+                        // whatsapp() path, before anything is destroyed -- not on a URL
+                        // builder.
+                        if ($stockFailure = $this->assertStockAvailable('product', $Product, $qtyy)) {
+                            \Illuminate\Support\Facades\Log::warning(
+                                'WhatsApp URL built for a cart line that is short on stock',
+                                ['kind' => 'product', 'model_id' => $Product->id ?? null, 'requested_quantity' => $qtyy]
+                            );
+                        }
                         $pro_qty[] = $product->qty . ' x ' . $product->name;
 
                         $lists[] = array(
@@ -1933,7 +3049,15 @@ $result = app(\App\Services\StoreNotificationService::class)
             $cartlist_final_price = !empty($cartlist['final_price']) ? $cartlist['final_price'] : 0;
             $final_sub_total_price = !empty($cartlist['total_sub_price']) ? $cartlist['total_sub_price'] : 0;
             $final_price = $response->data->total_final_price;
-            $tax_price = !empty($requests_data['tax_price']) ? $requests_data['tax_price'] : '';
+            // SERVER-DERIVED tax. Previously `$requests_data['tax_price']`, i.e.
+            // whatever the customer posted at checkout, which went straight into
+            // $order->tax_price and into the charged final_price below.
+            $tax_price = $this->taxResolver()->resolve($cartlist);
+            $this->taxResolver()->recordClientSuppliedTax(
+                $requests_data['tax_price'] ?? null,
+                $tax_price,
+                __METHOD__ . '(guest)'
+            );
             $billing = $requests_data['billing_info'];
 
             $products = $cartlist['product_list'];
@@ -1953,7 +3077,13 @@ $result = app(\App\Services\StoreNotificationService::class)
             $cartlist_final_price = !empty($cartlist['final_price']) ? $cartlist['final_price'] : 0;
             $final_sub_total_price = !empty($cartlist['total_sub_price']) ? $cartlist['total_sub_price'] : 0;
             $final_price = $cartlist['total_final_price'];
-            $tax_price = !empty($requests_data['tax_price']) ? $requests_data['tax_price'] : '';
+            // SERVER-DERIVED tax — see the guest branch above.
+            $tax_price = $this->taxResolver()->resolve($cartlist);
+            $this->taxResolver()->recordClientSuppliedTax(
+                $requests_data['tax_price'] ?? null,
+                $tax_price,
+                __METHOD__ . '(customer)'
+            );
             $billing = is_string($request->billing_info) ? (array) json_decode($request->billing_info) : $request->billing_info;
             $products = $cartlist['product_list'];
         } else {
@@ -2012,8 +3142,14 @@ $result = app(\App\Services\StoreNotificationService::class)
                 $content = $delivery_charge->getContent();
                 $data = json_decode($content, true);
                 $delivery_price = $data['total_final_price'];
-                $tax_price = $requests_data['tax_price'] ?? 0;
-            } 
+                // SERVER-DERIVED tax, from get_shipping_method's own
+                // `final_tax_price` (shipping is taxable), falling back to the
+                // cart tax. Previously `$requests_data['tax_price']`.
+                $tax_price = $this->taxResolver()->resolve(
+                    $cartlist,
+                    is_array($data) ? $data : null
+                );
+            }
             // else {
             //     return $this->error(['message' => 'Shipping Method not found']);
             // }
@@ -2027,8 +3163,31 @@ $result = app(\App\Services\StoreNotificationService::class)
 
         $settings = Setting::where('store_id', $store->id)->pluck('value', 'name')->toArray();
 
+        // PRE-FLIGHT STOCK CHECK, and safe on THIS order-writing path because
+        // no gateway has captured anything: WhatsApp is settled off-platform by
+        // arrangement (PaymentVerificationService::OFFLINE_PAYMENT_TYPES lists
+        // it). So a refusal here costs the shopper no money and destroys
+        // nothing, unlike the decrementStockOrFail() sites in the loop below,
+        // which run after cart rows have already been deleted.
+        //
+        // processOrder() already pre-flighted this cart before rendering the
+        // WhatsApp view, but the shopper posts back to this route afterwards, so
+        // stock can have moved in between. Re-checking is the point.
+        if ($unavailable = $this->assertCartAvailable($products, $store, $settings)) {
+            return $this->error(['message' => $this->stockErrorMessage($unavailable)]);
+        }
+
         // Order stock decrease start
         $prodduct_id_array = [];
+        // Stock decrements applied in this loop, so they can be given back if
+        // a later product in the same cart cannot be fulfilled and the order is
+        // therefore never written. Without this, a rejected checkout would
+        // silently consume the inventory of the products it got through first.
+        $appliedStockChanges = [];
+
+        // Cart lines to empty once the order has COMMITTED -- see the
+        // accumulation site inside the loop below.
+        $cartLinesToClear = [];
         if (!empty($products)) {
             foreach ($products as $key => $product) {
                 $prodduct_id_array[] = $product->product_id;
@@ -2046,9 +3205,14 @@ $result = app(\App\Services\StoreNotificationService::class)
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductStock)) {
                             if ($option == true) {
-                                $remain_stock = $ProductStock->stock - $qtyy;
-                                $ProductStock->stock = $remain_stock;
-                                $ProductStock->save();
+                                // ATOMIC. This was a read-modify-write (`$remain_stock = $ProductStock->stock - $qtyy; ... ->save()`),
+                                // i.e. a lost update: two concurrent checkouts both wrote
+                                // `stock - qty` and the second overwrote the first, so the shop
+                                // oversold by the quantity it processed concurrently, and the
+                                // subtraction could also drive a SIGNED stock column negative.
+                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'variant', $ProductStock, $qtyy, false)) {
+                                    return $this->error($stockFailure);
+                                }
 
                                 if ($ProductStock->stock <= $ProductStock->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
@@ -2066,9 +3230,14 @@ $result = app(\App\Services\StoreNotificationService::class)
                                     }
                                 }
                             } else {
-                                $remain_stock = $datas->product_stock - $qtyy;
-                                $datas->product_stock = $remain_stock;
-                                $datas->save();
+                                // ATOMIC. This was a read-modify-write (`$remain_stock = $datas->product_stock - $qtyy; ... ->save()`),
+                                // i.e. a lost update: two concurrent checkouts both wrote
+                                // `stock - qty` and the second overwrote the first, so the shop
+                                // oversold by the quantity it processed concurrently, and the
+                                // subtraction could also drive a SIGNED stock column negative.
+                                if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $datas, $qtyy, false)) {
+                                    return $this->error($stockFailure);
+                                }
                                 if ($datas->product_stock <= $datas->low_stock_threshold) {
                                     if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
@@ -2118,9 +3287,14 @@ $result = app(\App\Services\StoreNotificationService::class)
                     } elseif (!empty($product_id) && $product_id != 0) {
 
                         if (!empty($Product)) {
-                            $remain_stock = $Product->product_stock - $qtyy;
-                            $Product->product_stock = $remain_stock;
-                            $Product->save();
+                            // ATOMIC. This was a read-modify-write (`$remain_stock = $Product->product_stock - $qtyy; ... ->save()`),
+                            // i.e. a lost update: two concurrent checkouts both wrote
+                            // `stock - qty` and the second overwrote the first, so the shop
+                            // oversold by the quantity it processed concurrently, and the
+                            // subtraction could also drive a SIGNED stock column negative.
+                            if ($stockFailure = $this->decrementStockOrFail($appliedStockChanges, 'product', $Product, $qtyy, false)) {
+                                return $this->error($stockFailure);
+                            }
                             if ($Product->product_stock <= $Product->low_stock_threshold) {
                                 if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
                                     if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
@@ -2172,8 +3346,41 @@ $result = app(\App\Services\StoreNotificationService::class)
                         return $this->error(['message' => 'Please fill proper product json field .']);
                     }
                 }
-                // remove from cart
-                Cart::where('customer_id', $request->customer_id)->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id', $store->id)->delete();
+                /*
+                 * CART ROWS ARE NO LONGER DESTROYED BY A FAILED CHECKOUT.
+                 *
+                 * THE DEFECT. This was a `Cart::...->delete()` executed HERE,
+                 * per line, inside the stock loop -- while `new Order()` does
+                 * not happen until after the loop. So a failure part-way through
+                 * (a product that cannot be found, a stock shortfall, a thrown
+                 * exception) had already deleted the lines processed so far, and
+                 * left the rest. The shopper got no order AND a half-empty cart,
+                 * with no way to recover what was in it: nothing restored those
+                 * rows, and the loop's own `return $this->error(...)` paths skip
+                 * any cleanup.
+                 *
+                 * THE FIX is to defer rather than to compensate. The line's
+                 * identity is remembered and the delete happens AFTER the order
+                 * has committed, so the cart is emptied only once there is an
+                 * order to show for it. Deferring is strictly better than
+                 * restoring: nothing has to reconstruct cart state that this
+                 * method no longer holds.
+                 *
+                 * FAILURE DIRECTION, stated because it is a deliberate choice:
+                 * if the deferred delete itself fails, the order exists and the
+                 * cart still holds its rows -- the shopper may re-see items they
+                 * have bought. That is a visible, recoverable annoyance. The
+                 * previous direction -- cart gone, no order -- destroyed data.
+                 *
+                 * The predicate is unchanged, including `store_id`, so no row
+                 * outside the shopper's own cart in this store is touched.
+                 */
+                $cartLinesToClear[] = [
+                    'customer_id' => $request->customer_id,
+                    'product_id' => $product_id,
+                    'variant_id' => $variant_id,
+                    'store_id' => $store->id,
+                ];
             }
         }
         // Order stock decrease end
@@ -2232,7 +3439,16 @@ $result = app(\App\Services\StoreNotificationService::class)
         }
         $order->payment_comment = !empty($requests_data['payment_comment']) ? $requests_data['payment_comment'] : '';
         $order->payment_type = $requests_data['payment_type'];
-        $order->payment_status = 'Paid';
+        // DERIVED, not asserted. This was the literal `'Paid'`, with nothing
+        // between the customer's browser and this line having asked a gateway
+        // whether any money moved. See App\Services\PaymentVerificationService
+        // for what is enforced today and what is still preserved behaviour.
+        $order->payment_status = $this->paymentVerifier()->resolveOrderPaymentStatus(
+            $requests_data['payment_type'] ?? null,
+            $this->paymentVerifier()->consumeVerification(),
+            $order->final_price,
+            __METHOD__
+        );
         $order->delivery_id = $requests_data['method_id'] ?? 0;
         $order->delivery_comment = !empty($requests_data['delivery_comment']) ? $requests_data['delivery_comment'] : '';
         if (module_is_active('PreOrder') && \Auth::guard('customers')->user() && isset($requests_data['order_type']) && $requests_data['order_type'] == 'pre_order') {
@@ -2243,6 +3459,78 @@ $result = app(\App\Services\StoreNotificationService::class)
         $order->reward_points = SetNumber($product_reward_point);
         $order->additional_note = $request->additional_note;
         $order->store_id = $store->id;
+        // Reconcile the total against its own components before it is
+        // persisted. WARN-ONLY on purpose: the two pricing branches above build
+        // final_price from different bases (one adds tax and subtracts the
+        // coupon, the other takes the cart's own pre-summed total), so a
+        // rejecting assertion here would fail legitimate orders in the second
+        // branch. Logging the mismatch is what produces the evidence for the
+        // cutover; App\Services\OrderTotalReconciler::assertConsistent() is the
+        // rejecting variant and is ready for the write paths whose component
+        // maps are unambiguous.
+        $this->totalReconciler()->warnIfInconsistent(
+            [
+                'product_price' => $order->product_price,
+                'tax_price' => $order->tax_price,
+                'delivery_price' => $order->delivery_price,
+                'coupon_price' => $order->coupon_price,
+            ],
+            $order->final_price,
+            __METHOD__
+        );
+        /*
+         * TRANSACTION BOUNDARY -- OPENS HERE.
+         *
+         * THE DEFECT. This is the THIRD order writer, and the only one that
+         * still had no transaction: the twins in
+         * PaymentController::getProductStatus() (:2207) and
+         * PaymentService::getProductStatus() (:2614) each got a boundary, this
+         * one did not, although it writes the Order row plus the same FOUR
+         * child tables in the same way -- OrderBillingDetail,
+         * OrderCouponDetail, UserCoupon and OrderTaxDetail, each saved on its
+         * own. A failure part-way left an order with no billing address, or a
+         * coupon marked consumed with no OrderCouponDetail recording what it
+         * was consumed for, or the reverse -- a coupon recorded as applied to
+         * the order but never marked used, so redeemable again. It also
+         * auto-creates City rows (billing and delivery), which were likewise
+         * uncommitted siblings.
+         *
+         * WHAT THIS COVERS. Every LOCAL write from the order row through the
+         * last OrderTaxDetail row. They now commit together or not at all.
+         *
+         * WHAT THIS DOES NOT COVER, stated precisely rather than implied:
+         *
+         *  1. The stock loop and the per-line cart deletion above are OUTSIDE
+         *     it, deliberately. That loop calls Utility::sendEmailTemplate and
+         *     Utility::SendMsgs -- SMTP and SMS -- on its low-stock and
+         *     back-in-stock branches. Holding row locks across a third party's
+         *     response time is a worse defect than the one being fixed, so
+         *     inventory is COMPENSATED in the catch instead of rolled back,
+         *     via the $appliedStockChanges accumulator the loop already keeps.
+         *
+         *  2. The cart rows deleted inside that loop are NOT restored. They go
+         *     before this boundary opens and recreating them would mean
+         *     reconstructing cart state this method no longer holds. A failed
+         *     order therefore still empties the cart. Unchanged, pre-existing
+         *     behaviour, reported rather than hidden.
+         *
+         *  3. NOTHING EXTERNAL IS INSIDE. In particular there is no gateway
+         *     call here at all -- whatsapp() builds a wa.me URL, it does not
+         *     POST to anyone -- so the boundary wraps local writes only, which
+         *     is the rule the other two boundaries follow.
+         *
+         * The exception is RE-THROWN, so the caller sees exactly what it saw
+         * before: this adds atomicity and stock compensation without changing
+         * the happy path or the failure response.
+         *
+         * The body below is NOT re-indented. A 170-line reindent of a 3,500-line
+         * file that five agents are editing concurrently is a merge hazard that
+         * buys nothing: PHP does not read indentation, and the begin/commit
+         * markers delimit the block unambiguously.
+         */
+        \Illuminate\Support\Facades\DB::beginTransaction();
+
+        try {
         $order->save();
         // add in  Order table end
         if (module_is_active('CheckoutAttachment')) {
@@ -2407,11 +3695,39 @@ $result = app(\App\Services\StoreNotificationService::class)
                     $OrderTaxDetail->tax_id = $tax->id;
                     $OrderTaxDetail->tax_name = $tax->name;
                     $OrderTaxDetail->tax_discount_amount = $tax->tax_rate;
-                    $OrderTaxDetail->tax_final_amount = $requests_data['tax_price'];
-                    
+                    // The tax ledger row records the SERVER-DERIVED tax, the same
+                    // figure persisted on the order, not the posted one.
+                    $OrderTaxDetail->tax_final_amount = $tax_price;
+
                     $OrderTaxDetail->save();
                 }
             }
+        }
+
+            \Illuminate\Support\Facades\DB::commit();
+
+            // The order exists now, so the cart may be emptied. Inside the
+            // try but after the commit: a cart row that will not delete must
+            // not roll back an order whose money has already moved, which is
+            // why clearCartLines() swallows and logs per line.
+            $this->clearCartLines($cartLinesToClear);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\DB::rollBack();
+
+            // Compensate the inventory this request consumed before the
+            // boundary opened. Without this a failed order write left stock
+            // decremented with no order to account for it.
+            $this->restoreStockDecrements($appliedStockChanges);
+
+            \Log::critical('Order write failed and was rolled back; stock decrements were given back', [
+                'site' => __METHOD__,
+                'store_id' => $store->id ?? null,
+                'payment_type' => $requests_data['payment_type'] ?? null,
+                'restored_lines' => count($appliedStockChanges),
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
         }
 
         //activity log
@@ -2529,6 +3845,35 @@ $result = app(\App\Services\StoreNotificationService::class)
                     'success' => __('Failed'),
                 ]
             );
+        }
+    }
+
+    /**
+     * Empty the cart lines an order was built from, AFTER it has committed.
+     *
+     * See the block at the accumulation site for why this is deferred rather
+     * than compensated. Advisory by design: a cart row that will not delete must
+     * never fail a checkout whose order is already committed and whose money has
+     * already moved, so each line is attempted independently and a failure is
+     * logged rather than thrown.
+     */
+    private function clearCartLines(array $lines): void
+    {
+        foreach ($lines as $line) {
+            try {
+                Cart::where('customer_id', $line['customer_id'])
+                    ->where('product_id', $line['product_id'])
+                    ->where('variant_id', $line['variant_id'])
+                    ->where('store_id', $line['store_id'])
+                    ->delete();
+            } catch (\Throwable $e) {
+                \Log::error('Could not clear a cart line after a committed order', [
+                    'product_id' => $line['product_id'] ?? null,
+                    'variant_id' => $line['variant_id'] ?? null,
+                    'store_id' => $line['store_id'] ?? null,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
     }
 }

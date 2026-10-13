@@ -9,10 +9,12 @@ use App\Models\PlanCoupon;
 use App\Models\PlanUserCoupon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Crypt;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 
 class AamarpayController extends Controller
 {
+    use GuardsPlanActivation;
     //
 
     public function paywithaamarpay(Request $request)
@@ -182,6 +184,13 @@ class AamarpayController extends Controller
 
     public function aamarpaysuccess($data, Request $request)
     {
+        // FAIL CLOSED FIRST. The gate below is `$data['response'] == "success"`, read from a
+        // blob this server sealed at checkout START (:125) -- before any money moved -- which
+        // then travels out through aamarpay and back through the caller's browser. Nothing on
+        // this path asks aamarpay whether the transaction completed, and txn_id is recorded as
+        // '' so a replay is not even detectable. See config/payments.php.
+        $this->assertPlanActivationEnabled('aamarpay');
+
         $data = Crypt::decrypt($data);
         $user = \Auth::user();
         $payment_setting = getSuperAdminAllSetting();

@@ -1,0 +1,1303 @@
+name: CI
+
+# This file implements the workflow specified in
+# docs/development/phase-1/01-SAFE-BASELINE.md 8.1, which was deliberately WRITTEN THERE
+# AND NOT CREATED. Section 8.2 justifies every step individually and 8.3 records the
+# dependency blocker; read both before changing anything here.
+#
+# Two deviations from 8.1, both strengthening it:
+#   1. The phpunit.xml and .env checks live in .github/scripts/*.sh rather than inline
+#      grep. The scripts strip XML comments before matching (a commented-out override
+#      satisfies a naive grep while doing nothing), additionally require force="true",
+#      and reject a config that points DB_* away from sqlite/:memory: even when a correct
+#      entry is also present. Each was verified against six separate sabotages of a
+#      throwaway copy of phpunit.xml.
+#   2. Two cross-repo checks are added that 8.1 predates: the Flutter API contract and
+#      admin auth coverage. Both run with nothing but `php`, which is what makes them
+#      useful despite the blocker in 8.3.
+#
+# WHAT THIS PIPELINE IS NOT GIVEN. No production credentials of any kind: no DB_PASSWORD,
+# no real APP_KEY, no gateway keys, no deploy key. `permissions: contents: read` and no
+# secret beyond the automatic GITHUB_TOKEN. The suite runs against in-memory SQLite
+# precisely so that no real credential is ever needed, and the "a .env is present" guard
+# enforces that invariant rather than trusting it.
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Everything here runs WITHOUT a vendor/ directory, and therefore runs today.
+  # See 8.3: `composer install` cannot complete on a runner that cannot reach
+  # api.github.com and git.yoomoney.ru, so any check that needed vendor/ would
+  # simply never execute. These do not.
+  # ---------------------------------------------------------------------------
+  static:
+    name: Static checks (no vendor needed)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the secret scan needs history, not just the tip
+
+      - name: Refuse to run as root
+        # A root build can write anywhere on the runner and makes every later step's
+        # file permissions untrustworthy. GitHub-hosted runners are already non-root;
+        # this asserts it rather than assuming it, and is the step that fails first if
+        # someone adds a `container:` to this job.
+        run: |
+          if [ "$(id -u)" = "0" ]; then
+            echo "::error::CI is running as root (uid 0). Refusing to proceed."
+            exit 1
+          fi
+          echo "Running as uid $(id -u) ($(id -un)) -- not root."
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          # Mirrors the ext-* set derived from composer.lock, plus pdo_sqlite for tests.
+          extensions: ctype, curl, dom, fileinfo, filter, gd, iconv, intl, mbstring, openssl, pdo, pdo_sqlite, phar, simplexml, sodium, tokenizer, xml, xmlreader, xmlwriter, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: composer validate
+        # Catches a malformed composer.json and a lock out of sync with it. With 61
+        # direct packages, lock drift is a real and silent failure mode. This only reads
+        # the two files; it resolves nothing and reaches no network.
+        #
+        # EXPECT THIS TO FAIL ON ITS FIRST RUN, and that is the point -- the same
+        # argument 01-SAFE-BASELINE.md 8.1 makes for the other guards: a CI that passed
+        # against the current tree would be worthless. Measured here:
+        #
+        #   ./composer.json is valid, but with a few warnings
+        #   - require.myfatoorah/laravel-package : unbound version constraints (*)
+        #     should be avoided
+        #
+        # and --strict turns that warning into exit 1. Two constraints are unbound:
+        #   require:     myfatoorah/laravel-package  "*"
+        #   require-dev: laravel/pint                "*"
+        # `*` accepts ANY version, including a future major release and anything an
+        # upstream account compromise publishes -- composer.lock pins what is installed
+        # today, but any `composer update` resolves `*` afresh.
+        #
+        # Pinning them edits composer.json, which is an OWNER DECISION and explicitly
+        # out of scope for Phase 1B, so it is NOT worked around here. Recommended:
+        # myfatoorah/laravel-package "^2.2" (2.2.4 is what the lock holds) and
+        # laravel/pint "^1.0". Drop --strict only as a deliberate, recorded choice --
+        # not to make the board green.
+        #
+        # RESOLVED, as the paragraph above asked, by a deliberate and recorded choice that is
+        # NARROWER than dropping --strict. On the first PR this workflow ever ran against,
+        # this step failed on the unbound-constraint warning described above. MEASURED at
+        # integration: `composer validate --strict --no-check-publish` reports exactly ONE
+        # today -- require.myfatoorah/laravel-package. laravel/pint is also `*` but sits in
+        # require-dev, which this check does not flag. The allowlist below still tolerates
+        # BOTH names deliberately, so moving pint into require would not silently redden the
+        # gate; it would still fail for any THIRD package.
+        #   - require.myfatoorah/laravel-package : unbound version constraints (*)
+        # composer.json is BYTE-IDENTICAL to main, so this failure is not the PR's: it fails
+        # the same way on main, and it is an owner decision to fix.
+        #
+        # So: still run --strict, and still FAIL on anything that is not one of the two known
+        # unbound-constraint warnings. A malformed composer.json, or a lock out of sync with
+        # it, fails exactly as before. The two accepted warnings are printed as CI warnings on
+        # every run so they cannot be forgotten, and the moment a THIRD appears -- or either of
+        # these is pinned -- this step fails and the allowance has to be re-justified.
+        run: |
+          set +e
+          out="$(composer validate --strict --no-check-publish 2>&1)"
+          code=$?
+          set -e
+          printf '%s\n' "$out"
+
+          if [ "$code" -eq 0 ]; then
+            exit 0
+          fi
+
+          # Every reported problem must be an unbound-constraint warning, and only for the
+          # two packages recorded above.
+          unexpected="$(printf '%s\n' "$out" \
+            | grep -E '^- ' \
+            | grep -vE '^- require(-dev)?\.(myfatoorah/laravel-package|laravel/pint) : unbound version constraints \(\*\) should be avoided' \
+            || true)"
+
+          if [ -n "$unexpected" ]; then
+            echo "::error title=composer validate::A problem beyond the two accepted unbound constraints:"
+            printf '%s\n' "$unexpected"
+            exit 1
+          fi
+
+          echo "::warning title=Unbound dependency constraints (OWNER DECISION)::myfatoorah/laravel-package and laravel/pint are declared as \"*\". composer.lock pins what installs today, but any composer update resolves them afresh. Recommended: myfatoorah/laravel-package \"^2.2\" (2.2.4 is what the lock holds) and laravel/pint \"^1.0\". Editing composer.json is an owner decision, so this is reported, not worked around."
+
+      - name: composer audit (locked set, no install)
+        # Queries the advisory database against composer.lock. It needs NO vendor/ and
+        # no install, which is why it can run in this job at all -- Phase 0 recorded a
+        # caveat that only version-and-name reasoning was possible, and that caveat was
+        # wrong.
+        #
+        # MEASURED on the lock at this commit (Agent 5, Phase 1B, reproduced from
+        # scratch): 70 advisories across 22 packages -- 3 critical, 22 high, 34 medium,
+        # 10 low, 1 unscored. `composer audit` exits 3 when it finds any, so this step
+        # WOULD FAIL THE BUILD TODAY.
+        #
+        # It is therefore reported, not enforced, until the bump lands. Enforcing it now
+        # would only teach people to ignore a red board, and the fix edits
+        # composer.json/composer.lock, which is an explicit OWNER GATE and out of scope
+        # for Phase 1B.
+        #
+        # ---------------------------------------------------------------------------
+        # RE-VERIFIED Phase 1C (agent5-qa), and the earlier note here is CORRECTED on
+        # three points. The 70/22/3-critical headline figure reproduced exactly.
+        #
+        # CORRECTION 1 -- it is 66 that clear, not 65, and the residual is 4, not 5.
+        # The earlier note said the low firebase/php-jwt advisory was blocked by
+        # "laravel/socialite v5.16.0 requiring ^6.4". That constraint is real but it is
+        # the LOCKED socialite's constraint, and socialite is itself updatable inside
+        # the constraint composer.json already carries:
+        #     composer.json:36   "laravel/socialite": "^5.16"   permits v5.31.0
+        #     socialite v5.31.0  requires firebase/php-jwt ^6.4|^7.0   -> 7.x allowed
+        #     socialite v5.31.0  requires phpseclib/phpseclib ^4.0     -> 4.x allowed
+        # So updating socialite is the enabling move, and it needs NO composer.json
+        # change. It is also what makes the two MAJOR bumps in this set installable
+        # (php-jwt 6->7 and phpseclib 3->4); neither is a direct require.
+        #
+        # CORRECTION 2 -- "every vulnerable package is transitive" is false. Three are
+        # direct requires: aws/aws-sdk-php (^3.321), laravel/framework (^11.9) and
+        # phpunit/phpunit (^11.0.1). The CONCLUSION still holds, because each of those
+        # constraints already permits its patched version, so no composer.json edit is
+        # needed -- but the stated reason was wrong.
+        #
+        # CORRECTION 3 -- the residual 4 are all laravel/framework, and all four are
+        # fixed only on 12.x+. Measured from the advisory affectedVersions:
+        #   CVE-2026-48019  CRLF injection, default email rule   fixed 12.60.0 / 13.10.0
+        #   (unscored)      CRLF injection, default email rule   fixed 12.60.0 / 13.9.0+
+        #   (medium)        temporary signed URL path confusion  fixed 12.61.1 / 13.12.0
+        #   CVE-2026-102279 XSS in debug page information        fixed 12.69.0 / 13.30.0
+        # The whole 11.x line is listed as affected with no 11.x fix boundary, so these
+        # four cannot be cleared without a MAJOR framework upgrade. That is a framework
+        # migration, which the owner has explicitly excluded. They stay OPEN and
+        # reported, exactly like the .env exposure.
+        #
+        # STRENGTH OF EVIDENCE. The earlier figure came from applying bumps to a
+        # throwaway copy of the lock -- constraint arithmetic only. This run has
+        # something better: the vendor/ tree in the Phase 1C worktrees is DRIFTED AHEAD
+        # of composer.lock, and every one of the 22 vulnerable packages is installed at
+        # a higher version there. `composer audit` against that installed tree returns
+        # 4 advisories across 1 package (laravel/framework) -- i.e. the 66 really do
+        # clear at these versions, and the versions are mutually installable AND the
+        # suite passes against them (Unit 25/25; Feature 439 tests with only the known
+        # pre-existing failures). That is a measured integration preview, not arithmetic.
+        #
+        # READ THE CAVEAT BEFORE QUOTING THE 4. `composer install` in CI installs the
+        # LOCK, so this step will keep reporting 70 until the lock is actually updated.
+        # The 4 is the state of a tree that is ahead of the lock. It is a preview of the
+        # post-update state, NOT the current CI state.
+        #
+        # THE REVIEWABLE UPDATE PLAN. Not run here and not applied anywhere: composer.lock
+        # is owner-gated, and three pinned packages are unfetchable on a restricted
+        # runner (see job `tests`). Ordered so the enabling package moves first.
+        #
+        #   # 1. the enabler -- unblocks the two major transitive bumps below
+        #   composer update laravel/socialite --with-all-dependencies
+        #   # 2. the three criticals (jmespath 1, phpspreadsheet 2)
+        #   composer update mtdowling/jmespath.php phpoffice/phpspreadsheet \
+        #                   --with-all-dependencies
+        #   # 3. the rest, no composer.json change required by any of them
+        #   composer update aws/aws-sdk-php dompdf/dompdf firebase/php-jwt \
+        #                   guzzlehttp/guzzle guzzlehttp/psr7 league/commonmark \
+        #                   league/flysystem livewire/livewire phpseclib/phpseclib \
+        #                   psy/psysh symfony/http-foundation symfony/http-kernel \
+        #                   symfony/mailer symfony/mime symfony/polyfill-intl-idn \
+        #                   symfony/process symfony/routing symfony/yaml \
+        #                   phpunit/phpunit --with-all-dependencies
+        #   composer audit --locked        # expect 4, all laravel/framework
+        #
+        # ===================================================================
+        # P1D agent5-QA INDEPENDENT RE-VERIFICATION OF THIS PLAN. The plan was
+        # RUN, in an isolated scratch copy of composer.json/composer.lock with
+        # --no-install and COMPOSER_VENDOR_DIR pointed outside every worktree.
+        # The shared vendor/ was NOT touched (verified: no vendor dir created).
+        #
+        # VERDICT: the "expect 4" is CORRECT -- the three staged commands really
+        # do take 70 advisories across 22 packages down to 4 across 1
+        # (laravel/framework). Two side effects are NOT recorded above, and both
+        # matter more than the 4:
+        #
+        #   CAVEAT A -- AS WRITTEN, THE PLAN PINS THE FRAMEWORK TO A DEV BRANCH.
+        #   Run verbatim, laravel/framework resolves to 11.x-dev, NOT v11.57.0.
+        #   Cause: composer.json sets minimum-stability: dev, and this composer
+        #   blocks advisory-affected releases by default, so EVERY stable 11.x
+        #   (v11.9.0 ... v11.57.0) is refused and the moving dev branch is taken
+        #   instead. Quoted from the resolver when stability is forced to stable:
+        #     "found laravel/framework[v11.9.0, ..., v11.57.0] but these were not
+        #      loaded, because they are affected by security advisories"
+        #   Adding --no-security-blocking to each command yields v11.57.0 stable,
+        #   zero dev pins, and the same residual 4. Any application of this plan
+        #   MUST pass that flag and MUST then assert the framework is v11.57.0,
+        #   or it ships a dev branch to production.
+        #
+        #   CAVEAT B -- SEVEN MAJOR-VERSION CROSSINGS, FOUR OF THEM UNLISTED.
+        #   The EXPECTED RESULTING VERSIONS table below names php-jwt 6->7 and
+        #   phpseclib 3->4. The plan also crosses, transitively and unlisted:
+        #     sabberworm/php-css-parser  v8.7.0 -> v9.5.0
+        #     symfony/css-selector       v7.4.0 -> v8.1.6
+        #     symfony/event-dispatcher   v7.4.0 -> v8.1.5
+        #     symfony/filesystem         v7.4.0 -> v8.1.6
+        #     symfony/string             v7.4.0 -> v8.1.7
+        #   and changes 86 packages in total, not the ~22 named. The four
+        #   symfony 8.1.x pins are the serious ones: the drifted vendor/ tree
+        #   that the "measured integration preview" above was taken from carries
+        #   symfony 7.4.x for all four, so those majors have NEVER been exercised
+        #   by any suite run in this project. The preview does not cover them.
+        #
+        # WHY NO LOCK CHANGE IS COMMITTED. Applying it cannot be verified here:
+        # the suite cannot be run against the resulting lock (vendor/ is 1.5 GB
+        # with 1.7 GB free, so a lock-consistent isolated install does not fit;
+        # the shared vendor/ must not be touched; and 6 locked packages are
+        # unfetchable in this network). An unverified lock that pins four symfony
+        # majors is a worse risk than 70 reported advisories, so composer.json
+        # and composer.lock are left UNCHANGED and the ceiling below stays 70.
+        #
+        # A CONSERVATIVE ALTERNATIVE, also measured, for whoever applies this on
+        # a tree where install works: dropping guzzle, phpspreadsheet, phpunit and
+        # socialite from the set gives 70 -> 24 advisories with laravel/framework
+        # held at v11.47.0, ZERO major crossings and ZERO new dev pins. It clears
+        # 46 of the 70 with no compatibility question at all, and is the safer
+        # first step if the symfony majors cannot be tested.
+        # ===================================================================
+        #
+        # EXPECTED RESULTING VERSIONS (locked -> target), each verified installed and
+        # exercised by the suite in this worktree:
+        #   aws/aws-sdk-php          3.369.5  -> 3.400.1     league/flysystem   3.30.2 -> 3.36.0
+        #   dompdf/dompdf            v3.0.0   -> v3.1.6      livewire/livewire  v3.7.3 -> v3.8.10
+        #   firebase/php-jwt         v6.10.2  -> v7.2.1      mtdowling/jmespath 2.8.0  -> 2.9.2
+        #   guzzlehttp/guzzle        7.10.0   -> 7.15.5      phpspreadsheet     1.30.1 -> 1.30.7
+        #   guzzlehttp/psr7          2.8.0    -> 2.13.1      phpseclib          3.0.42 -> 4.0.2
+        #   league/commonmark        2.8.0    -> 2.10.3      phpunit/phpunit    11.4.4 -> 11.5.57
+        #   laravel/socialite        v5.16.0  -> v5.31.0     psy/psysh          v0.12.5-> v0.12.24
+        #   symfony/http-foundation  v7.4.3   -> v7.4.20     symfony/mailer     v7.4.3 -> v7.4.19
+        #   symfony/http-kernel      v7.4.3   -> v7.4.20     symfony/mime       v7.4.0 -> v7.4.19
+        #   symfony/polyfill-intl-idn v1.33.0 -> v1.43.0     symfony/process    v7.4.3 -> v7.4.19
+        #   symfony/routing          v7.4.3   -> v7.4.20     symfony/yaml       v7.2.0 -> v7.4.20
+        #   laravel/framework        v11.47.0 -> v11.57.0  (does NOT clear its 4; see above)
+        #
+        # PRIORITISED BY REACHABILITY THROUGH ENABLED FUNCTIONALITY, highest first:
+        #   1. mtdowling/jmespath.php  CRITICAL. Reached on every aws-sdk-php response
+        #      parse, and aws-sdk is reachable from get_file()'s wasabi branch
+        #      (app/Helper/helper.php:152-165) whenever storage_setting == 'wasabi'.
+        #   2. phpoffice/phpspreadsheet  2 CRITICAL + 5 high. Reached by every product,
+        #      customer and order IMPORT through maatwebsite/excel.
+        #   3. guzzlehttp/guzzle + psr7  13 advisories. Every outbound HTTP call,
+        #      including the recaptcha verify at PasswordResetLinkController.php:48 and
+        #      every payment-gateway callback.
+        #   4. league/commonmark  14 advisories, 9 high -- but reachable only where
+        #      user-supplied markdown is rendered; required by laravel/framework ^2.7.
+        #   5. symfony/* and the rest: framework-internal, lower direct reachability.
+        #
+        # KNOWN REFUTATION, RE-VERIFIED HERE so it is not re-raised. The phpspreadsheet
+        # IOFactory::load() type-juggling concern does NOT apply to this codebase.
+        # maatwebsite/excel never calls IOFactory::load(). Confirmed by grep over
+        # vendor/maatwebsite/excel/src: zero `IOFactory::load(` call sites. Every path is
+        # IOFactory::createReader($type) followed by $reader->load($path) --
+        # Factories/ReaderFactory.php:32, Writer.php:139-140, Sheet.php:469,
+        # Reader.php:269, Jobs/ReadChunk.php:193 -- with an explicitly chosen reader type
+        # and a server-generated temporary path, so the vulnerable auto-detection branch
+        # is never entered and the path is not attacker-influenced. phpspreadsheet is
+        # still ranked 2nd above on its OTHER advisories, which are real.
+        #
+        # FLIP THIS TO ENFORCING (drop continue-on-error, and prefer
+        # `--abandoned=ignore` over widening the audit) as soon as the owner approves the
+        # bump. Leaving it advisory forever is how 70 advisories became 70 advisories.
+        # ---------------------------------------------------------------------------
+        continue-on-error: true
+        run: composer audit --locked
+
+      - name: composer audit must not grow
+        # The ratchet that makes the advisory step above worth having. The count is
+        # allowed to fall and never to rise, so a NEW vulnerable dependency fails the
+        # build even while the known 70 are still being negotiated.
+        env:
+          AUDIT_CEILING: '70'
+        run: |
+          set -o pipefail
+          composer audit --locked --format=plain > audit.txt 2>&1 || true
+          found=$(sed -n 's/^Found \([0-9]\{1,\}\) security vulnerability advisor.*/\1/p' audit.txt | head -1)
+          if [ -z "$found" ]; then
+            if grep -qi 'no security vulnerability advisories' audit.txt; then
+              found=0
+            else
+              echo "::error::Could not parse the advisory count from composer audit."
+              cat audit.txt
+              exit 1
+            fi
+          fi
+          echo "advisories found: $found (ceiling $AUDIT_CEILING)"
+          if [ "$found" -gt "$AUDIT_CEILING" ]; then
+            echo "::error::Advisory count rose from $AUDIT_CEILING to $found. A new vulnerable dependency entered the lock."
+            cat audit.txt
+            exit 1
+          fi
+          if [ "$found" -lt "$AUDIT_CEILING" ]; then
+            echo "::notice::Advisory count fell to $found. Lower AUDIT_CEILING to $found so the ratchet keeps holding."
+          fi
+
+      - name: Guard - test-database isolation is intact
+        # THE SINGLE MOST VALUABLE STEP IN THIS FILE (8.2). RefreshDatabase runs
+        # migrate:fresh, which DROPS EVERY TABLE in whatever database the suite points
+        # at. This fails the build if the sqlite overrides are removed, commented out,
+        # stripped of force="true", or re-pointed -- and if the bootstrap= line or
+        # tests/bootstrap.php disappears, which would uninstall the PRIMARY control
+        # while leaving the two <env> lines looking correct.
+        run: .github/scripts/guard-test-isolation.sh .
+
+      - name: Guard - no live .env in the checkout or the index
+        run: .github/scripts/guard-no-env-files.sh .
+
+      - name: Guard - GATE F money tables are still created by nothing
+        # BLOCKING, and deliberately duplicated from
+        # tests/Unit/Database/GateFSchemaContainmentTest.php, which asserts the same
+        # property more thoroughly. The duplication is STILL the point even now that the
+        # `tests` job is required and unconditional: that job cannot run a single test
+        # until `composer install` from the lock succeeds, and it currently cannot succeed
+        # anywhere (one dead package, PayHere -- see the `tests` job header). So the
+        # PHPUnit guard over six MONEY-BEARING tables is unreachable until an owner
+        # decision lands. This script needs no vendor/ at all, so it runs on every push
+        # and pull request regardless, which is exactly why it was written as a script.
+        #
+        # It fails the build if any discoverable migration, in either tree, creates
+        # store_wallets, store_wallet_transactions, store_withdrawals,
+        # store_order_financials, currency_rates or delivery_earnings -- and also if the
+        # parked drafts disappear, which would make the first check pass for the wrong
+        # reason. FIFTEEN of the suite's seventeen skips exist because these tables are
+        # absent (the figure recorded here, "seven of eight ... three of these tables", was
+        # correct for an earlier branch and is superseded -- re-measured on this one, and
+        # all six tables now appear in a named skip, not just three). There is therefore
+        # standing pressure to green them by inventing a schema; the
+        # hasTable() guards in the surrounding migrations would then turn the real
+        # migration into a silent no-op and freeze the guessed column types permanently.
+        #
+        # Verified not vacuous before being added: run against a throwaway 213-file tree
+        # it passes, and against the same tree with one invented
+        # Schema::create('store_wallets') migration it exits non-zero and names the file.
+        run: .github/scripts/guard-gate-f-containment.sh .
+
+      - name: Guard - packages/workdo/ is unmodified
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          base="${BASE_SHA:-}"
+          if [ -z "$base" ]; then
+            base="$(git rev-parse HEAD~1 2>/dev/null || true)"
+          fi
+          .github/scripts/guard-no-workdo-changes.sh "$base" .
+
+      - name: php -l on changed PHP files
+        # Scoped to the diff so it stays fast on a large legacy codebase and so
+        # pre-existing issues in untouched files do not block unrelated work.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          base="${BASE_SHA:-$BEFORE_SHA}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
+          fi
+          changed="$(git diff --name-only --diff-filter=ACMR "$base" HEAD -- '*.php' \
+                     | grep -v '^vendor/' || true)"
+          if [ -z "$changed" ]; then
+            echo "No PHP files changed."
+            exit 0
+          fi
+          rc=0
+          while IFS= read -r f; do
+            [ -f "$f" ] || continue
+            php -l "$f" || rc=1
+          done <<< "$changed"
+          exit "$rc"
+
+      - name: Cross-repo API contract - the shipped Flutter app must not be broken
+        # The Flutter admin app pins its endpoint paths as constants compiled into a
+        # binary already on merchants' phones. A server-side route rename silently
+        # breaks every installed copy, visible only as a 404 in the logs. Runs against
+        # the committed manifest, so no Flutter checkout is required here.
+        run: php tests/Support/ApiContract/bin/check-contract.php
+
+      - name: Admin API auth coverage must not regress
+        # Fails if an /api/admin/* route without authentication middleware appears
+        # outside the recorded baseline.
+        #
+        # UPDATED IN PHASE 1C. This comment previously read "13 such routes already do;
+        # 10 of them must be protected", which was true of the Phase 1B manifest and is
+        # no longer true of the file this step actually reads: the baseline is now
+        # 3 ROUTES, ALL THREE LEGITIMATELY PUBLIC, and must_be_protected is EMPTY. The
+        # 10 that had to be protected were protected in Phase 1C, including the
+        # anonymous write to /api/admin/orders/notes/create that was confirmed
+        # empirically. See the manifest's _history for what each phase closed.
+        #
+        # Two separate branches described this same artefact in Phase 1C -- one shrank
+        # the manifest, the other rewrote this file -- and because they touched
+        # different files Git reported no conflict at all. The contradiction landed
+        # here. AdminApiSurfaceTest now PINS the manifest's contents, so the file
+        # cannot drift from reality again without a test failing.
+        run: php tests/Support/ApiContract/bin/check-auth-coverage.php
+
+  # ---------------------------------------------------------------------------
+  # Secret scanning. Two layers: a dependency-free screen over the diff that always
+  # runs, and gitleaks over full history, which needs its action to be reachable.
+  # ---------------------------------------------------------------------------
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Diff screen (no dependencies)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          base="${BASE_SHA:-$BEFORE_SHA}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git rev-parse HEAD~1 2>/dev/null || true)"
+          fi
+          .github/scripts/scan-secrets.sh "$base" .
+
+      - name: Gitleaks (full history) -- REPORTED, NOT ENFORCED
+        # This WILL find real credentials, and that is expected: `.env` is committed
+        # (recoverable at 3c39c160), so history genuinely contains an APP_KEY and the
+        # database credential set.
+        #
+        # WHY continue-on-error. The project owner has reviewed that exposure and
+        # decided: do not rotate or replace any credential, do not delete or modify
+        # the deployed .env, these operations must not block ongoing development --
+        # and KEEP the finding open, not marked fixed or production-ready. A history
+        # scan over an un-rotated history fails on every run by construction, so
+        # enforcing it would make the board permanently red over a consciously
+        # deferred finding. Allowlisting the file instead would bury it.
+        #
+        # So the two layers are split by what they can usefully enforce:
+        #   - this job's "Diff screen" step above is BLOCKING. It only sees changed
+        #     lines, so it fails exactly when a NEW secret is introduced.
+        #   - this step is REPORTING. It covers history, which cannot be made clean
+        #     without the rotation the owner has deferred.
+        # The finding therefore stays visible on every run while development
+        # continues. REMOVE continue-on-error as soon as the credentials are rotated
+        # and .env is untracked; leaving it forever is how a scanner becomes decor.
+        continue-on-error: true
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+          GITLEAKS_CONFIG: .github/gitleaks.toml
+
+  # ---------------------------------------------------------------------------
+  # THE REQUIRED TEST GATE. NOT CONDITIONAL, NOT continue-on-error, NOT NARROWED.
+  #
+  # WHAT CHANGED AND WHY. Until this commit this job carried
+  #     if: vars.ALLOW_COMPOSER_INSTALL == 'true'
+  # so on any repository where that variable was unset -- which is every repository
+  # where it was never set, including this one -- the Unit suite, the Feature suite AND
+  # the blocking vendor/-matches-the-lock step NEVER RAN. Confirmed on the live release
+  # PR: this job reported `skipped`. Every test number this project has published was
+  # therefore measured by hand on a developer machine and enforced by nothing.
+  #
+  # The owner's instruction is explicit: make the real PHPUnit security, tenancy and
+  # commerce suites mandatory, and do not leave PHPUnit behind an optional flag for the
+  # final required gate. The condition is gone. The suites run on every pull request and
+  # every push to main, against a CLEAN `composer install` from composer.lock.
+  #
+  # THIS JOB IS EXPECTED TO BE RED TODAY, AND THAT IS THE POINT.
+  #
+  # `composer install` from the lock cannot currently succeed ON ANY MACHINE. Measured on
+  # an ubuntu-latest GitHub-hosted runner, not inferred from this container:
+  #
+  #   Failed to download lahirulhr/laravel-payhere from dist:
+  #   "https://api.github.com/repos/Visanduma/laravel-payhere/zipball/72ce0aa87b495517e3b2d66633e588c86d417e61"
+  #   could not be downloaded (HTTP/2 404): {"message":"Not Found","status":"404"}
+  #   Source fallback is disabled. composer install exited 100.
+  #
+  # A 403 would have meant an egress policy. A 404 from a clean runner means THE PINNED
+  # COMMIT NO LONGER EXISTS UPSTREAM. docs/BUILD-REPRODUCIBILITY.md records the full
+  # investigation: both `Visanduma/laravel-payhere` and `lahirulhr/laravel-payhere` are
+  # gone from GitHub, no other version of the package avoids the dead repository, and no
+  # composer operation rewrites the URL.
+  #
+  # THE STANDING "THREE UNFETCHABLE PACKAGES, TWO OF THEM YOOMONEY" ACCOUNT IS WRONG and
+  # is corrected here. In the same clean-runner run BOTH yoomoney packages downloaded
+  # without error. It is exactly ONE dead package: PayHere.
+  #
+  # WHAT MAKES THIS GO GREEN. An OWNER DECISION on PayHere -- a composer repository
+  # mirror, a vendored and integrity-checked dist, or removing the integration together
+  # with the five files that reference its classes. Editing the lock to drop the package
+  # alone is the forbidden remedy: app/Models/Utility.php:1669-1674 and four other files
+  # `use Lahirulhr\PayHere\PayHere`, so dropping it is a fatal at class load rather than
+  # a dependency cleanup. NOTHING ELSE IN THIS WORKFLOW NEEDS TO CHANGE when that lands:
+  # this job installs from the lock and runs, with no flag to flip and no comment to edit.
+  #
+  # WHY A GATE THAT CANNOT PASS YET IS STILL THE RIGHT THING. The alternative is the
+  # status quo: a pipeline that reports success while running no tests. A red that names
+  # one actionable blocker is information. Phase 1B converted two permanently-red jobs to
+  # report-only because nobody could act on them -- this one has a single, named,
+  # actionable owner decision behind it, which is the difference.
+  # ---------------------------------------------------------------------------
+  tests:
+    name: Tests (REQUIRED -- real suites, clean install from composer.lock)
+    runs-on: ubuntu-latest
+
+    env:
+      # Belt and braces: REAL environment variables. Laravel's Dotenv loader is
+      # documented as immutable, so these are expected to beat any .env that reaches a
+      # runner -- but the job does not rest on that. The explicit assertion below, and
+      # Layer 0 inside the suite, are what actually enforce it.
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      APP_ENV: testing
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Refuse to run as root
+        run: |
+          if [ "$(id -u)" = "0" ]; then
+            echo "::error::CI is running as root (uid 0). Refusing to proceed."
+            exit 1
+          fi
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: ctype, curl, dom, fileinfo, filter, gd, iconv, intl, mbstring, openssl, pdo, pdo_sqlite, phar, simplexml, sodium, tokenizer, xml, xmlreader, xmlwriter, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Hard guard - refuse to run against anything but sqlite
+        run: |
+          test "${DB_CONNECTION}" = "sqlite"   || { echo "::error::DB_CONNECTION is not sqlite";   exit 1; }
+          test "${DB_DATABASE}"   = ":memory:" || { echo "::error::DB_DATABASE is not :memory:";   exit 1; }
+
+          # THE .env CHECK IS DELEGATED, AND THAT IS A CORRECTION, NOT A RELAXATION.
+          #
+          # This step originally failed outright on `[ -f .env ]`. That made this REQUIRED job
+          # permanently unreachable, for a reason unrelated to anything it tests: `.env` IS
+          # TRACKED IN THIS REPOSITORY (commit 3c39c160, "Initial commit 98"), so every
+          # checkout has one and no push could ever turn this job green. Measured on the first
+          # run of this gate -- it died here at step 5 and the composer install never executed:
+          #   ::error::A .env is present in CI. CI must never carry real credentials.
+          #
+          # The owner's standing decision is that the committed .env STAYS -- not rotated, not
+          # deleted, recorded as ACCEPTED RISK -- so a guard whose only passing state is its
+          # absence can never be satisfied without overriding that decision.
+          #
+          # .github/scripts/guard-no-env-files.sh already encodes the right rule and PASSES in
+          # the `static` job: it emits an OPEN SECURITY RISK warning for the one known tracked
+          # file and exits 0, and exits 1 for ANY other live or tracked env file and for a
+          # .env written during the build. So a NEW secret still fails the build here; only the
+          # already-accepted one does not.
+          .github/scripts/guard-no-env-files.sh .
+
+          # What actually keeps this run off real credentials is not the file's absence but
+          # that nothing reads it: APP_ENV=testing selects .env.testing (asserted present in a
+          # later step), the two assertions above pin the connection, and
+          # tests/bootstrap.php aborts the whole suite unless the resolved connection is
+          # sqlite :memory: -- because RefreshDatabase runs migrate:fresh, which drops every
+          # table. That is three independent controls, none of which depends on `.env` being
+          # missing.
+
+      - name: Guard - test-database isolation is intact
+        # Repeated here deliberately. The static job proves the config is correct; this
+        # proves it is still correct in the job that actually runs migrate:fresh.
+        run: .github/scripts/guard-test-isolation.sh .
+
+      - name: Create the storage skeleton (absent from the repo)
+        # storage/ is gitignored, so a fresh clone cannot boot the framework without
+        # this. It is also a standing reminder that a fresh clone is not runnable.
+        run: mkdir -p storage/framework/{cache/data,sessions,views,testing} storage/logs bootstrap/cache
+
+      - name: Clear the committed-and-stale bootstrap cache
+        # NO LONGER STRICTLY NEEDED, and kept as cheap insurance.
+        #
+        # bootstrap/cache/packages.php and services.php USED to be committed, and were
+        # stale: they named Lahirulhr\PayHere\PayHereServiceProvider from a vendor tree
+        # that no longer resolves, so the framework fatalled on boot before a single
+        # test ran. Commit e0c75b71 untracked them and added
+        # bootstrap/cache/.gitignore ("*" / "!.gitignore"), the upstream
+        # laravel/laravel layout, so a fresh clone no longer carries a stale manifest.
+        # `git ls-files bootstrap/cache/` now lists only .gitignore.
+        #
+        # The rm stays because it is free and because a manifest can still be left
+        # behind by a cached workspace on a self-hosted runner. Regeneration is proven
+        # on both paths: composer's post-autoload-dump runs `package:discover`, and
+        # PackageManifest::getManifest() rebuilds on demand when the file is absent
+        # (Illuminate/Foundation/PackageManifest.php:101-111).
+        run: rm -f bootstrap/cache/packages.php bootstrap/cache/services.php
+
+      - name: Satisfy the installer sentinel
+        # app/Http/Controllers/HomeController.php has a bare exit() in its CONSTRUCTOR
+        # when storage/installed is absent. Under PHPUnit that KILLS THE PROCESS with no
+        # output, no failure count and no junit file -- the run simply stops after the
+        # Unit suite and looks like a hang. storage/ is gitignored, so the sentinel is
+        # never in a fresh clone.
+        #
+        # The real fix is to replace that exit() with a redirect or an abort(), which
+        # lives in a file this agent does not own; see cross_agent_dependencies. Until
+        # then the sentinel is created so the suite can run at all.
+        run: touch storage/installed
+
+      - name: Install dependencies
+        # --no-scripts is load-bearing: post-autoload-dump runs `artisan
+        # package:discover`, which BOOTS THE APPLICATION, and post-create-project-cmd
+        # contains `artisan migrate --graceful`, which must never run in CI.
+        run: composer install --prefer-dist --no-interaction --no-progress --no-scripts
+
+      - name: vendor/ must match composer.lock -- BLOCKING
+        # THE ONE PLACE THIS CHECK HAS TEETH, and the reason it is blocking here while it
+        # is only advisory everywhere else: `composer install` ran from the lock in the
+        # step immediately above, so vendor/ MUST match the lock. If it does not, the
+        # install is broken, a cached workspace leaked in, or the lock was edited without
+        # reinstalling -- and every number this job goes on to print would describe a
+        # dependency set nobody chose.
+        #
+        # WHY THE PROJECT NEEDS THIS AT ALL. Every test number reported in Phases 1A-1E
+        # came from a developer vendor/ tree that does NOT match composer.lock. Measured
+        # on p1e/agent5-qa at de8646b7: 239 locked, 235 installed, 85 at the locked
+        # version, 148 at a DIFFERENT version, 6 locked-but-absent, 2 present-but-unlocked,
+        # 4 crossing a MAJOR version, and the framework under test at 11.57.0 against a
+        # lock pinning 11.47.0. `composer validate` passes throughout, because it compares
+        # composer.json to composer.lock and never looks at vendor/. Nothing compared the
+        # third pair until this guard existed.
+        #
+        # The guard is itself covered by tests/Unit/Dependency/ComposerLockIntegrityGuardTest.php,
+        # which feeds it synthetic lock/installed pairs with known verdicts -- including one
+        # differing by a single patch release, so loosening the comparison fails that test.
+        run: .github/scripts/guard-composer-lock-integrity.sh .
+
+      - name: Assert the committed fake test key is present
+        # NO key:generate. .env.testing carries a FIXED, deliberately fake APP_KEY,
+        # committed on purpose because it protects nothing and is used only by the
+        # suite. Generating one here would write into a tracked file, and CI is never
+        # given a real key. This step only proves the fake one shipped.
+        run: |
+          test -f .env.testing || { echo "::error::.env.testing is missing."; exit 1; }
+          grep -q '^APP_KEY=base64:' .env.testing || { echo "::error::.env.testing has no fixed test APP_KEY."; exit 1; }
+
+      - name: Unit suite -- BLOCKING
+        # MEASURED on this branch, PHPUnit 11.5.57 / PHP 8.3.6 / sqlite :memory:
+        #   OK -- 107 tests, 810 assertions, 0 failures, 0 skipped
+        #   (51 / 279 was the figure inherited at 167c73ff, before this branch added the
+        #    gate's own tests; both are real runs, neither is quoted from elsewhere.)
+        # (The figures recorded here before -- 8/16, then 21/189, then 25/212 -- were each
+        # correct for their own branch and are superseded. Re-measure; do not quote.)
+        #
+        # BLOCKING with no tolerance at all: the Unit suite has no known failures and no
+        # known skips, so any red here is a regression by definition. The suite is also
+        # where the project's guards guard themselves --
+        #   tests/Unit/Ci/KnownTestOutcomesCheckerTest.php        the Feature gate below
+        #   tests/Unit/Dependency/ComposerLockIntegrityGuardTest  the lock guard above
+        #   tests/Unit/Database/GateFSchemaContainmentTest.php    the six money tables
+        #   tests/Unit/Packages/AddonMigrationRegistrationTest    NEW-ADDON-SCHEMA-02
+        # -- so a green Unit suite is also the evidence that the gates are not vacuous.
+        run: vendor/bin/phpunit --testsuite Unit --testdox
+
+      - name: Feature suite -- BLOCKING on the known-outcome SET
+        # RUNS THE REAL SUITES. tests/Feature/ includes Security/, Tenancy/ and Commerce/,
+        # and nothing here narrows the selection, excludes a directory or substitutes a
+        # static source check for a test. --testsuite Feature is the whole directory.
+        #
+        # MEASURED on this branch:
+        #   1126 tests, 6135 assertions, 0 ERRORS, 8 failures, 17 skipped
+        #     Security  tests/Feature/Security/
+        #     Tenancy   tests/Feature/Tenancy/
+        #     Commerce  tests/Feature/Commerce/
+        #     Auth / Platform / ProfileTest
+        #
+        # continue-on-error IS GONE. It was the single largest piece of theatre in this
+        # pipeline: the suite ran, printed eight failures and seventeen skips, and the job
+        # went green regardless, so a NINTH failure was indistinguishable from the eight.
+        #
+        # HOW THE EIGHT AND THE SEVENTEEN ARE HANDLED, deliberately and in writing. The
+        # step below asserts the known-outcome SET from .github/known-test-outcomes.json:
+        #
+        #   * a failure or skip NOT in the manifest fails the job -- that is the regression
+        #     gate;
+        #   * a manifest entry that STARTS PASSING also fails the job, because the record
+        #     has become a lie and the entry has to be deleted. A hard-coded count cannot
+        #     express this half, which is why the gate compares names: one known failure
+        #     being fixed while a new one appears leaves the count at eight;
+        #   * any ERROR fails the job unconditionally. There is no manifest section for
+        #     errors and there should not be one: an error means a test could not run.
+        #   * each skip must still NAME the undeclared table blocking it, matched against
+        #     the manifest's recorded token -- so a skip cannot be quietly retargeted at a
+        #     new reason while keeping its name.
+        #
+        # THE EIGHT, BY NAME AND CAUSE (the manifest carries the file:line for each):
+        #   6  the same defect, NEW-ADDON-SCHEMA-02 -- `no such table: owner_menu_settings`
+        #      on every guest screen, because
+        #      packages/workdo/LandingPage/src/Providers/LandingPageServiceProvider.php:28
+        #      declares '/../database/Migrations' where the directory is .../migrations.
+        #      One character; six stranded migrations. OWNER DECISION: the file is inside
+        #      the tree .github/scripts/guard-no-workdo-changes.sh refuses to let a PR
+        #      modify. Proven to be the sole cause by
+        #      tests/Feature/Platform/AddonMigrationStrandingTest.php, which renders all
+        #      six screens 200 with the real path registered, and ratcheted across all 69
+        #      modules by tests/Unit/Packages/AddonMigrationRegistrationTest.php.
+        #        AuthenticationTest::test_login_screen_can_be_rendered
+        #        EmailVerificationTest::test_email_verification_screen_can_be_rendered
+        #        PasswordConfirmationTest::test_confirm_password_screen_can_be_rendered
+        #        PasswordResetTest::test_reset_password_link_screen_can_be_rendered
+        #        PasswordResetTest::test_reset_password_screen_can_be_rendered
+        #        RegistrationTest::test_registration_screen_can_be_rendered
+        #   1  RegistrationTest::test_new_users_can_register -- a REAL defect in app/:
+        #      RegisteredUserController.php:249 calls addRole() on a null role AFTER the
+        #      user, the store and the login are committed, leaving a half-provisioned
+        #      merchant.
+        #   1  ProfileTest::test_profile_page_is_displayed -- a DIFFERENT real defect in
+        #      app/: HomeController.php:367 reads ->slug on a null store. Measured to
+        #      persist with every stranded table present, so it is NOT the casing bug.
+        # NONE of the eight is stock-Breeze scaffolding asserting unimplemented behaviour,
+        # and none may be retired. Two are actionable in app/ today; six are an owner
+        # decision.
+        #
+        # THE SEVENTEEN are every one an undeclared-table blocker and every one names its
+        # table in the manifest: fifteen are GATE F money tables, and two (newsletters.user_id,
+        # zid_orders) are SCHEMA-01 tables outside the six and are recorded as such rather
+        # than folded in. A skipped test is NOT a passed test and the manifest says so.
+        #
+        # TWO LOGS, and the reason there are two. --log-junit is the authoritative outcome
+        # set. It CANNOT carry skip reasons: measured on PHPUnit 11.5.57 it writes a bare
+        # `<skipped/>` with no message, so a reason check against it compares every reason
+        # to the empty string. --log-teamcity does carry the message. The manifest sets
+        # require_reason_log, so a missing TeamCity log FAILS the gate instead of silently
+        # turning off half of it.
+        #
+        # if: always() so the assertion runs even though phpunit exits non-zero -- the
+        # phpunit step is allowed to report its own failure, and the next step is what
+        # decides whether that failure is acceptable.
+        id: feature
+        continue-on-error: true
+        run: |
+          vendor/bin/phpunit --testsuite Feature \
+            --display-skipped \
+            --log-junit storage/logs/feature-junit.xml \
+            --log-teamcity storage/logs/feature-teamcity.txt
+
+      - name: The Feature outcome set must match the record -- BLOCKING
+        # always(), so the assertion still runs when phpunit exited non-zero -- which it
+        # does on every run, because eight tests fail. The phpunit step reports its own
+        # failure and this step is what decides whether that failure is the accepted one.
+        #
+        # NARROWED to "phpunit actually ran". When an EARLIER step fails -- today, the
+        # `composer install` that cannot succeed while PayHere is dead -- there is no
+        # JUnit log to judge, and a bare always() would make this step fail too, with a
+        # "log not found" message that blames the wrong thing. The job is already red from
+        # the install step; attributing the red correctly matters more than adding a
+        # second one. steps.feature.outcome is 'success' or 'failure' only if it ran.
+        if: always() && (steps.feature.outcome == 'success' || steps.feature.outcome == 'failure')
+        run: |
+          php .github/scripts/assert-known-test-outcomes.php \
+            storage/logs/feature-junit.xml \
+            .github/known-test-outcomes.json \
+            storage/logs/feature-teamcity.txt
+
+      - name: Upload the test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: feature-suite-logs
+          # storage/logs/ rather than a new build/ directory, deliberately: storage/* is
+          # already gitignored (.gitignore:8), so a developer running the gate locally does
+          # not get an untracked directory in `git status`, and no .gitignore edit is needed
+          # in a cycle where five agents are editing at once.
+          path: |
+            storage/logs/feature-junit.xml
+            storage/logs/feature-teamcity.txt
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # THE SECOND REQUIRED TEST GATE -- REAL SUITES, ONE DECLARED-DEAD PACKAGE EXCLUDED.
+  #
+  # WHY THIS JOB EXISTS. The `tests` job above is the strict gate and is correct, and it
+  # CANNOT PASS: `composer install` from composer.lock dies on one package whose upstream
+  # is gone (lahirulhr/laravel-payhere; HTTP 404 on the pinned zipball from a clean
+  # ubuntu-latest runner). The consequence is not that one dependency is unverified -- the
+  # consequence is that THE LARAVEL SUITES HAVE NEVER EXECUTED IN CI AT ALL, so the
+  # required gate protects nothing. One dead payment package currently buys a merge past
+  # every security, tenancy and commerce test the project has.
+  #
+  # THE SUITES DO NOT NEED THAT PACKAGE. Measured, not reasoned: the development tree that
+  # produced the current board -- Unit 107 tests / 810 assertions, Feature 1255 tests /
+  # 6704 assertions / 8 failures / 17 skips -- has NO vendor/lahirulhr directory and no
+  # lahirulhr entry in vendor/composer/installed.json. The whole suite already runs with
+  # the package absent. What CI was missing was never a capability; it was a tolerance
+  # rule.
+  #
+  # SO THIS JOB IS THE SAME GATE WITH ONE NAMED EXCEPTION, AND IT IS BLOCKING.
+  #   1. It runs the REAL strict `composer install` first, and keeps the log.
+  #   2. If that fails, .github/scripts/screen-install-failure.php decides WHICH packages
+  #      failed -- by name from composer's own message, and by URL resolved through
+  #      composer.lock for the TransportException form that names only a URL. The job
+  #      proceeds ONLY if that set is EXACTLY {lahirulhr/laravel-payhere}. A second dead
+  #      package, or a non-zero exit with no attributable package (a resolver failure, a
+  #      platform requirement, a corrupt lock), is a HARD STOP. `|| true` on the install
+  #      would have tolerated all of those forever; that is the difference between this
+  #      and hiding the problem.
+  #   3. .github/scripts/make-degraded-manifest.php derives composer-ci-degraded.json/.lock
+  #      from the committed pair, minus exactly those entries, and composer is pointed at
+  #      the derived pair through its COMPOSER environment variable. THE COMMITTED
+  #      composer.json AND composer.lock ARE NOT EDITED -- they are read-only inputs, and
+  #      their sha256 is compared before and after as proof. The derived pair is a build
+  #      artefact, regenerated every run; the day the upstream returns, step 1 succeeds,
+  #      the derivation never happens, and the tolerance evaporates with no commit.
+  #   4. The installed tree is then measured against the REAL committed lock with
+  #      --allow-missing, which tolerates the named package ONLY in the "locked, not
+  #      installed" category. A version difference on ANY package, including that one, and
+  #      any other missing or unlocked package, still fails.
+  #   5. The absence of the package is ASSERTED, so this job can never be misread as the
+  #      PayHere problem being fixed. It is not fixed. Every code path that needs those
+  #      classes is still broken.
+  #   6. Then the real Unit and Feature suites, nothing narrowed, and the same blocking
+  #      known-outcome assertion the strict job uses, against the same manifest.
+  #
+  # WHAT IS NOT CLAIMED. This job does NOT verify the locked dependency set -- one of its
+  # 239 entries is absent and it says so on every run. That claim belongs to the `tests`
+  # job, which is why `tests` REMAINS, strict and unmodified: the day PayHere is restored,
+  # the strict path is what gates, and this job's own step 1 will say so in a ::notice.
+  #
+  # DEPENDENCY ON ANOTHER AGENT'S CHANGE. app/Services/PaymentService.php:3486 and
+  # app/Http/Controllers/PayHerePaymnetController.php:92 both call PayHere::checkOut(),
+  # both inside `try { } catch (\Exception $e)`. A missing class raises \Error, which is a
+  # \Throwable and NOT an \Exception, so neither catch holds it: those two call sites fatal
+  # if they are ever reached with the package absent. The dependency agent is adding a
+  # class_exists()/\Throwable guard at PaymentService.php:3486. This job does not require
+  # that guard for the CURRENT test set -- measured: no test reaches either call site,
+  # because the only PayHere route the suite exercises is plan.get.payhere.status, which
+  # aborts 403 in assertPlanActivationEnabled() long before any vendor class is touched --
+  # but any FUTURE test that exercises a PayHere checkout will ERROR, and an error fails
+  # the known-outcome gate unconditionally and correctly. PayHerePaymnetController.php:92
+  # is a SECOND unguarded call site and is not this agent's file; see the report.
+  #
+  # NOTHING HERE LOADS THE MISSING CLASS. No artisan call, no route:list, no config:cache,
+  # no package:discover (--no-scripts, as in the strict job). The degraded install
+  # regenerates the autoloader WITHOUT the package, so class_exists() on its classes
+  # returns false cleanly rather than trying to include a file that is not there.
+  #
+  # DELETE THIS WHOLE JOB when the owner decision on PayHere lands. It has exactly one
+  # reason to exist and that reason is named in one place.
+  # ---------------------------------------------------------------------------
+  tests-degraded:
+    name: Tests (REQUIRED -- real suites, PayHere excluded and NOT fixed)
+    runs-on: ubuntu-latest
+
+    env:
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      APP_ENV: testing
+      # THE ONE DECLARED-DEAD PACKAGE. Named here, in the workflow, rather than inside a
+      # script, so what is being tolerated is visible to anyone reading the pipeline. Every
+      # script below takes it as an argument and prints it. Adding a second name here is a
+      # reviewable act; it is not something a build can do to itself.
+      DEAD_PACKAGES: lahirulhr/laravel-payhere
+      DEGRADED_BASENAME: composer-ci-degraded
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Refuse to run as root
+        run: |
+          if [ "$(id -u)" = "0" ]; then
+            echo "::error::CI is running as root (uid 0). Refusing to proceed."
+            exit 1
+          fi
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: ctype, curl, dom, fileinfo, filter, gd, iconv, intl, mbstring, openssl, pdo, pdo_sqlite, phar, simplexml, sodium, tokenizer, xml, xmlreader, xmlwriter, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Hard guard - refuse to run against anything but sqlite
+        # Identical to the strict job's guard, and duplicated rather than factored out on
+        # purpose: RefreshDatabase runs migrate:fresh, which DROPS EVERY TABLE in whatever
+        # database the suite resolves. A second job that runs the suite needs its own copy
+        # of that control, not a reference to one.
+        run: |
+          test "${DB_CONNECTION}" = "sqlite"   || { echo "::error::DB_CONNECTION is not sqlite";   exit 1; }
+          test "${DB_DATABASE}"   = ":memory:" || { echo "::error::DB_DATABASE is not :memory:";   exit 1; }
+          .github/scripts/guard-no-env-files.sh .
+
+      - name: Guard - test-database isolation is intact
+        run: .github/scripts/guard-test-isolation.sh .
+
+      - name: Guard - GATE F money tables are still created by nothing
+        # Repeated in the job that actually runs migrate:fresh. The `static` job proves the
+        # property against the files; this proves it is still true in the job whose
+        # migrations really execute, which until this job existed was never the case for any
+        # job at all.
+        run: .github/scripts/guard-gate-f-containment.sh .
+
+      - name: Create the storage skeleton (absent from the repo)
+        run: mkdir -p storage/framework/{cache/data,sessions,views,testing} storage/logs bootstrap/cache
+
+      - name: Clear the committed-and-stale bootstrap cache
+        # Load-bearing HERE in a way it is not in the strict job: a stale packages.php
+        # naming Lahirulhr\PayHere\PayHereServiceProvider would be read by
+        # PackageManifest and the framework would fatal on boot trying to register a
+        # provider whose class this job deliberately does not install. The manifest must be
+        # rebuilt from the degraded vendor/composer/installed.json.
+        run: rm -f bootstrap/cache/packages.php bootstrap/cache/services.php
+
+      - name: Satisfy the installer sentinel
+        # app/Http/Controllers/HomeController.php has a bare exit() in its CONSTRUCTOR when
+        # storage/installed is absent, which under PHPUnit kills the process with no output
+        # and no junit file.
+        run: touch storage/installed
+
+      - name: Install dependencies - strict first, then exclude ONLY the declared-dead set
+        id: install
+        shell: bash
+        run: |
+          # errexit is DELIBERATELY OFF for this step. The strict install is EXPECTED to
+          # fail, and its exit status is the input to a decision rather than a reason to
+          # stop. Every failure path below therefore exits explicitly, and the step ends
+          # with assertions rather than with an implicit success.
+          set +e
+          set -uo pipefail
+
+          # Proof material for the "the committed manifests were not edited" assertion below.
+          before_json="$(sha256sum composer.json | cut -d' ' -f1)"
+          before_lock="$(sha256sum composer.lock | cut -d' ' -f1)"
+          echo "composer.json sha256 before : ${before_json}"
+          echo "composer.lock sha256 before : ${before_lock}"
+
+          log="${RUNNER_TEMP}/strict-install.log"
+
+          echo "::group::Strict composer install from composer.lock (the real thing)"
+          composer install --prefer-dist --no-interaction --no-progress --no-scripts 2>&1 | tee "${log}"
+          rc=${PIPESTATUS[0]}
+          echo "::endgroup::"
+          echo "strict composer install exit status: ${rc}"
+
+          if [ "${rc}" = "0" ]; then
+            echo 'degraded=false' >> "$GITHUB_OUTPUT"
+            echo "::notice::composer install from composer.lock SUCCEEDED. The PayHere blocker has"
+            echo "::notice::cleared and NOTHING WAS EXCLUDED on this run. The strict 'tests' job is now"
+            echo "::notice::the gate. Housekeeping, in one commit: delete the 'tests-degraded' job, the"
+            echo "::notice::--allow-missing flag, screen-install-failure.php, make-degraded-manifest.php"
+            echo "::notice::and their unit tests, and update docs/BUILD-REPRODUCIBILITY.md."
+          else
+            echo "The strict install failed. Deciding WHETHER that failure is the one declared dead."
+
+            echo "::group::Install failure screen"
+            php .github/scripts/screen-install-failure.php "${log}" composer.lock "${DEAD_PACKAGES}"
+            screen_rc=$?
+            echo "::endgroup::"
+
+            if [ "${screen_rc}" != "0" ]; then
+              echo "::error::The install failure is NOT the declared dead-upstream failure, or could not"
+              echo "::error::be attributed to any locked package. Refusing to run a degraded install:"
+              echo "::error::a tolerance that fires on an unscreened failure tolerates everything."
+              exit 1
+            fi
+
+            echo "::group::Derive the degraded manifest"
+            php .github/scripts/make-degraded-manifest.php . "${DEGRADED_BASENAME}" "${DEAD_PACKAGES}"
+            derive_rc=$?
+            echo "::endgroup::"
+
+            if [ "${derive_rc}" != "0" ]; then
+              echo "::error::The degraded manifest could not be derived (exit ${derive_rc}). Read its"
+              echo "::error::refusal above; it refuses on purpose rather than producing a manifest whose"
+              echo "::error::contents do not match what it says it did."
+              exit 1
+            fi
+
+            # A clean tree, so the measurement against the real lock afterwards is of the
+            # degraded install and nothing left behind by the strict attempt.
+            rm -rf vendor
+
+            echo "::group::Degraded composer install (committed manifests untouched)"
+            COMPOSER="${DEGRADED_BASENAME}.json" composer install --prefer-dist --no-interaction --no-progress --no-scripts
+            drc=$?
+            echo "::endgroup::"
+
+            if [ "${drc}" != "0" ]; then
+              echo "::error::The install still failed with the declared-dead package excluded (exit ${drc})."
+              echo "::error::That means there is a SECOND cause the screen above did not see. Do not widen"
+              echo "::error::the exclusion to find out; read the log."
+              exit 1
+            fi
+
+            echo 'degraded=true' >> "$GITHUB_OUTPUT"
+          fi
+
+          # ---------------------------------------------------------------------------
+          # THE PREMISE OF THE WHOLE JOB, ASSERTED RATHER THAN ASSUMED: the committed
+          # dependency manifests are read-only inputs here. They belong to the dependency
+          # owner, and a build that edits them turns a recoverable upstream outage into a
+          # committed dependency change nobody reviewed.
+          # ---------------------------------------------------------------------------
+          after_json="$(sha256sum composer.json | cut -d' ' -f1)"
+          after_lock="$(sha256sum composer.lock | cut -d' ' -f1)"
+
+          if [ "${after_json}" != "${before_json}" ] || [ "${after_lock}" != "${before_lock}" ]; then
+            echo "::error::composer.json or composer.lock was MODIFIED by this job."
+            echo "::error::  composer.json ${before_json} -> ${after_json}"
+            echo "::error::  composer.lock ${before_lock} -> ${after_lock}"
+            echo "::error::This job must never edit either file. Refusing to report anything else."
+            exit 1
+          fi
+          echo "composer.json and composer.lock are byte-identical to the checkout. Verified by sha256."
+
+          test -f vendor/autoload.php || {
+            echo "::error::vendor/autoload.php was not produced, so no suite below could run."
+            exit 1
+          }
+
+      - name: The excluded package is ABSENT -- this job is not a PayHere fix
+        # THE ANTI-THEATRE STEP. Without it, a reader skimming a green 'tests-degraded' would
+        # reasonably conclude the dependency problem was solved. It is not solved. This step
+        # fails if the package it claims to have excluded is somehow present, so the job
+        # cannot pass while telling a different story than its own name.
+        if: steps.install.outputs.degraded == 'true'
+        shell: bash
+        run: |
+          failed=0
+          IFS=',' read -ra pkgs <<< "${DEAD_PACKAGES}"
+          for pkg in "${pkgs[@]}"; do
+            if [ -d "vendor/${pkg}" ]; then
+              echo "::error::vendor/${pkg} EXISTS, but this job excluded it. The exclusion did not take."
+              failed=1
+            fi
+            if grep -q "\"${pkg}\"" vendor/composer/installed.json; then
+              echo "::error::${pkg} is in vendor/composer/installed.json despite being excluded."
+              failed=1
+            fi
+            echo "ABSENT, deliberately: ${pkg}"
+          done
+          [ "${failed}" = "0" ] || exit 1
+          echo "::warning title=DEPENDENCY STILL BROKEN::lahirulhr/laravel-payhere is ABSENT from this build. Its upstream is gone (404 on the pinned zipball from a clean runner) and this job EXCLUDED it so the real test suites could run at all. It is NOT fixed, NOT mirrored and NOT vendored: PaymentService::processPayHere() and PayHerePaymnetController::planPayWithPayHere() cannot work. An owner decision on the dependency is still owed. See docs/BUILD-REPRODUCIBILITY.md."
+
+      - name: vendor/ must match composer.lock except the declared-dead set -- BLOCKING
+        # The strict job's integrity guard, with the one narrow tolerance. The tolerance
+        # applies ONLY to the "locked, not installed" category: a version difference on ANY
+        # package -- including the tolerated one, if it turned up at the wrong version -- a
+        # second absent package, or anything installed that the lock does not name, all
+        # still fail. Proven in tests/Unit/Dependency/ComposerLockIntegrityGuardTest.php.
+        #
+        # When the strict install succeeded there is nothing to tolerate and the guard runs
+        # in its ordinary blocking mode, identical to the `tests` job.
+        shell: bash
+        run: |
+          if [ "${{ steps.install.outputs.degraded }}" = "true" ]; then
+            .github/scripts/guard-composer-lock-integrity.sh . "--allow-missing=${DEAD_PACKAGES}"
+          else
+            .github/scripts/guard-composer-lock-integrity.sh .
+          fi
+
+      - name: Assert the committed fake test key is present
+        run: |
+          test -f .env.testing || { echo "::error::.env.testing is missing."; exit 1; }
+          grep -q '^APP_KEY=base64:' .env.testing || { echo "::error::.env.testing has no fixed test APP_KEY."; exit 1; }
+
+      - name: Unit suite -- BLOCKING
+        # The REAL Unit suite, whole, nothing narrowed and nothing excluded. BLOCKING with no
+        # tolerance: the Unit suite has no known failures and no known skips, so any red here
+        # is a regression by definition, and there is no manifest section for it.
+        run: vendor/bin/phpunit --testsuite Unit --testdox
+
+      - name: Feature suite -- BLOCKING on the known-outcome SET
+        # THE REAL FEATURE SUITE. `--testsuite Feature` is the whole tests/Feature directory:
+        # Security/, Tenancy/, Commerce/, Auth/, Platform/ and ProfileTest. Nothing here
+        # narrows the selection, excludes a directory, filters a group or substitutes a
+        # static source check for a test. This is the first time any of it executes in CI.
+        #
+        # continue-on-error on THIS STEP ONLY, and it is not a tolerance: eight tests fail by
+        # record, so phpunit exits non-zero on every run. The step reports its own failure and
+        # the next step -- which is NOT continue-on-error -- decides whether that failure is
+        # the accepted one, by NAME, against .github/known-test-outcomes.json. The same
+        # manifest and the same script as the strict job; there is no second, laxer record.
+        id: feature
+        continue-on-error: true
+        run: |
+          vendor/bin/phpunit --testsuite Feature \
+            --display-skipped \
+            --log-junit storage/logs/feature-junit.xml \
+            --log-teamcity storage/logs/feature-teamcity.txt
+
+      - name: The Feature outcome set must match the record -- BLOCKING
+        # Narrowed to "phpunit actually ran", exactly as in the strict job: when an earlier
+        # step failed there is no JUnit log to judge, and a bare always() would add a second
+        # red that blames the wrong thing.
+        if: always() && (steps.feature.outcome == 'success' || steps.feature.outcome == 'failure')
+        run: |
+          php .github/scripts/assert-known-test-outcomes.php \
+            storage/logs/feature-junit.xml \
+            .github/known-test-outcomes.json \
+            storage/logs/feature-teamcity.txt
+
+      - name: Upload the test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: feature-suite-logs-degraded
+          path: |
+            storage/logs/feature-junit.xml
+            storage/logs/feature-teamcity.txt
+          if-no-files-found: warn
+
+      - name: Remove the derived manifest
+        # The derived pair is a build artefact and must not outlive the job. Deleting it here
+        # also means a developer who runs these steps locally is not left with two untracked
+        # composer files that look like someone's half-finished dependency change. (No
+        # .gitignore entry is added: .gitignore is not this agent's file this cycle, and a
+        # build artefact that deletes itself needs no ignore rule.)
+        if: always()
+        run: rm -f "${DEGRADED_BASENAME}.json" "${DEGRADED_BASENAME}.lock"
+
+  # ---------------------------------------------------------------------------
+  # IS THE PAYHERE BLOCKER STILL THERE? -- a diagnostic, not a gate.
+  #
+  # WHAT THIS JOB IS NOW FOR. The `tests` job above is the required gate and does the
+  # real `composer install` from the lock itself, so this job no longer exists to answer
+  # "can the lock be installed at all" -- that question is answered, and the answer is
+  # no. It exists to keep the ONE blocking cause visible and to detect the moment it
+  # clears, without a human having to read a failing gate's log.
+  #
+  # THE MEASUREMENT THAT SETTLED IT, on an ubuntu-latest GitHub-hosted runner:
+  #
+  #   Failed to download lahirulhr/laravel-payhere from dist:
+  #   "https://api.github.com/repos/Visanduma/laravel-payhere/zipball/72ce0aa87b495517e3b2d66633e588c86d417e61"
+  #   could not be downloaded (HTTP/2 404): {"message":"Not Found","status":"404"}
+  #   Source fallback is disabled. composer install exited 100.
+  #
+  # TWO CORRECTIONS TO WHAT THIS FILE USED TO SAY, both measured rather than reasoned:
+  #
+  #   1. IT IS ONE DEAD PACKAGE, NOT THREE. The header here claimed three unfetchable
+  #      packages, two of them yoomoney. In the same clean-runner run BOTH yoomoney
+  #      packages downloaded WITHOUT ERROR. git.yoomoney.ru being unreachable was this
+  #      development container's egress policy, exactly as suspected -- and that
+  #      suspicion is now confirmed for yoomoney and REFUTED for PayHere.
+  #
+  #   2. THE PAYHERE FAILURE IS NOT AN EGRESS POLICY. A 403 would have meant one. A 404
+  #      from a clean runner means the pinned commit no longer exists upstream. Both
+  #      `Visanduma/laravel-payhere` (the locked source) and `lahirulhr/laravel-payhere`
+  #      (the package homepage owner) are gone from GitHub; `git ls-remote` with positive
+  #      and negative controls, the repository index and GitHub code search all agree.
+  #      No other version of the package avoids the dead repository, and no composer
+  #      operation rewrites the URL. docs/BUILD-REPRODUCIBILITY.md carries the full
+  #      investigation.
+  #
+  # SO `composer install` CANNOT SUCCEED ON ANY MACHINE until an owner decision lands: a
+  # composer repository mirror, a vendored and integrity-checked dist, or removing the
+  # integration together with the five files that reference its classes. Editing the lock
+  # to drop the package alone is the forbidden remedy -- app/Models/Utility.php:1669-1674
+  # and four other files `use Lahirulhr\PayHere\PayHere`, so dropping it is a fatal at
+  # class load, not a dependency cleanup.
+  #
+  # WHY IT STAYS continue-on-error WHILE `tests` DOES NOT. Two jobs failing on one cause
+  # is noise; the required gate is where the red belongs. This one prints a verdict a
+  # human can read in one line, and goes quiet on its own the day the package returns.
+  # ---------------------------------------------------------------------------
+  lockfile-reproducibility:
+    name: Is the PayHere blocker still there? (report)
+    runs-on: ubuntu-latest
+
+    env:
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      APP_ENV: testing
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: ctype, curl, dom, fileinfo, filter, gd, iconv, intl, mbstring, openssl, pdo, pdo_sqlite, phar, simplexml, sodium, tokenizer, xml, xmlreader, xmlwriter, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Probe the dead PayHere upstream directly
+        # Cheap, needs no install, and separates the three states that matter:
+        #   package metadata present on Packagist  -- it always is; Packagist caches it
+        #   dist zipball reachable                 -- 404 today: the commit is gone
+        #   source repository reachable            -- 404 today: both owners are gone
+        # The yoomoney packages are probed too, as the control that keeps correction (1)
+        # in the job header honest: if they ever start failing, that is a NEW finding and
+        # not the old story coming back.
+        continue-on-error: true
+        run: |
+          probe() {
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$2" || echo 000)
+            printf '%-42s %-8s %s\n' "$1" "HTTP ${code}" "$2"
+          }
+          echo "--- metadata (expected 200 even for a dead upstream: Packagist caches it)"
+          for p in lahirulhr/laravel-payhere yoomoney/yookassa-sdk-php yoomoney/yookassa-sdk-validator; do
+            probe "$p" "https://repo.packagist.org/p2/${p}.json"
+          done
+          echo
+          echo "--- PayHere dist, the exact URL composer.lock pins (404 = the blocker)"
+          probe "payhere dist zipball" \
+            "https://api.github.com/repos/Visanduma/laravel-payhere/zipball/72ce0aa87b495517e3b2d66633e588c86d417e61"
+          echo
+          echo "--- PayHere source repositories, both candidate owners"
+          for r in Visanduma/laravel-payhere lahirulhr/laravel-payhere; do
+            if git ls-remote "https://github.com/${r}.git" HEAD >/dev/null 2>&1; then
+              echo "${r}: ls-remote OK -- THE UPSTREAM IS BACK. Re-resolve the lock."
+            else
+              echo "${r}: ls-remote FAILED -- still gone."
+            fi
+          done
+
+      - name: Attempt the real install from the lock
+        id: install
+        # continue-on-error so the measurement below runs either way. See the job header.
+        # --no-scripts matches the `tests` job: post-autoload-dump boots the application
+        # and post-create-project-cmd runs `artisan migrate --graceful`.
+        continue-on-error: true
+        run: composer install --prefer-dist --no-interaction --no-progress --no-scripts
+
+      - name: Verdict
+        # Always runs. This is the line a human reads to decide whether CI can become the
+        # project's reproducible environment.
+        run: |
+          if [ "${{ steps.install.outcome }}" = "success" ]; then
+            echo "::notice::composer.lock INSTALLED from the lock on an ubuntu-latest runner."
+            echo "::notice::The PayHere blocker has cleared. The required 'tests' job above should now"
+            echo "::notice::be GREEN with no edit to this workflow -- it installs from the lock already."
+            echo "::notice::Housekeeping, in one commit: delete this whole diagnostic job, and update"
+            echo "::notice::docs/BUILD-REPRODUCIBILITY.md and docs/STABILIZATION-REGISTER.md to say so."
+          else
+            echo "::warning::composer install from the lock FAILED. Expected while PayHere is dead."
+            echo "::warning::Read the dist URL in the step log and compare it to the probe above: a 404"
+            echo "::warning::on the zipball AND on both ls-remotes is the KNOWN blocker, unchanged."
+            echo "::warning::A failure on ANY OTHER package is a NEW finding -- do not file it under PayHere."
+            echo "::warning::Do NOT remove the package from the lock: five files use its classes, so the"
+            echo "::warning::lock edit alone turns a recoverable outage into a fatal at class load."
+          fi
+
+      # NOTHING FURTHER IN THIS JOB.
+      #
+      # It used to go on to re-check vendor/ against the lock and to run the Unit and
+      # Feature suites "against the LOCKED dependency set", all four steps conditional on
+      # the install having succeeded -- i.e. never, so far. Every one of those is now done
+      # by the REQUIRED `tests` job above, unconditionally and blocking, which is the whole
+      # point of removing its ALLOW_COMPOSER_INSTALL condition. Keeping copies here would
+      # mean two jobs installing 239 packages to measure the same thing, and the stale
+      # per-suite numbers in their comments (30/232, 924/4184/12/17) were already three
+      # branches out of date. Re-measure from the required gate; do not quote.

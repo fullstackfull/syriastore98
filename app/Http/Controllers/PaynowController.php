@@ -14,8 +14,12 @@ use App\Models\PlanUserCoupon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Session;
 
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
+
 class PaynowController extends Controller
 {
+    use GuardsPlanActivation;
+
     public static function paynowgetstatus($pay)
     {
         $paynow = new Paynow($pay['integration_id'], $pay['integration_key'], $pay['success_url'], $pay['faild_url']);
@@ -174,7 +178,10 @@ class PaynowController extends Controller
                     $order->card_exp_year = '';
                     $order->plan_name = $plan->name;
                     $order->plan_id = $plan->id;
-                    $order->price = !empty($request->amount) ? $request->amount : 0;
+                    // Server-owned: was `!empty($request->amount) ? $request->amount : 0`.
+                    // Paynow IS verified on this path ($this->paynowgetstatus(), above), so only
+                    // the RECORDED price changes; see GuardsPlanActivation.
+                    $order->price = $this->serverOwnedPlanPrice($plan, $request->coupon_code);
                     $order->price_currency = $currency;
                     $order->txn_id = time();
                     $order->payment_type = __('Paynow');

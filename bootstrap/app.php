@@ -26,9 +26,32 @@ return Application::configure(basePath: dirname(__DIR__))
             'guest' => \App\Http\Middleware\RedirectIfAuthenticated::class,
             '2fa' => \PragmaRX\Google2FALaravel\Middleware::class,
             'demo_mode' => \App\Http\Middleware\DemoModeMiddleware::class,
+            // Finance route guard. Routes through the `finance` gate, which has a
+            // super-admin path that does not depend on a seeded permission row --
+            // see App\Http\Middleware\FinancePermission for why neither
+            // Laratrust's `permission:` nor Laravel's `can:` is usable here.
+            'finance.permission' => \App\Http\Middleware\FinancePermission::class,
         ]);
         // Append middleware to the 'web' group
         $middleware->appendToGroup('web', \App\Http\Middleware\SetLocate::class);
+        // NEW-BULKDELETE-01. The addon route
+        // packages/workdo/BulkDelete/src/routes/web.php:17-18 is gated only by `auth` +
+        // PlanModuleCheck, and its controller deletes by bare id over 61 models with no tenant
+        // predicate. Registered HERE, on the `web` group, rather than on the route: the addon
+        // registers its routes from `$this->app->booted()`
+        // (app/Providers/PackageServiceProvider.php:20), i.e. after routes/web.php is read, so a
+        // re-declaration there would lose route matching and the fix would silently not apply;
+        // and bootstrap/app.php still executes under `route:cache`, where route files do not.
+        // The guard is inert on every other route -- it returns early unless the MATCHED route is
+        // that endpoint. See the class docblock for the full argument and the measured stack.
+        $middleware->appendToGroup('web', \App\Http\Middleware\BulkDeleteTenantGuard::class);
+        // SEC-R1-02 / R2-07 / NEW-throttle-bypass: the RateLimiter named 'api'
+        // is defined at app/Providers/RouteServiceProvider.php:27-29 but was
+        // never applied to the 'api' middleware group, so it was dead code and
+        // all 211 API route declarations were unthrottled. 120/min is a
+        // deliberately generous starting value -- APILog and AdminApiLog
+        // already instrument the traffic, so tune it down from real logs.
+        $middleware->throttleApi('120,1');
         // Exclude specific routes from CSRF protection
         $middleware->validateCsrfTokens(
             except: [

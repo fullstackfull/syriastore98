@@ -44,6 +44,43 @@ class Order extends Model
         'additional_note',
         'deliveryboy_id',
         'store_id',
+        'created_by',   // orders.created_by added by the schema work; without this
+                        // entry Laravel silently discards the value that
+                        // OrderController.php:161 passes to Order::create().
+
+    ];
+
+    /**
+     * Attribute casts.
+     *
+     * This model had NO $casts block at all, so the PHP type of every money
+     * attribute depended on the database driver: pdo_mysql hands a FLOAT column
+     * back as a float on one configuration and as a numeric STRING on another,
+     * and sqlite differs again. The same arithmetic therefore behaved
+     * differently per environment, and `$order->final_price + 0` could be
+     * string concatenation's cousin rather than addition. Casting makes reads
+     * and writes consistent in PHP regardless of driver.
+     *
+     * DELIBERATELY `float`, NOT `decimal:4`, AND THIS IS NOT AN OVERSIGHT.
+     * These six columns are float columns today and converting them to
+     * DECIMAL(18,4) is gated on the owner (the DECIMAL-vs-minor-units decision,
+     * GATE G). A `decimal:4` cast would ALSO change these fields from JSON
+     * number to JSON STRING for every API consumer, which is the one genuine
+     * API-contract change in the programme: it has to be announced and the
+     * Flutter release carrying the matching `double.tryParse` coercions has to
+     * reach the store FIRST. So the casts here keep the current wire types
+     * exactly and only remove the driver-dependent ambiguity. The `decimal:4`
+     * switch belongs in the same commit as the column conversion migration,
+     * which is Agent 2's file and the owner's decision.
+     */
+    protected $casts = [
+        'product_price' => 'float',
+        'coupon_price' => 'float',
+        'delivery_price' => 'float',
+        'tax_price' => 'float',
+        'final_price' => 'float',
+        'return_price' => 'float',
+        'reward_points' => 'float',
     ];
 
     protected $appends = [

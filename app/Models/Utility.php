@@ -207,7 +207,7 @@ class Utility extends Model
             }
         }
 
-        return $return;
+        return \App\Payments\RetiredGateways::providerForEnableKey($name) !== null ? 'off' : $return;
     }
 
     public static function GetValByName($name = '', $store_id = '')
@@ -243,7 +243,7 @@ class Utility extends Model
             }
         }
 
-        return $return;
+        return \App\Payments\RetiredGateways::providerForEnableKey($name) !== null ? 'off' : $return;
     }
 
     public static function dateFormat($date)
@@ -1585,7 +1585,7 @@ class Utility extends Model
             $yookassa_secret_key = \App\Models\Utility::GetValueByName('yookassa_secret_key', $store_id);
             $yookassa_image = \App\Models\Utility::GetValueByName('yookassa_image', $store_id);
 
-            $Setting_array['status'] = $is_yookassa_enabled;
+            $Setting_array['status'] = \App\Payments\RetiredGateways::status('yookassa', $is_yookassa_enabled);
             $Setting_array['name'] = 'Yookassa';
             $Setting_array['detail'] = '';
             $Setting_array['image'] = $yookassa_image;
@@ -1677,7 +1677,7 @@ class Utility extends Model
             $payhere_app_id = \App\Models\Utility::GetValueByName('payhere_app_id', $store_id);
             $payhere_image = \App\Models\Utility::GetValueByName('payhere_image', $store_id);
 
-            $Setting_array['status'] = $is_payhere_enabled;
+            $Setting_array['status'] = \App\Payments\RetiredGateways::status('payhere', $is_payhere_enabled);
             $Setting_array['name'] = 'PayHere';
             $Setting_array['detail'] = '';
             $Setting_array['image'] = $payhere_image;
@@ -2843,8 +2843,47 @@ class Utility extends Model
             'Edit currency',
             'Status Customer',
             'Edit Store Setting',
-            'Delete Language'
+            'Delete Language',
 
+            // ----------------------------------------------------------------------------
+            // FINANCE permissions. Requested by the authorization workstream (Agent 1).
+            //
+            // These six names are GATED ON but were never SEEDED: before this change
+            // app/Models/Utility.php contained ZERO occurrences of the string "Finance",
+            // while all six are enforced as hard denials —
+            //   routes/web.php:164  middleware 'permission:View Finance Dashboard'
+            //   StoreFinanceController.php:19   isAbleTo('Edit Finance Payment Status')
+            //   StoreFinanceController.php:71   isAbleTo('View Finance Dashboard')
+            //   StoreFinanceController.php:315  isAbleTo('Add Finance Balance')
+            //   StoreFinanceController.php:396  isAbleTo('Deduct Finance Balance')
+            //   StoreFinanceController.php:494  isAbleTo('Request Finance Withdrawal')
+            //   StoreFinanceController.php:624  isAbleTo('View Finance Withdrawal Requests')
+            //
+            // addNewData() is the ONLY permission-creation mechanism in the application, so a
+            // permission absent from here cannot exist in a from-source database, which means
+            // it can never be granted to any role through the UI and every gated route above
+            // is a permanent 403. Adding the names here is what makes them grantable.
+            //
+            // THIS LIST CREATES THE Permission ROWS ONLY — it does NOT grant them to any role.
+            // That is deliberate and is the whole reason they go in $arrPermissions rather than
+            // in $companyNewPermission or $superadminNewPermission below, both of which also
+            // call givePermission(). Four of these six move real money (Add / Deduct Finance
+            // Balance debit and credit the merchant balance of record; View Finance Withdrawal
+            // Requests and Edit Finance Payment Status drive payouts), so WHICH role holds them
+            // by default is a privilege decision for the owner, not something to infer from a
+            // route file. Rows exist and are tickable in the role editor; nobody is silently
+            // handed a money power by this change.
+            //
+            // SAFE FOR THE LIVE DATABASE: the loop below is additive and idempotent — it
+            // creates a Permission row only when no row of that name exists, and addNewData()
+            // runs on every login, so this converges without a migration and without touching
+            // any existing grant.
+            'View Finance Dashboard',
+            'Add Finance Balance',
+            'Deduct Finance Balance',
+            'Request Finance Withdrawal',
+            'View Finance Withdrawal Requests',
+            'Edit Finance Payment Status',
         ];
 
         $arrPermissions = array_unique($arrPermissions);
@@ -3056,7 +3095,21 @@ class Utility extends Model
                 }
             }
 
-            if (!$companyRole->hasPermission($op)) {
+            // NULL GUARD -- NEW-add-new-data-500-on-missing-role.
+            //
+            // `$companyRole = Role::where('name', 'LIKE', 'admin')->first()` (:2899) returns
+            // null on any database that has no role literally named `admin`, and this line
+            // then raised "Call to a member function hasPermission() on null". addNewData()
+            // runs from AuthenticatedSessionController::store():83 and from the registration
+            // controller, so the 500 lands on LOGIN and on REGISTRATION -- the two endpoints
+            // a deployment can least afford to lose. Measured: failures 2 and 8 of the 13 on
+            // p1b/integration @ 17cb2f91 were this line.
+            //
+            // The permission ROWS are still created by the block above, so the only behaviour
+            // that changes is that permissions are not granted to a role that does not exist
+            // -- which is the only thing that can be done with it. Byte-identical whenever the
+            // role is present.
+            if ($companyRole && !$companyRole->hasPermission($op)) {
                 $companyRole->givePermission($op);
             }
         }
@@ -3102,7 +3155,10 @@ class Utility extends Model
                     (clone $permissionQuery)->create(['name' => $op, 'guard_name' => 'web']);
                 }
             }
-            if (!$superadminRole->hasPermission($op)) {
+            // NULL GUARD -- the sibling of the `$companyRole` defect above. `$superadminRole`
+            // (:3103) is `Role::where('name', 'LIKE', 'super admin')->first()` and is null on
+            // a database with no super-admin role, with the same 500 on login/registration.
+            if ($superadminRole && !$superadminRole->hasPermission($op)) {
                 $superadminRole->givePermission($op);
             }
         }

@@ -34,8 +34,12 @@ use Illuminate\Support\Facades\Cache;
 use App\Traits\ApiResponser;
 use Illuminate\Support\Facades\Cookie;
 
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
+
 class CinetPayController extends Controller
 {
+    use GuardsPlanActivation;
+
     use ApiResponser;
     public function planPayWithCinetpay(Request $request)
     {
@@ -262,10 +266,17 @@ class CinetPayController extends Controller
             $response = $this->getPaymentStatus($cinetpay_check);
             //On recupère la réponse de CinetPay
             $response_body = json_decode($response, true);
-            $getAmount = $request->amount;
             $coupanCode = $request->coupon_code;
             $user = \Auth::user();
             $plan = Plan::find($request->plan_id);
+            // Server-owned: was `$request->amount`.
+            //
+            // HAND-CLASSIFIED THIS CYCLE, and it resolves onto the SAFE side: this handler was
+            // previously recorded as "not hand-verified". It calls $this->getPaymentStatus()
+            // against CinetPay and gates on $response_body['code'] == '00' a few lines below, so
+            // a forged return cannot activate a plan and it is NOT on the config/payments.php
+            // map. Only the RECORDED price changes.
+            $getAmount = $plan ? $this->serverOwnedPlanPrice($plan, $coupanCode) : 0;
             $orderID = strtoupper(str_replace('.', '', uniqid('', true)));
             if ($response_body['code'] == '00') {
                 $order = new PlanOrder();

@@ -97,6 +97,26 @@ class RegisteredUserController extends Controller
                     return User::where('type','super admin')->first();
                 });
 
+                // NEW-registration-grants-admin -- DELIBERATELY NOT CHANGED HERE.
+                //
+                // type='admin' is the merchant tenant-OWNER type, not the
+                // platform-operator type ('super admin'). It is load-bearing:
+                // User::creatorId() returns $this->id for it, which is what makes
+                // a self-registered merchant the root of their own tenant, and
+                // the plan/expiry logic below branches on it. Changing it would
+                // break legitimate merchant onboarding, so it is left alone.
+                //
+                // The real hazard is the UNSCOPED Role::where('name','admin')
+                // lookup further down, which attaches every self-registered
+                // merchant to ONE SHARED GLOBAL role row (PermissionTableSeeder
+                // creates it with a null store_id). The escalation that made that
+                // critical -- rewriting that shared role, and the users.type
+                // mass-update it triggered -- is CLOSED in RoleController and
+                // RolePolicy, which now refuse to edit any role with a null
+                // store_id. Giving each store its own admin role is the remaining
+                // root-cause fix; it is a role_user + permission_role data
+                // migration that needs the live database and is an OWNER ACTION,
+                // not a code change that can be made safely from here.
                 $user = User::create([
                     'name' => $request->name,
                     'email' => $request->email,
@@ -129,7 +149,41 @@ class RegisteredUserController extends Controller
                 defaultSetting($store->id, 'admin', $user);
                 pageDefaultData($store->id);
                 $role_r = Role::where('name', 'admin')->first();
-                $user->addRole($role_r);
+
+                // NEW-registration-addrole-null-deref -- the null-guard defect named in the
+                // brief, same class as get_file() (app/Helper/helper.php:143-145, where
+                // User::where('type','super admin')->first() feeds ->current_store with no
+                // check).
+                //
+                // Laratrust's addRole() signature is
+                //   addRole(array|string|int|Model|UuidInterface|BackedEnum $role, ...)
+                // (vendor/santigarcor/laratrust/src/Traits/HasRolesAndPermissions.php:375-378).
+                // It is a TYPED parameter with no null in the union, so passing null is an
+                // immediate TypeError, not a quiet no-op.
+                //
+                // WHY THAT MATTERS MORE THAN AN ORDINARY 500. By the time this line runs the
+                // method has ALREADY created the User row, created the Store row, written
+                // users.current_store, called Auth::login() and run defaultSetting() /
+                // pageDefaultData(). None of that is in a transaction. So a missing `admin`
+                // role does not merely fail the request -- it leaves a HALF-REGISTERED
+                // merchant: a real user, a real store, a live session, and no role at all.
+                // That is a data-integrity defect, and it is reachable on any install where
+                // PermissionTableSeeder has not run, or where the role was renamed.
+                //
+                // The guard lets registration COMPLETE instead of dying mid-way, and logs
+                // the condition so a roleless merchant is visible rather than silent. It
+                // deliberately does NOT create the role: the missing global `admin` role is
+                // the shared-role problem described above, and inventing a row here would
+                // make that worse, not better. No secret is logged -- only the user id.
+                if ($role_r) {
+                    $user->addRole($role_r);
+                } else {
+                    \Illuminate\Support\Facades\Log::warning(
+                        'Registration completed without a role: no Role named "admin" exists. '
+                        . 'The new merchant has no permissions until one is assigned.',
+                        ['user_id' => $user->id]
+                    );
+                }
                 if($user->type == 'admin')
                 {
                     $plan = Plan::find($user->plan_id);
@@ -177,6 +231,26 @@ class RegisteredUserController extends Controller
                 return User::where('type','super admin')->first();
             });
 
+                // NEW-registration-grants-admin -- DELIBERATELY NOT CHANGED HERE.
+                //
+                // type='admin' is the merchant tenant-OWNER type, not the
+                // platform-operator type ('super admin'). It is load-bearing:
+                // User::creatorId() returns $this->id for it, which is what makes
+                // a self-registered merchant the root of their own tenant, and
+                // the plan/expiry logic below branches on it. Changing it would
+                // break legitimate merchant onboarding, so it is left alone.
+                //
+                // The real hazard is the UNSCOPED Role::where('name','admin')
+                // lookup further down, which attaches every self-registered
+                // merchant to ONE SHARED GLOBAL role row (PermissionTableSeeder
+                // creates it with a null store_id). The escalation that made that
+                // critical -- rewriting that shared role, and the users.type
+                // mass-update it triggered -- is CLOSED in RoleController and
+                // RolePolicy, which now refuse to edit any role with a null
+                // store_id. Giving each store its own admin role is the remaining
+                // root-cause fix; it is a role_user + permission_role data
+                // migration that needs the live database and is an OWNER ACTION,
+                // not a code change that can be made safely from here.
             $user = User::create([
                 'name' => $request->name,
                 'email' => $request->email,
@@ -206,7 +280,41 @@ class RegisteredUserController extends Controller
             Auth::login($user);
             defaultSetting($store->id, 'admin', $user);
             $role_r = Role::where('name', 'admin')->first();
-            $user->addRole($role_r);
+
+            // NEW-registration-addrole-null-deref -- the null-guard defect named in the
+            // brief, same class as get_file() (app/Helper/helper.php:143-145, where
+            // User::where('type','super admin')->first() feeds ->current_store with no
+            // check).
+            //
+            // Laratrust's addRole() signature is
+            //   addRole(array|string|int|Model|UuidInterface|BackedEnum $role, ...)
+            // (vendor/santigarcor/laratrust/src/Traits/HasRolesAndPermissions.php:375-378).
+            // It is a TYPED parameter with no null in the union, so passing null is an
+            // immediate TypeError, not a quiet no-op.
+            //
+            // WHY THAT MATTERS MORE THAN AN ORDINARY 500. By the time this line runs the
+            // method has ALREADY created the User row, created the Store row, written
+            // users.current_store, called Auth::login() and run defaultSetting() /
+            // pageDefaultData(). None of that is in a transaction. So a missing `admin`
+            // role does not merely fail the request -- it leaves a HALF-REGISTERED
+            // merchant: a real user, a real store, a live session, and no role at all.
+            // That is a data-integrity defect, and it is reachable on any install where
+            // PermissionTableSeeder has not run, or where the role was renamed.
+            //
+            // The guard lets registration COMPLETE instead of dying mid-way, and logs
+            // the condition so a roleless merchant is visible rather than silent. It
+            // deliberately does NOT create the role: the missing global `admin` role is
+            // the shared-role problem described above, and inventing a row here would
+            // make that worse, not better. No secret is logged -- only the user id.
+            if ($role_r) {
+                $user->addRole($role_r);
+            } else {
+                \Illuminate\Support\Facades\Log::warning(
+                    'Registration completed without a role: no Role named "admin" exists. '
+                    . 'The new merchant has no permissions until one is assigned.',
+                    ['user_id' => $user->id]
+                );
+            }
             if($user->type == 'admin')
             {
                 $plan = Plan::find($user->plan_id);

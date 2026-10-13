@@ -152,7 +152,7 @@
                                             class="float-end"><i class="ti ti-chevron-right"></i></div></a>
                                 @endif
 
-                                @if (isset($admin_payments_details['is_yookassa_enabled']) && $admin_payments_details['is_yookassa_enabled'] == 'on')
+                                @if (!\App\Payments\RetiredGateways::isRetired('yookassa') && isset($admin_payments_details['is_yookassa_enabled']) && $admin_payments_details['is_yookassa_enabled'] == 'on')
                                     <a href="#yookassa_payment"
                                         class="list-group-item list-group-item-action border-0">{{ __('Yookassa') }}<div
                                             class="float-end"><i class="ti ti-chevron-right"></i></div></a>
@@ -179,7 +179,7 @@
                                         class="list-group-item list-group-item-action border-0">{{ __('Khalti') }}<div
                                         class="float-end"><i class="ti ti-chevron-right"></i></div></a>
                                 @endif
-                                @if (isset($admin_payments_details['is_payhere_enabled']) && $admin_payments_details['is_payhere_enabled'] == 'on')
+                                @if (!\App\Payments\RetiredGateways::isRetired('payhere') && isset($admin_payments_details['is_payhere_enabled']) && $admin_payments_details['is_payhere_enabled'] == 'on')
                                     <a href="#payhere_payment"
                                         class="list-group-item list-group-item-action border-0">{{ __('PayHere') }}<div
                                             class="float-end"><i class="ti ti-chevron-right"></i></div></a>
@@ -1670,7 +1670,11 @@
                     {{-- Pay TR end --}}
 
                     {{-- Yookassa --}}
+                    {{-- RETIRED (RetiredGateways::PROVIDERS). The predicate is FIRST and is the
+                        only reliable term here: `isset($x) == 'on'` compares a boolean with a
+                        non-empty string and is therefore always TRUE. --}}
                     @if (
+                        !\App\Payments\RetiredGateways::isRetired('yookassa') &&
                         isset($admin_payments_details['is_yookassa_enabled']) == 'on' &&
                             !empty($admin_payments_details['yookassa_shop_id_key']) &&
                             !empty($admin_payments_details['yookassa_secret_key']))
@@ -1860,7 +1864,10 @@
                     {{-- Nepalste end --}}
 
                     {{-- PayHere --}}
-                        @if (isset($admin_payments_details['is_payhere_enabled']) == 'on' && !empty($admin_payments_details['payhere_merchant_secret']))
+                        {{-- RETIRED (RetiredGateways::PROVIDERS). The predicate is FIRST and is the
+                            only reliable term here: `isset($x) == 'on'` compares a boolean with a
+                            non-empty string and is therefore always TRUE. --}}
+                        @if (!\App\Payments\RetiredGateways::isRetired('payhere') && isset($admin_payments_details['is_payhere_enabled']) == 'on' && !empty($admin_payments_details['payhere_merchant_secret']))
                             <div id="payhere_payment" class="card">
                                 <div class="card-header">
                                     <h5>{{ __('PayHere') }}</h5>

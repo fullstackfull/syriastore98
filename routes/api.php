@@ -47,9 +47,9 @@ Route::post('{slug}/register', [AuthController::class, 'register'])->middleware(
 Route::post('adminlogin', [DashboardController::class, 'login'])
     ->middleware(['AdminApiLog', 'throttle:auth']);
 
-Route::post('{slug}/forgot-password-send-otp', [AuthController::class, 'forgot_password_send_otp'])->middleware(['APILog']);
-Route::post('{slug}/forgot-password-verify-otp', [AuthController::class, 'forgot_password_verify_otp'])->middleware(['APILog']);
-Route::post('{slug}/forgot-password-save', [AuthController::class, 'forgot_password_save'])->middleware(['APILog']);
+Route::post('{slug}/forgot-password-send-otp', [AuthController::class, 'forgot_password_send_otp'])->middleware(['APILog', 'throttle:auth']);
+Route::post('{slug}/forgot-password-verify-otp', [AuthController::class, 'forgot_password_verify_otp'])->middleware(['APILog', 'throttle:auth']);
+Route::post('{slug}/forgot-password-save', [AuthController::class, 'forgot_password_save'])->middleware(['APILog', 'throttle:auth']);
 Route::post('{slug}/', [ApiController::class, 'base_url'])->middleware(['APILog']);
 Route::post('{slug}/logout', [AuthController::class, 'logout'])->middleware(['custom.auth', 'APILog']);
 
@@ -131,12 +131,30 @@ Route::post('{slug}/order-cancel', [DashboardController::class, 'orderCancel'])-
 Route::post('{slug}/variant-list', [ApiController::class, 'variant_list'])->middleware(['custom.auth','APILog']);
 
 Route::prefix('admin')->as('admin.')->group(function(){
-    Route::post('adminlogin', [DashboardController::class, 'login'])->middleware(['AdminApiLog']);
+    Route::post('adminlogin', [DashboardController::class, 'login'])->middleware(['AdminApiLog', 'throttle:auth']);
   
 
 
 
-  Route::post('adminlogout', [DashboardController::class, 'logouto']);
+  // FIX-1 / admin-auth-coverage-baseline: adminlogout was the last /api/admin/*
+  // route with NO route middleware of any kind. It was LOW severity rather than
+  // open, because the handler verifies the token itself
+  // (Api/DashboardController::logouto:614-651 parses `{id}|{secret}`, loads the
+  // personal_access_tokens row and compares with hash_equals before deleting
+  // it), which is why the Phase 1A anonymous probe got 401 rather than 200.
+  //
+  // It is guarded at the route level now so the control is declared where every
+  // sibling declares it, instead of depending on one handler continuing to
+  // re-implement token verification correctly. `custom.auth` performs exactly
+  // the same hash_equals check (App\Http\Middleware\CustomAuth:62-66) and
+  // returns the same 401 envelope via ApiResponser, so the wire contract the
+  // Flutter app sees on a bad or missing token is unchanged -- still 401, which
+  // repo-B lib/network/network.dart:285-287 turns into the forced logout that a
+  // logout call wants anyway.
+  //
+  // AdminApiLog is added for parity with every other admin route; it only logs.
+  Route::post('adminlogout', [DashboardController::class, 'logouto'])
+      ->middleware(['custom.auth', 'AdminApiLog']);
 
 
 Route::get('/customer/orders', [DashboardController::class, 'getCustomerOrdersApi'])
@@ -160,13 +178,13 @@ Route::post(
     Route::any('base_url', [DashboardController::class, 'base_url'])->middleware(['AdminApiLog']);
     Route::post('currency', [DashboardController::class, 'currency'])->middleware(['custom.auth','AdminApiLog']);
     Route::post('dashboard', [DashboardController::class, 'dashboard'])->middleware(['custom.auth','AdminApiLog']);
-    Route::get('categorylist', [DashboardController::class, 'CategoryList'])->middleware(['AdminApiLog']);
-    Route::get('productlist', [DashboardController::class, 'ProductList'])->middleware(['AdminApiLog']);
-    Route::get('variantlist', [DashboardController::class, 'VariantList'])->middleware(['AdminApiLog']);
-    Route::get('orderlist', [DashboardController::class, 'OrderList'])->middleware(['AdminApiLog']);
-    Route::get('couponlist', [DashboardController::class, 'CouponList'])->middleware(['AdminApiLog']);
-    Route::get('shippinglist', [DashboardController::class, 'ShippingList'])->middleware(['AdminApiLog']);
-    Route::get('taxlist', [DashboardController::class, 'TaxList'])->middleware(['AdminApiLog']);
+    Route::get('categorylist', [DashboardController::class, 'CategoryList'])->middleware(['custom.auth','AdminApiLog']);
+    Route::get('productlist', [DashboardController::class, 'ProductList'])->middleware(['custom.auth','AdminApiLog']);
+    Route::get('variantlist', [DashboardController::class, 'VariantList'])->middleware(['custom.auth','AdminApiLog']);
+    Route::get('orderlist', [DashboardController::class, 'OrderList'])->middleware(['custom.auth','AdminApiLog']);
+    Route::get('couponlist', [DashboardController::class, 'CouponList'])->middleware(['custom.auth','AdminApiLog']);
+    Route::get('shippinglist', [DashboardController::class, 'ShippingList'])->middleware(['custom.auth','AdminApiLog']);
+    Route::get('taxlist', [DashboardController::class, 'TaxList'])->middleware(['custom.auth','AdminApiLog']);
 
     Route::post('addcategory', [DashboardController::class, 'AddCategory'])->middleware(['custom.auth','AdminApiLog']);
     Route::post('updatecategory', [DashboardController::class, 'UpdateCategory'])->middleware(['custom.auth','AdminApiLog']);
@@ -203,12 +221,12 @@ Route::post('assignOrders', [DashboardController::class, 'assignOrder'])->middle
       Route::post(
         '/orders/notes/create',
         [DashboardController::class, 'AddOrderNote']
-    );
+    )->middleware(['custom.auth','AdminApiLog']);
 
     Route::delete(
         '/orders/notes/delete',
         [DashboardController::class, 'DeleteOrderNote']
-    );
+    )->middleware(['custom.auth','AdminApiLog']);
 
 Route::post('update-customer', [DashboardController::class, 'updateCustomerInfo'])->middleware(['custom.auth', 'AdminApiLog']);
 Route::get('customerlist', [DashboardController::class, 'CustomerList'])->middleware(['custom.auth', 'AdminApiLog']);
@@ -376,12 +394,8 @@ Route::post('/wallet/add-balance', [\App\Http\Controllers\StoreFinanceController
 Route::post('/delivery-syria/status', [
     DeliverySyriaStatusController::class,
     'updateStatus'
-]);
+])->middleware(['throttle:60,1']);
 
-Route::get('/delivery-syria/zid-statuses-test', [
-    DeliverySyriaStatusController::class,
-    'zidStatuses'
-]);
 
 
 

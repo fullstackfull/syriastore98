@@ -1,0 +1,61 @@
+<?php
+
+/**
+ * ============================================================================================
+ *  PROVISIONAL DRAFT -- GATE F. NOT ACTIVE. NOT RECONCILED AGAINST PRODUCTION.
+ * ============================================================================================
+ *
+ * This file lives in database/migrations/_gate_f_pending/, which Laravel does NOT discover
+ * (migration lookup is a non-recursive glob and nothing registers this path). It will not run.
+ * Read README.md in this directory before promoting it.
+ *
+ * SCHEMA-01: store_withdrawals is read and written by live code and created by NO migration.
+ *
+ * DERIVED FROM, and nothing else: app/Models/StoreWithdrawal.php:11 ($table), :13-27 ($fillable), :29-33 ($casts)
+ * $fillable and $casts omit types, lengths, nullability, defaults, indexes and foreign keys, so
+ * EVERY type below is an inference. MUST BE RECONCILED against `SHOW CREATE TABLE store_withdrawals`
+ * taken from a RESTORED COPY of a backup (GATE F) before this is promoted. The dump wins.
+ *
+ * MONEY COLUMNS ARE decimal(18,4) BY STANDING DECISION -- never float. Scale 4 because the
+ * seeded currency list includes 3-decimal KWD/BHD/OMR.
+ */
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        if (Schema::hasTable('store_withdrawals')) {
+            return;
+        }
+
+        Schema::create('store_withdrawals', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('store_id')->index();
+            $table->unsignedBigInteger('wallet_id')->index();
+            $table->decimal('amount', 18, 4)->default(0);
+            $table->string('status')->default('pending');        // RECONCILE: exact default + enum
+            $table->string('payment_method')->nullable();
+            $table->text('payment_details')->nullable();         // RECONCILE: json or text? May
+                                                                 // hold bank details -- if so it
+                                                                 // wants an encrypted cast, which
+                                                                 // is a separate decision.
+            $table->text('store_note')->nullable();
+            $table->text('admin_note')->nullable();
+            $table->unsignedBigInteger('requested_by')->nullable();
+            $table->unsignedBigInteger('reviewed_by')->nullable();
+            $table->timestamp('requested_at')->nullable();       // $casts :30 => datetime
+            $table->timestamp('reviewed_at')->nullable();        // $casts :31 => datetime
+            $table->timestamp('paid_at')->nullable();            // $casts :32 => datetime
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        // Intentionally empty -- payout history. See 0001's down().
+    }
+};

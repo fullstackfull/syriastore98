@@ -1,0 +1,59 @@
+<?php
+
+/**
+ * ============================================================================================
+ *  PROVISIONAL DRAFT -- GATE F. NOT ACTIVE. NOT RECONCILED AGAINST PRODUCTION.
+ * ============================================================================================
+ *
+ * This file lives in database/migrations/_gate_f_pending/, which Laravel does NOT discover
+ * (migration lookup is a non-recursive glob and nothing registers this path). It will not run.
+ * Read README.md in this directory before promoting it.
+ *
+ * SCHEMA-01: delivery_earnings is read and written by live code and created by NO migration.
+ *
+ * DERIVED FROM, and nothing else: app/Models/DeliveryEarning.php:9 ($table), :11-20 ($fillable), :22-27 ($casts)
+ * $fillable and $casts omit types, lengths, nullability, defaults, indexes and foreign keys, so
+ * EVERY type below is an inference. MUST BE RECONCILED against `SHOW CREATE TABLE delivery_earnings`
+ * taken from a RESTORED COPY of a backup (GATE F) before this is promoted. The dump wins.
+ *
+ * MONEY COLUMNS ARE decimal(18,4) BY STANDING DECISION -- never float. Scale 4 because the
+ * seeded currency list includes 3-decimal KWD/BHD/OMR.
+ */
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        if (Schema::hasTable('delivery_earnings')) {
+            return;
+        }
+
+        Schema::create('delivery_earnings', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('delivery_boy_id')->index();
+            $table->unsignedBigInteger('order_id')->index();
+            $table->unsignedBigInteger('shipping_method_id')->nullable()->index();
+            // The model casts these three decimal:2. The STANDING DECISION is (18,4) for stored
+            // money, which is WIDER than the cast and therefore lossless; the cast then rounds on
+            // read. Flagged because it is a deliberate disagreement with the model, not an
+            // oversight: RECONCILE against the dump and decide whether to widen the cast instead.
+            $table->decimal('shipping_cost', 18, 4)->default(0);          // $casts :23 decimal:2
+            $table->decimal('commission_percentage', 18, 4)->default(0);  // $casts :24 decimal:2
+            $table->decimal('commission_amount', 18, 4)->default(0);      // $casts :25 decimal:2
+            $table->string('status')->nullable();
+            $table->timestamp('paid_at')->nullable();                     // $casts :26 datetime
+            $table->timestamps();
+            // NOTE: no store_id in $fillable. Tenancy here is indirect, via delivery_boy_id.
+            // That is why DeliveryEarning is NOT on the BelongsToStore list.
+        });
+    }
+
+    public function down(): void
+    {
+        // Intentionally empty -- courier commission history. See 0001's down().
+    }
+};

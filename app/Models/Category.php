@@ -6,11 +6,12 @@ use GeneaLabs\LaravelModelCaching\Traits\Cachable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
+use App\Models\Concerns\BelongsToStore;
 
 class Category extends Model
 {
 
-    use HasFactory, Cachable;
+    use HasFactory, Cachable, BelongsToStore;
 
     protected $fillable = [
         'name',

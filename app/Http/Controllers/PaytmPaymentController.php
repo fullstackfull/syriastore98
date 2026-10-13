@@ -12,8 +12,12 @@ use Illuminate\Support\Facades\Auth;
 use PaytmWallet;
 
 
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
+
 class PaytmPaymentController extends Controller
 {
+    use GuardsPlanActivation;
+
     public $currancy;
 
     public function paymentConfig()
@@ -199,7 +203,12 @@ class PaytmPaymentController extends Controller
                     $order->card_exp_year  = '';
                     $order->plan_name      = $plan->name;
                     $order->plan_id        = $plan->id;
-                    $order->price          = isset($request->TXNAMOUNT) ? $request->TXNAMOUNT : 0;
+                    // Server-owned: was `isset($request->TXNAMOUNT) ? $request->TXNAMOUNT : 0`.
+                    // This handler ALREADY computed the correct price server-side a few lines
+                    // above ($price = $plan->price - $discount_value) and then discarded it in
+                    // favour of the posted TXNAMOUNT. Paytm IS verified on this path
+                    // ($transaction->isSuccessful()), so only the RECORDED price changes.
+                    $order->price          = $this->serverOwnedPlanPrice($plan, $request->coupon);
                     $order->price_currency = isset($request->CURRENCY_CODE) ? $request->CURRENCY_CODE : 'NFD';
                     $order->txn_id         = isset($request->TXNID) ? $request->TXNID : '';
                     $order->payment_type   = __('paytm');

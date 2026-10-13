@@ -9,10 +9,12 @@ use App\Models\PlanCoupon;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 
 class ToyyibpayController extends Controller
 {
+    use GuardsPlanActivation;
     public $secretKey, $callBackUrl, $returnUrl, $categoryCode, $is_enabled, $invoiceData;
 
     public function __construct()
@@ -106,6 +108,11 @@ class ToyyibpayController extends Controller
 
     public function toyyibpayPlanGetPayment(Request $request, $planId, $getAmount, $couponCode)
     {
+        // FAIL CLOSED FIRST. Identical to Sspay, from which this is copied: the gate below is
+        // `$request->status_id == 1`, billReturnUrl and billCallbackUrl are the same single url
+        // (:55-56), and the plan and price are route parameters. See config/payments.php.
+        $this->assertPlanActivationEnabled('toyyibpay', $planId);
+
         if ($couponCode != 0) {
             $coupons = PlanCoupon::whereRaw('BINARY `code` = ?', [$couponCode])->where('is_active', '1')->first();
             $request['coupon_id'] = $coupons->id;

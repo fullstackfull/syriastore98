@@ -1,0 +1,55 @@
+<?php
+
+/**
+ * ============================================================================================
+ *  PROVISIONAL DRAFT -- GATE F. NOT ACTIVE. NOT RECONCILED AGAINST PRODUCTION.
+ * ============================================================================================
+ *
+ * This file lives in database/migrations/_gate_f_pending/, which Laravel does NOT discover
+ * (migration lookup is a non-recursive glob and nothing registers this path). It will not run.
+ * Read README.md in this directory before promoting it.
+ *
+ * SCHEMA-01: store_wallets is read and written by live code and created by NO migration.
+ *
+ * DERIVED FROM, and nothing else: app/Models/StoreWallet.php:11 ($table), :13-21 ($fillable)
+ * $fillable and $casts omit types, lengths, nullability, defaults, indexes and foreign keys, so
+ * EVERY type below is an inference. MUST BE RECONCILED against `SHOW CREATE TABLE store_wallets`
+ * taken from a RESTORED COPY of a backup (GATE F) before this is promoted. The dump wins.
+ *
+ * MONEY COLUMNS ARE decimal(18,4) BY STANDING DECISION -- never float. Scale 4 because the
+ * seeded currency list includes 3-decimal KWD/BHD/OMR.
+ */
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        if (Schema::hasTable('store_wallets')) {
+            return;                                   // no-op against production
+        }
+
+        Schema::create('store_wallets', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('store_id')->index();          // every query filters by it
+            $table->string('currency_code', 3)->nullable();
+            $table->decimal('available_balance', 18, 4)->default(0);
+            $table->decimal('pending_balance', 18, 4)->default(0);
+            $table->decimal('total_income', 18, 4)->default(0);
+            $table->decimal('total_withdrawn', 18, 4)->default(0);
+            $table->decimal('withdrawal_pending_balance', 18, 4)->default(0);
+            $table->timestamps();
+            // RECONCILE: is store_id UNIQUE? One wallet per store is implied by
+            // OrderFinancialService.php:21-23 resolving "the" wallet, but not proven.
+        });
+    }
+
+    public function down(): void
+    {
+        // Intentionally NOT dropIfExists: this table is the merchant balance of record.
+        // Rolling it back would destroy the ledger's anchor. Drop it by hand if you must.
+    }
+};

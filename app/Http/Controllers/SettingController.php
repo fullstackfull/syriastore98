@@ -7,6 +7,7 @@ use App\Models\Setting;
 use App\Models\Theme;
 use App\Models\User;
 use App\Models\Utility;
+use App\Payments\RetiredGateways;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
@@ -1668,7 +1669,18 @@ $currencyRates = CurrencyRate::where('store_id', getCurrentStore())
                     ->get();
                 $view = view($views[$tabType], compact('setting', 'WhatsappNotification'));
             } elseif ($tabType == 'payment_setting') {
-                $paymentGateways = $this->paymentSettingArray();
+                // The admin payment screen. Two things happen here, both routed through the
+                // one retired-gateway predicate (RetiredGateways::PROVIDERS):
+                //  1. the gateway's displayed name carries the reason, so the screen explains
+                //     itself instead of silently ignoring the operator;
+                //  2. $setting is normalised so a retired gateway's enable TOGGLE renders off.
+                //     Only the enable value is overridden -- every stored credential keeps its
+                //     value and stays visible in its field, and the settings block is not
+                //     deleted. The operator's data is the owner's data.
+                // The toggle is still a real form control; it is made ineffective on the SAVE
+                // side by PaymentSettingController::processGateway(), not by hiding it.
+                $paymentGateways = $this->annotateRetiredGateways($this->paymentSettingArray());
+                $setting = RetiredGateways::disableIn($setting);
                 $view = view($views[$tabType], compact('setting', 'paymentGateways'));
             } elseif ($tabType == 'email_notify_setting') {
                 $s_admin = User::where('type', 'super admin')->first();
@@ -1822,6 +1834,29 @@ elseif ($tabType == 'otp_setting') {
         }
 
         return redirect()->back()->with('success', 'SEO successfully updated.');
+    }
+
+    /**
+     * Label every retired gateway with the reason it cannot be enabled.
+     *
+     * Done here, over the finished array, rather than by editing the two entries: the
+     * retired list lives in exactly one place (RetiredGateways::PROVIDERS) and retiring a
+     * third provider must not require remembering this screen.
+     */
+    private function annotateRetiredGateways($gateways)
+    {
+        if (!is_array($gateways)) {
+            return $gateways;
+        }
+        foreach ($gateways as $index => $gateway) {
+            if (!isset($gateway['id']) || !RetiredGateways::isRetired($gateway['id'])) {
+                continue;
+            }
+            $gateways[$index]['retired'] = true;
+            $gateways[$index]['name'] = $gateway['name'] . ' (' . __('retired - no longer available') . ')';
+        }
+
+        return $gateways;
     }
 
     private function paymentSettingArray()
@@ -2160,6 +2195,9 @@ elseif ($tabType == 'otp_setting') {
                     ['key' => 'paytr_salt_key', 'label' => __('Salt Passphrase')],
                 ],
             ],
+            // RETIRED (RetiredGateways::PROVIDERS). Entry KEPT on purpose: deleting it would
+            // orphan the stored credentials. annotateRetiredGateways() labels it and
+            // RetiredGateways::disableIn() renders its toggle off.
             [
                 'id' => 'yookassa',
                 'name' => __('Yookassa'),
@@ -2212,6 +2250,7 @@ elseif ($tabType == 'otp_setting') {
                     ['key' => 'nepalste_secret_key', 'label' => __('Secret Key')],
                 ],
             ],
+            // RETIRED (RetiredGateways::PROVIDERS). Entry KEPT -- see the note on 'yookassa'.
             [
                 'id' => 'payhere',
                 'name' => __('PayHere'),

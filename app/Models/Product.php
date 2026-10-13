@@ -9,10 +9,11 @@ use App\Models\Category;
 use App\Models\TaxOption;
 use Illuminate\Support\Facades\Cache;
 use DB;
+use App\Models\Concerns\BelongsToStore;
 
 class Product extends Model
 {
-    use HasFactory, Cachable;
+    use HasFactory, Cachable, BelongsToStore;
     protected $fillable = [
         'name',
         'slug',

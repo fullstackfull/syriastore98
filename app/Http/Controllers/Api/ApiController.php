@@ -9,6 +9,7 @@ use App\Models\{ActivityLog, City, State, Country, DeliveryAddress, OrderNote, P
 use App\Models\Tax;
 use App\Models\Category;
 use App\Models\{Utility, Wishlist, FlashSale};
+use App\Payments\RetiredGateways;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -48,6 +49,24 @@ use App\Models\StoreDevice;
 class ApiController extends Controller
 {
     use ApiResponser;
+
+    /** @var \App\Services\PaymentVerificationService|null */
+    private $paymentVerifierInstance = null;
+
+    /**
+     * The single seam that answers "may this order be recorded as Paid?".
+     *
+     * Lazily constructed rather than injected, because this controller is
+     * instantiated directly in several places (`new ApiController()`) as well as
+     * resolved from the container, and a constructor argument would break those
+     * call sites.
+     *
+     * @see \App\Services\PaymentVerificationService
+     */
+    private function paymentVerifier(): \App\Services\PaymentVerificationService
+    {
+        return $this->paymentVerifierInstance ??= new \App\Services\PaymentVerificationService();
+    }
 
 
 
@@ -2365,7 +2384,9 @@ public function saveStoreFcmToken(Request $request)
             $yookassa_image = asset(Storage::url('uploads/payment/yookassa.png'));
         }
 
-        $Setting_array[25]['status'] = !empty($is_yookassa_enabled) ? $is_yookassa_enabled : 'off';
+        // RETIRED (RetiredGateways::PROVIDERS): published 'off' whatever the tenant's row says. The index,
+        // the key set and every credential key below are UNCHANGED: repo B parses this shape.
+        $Setting_array[25]['status'] = RetiredGateways::status('yookassa', $is_yookassa_enabled);
         $Setting_array[25]['name_string'] = 'yookassa';
         $Setting_array[25]['name'] = 'yookassa';
         $Setting_array[25]['detail'] = $yookassa_unfo;
@@ -2460,7 +2481,9 @@ public function saveStoreFcmToken(Request $request)
             $payhere_image = asset(Storage::url('uploads/payment/payhere.png'));
         }
 
-        $Setting_array[30]['status'] = !empty($is_payhere_enabled) ? $is_payhere_enabled : 'off';
+        // RETIRED (RetiredGateways::PROVIDERS): published 'off' whatever the tenant's row says. The index,
+        // the key set and every credential key below are UNCHANGED: repo B parses this shape.
+        $Setting_array[30]['status'] = RetiredGateways::status('payhere', $is_payhere_enabled);
         $Setting_array[30]['name_string'] = 'payhere';
         $Setting_array[30]['name'] = 'PayHere';
         $Setting_array[30]['detail'] = $payhere_unfo;
@@ -7130,7 +7153,22 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         event(new AddAdditionalFields($order, $request->all(), $store));
         $order->payment_comment = !empty($request->payment_comment) ? $request->payment_comment : '-';
         $order->payment_type = $request->payment_type;
-        $order->payment_status = 'Paid';
+        // DERIVED, not asserted. This was the literal `'Paid'` on the public
+        // POST /api/{slug}/order-save path: an unauthenticated caller could
+        // create an order and have it recorded as paid with nothing having
+        // asked a gateway whether any money moved. It is the same seam the two
+        // PaymentController order writers use, so the four order-creating paths
+        // now derive this status identically.
+        //
+        // Note `$order->final_price` is read AFTER the block above has set it,
+        // so the amount the verification is checked against is the amount the
+        // order is actually for.
+        $order->payment_status = $this->paymentVerifier()->resolveOrderPaymentStatus(
+            $request->payment_type ?? null,
+            $this->paymentVerifier()->consumeVerification(),
+            $order->final_price,
+            __METHOD__
+        );
         $order->delivery_id = $request['method_id'] ?? 0;
         $order->delivery_comment = !empty($request->shipping_comment) ? $request->shipping_comment : '-';
         $order->delivered_status = !empty($request->delivered_status) ? $request->delivered_status : '-';

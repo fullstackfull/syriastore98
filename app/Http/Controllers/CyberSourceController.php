@@ -11,8 +11,36 @@ use App\Models\Coupon;
 use App\Models\PlanUserCoupon;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Auth;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
+
 class CyberSourceController extends Controller
 {
+    use GuardsPlanActivation;
+
+    /**
+     * THE LAST FOUR DIGITS OF A CARD NUMBER, AND NOTHING ELSE.
+     *
+     * Used instead of persisting the PAN the browser posts. Non-digits are stripped first so
+     * that a number typed with spaces or dashes ("4111 1111 1111 1111") still yields the four
+     * digits a receipt needs rather than four characters of formatting.
+     *
+     * Returns null rather than 0 for an absent or unusable value. The column is nullable, and 0
+     * would read like a card ending 0000; the previous expression recorded exactly that for a
+     * missing cardNumber. A value shorter than four digits is not a card number, so it is
+     * dropped rather than padded -- there is no case where storing part of a too-short number
+     * helps anyone.
+     */
+    private function lastFourDigits($cardNumber): ?string
+    {
+        $digits = preg_replace('/\D/', '', (string) $cardNumber);
+
+        if ($digits === null || strlen($digits) < 4) {
+            return null;
+        }
+
+        return substr($digits, -4);
+    }
+
     public function planPayWithCyberSource(Request $request)
     {
 
@@ -149,12 +177,41 @@ class CyberSourceController extends Controller
                         'order_id'          => $orderID,
                         'name'              => !empty($input['owner']) ? $input['owner'] : 0,
                         'email'             => null,
-                        'card_number'       => !empty($input['cardNumber']) ? $input['cardNumber'] : 0,
+                        // LAST FOUR DIGITS ONLY. This was the raw PAN the browser posted
+                        // (`$input['cardNumber']`), written into a column declared
+                        // `$table->string('card_number', 10)` at
+                        // database/migrations/2023_12_11_102124_create_plan_orders_table.php:19
+                        // -- so a 16-digit PAN errors outright under MySQL strict mode and is
+                        // SILENTLY TRUNCATED to its first 10 digits otherwise. Truncation is the
+                        // worse of the two: the leading digits are the issuer identification
+                        // number and the start of the account, and the row is still cardholder
+                        // data at rest with none of the obligations that come with holding it.
+                        //
+                        // The last four is what a receipt needs and what the column can hold --
+                        // the same thing StripePaymentController:140 already records. The
+                        // OUTBOUND call at :102 is untouched: CyberSource must receive the full
+                        // number, and that request is this provider's verification (it requires
+                        // $result['status'] == "AUTHORIZED" above), so nothing about the payment
+                        // architecture changes here. Nothing reads card_number except the
+                        // receipt views.
+                        'card_number'       => $this->lastFourDigits($input['cardNumber'] ?? null),
                         'card_exp_month'    => !empty($input['month']) ? $input['month'] : 0,
                         'card_exp_year'     => !empty($input['year']) ? $input['year'] : 0,
                         'plan_name'         => !empty($plan->name) ? $plan->name : 'Basic Package',
                         'plan_id'           => $plan->id,
-                        'price'             => $amount,
+                        // Server-owned: was `$amount`, taken from
+                        // json_decode($input['data'])['amount'] -- i.e. from the request body.
+                        //
+                        // CyberSource IS verified on this path: the handler posts to
+                        // apitest.cybersource.com/pts/v2/payments and requires
+                        // $result['status'] == "AUTHORIZED" above, so a forged return cannot
+                        // activate a plan and this provider is NOT on the config/payments.php
+                        // map. Only the RECORDED price changes, which is why no
+                        // amount-mismatch refusal is added -- see GuardsPlanActivation.
+                        //
+                        // This handler was also missing from the plan-purchase census, because
+                        // it writes through PlanOrder::create([...]) rather than $order->price.
+                        'price'             => $this->serverOwnedPlanPrice($plan, $coupon_code),
                         'price_currency'    => $admin_currancy,
                         'txn_id'            => time(),
                         'payment_type'      => __('Cybersource'),

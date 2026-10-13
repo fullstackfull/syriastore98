@@ -14,8 +14,12 @@ use App\Package\Payment;
 
 use Illuminate\Support\Facades\Auth;
 
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
+
 class TapPaymnetController extends Controller
 {
+    use GuardsPlanActivation;
+
     //
     public function planPayWithTap(Request $request)
     {
@@ -105,10 +109,14 @@ class TapPaymnetController extends Controller
             $currency = isset($payment_setting['CURRENCY_NAME']) ? $payment_setting['CURRENCY_NAME'] : 'USD';
             $orderID = strtoupper(str_replace('.', '', uniqid('', true)));
 
-            $getAmount = $request->amount;
-            $coupanCode = $request->coupon_code;
-            $user = \Auth::user();
             $plan = Plan::find($request->plan);
+            $coupanCode = $request->coupon_code;
+            // Server-owned: was `$request->amount`. See GuardsPlanActivation. This provider
+            // verifies with Tap ($tapPayStatus->status != "CAPTURED", above), so only the
+            // RECORDED price changes; no amount-mismatch refusal is added, because the unit Tap
+            // posts back cannot be established from this environment.
+            $getAmount = $plan ? $this->serverOwnedPlanPrice($plan, $coupanCode) : 0;
+            $user = \Auth::user();
 
             $order = new PlanOrder();
             $order->order_id = $orderID;

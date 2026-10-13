@@ -10,9 +10,11 @@ use App\Models\UserCoupon;
 use App\Models\PlanCoupon;
 use Exception;
 use Illuminate\Support\Facades\Auth;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class SspayController extends Controller
 {
+    use GuardsPlanActivation;
     public $secretKey, $callBackUrl, $returnUrl, $categoryCode, $is_enabled;
 
     public function __construct()
@@ -105,6 +107,12 @@ class SspayController extends Controller
 
     public function SspayPlanGetPayment(Request $request, $planId, $getAmount, $couponCode)
     {
+        // FAIL CLOSED FIRST. The gate below is `$request->status_id == 1`, a query parameter --
+        // and the initiator registers ONE url as billReturnUrl AND billCallbackUrl (:53-54), so
+        // there is not even a server-to-server channel to tell apart from the browser. The plan
+        // and the price are both route parameters. See config/payments.php.
+        $this->assertPlanActivationEnabled('sspay', $planId);
+
         if ($couponCode != 0) {
             $coupons = PlanCoupon::whereRaw('BINARY `code` = ?', [$couponCode])->where('is_active', '1')->first();
             $request['coupon_id'] = $coupons->id;

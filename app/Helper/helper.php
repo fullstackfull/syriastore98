@@ -142,7 +142,25 @@ if (!function_exists('get_file')) {
     {
         $admin = User::where('type', 'super admin')->first();
 
-        $settings = Setting::where('store_id', $admin->current_store)->pluck('value', 'name')->toArray();
+        // NULL GUARD -- NEW-get-file-500-on-missing-super-admin.
+        //
+        // This read was `$admin->current_store` with no guard, so `get_file()` raised
+        // "Attempt to read property \"current_store\" on null" and turned every page that
+        // calls it into a 500 on any database that has no `type = 'super admin'` row. That is
+        // not a test artefact: `users.type` is a plain string column, so a deployment whose
+        // super admin was renamed, soft-deleted or never seeded hits it, and `get_file()` is
+        // called from the shared layout partials, so the whole panel goes down at once.
+        // Measured: 7 of the 13 Feature failures on p1b/integration @ 17cb2f91 were this one
+        // line (AuthenticationTest, EmailVerificationTest, PasswordConfirmationTest,
+        // PasswordResetTest x2, RegistrationTest, ProfileTest).
+        //
+        // An absent super admin means no remote-storage settings can be resolved, and the
+        // correct fallback for that is local storage -- which is exactly what the `else` limb
+        // below already does for an empty `$settings`. So the guard yields `[]` rather than
+        // inventing a store id. When a super admin DOES exist the behaviour is byte-identical.
+        $settings = $admin
+            ? Setting::where('store_id', $admin->current_store)->pluck('value', 'name')->toArray()
+            : [];
 
         if (empty($path)) {
             return $path;
@@ -203,6 +221,18 @@ if (!function_exists('isEnabled')) {
     function isEnabled($enableSetting)
     {
         $admin = User::find($enableSetting->created_by);
+
+        // NULL GUARD -- NEW-is-enabled-500-on-orphaned-setting, the sibling of the defect in
+        // get_file() above and found while fixing it. `User::find()` returns null for a
+        // setting whose creator was deleted, and the `$admin->current_store` read then 500s
+        // the domain/subdomain resolution for every request on that host.
+        //
+        // FAILS CLOSED on purpose: a custom domain whose owning user no longer exists cannot
+        // be confirmed enabled, so the answer is "not enabled" rather than an exception. The
+        // return value is unchanged in every case where `$admin` is non-null.
+        if (! $admin) {
+            return false;
+        }
 
         return $enableSetting->value == 'on' && $enableSetting->store_id == $admin->current_store;
     }
@@ -1343,7 +1373,14 @@ if (!function_exists('ActivatedModule')) {
                     $user_not_com = Cache::remember("user_{$user->created_by}", 3600, function () use ($user) {
                         return User::find($user->created_by);
                     });
-                    if (!empty($user)) {
+                    // NEW-NULLGUARD-04. This guard tested `$user` -- which the enclosing
+                    // `if (!empty($user))` has already proven non-empty -- while the very next
+                    // line dereferences `$user_not_com`, a `User::find($user->created_by)` that
+                    // IS null whenever a staff member's employer row is absent. So the guard was
+                    // a no-op over the one variable that needed guarding. Pre-existing, not a
+                    // regression: the same wrong variable is at the p1b/integration baseline. It
+                    // was MASKED only because an earlier 500 short-circuited this path first.
+                    if (!empty($user_not_com)) {
                         if ($active_module == null) {
                             $active_module =  userActiveModule::where('user_id', $user_not_com->id)->pluck('module')->toArray();
                         }
@@ -1354,8 +1391,17 @@ if (!function_exists('ActivatedModule')) {
                     }
                 }
 
-                // Find the common modules
-                $commonModules = array_intersect($active_module, $available_modules);
+                // Find the common modules.
+                //
+                // `$active_module ?? []` is REQUIRED by the guard repair above, not cosmetic.
+                // With the guard finally doing its job, a staff member whose employer row is
+                // missing now leaves `$active_module` at its `null` initial value, and
+                // `array_intersect(null, ...)` is a TypeError on PHP 8 -- so fixing the
+                // dereference alone would merely have moved the 500 two lines down. The fallback
+                // is written HERE, locally, rather than by assigning `$active_module = []`,
+                // because `$active_module` is a `static` keyed on nothing: writing [] into it
+                // would memoise "no modules" for every later principal in the same process.
+                $commonModules = array_intersect($active_module ?? [], $available_modules);
                 $user_active_module = array_unique(array_merge($commonModules, $activated_module));
             }
         }
@@ -2315,8 +2361,25 @@ if (! function_exists('getStoreById')) {
 if (! function_exists('getNavMenu')) {
     function getNavMenu($menuId)
     {
-        // Fetch menu
-        $menu = Menu::with('store')->find($menuId);
+        // THE STOREFRONT NAV IS A PUBLIC READ OF PUBLIC DATA, so it bypasses the tenant
+        // scope explicitly.
+        //
+        // Menu is now on config/tenancy.php's `scoped_models`, which closes a real
+        // cross-tenant IDOR on the ADMIN paths (MenuController::findOrFail($id)->delete(),
+        // MenuItemsController's five bare Menu::find($menu_id) calls). But this function
+        // serves the storefront, and the predicate narrows it for any web-guard-
+        // authenticated visitor: a signed-in merchant browsing ANOTHER store's storefront
+        // got no menu at all, so the navigation AND the footer went blank in all three
+        // shipped themes. `find()` returning null here is indistinguishable from "no such
+        // menu", so it failed silently.
+        //
+        // Scoping buys NO confidentiality here -- a storefront menu is served to anonymous
+        // visitors by design, and an anonymous visitor resolves no tenant and so was never
+        // filtered. The admin paths keep the scope; this one read opts out, deliberately
+        // and visibly, which is what withoutGlobalScope is for.
+        $menu = Menu::withoutGlobalScope(\App\Scopes\StoreScope::class)
+            ->with('store')
+            ->find($menuId);
         if (! $menu) {
             return [];
         }
@@ -2559,3 +2622,57 @@ if (!function_exists('getAiModelName')) {
         ];
     }
 }
+/*
+|--------------------------------------------------------------------------------------------------
+| TENANCY NOTE -- WHY getCurrentStore() WAS *NOT* CHANGED
+|--------------------------------------------------------------------------------------------------
+|
+| Appended at the END OF THE FILE ON PURPOSE. Inserting it next to getCurrentStore() would shift
+| every line number below it, and this file is cited by line in other workstreams' documents
+| (docs/STABILIZATION-REGISTER.md cites app/Helper/helper.php:143-145 and :1373-1378) and in test
+| failure messages. A note that invalidates other people's references pays for its own
+| discoverability with everyone else's accuracy. Grep for `getCurrentStore` and you will find both
+| ends.
+|
+| THE PROBLEM. getCurrentStore() (this file, the `getCurrentStore` function) reads the `web` guard
+| and returns the principal's `current_store`. Storefronts are path-prefixed (`{storeSlug?}`, 106
+| declarations in routes/customer.php) on the SAME host; routes/customer.php is `require`d from
+| routes/web.php:1222 so storefront routes carry the `web` group; and config/session.php:146 sets
+| the session cookie path to '/'. So on a storefront request made by anyone holding a live admin
+| session, this function returns THEIR ADMIN STORE -- not the store whose shop is being rendered.
+|
+| That mismatch is what made a tenant predicate derived from this function AND the storefront's own
+| `where('store_id', $slugResolvedStore->id)` compile to `store_id = A AND store_id = B` -> zero
+| rows, silently. It is why Cart and Customer were enabled once and reverted.
+|
+| THE OBVIOUS FIX IS THE WRONG ONE, and that is the whole point of this note. The tempting change
+| is to make THIS FUNCTION return the slug-resolved store on a storefront request. It must not be
+| made here:
+|
+|   1. BLAST RADIUS. This is the single tenant resolver for the whole product -- roughly 497 of the
+|      1,282 `where('store_id', ...)` filters pass its result, and it also feeds writes. Changing
+|      what it returns would silently re-target INSERTs and UPDATEs, so a merchant doing admin work
+|      in one browser tab while another tab sat on some storefront could write rows against the
+|      wrong store. That is data corruption, not a blank page.
+|   2. IT WOULD FIGHT THE CALL SITES, NOT HELP THEM. The storefront already resolves its own store
+|      correctly, through `getStore($storeSlug)` in this file (405 call sites). Those sites are not
+|      broken and do not need this function to change; they needed the SCOPE to stop disagreeing
+|      with them.
+|   3. IT WOULD BREAK THE AUTHORIZATION HELPERS. `App\Models\Concerns\BelongsToStore::
+|      isOwnedByCurrentStore()` is used as `abort_unless($model->isOwnedByCurrentStore(), 403)`.
+|      If "current store" became the slug store, that check would start ADMITTING requests it
+|      denies today -- a permission change wearing a tenancy change's clothes.
+|
+| WHERE THE FIX ACTUALLY LIVES. App\Scopes\StoreScope::resolveTenant() resolves the tenant PER
+| CONTEXT and leaves this function's contract untouched. On a storefront request the slug-resolved
+| store is admitted ALONGSIDE the owned stores (`tenancy.storefront_tenant` = 'additive'), so the
+| set is a strict superset of today's and cannot blank a working page; on an admin route there is
+| no slug and the predicate is the owned-stores set exactly. `StoreScope::resolveStoreId()` still
+| returns what this function returns, which is what keeps point 3 above true -- asserted by
+| tests/Feature/Tenancy/StorefrontContextTenantResolutionTest::
+| test_the_storefront_repair_did_not_widen_an_authorization_helper.
+|
+| So: ONE resolver, ONE `store_id` discriminator, ONE shared database. The scope learned to ask the
+| right question per context; the resolver did not change its answer.
+|
+*/

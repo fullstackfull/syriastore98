@@ -12,8 +12,12 @@ use App\Models\PlanUserCoupon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
+
 class PaytabsController extends Controller
 {
+    use GuardsPlanActivation;
+
     public function paymentConfig()
     {
 
@@ -91,7 +95,33 @@ class PaytabsController extends Controller
         $user = \Auth::user();
         $planID = \Illuminate\Support\Facades\Crypt::decrypt($request->plan_id);
         $plan = Plan::find($planID);
-        $price = $request->total_price;
+
+        if (empty($plan)) {
+            abort(404, __('Plan not found.'));
+        }
+
+        // P0 (free activation), AND IT NEEDS NO GATEWAY AT ALL. Worse here than in CoinGate.
+        //
+        // This was `$price = $request->total_price`, POSTed by the merchant to
+        // route('paytabs.prepare.plan'). Below, `if ($price <= 0)` sets $user->plan, saves and
+        // calls assignPlan() -- the free-plan shortcut. And because line 94 above does
+        // `$request->coupon = 0;` UNCONDITIONALLY, the coupon block never runs and never
+        // recomputed the price, so $price was ALWAYS the value the merchant sent. One
+        // authenticated POST with total_price=0 activated any paid plan, with PayTabs never
+        // contacted.
+        //
+        // THIS IS A SHAPE NO EARLIER AUDIT HERE HAD LOOKED AT: every pass examined the RETURN
+        // handlers, never the free-plan shortcut in the checkout INITIATOR.
+        //
+        // Recomputed from $plan->price. NOTE ON THE COUPON ARGUMENT, so nobody reads more into
+        // it than is there: `$request->coupon` has ALREADY been set to 0 by line 94 by the time
+        // this runs, so serverOwnedPlanPrice() finds no coupon and returns $plan->price
+        // unmodified. That matches the pre-existing behaviour exactly -- the coupon block below
+        // never ran either, for the same reason -- so no discount that used to work stops
+        // working. The argument is passed anyway so that this line keeps doing the right thing
+        // if line 94 is ever removed. `$price <= 0` is now true only for a plan that really is
+        // free.
+        $price = $this->serverOwnedPlanPrice($plan, $request->coupon);
         $payment_setting = getSuperAdminAllSetting();
         $currency = !empty($payment_setting['CURRENCY_NAME']) ? $payment_setting['CURRENCY_NAME'] : 'USD';
         if ($currency != 'INR') {
@@ -202,9 +232,33 @@ class PaytabsController extends Controller
                 'paytabs.currency' => isset($currancy) ? $currancy : 'INR',
             ]
         );
+        $this->assertPlanActivationEnabled('paytabs', $request->plan_id);
+
          $status = $this->Verify($request->order_id);
 
         try {
+            // THE REAL VERIFICATION IS COMPUTED ON THE LINE ABOVE AND THEN NEVER USED.
+            //
+            // $this->Verify() (:46) posts payment/query to PayTabs with the server key and the
+            // stored tran_ref and returns ['success' => bool, ...]. That is a genuine provider
+            // check. The gate below is `$request->respMessage == "Authorised"` -- a string the
+            // CALLER supplies -- so $status is discarded and a GET to
+            // route('plan.paytabs.callback') with &respMessage=Authorised activated any plan.
+            //
+            // Same defect family as YookassaController building a client at :180 and never
+            // calling it, and PayHere computing its md5 outbound only: the verification is
+            // present, just not consulted.
+            //
+            // WHY THE GATE IS NOT SIMPLY SWITCHED TO $status['success'] IN THIS COMMIT. That is
+            // the right fix and it is fully specified by in-repo evidence -- and because Verify()
+            // uses the Http facade it is testable here with Http::fake(). But Verify() resolves
+            // its server key, region and tran_ref from Session::get($order_id), written by
+            // PaytabsPaymentPrepare. Whether a genuine return always still holds that session
+            // (a server-to-server callback would not) cannot be established from this
+            // environment, and getting it wrong refuses paying customers. So activation is
+            // refused outright instead, which is the owner's stated posture for a provider that
+            // cannot be verified, and config/payments.php records switching to $status as the
+            // re-enable condition.
             if ($request->respMessage == "Authorised") {
                 $couponCode = $request->coupon;
                 $plan_id = $request->plan_id;

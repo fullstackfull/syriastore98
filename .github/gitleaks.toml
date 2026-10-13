@@ -1,0 +1,93 @@
+# gitleaks configuration for Store Syria.
+#
+# EVERY ALLOWLIST ENTRY BELOW DOCUMENTS WHY IT IS ALLOWED. An allowlist without reasons
+# is worse than no scanner at all: it silently grants permanent amnesty to whatever
+# happened to be failing on the day someone wanted a green build.
+#
+# Kept under .github/ rather than at the repository root so it sits with the rest of the
+# CI configuration. Point the action at it with GITLEAKS_CONFIG=.github/gitleaks.toml.
+#
+# Extends the maintained default ruleset rather than replacing it -- a hand-rolled rule
+# set would be narrower than upstream's and would quietly stop detecting new token
+# formats.
+[extend]
+useDefault = true
+
+[allowlist]
+description = """
+Verified non-secrets. Each entry was checked by hand in Phase 1B; see the comments.
+This allowlist does NOT cover the committed .env, and must never be made to. That is a
+REAL, OPEN finding: APP_KEY and the full database credential set are recoverable from
+history at 3c39c160.
+
+The project owner has since reviewed it and decided to defer rotation, to leave the
+deployed .env untouched, and to keep the finding OPEN rather than fixed -- while
+requiring that it not block ongoing development. So the scan is no longer expected to
+pass: the gitleaks step in .github/workflows/ci.yml carries continue-on-error and is
+REPORTING only, while the diff screen (.github/scripts/scan-secrets.sh) stays BLOCKING
+so a NEW secret still fails the build. Adding .env here instead would bury the finding,
+which is the one outcome the owner ruled out. See SECURITY.md.
+"""
+
+paths = [
+  # CSS SOURCE MAPS, NOT JWTs.
+  #
+  # 65 `eyJ...` strings occur across 18 files here (2 .css, 16 .svg). They look like JWTs
+  # to any regex because a JWT's header and a JSON source map both begin by base64-encoding
+  # `{"`, which is `eyJ`. VERIFIED NOT TO BE TOKENS, two ways:
+  #   - not one of the 65 has JWT shape: a grep for three dot-separated base64url
+  #     segments across this whole directory returns zero matches;
+  #   - decoding them yields `{"version":3,"sources":["customizer.scss",...],"mappings":...}`
+  #     -- standard sourceMappingURL payloads emitted by the SCSS build.
+  # (01-SAFE-BASELINE.md 8.2 estimated "roughly 40"; the measured count is 65 across 18
+  # files. Corrected here rather than left to drift.)
+  '''packages/workdo/LandingPage/src/Resources/assets/.*\.(css|svg)$''',
+
+  # Composer's lockfile carries hundreds of content hashes and dist URLs that trip
+  # entropy rules. It contains no credential; it is generated and reviewed as a unit.
+  '''^composer\.lock$''',
+  '''^package-lock\.json$''',
+
+  # Vendored dependencies ship their own test fixtures and example keys. Scanning them
+  # reports upstream's deliberate fixtures as this project's secrets.
+  '''^vendor/''',
+  '''^node_modules/''',
+
+  # This file documents secret-shaped strings in order to allow them; it would otherwise
+  # match its own rules.
+  '''^\.github/gitleaks\.toml$''',
+
+  # The secret scanner's own rule table is a list of credential-shaped regexes.
+  '''^\.github/scripts/scan-secrets\.sh$''',
+]
+
+regexes = [
+  # MYFATOORAH PUBLIC TEST TOKEN -- config/myfatoorah.php:10 (`api_key`).
+  #
+  # This is the vendor's OWN published sandbox token, printed in their public
+  # documentation for every integrator to paste. The file's comment at :6-9 links both
+  # the live-token and test-token pages, which is how it was identified. It authenticates
+  # to MyFatoorah's sandbox only and grants access to nothing belonging to this project.
+  #
+  # Matched by its documented prefix rather than by pasting the value, so this config
+  # does not itself become a place a token is written down.
+  #
+  # NOTE FOR THE OWNER: this must stay a TEST token. If a LIVE MyFatoorah key is ever
+  # committed here it will be allowlisted by this entry and will NOT be reported. The
+  # durable fix is to read the key from the environment and leave the config value empty,
+  # at which point this entry should be deleted.
+  '''myfatoorah.*(?i)(test|sandbox)''',
+]
+
+# Test fixtures and templates are expected to contain credential-shaped placeholders.
+# .env.testing in particular carries a FIXED, deliberately fake APP_KEY that is committed
+# on purpose: it is used only by the test suite, it protects nothing, and keeping it fixed
+# is what stops `key:generate` writing into a tracked file. See 01-SAFE-BASELINE.md 6.3.
+[[rules]]
+id = "env-testing-fake-key"
+description = "The committed, deliberately fake test APP_KEY in .env.testing is not a secret."
+regex = '''^APP_KEY=base64:'''
+path = '''^\.env\.testing$'''
+[rules.allowlist]
+description = "Fixed fake key, committed on purpose. See 01-SAFE-BASELINE.md 6.3."
+regexes = ['''.*''']

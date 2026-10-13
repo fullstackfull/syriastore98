@@ -13,8 +13,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
+
 class SSLCommerzPaymentController extends Controller
 {
+    use GuardsPlanActivation;
+
     public function planPayWithSSLCommerz(Request $request)
 {
     $user                   = Auth::user();
@@ -140,8 +144,35 @@ class SSLCommerzPaymentController extends Controller
         return redirect()->route('plan.index')->with('error', __('Something went wrong, Please try again.'));
     }
 }
+    /**
+     * P0. THE WORST OF THE SET, AND ALSO INVISIBLE TO THE AUDIT'S CENSUS.
+     *
+     * It never appeared on the plan-purchase inventory because it writes NO price at all -- it
+     * flips an EXISTING PlanOrder to succeeded -- and the census required a price assignment.
+     *
+     * THE GATE IS `if (!$request->success == 0)`. `!` binds tighter than `==`, so this parses as
+     * `(!$request->success) == 0`, which is true whenever `success` is TRUTHY. It is a
+     * caller-supplied flag, and the surprising parse is not even the problem.
+     *
+     * THE PLAN AND THE ORDER COME FROM DIFFERENT PLACES, which is what makes this worse than a
+     * plain free activation. The order is looked up by `$request['tran_id']` while the plan
+     * comes from the {plan_id} ROUTE parameter. So a merchant can start a checkout for the
+     * CHEAPEST plan, take their own real tran_id, and call this route naming the MOST EXPENSIVE
+     * plan: their cheap order is flipped to 'succeeded' and the expensive plan is assigned. The
+     * plan_orders row then records the cheap plan's price against the expensive entitlement, so
+     * the books look internally consistent and the discrepancy is invisible.
+     *
+     * assignPlan() is also called TWICE (:157 and :175), the second time discarding the
+     * duration, user_module and counter arguments the first call passed.
+     *
+     * Activation is refused until SSLCommerz's transaction is validated server-side (its
+     * validator API, or at minimum requiring that the order found by tran_id belongs to the
+     * caller AND names the same plan as the route). See config/payments.php.
+     */
     public function planGetSSLCommerzStatus(Request $request, $plan_id)
     {
+        $this->assertPlanActivationEnabled('sslcommerz', $plan_id);
+
         if (!$request->success == 0) {
             $plan = Plan::find($plan_id);
             $user = Auth::user();

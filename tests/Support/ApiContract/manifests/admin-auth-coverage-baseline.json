@@ -1,0 +1,48 @@
+{
+    "_comment": "Recorded baseline of /api/admin/* routes with NO authentication middleware. Shrink this list as each route is repaired; never grow it. check-auth-coverage.php fails on anything not listed here, so a route removed from this list can never regress back to unprotected without the build going red.",
+    "_source": "routes/api.php",
+    "_warning": "Every entry here is an endpoint reachable with no credentials.",
+    "_verified_by": "Agent 5, Phase 1B, real PHPUnit 11.5.57 run against baseline b4917c5b. Anonymous GET of categorylist/couponlist/taxlist/shippinglist/variantlist with store_id returned HTTP 200 {\"status\":1,\"message\":\"successfull\"}. Anonymous POST to orders/notes/create returned 200 and took order_notes from 0 rows to 1 with note_type=to_customer -- a confirmed unauthenticated write.",
+    "count": 3,
+    "legitimately_public": {
+        "/api/admin/adminlogin": "login endpoint -- must be reachable unauthenticated. Carries throttle:auth.",
+        "/api/admin/delivery-login": "login endpoint -- must be reachable unauthenticated. Carries throttle:auth.",
+        "/api/admin/base_url": "returns the image base URL; public by design"
+    },
+    "must_be_protected": [],
+    "routes": [
+        "/api/admin/adminlogin",
+        "/api/admin/base_url",
+        "/api/admin/delivery-login"
+    ],
+    "_history": {
+        "b4917c5b_phase_1a": {
+            "count": 13,
+            "must_be_protected": 10,
+            "note": "13 /api/admin/* routes with no auth middleware; 10 of them had to be protected."
+        },
+        "bd6900bc_phase_1b_integration": {
+            "count": 4,
+            "closed": [
+                "/api/admin/categorylist",
+                "/api/admin/couponlist",
+                "/api/admin/orderlist",
+                "/api/admin/orders/notes/create",
+                "/api/admin/orders/notes/delete",
+                "/api/admin/productlist",
+                "/api/admin/shippinglist",
+                "/api/admin/taxlist",
+                "/api/admin/variantlist"
+            ],
+            "note": "9 routes gained custom.auth. Measured with this same script on bd6900bc: `php tests/Support/ApiContract/bin/check-auth-coverage.php --json` reported 4 unprotected and 9 now_fixed."
+        },
+        "p1c_agent2_api_authz": {
+            "count": 3,
+            "closed": [
+                "/api/admin/adminlogout"
+            ],
+            "note": "adminlogout gained ['custom.auth','AdminApiLog'] at routes/api.php. It was LOW severity rather than open -- Api/DashboardController::logouto re-implements the hash_equals token check itself, which is why the Phase 1A anonymous probe returned 401 and not 200 -- but the control now lives where every sibling declares it instead of depending on one handler. Measured: this script reports 3 unprotected, all three in legitimately_public. must_be_protected is now EMPTY: there is no /api/admin/* route left that lacks authentication and ought to have it."
+        }
+    },
+    "_how_to_shrink_this_file": "Protect the route first, then remove it from `routes` and record it under `_history`. Do NOT run --update-baseline to shrink it: that writer emits only _comment/_source/_warning/count/routes and would silently delete every piece of evidence in this file, including the empirical probe results that justify the finding. Pinned by tests/Feature/Security/AdminApiSurfaceTest.php."
+}
