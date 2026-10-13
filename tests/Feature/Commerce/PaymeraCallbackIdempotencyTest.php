@@ -182,6 +182,96 @@ class PaymeraCallbackIdempotencyTest extends TestCase
     }
 
     /**
+     * EVERY ROUTED PAYMERA ENTRY POINT CARRIES THE REPLAY GUARD -- and the list
+     * of entry points is DERIVED, not typed.
+     *
+     * WHY THIS EXISTS. The test above pins the lock/recheck/write ordering for
+     * two methods named as literals. That is only as good as the claim that
+     * those two are the only reachable entry points, and PaymentController in
+     * fact holds FIVE `handlePaymera*` methods. Measured:
+     *
+     *   handlePaymeraCallback        :595   routed (GET paymera.callback)   guarded
+     *   handlePaymeraTrigger         :952   routed (POST paymera.trigger)   guarded
+     *   handlePaymeraCallback_backup :910   NOT routed    lock, but NO replay guard
+     *   handlePaymeraCallback00      :1055  NOT routed    no guard, no lock
+     *   handlePaymeraTrigger00       :1083  NOT routed    no guard, no lock
+     *
+     * The three legacy copies are unreachable today -- a repo-wide search for
+     * each name outside the controller returns nothing, and no route uses a
+     * dynamic controller action -- so a replay cannot reach them. But they are
+     * live code in a live class, one route line away from being an unguarded
+     * duplicate order writer, and the previous phase's lesson here was exactly
+     * that a route owner and a handler owner each assumed the other end carried
+     * the control.
+     *
+     * THE INVARIANT: routed implies guarded. Routed-ness comes from the BOOTED
+     * ROUTER rather than a grep of routes/, so it follows the application's own
+     * resolution including any group prefix or dynamic registration. Route the
+     * `_backup` copy and this test fails and names it.
+     *
+     * It proves nothing about Paymera's own contract -- see the class docblock.
+     */
+    public function test_every_routed_paymera_entry_point_has_the_replay_guard(): void
+    {
+        $entryPoints = $this->paymeraEntryPointMethods();
+
+        $this->assertGreaterThanOrEqual(
+            5,
+            count($entryPoints),
+            'fixture assumption: PaymentController holds at least the five surveyed '
+                . 'handlePaymera* entry points. Fewer means the survey needs re-deriving, '
+                . 'not that the invariant holds.'
+        );
+
+        $routed = $this->routedPaymentControllerMethods();
+
+        $routedEntryPoints = array_values(array_intersect($entryPoints, $routed));
+        sort($routedEntryPoints);
+
+        $this->assertSame(
+            ['handlePaymeraCallback', 'handlePaymeraTrigger'],
+            $routedEntryPoints,
+            'the set of ROUTED Paymera entry points has changed. Every one of them must '
+                . 'carry the replay guard before this list is updated.'
+        );
+
+        $unguarded = [];
+
+        foreach ($entryPoints as $method) {
+            $source = $this->executableSourceOf(PaymentController::class, $method);
+
+            if (!str_contains($source, 'freshPaymeraPendingOrNull(')) {
+                $unguarded[] = $method;
+            }
+        }
+
+        // THE INVARIANT.
+        $this->assertSame(
+            [],
+            array_values(array_intersect($routedEntryPoints, $unguarded)),
+            'a ROUTED Paymera entry point has no replay guard. A gateway retry would '
+                . 'create a second order, a second stock decrement and a second merchant '
+                . 'wallet credit. Add the freshPaymeraPendingOrNull() re-check inside the '
+                . 'lock, as handlePaymeraCallback and handlePaymeraTrigger do.'
+        );
+
+        // THE CENSUS, so a NEW unguarded entry point cannot appear unnoticed.
+        sort($unguarded);
+
+        $this->assertSame(
+            [
+                'handlePaymeraCallback00',
+                'handlePaymeraCallback_backup',
+                'handlePaymeraTrigger00',
+            ],
+            $unguarded,
+            'the set of UNGUARDED handlePaymera* methods has changed. If one was guarded, '
+                . 'good -- shorten this list. If a new one appeared, it must be guarded '
+                . 'before it is routed.'
+        );
+    }
+
+    /**
      * The helper fails closed: a processed record yields null, and null is what
      * the callers treat as "create nothing".
      */
@@ -291,5 +381,61 @@ class PaymeraCallbackIdempotencyTest extends TestCase
         }
 
         return $code;
+    }
+
+    /**
+     * The `handlePaymera*` methods PaymentController actually declares.
+     *
+     * Read by reflection off the class, so the list cannot drift from the code
+     * the way a typed list does.
+     *
+     * @return list<string>
+     */
+    private function paymeraEntryPointMethods(): array
+    {
+        $methods = [];
+
+        foreach ((new \ReflectionClass(PaymentController::class))->getMethods() as $method) {
+            if ($method->getDeclaringClass()->getName() !== PaymentController::class) {
+                continue;
+            }
+
+            if (str_starts_with($method->getName(), 'handlePaymera')) {
+                $methods[] = $method->getName();
+            }
+        }
+
+        sort($methods);
+
+        return $methods;
+    }
+
+    /**
+     * PaymentController methods reachable through the BOOTED router.
+     *
+     * Deliberately not a grep of routes/: this follows the application's own
+     * route resolution, so a registration inside a group, a package route file
+     * or anything added dynamically is included.
+     *
+     * @return list<string>
+     */
+    private function routedPaymentControllerMethods(): array
+    {
+        $methods = [];
+
+        foreach (\Illuminate\Support\Facades\Route::getRoutes() as $route) {
+            $action = $route->getActionName();
+
+            if (!str_contains($action, PaymentController::class . '@')) {
+                continue;
+            }
+
+            $methods[] = substr($action, strrpos($action, '@') + 1);
+        }
+
+        $methods = array_values(array_unique($methods));
+        sort($methods);
+
+        return $methods;
     }
 }
