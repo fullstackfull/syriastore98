@@ -478,3 +478,46 @@ surface is unchanged; repo B's `lib/network/network.dart` is likewise untouched,
 403-never-401 contract holds on both sides. No dependency moved: `composer.json` and
 `composer.lock` are byte-identical to the phase base, and repo B's diff contains no
 `pubspec.yaml`, `pubspec.lock` or `analysis_options.yaml`.
+
+---
+
+## `NEW-VENDOR-DRIFT-03` — the lock's real blocker, measured at last
+
+**Classification: BLOCKED — EXTERNAL DEPENDENCY (upstream package is gone), and it supersedes
+the project's standing "three unfetchable packages" account.**
+
+The `lockfile-reproducibility` job had never run. Opening the release-candidate PR triggered it
+for the first time, on an `ubuntu-latest` GitHub-hosted runner with ordinary egress, and it
+produced the measurement five phases of work had been missing:
+
+```
+Failed to download lahirulhr/laravel-payhere from dist:
+  "https://api.github.com/repos/Visanduma/laravel-payhere/zipball/72ce0aa87b495517e3b2d66633e588c86d417e61"
+  could not be downloaded (HTTP/2 404 ): {"message":"Not Found","status":"404"}
+Source fallback is disabled. Not trying alternative sources.
+composer install exited 100
+```
+
+**It is a 404, not the 403 seen in the development container — and that changes the
+diagnosis completely.** A 403 pointed at the container's egress policy, i.e. an environment
+problem that a proper CI runner would not have. A 404 from a clean runner means the pinned
+commit `72ce0aa8` in `Visanduma/laravel-payhere` **no longer exists upstream** — deleted,
+renamed, made private, or force-pushed away. So `composer install` from this lock cannot
+succeed on *any* machine, and the deployed `vendor/` tree is not reproducible anywhere.
+
+**A second correction in the same run:** `yoomoney/yookassa-sdk-php (3.7.1)` and
+`yoomoney/yookassa-sdk-validator (1.0.2)` both appear in the runner's download list with no
+error. The only reported download failure is `lahirulhr/laravel-payhere`. The standing account
+of "three unfetchable packages, two of them yoomoney behind an unreachable host" is therefore
+wrong: on a normal runner it is **exactly one dead package**, and it is the PayHere one.
+
+**Why this cannot be worked around in code.** Removing the package from the lock is not
+available: `app/` and `routes/` reference its classes, so dropping it is a fatal at class load.
+This needs a dependency decision — update `lahirulhr/laravel-payhere` to a version whose dist
+still exists, vendor the package into the repository, or replace the PayHere integration.
+
+**What it means for every number this project has reported.** They all come from a `vendor/`
+tree that does not match the lock, and now we know that tree cannot be rebuilt from the lock at
+all. The suites are still meaningful as regression evidence against *that* tree; they are not
+evidence about a dependency set anyone can reconstruct. This is exit criterion 4, and it
+remains **NOT MET** — but it is no longer an unknown. It has a name, a URL and a remedy.
