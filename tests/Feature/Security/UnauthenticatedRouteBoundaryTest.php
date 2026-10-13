@@ -2,6 +2,9 @@
 
 namespace Tests\Feature\Security;
 
+use App\Models\Store;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
@@ -20,6 +23,13 @@ use Tests\TestCase;
  */
 class UnauthenticatedRouteBoundaryTest extends TestCase
 {
+    // RefreshDatabase is needed by exactly one test in this file -- the
+    // status.cancel dispatch below has to resolve a real store from a real slug.
+    // Without it that request answered 500 on the empty schema, and a 500 is not a
+    // refusal: asserting "not 200" around it would have been the weak assertion this
+    // suite criticises elsewhere.
+    use RefreshDatabase;
+
     /**
      * Controllers whose every route must sit behind `auth`.
      */
@@ -107,33 +117,41 @@ class UnauthenticatedRouteBoundaryTest extends TestCase
         'order.details',
         'order.complete',
 
-        // --- status.cancel STAYS PUBLIC, AND IS A REPORTED OPEN FINDING.
+        // --- status.cancel STAYS PUBLIC AT THE ROUTE, AND THE FINDING IS NOW
+        // --- CLOSED IN THE CONTROLLER. This entry used to end "NOT FIXED HERE"
+        // --- and describe a live anonymous defect; that is no longer true and
+        // --- the comment is corrected rather than left to rot, because a stale
+        // --- allowlist reason is how an exemption outlives its justification.
         // ---
         // --- It is a genuine storefront route: three shipped customer views
         // --- post to it -- front_end/sections/order_detail.blade.php,
         // --- front_end/pages/order-detail.blade.php and
-        // --- front_end/pages/auction_order_detail.blade.php -- and guest
-        // --- orders exist (orders.is_guest), so a guest must be able to cancel
-        // --- from the link they were given. Sweeping it behind `auth:customers`
-        // --- would break guest cancellation on every store.
+        // --- front_end/pages/auction_order_detail.blade.php -- so sweeping it
+        // --- behind route-level `auth:customers` would answer 401/redirect to
+        // --- the MERCHANT login from a storefront page.
         // ---
-        // --- BUT IT HAS NO OWNERSHIP CHECK AT ALL.
-        // --- OrderController::status_cancel:604-612 takes order_id straight off
-        // --- the request, calls Order::order_status_change() on it, and then
-        // --- walks Order::order_detail($request->order_id) adding every line
-        // --- item's qty back onto Product::product_stock / ProductVariant::stock
-        // --- (:613-626). No auth, no customer binding, no tenant predicate, no
-        // --- signature. An anonymous caller who guesses a numeric order id can
-        // --- cancel any order on the platform and inflate any merchant's stock.
+        // --- THE CONTROL MOVED INTO THE HANDLER, which is where it belongs for
+        // --- a storefront-group route: OrderController::status_cancel:926-940
+        // --- resolves the store from the slug and 404s, requires
+        // --- auth('customers')->user() and 403s without one, and then matches
+        // --- the order on BOTH store_id and customer_id. The stock-restore loop
+        // --- was also moved behind the success branch, so a replay can no
+        // --- longer inflate inventory.
         // ---
-        // --- NOT FIXED HERE, and deliberately so: the repair is an ownership
-        // --- predicate inside OrderController::status_cancel, and
-        // --- app/Http/Controllers/OrderController.php belongs to the commerce
-        // --- workstream. Recorded as a cross-agent dependency with this
-        // --- evidence rather than papered over at the route, because the two
-        // --- route-level options -- `auth:customers` (breaks guest
-        // --- cancellation) and `signed` (requires re-issuing every order link)
-        // --- are both product decisions.
+        // --- VERIFIED BY EXECUTION, not by reading that diff:
+        // --- tests/Feature/Security/OrderCancelAuthorizationTest covers the
+        // --- anonymous caller, another customer's order, another store's order,
+        // --- the owning customer's successful cancellation WITH the stock
+        // --- return, and the replay guard -- 6 tests, green here.
+        // --- DISCLOSED BEHAVIOUR CHANGE, recorded so it is not discovered in
+        // --- production: orders.customer_id defaults to 0, so a GUEST order can
+        // --- no longer be self-cancelled through this endpoint and has to go
+        // --- through the merchant.
+        // ---
+        // --- It stays in this allowlist because the ROUTE is still public, and
+        // --- test_status_cancel_is_public_at_the_route_but_gated_in_the_handler
+        // --- below asserts the handler half POSITIVELY -- the sweep skips
+        // --- allowlisted names, so allowlisting proves nothing on its own.
         'status.cancel',
 
         // --- NEW-addon-session-routes-dead: these two sit outside `auth` in
@@ -506,5 +524,73 @@ class UnauthenticatedRouteBoundaryTest extends TestCase
                 . 'alone.'
             );
         }
+    }
+
+    /**
+     * The converse of the `status.cancel` allowlist entry: being allowlisted here
+     * means only that the ROUTE is public. The sweep above skips allowlisted names,
+     * so without this test "status.cancel is in the allowlist" would be the entire
+     * evidence that an anonymous order cancellation is handled -- which is exactly
+     * the gap PUBLIC_ROUTE_ALLOWLIST is criticised for in
+     * test_the_storefront_public_endpoints_are_reachable_without_a_session.
+     *
+     * So both halves are asserted: the route really is reachable without a session
+     * (no middleware redirect), and the handler really does refuse an anonymous
+     * caller with 403 -- never 401, which repo B turns into a forced logout.
+     */
+    public function test_status_cancel_is_public_at_the_route_but_gated_in_the_handler(): void
+    {
+        $route = Route::getRoutes()->getByName('status.cancel');
+
+        $this->assertNotNull($route, 'status.cancel is missing.');
+
+        $middleware = array_map('strval', array_filter($route->gatherMiddleware(), 'is_string'));
+
+        $this->assertNotContains(
+            'auth',
+            $middleware,
+            'status.cancel is posted to by three shipped storefront views; the merchant '
+            . '`auth` guard is the wrong gate for it.'
+        );
+        $this->assertNotContains('auth:customers', $middleware);
+
+        // And the handler refuses. A REAL store is created first, so that the slug
+        // resolves and the refusal under test is the missing CUSTOMER rather than a
+        // 404 for an unknown store -- the distinction the 500 on an empty schema hid.
+        $owner = User::factory()->create([
+            'type' => 'admin',
+            'created_by' => 1,
+            'is_active' => 1,
+            'email_verified_at' => now(),
+        ]);
+
+        Store::create([
+            'name' => 'Boundary Store',
+            'email' => 'boundary' . uniqid() . '@example.test',
+            'theme_id' => 'stylique',
+            'slug' => 'boundary-store',
+            'created_by' => $owner->id,
+            'is_active' => 1,
+        ]);
+
+        $response = $this->post('/boundary-store/status-cancel', ['order_id' => 1]);
+
+        $this->assertNotSame(
+            200,
+            $response->getStatusCode(),
+            'An anonymous caller reached OrderController::status_cancel, which calls '
+            . 'Order::order_status_change() and restores stock.'
+        );
+        $this->assertNotSame(
+            401,
+            $response->getStatusCode(),
+            'repo-B lib/network/network.dart turns any 401 into a forced logout.'
+        );
+        $this->assertSame(
+            403,
+            $response->getStatusCode(),
+            'Expected 403: the store slug resolves, so the refusal under test is the '
+            . 'absent authenticated customer (OrderController::status_cancel:932-936).'
+        );
     }
 }
