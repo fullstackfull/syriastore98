@@ -361,6 +361,61 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | How a STOREFRONT request resolves its tenant
+    |--------------------------------------------------------------------------
+    |
+    | THIS KEY IS THE REPAIR FOR THE BATCH-2 REVERT. Condition 5 above describes a defect whose
+    | cause was not that Cart and Customer are unscopeable -- it was that ONE predicate was being
+    | asked to serve FIVE different contexts. A storefront request's tenant is the store the URL
+    | names; a merchant-admin request's tenant is the stores that merchant owns. Resolving both
+    | from `getCurrentStore()` alone is what returned zero rows on every storefront read made by a
+    | principal with a live admin session.
+    |
+    | The contexts are now named constants on App\Scopes\StoreScope and each returns its own
+    | admissible set (CONTEXT_SUPER_ADMIN, CONTEXT_MERCHANT_ADMIN, CONTEXT_STOREFRONT_WEB,
+    | CONTEXT_STOREFRONT_PUBLIC, CONTEXT_EXPLICIT, CONTEXT_CONSOLE, CONTEXT_UNRESOLVED). This key
+    | controls only the two storefront ones:
+    |
+    | 'additive'  -- DEFAULT. On a storefront request the slug-resolved store is ADDED to the
+    |                admissible set: `{slug store} UNION {current_store} UNION {owned stores}`. An
+    |                anonymous or `customers`-guard storefront request is left exactly as it is
+    |                today -- fail-open, no predicate.
+    |
+    |                WHY ADDITIVE IS THE DEFAULT, and it is the same argument that made
+    |                'owned_stores' safe: the set stays a STRICT SUPERSET of what the predicate
+    |                admits today, so NO query that returns rows today can return fewer. A replace
+    |                would NARROW every already-allowlisted model on every storefront request, and
+    |                a silently blank storefront is the exact failure this project has already
+    |                shipped twice (a brace move behind `auth` killed newsletter signup; scoping
+    |                Menu blanked the navigation).
+    |
+    |                AND IT GRANTS NOTHING NEW. On the same URL an anonymous visitor resolves no
+    |                tenant and so gets NO predicate at all, which means the slug store's rows are
+    |                already fully readable by anyone who can load the page. Admitting that one
+    |                store for an authenticated principal removes a predicate that was WRONG, not
+    |                one that was holding anything back.
+    |
+    | 'slug_only' -- the strict per-context predicate: a storefront request is scoped to the
+    |                slug-resolved store and NOTHING else, including for anonymous and
+    |                `customers`-guard requests. Strictly stronger isolation -- it closes the
+    |                storefront fail-open hole that `null_tenant` documents -- at the cost of
+    |                being a narrowing, so it must be chosen deliberately. Not the default.
+    |
+    | Both branches are exercised by tests/Feature/Tenancy/StorefrontContextTenantResolutionTest,
+    | so the choice is evidence-backed either way rather than a claim in a comment.
+    |
+    | THE SLUG IS READ FROM THE SAME PLACE THE STOREFRONT READS IT: the `storeSlug` route
+    | parameter, which is what `getStore()` uses at app/Helper/helper.php:2332, falling back to the
+    | first path segment ONLY for routes carrying the ActiveTheme middleware -- which is what
+    | ActiveTheme itself does at app/Http/Middleware/ActiveTheme.php:21. There is no second
+    | resolver and no new source of truth.
+    |
+    */
+
+    'storefront_tenant' => env('TENANCY_STOREFRONT_TENANT', 'additive'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Null-tenant observability
     |--------------------------------------------------------------------------
     |
