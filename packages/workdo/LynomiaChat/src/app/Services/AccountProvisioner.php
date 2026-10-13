@@ -299,6 +299,16 @@ class AccountProvisioner
             })
             ->update([
                 'provisioning_started_at' => now(),
+                // THE INCREMENT IS LOAD-BEARING, NOT BOOKKEEPING. This lock reads the
+                // affected-row count to decide who won, and the two databases do not count
+                // the same thing: SQLite (tests) returns rows MATCHED, MySQL (production)
+                // returns rows CHANGED, because PDO::MYSQL_ATTR_FOUND_ROWS is not set
+                // anywhere in config/database.php. With only a timestamp in the SET list,
+                // two attempts landing in the same whole second would write an identical
+                // value, MySQL would report 0 changed, and the winner would be told someone
+                // else holds the claim -- a spurious "already in progress" that no test on
+                // SQLite could ever reproduce. A counter always changes, so the count always
+                // reflects the WHERE clause. Do not remove it to "tidy" the SET list.
                 'provisioning_attempts' => DB::raw('provisioning_attempts + 1'),
                 'updated_at' => now(),
             ]);

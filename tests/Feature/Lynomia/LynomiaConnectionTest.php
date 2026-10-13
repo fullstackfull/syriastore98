@@ -47,6 +47,14 @@ class LynomiaConnectionTest extends TestCase
         // must be set before anything resolves it.
         $this->app->forgetInstance(\Workdo\LynomiaChat\app\Services\PlatformApiClient::class);
 
+        // NOTHING IN THIS FILE MAY REACH THE NETWORK. Http::fake() with an ARRAY does not
+        // stop a stray call: an unmatched URL is executed for real, so a test that adds a
+        // new remote call and forgets to stub it dials out of the sandbox and fails with a
+        // proxy error rather than saying what it did. This turns that into an explicit
+        // refusal. It is belt and braces over the closure fake, which always answers --
+        // the point is that it keeps answering after someone adds a call it has not met.
+        Http::preventStrayRequests();
+
         // The module must be in the add-on registry for ActivatedModule() to see it at all.
         AddOnManager::updateOrCreate(['module' => 'LynomiaChat'], [
             'name' => 'Lynomia Chat',
