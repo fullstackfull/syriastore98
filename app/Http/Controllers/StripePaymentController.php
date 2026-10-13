@@ -6,6 +6,7 @@ use App\Models\Plan;
 use App\Models\PlanOrder;
 use App\Models\PlanUserCoupon;
 use App\Models\PlanCoupon;
+use App\Payments\RetiredGateways;
 use Stripe;
 
 use Illuminate\Http\Request;
@@ -19,6 +20,15 @@ class StripePaymentController extends Controller
             $plan    = Plan::find($plan_id);
             if ($plan) {
                 $admin_payments_details = getSuperAdminAllSetting();
+
+                // RETIRED gateways (RetiredGateways::PROVIDERS) are forced 'off' here, ONCE,
+                // before anything reads this array. That covers BOTH readers of it: the
+                // "is any gateway enabled at all" test immediately below -- which must not
+                // open the plan-purchase page on the strength of a retired provider -- and
+                // resources/views/plans/stripe.blade.php, which is rendered from this same
+                // array. The keys and every stored credential are kept; only the enable
+                // values change, so no `isset()` in either reader starts behaving differently.
+                $admin_payments_details = RetiredGateways::disableIn($admin_payments_details);
 
                 if((isset($admin_payments_details['is_stripe_enabled']) && $admin_payments_details['is_stripe_enabled'] == 'on') ||
                     (isset($admin_payments_details['is_paystack_enabled']) && $admin_payments_details['is_paystack_enabled'] == 'on') ||
