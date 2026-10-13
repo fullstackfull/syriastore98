@@ -590,11 +590,21 @@ class BulkDeleteAuthorizationTest extends SecurityTestCase
             'ids' => $ids,
         ]);
 
-        $response->assertStatus(403);
-
+        // THE DATABASE FIRST, THE STATUS SECOND. Asserting the status first lets a status
+        // assertion mask the thing that actually matters -- when this control was removed as a
+        // teeth proof, the status assertion failed and the row assertion was never reached, so
+        // the test could not say whether the rows had gone.
         sort($ids);
         $this->assertSame($ids, $this->survivingIds('countries', $ids),
             'PLATFORM-WIDE DELETE: a merchant wiped the shared country reference table.');
+
+        // NOTE ON WHAT THIS DOES AND DOES NOT ISOLATE: for `country` TWO controls deny, and
+        // removing either one alone leaves the test green -- the PLATFORM_GLOBAL list, and the
+        // fail-closed branch for a table with no store_id and no stated derivation. That is
+        // defence in depth, and it is stated rather than implied. PLATFORM_GLOBAL is isolated by
+        // test_a_merchant_cannot_bulk_delete_plan_orders_even_their_own, where plan_orders DOES
+        // carry store_id and the row IS the caller's own, so the list is the only thing denying.
+        $response->assertStatus(403);
     }
 
     public function test_a_merchant_cannot_bulk_delete_states_cities_or_currencies(): void
@@ -614,9 +624,9 @@ class BulkDeleteAuthorizationTest extends SecurityTestCase
                 'ids' => [$id],
             ]);
 
-            $response->assertStatus(403);
             $this->assertSame([$id], $this->survivingIds($table, [$id]),
                 "PLATFORM-WIDE DELETE: a merchant deleted from `{$table}`.");
+            $response->assertStatus(403);
         }
     }
 
@@ -644,9 +654,9 @@ class BulkDeleteAuthorizationTest extends SecurityTestCase
             'ids' => [$own],
         ]);
 
-        $response->assertStatus(403);
         $this->assertSame([$own], $this->survivingIds('plan_orders', [$own]),
             'A merchant erased the record of their own subscription payment.');
+        $response->assertStatus(403);
     }
 
     /**
@@ -703,11 +713,10 @@ class BulkDeleteAuthorizationTest extends SecurityTestCase
             'ids' => $ids,
         ]);
 
-        $response->assertStatus(403);
-
         sort($ids);
         $this->assertSame($ids, $this->survivingIds('products', $ids),
             'A caller with no delete permission still destroyed rows.');
+        $response->assertStatus(403);
     }
 
     /**
