@@ -162,14 +162,25 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         sort($noSuchTable);
 
         $this->assertSame([
-            // THE REAL RAW-SQL TENANCY EXPOSURE, by table and statement count.
+            // TENANT-DISCRIMINATED TABLES REACHED BY RAW SQL WITH NO store_id IN THE STATEMENT,
+            // by table and statement count. Alphabetical, because the list is ksort()ed.
             //
-            // `customers` is the one that matters most and the one this increment makes
-            // visible: Customer is now an ALLOWLISTED Eloquent model, so its Eloquent reads are
-            // constrained -- and these three raw statements are not, and cannot be. Enabling the
-            // scope does not touch them. Reporting them together is the only honest account of
-            // what "Customer is enforced" means.
-            // (Alphabetical, because the list is ksort()ed before comparison.)
+            // READ THE PER-TABLE NOTES BEFORE TREATING ANY OF THESE AS A LIVE EXPOSURE. Two of
+            // the four are not, and the exact sites are named so nobody has to re-derive it:
+            //
+            // `customers` -- NOT a tenancy finding, and this note is a CORRECTION of what was
+            // first written here. The first version of this comment called it "the one that
+            // matters most" on the reasoning that Customer is now an allowlisted Eloquent model
+            // whose raw reads the scope cannot touch. The reasoning is sound; the attribution
+            // was not. Measured, all three statements are in ONE one-off backfill migration:
+            //     packages/workdo/ProductAffiliate/src/database/migrations/
+            //         2024_09_18_033433_add_affiliate_code_to_customers_table.php:24, :29, :30
+            // which iterates every customer on the platform to mint affiliate codes. A
+            // data-backfill migration is SUPPOSED to be cross-tenant, so there is nothing to fix.
+            // And the two raw `customers` reads that ARE live --
+            // CustomerLoginController.php:68 and :686, the storefront login and registration
+            // validators -- both carry `->where('store_id', $storeId)` and are correctly counted
+            // as aware, not exposed.
             'customers' => 3,
             // `notify_users` IS an allowlisted Eloquent model (NotifyUser), so the same caveat
             // applies to it as to `customers`: the scope governs its Eloquent reads and cannot
@@ -185,9 +196,24 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // special-cased, because an inventory with hand-carved exceptions stops being
             // reproducible -- the exception is recorded here instead.
             'notify_users' => 1,
-            // `settings` is the widest: read on every page render through getAdminAllSetting()
-            // (app/Helper/helper.php:350-382). It is also why Setting is NOT allowlisted.
+            // `settings` IS THE REAL ONE, and it is the widest surface in the codebase: read on
+            // every page render through getAdminAllSetting() (app/Helper/helper.php:350-382).
+            // It is also why Setting is NOT allowlisted. The nine sites:
+            //     app/Models/Utility.php:830                      (Utility::cookies(), filtered
+            //                                                      on created_by, not store_id --
+            //                                                      the cookie-consent bleed
+            //                                                      already detailed in
+            //                                                      ResidualTenancyExposureTest)
+            //     app/Providers/StoreRedirectServiceProvider.php:30, :31
+            //     app/Providers/ViewServiceProvider.php:89, :90   (subdomain/domain -> store
+            //                                                      resolution; keyed on the host,
+            //                                                      so arguably correct)
+            //     app/Http/Controllers/AITemplateController.php:52
+            //     packages/workdo/Donation/.../DonationController.php:187
+            //     packages/workdo/PartialPayments/.../PartialPaymentsController.php:459, :470
             'settings' => 9,
+            // `store_devices` -- app/Services/StoreNotificationService.php:195. Push-notification
+            // device tokens, read with no store predicate. One statement, genuinely unscoped.
             'store_devices' => 1,
         ], $discriminated, 'The set of tenant-discriminated tables reached by raw SQL without a '
             . '`store_id` predicate changed. Each statement here is an unconstrained cross-tenant '
