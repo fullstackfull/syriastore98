@@ -753,3 +753,93 @@ file already used `catch (\Throwable)` in 15 other places). Held by
 fails, the required CI `tests` job still dies at the same download, and PayHere still cannot
 take a payment. The guard only ensures that the customer-facing symptom of the blocker is a
 refusal rather than an HTTP 500 while the owner decides §8.
+
+---
+
+# §10. CLOSED — the owner retired the integration (2026-10-13)
+
+**Status: RESOLVED. This section supersedes §8's four options; none of them was taken.**
+
+The owner decided PayHere is not needed. The blocker is therefore closed by removing the
+dependency rather than by recovering it.
+
+## What was done
+
+`composer remove lahirulhr/laravel-payhere --no-install --no-scripts` — composer itself, never a
+hand-edit, so the lock's `content-hash` stays composer-written and `composer validate` stays green.
+
+```
+Lock file operations: 0 installs, 0 updates, 2 removals
+lock 239 -> 237 entries   (packages 200 -> 198; packages-dev 39 unchanged)
+```
+
+The second removal, `spatie/laravel-package-tools`, is a legitimate transitive cascade and was
+verified, not assumed: in the pre-change lock it was required by exactly one package (the PayHere
+package, `^1.9.2`), it is absent from root `composer.json`, and no first-party or vendored file
+references `LaravelPackageTools`. A sorted name+version diff of the whole lock is **two deletion
+lines and zero additions** — no surviving package moved version.
+
+## Evidence that the lock now resolves
+
+Clean room: a fresh directory holding only `composer.json` and `composer.lock`, with
+`COMPOSER_CACHE_DIR` pointed at a verified-empty directory so this container's ~6.8G Composer
+cache cannot flatter the result.
+
+```
+composer install --prefer-dist --no-interaction --no-progress --no-scripts --dry-run
+  Verifying lock file contents can be installed on current platform   -> passes
+  Package operations: 237 installs, 0 updates, 0 removals
+  exit 0; zero error/could-not/failed lines
+  laravel/framework at the locked v11.47.0
+  both yoomoney packages present; neither removed name in the plan
+```
+
+**Scope of that claim, stated precisely.** This proves the lock **resolves** and is
+platform-compatible. It does **not** prove every dist still downloads. A real install needs ~1.5G
+of `vendor/` against 1.3G free in this container, and dist fetchability cannot be measured from
+here at all — `api.github.com` answers **403 to every URL** through this container's proxy, which
+is evidence in neither direction. **CI's strict `tests` job, installing from this lock on a clean
+runner, is the authoritative proof.**
+
+## Laravel boots
+
+`php artisan --env=testing about` exits 0 (Laravel 11.57.0 installed locally, env `testing`).
+
+An earlier claim in this repository held that removing the package from the lock would fatal at
+class load because five files `use Lahirulhr\PayHere\PayHere`. **That premise was wrong.** A `use`
+statement is an alias and loads nothing; all five references are static calls inside method
+bodies, none at boot. The package was already absent from `vendor/` before this change, and the
+app booted then too — so removing it from the lock cannot have broken boot.
+
+`bootstrap/cache/` is fully gitignored (`*` with `!.gitignore`), so no stale package manifest
+reaches a clean runner, and the provider and `PayHere` alias were registered **only** by Composer
+package auto-discovery (`extra.laravel`), never in `config/app.php`. Removal therefore leaves no
+dangling provider reference.
+
+## What is retired, and what is merely unselectable
+
+- **Refusing, explicitly:** the two first-party call sites — `PaymentService::processPayHere()`
+  and `PayHerePaymnetController::planPayWithPayHere()` — refuse because the integration is
+  retired, as their first statement, before any session, attachment or database write, with
+  `class_exists()` kept as a second line.
+- **Contained by unavailability, NOT fixed:** the three addon services that call
+  `PayHere::checkOut()` (`packages/workdo/Campaigns`, `Donation`, `LotteryPrizes`) are inside the
+  guard-protected `packages/` tree and were not edited. They are unreachable because the provider
+  is unselectable at every surface that offers it — not because those call sites were repaired.
+  Reaching them already fatalled before this change.
+- **Routes kept deliberately.** `resources/views/plans/stripe.blade.php:1871` renders
+  `route('pay.payhere.payment')`, and its guard at `:1863` is `isset(...) == 'on'` — i.e.
+  `true == 'on'`, which is **TRUE** — so that block renders whenever `payhere_merchant_secret` is
+  non-empty, regardless of `is_payhere_enabled`. Deleting the route name would raise
+  `RouteNotFoundException` on a page that currently loads. A refusing route beats a 404.
+
+## Now-dead apparatus (deliberately left in place)
+
+The degraded-install machinery built while the blocker was open — the `tests-degraded` job,
+`--allow-missing`, `make-degraded-manifest.php`, `screen-install-failure.php` and the
+`lockfile-reproducibility` job — is dead code once the strict install succeeds. It **self-retires
+without reddening CI**: the install step emits a `degraded=false` notice when the strict install
+succeeds. It is left for one green strict run to confirm the fix, and can be removed in a later,
+separate commit. Two comments in it are now stale and should be corrected if it is touched: the
+"committed-and-stale bootstrap cache" note (those files are untracked) and the
+"Do NOT remove the package from the lock: five files use its classes" note (disproven above).

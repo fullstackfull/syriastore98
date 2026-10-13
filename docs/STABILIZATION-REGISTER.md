@@ -655,3 +655,58 @@ tree that does not match the lock, and now we know that tree cannot be rebuilt f
 all. The suites are still meaningful as regression evidence against *that* tree; they are not
 evidence about a dependency set anyone can reconstruct. This is exit criterion 4, and it
 remains **NOT MET** — but it is no longer an unknown. It has a name, a URL and a remedy.
+
+---
+
+## FINAL CLOSURE — owner decisions executed (2026-10-13)
+
+The owner closed the stabilization phase with four decisions. What each produced:
+
+| Decision | Outcome |
+|---|---|
+| **PayHere not needed** | Dependency removed via composer (lock 239→237, nothing else moved). Both first-party paths refuse as retired. Clean-room `--dry-run` with an empty cache resolves 237 installs, exit 0. `artisan about` exits 0. See `docs/BUILD-REPRODUCIBILITY.md` §10. |
+| **YooKassa not needed** | Initiator gated (it was ungated and called `assignPlan()` directly in the coupon-covers-full-price branch); return handler already gated. `yoomoney/*` deliberately **kept** in the lock — disabling is not uninstalling. |
+| **Credentials unchanged** | Nothing rotated, nothing in `.env` touched. The exposures below remain **OPEN / ACCEPTED RISK — OWNER DECISION**. |
+| **No new features** | No feature added, no UI redesigned, no phase opened. |
+
+### Both providers are retired at a single predicate
+
+`app/Payments/RetiredGateways.php` is the one authoritative list, routed through all seven
+surfaces that read `Utility::GetValueByName('is_<provider>_enabled', $store_id)` — including the
+Flutter API payment list, whose response **shape** is unchanged because repo B parses it and a
+blocking cross-repo contract check guards it. Array indices are not renumbered. Stored gateway
+credentials are **not** destroyed; the settings fields go inert with a reason.
+
+Seven independently-spelled edits is how a retired provider comes back by accident; one predicate
+behind seven call sites is why a test can assert the list itself.
+
+### Credential exposure — still OPEN, deliberately
+
+Unchanged by owner instruction, and recorded here so it is not mistaken for closed. All four
+predate this work, are present on `main`, and **no diff-based screen can ever see them**:
+
+- `config/services.php:31` — Zid OAuth `client_secret`, beside the real `client_id` and the
+  production `redirect_uri`. Appears live.
+- `config/services.php:34` — webhook password under a key (`hook_pass`) the secret scanner's key
+  list does not match at all.
+- `config/jwt.php:18` — a 64-char **`env()` fallback** for `JWT_SECRET`. If that variable is unset
+  in an environment, this literal signs every JWT.
+- `config/myfatoorah.php:10` — probably the vendor's public *test* token (the file's own comment
+  links their docs). Not claimed as live.
+
+The owner's recorded deferral names `.env`. `config/*.php` is a different file set. That
+distinction is the open question, and it is the owner's to answer.
+
+### Still open, not blocking the merge
+
+- **Flutterwave and Paystack** gate on the verify call's *envelope* rather than the transaction
+  state. Both make a real outbound call with the merchant secret — this project's established bar
+  for "verified" — so both were deliberately left alone. Tightening them needs the providers'
+  documented response contracts. The highest-value remaining payment follow-up.
+- **`owner_menu_settings`** — six of the eight accepted Feature failures are one casing bug inside
+  guard-protected `packages/`.
+- **GATE F** — six money tables still undeclared; `docs/GATE-F-SCHEMA-EXPORT.md` is ready and
+  unrun, and all 17 accepted skips are this.
+- **`Utility::changeStorageLimit()` does not exist anywhere in the tree** while ~30 controllers
+  call it. Pre-existing and project-wide; outside this closure's scope. Found while reviewing the
+  settings surfaces.
