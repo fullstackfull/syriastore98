@@ -10,9 +10,17 @@ use PHPUnit\Framework\TestCase;
  *
  * THE GAP, AS MEASURED HERE rather than assumed. A full run
  *     vendor/bin/phpunit --testsuite Feature --display-skipped
- * reports 9 skips. EIGHT of them are GATE F; the ninth is `zid_orders`, which is a
- * different undeclared table and not one of the money six. Those eight skips name only
- * THREE distinct money tables:
+ * reported 9 skips WHEN THIS WAS WRITTEN. RE-MEASURED on p1e/agent5-qa at de8646b7 it
+ * reports 17, and the split is 15 + 2: fifteen name one of the six money tables, and two
+ * belong to a different undeclared-schema family -- `zid_orders`
+ * (DeliverySyriaWebhookTest) and `newsletters.user_id` (CustomerAccountBoundaryTest, an
+ * undeclared COLUMN rather than a table).
+ *
+ * THE NAMING GAP THIS FILE RECORDS IS NOW CLOSED, and that is the point of leaving the
+ * history visible: all six money tables are named by at least one skip today, where only
+ * the three below were when this ledger was written. The tests here are kept because they
+ * are what makes that true rather than incidental -- they fail if any of the six stops
+ * being named. The three originally covered were:
  *
  *     store_wallets              -- skipped in FinancePermissionTest,
  *                                   WithdrawalAuthorizationTest,

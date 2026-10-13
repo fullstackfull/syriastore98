@@ -565,6 +565,28 @@ jobs:
         # contains `artisan migrate --graceful`, which must never run in CI.
         run: composer install --prefer-dist --no-interaction --no-progress --no-scripts
 
+      - name: vendor/ must match composer.lock -- BLOCKING
+        # THE ONE PLACE THIS CHECK HAS TEETH, and the reason it is blocking here while it
+        # is only advisory everywhere else: `composer install` ran from the lock in the
+        # step immediately above, so vendor/ MUST match the lock. If it does not, the
+        # install is broken, a cached workspace leaked in, or the lock was edited without
+        # reinstalling -- and every number this job goes on to print would describe a
+        # dependency set nobody chose.
+        #
+        # WHY THE PROJECT NEEDS THIS AT ALL. Every test number reported in Phases 1A-1E
+        # came from a developer vendor/ tree that does NOT match composer.lock. Measured
+        # on p1e/agent5-qa at de8646b7: 239 locked, 235 installed, 85 at the locked
+        # version, 148 at a DIFFERENT version, 6 locked-but-absent, 2 present-but-unlocked,
+        # 4 crossing a MAJOR version, and the framework under test at 11.57.0 against a
+        # lock pinning 11.47.0. `composer validate` passes throughout, because it compares
+        # composer.json to composer.lock and never looks at vendor/. Nothing compared the
+        # third pair until this guard existed.
+        #
+        # The guard is itself covered by tests/Unit/Dependency/ComposerLockIntegrityGuardTest.php,
+        # which feeds it synthetic lock/installed pairs with known verdicts -- including one
+        # differing by a single patch release, so loosening the comparison fails that test.
+        run: .github/scripts/guard-composer-lock-integrity.sh .
+
       - name: Assert the committed fake test key is present
         # NO key:generate. .env.testing carries a FIXED, deliberately fake APP_KEY,
         # committed on purpose because it protects nothing and is used only by the
@@ -735,3 +757,136 @@ jobs:
         # nothing outside that set fails.
         continue-on-error: true
         run: vendor/bin/phpunit --testsuite Feature --testdox
+
+  # ---------------------------------------------------------------------------
+  # IS THE LOCK ACTUALLY INSTALLABLE? -- the measurement this project has never made.
+  #
+  # THE PROBLEM THIS JOB EXISTS TO SOLVE. The project's single unmet exit criterion is
+  # that no reported number was measured against composer.lock. The `tests` job above
+  # would fix that, but it is gated behind the ALLOW_COMPOSER_INSTALL repository
+  # variable, so on most runners it never executes -- and the variable exists because
+  # three locked packages could not be fetched from the DEVELOPMENT CONTAINER:
+  #
+  #   lahirulhr/laravel-payhere v1.0.4   dist: api.github.com/.../zipball/72ce0aa8
+  #   yoomoney/yookassa-sdk-php 3.7.1    dist: git.yoomoney.ru/rest/api/.../archive
+  #   yoomoney/yookassa-sdk-validator    dist: git.yoomoney.ru/rest/api/.../archive
+  #
+  # That gate was set from inside the container, and this is the measured reason it
+  # should not have been generalised to every runner:
+  #
+  #   * All three packages EXIST. repo.packagist.org/p2/<name>.json returns HTTP 200
+  #     for each. None is deleted, renamed or abandoned-and-removed.
+  #
+  #   * The payhere 403 is THE CONTAINER'S EGRESS POLICY, not GitHub's and not the
+  #     package's. api.github.com/ answers 200, but every /repos/*/zipball/* request
+  #     answers 403 -- including laravel/framework's, a repo whose zipballs serve fine
+  #     anywhere. The 403 body is the proxy's own text: "GitHub access to this
+  #     repository is not enabled for this session." A GitHub-hosted runner has no such
+  #     per-session repository scoping, so this package is expected to install here.
+  #
+  #   * git.yoomoney.ru is NOT DETERMINABLE from the container at all: DNS does not
+  #     resolve and the proxy answers 403 to CONNECT, which its own status endpoint
+  #     describes as "policy denial OR upstream failure". Those two cannot be separated
+  #     from inside, and github.com/yoomoney/* is 403 by the same policy, so even a
+  #     mirror check is impossible there. THIS JOB IS THE MEASUREMENT.
+  #
+  # WHY IT IS continue-on-error AND NOT A GATE. Because the yoomoney answer is unknown.
+  # Shipping a blocking job whose outcome has never been observed would put a red on the
+  # board that nobody can act on, which is exactly how the two permanently-red jobs that
+  # had to be converted to report-only in Phase 1B came about. This job is here to turn
+  # an unknown into a measurement. ONCE IT IS OBSERVED GREEN: delete the
+  # continue-on-error, delete the ALLOW_COMPOSER_INSTALL condition on the `tests` job,
+  # and CI -- not any developer container -- becomes the reproducible environment for
+  # every number this project reports.
+  #
+  # IF IT IS OBSERVED RED ON THE YOOMONEY HOST: the honest remedies are a composer
+  # repository mirror or a vendored dist for those two packages, both of which are owner
+  # decisions. The forbidden remedy is editing the lock to drop them: app/Models/Utility.php
+  # (:1580-1594 yookassa, :1669-1674 payhere) and 338 other references across app/,
+  # routes/, config/ and packages/ reach those integrations, so removing them is a fatal
+  # at class load, not a dependency cleanup.
+  # ---------------------------------------------------------------------------
+  lockfile-reproducibility:
+    name: Is composer.lock installable? (report)
+    runs-on: ubuntu-latest
+
+    env:
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      APP_ENV: testing
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: ctype, curl, dom, fileinfo, filter, gd, iconv, intl, mbstring, openssl, pdo, pdo_sqlite, phar, simplexml, sodium, tokenizer, xml, xmlreader, xmlwriter, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Do the three disputed packages exist at all?
+        # Cheap, needs no install, and separates "package is gone" from "host is blocked"
+        # before the install attempt makes that distinction expensive to read.
+        run: |
+          for p in lahirulhr/laravel-payhere yoomoney/yookassa-sdk-php yoomoney/yookassa-sdk-validator; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "https://repo.packagist.org/p2/${p}.json" || echo 000)
+            echo "packagist metadata ${p}: HTTP ${code}"
+          done
+
+      - name: Attempt the real install from the lock
+        id: install
+        # continue-on-error so the measurement below runs either way. See the job header.
+        # --no-scripts matches the `tests` job: post-autoload-dump boots the application
+        # and post-create-project-cmd runs `artisan migrate --graceful`.
+        continue-on-error: true
+        run: composer install --prefer-dist --no-interaction --no-progress --no-scripts
+
+      - name: Verdict
+        # Always runs. This is the line a human reads to decide whether CI can become the
+        # project's reproducible environment.
+        run: |
+          if [ "${{ steps.install.outcome }}" = "success" ]; then
+            echo "::notice::composer.lock INSTALLED on an ubuntu-latest GitHub-hosted runner."
+            echo "::notice::The three disputed packages are fetchable here. The restriction is the development container's egress policy, not the lock."
+            echo "::notice::NEXT: drop continue-on-error on this job and the ALLOW_COMPOSER_INSTALL condition on the tests job."
+          else
+            echo "::warning::composer install from the lock FAILED on a GitHub-hosted runner."
+            echo "::warning::This is the measurement the project was missing. Read the step log above for the failing dist URL."
+            echo "::warning::Do NOT remove the package from the lock -- app/ and routes/ reference its classes."
+          fi
+
+      - name: vendor/ must match composer.lock
+        # Only meaningful if the install succeeded. Blocking WITHIN this conditional
+        # branch: if composer installed from the lock and the result still does not match
+        # the lock, that is a defect regardless of the host question above.
+        if: steps.install.outcome == 'success'
+        run: .github/scripts/guard-composer-lock-integrity.sh .
+
+      - name: Prepare the runtime the suite needs
+        if: steps.install.outcome == 'success'
+        # Identical to the `tests` job: storage/ is gitignored, the committed bootstrap
+        # cache is stale, and HomeController's constructor has a bare exit() when
+        # storage/installed is absent -- which under PHPUnit kills the process with no
+        # output and looks like a hang.
+        run: |
+          mkdir -p storage/framework/{cache/data,sessions,views,testing} storage/logs bootstrap/cache
+          rm -f bootstrap/cache/packages.php bootstrap/cache/services.php
+          touch storage/installed
+
+      - name: Unit suite against the LOCKED dependency set
+        if: steps.install.outcome == 'success'
+        # The first Unit result in this project's history measured against composer.lock
+        # rather than against a drifted developer tree. Compare it to the figure recorded
+        # on the drifted tree: 30 tests, 232 assertions, 0 failures. A difference here is
+        # information, not noise -- it is the cost of the drift, finally visible.
+        continue-on-error: true
+        run: vendor/bin/phpunit --testsuite Unit
+
+      - name: Feature suite against the LOCKED dependency set
+        if: steps.install.outcome == 'success'
+        # Drifted-tree reference on de8646b7: 924 tests, 4184 assertions, 0 errors,
+        # 12 failures, 17 skipped. Reported, not enforced, for the same reason the
+        # `tests` job reports it: the 12 failures are a known, bounded, documented set.
+        continue-on-error: true
+        run: vendor/bin/phpunit --testsuite Feature --display-skipped
