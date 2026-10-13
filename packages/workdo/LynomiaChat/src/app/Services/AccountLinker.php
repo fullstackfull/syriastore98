@@ -132,6 +132,18 @@ class AccountLinker
                     ->whereKey($existing->getKey())
                     ->where('state', LinkState::PENDING_VERIFICATION)
                     ->where('link_mode', LynomiaStoreLink::MODE_LINK_EXISTING)
+                    // AND the row must still carry the workspace this caller is responsible
+                    // for handing back. Fencing only on state catches pending -> active but
+                    // not pending -> pending: two concurrent claims over the same pending row
+                    // both read the same displaced id, both succeed, and both return THAT
+                    // one -- so the workspace the first claim wrote is left with no row and
+                    // no revocation. Naming the value makes the write optimistic on exactly
+                    // the field whose previous contents it owes a hand-back for.
+                    ->where(function ($query) use ($displacedAccountId) {
+                        $displacedAccountId === null
+                            ? $query->whereNull('lynomia_account_id')
+                            : $query->where('lynomia_account_id', $displacedAccountId);
+                    })
                     ->update($attributes + ['updated_at' => now()]);
 
                 if ($written !== 1) {

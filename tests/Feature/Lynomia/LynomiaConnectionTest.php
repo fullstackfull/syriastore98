@@ -1816,4 +1816,49 @@ class LynomiaConnectionTest extends TestCase
             $create[0]->data()['custom_attributes']
         );
     }
+
+    /**
+     * Fencing only on state catches pending -> active but not pending -> pending. Two
+     * concurrent claims over the same pending row both read the same displaced workspace,
+     * both succeed, and both hand back THAT one -- leaving the workspace the first claim
+     * wrote with no row referencing it and no revocation that can ever reach it.
+     */
+    public function test_two_concurrent_claims_over_one_pending_row_cannot_both_win(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+
+        $this->fakeLynomia(['account_id' => 7001, 'user_id' => 9001]);
+        app(AccountLinker::class)->request($store, $owner, 'ABCD2345EFGH6789');
+
+        // The inner claim runs to completion inside the outer one's redemption -- which is
+        // where the window actually opens -- so the outer one writes against a row that has
+        // already moved on.
+        $inner = false;
+        $this->mock(PlatformApiClient::class, function ($mock) use (&$inner, $store, $owner) {
+            $mock->shouldReceive('isEnabled')->andReturn(true);
+            $mock->shouldReceive('isConfigured')->andReturn(true);
+            $mock->shouldReceive('revokeAccountLink')->andReturnNull();
+            $mock->shouldReceive('redeemLinkCode')->andReturnUsing(function () use (&$inner, $store, $owner) {
+                if (! $inner) {
+                    $inner = true;
+                    app(AccountLinker::class)->request($store->fresh(), $owner->fresh(), 'JKLM2345NPQR6789');
+
+                    return ['account_id' => 7003, 'account_name' => 'C', 'user_id' => 9003, 'user_name' => 'c'];
+                }
+
+                return ['account_id' => 7002, 'account_name' => 'B', 'user_id' => 9002, 'user_name' => 'b'];
+            });
+        });
+
+        try {
+            app(AccountLinker::class)->request($store->fresh(), $owner->fresh(), 'QRST2345UVWX6789');
+            $this->fail('two concurrent claims both wrote the row');
+        } catch (LynomiaApiException $e) {
+            $this->assertSame(LynomiaApiException::KIND_CONFLICT, $e->kind);
+        }
+
+        // Exactly one workspace is referenced, and it is the one the winner wrote.
+        $link = LynomiaStoreLink::forStore((int) $store->id)->first();
+        $this->assertSame(7002, (int) $link->lynomia_account_id);
+    }
 }
