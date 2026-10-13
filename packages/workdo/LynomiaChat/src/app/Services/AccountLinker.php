@@ -7,43 +7,52 @@ use App\Models\Store;
 use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Support\LinkState;
 
 /**
- * Attaches an EXISTING Lynomia workspace to a store, behind administrative approval.
+ * Attaches an EXISTING Lynomia workspace to a store, on proof minted inside that workspace.
  *
- * THIS CLASS NEVER CALLS createUser(), AND THAT IS THE POINT.
+ * THIS CLASS NEVER CALLS createUser(), AND THAT IS STILL THE POINT.
  *
  * The obvious implementation of "link my existing account" is to POST the merchant's Lynomia
  * email to /platform/api/v1/users. Upstream that resolves an existing user and grants this
- * app a permissible on them -- so the obvious implementation is an account-takeover
- * primitive: any merchant could type any Lynomia user's address and be handed a working SSO
- * session for it. The approved rules say an account may never be linked on email similarity
- * alone, and this is the exact shape that rule exists to forbid.
+ * app a permissible on them, so the obvious implementation is an account-takeover primitive:
+ * any merchant could type any Lynomia user's address and be handed a working SSO session for
+ * it. An account may never be linked on email similarity alone, and that is the exact shape
+ * the rule exists to forbid.
  *
- * What Store Syria can honestly establish by itself is nothing. A platform token reaches only
- * accounts it already holds a permissible for, so "does this merchant control that account?"
- * is a question this app is structurally unable to answer. Pretending otherwise would be
- * inventing a verification.
+ * WHAT CHANGED, AND WHY THE EARLIER VERSION WAS NOT FINISHED. The first version took the
+ * merchant's word for the account id, stored it as a pending claim, and waited for a human to
+ * approve. It was safe -- it granted nothing -- but it could never produce a working link:
+ * nothing in it ever learned a Lynomia USER id, and SSO is minted per user, so an approved
+ * claim was a row that could not be opened. The missing half was never an approval step. It
+ * was a way to find out, truthfully, who the claimant is on the Lynomia side.
  *
- * So the flow is a CLAIM, not a link:
+ * That now exists, and it lives in Lynomia because Lynomia is the only side that can check.
+ * An administrator of the account signs in there -- which is the authentication -- and mints a
+ * one-time code (Integrations::AccountLinkCode). The merchant pastes it here. Store Syria
+ * forwards it server to server to POST /platform/api/v1/account_links, which re-reads the
+ * author's administrator role, grants this app a permissible on the account AND on that user,
+ * and answers with both ids.
  *
- *   1. request()  -- the merchant states the Lynomia account id they claim. A one-time code
- *                    is generated, shown to them once, and only its hash is stored. The row
- *                    is pending_verification and grants NOTHING: no SSO, no API access, no
- *                    permissible is requested from Lynomia.
- *   2. (out of band) -- the merchant proves control to a Store Syria operator, and the
- *                    Lynomia-side owner grants this platform app a permissible on the
- *                    account. Both are human steps on purpose.
- *   3. approve()  -- a platform operator records the decision. Only here does the row become
- *                    active, and only then is an SSO link ever issued for it.
+ * So the claimant asserts nothing. There is no field on this path that names an account, an
+ * email or a user, and the only thing a merchant can submit is a string they could only have
+ * got by signing in to the workspace they are claiming.
  *
- * The code is what ties step 2 to step 1: an operator approving a claim confirms the merchant
- * presented the code from THIS request, so an approval cannot be replayed against a different
- * pending claim.
+ * BOTH GATES REMAIN, BECAUSE THEY ANSWER DIFFERENT QUESTIONS:
+ *
+ *   ownership_proven_at  Lynomia's answer to "does this person control that workspace?".
+ *                        Cryptographic, server to server, and not forgeable from here.
+ *   verified_at          A Store Syria operator's answer to "should this store be connected
+ *                        to it?". Commercial, human, and deliberately not automatic.
+ *
+ * Proof without approval is a pending row that grants nothing. Approval without proof cannot
+ * happen -- approve() refuses a row that was never proven -- so an operator cannot be talked
+ * into connecting a workspace nobody demonstrated control of.
  */
 class AccountLinker
 {
@@ -52,55 +61,27 @@ class AccountLinker
     }
 
     /**
-     * Open a claim on an existing Lynomia account.
+     * Link an existing Lynomia workspace, on a code the merchant minted inside it.
+     *
+     * THE REMOTE CALL HAPPENS BEFORE THE ROW IS WRITTEN, which is the opposite of the
+     * provisioning order and right for the opposite reason. Provisioning claims the slot
+     * first because the thing it is about to create does not exist yet and must not be
+     * created twice. Here the workspace already exists and the code is single-use: writing a
+     * row first would mean a row describing a claim we had not yet established, and a failure
+     * in between would leave the store looking connected to an account that never agreed.
      *
      * @return array{link: LynomiaStoreLink, verification_code: string}
-     *         The plaintext code is returned ONCE, for display to the merchant. It is not
-     *         stored and cannot be recovered; a lost code means opening a new claim.
+     *         The operator code is returned ONCE. It is not stored and cannot be recovered.
      */
-    public function request(Store $store, User $owner, int $lynomiaAccountId): array
+    public function request(Store $store, User $owner, string $connectionCode): array
     {
-        if ($lynomiaAccountId <= 0) {
-            throw new LynomiaApiException(
-                LynomiaApiException::KIND_CONFLICT,
-                'A valid Lynomia account id is required.'
-            );
-        }
-
         $existing = LynomiaStoreLink::forStore((int) $store->id)->first();
 
-        // A CLAIM MAY ONLY BE OPENED ON NOTHING, OR ON AN UNAPPROVED CLAIM.
-        //
-        // This used to refuse only an ACTIVE row, which let a merchant re-open a REVOKED or
-        // SUSPENDED one. That was not merely untidy, it was an operator-deception bug: the
-        // attribute set below rewrites lynomia_account_id but says nothing about
-        // lynomia_user_id, so a previously provisioned row kept the ORIGINAL workspace's user
-        // id while presenting itself as a fresh claim for an unrelated account. allowsSso()
-        // asks only that both ids are non-null, so approving the claim the operator was shown
-        // minted a session for the workspace they had just revoked -- and the approval screen
-        // showed them the new account id, not the inherited user id.
-        //
-        // Refusing every non-pending state fixes that at the cause rather than by scrubbing
-        // the symptom: a pending row has no identifiers to inherit. A claim never sets
-        // lynomia_user_id, and a failed provision leaves the row pending with both ids still
-        // null because AccountProvisioner only writes them after the attach succeeds. So the
-        // rows that reach the force-fill below carry nothing to leak, and nulling the columns
-        // there would be unreachable code.
-        //
-        // It also makes the states mean what LinkState says they mean. REVOKED is documented
-        // "terminal for this row" and is an operator's deliberate act -- often for abuse --
-        // so the merchant must not be able to undo it by filing a new claim. SUSPENDED is
-        // documented as keeping the account ids "so the same workspace is reconnected rather
-        // than a second one created", which a claim naming a different account would throw
-        // away. Both are operator business now.
-        if ($existing !== null && $existing->state !== LinkState::PENDING_VERIFICATION) {
-            throw new LynomiaApiException(
-                LynomiaApiException::KIND_CONFLICT,
-                $existing->state === LinkState::ACTIVE
-                    ? 'This store is already connected to a Lynomia workspace.'
-                    : 'This store\'s Lynomia connection was ended by support. Please contact support to restore it.'
-            );
-        }
+        $this->assertClaimable($existing);
+
+        // Proof first. Lynomia answers with the account and the administrator who authorized
+        // it, or refuses -- and a refusal here is the end of it, with nothing written.
+        $proof = $this->api->redeemLinkCode($connectionCode);
 
         $code = strtoupper(Str::random(10));
         $ttl = (int) config('lynomia.link_verification_ttl_minutes', 60);
@@ -108,15 +89,19 @@ class AccountLinker
         $attributes = [
             'store_id' => (int) $store->id,
             'owner_user_id' => (int) $owner->creatorId(),
-            'lynomia_account_id' => $lynomiaAccountId,
+            'lynomia_account_id' => $proof['account_id'],
+            'lynomia_user_id' => $proof['user_id'],
+            'lynomia_account_name' => $proof['account_name'],
             'state' => LinkState::PENDING_VERIFICATION,
             'link_mode' => LynomiaStoreLink::MODE_LINK_EXISTING,
+            'ownership_proven_at' => now(),
             'verification_code_hash' => Hash::make($code),
             'verification_expires_at' => now()->addMinutes($ttl),
             // A re-opened claim must not inherit a previous approval.
             'verified_at' => null,
             'verified_by' => null,
             'last_error' => null,
+            'last_synced_at' => now(),
         ];
 
         try {
@@ -127,22 +112,31 @@ class AccountLinker
                 $link = LynomiaStoreLink::create($attributes);
             }
         } catch (QueryException $e) {
-            if ($this->isUniqueViolation($e)) {
-                // The unique index on lynomia_account_id is doing the work here: another
-                // store already holds this workspace. Refusing is the "no unauthorized
-                // cross-store sharing" rule, enforced by the database rather than a check.
-                throw new LynomiaApiException(
-                    LynomiaApiException::KIND_CONFLICT,
-                    'That Lynomia workspace is already connected to another store.'
-                );
+            if (! $this->isUniqueViolation($e)) {
+                throw $e;
             }
 
-            throw $e;
+            // Another store already holds this workspace -- the unique index on
+            // lynomia_account_id is the "no unauthorized cross-store sharing" rule, enforced
+            // by the database rather than by a check that could lose the race.
+            //
+            // THE GRANT IS HANDED BACK. The redemption above already made Lynomia trust this
+            // app with the merchant's workspace. Refusing locally while keeping that grant
+            // would leave exactly the orphaned mapping this flow is supposed to prevent: an
+            // access nobody in Store Syria has a record of.
+            $this->handBackGrant($proof['account_id']);
+
+            throw new LynomiaApiException(
+                LynomiaApiException::KIND_CONFLICT,
+                'That Lynomia workspace is already connected to another store.'
+            );
         }
 
         AuditLog::record('lynomia_link_requested', $link, [], [
             'store_id' => $link->store_id,
-            'lynomia_account_id' => $lynomiaAccountId,
+            'lynomia_account_id' => $link->lynomia_account_id,
+            'lynomia_user_id' => $link->lynomia_user_id,
+            'ownership_proven' => true,
             'expires_at' => (string) $link->verification_expires_at,
         ]);
 
@@ -150,13 +144,52 @@ class AccountLinker
     }
 
     /**
-     * Record a platform operator's approval of a pending claim.
+     * A claim may be opened on nothing, or on an unapproved claim -- nothing else.
      *
-     * The caller is responsible for having established that $approver is a platform operator;
-     * the route carries PlatformOperatorOnly and the controller re-checks. What is enforced
-     * HERE is everything about the claim itself: that it exists, is still pending, has not
-     * expired, and that the presented code is the one issued for this claim.
+     * Refusing every non-pending state is what stops a REVOKED or SUSPENDED row being re-opened
+     * by the merchant. REVOKED is documented terminal and is an operator's deliberate act,
+     * often for abuse; SUSPENDED keeps its ids so the SAME workspace is reconnected, which a
+     * claim naming a different one would throw away. Both are operator business now.
+     *
+     * It is also what keeps a pending row free of identifiers it did not earn: before this
+     * existed, re-opening a revoked row rewrote lynomia_account_id while leaving
+     * lynomia_user_id untouched, so an operator approving "a claim on account X" was in fact
+     * restoring SSO into the workspace they had just revoked.
      */
+    private function assertClaimable(?LynomiaStoreLink $existing): void
+    {
+        if ($existing === null || $existing->state === LinkState::PENDING_VERIFICATION) {
+            return;
+        }
+
+        throw new LynomiaApiException(
+            LynomiaApiException::KIND_CONFLICT,
+            $existing->state === LinkState::ACTIVE
+                ? 'This store is already connected to a Lynomia workspace.'
+                : "This store's Lynomia connection was ended by support. Please contact support to restore it."
+        );
+    }
+
+    /**
+     * Give back a grant this app should not be holding.
+     *
+     * Best effort, and deliberately so: the local refusal has already been decided and must
+     * stand whether or not Lynomia is reachable. A failure here is recorded for an operator
+     * rather than thrown, because turning "we could not hand the grant back" into "your
+     * request failed" would invite the merchant to retry and redeem a second code.
+     */
+    private function handBackGrant(int $accountId): void
+    {
+        try {
+            $this->api->revokeAccountLink($accountId);
+        } catch (LynomiaApiException $e) {
+            Log::warning('[lynomia] could not hand back an account grant', [
+                'lynomia_account_id' => $accountId,
+                'kind' => $e->kind,
+            ]);
+        }
+    }
+
     public function approve(LynomiaStoreLink $link, User $approver, string $presentedCode): LynomiaStoreLink
     {
         if ($link->state !== LinkState::PENDING_VERIFICATION) {
@@ -170,6 +203,19 @@ class AccountLinker
             throw new LynomiaApiException(
                 LynomiaApiException::KIND_CONFLICT,
                 'Only an existing-account claim is approved this way.'
+            );
+        }
+
+        // APPROVAL CANNOT SUBSTITUTE FOR PROOF. An operator answers "should this store be
+        // connected to that workspace?"; they are in no position to answer "does this merchant
+        // control it?", and must not be able to grant access by being persuaded. A row without
+        // ownership_proven_at was never confirmed by Lynomia, and a row without both ids could
+        // not open anything even if approved -- which is how the old claim flow produced
+        // approved links that silently refused to work.
+        if ($link->ownership_proven_at === null || ! $link->isProvisioned()) {
+            throw new LynomiaApiException(
+                LynomiaApiException::KIND_CONFLICT,
+                'This claim was never confirmed by Lynomia and cannot be approved.'
             );
         }
 
@@ -222,6 +268,22 @@ class AccountLinker
     public function revoke(LynomiaStoreLink $link, User $actor, string $reason): LynomiaStoreLink
     {
         $previous = $link->state;
+
+        // THE MERCHANT'S OWN WORKSPACE IS GIVEN BACK; ONE THIS APP CREATED IS NOT.
+        //
+        // For a linked workspace the grant is something a merchant administrator handed over,
+        // and revoking the link without returning it would leave Lynomia trusting this app
+        // with an account Store Syria no longer has any record of -- an access with no
+        // mapping, which is the orphan this flow exists to avoid. Handing it back also kills
+        // any SSO link already minted, which a revocation for abuse needs.
+        //
+        // For a PROVISIONED workspace the account is this app's own creation and the grant is
+        // the only way anyone can ever reach it again. Dropping that would orphan the
+        // merchant's conversations beyond recovery, so a provisioned link keeps its grant and
+        // the revocation is local: no SSO is issued, and the row records why.
+        if ($link->link_mode === LynomiaStoreLink::MODE_LINK_EXISTING && $link->lynomia_account_id !== null) {
+            $this->handBackGrant((int) $link->lynomia_account_id);
+        }
 
         $link->forceFill([
             'state' => LinkState::REVOKED,

@@ -22,9 +22,14 @@ use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
  * already authorized there:
  *
  *   POST   /platform/api/v1/accounts                      create a workspace
+ *   GET    /platform/api/v1/accounts                      list this app's workspaces
  *   POST   /platform/api/v1/users                         create a user  (see the warning below)
  *   POST   /platform/api/v1/accounts/{id}/account_users   attach a member, idempotent upstream
  *   GET    /platform/api/v1/users/{id}/login              mint a one-time SSO URL
+ *   POST   /platform/api/v1/account_links                 redeem a merchant's link code
+ *   DELETE /platform/api/v1/account_links/{account}       hand the grant back
+ *
+ * The last two are added by this integration on the Lynomia side. Everything else is stock.
  *
  * Authorization is Lynomia's: the token belongs to a PlatformApp and
  * validate_platform_app_permissible restricts every call to resources in that app's
@@ -77,12 +82,94 @@ class PlatformApiClient
             $payload['custom_attributes'] = $customAttributes;
         }
 
-        $body = $this->send('post', '/platform/api/v1/accounts', $payload);
+        // NOT retried -- see send(). A retry here is how a second workspace gets created
+        // for a store that already has one. AccountProvisioner reconciles instead.
+        $body = $this->send('post', '/platform/api/v1/accounts', $payload, retryTransport: false);
 
         return [
             'id' => $this->requireInt($body, 'id'),
             'name' => (string) ($body['name'] ?? $name),
         ];
+    }
+
+    /**
+     * The accounts this app holds a permissible on, optionally narrowed to those carrying a
+     * custom attribute.
+     *
+     * THIS IS THE ORPHAN-RECOVERY PRIMITIVE. When POST /accounts times out, Lynomia may have
+     * created the workspace and lost the answer on the way back. The id is then known only to
+     * Lynomia, and a blind retry would make a second one. Every account this integration
+     * creates is stamped with the store it serves, so the store can find its own workspace
+     * again and adopt it. Scoping is Lynomia's: the index returns the app's permissibles and
+     * nothing else, so this cannot enumerate accounts belonging to anyone else.
+     *
+     * @return list<array{id:int,name:string,custom_attributes:array}>
+     */
+    public function listAccounts(array $customAttributeFilter = []): array
+    {
+        $body = $this->send('get', '/platform/api/v1/accounts', $customAttributeFilter === []
+            ? []
+            : ['custom_attributes' => $customAttributeFilter]);
+
+        // The index renders a bare JSON array; Laravel decodes that to a list.
+        $rows = array_is_list($body) ? $body : ($body['payload'] ?? []);
+
+        $accounts = [];
+
+        foreach ($rows as $row) {
+            if (! is_array($row) || ! isset($row['id']) || ! is_numeric($row['id'])) {
+                continue;
+            }
+
+            $accounts[] = [
+                'id' => (int) $row['id'],
+                'name' => (string) ($row['name'] ?? ''),
+                'custom_attributes' => (array) ($row['custom_attributes'] ?? []),
+            ];
+        }
+
+        return $accounts;
+    }
+
+    /**
+     * Redeem a link code a merchant generated INSIDE their own Lynomia account.
+     *
+     * THIS IS THE ONLY SAFE WAY TO LINK AN ACCOUNT THIS INTEGRATION DID NOT CREATE, and it is
+     * safe for one reason: the proof is minted on the Lynomia side by someone who had to
+     * authenticate there as an administrator of the account. Store Syria asserts nothing. It
+     * forwards a code the merchant pasted in, and Lynomia answers with the account and the
+     * user that code was created by -- or refuses. No email is sent, matched or guessed, and
+     * there is no input on this path that names an account directly, so there is nothing a
+     * merchant can type that points at a workspace they cannot already sign in to.
+     *
+     * The code is single-use and short-lived upstream, and is never stored here.
+     *
+     * @return array{account_id:int,account_name:string,user_id:int,user_name:string}
+     */
+    public function redeemLinkCode(string $code): array
+    {
+        // Not retried. Redemption burns the code upstream, so a retry after a lost answer
+        // would report "already used" for a link that in fact succeeded.
+        $body = $this->send('post', '/platform/api/v1/account_links', ['code' => $code], retryTransport: false);
+
+        return [
+            'account_id' => $this->requireInt($body, 'account_id'),
+            'account_name' => (string) ($body['account_name'] ?? ''),
+            'user_id' => $this->requireInt($body, 'user_id'),
+            'user_name' => (string) ($body['user_name'] ?? ''),
+        ];
+    }
+
+    /**
+     * Hand back every grant this app holds on an account.
+     *
+     * Revoking in Store Syria alone would leave Lynomia still trusting this app with the
+     * merchant's workspace -- the mapping would be gone while the access remained. Idempotent
+     * upstream: revoking a grant that is already gone succeeds.
+     */
+    public function revokeAccountLink(int $accountId): void
+    {
+        $this->send('delete', "/platform/api/v1/account_links/{$accountId}");
     }
 
     /**
@@ -145,16 +232,27 @@ class PlatformApiClient
 
     // ------------------------------------------------------------------ transport
 
-    private function send(string $method, string $path, array $payload = []): array
+    /**
+     * @param bool $retryTransport Whether a dropped connection may be retried.
+     *
+     *   RETRYING IS ONLY SAFE FOR A CALL WHOSE SECOND EXECUTION IS A NO-OP. A dropped
+     *   connection does not mean the server did nothing -- a read timeout is the case where
+     *   it did everything and the answer was lost on the way back. Retrying POST /accounts
+     *   there creates a SECOND workspace, which is precisely the duplicate this integration
+     *   must not produce, so account creation passes false and the caller reconciles instead.
+     *   The idempotent calls -- a user keyed by a deterministic address, an account_user
+     *   upsert, a GET -- pass true, because running them twice lands in the same place.
+     */
+    private function send(string $method, string $path, array $payload = [], bool $retryTransport = true): array
     {
         $this->assertUsable();
 
-        $request = $this->request();
+        $request = $this->request($retryTransport);
 
         try {
             /** @var Response $response */
-            $response = $method === 'get'
-                ? $request->get($path)
+            $response = in_array($method, ['get', 'delete'], true) && $payload === []
+                ? $request->{$method}($path)
                 : $request->{$method}($path, $payload);
         } catch (ConnectionException $e) {
             // The message can name the host but never a credential: the token travels in a
@@ -182,24 +280,29 @@ class PlatformApiClient
         return $decoded;
     }
 
-    private function request(): PendingRequest
+    private function request(bool $retryTransport = true): PendingRequest
     {
         $http = $this->config['http'] ?? [];
 
-        return Http::baseUrl(rtrim((string) $this->config['base_url'], '/'))
+        $request = Http::baseUrl(rtrim((string) $this->config['base_url'], '/'))
             ->withHeaders(['api_access_token' => (string) $this->config['platform_token']])
             ->acceptJson()
             ->asJson()
             ->connectTimeout((int) ($http['connect_timeout'] ?? 5))
-            ->timeout((int) ($http['timeout'] ?? 10))
-            // Retry only the transport. A 4xx is never retried -- re-sending a rejected
-            // create would be how duplicate accounts appear.
-            ->retry(
-                max(1, (int) ($http['retries'] ?? 2)),
-                (int) ($http['retry_delay_ms'] ?? 250),
-                fn ($exception) => $exception instanceof ConnectionException,
-                throw: false
-            );
+            ->timeout((int) ($http['timeout'] ?? 10));
+
+        if (! $retryTransport) {
+            return $request;
+        }
+
+        // Transport only, and only where a second execution is a no-op. A 4xx is never
+        // retried: re-sending a rejected create is another way duplicates appear.
+        return $request->retry(
+            max(1, (int) ($http['retries'] ?? 2)),
+            (int) ($http['retry_delay_ms'] ?? 250),
+            fn ($exception) => $exception instanceof ConnectionException,
+            throw: false
+        );
     }
 
     private function assertUsable(): void

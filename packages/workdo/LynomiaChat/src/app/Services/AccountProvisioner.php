@@ -6,10 +6,12 @@ use App\Models\AuditLog;
 use App\Models\Store;
 use App\Models\User;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Support\LinkState;
+use Workdo\LynomiaChat\app\Support\ProvisioningStage;
 
 /**
  * Provisions a NEW Lynomia workspace for a store.
@@ -46,14 +48,80 @@ class AccountProvisioner
     }
 
     /**
-     * Provision, or return the existing link untouched.
+     * Provision a workspace for this store, resuming whatever a previous attempt left behind.
      *
-     * IDEMPOTENT BY DATABASE CONSTRAINT, NOT BY CHECK-THEN-WRITE. The early return below is a
-     * convenience, not the guarantee: two concurrent requests both read "no link" and both
-     * proceed. The unique index on store_id is what actually decides, and the loser is
-     * reported as a conflict rather than silently creating a second Lynomia workspace.
+     * THE WHOLE POINT OF THIS METHOD IS THAT IT CAN BE CALLED AGAIN. Provisioning is three
+     * remote calls, two of which mint objects on the Lynomia side, and any of them can fail
+     * or -- worse -- succeed with the answer lost on the way back. The old implementation
+     * treated the happy path as the only path: it wrote all three results together at the
+     * end, so a failure anywhere left a row with no ids and no record of what had been
+     * created, and it returned early whenever a row existed, so the merchant could never
+     * retry. The comment claiming "the next attempt resumes against the same row" described
+     * an intention, not the code.
+     *
+     * FOUR PROPERTIES, each paid for somewhere specific:
+     *
+     *   repeated requests      A finished link returns immediately. An unfinished one resumes
+     *                          from the first id it is missing, so no step is re-run.
+     *   no duplicate accounts  Account creation is NOT transport-retried, and every attempt
+     *                          asks Lynomia first whether this store already has a workspace.
+     *                          A create whose answer was lost is adopted, not repeated.
+     *   no orphaned mappings   Every id is persisted in the same breath as the call that
+     *                          produced it, never batched. A process killed between calls
+     *                          leaves a row that knows exactly what exists.
+     *   one at a time          A conditional UPDATE decides which of two concurrent callers
+     *                          proceeds; the other is told to wait rather than racing it.
      */
     public function provision(Store $store, User $owner): LynomiaStoreLink
+    {
+        $link = $this->claimSlot($store, $owner);
+
+        // A finished link is the common case on a second click. Answering from the row costs
+        // nothing and reaches Lynomia not at all.
+        if ($link->state === LinkState::ACTIVE && $link->isProvisioned()) {
+            return $link;
+        }
+
+        if ($link->link_mode !== LynomiaStoreLink::MODE_PROVISION) {
+            throw new LynomiaApiException(
+                LynomiaApiException::KIND_CONFLICT,
+                'This store is being connected to an existing Lynomia workspace.'
+            );
+        }
+
+        if (in_array($link->state, [LinkState::SUSPENDED, LinkState::REVOKED], true)) {
+            throw new LynomiaApiException(
+                LynomiaApiException::KIND_CONFLICT,
+                "This store's Lynomia connection was ended by support. Please contact support to restore it."
+            );
+        }
+
+        if (! $this->acquireLock($link)) {
+            throw new LynomiaApiException(
+                LynomiaApiException::KIND_IN_PROGRESS,
+                'This store is already being connected to Lynomia. Please wait a moment and refresh.'
+            );
+        }
+
+        try {
+            $this->resume($link, $store);
+        } finally {
+            // Released whether the attempt succeeded or threw: a failed attempt that kept the
+            // lock would block every retry until the claim went stale.
+            $this->releaseLock($link);
+        }
+
+        return $link->refresh();
+    }
+
+    /**
+     * Take (or recognise) this store's single link row.
+     *
+     * The unique index on store_id is the arbiter, not the SELECT: two concurrent callers can
+     * both read "no row", and the one whose INSERT loses re-reads instead of failing. That
+     * turns a race into a no-op, which is what a merchant double-clicking deserves.
+     */
+    private function claimSlot(Store $store, User $owner): LynomiaStoreLink
     {
         $existing = LynomiaStoreLink::forStore((int) $store->id)->first();
 
@@ -61,62 +129,96 @@ class AccountProvisioner
             return $existing;
         }
 
-        $ownerId = (int) $owner->creatorId();
-
-        // Claim the row BEFORE any remote call. If the claim loses the race there is nothing
-        // to roll back on the Lynomia side, which is the cheap ordering: a duplicate row is
-        // recoverable, a duplicate workspace is not.
         try {
-            $link = LynomiaStoreLink::create([
+            return LynomiaStoreLink::create([
                 'store_id' => (int) $store->id,
-                'owner_user_id' => $ownerId,
+                'owner_user_id' => (int) $owner->creatorId(),
                 'state' => LinkState::PENDING_VERIFICATION,
                 'link_mode' => LynomiaStoreLink::MODE_PROVISION,
+                'provisioning_stage' => ProvisioningStage::CLAIMED,
             ]);
         } catch (QueryException $e) {
-            if ($this->isUniqueViolation($e)) {
-                throw new LynomiaApiException(
-                    LynomiaApiException::KIND_CONFLICT,
-                    'This store is already being connected to Lynomia.'
-                );
+            if (! $this->isUniqueViolation($e)) {
+                throw $e;
             }
 
-            throw $e;
+            // Lost the insert race. The winner's row is the right one to work on.
+            $winner = LynomiaStoreLink::forStore((int) $store->id)->first();
+
+            if ($winner === null) {
+                throw $e;
+            }
+
+            return $winner;
         }
+    }
 
+    /**
+     * Carry the link forward from wherever it is.
+     *
+     * Each step asks the ROW, not the stage, whether it still needs doing -- the id either is
+     * or is not known, and that is the only fact that matters. The stage is written alongside
+     * for an operator to read.
+     */
+    private function resume(LynomiaStoreLink $link, Store $store): void
+    {
         try {
-            $account = $this->api->createAccount(
-                $this->accountName($store),
-                ['store_syria_store_id' => (int) $store->id]
+            if ($link->lynomia_account_id === null) {
+                $account = $this->adoptOrCreateAccount($store);
+
+                $this->record($link, [
+                    'lynomia_account_id' => $account['id'],
+                    'lynomia_account_name' => $account['name'],
+                    'provisioning_stage' => ProvisioningStage::ACCOUNT_CREATED,
+                ]);
+            }
+
+            if ($link->lynomia_user_id === null) {
+                // Idempotent by construction: the address is derived from the store id, and
+                // upstream resolves an existing user for a known address rather than
+                // creating a second one. Safe to repeat precisely BECAUSE the address cannot
+                // belong to a real person -- see the class docblock.
+                $user = $this->api->createUser(
+                    $this->userName($store),
+                    $this->serviceEmail($store),
+                    // Never stored, never logged, never shown. Access is SSO only; this
+                    // exists because the upstream endpoint requires a password field. A
+                    // resumed attempt generates a different one, which changes nothing:
+                    // upstream ignores it for a user that already exists.
+                    Str::password(32)
+                );
+
+                $this->record($link, [
+                    'lynomia_user_id' => $user['id'],
+                    'provisioning_stage' => ProvisioningStage::USER_CREATED,
+                ]);
+            }
+
+            // Idempotent upstream (find_or_initialize_by + update!), so it is re-sent on every
+            // resume rather than tracked: re-attaching an attached member is a no-op, and
+            // skipping it on a row whose stage was written but whose attach never landed
+            // would leave a workspace nobody can reach.
+            $this->api->attachAccountUser(
+                (int) $link->lynomia_account_id,
+                (int) $link->lynomia_user_id,
+                'administrator'
             );
 
-            $user = $this->api->createUser(
-                $this->userName($store),
-                $this->serviceEmail($store),
-                // Never stored, never logged, never shown. Access is SSO only; this exists
-                // because the upstream endpoint requires a password field.
-                Str::password(32)
-            );
-
-            $this->api->attachAccountUser($account['id'], $user['id'], 'administrator');
-
-            $link->forceFill([
-                'lynomia_account_id' => $account['id'],
-                'lynomia_user_id' => $user['id'],
-                'lynomia_account_name' => $account['name'],
+            $this->record($link, [
+                'provisioning_stage' => ProvisioningStage::COMPLETE,
                 'state' => LinkState::ACTIVE,
-                'verified_at' => now(),
+                'verified_at' => $link->verified_at ?? now(),
                 'last_error' => null,
                 'last_synced_at' => now(),
-            ])->save();
+            ]);
         } catch (LynomiaApiException $e) {
-            // The claim row is KEPT, carrying the reason. Deleting it would let a retry storm
-            // create a workspace per attempt; keeping it means the next attempt resumes
-            // against the same row and an operator can see what failed.
-            $link->forceFill([
+            // The row is KEPT, carrying both the reason and every id discovered so far.
+            // Deleting it would let a retry storm create a workspace per attempt; keeping it
+            // is what makes the next attempt a resumption.
+            $this->record($link, [
                 'last_error' => Str::limit($e->getMessage(), 480),
                 'last_synced_at' => now(),
-            ])->save();
+            ]);
 
             throw $e;
         }
@@ -125,9 +227,107 @@ class AccountProvisioner
             'store_id' => $link->store_id,
             'lynomia_account_id' => $link->lynomia_account_id,
             'mode' => LynomiaStoreLink::MODE_PROVISION,
+            'attempts' => (int) $link->provisioning_attempts,
         ]);
+    }
 
-        return $link->refresh();
+    /**
+     * Find this store's existing workspace, or make one.
+     *
+     * ASKING FIRST IS WHAT PREVENTS THE DUPLICATE. A create that timed out may well have
+     * succeeded -- a read timeout is exactly the case where the server did all the work and
+     * only the answer was lost -- and the new workspace's id is then known to Lynomia alone.
+     * Every workspace this integration creates carries the store it serves in its custom
+     * attributes, so the store can find its own again.
+     *
+     * TWO CANDIDATES IS A REFUSAL, NOT A CHOICE. If two workspaces claim the same store,
+     * something has already gone wrong and picking one would silently strand the other, with
+     * the merchant's conversations in it. An operator decides that, not this method.
+     *
+     * The lookup is scoped by Lynomia to this app's own permissibles, so it can neither see
+     * nor adopt an account belonging to anyone else.
+     *
+     * @return array{id:int,name:string}
+     */
+    private function adoptOrCreateAccount(Store $store): array
+    {
+        $marker = ['store_syria_store_id' => (int) $store->id];
+
+        $candidates = array_values(array_filter(
+            $this->api->listAccounts($marker),
+            fn (array $account): bool => (int) ($account['custom_attributes']['store_syria_store_id'] ?? 0) === (int) $store->id
+        ));
+
+        if (count($candidates) > 1) {
+            throw new LynomiaApiException(
+                LynomiaApiException::KIND_CONFLICT,
+                'More than one Lynomia workspace is registered to this store. Please contact support.'
+            );
+        }
+
+        if (count($candidates) === 1) {
+            return ['id' => $candidates[0]['id'], 'name' => $candidates[0]['name']];
+        }
+
+        return $this->api->createAccount($this->accountName($store), $marker);
+    }
+
+    /**
+     * Take the in-flight claim, or report that someone else holds it.
+     *
+     * A CONDITIONAL UPDATE, NOT A READ FOLLOWED BY A WRITE. Two requests that both SELECT an
+     * unlocked row both decide they may proceed; a single UPDATE whose WHERE clause carries
+     * the condition is settled by the database, and exactly one of them affects a row. The
+     * loser is told to wait.
+     *
+     * The claim EXPIRES. A process killed mid-provision cannot wedge the store forever: after
+     * the stale window the next attempt takes the claim and resumes from the recorded ids.
+     * That is safe to do while the original might still be running, because every step it
+     * could repeat is either idempotent or guarded by the adopt-before-create lookup.
+     */
+    private function acquireLock(LynomiaStoreLink $link): bool
+    {
+        $staleBefore = now()->subMinutes(
+            max(1, (int) config('lynomia.provisioning_lock_minutes', 5))
+        );
+
+        $claimed = LynomiaStoreLink::query()
+            ->whereKey($link->getKey())
+            ->where(function ($query) use ($staleBefore) {
+                $query->whereNull('provisioning_started_at')
+                      ->orWhere('provisioning_started_at', '<', $staleBefore);
+            })
+            ->update([
+                'provisioning_started_at' => now(),
+                'provisioning_attempts' => DB::raw('provisioning_attempts + 1'),
+                'updated_at' => now(),
+            ]);
+
+        if ($claimed !== 1) {
+            return false;
+        }
+
+        $link->refresh();
+
+        return true;
+    }
+
+    private function releaseLock(LynomiaStoreLink $link): void
+    {
+        LynomiaStoreLink::query()
+            ->whereKey($link->getKey())
+            ->update(['provisioning_started_at' => null, 'updated_at' => now()]);
+    }
+
+    /**
+     * Persist a step and keep the in-memory row in step with it.
+     *
+     * forceFill because these are internal state transitions, not merchant input, and several
+     * of the columns are deliberately absent from $fillable.
+     */
+    private function record(LynomiaStoreLink $link, array $attributes): void
+    {
+        $link->forceFill($attributes)->save();
     }
 
     private function accountName(Store $store): string

@@ -50,4 +50,20 @@ return [
     // How long a merchant has to complete an existing-account link before the pending row
     // expires and the verification code stops being accepted.
     'link_verification_ttl_minutes' => (int) env('LYNOMIA_LINK_TTL_MINUTES', 60),
+
+
+    /*
+     * How long one provisioning attempt may hold a store before another may take over.
+     *
+     * This is a crash window, not a timeout: a process killed mid-provision leaves its claim
+     * behind, and without an expiry the store could never be connected again without an
+     * operator clearing the row by hand. Five minutes is comfortably longer than three HTTP
+     * calls at the timeouts above, so a live attempt is never stolen from, and short enough
+     * that a merchant who hits a crash is not locked out for the afternoon.
+     *
+     * Taking over early would be safe anyway -- every step is either idempotent or guarded by
+     * the adopt-before-create lookup -- but it would waste calls racing a request that is
+     * still running.
+     */
+    'provisioning_lock_minutes' => (int) env('LYNOMIA_PROVISIONING_LOCK_MINUTES', 5),
 ];

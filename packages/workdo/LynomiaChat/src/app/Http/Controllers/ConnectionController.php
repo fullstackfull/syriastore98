@@ -69,7 +69,7 @@ class ConnectionController extends Controller
             $result = $this->linker->request(
                 $store,
                 $request->user(),
-                (int) $request->validated('lynomia_account_id')
+                (string) $request->validated('connection_code')
             );
         } catch (LynomiaApiException $e) {
             return back()->with('error', $this->merchantMessage($e));
@@ -121,6 +121,9 @@ class ConnectionController extends Controller
             LynomiaApiException::KIND_RATE_LIMITED,
             LynomiaApiException::KIND_UNREACHABLE =>
                 __('Lynomia Chat is temporarily unreachable. Please try again shortly.'),
+            // Two merchants, or two clicks. Actionable and temporary, so it says so rather
+            // than reading as a failure.
+            LynomiaApiException::KIND_IN_PROGRESS => $e->getMessage(),
             default => __('Lynomia Chat could not complete that request. Please contact support.'),
         };
     }

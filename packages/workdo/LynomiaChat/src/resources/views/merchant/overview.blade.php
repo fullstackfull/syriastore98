@@ -48,8 +48,26 @@
 
                 @elseif ($link && $link->state === \Workdo\LynomiaChat\app\Support\LinkState::PENDING_VERIFICATION)
                     <div class="alert alert-secondary mb-0">
-                        <strong>{{ __('Awaiting approval') }}</strong>
-                        <div>{{ __('Your request to connect an existing Lynomia workspace is being reviewed. You will be able to open it once it is approved.') }}</div>
+                        @if ($link->link_mode === \Workdo\LynomiaChat\app\Models\LynomiaStoreLink::MODE_LINK_EXISTING)
+                            <strong>{{ __('Awaiting approval') }}</strong>
+                            <div>
+                                {{ __('Lynomia has confirmed you own this workspace. Support is reviewing the connection and you will be able to open it once it is approved.') }}
+                                @if ($link->lynomia_account_name)
+                                    <span class="text-muted">({{ $link->lynomia_account_name }})</span>
+                                @endif
+                            </div>
+                        @else
+                            {{-- A provisioning attempt that did not finish. Saying so, and offering the
+                                 retry, is the difference between a resumable operation and a dead end. --}}
+                            <strong>{{ __('Setting up your workspace') }}</strong>
+                            <div class="mb-2">{{ __('We could not finish creating your Lynomia Chat workspace. Nothing was lost -- trying again continues from where it stopped.') }}</div>
+                            <form method="POST" action="{{ route('lynomia.connect.provision') }}">
+                                @csrf
+                                <button type="submit" class="btn btn-primary btn-sm" @disabled(!$integrationConfigured)>
+                                    {{ __('Continue setup') }}
+                                </button>
+                            </form>
+                        @endif
                     </div>
 
                 @elseif ($link && $link->state === \Workdo\LynomiaChat\app\Support\LinkState::SUSPENDED)
@@ -77,13 +95,20 @@
                         <div class="col-md-6">
                             <div class="border rounded p-3 h-100">
                                 <h6>{{ __('Connect an existing workspace') }}</h6>
-                                <p class="text-muted small">{{ __('Already use Lynomia Chat? Enter your account ID. Connecting an existing workspace requires approval.') }}</p>
+                                {{-- The merchant is NOT asked which account they own. They prove it, by
+                                     pasting a code only an administrator of that workspace can generate.
+                                     An account id field here would make the claimant the source of truth
+                                     about their own identity, which is the whole thing this avoids. --}}
+                                <p class="text-muted small">
+                                    {{ __('Already use Lynomia Chat? In Lynomia, open Settings and generate a connection code, then paste it here. Connecting an existing workspace also requires approval by support.') }}
+                                </p>
                                 <form method="POST" action="{{ route('lynomia.connect.link') }}">
                                     @csrf
                                     <div class="mb-2">
-                                        <input type="number" min="1" name="lynomia_account_id" class="form-control form-control-sm"
-                                               placeholder="{{ __('Lynomia account ID') }}" required>
-                                        @error('lynomia_account_id')
+                                        <input type="text" name="connection_code" class="form-control form-control-sm"
+                                               autocomplete="off" spellcheck="false" maxlength="19"
+                                               placeholder="{{ __('XXXX-XXXX-XXXX-XXXX') }}" required>
+                                        @error('connection_code')
                                             <small class="text-danger">{{ $message }}</small>
                                         @enderror
                                     </div>

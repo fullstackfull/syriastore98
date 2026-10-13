@@ -22,6 +22,8 @@ use Workdo\LynomiaChat\app\Support\LinkState;
  * @property int|null    $lynomia_user_id
  * @property string      $state
  * @property string      $link_mode
+ * @property string|null $provisioning_stage
+ * @property int         $provisioning_attempts
  */
 class LynomiaStoreLink extends Model
 {
@@ -41,6 +43,10 @@ class LynomiaStoreLink extends Model
         'verified_by',
         'last_error',
         'last_synced_at',
+        'provisioning_stage',
+        'provisioning_started_at',
+        'provisioning_attempts',
+        'ownership_proven_at',
     ];
 
     protected $casts = [
@@ -51,6 +57,9 @@ class LynomiaStoreLink extends Model
         'verification_expires_at' => 'datetime',
         'verified_at' => 'datetime',
         'last_synced_at' => 'datetime',
+        'provisioning_started_at' => 'datetime',
+        'provisioning_attempts' => 'integer',
+        'ownership_proven_at' => 'datetime',
     ];
 
     /**
@@ -88,10 +97,33 @@ class LynomiaStoreLink extends Model
         return $this->lynomia_account_id !== null && $this->lynomia_user_id !== null;
     }
 
-    /** SSO is offered only for an active, fully provisioned link. */
+    /**
+     * True when Lynomia itself confirmed the merchant controls this workspace.
+     *
+     * Only a linked workspace needs this: a provisioned one was created by this app, so there
+     * was never a claim to prove. The column stands for an answer that came from the other
+     * side, and nothing in Store Syria can set it except redeeming a code.
+     */
+    public function ownershipProven(): bool
+    {
+        return $this->ownership_proven_at !== null;
+    }
+
+    /**
+     * SSO is offered only for an active, fully provisioned link -- and, where the workspace
+     * was CLAIMED rather than created here, only once Lynomia confirmed who the claimant is.
+     *
+     * The last clause is what makes an operator's approval insufficient on its own. An
+     * operator can be mistaken or persuaded; they cannot manufacture a redemption, so a
+     * claimed link that was never proven cannot be opened however it was approved.
+     */
     public function allowsSso(): bool
     {
-        return in_array($this->state, LinkState::SSO_ALLOWED, true) && $this->isProvisioned();
+        if (! in_array($this->state, LinkState::SSO_ALLOWED, true) || ! $this->isProvisioned()) {
+            return false;
+        }
+
+        return $this->link_mode !== self::MODE_LINK_EXISTING || $this->ownershipProven();
     }
 
     public function verificationHasExpired(): bool

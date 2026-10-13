@@ -26,6 +26,16 @@ class LynomiaApiException extends RuntimeException
     public const KIND_REMOTE_ERROR = 'remote_error';
     public const KIND_INVALID_RESPONSE = 'invalid_response';
 
+    /**
+     * Another attempt on this store is already in flight.
+     *
+     * Not a failure of the integration and not something the merchant did wrong -- it is the
+     * answer a second concurrent request gets while the first one is still talking to
+     * Lynomia. Separate from CONFLICT because it is temporary and the correct advice is
+     * "wait", not "this cannot be done".
+     */
+    public const KIND_IN_PROGRESS = 'in_progress';
+
     public function __construct(
         public readonly string $kind,
         string $message,
@@ -73,7 +83,7 @@ class LynomiaApiException extends RuntimeException
     /** True when retrying the same call could plausibly succeed. */
     public function isTransient(): bool
     {
-        return in_array($this->kind, [self::KIND_UNREACHABLE, self::KIND_RATE_LIMITED], true)
+        return in_array($this->kind, [self::KIND_UNREACHABLE, self::KIND_RATE_LIMITED, self::KIND_IN_PROGRESS], true)
             || ($this->status !== null && $this->status >= 500);
     }
 }
