@@ -44,8 +44,74 @@ class ModuleController extends Controller
         }
     }
 
+    /**
+     * NEW-MODULE-ENABLE-UNGATED-01 -- enable()/disable() was the one module-management method
+     * with NO authorization check of any kind.
+     *
+     * index() above requires 'Manage Module' (:25), remove() requires 'Module remove'
+     * (:~210), and module.install carries `can:manage-platform-addons` at
+     * routes/web.php:1108. This method, declared at routes/web.php:1104 inside the shared
+     * `['auth','xss','setlocate','verified']` group, required only a session -- and what it
+     * does is a PLATFORM operation, not a tenant one:
+     *
+     *   - `add_on_managers.is_enable` is a single global row per module, so flipping it
+     *     enables or DISABLES a module for every store on the platform at once;
+     *   - it runs `Artisan::call('migrate --path=/packages/workdo/' . $request->name . '/...')`
+     *     and `Artisan::call('package:seed ' . $request->name)` with the module name taken
+     *     STRAIGHT FROM THE REQUEST;
+     *   - it reads `base_path('packages/workdo/' . $request->name . '/module.json')`, again
+     *     unvalidated, which is a path traversal out of the packages directory.
+     *
+     * TWO CONTROLS ARE ADDED, and both are needed:
+     *
+     *  1. 'Manage Module', WITH AN EXPLICIT SUPER-ADMIN PATH -- the SAME name index() already
+     *     requires, chosen because it is the
+     *     only screen that posts here (resources/views/module/index.blade.php:218) and because
+     *     it is listed in config/superadminaccess.php:10 alongside 'Module Add' and
+     *     'Module remove', i.e. module management is platform-operator scope BY THE
+     *     APPLICATION'S OWN CONFIGURATION. The name is seeded by Utility::addNewData()
+     *     (app/Models/Utility.php:2836 and :3141) -- it is not an invented permission, which
+     *     is the mistake that once 403'd the entire finance surface. Anyone who can reach the
+     *     form already holds it, so no legitimate workflow loses a capability.
+     *
+     *     THE SUPER-ADMIN PATH IS NOT COSMETIC AND WAS FOUND BY A FAILING TEST, not by
+     *     reasoning: Laratrust's isAbleTo() resolves strictly through the role/permission pivot
+     *     tables and has NO operator bypass, so on a database where the permission row has not
+     *     been seeded for the operator's role the check denies the PLATFORM OPERATOR -- which
+     *     is a lockout, not a defence, and is exactly what happened to the six finance
+     *     permissions (see App\Http\Middleware\FinancePermission's docblock). The positive
+     *     test test_the_platform_operator_can_still_disable_an_installed_module failed on
+     *     precisely this before the type check was added.
+     *
+     *  2. AN ALLOWLIST ON THE NAME. `Module::find()` NEVER returns empty -- its final else
+     *     branch (app/Classes/Module.php:75-88) fabricates a Module for any string, so the
+     *     `!empty($module)` test below is not a validation and never was. The name is
+     *     therefore checked against the real installed modules, which is exactly what
+     *     `Module::has()` does (app/Classes/Module.php:133-136, over the on-disk package
+     *     directories), before any Artisan call or file read receives it.
+     */
     public function enable(Request $request)
     {
+        $actor = auth()->user();
+        $isPlatformOperator = $actor
+            && isset($actor->type)
+            && strtolower(trim((string) $actor->type)) === 'super admin';
+
+        if (!$actor || (!$isPlatformOperator && !$actor->isAbleTo('Manage Module'))) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => __('Permission denied.'),
+                ], 403);
+            }
+
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        if (!is_string($request->name) || trim($request->name) === '' || !Module::has($request->name)) {
+            return redirect()->back()->with('error', __('Oops something went wrong!'));
+        }
+
         $module = Module::find($request->name);
         if (!empty($module)) {
             // Sidebar Performance Changes
