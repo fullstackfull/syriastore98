@@ -19,7 +19,11 @@ use Workdo\LynomiaChat\app\Support\LinkState;
  * @property int         $store_id
  * @property int         $owner_user_id
  * @property int|null    $lynomia_account_id
- * @property int|null    $lynomia_user_id
+ * @property int|null    $lynomia_user_id   The Lynomia ADMINISTRATOR who authorized a
+ *                                          link_existing claim. Audit only -- this app holds
+ *                                          no grant on them and cannot act as them. Null on a
+ *                                          provisioned link, which nobody authorized because
+ *                                          this app created the workspace itself.
  * @property string      $state
  * @property string      $link_mode
  * @property string|null $provisioning_stage
@@ -92,9 +96,18 @@ class LynomiaStoreLink extends Model
         return $this->state === LinkState::ACTIVE;
     }
 
+    /**
+     * The workspace exists and this row knows which one it is.
+     *
+     * IT USED TO ALSO REQUIRE A USER ID, back when a link carried the one shared identity
+     * everybody signed in as. People now get their own identity, created on first use and
+     * recorded in lynomia_store_identities, so there is no single user that a link either has
+     * or lacks -- a workspace with an account id and no members yet is provisioned, and the
+     * first person through the door is given a seat in it.
+     */
     public function isProvisioned(): bool
     {
-        return $this->lynomia_account_id !== null && $this->lynomia_user_id !== null;
+        return $this->lynomia_account_id !== null;
     }
 
     /**
@@ -124,6 +137,17 @@ class LynomiaStoreLink extends Model
         }
 
         return $this->link_mode !== self::MODE_LINK_EXISTING || $this->ownershipProven();
+    }
+
+    /**
+     * Everyone who has been given an identity in this link's current workspace.
+     *
+     * Keyed on the ACCOUNT rather than on the store, which is what makes a re-pointed link
+     * show the new workspace's members instead of the old one's. See the identities migration.
+     */
+    public function identities()
+    {
+        return $this->hasMany(LynomiaStoreIdentity::class, 'lynomia_account_id', 'lynomia_account_id');
     }
 
     public function verificationHasExpired(): bool

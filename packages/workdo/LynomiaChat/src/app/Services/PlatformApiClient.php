@@ -25,7 +25,7 @@ use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
  *   GET    /platform/api/v1/accounts                      list this app's workspaces
  *   POST   /platform/api/v1/users                         create a user  (see the warning below)
  *   POST   /platform/api/v1/accounts/{id}/account_users   attach a member, idempotent upstream
- *   GET    /platform/api/v1/users/{id}/login              mint a one-time SSO URL
+ *   GET    /platform/api/v1/users/{id}/login?account_id=  mint a one-time, workspace-scoped SSO URL
  *   POST   /platform/api/v1/account_links                 redeem a merchant's link code
  *   DELETE /platform/api/v1/account_links/{account}       hand the grant back
  *
@@ -41,8 +41,10 @@ use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
  * on whatever it found. Called with an email that already exists it therefore ATTACHES AN
  * EXISTING LYNOMIA USER to this app, after which /users/{id}/login mints a working session for
  * them. That is an account-takeover primitive, not a linking one. It is used here only from
- * AccountProvisioner, only for an address the merchant has proven control of on the Store
- * Syria side, and never from the existing-account path -- AccountLinker refuses to call it.
+ * IdentityProvisioner, only for a synthetic address in a reserved domain that cannot belong to
+ * a real person, and only when the user that comes back carries the marker proving this
+ * integration is what created it. AccountLinker never calls it: the existing-account path
+ * learns who the merchant is from a code minted inside their own workspace, not from an email.
  */
 class PlatformApiClient
 {
@@ -144,7 +146,15 @@ class PlatformApiClient
      *
      * The code is single-use and short-lived upstream, and is never stored here.
      *
-     * @return array{account_id:int,account_name:string,user_id:int,user_name:string}
+     * WHAT COMES BACK IS THE WORKSPACE, AND ONLY THE WORKSPACE. Redemption used to hand this
+     * app the authorizing administrator's own identity as well, which cashed a proof about ONE
+     * account in for the ability to sign in as that person in every account they belong to.
+     * Upstream now grants the account and names the authorizer without granting them; who
+     * signs in, as whom, and with what role is decided per person afterwards by
+     * IdentityProvisioner. The two authorizer fields are recorded for the audit trail -- this
+     * app cannot act as that user and does not try.
+     *
+     * @return array{account_id:int,account_name:string,authorized_by_user_id:int,authorized_by_name:string}
      */
     public function redeemLinkCode(string $code): array
     {
@@ -155,8 +165,8 @@ class PlatformApiClient
         return [
             'account_id' => $this->requireInt($body, 'account_id'),
             'account_name' => (string) ($body['account_name'] ?? ''),
-            'user_id' => $this->requireInt($body, 'user_id'),
-            'user_name' => (string) ($body['user_name'] ?? ''),
+            'authorized_by_user_id' => $this->requireInt($body, 'authorized_by_user_id'),
+            'authorized_by_name' => (string) ($body['authorized_by_name'] ?? ''),
         ];
     }
 
@@ -218,16 +228,27 @@ class PlatformApiClient
     }
 
     /**
-     * Mint a one-time SSO URL for a user.
+     * Mint a one-time SSO URL for a user, confined to one workspace.
      *
      * Upstream the token is SecureRandom.hex(32) held in Redis for 5 minutes and invalidated
      * the moment it is redeemed (app/models/concerns/sso_authenticatable.rb,
      * devise_overrides/sessions_controller.rb). Treat the URL as a single-use secret: hand it
      * straight to the browser as a redirect and never persist or log it.
+     *
+     * THE ACCOUNT IS NOT OPTIONAL HERE, although it is optional upstream. An unscoped link
+     * signs the person in as themselves EVERYWHERE -- every Lynomia account that user belongs
+     * to, which for an identity this integration created is one today and need not stay one.
+     * Upstream keeps the parameter optional because the OAuth and SAML callbacks mint a token
+     * before any account has been chosen; this integration always knows the workspace, so it
+     * always says so, and a caller who forgot cannot compile.
+     *
+     * The scope is VERIFIED upstream, not trusted: the app must already hold a permissible on
+     * the account and the user must be a member of it, and failing either is a refusal rather
+     * than a quiet downgrade to an unscoped link.
      */
-    public function issueSsoUrl(int $userId): string
+    public function issueSsoUrl(int $userId, int $accountId): string
     {
-        $body = $this->send('get', "/platform/api/v1/users/{$userId}/login");
+        $body = $this->send('get', "/platform/api/v1/users/{$userId}/login", ['account_id' => $accountId]);
 
         $url = $body['url'] ?? null;
 
@@ -275,7 +296,12 @@ class PlatformApiClient
         }
 
         if ($response->failed()) {
-            throw LynomiaApiException::fromStatus($response->status());
+            // THE CODE, NEVER THE PROSE. A rejected link code has two causes a merchant can
+            // act on differently -- a dead code, and a code minted for a different integration
+            // -- and they are only distinguishable from the body. What is read out of it is a
+            // short machine-readable token that this integration defines on both sides; the
+            // provider's sentence is still never shown to anyone (see LynomiaApiException).
+            throw LynomiaApiException::fromStatus($response->status(), $this->errorCode($response));
         }
 
         $decoded = $response->json();
@@ -329,6 +355,13 @@ class PlatformApiClient
         if (blank($this->config['platform_token'] ?? null)) {
             throw LynomiaApiException::notConfigured('LYNOMIA_PLATFORM_TOKEN');
         }
+    }
+
+    private function errorCode(Response $response): ?string
+    {
+        $code = $response->json('error_code');
+
+        return is_string($code) && $code !== '' ? $code : null;
     }
 
     private function requireInt(array $body, string $key): int

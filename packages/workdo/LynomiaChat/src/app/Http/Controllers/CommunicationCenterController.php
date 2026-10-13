@@ -5,7 +5,10 @@ namespace Workdo\LynomiaChat\app\Http\Controllers;
 use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
+use App\Models\User;
+use Illuminate\Support\Collection;
 use Workdo\LynomiaChat\app\Http\Middleware\EnsureStoreOwnsLink;
+use Workdo\LynomiaChat\app\Models\LynomiaStoreIdentity;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\PlatformApiClient;
 
@@ -35,6 +38,39 @@ class CommunicationCenterController extends Controller
             // base URL and never the token.
             'integrationConfigured' => $this->api->isConfigured(),
             'verificationCode' => session('lynomia_verification_code'),
+            'identities' => $this->identitiesFor($link),
         ]);
+    }
+
+    /**
+     * Who from this store has a seat in the workspace, and with what role.
+     *
+     * SCOPED BY THE WORKSPACE THE LINK POINTS AT NOW, which is the same key the rest of the
+     * module uses: a store re-pointed at a different Lynomia account must not show the
+     * previous one's people. The middleware has already established the link belongs to the
+     * caller's tenant, so no further ownership check is needed or would mean anything here.
+     *
+     * The person's name is read from Store Syria, not from Lynomia -- it is the same person
+     * and this side is the one that knows them.
+     */
+    private function identitiesFor(?LynomiaStoreLink $link): Collection
+    {
+        if ($link?->lynomia_account_id === null) {
+            return collect();
+        }
+
+        // 'administrator' sorts before 'agent', which puts the owner at the top without a
+        // CASE expression or a second column to maintain.
+        $identities = LynomiaStoreIdentity::forWorkspace((int) $link->lynomia_account_id)
+            ->orderBy('role')
+            ->orderBy('id')
+            ->get();
+
+        $names = User::whereIn('id', $identities->pluck('user_id'))->pluck('name', 'id');
+
+        return $identities->each(
+            fn (LynomiaStoreIdentity $identity) => $identity->person_name =
+                $names[$identity->user_id] ?? __('Removed user')
+        );
     }
 }

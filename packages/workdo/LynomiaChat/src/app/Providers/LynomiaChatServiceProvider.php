@@ -5,6 +5,7 @@ namespace Workdo\LynomiaChat\app\Providers;
 use Illuminate\Support\ServiceProvider;
 use Workdo\LynomiaChat\app\Services\AccountLinker;
 use Workdo\LynomiaChat\app\Services\AccountProvisioner;
+use Workdo\LynomiaChat\app\Services\IdentityProvisioner;
 use Workdo\LynomiaChat\app\Services\PlatformApiClient;
 use Workdo\LynomiaChat\app\Services\SsoLinkIssuer;
 
@@ -25,9 +26,20 @@ class LynomiaChatServiceProvider extends ServiceProvider
         // swaps the single binding and the whole module is exercised against a fake.
         $this->app->singleton(PlatformApiClient::class, fn () => PlatformApiClient::fromConfig());
 
-        $this->app->bind(AccountProvisioner::class, fn ($app) => new AccountProvisioner($app->make(PlatformApiClient::class)));
-        $this->app->bind(AccountLinker::class, fn ($app) => new AccountLinker($app->make(PlatformApiClient::class)));
-        $this->app->bind(SsoLinkIssuer::class, fn ($app) => new SsoLinkIssuer($app->make(PlatformApiClient::class)));
+        $this->app->bind(IdentityProvisioner::class, fn ($app) => new IdentityProvisioner($app->make(PlatformApiClient::class)));
+
+        $this->app->bind(AccountProvisioner::class, fn ($app) => new AccountProvisioner(
+            $app->make(PlatformApiClient::class),
+            $app->make(IdentityProvisioner::class)
+        ));
+        $this->app->bind(AccountLinker::class, fn ($app) => new AccountLinker(
+            $app->make(PlatformApiClient::class),
+            $app->make(IdentityProvisioner::class)
+        ));
+        $this->app->bind(SsoLinkIssuer::class, fn ($app) => new SsoLinkIssuer(
+            $app->make(PlatformApiClient::class),
+            $app->make(IdentityProvisioner::class)
+        ));
     }
 
     public function boot(): void

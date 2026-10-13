@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
+use Workdo\LynomiaChat\app\Models\LynomiaStoreIdentity;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\AccountLinker;
 use Workdo\LynomiaChat\app\Services\AccountProvisioner;
@@ -32,293 +33,15 @@ use Workdo\LynomiaChat\app\Support\ProvisioningStage;
  */
 class LynomiaConnectionTest extends TestCase
 {
+    use InteractsWithLynomia;
     use RefreshDatabase;
-
-    private const FAKE_BASE = 'https://lynomia.test';
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        config()->set('lynomia.enabled', true);
-        config()->set('lynomia.base_url', self::FAKE_BASE);
-        config()->set('lynomia.platform_token', 'test-token-not-a-real-credential');
-
-        // The client is a singleton built from config at resolve time, so the config above
-        // must be set before anything resolves it.
-        $this->app->forgetInstance(\Workdo\LynomiaChat\app\Services\PlatformApiClient::class);
-
-        // NOTHING IN THIS FILE MAY REACH THE NETWORK. Http::fake() with an ARRAY does not
-        // stop a stray call: an unmatched URL is executed for real, so a test that adds a
-        // new remote call and forgets to stub it dials out of the sandbox and fails with a
-        // proxy error rather than saying what it did. This turns that into an explicit
-        // refusal. It is belt and braces over the closure fake, which always answers --
-        // the point is that it keeps answering after someone adds a call it has not met.
-        Http::preventStrayRequests();
-
-        // The module must be in the add-on registry for ActivatedModule() to see it at all.
-        AddOnManager::updateOrCreate(['module' => 'LynomiaChat'], [
-            'name' => 'Lynomia Chat',
-            'monthly_price' => 0,
-            'yearly_price' => 0,
-            'is_enable' => 1,
-            'package_name' => 'lynomia-chat',
-        ]);
+        $this->bootLynomiaHarness();
     }
-
-    // ---------------------------------------------------------------- fixtures
-
-    private function merchant(array $attributes = []): User
-    {
-        return User::factory()->create(array_merge([
-            'type' => 'admin',
-            'created_by' => 1,
-            'is_active' => 1,
-            'email_verified_at' => now(),
-        ], $attributes));
-    }
-
-    private function operator(): User
-    {
-        return User::factory()->create([
-            'type' => 'super admin',
-            'created_by' => null,
-            'is_active' => 1,
-            'email_verified_at' => now(),
-        ]);
-    }
-
-    private function storeFor(User $owner): Store
-    {
-        $store = Store::create([
-            'name' => 'Store ' . uniqid(),
-            'email' => 'store' . uniqid() . '@example.test',
-            'theme_id' => '1',
-            'slug' => 'store-' . $owner->id . '-' . uniqid(),
-            'created_by' => $owner->id,
-            'is_active' => 1,
-        ]);
-
-        $owner->current_store = $store->id;
-        $owner->save();
-
-        return $store;
-    }
-
-    /** Grant the merchant's tenant the module, which is what PlanModuleCheck resolves. */
-    private function entitle(User $owner): void
-    {
-        userActiveModule::updateOrCreate(
-            ['user_id' => $owner->id, 'module' => 'LynomiaChat'],
-            []
-        );
-
-        // Entitlement is the PLAN's answer; the permission is the ROLE's. A merchant owner
-        // holds both in production -- PermissionTableSeeder grants `Manage Lynomia Chat` to
-        // the global `admin` role that every owner carries -- so the fixture gives both.
-        // They are granted together here precisely because they are NOT the same control:
-        // the staff test below entitles the tenant and withholds only the permission.
-        $this->grantLynomiaPermission($owner);
-    }
-
-    /**
-     * Give a user a real Laratrust role carrying the module's permission.
-     *
-     * forceCreate, not create: App\Models\Role sets `public $guarded = []` but extends
-     * Laratrust's Role, whose non-empty `protected $fillable` wins in isFillable(), so
-     * store_id and created_by are silently dropped by create().
-     */
-    private function grantLynomiaPermission(User $user): void
-    {
-        $permission = Permission::firstOrCreate(
-            ['name' => 'Manage Lynomia Chat'],
-            ['display_name' => 'Manage Lynomia Chat', 'guard_name' => 'web', 'module' => 'LynomiaChat']
-        );
-
-        $role = Role::firstWhere('name', 'lynomia-role-' . $user->id)
-            ?? Role::forceCreate([
-                'name' => 'lynomia-role-' . $user->id,
-                'display_name' => 'Lynomia Role',
-                'guard_name' => 'web',
-                'created_by' => $user->creatorId(),
-                'store_id' => $user->current_store,
-            ]);
-
-        $role->givePermission($permission);
-        $role->flushCache();
-
-        // addRole unconditionally, and NEVER probe with hasRole() first: Laratrust memoises
-        // the user's role set on the first read, so a probe taken before the attach caches an
-        // empty set and every later isAbleTo() in the same request answers from it.
-        $user->addRole($role);
-        $user->flushCache();
-    }
-
-    /**
-     * A staff member of the owner's tenant with a role that carries NO permissions --
-     * the shape UserController::store creates: type = the role's name, created_by = the
-     * owner, current_store copied from the owner, email already verified.
-     */
-    private function staffOf(User $owner): User
-    {
-        $staff = User::factory()->create([
-            'type' => 'Packing',
-            'created_by' => $owner->id,
-            'current_store' => $owner->current_store,
-            'is_active' => 1,
-            'email_verified_at' => now(),
-        ]);
-
-        $role = Role::forceCreate([
-            'name' => 'packing-' . $staff->id,
-            'display_name' => 'Packing',
-            'guard_name' => 'web',
-            'created_by' => $owner->id,
-            'store_id' => $owner->current_store,
-        ]);
-
-        $staff->addRole($role);
-        $staff->flushCache();
-
-        return $staff->fresh();
-    }
-
-    /** @return array{0: User, 1: Store} an entitled merchant with a store selected */
-    private function entitledTenant(): array
-    {
-        $owner = $this->merchant();
-        $store = $this->storeFor($owner);
-        $this->entitle($owner);
-
-        return [$owner->fresh(), $store];
-    }
-
-    /** The currently scripted behaviour. Read on every faked call, so a test can rescript mid-example. */
-    private array $lynomiaScript = [];
-
-    private bool $lynomiaFakeRegistered = false;
-
-    /**
-     * A scriptable stand-in for the Lynomia Platform API.
-     *
-     * A CLOSURE, NOT A URL MAP, because two of the calls that matter here share a URL and
-     * differ only by verb: POST /accounts creates a workspace and GET /accounts is the
-     * recovery lookup that must find one a lost POST already made. A map keyed by URL answers
-     * both with the same body and would quietly make every reconciliation test vacuous.
-     *
-     * REGISTERED ONCE AND RESCRIPTED THROUGH A PROPERTY, because Http::fake() MERGES stub
-     * callbacks rather than replacing them (Factory::fake, vendor/laravel/framework), and the
-     * earliest registered callback answers first. Calling it a second time with new behaviour
-     * therefore changes nothing -- the original closure still wins -- which silently turns a
-     * two-phase failure-recovery test into one that re-runs the same failure. The later bare
-     * fake() call is kept for its other effect: it resets Http::recorded(), so each phase
-     * counts its own traffic.
-     *
-     * @param array{
-     *     account_id?:int, user_id?:int,
-     *     inventory?:list<array>,   what GET /accounts already holds -- the orphan a lost create left behind
-     *     fail?:array<string,mixed> 'POST /platform/api/v1/accounts' => Http::failedConnection() | Http::response(...)
-     * } $options
-     */
-    private function fakeLynomia(array $options = []): void
-    {
-        $this->lynomiaScript = $options;
-
-        if ($this->lynomiaFakeRegistered) {
-            // Resets recorded(); the default stub it appends never answers, because the
-            // closure below is consulted first and always returns something.
-            Http::fake();
-
-            return;
-        }
-
-        $this->lynomiaFakeRegistered = true;
-
-        Http::fake(function ($request) {
-            $accountId = $this->lynomiaScript['account_id'] ?? 7001;
-            $userId = $this->lynomiaScript['user_id'] ?? 9001;
-            $inventory = $this->lynomiaScript['inventory'] ?? [];
-            $fail = $this->lynomiaScript['fail'] ?? [];
-
-            $method = strtoupper($request->method());
-            $path = (string) parse_url($request->url(), PHP_URL_PATH);
-            $key = "{$method} {$path}";
-
-            // Scripted failures take precedence, and are matched on verb+path so a test can
-            // break the create without also breaking the lookup that recovers from it.
-            // Returned as-is: the factory unwraps a Closure itself, passing the request --
-            // which is what Http::failedConnection() needs to build its message.
-            if (array_key_exists($key, $fail)) {
-                return $fail[$key];
-            }
-
-            return match (true) {
-                $key === 'GET /platform/api/v1/accounts' => Http::response($inventory, 200),
-                $key === 'POST /platform/api/v1/accounts' => Http::response(['id' => $accountId, 'name' => 'WS'], 200),
-                // Upstream echoes the submitted custom_attributes only when it CREATES the
-                // user; for an address that already exists it returns that user untouched.
-                // `squatted_user` scripts the second case, which is what the provisioner has
-                // to be able to tell apart.
-                $key === 'POST /platform/api/v1/users' => Http::response(array_filter([
-                    'id' => $userId,
-                    'email' => 'x@y.z',
-                    'custom_attributes' => ($this->lynomiaScript['squatted_user'] ?? false)
-                        ? null
-                        : (json_decode($request->body(), true)['custom_attributes'] ?? []),
-                ], static fn ($value) => $value !== null), 200),
-                $key === "POST /platform/api/v1/accounts/{$accountId}/account_users" => Http::response(['id' => 1], 200),
-                $key === "GET /platform/api/v1/users/{$userId}/login" => Http::response(
-                    ['url' => self::FAKE_BASE . '/app/login?email=x&sso_auth_token=SECRET'],
-                    200
-                ),
-                $key === 'POST /platform/api/v1/account_links' => Http::response([
-                    'account_id' => $accountId,
-                    'account_name' => 'Claimed WS',
-                    'user_id' => $userId,
-                    'user_name' => 'Merchant Admin',
-                ], 201),
-                str_starts_with($key, 'DELETE /platform/api/v1/account_links/') => Http::response([], 200),
-                // An unscripted call is a test bug, not a 404 to shrug at: say which one.
-                default => Http::response(['error' => "unscripted call: {$key}"], 599),
-            };
-        });
-    }
-
-    /** One workspace already registered to a store ON THIS INSTALLATION, as GET /accounts reports it. */
-    private function inventoryFor(int $storeId, int $accountId = 7001, string $name = 'WS', ?string $installation = null): array
-    {
-        return [[
-            'id' => $accountId,
-            'name' => $name,
-            'custom_attributes' => [
-                'store_syria_store_id' => $storeId,
-                'store_syria_installation' => $installation ?? config('lynomia.installation_ref'),
-            ],
-        ]];
-    }
-
-    /**
-     * How many times a given verb+path suffix was sent.
-     *
-     * SUFFIX, NOT SUBSTRING. '/platform/api/v1/accounts' is a prefix of
-     * '/platform/api/v1/accounts/7001/account_users', so a substring match counts the
-     * membership call as an account create and quietly passes a test asserting no second
-     * workspace was made.
-     */
-    private function sentCount(string $method, string $pathSuffix): int
-    {
-        $count = 0;
-
-        foreach (Http::recorded() as [$request]) {
-            if (strtoupper($request->method()) === strtoupper($method)
-                && str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), $pathSuffix)) {
-                $count++;
-            }
-        }
-
-        return $count;
-    }
-
 
     // ================================================================ route surface
 
@@ -419,9 +142,18 @@ class LynomiaConnectionTest extends TestCase
 
         $this->assertSame(LinkState::ACTIVE, $link->state);
         $this->assertSame(7001, $link->lynomia_account_id);
-        $this->assertSame(9001, $link->lynomia_user_id);
         $this->assertSame((int) $store->id, $link->store_id);
         $this->assertSame((int) $owner->creatorId(), $link->owner_user_id);
+
+        // NOBODY IS RECORDED ON THE LINK, because nobody signs in as the link any more. The
+        // workspace's one administrator is the tenant owner, and it is their own identity.
+        $this->assertNull($link->lynomia_user_id);
+
+        $identity = LynomiaStoreIdentity::forWorkspacePerson(7001, (int) $owner->id)->first();
+        $this->assertNotNull($identity, 'the owner was not given an identity in the workspace');
+        $this->assertSame(9001, (int) $identity->lynomia_user_id);
+        $this->assertSame(LynomiaStoreIdentity::ROLE_ADMINISTRATOR, $identity->role);
+        $this->assertSame((int) $store->id, $identity->store_id);
     }
 
     public function test_provisioning_never_sends_the_merchant_email_to_lynomia(): void
@@ -538,11 +270,12 @@ class LynomiaConnectionTest extends TestCase
         $this->assertSame(LinkState::PENDING_VERIFICATION, $link->state);
         $this->assertFalse($link->allowsSso(), 'A pending claim must not permit SSO.');
 
-        // Lynomia has answered who the claimant is, so the row carries BOTH ids -- which the
-        // old claim flow never learned, and without which an approved link could not open.
+        // Lynomia has answered which workspace this is and who vouched for it. The authorizer
+        // is recorded for the operator reviewing the claim and is NOT granted: nobody signs in
+        // as them, and this app holds nothing on their identity.
         $this->assertNotNull($link->ownership_proven_at);
         $this->assertSame(7001, (int) $link->lynomia_account_id);
-        $this->assertSame(9001, (int) $link->lynomia_user_id);
+        $this->assertSame(4242, (int) $link->lynomia_user_id);
 
         $this->assertNotEmpty($result['verification_code']);
         $this->assertNotSame($result['verification_code'], $link->verification_code_hash);
@@ -559,7 +292,7 @@ class LynomiaConnectionTest extends TestCase
     public function test_the_merchant_never_names_the_account_they_are_claiming(): void
     {
         [$owner, $store] = $this->entitledTenant();
-        $this->fakeLynomia(['account_id' => 5150, 'user_id' => 6160]);
+        $this->fakeLynomia(['account_id' => 5150, 'authorized_by' => 6160]);
 
         // The merchant asks for account 7001. They are given 5150, because the CODE decides
         // and they do not. There is no input on this path that an attacker could aim.
@@ -570,6 +303,82 @@ class LynomiaConnectionTest extends TestCase
 
         $sent = Http::recorded()[0][0];
         $this->assertSame(['code' => 'ABCD2345EFGH6789'], $sent->data());
+    }
+
+    /**
+     * DECISION 1, THE MERCHANT-FACING HALF. A link code is now minted FOR a named integration
+     * and is redeemable only by it. A merchant who pastes the code they made for some other
+     * approved integration gets a sentence they can act on -- and nothing of theirs is spent,
+     * because upstream checks the audience BEFORE consuming the code.
+     *
+     * The distinction is carried by a machine-readable error_code, not by matching English:
+     * the sentence below is written here, in Store Syria, and survives any rewording on the
+     * Lynomia side.
+     */
+    public function test_a_code_for_a_different_integration_says_so_and_links_nothing(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+        $this->fakeLynomia(['fail' => [
+            'POST /platform/api/v1/account_links' => Http::response([
+                'error' => 'This code was issued for a different integration',
+                'error_code' => 'wrong_platform_app',
+            ], 422),
+        ]]);
+
+        try {
+            app(AccountLinker::class)->request($store, $owner, 'ABCD2345EFGH6789');
+            $this->fail('a code for another integration was accepted');
+        } catch (LynomiaApiException $e) {
+            $this->assertSame(LynomiaApiException::KIND_CONFLICT, $e->kind);
+            $this->assertStringContainsString('different integration', $e->getMessage());
+            // Not the generic rejection, which is what a merchant used to be told.
+            $this->assertStringNotContainsString('rejected the request as invalid', $e->getMessage());
+        }
+
+        $this->assertNull(LynomiaStoreLink::forStore((int) $store->id)->first());
+    }
+
+    public function test_a_dead_code_tells_the_merchant_to_make_a_new_one(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+        $this->fakeLynomia(['fail' => [
+            'POST /platform/api/v1/account_links' => Http::response([
+                'error' => 'Invalid or expired code',
+                'error_code' => 'invalid_code',
+            ], 422),
+        ]]);
+
+        try {
+            app(AccountLinker::class)->request($store, $owner, 'ABCD2345EFGH6789');
+            $this->fail('a dead code was accepted');
+        } catch (LynomiaApiException $e) {
+            $this->assertStringContainsString('generate a new one', $e->getMessage());
+        }
+    }
+
+    /**
+     * An unrecognised error_code must not invent a sentence. The merchant gets the ordinary
+     * refusal rather than a message this side made up about a condition it does not know.
+     */
+    public function test_an_unknown_error_code_falls_back_to_the_generic_refusal(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+        $this->fakeLynomia(['fail' => [
+            'POST /platform/api/v1/account_links' => Http::response([
+                'error' => 'Something new',
+                'error_code' => 'something_nobody_here_knows',
+            ], 422),
+        ]]);
+
+        try {
+            app(AccountLinker::class)->request($store, $owner, 'ABCD2345EFGH6789');
+            $this->fail('an unknown refusal was accepted');
+        } catch (LynomiaApiException $e) {
+            $this->assertSame(LynomiaApiException::KIND_CONFLICT, $e->kind);
+            $this->assertStringContainsString('rejected the request as invalid', $e->getMessage());
+            // And never the provider's own words.
+            $this->assertStringNotContainsString('Something new', $e->getMessage());
+        }
     }
 
     public function test_a_code_lynomia_rejects_links_nothing(): void
@@ -967,13 +776,13 @@ class LynomiaConnectionTest extends TestCase
         $this->fakeLynomia();
 
         $link = app(AccountProvisioner::class)->provision($store, $owner->fresh());
-        $originalUserId = (int) $link->lynomia_user_id;
-        $this->assertGreaterThan(0, $originalUserId);
+        $originalAccountId = (int) $link->lynomia_account_id;
+        $this->assertGreaterThan(0, $originalAccountId);
 
         app(AccountLinker::class)->revoke($link->fresh(), $this->operator(), 'abuse');
 
         // The merchant tries to re-open the row as a claim on a DIFFERENT workspace. Before
-        // the fix this succeeded and silently carried $originalUserId across, so an operator
+        // the fix this succeeded and silently carried the old workspace's user id across, so an operator
         // who approved an unrelated account was in fact restoring the one they had revoked.
         try {
             app(AccountLinker::class)->request($store, $owner->fresh(), 'JKLM2345NPQR6789');
@@ -1164,17 +973,33 @@ class LynomiaConnectionTest extends TestCase
         }
 
         $link = LynomiaStoreLink::forStore((int) $store->id)->first();
-        $this->assertSame(ProvisioningStage::USER_CREATED, $link->provisioning_stage);
-        $this->assertSame(9001, (int) $link->lynomia_user_id);
+        // The workspace is recorded; the owner has no seat in it yet, which is exactly what
+        // ACCOUNT_CREATED means and exactly where the next attempt picks up.
+        $this->assertSame(ProvisioningStage::ACCOUNT_CREATED, $link->provisioning_stage);
+        $this->assertSame(0, LynomiaStoreIdentity::forWorkspace(7001)->count());
+
+        $firstAddress = $this->lastUserCreateAddress();
 
         $this->fakeLynomia();
         $resumed = app(AccountProvisioner::class)->provision($store->fresh(), $owner->fresh());
 
         $this->assertSame(LinkState::ACTIVE, $resumed->state);
         $this->assertSame(0, $this->sentCount('POST', '/platform/api/v1/accounts'));
-        $this->assertSame(0, $this->sentCount('POST', '/platform/api/v1/users'));
         $this->assertSame(1, $this->sentCount('POST', '/account_users'));
+
+        // IT DOES RE-SEND POST /users, AND THAT IS NOT A SECOND USER. The identity row is
+        // written only once the attach lands, so a resume has nothing local to resolve from
+        // and asks Lynomia again -- by the same deterministic address, which upstream
+        // resolves to the user the first attempt already created. Asserting the ADDRESS
+        // rather than the call count is what distinguishes "resolved the same one" from
+        // "made another", which a count cannot tell apart.
+        $this->assertSame(1, $this->sentCount('POST', '/platform/api/v1/users'));
+        $this->assertSame($firstAddress, $this->lastUserCreateAddress());
+
+        // And exactly one seat exists at the end of it.
+        $this->assertSame(1, LynomiaStoreIdentity::forWorkspace(7001)->count());
     }
+
 
     /**
      * Two concurrent provision requests for one store.
@@ -1673,7 +1498,7 @@ class LynomiaConnectionTest extends TestCase
 
                 return [
                     'account_id' => 7002, 'account_name' => 'Other WS',
-                    'user_id' => 9002, 'user_name' => 'Other Admin',
+                    'authorized_by_user_id' => 9002, 'authorized_by_name' => 'Other Admin',
                 ];
             });
         });
@@ -1688,7 +1513,9 @@ class LynomiaConnectionTest extends TestCase
         $link = LynomiaStoreLink::forStore((int) $store->id)->first();
         $this->assertSame(LinkState::ACTIVE, $link->state);
         $this->assertSame(7001, (int) $link->lynomia_account_id, 'the approved workspace was replaced');
-        $this->assertSame(9001, (int) $link->lynomia_user_id);
+        // Still the administrator who authorized the approved claim, not the one who
+        // authorized the claim that lost the race.
+        $this->assertSame(4242, (int) $link->lynomia_user_id);
         $this->assertSame((int) $operator->id, (int) $link->verified_by);
     }
 
@@ -1797,7 +1624,7 @@ class LynomiaConnectionTest extends TestCase
         $this->assertNotSame(LinkState::ACTIVE, $link->state);
     }
 
-    public function test_provisioning_stamps_the_service_user_so_ownership_is_checkable(): void
+    public function test_provisioning_stamps_the_owner_identity_so_ownership_is_checkable(): void
     {
         [$owner, $store] = $this->entitledTenant();
         $this->fakeLynomia();
@@ -1808,9 +1635,13 @@ class LynomiaConnectionTest extends TestCase
             ->first(fn ($pair) => strtoupper($pair[0]->method()) === 'POST'
                 && str_ends_with((string) parse_url($pair[0]->url(), PHP_URL_PATH), '/platform/api/v1/users'));
 
+        // THE PERSON IS IN THE MARKER, and that is the whole difference from the shared
+        // service user this replaced: the address and the stamp both name whose identity it
+        // is, so "we created this user" and "we created it for this person" are one check.
         $this->assertSame(
             [
                 'store_syria_store_id' => (int) $store->id,
+                'store_syria_user_id' => (int) $owner->id,
                 'store_syria_installation' => config('lynomia.installation_ref'),
             ],
             $create[0]->data()['custom_attributes']
@@ -1843,10 +1674,12 @@ class LynomiaConnectionTest extends TestCase
                     $inner = true;
                     app(AccountLinker::class)->request($store->fresh(), $owner->fresh(), 'JKLM2345NPQR6789');
 
-                    return ['account_id' => 7003, 'account_name' => 'C', 'user_id' => 9003, 'user_name' => 'c'];
+                    return ['account_id' => 7003, 'account_name' => 'C',
+                            'authorized_by_user_id' => 9003, 'authorized_by_name' => 'c'];
                 }
 
-                return ['account_id' => 7002, 'account_name' => 'B', 'user_id' => 9002, 'user_name' => 'b'];
+                return ['account_id' => 7002, 'account_name' => 'B',
+                    'authorized_by_user_id' => 9002, 'authorized_by_name' => 'b'];
             });
         });
 

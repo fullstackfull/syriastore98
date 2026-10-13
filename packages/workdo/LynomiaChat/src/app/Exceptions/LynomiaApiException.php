@@ -60,8 +60,31 @@ class LynomiaApiException extends RuntimeException
         );
     }
 
-    public static function fromStatus(int $status): self
+    /**
+     * @param string|null $errorCode A short machine-readable reason this integration defines on
+     *                               BOTH sides of the wire. It is matched, never rendered: the
+     *                               sentence a merchant reads is written here, in their
+     *                               language, and survives any rewording on the Lynomia side.
+     */
+    public static function fromStatus(int $status, ?string $errorCode = null): self
     {
+        // The two link-code refusals are the only remote failures a MERCHANT can act on
+        // differently, and the difference matters: one says "that code is dead, make another",
+        // the other says "that code is alive but belongs to a different integration -- you
+        // pasted the wrong one, and nothing was consumed". A single "invalid request" for both
+        // sends a merchant to support for a mistake they could fix in ten seconds.
+        if ($status === 422 && $errorCode !== null) {
+            $message = match ($errorCode) {
+                'wrong_platform_app' => __('That connection code was created for a different integration. Generate one for Store Syria in Lynomia and try again.'),
+                'invalid_code' => __('That connection code is not valid, has already been used, or has expired. Please generate a new one in Lynomia.'),
+                default => null,
+            };
+
+            if ($message !== null) {
+                return new self(self::KIND_CONFLICT, $message, $status);
+            }
+        }
+
         return match (true) {
             $status === 401 || $status === 403 => new self(
                 // The Platform API answers 401 for a bad token and, from

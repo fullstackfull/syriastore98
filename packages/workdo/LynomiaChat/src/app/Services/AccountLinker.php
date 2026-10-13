@@ -33,11 +33,18 @@ use Workdo\LynomiaChat\app\Support\LinkState;
  * was a way to find out, truthfully, who the claimant is on the Lynomia side.
  *
  * That now exists, and it lives in Lynomia because Lynomia is the only side that can check.
- * An administrator of the account signs in there -- which is the authentication -- and mints a
- * one-time code (Integrations::AccountLinkCode). The merchant pastes it here. Store Syria
- * forwards it server to server to POST /platform/api/v1/account_links, which re-reads the
- * author's administrator role, grants this app a permissible on the account AND on that user,
- * and answers with both ids.
+ * An administrator of the account signs in there -- which is the authentication -- selects the
+ * integration the code is for, and mints a one-time code (Integrations::AccountLinkCode). The
+ * merchant pastes it here. Store Syria forwards it server to server to
+ * POST /platform/api/v1/account_links, which re-reads the author's administrator role, checks
+ * the code was issued for THIS integration, grants this app a permissible on the account, and
+ * names the administrator who authorized it.
+ *
+ * THE GRANT IS THE WORKSPACE AND NOTHING ELSE. It deliberately does not include the authorizing
+ * administrator's own identity: minting a link for a real person produces a session that is
+ * theirs everywhere, so a proof about ONE workspace would have bought the ability to act as
+ * them in every workspace they belong to. Who signs in afterwards, as whom, and with what role
+ * is decided per person by IdentityProvisioner.
  *
  * So the claimant asserts nothing. There is no field on this path that names an account, an
  * email or a user, and the only thing a merchant can submit is a string they could only have
@@ -56,8 +63,10 @@ use Workdo\LynomiaChat\app\Support\LinkState;
  */
 class AccountLinker
 {
-    public function __construct(private readonly PlatformApiClient $api)
-    {
+    public function __construct(
+        private readonly PlatformApiClient $api,
+        private readonly IdentityProvisioner $identities
+    ) {
     }
 
     /**
@@ -97,7 +106,13 @@ class AccountLinker
             'store_id' => (int) $store->id,
             'owner_user_id' => (int) $owner->creatorId(),
             'lynomia_account_id' => $proof['account_id'],
-            'lynomia_user_id' => $proof['user_id'],
+            // AUDIT, NOT ACCESS. This is the Lynomia administrator who authorized the claim.
+            // Redemption deliberately does NOT grant this app anything on them -- their
+            // session would be unscoped, so a proof about one workspace would buy the ability
+            // to act as that person in every workspace they belong to. Nobody signs in as
+            // them; people get their own identities (IdentityProvisioner). The id is kept so
+            // an operator reviewing the claim can see who on the Lynomia side vouched for it.
+            'lynomia_user_id' => $proof['authorized_by_user_id'],
             'lynomia_account_name' => $proof['account_name'],
             'state' => LinkState::PENDING_VERIFICATION,
             'link_mode' => LynomiaStoreLink::MODE_LINK_EXISTING,
@@ -199,7 +214,8 @@ class AccountLinker
         AuditLog::record('lynomia_link_requested', $link, [], [
             'store_id' => $link->store_id,
             'lynomia_account_id' => $link->lynomia_account_id,
-            'lynomia_user_id' => $link->lynomia_user_id,
+            'authorized_by_lynomia_user_id' => $link->lynomia_user_id,
+            'authorized_by_name' => $proof['authorized_by_name'],
             'ownership_proven' => true,
             'expires_at' => (string) $link->verification_expires_at,
         ]);
@@ -342,6 +358,15 @@ class AccountLinker
                 'kind' => $e->kind,
             ]);
         }
+
+        // THE IDENTITIES GO WITH THE GRANT, and unconditionally -- including when the remote
+        // call above failed. Lynomia releases the per-user permissibles along with the
+        // account's, so those remote users are no longer ones this app may mint a link for.
+        // Keeping the rows would mean a later re-link to the same workspace resolves them,
+        // skips creation, and fails at the SSO call with an authorization error the merchant
+        // can do nothing about. Forgetting them is also right when the revoke did not land:
+        // the next link mints fresh identities, which is correct either way.
+        $this->identities->forgetWorkspace($accountId);
     }
 
     public function approve(LynomiaStoreLink $link, User $approver, string $presentedCode): LynomiaStoreLink

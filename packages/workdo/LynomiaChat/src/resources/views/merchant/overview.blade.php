@@ -46,6 +46,46 @@
                         {{ __('Open Lynomia Chat') }}
                     </a>
 
+                    {{-- WHO FROM THIS STORE HAS A SEAT, AND WITH WHAT RIGHTS.
+                         Everyone used to arrive in Lynomia as one shared administrator, so nothing
+                         anyone did there was attributable and a warehouse packer had the run of the
+                         workspace. People now get their own identity with their own role, and the
+                         merchant can see exactly that rather than being asked to trust it. --}}
+                    @if ($identities->isNotEmpty())
+                        <div class="mt-4">
+                            <h6>{{ __('Who has access') }}</h6>
+                            <p class="text-muted small">{{ __('Each person opens Lynomia Chat as themselves. Staff can handle conversations; only the store owner can change the workspace settings.') }}</p>
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>{{ __('Person') }}</th>
+                                            <th>{{ __('Role in Lynomia Chat') }}</th>
+                                            <th>{{ __('Last opened') }}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach ($identities as $identity)
+                                            <tr>
+                                                <td>{{ $identity->person_name }}</td>
+                                                <td>
+                                                    @if ($identity->isAdministrator())
+                                                        <span class="badge bg-primary">{{ __('Owner') }}</span>
+                                                    @else
+                                                        <span class="badge bg-secondary">{{ __('Staff') }}</span>
+                                                    @endif
+                                                </td>
+                                                <td class="text-muted small">
+                                                    {{ $identity->last_sso_at ? $identity->last_sso_at->diffForHumans() : __('Not yet') }}
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    @endif
+
                 @elseif ($link && $link->state === \Workdo\LynomiaChat\app\Support\LinkState::PENDING_VERIFICATION)
                     <div class="alert alert-secondary mb-0">
                         @if ($link->link_mode === \Workdo\LynomiaChat\app\Models\LynomiaStoreLink::MODE_LINK_EXISTING)

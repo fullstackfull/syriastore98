@@ -20,31 +20,22 @@ use Workdo\LynomiaChat\app\Support\ProvisioningStage;
  * attaching a workspace that already exists -- is AccountLinker, and the two are deliberately
  * separate classes because only one of them is allowed to call createUser().
  *
- * WHY THE LYNOMIA USER IS NOT CREATED WITH THE MERCHANT'S REAL EMAIL.
+ * WHO IS IN THE WORKSPACE IS NOT THIS CLASS'S BUSINESS ANY MORE. It used to create one shared
+ * service user and make it an administrator, and everyone on the merchant's team signed in as
+ * it. People now get their own identity, with their own name and their own role, created on
+ * first use by IdentityProvisioner -- which is also where the long argument about synthetic
+ * addresses now lives, because that is where the address is minted.
  *
- * Upstream, POST /platform/api/v1/users resolves `User.from_email(...) || User.new(...)` and
- * then grants the calling app a permissible on whatever it resolved. Handed an address that
- * already belongs to an independently-registered Lynomia customer, it does not fail and it
- * does not create anything -- it hands this app control of THEIR account, after which
- * /users/{id}/login mints a working session for them.
- *
- * Store Syria cannot detect that case before calling: a platform token can only read accounts
- * it already holds a permissible for, so "does this email exist in Lynomia?" is a question
- * this app is not allowed to ask. Provisioning with the merchant's real address is therefore
- * exactly the "link by email similarity alone" the approved rules forbid -- it just fails
- * silently in the merchant's favour instead of visibly.
- *
- * So a provisioned workspace gets a deterministic, store-scoped service address that cannot
- * collide with a real person's account. The merchant never signs in with it: access is the
- * one-way SSO link, which is the only access path this integration offers. A merchant who
- * wants their own Lynomia identity on the workspace uses the existing-account flow, which
- * requires administrative approval precisely because it touches an identity we cannot verify
- * from here.
+ * What is left here is the workspace itself, and one call into IdentityProvisioner to give the
+ * tenant OWNER the administrator seat. A workspace with no administrator would be one nobody
+ * could add a channel to, so it is created as part of provisioning rather than lazily.
  */
 class AccountProvisioner
 {
-    public function __construct(private readonly PlatformApiClient $api)
-    {
+    public function __construct(
+        private readonly PlatformApiClient $api,
+        private readonly IdentityProvisioner $identities
+    ) {
     }
 
     /**
@@ -72,9 +63,9 @@ class AccountProvisioner
      *   one at a time          A conditional UPDATE decides which of two concurrent callers
      *                          proceeds; the other is told to wait rather than racing it.
      */
-    public function provision(Store $store, User $owner): LynomiaStoreLink
+    public function provision(Store $store, User $actor): LynomiaStoreLink
     {
-        $link = $this->claimSlot($store, $owner);
+        $link = $this->claimSlot($store, $actor);
 
         // A finished link is the common case on a second click. Answering from the row costs
         // nothing and reaches Lynomia not at all.
@@ -106,7 +97,7 @@ class AccountProvisioner
         }
 
         try {
-            $this->resume($link, $store);
+            $this->resume($link, $store, $this->tenantOwner($actor));
         } finally {
             // Released whether the attempt succeeded or threw: a failed attempt that kept the
             // lock would block every retry until the claim went stale.
@@ -123,7 +114,7 @@ class AccountProvisioner
      * both read "no row", and the one whose INSERT loses re-reads instead of failing. That
      * turns a race into a no-op, which is what a merchant double-clicking deserves.
      */
-    private function claimSlot(Store $store, User $owner): LynomiaStoreLink
+    private function claimSlot(Store $store, User $actor): LynomiaStoreLink
     {
         $existing = LynomiaStoreLink::forStore((int) $store->id)->first();
 
@@ -134,7 +125,7 @@ class AccountProvisioner
         try {
             return LynomiaStoreLink::create([
                 'store_id' => (int) $store->id,
-                'owner_user_id' => (int) $owner->creatorId(),
+                'owner_user_id' => (int) $actor->creatorId(),
                 'state' => LinkState::PENDING_VERIFICATION,
                 'link_mode' => LynomiaStoreLink::MODE_PROVISION,
                 'provisioning_stage' => ProvisioningStage::CLAIMED,
@@ -162,7 +153,7 @@ class AccountProvisioner
      * or is not known, and that is the only fact that matters. The stage is written alongside
      * for an operator to read.
      */
-    private function resume(LynomiaStoreLink $link, Store $store): void
+    private function resume(LynomiaStoreLink $link, Store $store, User $owner): void
     {
         try {
             if ($link->lynomia_account_id === null) {
@@ -175,57 +166,18 @@ class AccountProvisioner
                 ]);
             }
 
-            if ($link->lynomia_user_id === null) {
-                // Idempotent by construction: the address is derived from the store id, and
-                // upstream resolves an existing user for a known address rather than
-                // creating a second one. Safe to repeat precisely BECAUSE the address cannot
-                // belong to a real person -- see the class docblock.
-                $user = $this->api->createUser(
-                    $this->userName($store),
-                    $this->serviceEmail($store),
-                    // Never stored, never logged, never shown. Access is SSO only; this
-                    // exists because the upstream endpoint requires a password field. A
-                    // resumed attempt generates a different one, which changes nothing:
-                    // upstream ignores it for a user that already exists.
-                    Str::password(32),
-                    $marker = $this->marker($store)
-                );
-
-                // THE "CANNOT BELONG TO A REAL PERSON" CLAIM IS NOW CHECKED, NOT ASSERTED.
-                //
-                // POST /platform/api/v1/users resolves `User.from_email(...) || User.new(...)`
-                // and grants this app a permissible on whatever it resolved -- the documented
-                // takeover primitive. The service address is derived from public facts (a
-                // store id and the installation host), so on an installation with open signup
-                // somebody can register it first and simply wait. The adopted user would then
-                // be attached to the new workspace as an ADMINISTRATOR.
-                //
-                // Upstream applies the submitted params only on the create path, so the
-                // marker comes back only when this integration is the thing that made the
-                // user. Absent means somebody got there first, and the right answer is to
-                // stop -- loudly, with the workspace already recorded so nothing is orphaned.
-                if (! $this->matchesMarker(['custom_attributes' => $user['custom_attributes']], $marker)) {
-                    throw new LynomiaApiException(
-                        LynomiaApiException::KIND_CONFLICT,
-                        'The service identity for this store is already in use. Please contact support.'
-                    );
-                }
-
-                $this->record($link, [
-                    'lynomia_user_id' => $user['id'],
-                    'provisioning_stage' => ProvisioningStage::USER_CREATED,
-                ]);
-            }
-
-            // Idempotent upstream (find_or_initialize_by + update!), so it is re-sent on every
-            // resume rather than tracked: re-attaching an attached member is a no-op, and
-            // skipping it on a row whose stage was written but whose attach never landed
-            // would leave a workspace nobody can reach.
-            $this->api->attachAccountUser(
-                (int) $link->lynomia_account_id,
-                (int) $link->lynomia_user_id,
-                'administrator'
-            );
+            // THE WORKSPACE GETS ONE ADMINISTRATOR, AND IT IS THE TENANT OWNER -- not whoever
+            // clicked the button. A staff member may well be the one setting this up, and
+            // admitting them as the workspace's administrator because they happened to be
+            // first would be the default escalation this design exists to refuse. They get
+            // their own agent seat the moment they open the workspace, like anyone else.
+            //
+            // Called on every resume rather than tracked by a column: IdentityProvisioner is
+            // idempotent end to end -- the address is deterministic, the upstream user resolve
+            // and membership upsert are both no-ops the second time, and the local row is
+            // arbitrated by a unique index -- so a second pass costs two cheap calls and
+            // repairs an attempt that died between creating the user and recording it.
+            $this->identities->identityFor($link, $owner);
 
             $this->record($link, [
                 'provisioning_stage' => ProvisioningStage::COMPLETE,
@@ -437,33 +389,24 @@ class AccountProvisioner
         $link->forceFill($attributes)->save();
     }
 
+    /**
+     * The person whose tenant this is, which is not necessarily the person who clicked.
+     *
+     * creatorId() answers it for both cases: an owner is their own creator, a staff member was
+     * created by their owner. findOrFail rather than a fallback, because a tenant whose owner
+     * record has gone is a broken installation and silently admitting the staff member instead
+     * would hand them the administrator seat -- the exact escalation this avoids.
+     */
+    private function tenantOwner(User $actor): User
+    {
+        return (int) $actor->creatorId() === (int) $actor->id
+            ? $actor
+            : User::findOrFail($actor->creatorId());
+    }
+
     private function accountName(Store $store): string
     {
         return Str::limit((string) ($store->name ?: "Store {$store->id}"), 60, '');
-    }
-
-    private function userName(Store $store): string
-    {
-        return Str::limit((string) ($store->name ?: "Store {$store->id}"), 50, '') . ' Owner';
-    }
-
-    /**
-     * A deterministic address that is unique per store and cannot belong to a real person.
-     *
-     * Deterministic so a retry resolves the same Lynomia user rather than creating a second
-     * one. The domain is a reserved example domain by default -- nothing is ever delivered to
-     * it, which is correct: this identity exists to own the workspace, not to receive mail.
-     */
-    private function serviceEmail(Store $store): string
-    {
-        // THE INSTALLATION IS IN THE LOCAL PART FOR THE SAME REASON IT IS IN THE MARKER, one
-        // layer down. Upstream resolves `User.from_email(...) || User.new(...)`, so a shared
-        // address does not create a second user -- it hands this installation the OTHER
-        // installation's service user, which is an administrator of that installation's
-        // workspace. Slugged because an address is not a free-text field.
-        $installation = preg_replace('/[^a-z0-9]+/', '-', strtolower($this->installationRef())) ?: 'local';
-
-        return sprintf('store-%d.%s@%s', $store->id, trim($installation, '-'), 'stores.storesyria.invalid');
     }
 
     private function isUniqueViolation(QueryException $e): bool
