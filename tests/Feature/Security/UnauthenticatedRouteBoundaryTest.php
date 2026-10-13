@@ -45,6 +45,13 @@ class UnauthenticatedRouteBoundaryTest extends TestCase
         \App\Http\Controllers\ModuleController::class,
         \App\Http\Controllers\RoleController::class,
         \App\Http\Controllers\UserController::class,
+        // Added with NEW-ANON-SETTINGS-ROUTES-01. Both were missing from this list,
+        // which is why their five routes sat outside every group unnoticed: this
+        // sweep only looks at the classes named here, so a settings controller
+        // nobody thought to add is invisible to it. Listing them makes any FUTURE
+        // route on either one fail by default.
+        \App\Http\Controllers\OtpIntegrationController::class,
+        \App\Http\Controllers\newsyria\AbandonedCartController::class,
     ];
 
     /**
