@@ -50,6 +50,17 @@ class RoleController extends Controller
      */
     public function create()
     {
+        // NEW-ROLE-FORM-UNGATED-01. This method had NO authorization at all, and
+        // the view it renders lists every Permission row on the platform -- the
+        // config/superadminaccess.php platform-operator names included. store()
+        // has always required 'Create Role' (:67), so the gate existed on the
+        // write and not on the screen. Same sibling-endpoint asymmetry as SEC-F3,
+        // where update() filtered server-side and store() did not.
+        //
+        // Reached through the Gate, like update() and destroy(), so the decision
+        // stays in RolePolicy and there is one place to read it.
+        $this->authorize('create', Role::class);
+
         $user = \Auth::user();
         $permissions = Permission::all()->pluck('name', 'id')->toArray();
         $modules = array_merge(['General'], getshowModuleList());
@@ -147,6 +158,19 @@ class RoleController extends Controller
      */
     public function edit(Role $role)
     {
+        // NEW-ROLE-FORM-UNGATED-01, the second half and the IDOR one. This method
+        // had no authorization and no ownership test, so ANY authenticated user
+        // could GET /roles/{id}/edit for ANY role id on the platform -- including
+        // the shared global `admin` role and roles belonging to other merchants --
+        // and the view renders $role, disclosing its name.
+        //
+        // update() (:177) and destroy() (:341) already authorize; the form that
+        // leads to update() did not, which is the same omission one step earlier in
+        // the flow. Gated on the SAME policy decision as the write it leads to, so
+        // the screen and the action cannot drift apart: a role you may not update
+        // is a role whose update form you may not open.
+        $this->authorize('update', $role);
+
         // $permissions = Permission::all()->pluck('name', 'id')->toArray();
         $user = \Auth::user();
 

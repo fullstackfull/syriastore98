@@ -54,7 +54,29 @@ Route::middleware([ActiveTheme::class, 'themelanguage'])->group(function () {
     Route::get('{storeSlug?}/faq', [HomeController::class, 'faqs_page'])->name('page.faq');
     Route::get('{storeSlug?}/about', [HomeController::class, 'about_page'])->name('page.about');
     Route::get('{storeSlug?}/blog', [HomeController::class, 'blog_page'])->name('page.blog');
-    Route::get('{storeSlug?}/contact-us', [HomeController::class, 'contactUs'])->name('contact.us');
+    // NEW-ROUTE-SHADOW-02 -- the duplicate declaration is REMOVED, nothing else changes.
+    //
+    // This line used to read
+    //     Route::get('{storeSlug?}/contact-us', [HomeController::class, 'contactUs'])
+    //         ->name('contact.us');
+    // which is the SAME method, the SAME URI and the SAME action as the declaration now at :90
+    // below, under a second name. RouteCollection indexes by method+domain+URI and rebuilds the name
+    // table from that index, so that one's `page.contact_us` replaced this entry outright and
+    // the name `contact.us` was never in the registry: route('contact.us') could only
+    // throw RouteNotFoundException.
+    //
+    // `page.contact_us` is the name that must survive, and it is the one kept: it is read
+    // at runtime by resources/views/front_end/jQueryRoute.blade.php:333
+    // (`\Request::route()->getName() == 'page.contact_us'`). `contact.us` is called from
+    // nowhere -- verified with an ESCAPED dot, `grep -rn "contact\.us"`, because an
+    // unescaped one also matches contact-us and contact_us_banner_title and that mistake
+    // has already produced a wrong conclusion on this codebase.
+    //
+    // So this is a dead duplicate declaration, not a lost feature: the storefront contact
+    // page keeps exactly the route, URI, action and name it is served by today. Removing
+    // the declaration -- rather than giving it a second URI -- is what closes
+    // RouteRegistrationIntegrityTest's aggregate assertion without inventing a new public
+    // URL for a page that already has one.
     Route::post('{storeSlug?}/contact/save', [HomeController::class, 'contactUsSave'])->name('contact.submit');
     Route::get('{storeSlug?}/article/{slug}', [HomeController::class, 'article_page'])->name('page.article');
     Route::get('{storeSlug?}/cart', [HomeController::class, 'cart_page'])->name('page.cart');

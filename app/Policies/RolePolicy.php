@@ -60,6 +60,32 @@ class RolePolicy
         return (int) $role->store_id === (int) getCurrentStore();
     }
 
+    /**
+     * May the actor open the role-creation screen?
+     *
+     * NEW-ROLE-FORM-UNGATED-01. RoleController::create() carried no check of any
+     * kind: any authenticated user could GET /roles/create and the view renders
+     * `Permission::all()` (:54), i.e. the entire permission catalogue of the
+     * platform, including the config/superadminaccess.php names. store() has
+     * always required 'Create Role' (:67), so the form was reachable by people who
+     * could not use it -- the disclosure was the whole of the exposure, but it is a
+     * real one and it is the sibling-endpoint shape that SEC-F3 was.
+     *
+     * The permission name is NOT invented: 'Create Role' is seeded by
+     * Utility::addNewData() (app/Models/Utility.php:2655 and :2910) and is the same
+     * literal store() already tests. Inventing a name no seeder creates ('Edit
+     * Order') was a real defect on this codebase, so this is checked rather than
+     * assumed.
+     */
+    public function create(User $actor): bool
+    {
+        if ($this->isPlatformAdmin($actor)) {
+            return true;
+        }
+
+        return $actor->isAbleTo('Create Role');
+    }
+
     public function update(User $actor, Role $role): bool
     {
         if (!$actor->isAbleTo('Edit Role')) {

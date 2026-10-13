@@ -407,4 +407,110 @@ class WithdrawalAuthorizationTest extends SecurityTestCase
 
         return $reached;
     }
+
+    // ---------------------------------------------------------------
+    // THE SECOND LAYER, which no executing test reached until now
+    // ---------------------------------------------------------------
+
+    /**
+     * NEW-WITHDRAWAL-CONTROLLER-GUARD-UNCOVERED-01.
+     *
+     * The controller repeats the all-of check inside approveWithdrawal (:757),
+     * rejectWithdrawal (:845) and payWithdrawal (:1023). Nothing in this suite was
+     * exercising it: MEASURED by neutering it -- replacing the body of
+     * StoreFinanceController::canFinanceAll() with `return true` -- and re-running
+     * this file, which stayed 18 passed / 2 skipped, 0 failures. The route-level
+     * middleware answers first, so the controller copy could be deleted tomorrow and
+     * every test here would still be green. A guard that nothing executes is the
+     * same hazard as RolePolicy::grantPermission() being dead code: it reads like
+     * the control.
+     *
+     * So the route guard is REMOVED for this test only, which leaves the controller
+     * copy as the only thing standing, and the denial is asserted over real HTTP.
+     * Nothing about the production stack changes; both layers remain.
+     *
+     * GATE F IS THE WITNESS. store_withdrawals is declared by no migration, so if
+     * the controller guard did NOT refuse, the request would reach
+     * StoreWithdrawal::where(...) inside the transaction and come back with the
+     * SQL error in the session (the catch does back()->with('error',
+     * $e->getMessage())). An exact-match assertion on 'Permission denied.'
+     * therefore distinguishes "refused by the guard" from "got through and died on
+     * the missing table" -- which is the distinction an HTTP "not 200" assertion
+     * would have blurred.
+     */
+    public function test_the_controller_guard_refuses_on_its_own_with_the_route_guard_removed(): void
+    {
+        [$merchant] = $this->makeTenant();
+        $staff = $this->makeStaff($merchant);
+        $this->grantPermission($staff, self::VIEW_PERMISSION);
+        $staff = $staff->fresh();
+
+        $this->assertFalse(
+            Schema::hasTable('store_withdrawals'),
+            'store_withdrawals now exists, so the witness this test relies on is gone: '
+            . 'rewrite it to assert the row is unchanged instead.'
+        );
+
+        $this->withoutMiddleware(FinancePermission::class);
+
+        foreach ([
+            '/finance/withdrawals/1/approve',
+            '/finance/withdrawals/1/reject',
+            '/finance/withdrawals/1/pay',
+        ] as $uri) {
+            $this->actingAs($staff)->post($uri);
+
+            $error = (string) session('error');
+
+            $this->assertSame(
+                'Permission denied.',
+                $error,
+                "{$uri} did not refuse at the controller. With the route middleware "
+                . 'removed this is the only guard left, and anything other than this '
+                . 'exact message means the request got past it -- a SQL error here '
+                . 'would mean it reached the store_withdrawals write.'
+            );
+        }
+    }
+
+    /**
+     * THE POSITIVE DIRECTION of that same second layer: a delegated user holding
+     * BOTH permissions must get PAST the controller guard. Otherwise the test above
+     * would also pass if canFinanceAll() returned false for everybody.
+     *
+     * Evidenced by the SQL error that GATE F guarantees: reaching
+     * `no such table: store_withdrawals` proves the guard admitted the caller and
+     * execution entered the transaction. The money-moving behaviour beyond that
+     * point stays BLOCKED -- EXTERNAL DEPENDENCY and nothing here claims otherwise.
+     */
+    public function test_a_holder_of_both_permissions_passes_the_controller_guard(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $staff = $this->makeStaff($merchant);
+        $this->grantPermission($staff, self::VIEW_PERMISSION);
+        $this->grantPermission($staff, self::MUTATE_PERMISSION);
+        $staff->current_store = $store->id;
+        $staff->save();
+
+        $this->withoutMiddleware(FinancePermission::class);
+
+        $this->actingAs($staff->fresh())->post('/finance/withdrawals/1/approve');
+
+        $error = (string) session('error');
+
+        $this->assertNotSame(
+            'Permission denied.',
+            $error,
+            'A delegated user holding BOTH permissions was refused by the controller '
+            . 'guard, so withdrawal review is broken for every non-super-admin.'
+        );
+
+        $this->assertStringContainsString(
+            'store_withdrawals',
+            $error,
+            'Expected the caller to be admitted and to stop at the undeclared '
+            . 'store_withdrawals table (GATE F). Another error means this test is no '
+            . 'longer measuring the guard.'
+        );
+    }
 }

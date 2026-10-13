@@ -22,9 +22,24 @@ use Illuminate\Support\Facades\Schema;
  * WHAT RUNS HERE. Both checks happen before any database access, so the
  * platform and empty-token refusals are exercised for real. The positive path
  * is BLOCKED and skipped: zid_orders and zid_stores are declared by no
- * migration, and users.deliverysyria_secret is not a declared column either
- * (verified -- no match in database/migrations), so there is no way to build a
- * store whose secret matches. Cross-agent dependency: schema agent.
+ * migration, so there is no Zid order to move and no Zid store to authorise
+ * against. Cross-agent dependency: schema agent.
+ *
+ * NEW-STALE-DOC-02, corrected in place. This docblock used to add "and
+ * users.deliverysyria_secret is not a declared column either (verified -- no
+ * match in database/migrations)". That is FALSE as of
+ * database/migrations/2026_10_12_000103_add_deliverysyria_secret_to_users_table.php:64-66,
+ * which adds the column behind a Schema::hasColumn guard and is discoverable by
+ * the migrator (it is directly under database/migrations/ and matches the
+ * `*_*.php` glob). The claim is removed rather than softened, because a wrong
+ * reason attached to a correct skip is how a skip outlives its cause.
+ *
+ * THE SKIP ITSELF IS STILL CORRECT, and for the OTHER two reasons: its guard is
+ * on zid_orders / zid_stores, which remain undeclared. Its third guard, on
+ * users.deliverysyria_secret, no longer fires -- verified by execution: the skip
+ * message this suite now emits names `zid_orders`, not the column. Keeping that
+ * third guard is deliberate, so that re-dropping the column cannot silently turn
+ * the eventual positive test into a false pass.
  */
 class DeliverySyriaWebhookTest extends SecurityTestCase
 {
@@ -119,11 +134,15 @@ class DeliverySyriaWebhookTest extends SecurityTestCase
             }
         }
 
+        // NEW-STALE-DOC-02: this guard no longer fires -- the column IS declared,
+        // by 2026_10_12_000103_add_deliverysyria_secret_to_users_table.php:64-66.
+        // It is KEPT so that dropping the column again cannot turn the eventual
+        // positive test into a false pass, and it is asserted rather than assumed
+        // by test_the_delivery_syria_secret_column_is_declared() below.
         if (!Schema::hasColumn('users', 'deliverysyria_secret')) {
             $this->markTestSkipped(
-                'BLOCKED: users.deliverysyria_secret is declared by no migration, '
-                . 'though User.php lists it as fillable and four controllers read '
-                . 'it (cross-agent dependency -- schema agent).'
+                'BLOCKED: users.deliverysyria_secret has been dropped again; it was '
+                . 'declared by 2026_10_12_000103_add_deliverysyria_secret_to_users_table.php.'
             );
         }
 
@@ -149,5 +168,45 @@ class DeliverySyriaWebhookTest extends SecurityTestCase
             implode(' ', $route->gatherMiddleware()),
             'An unauthenticated webhook must stay rate limited.'
         );
+    }
+
+    /**
+     * NEW-STALE-DOC-02, asserted instead of described. The docblock's old claim that
+     * users.deliverysyria_secret is undeclared is now a test, so it cannot go stale
+     * in either direction: if the column is dropped this fails, and if it is present
+     * the skip above is provably not firing for that reason.
+     */
+    public function test_the_delivery_syria_secret_column_is_declared(): void
+    {
+        $this->assertTrue(
+            \Illuminate\Support\Facades\Schema::hasColumn('users', 'deliverysyria_secret'),
+            'users.deliverysyria_secret is the per-store webhook credential this suite '
+            . 'and Api\\DeliverySyriaOrderController both depend on. It is declared by '
+            . 'database/migrations/2026_10_12_000103_add_deliverysyria_secret_to_users_table.php:64-66.'
+        );
+    }
+
+    /**
+     * THE SIBLING ENDPOINT, and the reason this one is worth pinning here: POST
+     * api/delivery-syria/orders/update-status had its own hardened controller
+     * (Api\DeliverySyriaOrderController) made unreachable by a duplicate inline
+     * closure in routes/web.php, which took the POST slot and answered 422 instead
+     * (NEW-DS-ROUTE-SHADOW-01, fixed; see RouteShadowingTest). Both endpoints
+     * implement the same two-check contract, so both are asserted to still answer
+     * 403 rather than one being assumed from the other.
+     */
+    public function test_the_sibling_update_status_endpoint_enforces_the_same_contract(): void
+    {
+        $uri = '/api/delivery-syria/orders/update-status';
+
+        $this->postJson($uri, ['product_order_id' => 'ZID-1', 'status' => 1])
+            ->assertStatus(403)
+            ->assertJson(['message' => 'Invalid platform.']);
+
+        $this->postJson(
+            $uri,
+            ['product_order_id' => 'ZID-1', 'status' => 1],
+            ['X-Platform' => 'deliverysyria']
+        )->assertStatus(403)->assertJson(['message' => 'Invalid credentials.']);
     }
 }

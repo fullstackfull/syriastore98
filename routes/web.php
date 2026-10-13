@@ -292,36 +292,76 @@ Route::middleware(['auth'])->group(function () {
 
 
 
-Route::post(
-    '/otp-integration/test',
-    [OtpIntegrationController::class, 'test']
-)->name('otp.integration.test');
+// NEW-ANON-SETTINGS-ROUTES-01. These five declarations sat at the TOP LEVEL of this
+// file, outside every group, so they carried only the `web` group: no auth, no
+// verified, nothing. They are MERCHANT SETTINGS endpoints -- the only callers in
+// either repository are resources/views/setting/otp_setting.blade.php:8 and :380 and
+// resources/views/setting/partials/abandoned-carts.blade.php:411, all admin-side
+// screens. No theme and no storefront view references any of them, so nothing
+// anonymous is lost by requiring a session.
+//
+// MEASURED ANONYMOUSLY, before the fix, with no session at all:
+//   POST /otp-integration                  -> 500 (it reached the write; the 500 is
+//                                             the undeclared `otp_integrations`
+//                                             table, which is in the GATE F family)
+//   GET  /otp-integration                  -> 500 (same, through the view)
+//   POST /chatwoot/abandoned-carts/send    -> 302 from the CONTROLLER, i.e. it ran
+//                                             the loop over caller-supplied
+//                                             customer_ids
+//
+// WHY IT MATTERS MORE THAN A JUNK ROW. OtpIntegrationController::save() writes
+// `OtpIntegration::firstOrNew(['store_id' => $storeId])` and $storeId is
+// getCurrentStore(), which is NULL for an anonymous caller by documented decision
+// (R4-02, app/Helper/helper.php:357-381). Illuminate's Builder::where() turns a null
+// value into `whereNull`, so the row an anonymous caller writes with store_id NULL is
+// the SAME row that OtpIntegrationController::test() then reads back with
+// `OtpIntegration::where('store_id', $storeId)->first()`. test() posts to
+// $integration->base_url. The two endpoints together were therefore an anonymous
+// outbound-request primitive with a caller-chosen URL -- an SSRF, reachable without
+// any credential, and the stored api_secret is attacker-chosen too.
+//
+// Gated with the same stack the rest of the admin surface uses. A permission check
+// on top of `auth` would be better still and is NOT added here: the controllers are
+// not this workstream's files, and a permission name that Utility::addNewData() does
+// not seed cannot exist as a row -- the precise defect that made all six finance
+// names 403 for everyone. Recorded as a cross-agent dependency.
+//
+// Pinned in both directions by tests/Feature/Security/AnonymousSettingsRoutesTest.
+Route::middleware(['auth', 'xss', 'setlocate', 'verified'])->group(function () {
+    Route::post(
+        '/otp-integration/test',
+        [OtpIntegrationController::class, 'test']
+    )->name('otp.integration.test');
+
+    Route::get('/otp-integration', [OtpIntegrationController::class, 'index'])
+        ->name('otp.integration');
+
+    Route::post('/otp-integration', [OtpIntegrationController::class, 'save'])
+        ->name('otp.integration.save');
 
 
 
-Route::get('/otp-integration', [OtpIntegrationController::class, 'index'])
-    ->name('otp.integration');
-
-Route::post('/otp-integration', [OtpIntegrationController::class, 'save'])
-    ->name('otp.integration.save');
 
 
 
 
 
 
+    Route::get(
+        '/chatwoot/abandoned-carts',
+        [AbandonedCartController::class, 'index']
+    )->name('chatwoot.abandoned-carts');
 
-
-
-Route::get(
-    '/chatwoot/abandoned-carts',
-    [AbandonedCartController::class, 'index']
-)->name('chatwoot.abandoned-carts');
-
-Route::post(
-    '/chatwoot/abandoned-carts/send',
-    [AbandonedCartController::class, 'send']
-)->name('chatwoot.abandoned-carts.send');
+    // Anonymous before this group existed: it validated `customer_ids` off the
+    // request and asked ChatwootAbandonedCartNotificationService to message each one
+    // (app/Http/Controllers/newsyria/AbandonedCartController.php:49-80), so an
+    // unauthenticated caller could drive outbound WhatsApp/Chatwoot traffic at
+    // caller-chosen customer ids. Measured: it answered 302 FROM THE CONTROLLER.
+    Route::post(
+        '/chatwoot/abandoned-carts/send',
+        [AbandonedCartController::class, 'send']
+    )->name('chatwoot.abandoned-carts.send');
+});
 
 
 
@@ -414,7 +454,26 @@ Route::middleware(['web'])->group(function () {
     Route::post('/top-brand-category-chart', [HomeController::class, 'top_brand_category_chart'])->name('top.brand.category.chart');
 
     Route::get('themean-alytic', [ThemeAnalyticController::class, 'index'])->name('theme_analytic');
-    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
+    // NEW-ROUTE-SHADOW-01. This declaration USED TO BE `Route::get('/profile', ...)`,
+    // which shares a method and a URI with routes/web.php:865
+    // `Route::get('profile', [UserController::class, 'profile'])->name('profile')`.
+    // Illuminate\Routing\RouteCollection indexes routes by method+domain+URI and
+    // rebuilds the name lookup from that index, so the later declaration replaced this
+    // one outright and the NAME `profile.edit` disappeared from the registry with no
+    // error. Every successful PATCH /profile therefore wrote the record and then threw
+    // RouteNotFoundException from ProfileController.php:37
+    // (`Redirect::route('profile.edit')`), and the two route('profile.edit') links in
+    // resources/views/layouts/navigation.blade.php:37,83 could only 500.
+    //
+    // THE URI MOVES, THE NAME AND THE ACTION DO NOT. GET /profile deliberately keeps
+    // serving UserController@profile under the name `profile`: that is the profile
+    // screen this product ships, it is what resources/views/partision/header.blade.php
+    // links to, and five GoogleAuthentication callbacks redirect to route('profile').
+    // Taking that URI for the Breeze screen instead would silently change which page a
+    // merchant sees at /profile, which is a product change, not a defect repair.
+    // Pinned from both sides by tests/Feature/Platform/RouteRegistrationIntegrityTest
+    // and tests/Feature/Security/RouteShadowingTest.
+    Route::get('/profile/edit', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('auth.profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
     Route::resource('roles', RoleController::class);
@@ -1236,8 +1295,60 @@ Route::get('/zid/{storeId}/webhooks', function ($storeId) {
 
 
 Route::post('/zid/events/{v?}', function (\Illuminate\Http\Request $r) {
-    $allowed = $r->header('X-Hook-Secret') === config('services.zid.hook_pass')
-        || ($r->getUser() === config('services.zid.hook_user') && $r->getPassword() === config('services.zid.hook_pass'));
+    // NEW-ZID-HOOK-FAILOPEN-01. This check used to read:
+    //     $allowed = $r->header('X-Hook-Secret') === config('services.zid.hook_pass')
+    //         || ($r->getUser() === config('services.zid.hook_user')
+    //             && $r->getPassword() === config('services.zid.hook_pass'));
+    //
+    // Request::header() returns NULL for an absent header and Request::getUser() /
+    // getPassword() return NULL for a request with no basic-auth credentials, so if
+    // either configured value were ever absent -- moved to .env and the key not set,
+    // a typo in the config key, config:cache run before the value was added -- the
+    // comparison became `null === null`, $allowed became TRUE and this endpoint
+    // accepted ANY anonymous request. It writes `zid_events` and, on an
+    // `application.uninstall` payload, DELETES the caller-named store's `zid_stores`
+    // row (below), so failing open here is a destructive anonymous write.
+    //
+    // It is latent rather than live at HEAD: config/services.php does define both
+    // values today (not reproduced here). It is still wrong, because the whole point
+    // of moving those literals into the environment -- which SEC-CFG-02 asks for --
+    // would have silently opened the endpoint.
+    //
+    // Fails closed now, on both arms, and compares in constant time. Covered in both
+    // directions by tests/Feature/Security/ZidWebhookSecretTest: a correct secret is
+    // still accepted (header arm and basic-auth arm), and an unset secret is refused
+    // instead of waved through.
+    //
+    // The 401 below is NOT changed to 403. This is a server-to-server webhook
+    // rejection on a non-/api path; the 403-not-401 rule exists because repo B's
+    // lib/network/network.dart turns any 401 from the API it calls into a forced
+    // logout, and repo B is not in this worktree so no claim about its call sites is
+    // made here. Flagged for the coordinator rather than changed blind.
+    $configuredSecret = (string) config('services.zid.hook_pass');
+    $configuredUser   = (string) config('services.zid.hook_user');
+
+    $allowed = false;
+
+    if ($configuredSecret !== '') {
+        $headerSecret = (string) $r->header('X-Hook-Secret');
+
+        if ($headerSecret !== '' && hash_equals($configuredSecret, $headerSecret)) {
+            $allowed = true;
+        }
+
+        if (! $allowed && $configuredUser !== '') {
+            $basicUser = (string) $r->getUser();
+            $basicPass = (string) $r->getPassword();
+
+            if (
+                $basicUser !== '' && $basicPass !== ''
+                && hash_equals($configuredUser, $basicUser)
+                && hash_equals($configuredSecret, $basicPass)
+            ) {
+                $allowed = true;
+            }
+        }
+    }
 
     if (! $allowed) {
         \Illuminate\Support\Facades\Log::warning('Zid webhook rejected 401', [
@@ -1274,119 +1385,67 @@ Route::post('/zid/events/{v?}', function (\Illuminate\Http\Request $r) {
 
 
 
-Route::match(['GET', 'POST'], '/api/delivery-syria/orders/update-status', function (\Illuminate\Http\Request $request) {
-    $productOrderId = $request->input('product_order_id');
-    $status = $request->input('status');
-
-    if (!$productOrderId || $status === null) {
-        return response()->json([
-            'success' => false,
-            'message' => 'product_order_id and status are required.',
-        ], 422);
-    }
-
-    $zidOrderId = str_replace('ZID-', '', $productOrderId);
-
-    $order = DB::table('zid_orders')
-        ->where('zid_order_id', $zidOrderId)
-        ->first();
-
-    if (!$order) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Zid order not found.',
-            'zid_order_id' => $zidOrderId,
-        ], 404);
-    }
-
-    $zidStatusMapping = [
-        0 => 'new',
-        4 => 'preparing',
-        5 => 'ready',
-        6 => 'indelivery',
-        1 => 'delivered',
-        2 => 'cancelled',
-    ];
-
-    $zidStatus = $zidStatusMapping[(int) $status] ?? null;
-
-    if ($zidStatus === null) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Unknown StoreSyria status.',
-            'status' => $status,
-        ], 422);
-    }
-
-$zidStore = DB::table('zid_stores')
-    ->where('store_id', $order->store_id)
-    ->first();
-
-if (!$zidStore) {
-    return response()->json([
-        'success' => false,
-        'message' => 'Zid store not found.',
-        'store_id' => $order->store_id,
-    ], 404);
-}
-
-try {
-    $authorization = \Illuminate\Support\Facades\Crypt::decryptString(
-        $zidStore->authorization
-    );
-
-    $accessToken = \Illuminate\Support\Facades\Crypt::decryptString(
-        $zidStore->access_token
-    );
-    $zidResponse = Http::withHeaders([
-    'Authorization' => 'Bearer ' . $authorization,
-    'X-MANAGER-TOKEN' => $accessToken,
-    'Content-Type' => 'application/json',
-    'Accept' => 'application/json',
-])->post(
-    'https://api.zid.sa/v1/managers/store/orders/' . $order->zid_order_id . '/change-order-status',
-    [
-        'order_status' => $zidStatus,
-    ]
-);
-
-if (!$zidResponse->successful()) {
-    return response()->json([
-        'success' => false,
-'message' => 'Zid order status updated successfully.',
-'data' => [
-            'zid_order_id' => $order->zid_order_id,
-            'store_id' => $order->store_id,
-            'zid_status' => $zidStatus,
-            'http_status' => $zidResponse->status(),
-            'zid_response' => $zidResponse->json(),
-            
-        ],
-    ], 502);
-}
-} catch (\Throwable $e) {
-    return response()->json([
-        'success' => false,
-        'message' => 'Failed to decrypt Zid credentials.',
-        'error' => $e->getMessage(),
-    ], 500);
-}
-
-return response()->json([
-    'success' => true,
-'message' => 'Zid order status updated successfully.',
-    'data' => [
-        'zid_order_id' => $order->zid_order_id,
-        'store_id' => $order->store_id,
-        'current_status' => $order->status_code,
-        'incoming_status' => $status,
-        'zid_status' => $zidStatus,
-        'authorization_loaded' => !empty($authorization),
-        'access_token_loaded' => !empty($accessToken),
-                    'zid_response' => $zidResponse->json(),
-
-    ],
-]);});
+// NEW-DS-ROUTE-SHADOW-01 -- DELETED, and the deletion is the fix.
+//
+// This file used to declare an inline closure on
+//     Route::match(['GET', 'POST'], '/api/delivery-syria/orders/update-status', ...)
+// and routes/api.php:35-38 declares the SAME METHOD AND URI:
+//     Route::post('/delivery-syria/orders/update-status',
+//         [DeliverySyriaOrderController::class, 'updateStatus'])
+// (the api group is registered under the `api` prefix, so both normalise to
+// `api/delivery-syria/orders/update-status`).
+//
+// Illuminate\Foundation\Configuration\ApplicationBuilder::buildRoutingCallback
+// registers the API file FIRST (vendor/.../ApplicationBuilder.php:210-214) and the
+// web file SECOND (:244-248), and RouteCollection::addToCollections keys
+// $routes[$method] by domain+URI, so THIS CLOSURE WON THE POST SLOT and the
+// controller was unreachable.
+//
+// MEASURED, by dispatching the real request rather than reading the table:
+//   POST /api/delivery-syria/orders/update-status with an empty body
+//     -> 422 {"success":false,"message":"product_order_id and status are required."}
+//   POST the same URI WITH the correct `X-Platform: deliverysyria` header
+//     -> 422, the same closure
+// Api\DeliverySyriaOrderController answers an absent platform header with
+// 403 {"message":"Invalid platform."} (:27-32) and an unmatched bearer token with
+// 403 {"message":"Invalid credentials."} (:161-179, hash_equals against the store
+// owner's users.deliverysyria_secret). Neither reply was reachable. The per-store
+// webhook credential control added for NEW-delivery-syria-status was dead code on
+// this endpoint.
+//
+// AND THE CLOSURE WAS ITSELF AN ANONYMOUS STATE CHANGE. It accepted GET as well as
+// POST, took product_order_id off the query string, stripped the 'ZID-' prefix,
+// looked the row up in `zid_orders`, decrypted that merchant's stored Zid
+// authorization and manager token with Crypt::decryptString and POSTed a
+// caller-chosen order_status to api.zid.sa/.../change-order-status. No
+// authentication, no platform header, no token, no tenant predicate, no signature:
+//   GET /api/delivery-syria/orders/update-status?product_order_id=ZID-1&status=1
+// reaches the `zid_orders` lookup with no credential of any kind (measured: on this
+// schema it reaches SQLSTATE[HY000] "no such table: zid_orders", i.e. it got past
+// every control to the database).
+//
+// WHAT IS LOST, stated plainly for the owner rather than implied away: the closure
+// also PUSHED the new status back to Zid, and the controller does not. That push
+// cannot be kept at this URI, because occupying this URI is exactly what disabled
+// the authenticated webhook -- the two cannot both own
+// `POST api/delivery-syria/orders/update-status`, and moving the push to a different
+// URI would break the integration just as surely, since the URI is what
+// DeliverySyria is configured to call. It is also unverifiable here: `zid_orders`
+// and `zid_stores` are declared by no migration (the GATE F family), so no test in
+// this repository can exercise a Zid push at all. If the owner wants it, the place
+// for it is inside Api\DeliverySyriaOrderController::updateStatus AFTER the
+// hash_equals secret check, behind a Schema::hasTable('zid_stores') guard, and it
+// needs the schema first. Recorded as a cross-agent dependency, NOT re-implemented
+// here.
+//
+// COMPATIBILITY: a caller that was using GET now gets 405, and a POST caller now
+// has to send `X-Platform: deliverysyria` and a bearer token equal to the store
+// owner's users.deliverysyria_secret. That is the documented contract of
+// Api\DeliverySyriaOrderController and of the sibling endpoint
+// POST api/delivery-syria/status, which has required both since
+// NEW-delivery-syria-status; this endpoint is the one that was still exempt.
+//
+// Pinned by tests/Feature/Security/RouteShadowingTest.
 
 
 
@@ -1394,14 +1453,38 @@ return response()->json([
 
 
 
-Route::get('/zid/show-token', function (\Illuminate\Http\Request $r) {
-    abort_unless($r->query('key') === '12345678', 403);
-    $s = DB::table('zid_stores')->first();
-    return response(
-        "Authorization:\nBearer " . Crypt::decryptString($s->authorization) .
-        "\n\nX-Manager-Token:\n" . Crypt::decryptString($s->access_token)
-    )->header('Content-Type', 'text/plain');
-});
+// NEW-ZID-TOKEN-DUMP-01 -- DELETED, and the deletion is the fix.
+//
+// This file used to declare, right here and with NO authentication at all:
+//     Route::get('/zid/show-token', function (Request $r) {
+//         abort_unless($r->query('key') === '<hardcoded literal>', 403);
+//         $s = DB::table('zid_stores')->first();
+//         return response("Authorization:\nBearer " . Crypt::decryptString($s->authorization)
+//             . "\n\nX-Manager-Token:\n" . Crypt::decryptString($s->access_token));
+//     });
+//
+// Measured posture before deletion (dumped from the booted router):
+//     GET|HEAD  zid/show-token  name=  action=Closure  mw=[web]
+// -- no `auth`, no gate, no signature. The only control was equality against an
+// eight-character literal committed in this file, and the response body was the
+// DECRYPTED Zid Authorization bearer and X-Manager-Token of whichever row
+// `zid_stores` returned first. Reading the repository was therefore enough to
+// take over a merchant's Zid account.
+//
+// This is the SECOND instance of the defect class that
+// tests/Feature/Security/UnauthenticatedRouteBoundaryTest::test_zid_statuses_test_route_no_longer_exists
+// was written for. That test matches the literal substring 'zid-statuses-test'
+// in the URI, so it passed while this route -- same closure shape, same
+// Crypt::decryptString disclosure, different URI -- stayed live. The URI-specific
+// assertion is kept and a property-based one is added next to it:
+// tests/Feature/Security/RouteShadowingTest::test_no_unauthenticated_closure_route_decrypts_credentials
+// now scans the route table for closure routes outside `auth` whose source
+// contains Crypt::decryptString, so instance three cannot be added silently.
+//
+// No replacement is declared. Nothing in either repository calls this route
+// (`grep -rn "zid/show-token"` outside this comment returns nothing) and a
+// credential read-out has no legitimate caller; the OAuth flow that establishes
+// those credentials lives in ZidOAuthController below.
 Route::get('/zid/oauth/callback', [ZidOAuthController::class, 'callback']);
 
 
