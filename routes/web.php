@@ -460,10 +460,23 @@ Route::middleware(['web'])->group(function () {
     // Illuminate\Routing\RouteCollection indexes routes by method+domain+URI and
     // rebuilds the name lookup from that index, so the later declaration replaced this
     // one outright and the NAME `profile.edit` disappeared from the registry with no
-    // error. Every successful PATCH /profile therefore wrote the record and then threw
-    // RouteNotFoundException from ProfileController.php:37
-    // (`Redirect::route('profile.edit')`), and the two route('profile.edit') links in
-    // resources/views/layouts/navigation.blade.php:37,83 could only 500.
+    // error. THE DEFECT WAS LATENT, NOT LIVE. An earlier draft of this comment claimed
+    // every successful PATCH /profile wrote the record and then 500ed; that was inferred
+    // from the Redirect call, and it is measurably wrong. Nothing a merchant can reach
+    // posted to PATCH /profile. The profile screen this product ships is
+    // resources/views/users/profile.blade.php, whose form is
+    // `Form::model($userDetail, array('route' => array('update.account'), ...))` at :47 --
+    // a POST to UserController@editprofile (:925), which never enters ProfileController.
+    // The only poster to auth.profile.update is the Breeze partial
+    // resources/views/profile/partials/update-profile-information-form.blade.php:16,
+    // included solely by resources/views/profile/edit.blade.php, which only
+    // ProfileController@edit renders -- that is, the very GET this shadowing had dropped.
+    // The two route('profile.edit') links in
+    // resources/views/layouts/navigation.blade.php:37,83 could not 500 either: nothing
+    // extends or includes that view. Proven positively by
+    // tests/Feature/Platform/ProductProfileSavePathTest, which saves successfully on a
+    // tree where route('profile.edit') genuinely throws. The repair below still stands:
+    // the name belongs in the registry and the Breeze screen needs its own URI.
     //
     // THE URI MOVES, THE NAME AND THE ACTION DO NOT. GET /profile deliberately keeps
     // serving UserController@profile under the name `profile`: that is the profile

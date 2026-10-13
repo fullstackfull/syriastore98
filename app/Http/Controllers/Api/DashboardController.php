@@ -161,7 +161,7 @@ public function AddOrderNote(Request $request)
     // This is the SAME defect class the Phase 1B repair closed in ChangeStore
     // (:3650) and in the seven admin list methods, and the helper written for it
     // is right here in this class. It is reused rather than re-derived, so there
-    // is one tenancy decision point: resolveOwnedStore() (:3590) scopes to
+    // is one tenancy decision point: resolveOwnedStore() (:3772) scopes to
     // `created_by = creatorId()` for everyone except a super admin, and
     // creatorId() (User.php:95) resolves staff to their employer so delegated
     // staff keep access.

@@ -219,15 +219,19 @@ return [
         // anonymous visitor.
         // WHAT THE SCOPE CLOSES: BulkDeleteController does not carry it, but
         // SupportTicket-style bare-id access does: the notes read at
-        // Api/DashboardController.php:1807 and :6834 are keyed on `order_id` plus a store that
+        // Api/DashboardController.php:1899 and :7287 are keyed on `order_id` plus a store that
         // came from the request, so before the ownership repair any token read any store's notes.
         // The scope is now the backstop behind that repair.
         // WHY IT NEEDED THE OWNED-STORES PREDICATE: all three admin-API sites filter on
-        // `$store->id` where `$store = resolveOwnedStore($request->store_id)` (:125, :203), which
+        // `$store->id` where `$store = resolveOwnedStore($request->store_id)` (:173, :251; the
+        // method itself is defined at :3772 and has 73 call sites), which
         // may legitimately differ from `current_store`. Under the old `= current_store` predicate
         // a multi-store merchant's notes list would have gone empty.
         // Writers: OrderNote.php:46 (`$data['store_id']`), OrderController.php:259 and
-        // Api/DashboardController.php:5220/:5230 all set it explicitly.
+        // Api/DashboardController.php:5661/:5671 all set it explicitly (both pass
+        // `'store_id' => $storeId`; the trait deliberately does NOT auto-populate it, see
+        // app/Models/Concerns/BelongsToStore.php:102, so an omission here would have been a
+        // silent zero-row read once the scope went on).
         App\Models\OrderNote::class,
 
         // Customer -- the highest-value PII table that is NOT storefront-public. A customer's
@@ -235,15 +239,16 @@ return [
         // registration and login, and in BOTH of those the web guard has no principal, so the
         // scope adds no predicate and the storefront is untouched.
         // WHAT THE SCOPE CLOSES: BulkDeleteController.php:115 maps `customer` and deletes by bare
-        // id across every store on the platform, and Api/DashboardController.php:4919 and :7439
-        // read a customer keyed on `$request->customer_id`.
-        // WHAT AGREES WITH IT: :4775, :6762 and :7591 all filter on a store derived from the
-        // request, which the owned-stores predicate admits when the caller owns it and denies
-        // when it does not.
+        // id across every store on the platform, and Api/DashboardController.php:5360, :7215 and
+        // :7910 read a customer keyed on a request-supplied id (:7910 on `$request->customer_id`,
+        // :7215 on `$request->query('id')` at :7201, :5360 on `$customerId`).
+        // WHAT AGREES WITH IT: :5216 and :8062 filter on a store derived from the request, which
+        // the owned-stores predicate admits when the caller owns it and denies when it does not.
+        // (:7215 and :7910 already carry BOTH an id and that store filter.)
         // Writers: ALL SIXTEEN insert paths set `store_id`, verified one by one --
         // Api/AuthController.php:88, CustomerController.php:39, PaymentController.php:1093,
         // Customer/Auth/CustomerLoginController.php:727, ShopifyCustomerController.php:185,
-        // Api/DashboardController.php:5001/:6977 and the eight social-login packages
+        // Api/DashboardController.php:5442/:7430 and the eight social-login packages
         // (GoogleLogin:123, SignInWithFacebook:186, SignInWithLinkedIn:129, Signinwithgithub:117,
         // SignInWithSlack:119, SignInWithTwitter:114, SignInWithBitbucket:109,
         // SignInWithOutlook:172).
@@ -273,7 +278,7 @@ return [
         // WHAT THE SCOPE CLOSES: BulkDeleteController.php:113 deletes `abandoncart` by
         // `customer_id` -- not even by id -- with no tenant predicate, so one merchant could clear
         // another merchant's carts for any customer id.
-        // WHY IT NEEDED THE OWNED-STORES PREDICATE: Api/DashboardController.php:2016 and :2105
+        // WHY IT NEEDED THE OWNED-STORES PREDICATE: Api/DashboardController.php:2108 and :2197
         // run `Cart::where('product_id', ...)->delete()` as product-deletion cleanup on a store
         // that came from the request. Under `= current_store` that cleanup would have silently
         // stopped deleting for a multi-store merchant, orphaning cart rows against a deleted
