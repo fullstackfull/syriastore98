@@ -662,7 +662,16 @@ foreach ($defaultCurrencies as $currency) {
 
         $query = Store::where('id', $id);
 
-        if ($user->type !== 'super admin') {
+        // `strtolower(trim())` rather than a bare `!== 'super admin'`. Every other type
+        // predicate written for this phase normalises first -- PlatformOperatorOnly::handle()
+        // (app/Http/Middleware/PlatformOperatorOnly.php:61) and
+        // App\Policies\PlanOrderPolicy::isPlatformAdmin() -- and the exact-case comparison here
+        // was the odd one out. It fails in the SAFE direction (a 'Super admin' row would be
+        // treated as a merchant and scoped by created_by, not waved through), so this is a
+        // consistency repair and not a hole being closed; it matters because the same string is
+        // compared eleven different ways across this codebase and the next person copying one of
+        // them should copy the normalising form.
+        if (strtolower(trim((string) $user->type)) !== 'super admin') {
             $query->where('created_by', $user->creatorId());
         }
 
