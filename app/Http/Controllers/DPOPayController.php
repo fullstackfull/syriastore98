@@ -7,9 +7,12 @@ use App\Models\PlanCoupon;
 use App\Models\PlanOrder;
 use App\Models\PlanUserCoupon;
 use Illuminate\Http\Request;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class DPOPayController extends Controller
 {
+    use GuardsPlanActivation;
+
     public function create(Request $request)
     {
         $action = $request->action;
@@ -168,18 +171,38 @@ class DPOPayController extends Controller
         }
     }
 
+    /**
+     * P0 (free activation). THE "PROVIDER RESULT" WAS READ OFF THE REQUEST.
+     *
+     * `$result = $request['response']['Result']` and then `if ($result == 000)`. A caller
+     * supplies `response[Result]=000` and the plan activates; the price came from
+     * `$request->input('amount')` on the same request, and the order_id too.
+     *
+     * THE FIX FOR THIS ONE IS ALREADY IN THIS FILE AND SIMPLY NOT CALLED. checkToken() (:233)
+     * posts verifyToken to secure.3gdirectpay.com with the company token -- that is DPO's own
+     * verification and the correct gate. Wiring it into the plan path needs the transToken that
+     * planPayWithDPOPay holds, and it needs to be exercised against a faked provider response;
+     * it is named as the re-enable condition in config/payments.php rather than guessed at here.
+     *
+     * Note `$result == 000`: 000 is an integer literal, so this is `== 0`, and PHP 8 compares
+     * '000' == 0 as... false (string-to-int comparison changed in PHP 8). The surviving
+     * behaviour is that only a numerically-zero Result passes. That quirk is left alone -- it is
+     * not the security property and changing it would alter which genuine returns are accepted.
+     */
     public function planGetDPOPayStatus(Request $request)
     {
+        $plan = Plan::find($request->input('planID'));
+
+        $this->assertPlanActivationEnabled('dpopay', $plan);
 
         $payment_setting = getSuperAdminAllSetting();
         $currency = isset($payment_setting['CURRENCY_NAME']) ? $payment_setting['CURRENCY_NAME'] : 'USD';
         $orderID = $request->input('order_id');
-        $getAmount = $request->input('amount');
+        $getAmount = $plan ? $this->serverOwnedPlanPrice($plan, $request->input('coupon_code')) : 0;
         $coupanCode = $request->input('coupon_code');
         $user = \Auth::user();
         try {
 
-            $plan = Plan::find($request->input('planID'));
             $result = $request['response']['Result'];
             if ($result == 000) {
                 $order = new PlanOrder();
@@ -200,7 +223,9 @@ class DPOPayController extends Controller
                 $order->user_id = $user->id;
                 $order->save();
 
-                $coupons = PlanCoupon::where('code', $coupanCode)->where('is_active', '1')->first();
+                // Routed through the shared helper for one case-exact lookup rule across every
+                // plan handler; this one was already portable.
+                $coupons = $this->planCouponForRecording($coupanCode);
                 if (! empty($coupons)) {
                     $userCoupon = new PlanUserCoupon();
                     $userCoupon->user_id = $user->id;

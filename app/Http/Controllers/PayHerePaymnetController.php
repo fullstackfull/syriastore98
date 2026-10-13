@@ -10,9 +10,12 @@ use App\Models\PlanUserCoupon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Lahirulhr\PayHere\PayHere;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class PayHerePaymnetController extends Controller
 {
+    use GuardsPlanActivation;
+
     //
 
     public function planPayWithPayHere(Request $request)
@@ -109,16 +112,38 @@ class PayHerePaymnetController extends Controller
     }
     }
 
+    /**
+     * P0 (free activation). NO GATE -- AND PAYHERE'S OWN SIGNATURE IS COMPUTED, THEN IGNORED.
+     *
+     * planPayWithPayHere() builds a real PayHere md5 hash at :65-73, folding in the merchant
+     * secret, and sends it OUTBOUND. Nothing is checked on the way back. Worse, the SAME route
+     * is registered as both successUrl (:91) and failUrl (:96), so a payment PayHere itself
+     * declined still landed here and activated the plan.
+     *
+     * The price came from `$request->get_amount` -- a parameter this controller never even puts
+     * on the URL (it sends `amount`), so the recorded price was reliably NULL->0 on a genuine
+     * return and whatever the caller chose on a forged one.
+     *
+     * Activation is refused until the return's md5sig is verified; see config/payments.php for
+     * the formula and the re-enable conditions. The recorded price now comes from the plan.
+     */
     public function planGetPayHereStatus(Request $request)
     {
+        $plan = Plan::find($request->plan);
+
+        $this->assertPlanActivationEnabled('payhere', $plan);
+
+        if (empty($plan)) {
+            abort(404, __('Plan not found.'));
+        }
+
         $payment_setting = getSuperAdminAllSetting();
         $currency = isset($payment_setting['CURRENCY_NAME']) ? $payment_setting['CURRENCY_NAME'] : 'USD';
         $orderID = strtoupper(str_replace('.', '', uniqid('', true)));
 
-        $getAmount = $request->get_amount;
+        $getAmount = $this->serverOwnedPlanPrice($plan, $request->coupon_code);
         $coupanCode = $request->coupon_code;
         $user = \Auth::user();
-        $plan = Plan::find($request->plan);
 
         $order = new PlanOrder();
         $order->order_id = $orderID;
@@ -138,7 +163,9 @@ class PayHerePaymnetController extends Controller
         $order->user_id = $user->id;
         $order->save();
 
-        $coupons = PlanCoupon::whereRaw('BINARY `code` = ?', [$coupanCode])->where('is_active', '1')->first();
+        // Portable and case-exact; see GuardsPlanActivation::findPlanCouponExact(). The
+        // upstream BINARY form is MySQL-only and ran unconditionally after the order was saved.
+        $coupons = $this->planCouponForRecording($coupanCode);
         if (!empty($coupons)) {
             $userCoupon         = new PlanUserCoupon();
             $userCoupon->user_id   = $user->id;

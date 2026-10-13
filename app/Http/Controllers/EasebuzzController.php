@@ -45,9 +45,12 @@ use App\Models\TaxMethod;
 use App\Models\UserCoupon;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Cache;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class EasebuzzController extends Controller
 {
+    use GuardsPlanActivation;
+
     public function planPayWithEasebuzz(Request $request)
     {
         $payment_setting = getSuperAdminAllSetting();
@@ -128,13 +131,31 @@ class EasebuzzController extends Controller
         }
     }
 
+    /**
+     * P0 (free activation). THE GATE WAS AN ENGLISH SENTENCE, COMPARED BY STRING EQUALITY.
+     *
+     * `$request->error == 'Transaction is successful.'` -- supplied by the caller, trailing full
+     * stop and all. The price came from `$request->amount` on the same request. One POST to
+     * route('plan.get.easebuzz.notify') with those two fields activated any paid plan for zero.
+     *
+     * Activation is refused until the Easebuzz reverse hash is verified with the salt, or the
+     * transaction is re-fetched through the Easebuzz SDK this controller already uses to
+     * initiate; see config/payments.php.
+     *
+     * THIS IS THE PLAN PATH ONLY. getProductStatus() is the storefront order path in the same
+     * controller and is deliberately untouched -- a merchant's customers keep checking out.
+     */
     public function notify_url (Request $request)
     {
         $plan           = Plan::find($request->plan_id);
+
+        $this->assertPlanActivationEnabled('easebuzz', $plan);
+
         $user = \Auth::user();
         $orderID = time();
         if ($plan) {
-            $price = $request->amount;
+            // Server-owned: was `$request->amount`.
+            $price = $this->serverOwnedPlanPrice($plan, $request->coupon_code);
 
             if ($plan && $request->error == 'Transaction is successful.') {
                 if (!empty($user->payment_subscription_id) && $user->payment_subscription_id != '') {
@@ -145,7 +166,8 @@ class EasebuzzController extends Controller
                     }
                 }
                 if ($request->has('coupon_code') && $request->coupon_code != '') {
-                    $coupons = PlanCoupon::whereRaw('BINARY `code` = ?', [$request->coupon_code])->where('is_active', '1')->first();
+                    // Portable and case-exact; see GuardsPlanActivation::findPlanCouponExact().
+                    $coupons = $this->planCouponForRecording($request->coupon_code);
 
                     if (!empty($coupons)) {
 

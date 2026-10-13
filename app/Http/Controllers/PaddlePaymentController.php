@@ -7,9 +7,12 @@ use App\Models\PlanOrder;
 use App\Models\PlanCoupon;
 use App\Models\PlanUserCoupon;
 use Illuminate\Http\Request;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class PaddlePaymentController extends Controller
 {
+    use GuardsPlanActivation;
+
     //
 
     public function paymentConfig()
@@ -90,16 +93,36 @@ class PaddlePaymentController extends Controller
         return redirect()->route('plan.index')->with('success', __('Please wait for some while.'));
     }
 
+    /**
+     * P0 (free activation). NO GATE, AND IT WRITES A PLAN_ORDERS ROW WITH A NULL PLAN.
+     *
+     * This is the weakest of the set. There is no verification of any kind, and because the
+     * order fields are written as `$plan->name ?? null` and `$plan->id ?? null`, a request
+     * naming a non-existent plan persisted a PlanOrder with plan_id NULL and plan_name NULL
+     * before dying on `$plan->id` in the assignPlan() call below -- a corrupt revenue row from
+     * an unauthenticated-in-effect parameter.
+     *
+     * Activation is refused until a signature-verified Paddle webhook drives it rather than a
+     * browser return; see config/payments.php. The plan is now resolved before anything is
+     * written and a missing one is a 404, so the NULL-plan row can no longer be created.
+     */
     public function planGetPaddleStatus(Request $request)
     {
+        $plan = Plan::find($request->plan_id);
+
+        $this->assertPlanActivationEnabled('paddle', $plan);
+
+        if (empty($plan)) {
+            abort(404, __('Plan not found.'));
+        }
+
         $payment_setting = getSuperAdminAllSetting();
         $currency = isset($payment_setting['CURRENCY_NAME']) ? $payment_setting['CURRENCY_NAME'] : 'USD';
         $orderID = strtoupper(str_replace('.', '', uniqid('', true)));
 
-        $getAmount = $request->amount;
+        $getAmount = $this->serverOwnedPlanPrice($plan, $request->coupon_code);
         $coupanCode = $request->coupon_code;
         $user = \Auth::user();
-        $plan = Plan::find($request->plan_id);
 
         $order = new PlanOrder();
         $order->order_id = $orderID;
@@ -119,7 +142,8 @@ class PaddlePaymentController extends Controller
         $order->user_id = $user->id;
         $order->save();
 
-        $coupons = PlanCoupon::whereRaw('BINARY `code` = ?', [$coupanCode])->where('is_active', '1')->first();
+        // Portable and case-exact; see GuardsPlanActivation::findPlanCouponExact().
+        $coupons = $this->planCouponForRecording($coupanCode);
         if (!empty($coupons)) {
             $userCoupon         = new PlanUserCoupon();
             $userCoupon->user_id   = $user->id;
