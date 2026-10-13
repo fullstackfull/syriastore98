@@ -447,6 +447,21 @@
             "field": "assignOrderUrl",
             "path": "/assignOrders",
             "commented": false
+        },
+        {
+            "field": "updateOrderStatusUrl",
+            "path": "/orders/update-status",
+            "commented": false
+        },
+        {
+            "field": "createOrderNoteUrl",
+            "path": "/orders/notes/create",
+            "commented": false
+        },
+        {
+            "field": "deleteOrderNoteUrl",
+            "path": "/orders/notes/delete",
+            "commented": false
         }
     ],
     "fragments": [

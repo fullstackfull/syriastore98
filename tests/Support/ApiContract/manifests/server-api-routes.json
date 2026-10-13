@@ -1,7 +1,7 @@
 {
     "_comment": "GENERATED. API route paths parsed from routes/api.php. Module route files are resolved at check time, not snapshotted here.",
     "_source": "routes/api.php",
-    "count": 209,
+    "count": 208,
     "unsupported": [],
     "routes": [
         "/api/admin/AddCustomer",
@@ -131,7 +131,6 @@
         "/api/adminlogin",
         "/api/delivery-syria/orders/update-status",
         "/api/delivery-syria/status",
-        "/api/delivery-syria/zid-statuses-test",
         "/api/{slug}",
         "/api/{slug}/add-address",
         "/api/{slug}/add-cart",

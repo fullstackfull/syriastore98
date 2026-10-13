@@ -1,0 +1,169 @@
+{
+  "_README": [
+    "THE ACCEPTED-OUTCOME RECORD FOR THE FEATURE SUITE. Read by",
+    ".github/scripts/assert-known-test-outcomes.php, which is a BLOCKING step of the required",
+    "`tests` job. The gate asserts this SET in both directions: a failure or skip that is not",
+    "listed here fails CI, and a listed entry that starts passing ALSO fails CI, because the",
+    "record has become a lie and the entry must be deleted.",
+    "",
+    "WHAT THIS FILE IS NOT. It is not a list of things currently broken, and it is not a place",
+    "to park a red test. Every entry names a root cause with a file:line and the workstream that",
+    "owns the fix. Adding an entry to make CI green is the one use of this file that is",
+    "forbidden; if a new failure appears, it is a regression until someone proves otherwise.",
+    "",
+    "MEASURED on p1f/agent5-ci against vendor/ as installed in the development container",
+    "(PHPUnit 11.5.57, PHP 8.3.6, sqlite :memory:):",
+    "  vendor/bin/phpunit --testsuite Unit     ->  107 tests, 810 assertions, 0 failures",
+    "  vendor/bin/phpunit --testsuite Feature  ->  1126 tests, 6135 assertions, 0 errors, 8 failures, 17 skipped",
+    "Note that those numbers come from a vendor/ tree that does NOT match composer.lock (148 of",
+    "239 packages differ). The required `tests` job installs from the lock, which is the whole",
+    "point of making it required -- and which is why it cannot pass until the dead",
+    "lahirulhr/laravel-payhere package is resolved. See docs/BUILD-REPRODUCIBILITY.md.",
+    "",
+    "There is deliberately NO section for errors. The suite's zero-errors property is enforced",
+    "unconditionally: an error means a test could not run at all."
+  ],
+
+  "require_reason_log": true,
+  "_require_reason_log_note": [
+    "Fail the gate if no --log-teamcity log is supplied. The skip REASONS cannot be read from",
+    "JUnit at all -- PHPUnit 11.5.57 writes a bare <skipped/> with no message -- so the reason",
+    "half of the gate depends on a second log. Making its absence a FAILURE is what stops one",
+    "dropped CI flag from disabling a control in silence."
+  ],
+
+  "minimum_testcases": 1000,
+  "_minimum_testcases_note": [
+    "A floor, not the count. Its only job is to stop the gate passing on a log from a run that",
+    "died early -- every set comparison in the checker is trivially satisfied by an empty log.",
+    "The real count at the time of writing is 1126 Feature testcases. Lower this ONLY when tests",
+    "are removed on purpose, and record why here."
+  ],
+
+  "expected_failures": {
+    "Tests\\Feature\\Auth\\AuthenticationTest::test_login_screen_can_be_rendered": {
+      "cause": "NEW-ADDON-SCHEMA-02: no such table: owner_menu_settings. packages/workdo/LandingPage/src/Providers/LandingPageServiceProvider.php:28 calls loadMigrationsFrom(__DIR__ . '/../database/Migrations') while the directory on disk is src/database/migrations (lowercase m). The path does not exist on a case-sensitive filesystem, so six migrations are never discovered -- one of which creates owner_menu_settings, which resources/views/layouts/guest.blade.php:96 reads on every guest screen.",
+      "owner": "OWNER DECISION. The file is inside packages/workdo/, which .github/scripts/guard-no-workdo-changes.sh refuses to let a pull request modify: an in-place edit to a vendored commercial module is reverted by the next upstream update and leaves no patch record.",
+      "proof_it_is_this_and_not_something_else": "tests/Feature/Platform/AddonMigrationStrandingTest.php registers the real on-disk path for its own tests only and shows this screen rendering 200. tests/Unit/Packages/AddonMigrationRegistrationTest.php pins the mis-cased literal and the six stranded tables.",
+      "classification": "BLOCKED -- EXTERNAL EVIDENCE REQUIRED"
+    },
+    "Tests\\Feature\\Auth\\EmailVerificationTest::test_email_verification_screen_can_be_rendered": {
+      "cause": "NEW-ADDON-SCHEMA-02, identical to the login screen: no such table: owner_menu_settings via resources/views/layouts/guest.blade.php:96.",
+      "owner": "OWNER DECISION -- packages/workdo/ is guarded.",
+      "classification": "BLOCKED -- EXTERNAL EVIDENCE REQUIRED"
+    },
+    "Tests\\Feature\\Auth\\PasswordConfirmationTest::test_confirm_password_screen_can_be_rendered": {
+      "cause": "NEW-ADDON-SCHEMA-02: no such table: owner_menu_settings via resources/views/layouts/guest.blade.php:96.",
+      "owner": "OWNER DECISION -- packages/workdo/ is guarded.",
+      "classification": "BLOCKED -- EXTERNAL EVIDENCE REQUIRED"
+    },
+    "Tests\\Feature\\Auth\\PasswordResetTest::test_reset_password_link_screen_can_be_rendered": {
+      "cause": "NEW-ADDON-SCHEMA-02: no such table: owner_menu_settings via resources/views/layouts/guest.blade.php:96.",
+      "owner": "OWNER DECISION -- packages/workdo/ is guarded.",
+      "classification": "BLOCKED -- EXTERNAL EVIDENCE REQUIRED"
+    },
+    "Tests\\Feature\\Auth\\PasswordResetTest::test_reset_password_screen_can_be_rendered": {
+      "cause": "NEW-ADDON-SCHEMA-02: no such table: owner_menu_settings via resources/views/layouts/guest.blade.php:96.",
+      "owner": "OWNER DECISION -- packages/workdo/ is guarded.",
+      "classification": "BLOCKED -- EXTERNAL EVIDENCE REQUIRED"
+    },
+    "Tests\\Feature\\Auth\\RegistrationTest::test_registration_screen_can_be_rendered": {
+      "cause": "NEW-ADDON-SCHEMA-02: no such table: owner_menu_settings via resources/views/layouts/guest.blade.php:96.",
+      "owner": "OWNER DECISION -- packages/workdo/ is guarded.",
+      "classification": "BLOCKED -- EXTERNAL EVIDENCE REQUIRED"
+    },
+    "Tests\\Feature\\Auth\\RegistrationTest::test_new_users_can_register": {
+      "cause": "A FIXTURE GAP THAT EXPOSES A LATENT ROBUSTNESS DEFECT -- not the casing bug, and not what an earlier version of this entry claimed. CORRECTED AFTER MEASUREMENT: there is no addRole call at RegisteredUserController.php:249 (that line is a comment), the two real call sites are :179 and :310, and BOTH are null-guarded by `if ($role_r)`. Nothing dies: POST /register returns 302 and the request completes. Measured on a fresh test database, `roles` holds 0 rows and Role::where('name','admin')->first() is NULL, because RefreshDatabase runs migrations and not seeders. So the guard works exactly as written and the role assignment is SILENTLY SKIPPED: the user, the store and the login are committed and the merchant ends up with no role and no error. The test asserts the role, which is the property that matters. In production the admin role IS seeded, so this is latent rather than live -- but the silent tolerance is the real finding: a missing admin role provisions a merchant with no role and reports success.",
+      "owner": "app/ -- NOT owned by the CI workstream. Needs a null guard plus a decision about what to do when the role is absent (the half-provisioned row should not survive).",
+      "proof_it_is_not_the_casing_bug": "tests/Feature/Platform/AddonMigrationStrandingTest.php shows POST /register still fails to assign the role with every stranded table present.",
+      "classification": "OPEN -- ACTIONABLE DEFECT"
+    },
+    "Tests\\Feature\\ProfileTest::test_profile_page_is_displayed": {
+      "cause": "A REAL APPLICATION DEFECT, and a DIFFERENT one from the other seven. GET /profile answers 500 with ErrorException: Attempt to read property \"slug\" on null at app/Http/Controllers/HomeController.php:367 (`route('landing_page', $store->slug)`). /profile is served by UserController@profile, not by Breeze's ProfileController@edit, so this test exercises the real merchant profile page.",
+      "owner": "app/ -- NOT owned by the CI workstream. Needs a null-store guard at HomeController.php:367 (and :369, the same expression in the sibling branch).",
+      "proof_it_is_not_the_casing_bug": "tests/Feature/Platform/AddonMigrationStrandingTest::test_the_profile_page_failure_is_not_this_bug asserts the 500 persists with every stranded table present, and reddens if it is ever fixed.",
+      "classification": "OPEN -- ACTIONABLE DEFECT"
+    }
+  },
+
+  "expected_skips": {
+    "Tests\\Feature\\Commerce\\FinancialSurfaceCoverageTest::test_a_cross_currency_conversion_is_blocked": {
+      "blocked_on": "currency_rates",
+      "note": "GATE F. StoreCurrencyConversionService::getRate():57 cannot be exercised. The DECIMAL precision of rate_per_usd is exactly what must not be guessed."
+    },
+    "Tests\\Feature\\Commerce\\FinancialSurfaceCoverageTest::test_creating_an_order_financial_record_is_blocked": {
+      "blocked_on": "store_order_financials",
+      "note": "GATE F. OrderFinancialService::createForOrder():17 is the function that CREDITS A MERCHANT WALLET for an order."
+    },
+    "Tests\\Feature\\Commerce\\FinancialSurfaceCoverageTest::test_marking_a_financial_record_paid_is_blocked": {
+      "blocked_on": "store_order_financials",
+      "note": "GATE F. OrderFinancialService::markFinancialAsPaid():284."
+    },
+    "Tests\\Feature\\Commerce\\FinancialSurfaceCoverageTest::test_marking_a_financial_record_unpaid_is_blocked": {
+      "blocked_on": "store_order_financials",
+      "note": "GATE F. OrderFinancialService::markFinancialAsUnpaid():397 -- the path a CANCELLED order runs."
+    },
+    "Tests\\Feature\\Commerce\\FinancialSurfaceCoverageTest::test_converting_a_stores_current_values_is_blocked": {
+      "blocked_on": "store_wallets",
+      "note": "GATE F. StoreCurrencyConversionService::convertStoreCurrentValues():86, reached from SettingController.php:1416 when a merchant changes store currency."
+    },
+    "Tests\\Feature\\Commerce\\FinancialSurfaceCoverageTest::test_wallet_and_withdrawal_authorization_is_blocked_and_not_owned_here": {
+      "blocked_on": "store_wallets",
+      "note": "GATE F, and explicitly not claimed by this suite -- the denials are covered by WithdrawalAuthorizationTest and FinancePermissionTest."
+    },
+    "Tests\\Feature\\Commerce\\FinancialSurfaceCoverageTest::test_delivery_earnings_writes_are_blocked": {
+      "blocked_on": "delivery_earnings",
+      "note": "GATE F. OrderController::order_assign() writes it at :1268 and :1288."
+    },
+    "Tests\\Feature\\Security\\CustomerAccountBoundaryTest::test_an_anonymous_visitor_is_not_gated_out_of_newsletter_signup": {
+      "blocked_on": "newsletters.user_id",
+      "note": "SCHEMA-01, NOT one of the six GATE F money tables. AccountProfileController::add_newsletter writes newsletters.user_id, which no migration declares, so the insert always fails. The authorization assertions in the same test ran and passed before the skip."
+    },
+    "Tests\\Feature\\Security\\DeliverySyriaWebhookTest::test_a_valid_token_cannot_move_another_stores_order": {
+      "blocked_on": "zid_orders",
+      "note": "SCHEMA-01, NOT one of the six GATE F money tables. zid_orders and zid_stores are declared by no migration."
+    },
+    "Tests\\Feature\\Security\\FinancePermissionTest::test_a_super_admin_can_approve_a_pending_withdrawal_on_a_fresh_database": {
+      "blocked_on": "store_wallets",
+      "note": "GATE F. The model exists and StoreFinanceController queries it."
+    },
+    "Tests\\Feature\\Security\\WithdrawalAuthorizationTest::test_a_view_only_user_cannot_change_a_withdrawals_state_end_to_end": {
+      "blocked_on": "store_wallets",
+      "note": "GATE F. The ROUTE-level denial is covered by test_a_view_only_user_cannot_approve_reject_or_pay, which is NOT skipped; this one covers the controller-level guard."
+    },
+    "Tests\\Feature\\Tenancy\\CrossTenantModelIsolationTest::test_ownership_check_denies_the_other_tenant with data set \"finance: wallets\"": {
+      "blocked_on": "store_wallets",
+      "note": "GATE F."
+    },
+    "Tests\\Feature\\Tenancy\\CrossTenantModelIsolationTest::test_ownership_check_denies_the_other_tenant with data set \"finance: wallet ledger\"": {
+      "blocked_on": "store_wallet_transactions",
+      "note": "GATE F."
+    },
+    "Tests\\Feature\\Tenancy\\CrossTenantModelIsolationTest::test_ownership_check_denies_the_other_tenant with data set \"finance: withdrawals\"": {
+      "blocked_on": "store_withdrawals",
+      "note": "GATE F."
+    },
+    "Tests\\Feature\\Tenancy\\ModelInitializationTest::test_query_actually_executes with data set \"StoreWallet\"": {
+      "blocked_on": "store_wallets",
+      "note": "GATE F. The class instantiates and its scope is registered; only query EXECUTION is unverified."
+    },
+    "Tests\\Feature\\Tenancy\\ModelInitializationTest::test_query_actually_executes with data set \"StoreWalletTransaction\"": {
+      "blocked_on": "store_wallet_transactions",
+      "note": "GATE F."
+    },
+    "Tests\\Feature\\Tenancy\\ModelInitializationTest::test_query_actually_executes with data set \"StoreWithdrawal\"": {
+      "blocked_on": "store_withdrawals",
+      "note": "GATE F."
+    }
+  },
+
+  "_gate_f_coverage_gap": [
+    "SEVENTEEN SKIPS DO NOT MEAN THE SIX MONEY TABLES ARE WELL COVERED, and the record should not",
+    "be read that way. Of the six, store_wallets, store_wallet_transactions, store_withdrawals,",
+    "store_order_financials, currency_rates and delivery_earnings now ALL appear above -- the",
+    "FinancialSurfaceCoverageTest entries closed the three that previously had no skip at all.",
+    "tests/Unit/Database/GateFCoverageLedgerTest.php holds the authoritative per-table ledger and",
+    "ratchets it. Two of the seventeen (newsletters.user_id, zid_orders) are SCHEMA-01 undeclared",
+    "tables OUTSIDE the six, and are recorded as such above rather than folded into GATE F."
+  ]
+}

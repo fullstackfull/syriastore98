@@ -111,10 +111,13 @@ class RegistrationTest extends TestCase
         $this->assertTrue(
             $user->fresh()->hasRole('admin'),
             'The merchant was created and logged in but never got the admin role. '
-            . 'RegisteredUserController.php:249 calls $user->addRole($role_r) with no null '
-            . 'guard, and Role::where(\'name\', \'admin\')->first() is null on a fresh '
-            . 'database, so the request dies after the user, the store and the login have '
-            . 'already been committed.'
+            . 'MEASURED: Role::where(\'name\', \'admin\')->first() is NULL on a fresh test '
+            . 'database -- RefreshDatabase runs migrations, not seeders, so `roles` holds 0 rows '
+            . '-- and the `if ($role_r)` guard at RegisteredUserController.php:179/:310 '
+            . 'therefore SKIPS addRole. The request does NOT die: POST /register returns 302 and '
+            . 'the user, the store and the login are all committed, leaving a merchant with no '
+            . 'role and no error. An earlier version of this message blamed an unguarded '
+            . 'addRole at :249; that line is a comment and both real call sites ARE guarded.'
         );
 
         $response->assertRedirect(route('dashboard', absolute: false));
