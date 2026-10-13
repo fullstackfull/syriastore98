@@ -305,6 +305,15 @@ class StoreScope implements Scope
      *   3. the reviewed allowlist in `tenancy.scoped_models`;
      *   4. failing all that, the legacy all-models flip, which is off by default.
      *
+     * WHERE `forStoreContext()` SITS IN THAT ORDER, since it is not on this list: it decides WHICH
+     * STORES a predicate admits, not WHETHER one is added, so it lives in `resolveTenant()` and is
+     * consulted only after this method has already said yes. The consequence is that
+     * `allowCrossTenant()` still wins over it -- a cross-tenant block nested inside an explicit
+     * context removes the predicate entirely rather than narrowing it. That is the intended
+     * reading of both hatches (one says "act as this tenant", the other says "act as none"), and
+     * it is asserted by StoreScopeContextStackTest so the order is a decision rather than an
+     * accident of where the two checks happen to be written.
+     *
      * NOTE. Allowlisting a model that does NOT use the BelongsToStore trait silently achieves
      * nothing, because the trait is what registers this scope at all. That trap is closed by
      * EnforcedModelIsolationTest::test_every_allowlisted_model_actually_carries_the_trait.

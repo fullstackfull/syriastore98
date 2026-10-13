@@ -154,6 +154,40 @@ class StoreScopeContextStackTest extends TestCase
             . 'stack exactly as it found it.');
     }
 
+    /**
+     * THE PRECEDENCE OF THE TWO HATCHES, asserted so it is a decision rather than an accident of
+     * where the two checks happen to be written.
+     *
+     * `isActiveFor()` short-circuits on `$suppressionDepth > 0` BEFORE `resolveTenant()` is ever
+     * called, so `allowCrossTenant()` nested inside `forStoreContext()` removes the predicate
+     * entirely rather than narrowing it to the explicit context. That is the intended reading:
+     * one hatch says "act as THIS tenant", the other says "act as NONE".
+     */
+    public function test_a_cross_tenant_block_nested_in_an_explicit_context_wins(): void
+    {
+        $inside = null;
+
+        StoreScope::forStoreContext(7, function () use (&$inside) {
+            $this->assertFalse(StoreScope::isSuppressed(), 'precondition: not suppressed yet');
+
+            StoreScope::allowCrossTenant(function () use (&$inside) {
+                $inside = [StoreScope::isSuppressed(), StoreScope::hasExplicitContext()];
+            });
+
+            $this->assertFalse(StoreScope::isSuppressed(),
+                'the suppression must be restored when the inner block exits');
+            $this->assertTrue(StoreScope::hasExplicitContext(),
+                'and the explicit context must still be in force afterwards');
+        });
+
+        $this->assertSame([true, true], $inside,
+            'Inside the nested block BOTH are live, and suppression is what isActiveFor() reads '
+            . 'first -- so no predicate is added at all. The explicit context is not lost, it is '
+            . 'simply not consulted while suppressed.');
+        $this->assertFalse(StoreScope::hasExplicitContext());
+        $this->assertFalse(StoreScope::isSuppressed());
+    }
+
     public function test_the_all_models_flip_is_off_as_a_compiled_in_default(): void
     {
         $this->assertFalse(StoreScope::$enabled,
