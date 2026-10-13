@@ -5801,10 +5801,22 @@ public function getStoreOwnerInfo(Request $request)
             return response()->json(['status' => 'error', 'message' => 'Store ID is required', 'data' => null], 400);
         }
 
-        $store = \App\Models\Store::find($storeId);
+        // NEW-ADMINAPI-UNOWNED-STORE-01, third site, and a read rather than a write.
+        // This was `Store::find($storeId)` with no ownership predicate at all, while
+        // its own sibling updateStoreOwnerInfo (:7522) has had one. Any valid admin
+        // token could read ANY store's owner name, owner email, owner mobile, store
+        // email, address, every row of `settings` for that store and its
+        // `theme_customizes` footer links, by naming the store id.
+        //
+        // resolveOwnedStore() returns the store for a super admin and only an owned
+        // store otherwise, so a non-existent store and an unowned one now give the
+        // same 403 -- which also stops this endpoint from being a store-id oracle.
+        $store = $this->resolveOwnedStore($storeId);
         if (!$store) {
-            return response()->json(['status' => 'error', 'message' => 'Store not found', 'data' => null], 404);
+            return response()->json(['status' => 'error', 'message' => 'Permission denied.', 'data' => null], 403);
         }
+
+        $storeId = $store->id;
 
         $owner = \App\Models\User::find($store->created_by);
         
@@ -7854,6 +7866,24 @@ public function updateCustomerInfo(Request $request)
             ], 400);
         }
 
+        // NEW-ADMINAPI-UNOWNED-STORE-01, second site. `$storeId` is caller-supplied
+        // and was never checked against the caller's own stores, while the customer
+        // lookup below scopes only on `store_id = $storeId`. Any valid admin token
+        // could therefore rewrite ANOTHER store's customer -- first_name, last_name,
+        // email, mobile, status and the default address -- by naming that store and
+        // one of its customer ids. A cross-tenant PII write.
+        $store = $this->resolveOwnedStore($storeId);
+
+        if (!$store) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'Permission denied.',
+                'data' => null
+            ], 403);
+        }
+
+        $storeId = $store->id;
+
         $request->validate([
             'customer_id' => 'required|integer|exists:customers,id',
             
@@ -8124,6 +8154,33 @@ public function searchCustomerByName(Request $request)
                 'message' => __('store_id is required in the URL parameters.')
             ], 400);
         }
+
+        // NEW-ADMINAPI-UNOWNED-STORE-01. `$storeId` is the caller's own query
+        // parameter and was used UNVALIDATED as the scope of every lookup below.
+        // `->where('store_id', $storeId)` only makes the order, the delivery boy and
+        // the store internally consistent; it does not establish that the CALLER owns
+        // that store. So any valid admin token could pass store_id=<victim>,
+        // order_id=<victim's order>, delivery_boy=<victim's rider> and assign another
+        // merchant's order to another merchant's rider -- a cross-tenant state change
+        // that also writes `delivery_earnings`.
+        //
+        // This is the same defect R4-03 fixed at the other 93 methods in this
+        // controller; three were missed, and the static sweep that was supposed to
+        // catch them forbade only the literal string `Store::find($request->store_id)`
+        // and so never looked at this shape. The sweep is now a property over methods
+        // (AdminApiTenancyTest::test_every_api_method_that_reads_a_request_store_id_also_proves_ownership).
+        $store = $this->resolveOwnedStore($storeId);
+
+        if (!$store) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => __('Permission denied.')
+            ], 403);
+        }
+
+        // Use the resolved id from here on, so the scope cannot differ from the thing
+        // that was authorised (string-vs-int included).
+        $storeId = $store->id;
 
         $validator = Validator::make($request->all(), [
             'order_id'       => 'required|integer|exists:orders,id',

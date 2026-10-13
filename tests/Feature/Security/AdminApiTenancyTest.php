@@ -110,6 +110,106 @@ class AdminApiTenancyTest extends SecurityTestCase
     }
 
     /**
+     * THE SWEEP, MADE A PROPERTY -- NEW-ADMINAPI-UNOWNED-STORE-01.
+     *
+     * The test above forbids ONE STRING. That is not the property anyone wants, and
+     * three live sites proved it: it passed at HEAD while
+     *   getStoreOwnerInfo   (:5795) did `Store::find($storeId)` -- a different
+     *                       spelling of the same thing, since $storeId came straight
+     *                       from $request->query('store_id');
+     *   updateCustomerInfo  (:7836) and
+     *   assignOrder         (:8117) never looked the store up at all. They scoped
+     *                       their lookups with `->where('store_id', $storeId)`, which
+     *                       makes the rows and the store internally consistent and
+     *                       says NOTHING about whether the caller owns that store.
+     * A string match could not see either shape. "No match for one spelling" is not
+     * "no instances", and that is the exact error class this project has been bitten
+     * by before.
+     *
+     * So: every PUBLIC method of this controller that reads a store id out of the
+     * request must also contain one of the approved ownership resolutions
+     * (resolveOwnedStore(), ownedStoreIds(), or an explicit created_by predicate).
+     * Comment lines are stripped first, so an explanation that quotes the old code
+     * cannot satisfy -- or trip -- the check.
+     *
+     * MEASURED when written: 94 public methods read a request store id, and after the
+     * three repairs 0 of them lack an ownership predicate.
+     *
+     * What this does NOT prove: that the predicate is applied to the RIGHT variable,
+     * or before the write. It is a structural ratchet over 94 methods, not a proof of
+     * each one. The behavioural tests below carry that weight for the representative
+     * endpoints, including the three repaired here.
+     */
+    public function test_every_api_method_that_reads_a_request_store_id_also_proves_ownership(): void
+    {
+        $class = \App\Http\Controllers\Api\DashboardController::class;
+        $reflection = new \ReflectionClass($class);
+        $lines = file($reflection->getFileName());
+
+        $readsRequestStoreId = '/\$request->store_id'
+            . '|\$request->query\(\s*[\'"]store_id[\'"]'
+            . '|\$request->input\(\s*[\'"]store_id[\'"]'
+            . '|\$request->get\(\s*[\'"]store_id[\'"]'
+            . '|\$validated\[[\'"]store_id[\'"]\]/';
+
+        $provesOwnership = '/resolveOwnedStore\(|ownedStoreIds\(|->where\(\s*[\'"]created_by[\'"]/';
+
+        $checked = 0;
+        $offenders = [];
+
+        foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+            if ($method->class !== $class) {
+                continue;
+            }
+
+            $source = '';
+
+            for ($i = $method->getStartLine() - 1; $i < $method->getEndLine(); $i++) {
+                $trimmed = ltrim($lines[$i]);
+
+                if (str_starts_with($trimmed, '//')
+                    || str_starts_with($trimmed, '*')
+                    || str_starts_with($trimmed, '/*')) {
+                    continue;
+                }
+
+                $source .= $lines[$i];
+            }
+
+            if (!preg_match($readsRequestStoreId, $source)) {
+                continue;
+            }
+
+            $checked++;
+
+            if (!preg_match($provesOwnership, $source)) {
+                $offenders[] = sprintf(
+                    '%s (lines %d-%d)',
+                    $method->getName(),
+                    $method->getStartLine(),
+                    $method->getEndLine()
+                );
+            }
+        }
+
+        $this->assertGreaterThan(
+            80,
+            $checked,
+            'Only ' . $checked . ' methods were found to read a request store id. This '
+            . 'suite measured 94; a sudden drop means the detector stopped matching and '
+            . 'would pass vacuously.'
+        );
+
+        $this->assertSame(
+            [],
+            $offenders,
+            "These public API methods take a store id from the caller and never prove "
+            . "the caller owns that store, so any valid token reaches any store:\n  "
+            . implode("\n  ", $offenders)
+        );
+    }
+
+    /**
      * The helpers the sweep depends on must exist and must fail closed.
      *
      * ownedStoreIds() returning [] for an unauthenticated caller is the
@@ -481,6 +581,195 @@ class AdminApiTenancyTest extends SecurityTestCase
         );
     }
 
+    // ---------------------------------------------------------------
+    // NEW-ADMINAPI-UNOWNED-STORE-01 -- the three methods the string sweep missed
+    // ---------------------------------------------------------------
+
+    private function makeCustomerIn(Store $store): \App\Models\Customer
+    {
+        return \App\Models\Customer::forceCreate([
+            'first_name' => 'Victim',
+            'last_name' => 'Shopper',
+            'email' => 'victim' . uniqid() . '@example.test',
+            'password' => bcrypt('not-a-real-credential'),
+            'store_id' => $store->id,
+            'status' => 1,
+            'billable_id' => $store->created_by,
+            'billable_type' => \App\Models\User::class,
+        ]);
+    }
+
+    private function makeDriverIn(Store $store): \App\Models\DeliveryBoy
+    {
+        return \App\Models\DeliveryBoy::forceCreate([
+            'name' => 'Driver ' . uniqid(),
+            'email' => 'driver' . uniqid() . '@example.test',
+            'password' => bcrypt('not-a-real-credential'),
+            'contact' => '0000000',
+            'created_by' => $store->created_by,
+            'store_id' => $store->id,
+        ]);
+    }
+
+    /**
+     * GET /api/admin/getStoreInfo did `Store::find($storeId)` on the caller's own
+     * query parameter, so any valid admin token read any store's owner name, owner
+     * email, owner mobile, address, every `settings` row and the `theme_customizes`
+     * footer links. Its own sibling updateStoreOwnerInfo (:7522) has always had an
+     * ownership predicate.
+     */
+    public function test_get_store_info_refuses_a_store_the_caller_does_not_own(): void
+    {
+        [, , $tokenA, $merchantB, $storeB] = $this->twoTenants();
+
+        $response = $this->withHeader('Authorization', 'Bearer ' . $tokenA)
+            ->getJson('/api/admin/getStoreInfo?store_id=' . $storeB->id);
+
+        $response->assertStatus(403);
+
+        $this->assertStringNotContainsString(
+            $merchantB->email,
+            $response->getContent(),
+            'The denial must not still disclose the victim owner email.'
+        );
+        $this->assertStringNotContainsString(
+            $storeB->name,
+            $response->getContent(),
+            'The denial must not still disclose the victim store name.'
+        );
+    }
+
+    public function test_get_store_info_still_works_on_your_own_store(): void
+    {
+        [, $storeA, $tokenA] = $this->twoTenants();
+
+        $this->withHeader('Authorization', 'Bearer ' . $tokenA)
+            ->getJson('/api/admin/getStoreInfo?store_id=' . $storeA->id)
+            ->assertStatus(200)
+            ->assertJsonPath('status', 'success');
+    }
+
+    /**
+     * POST /api/admin/update-customer scoped its customer lookup on
+     * `store_id = $storeId` where $storeId is the caller's own query parameter, so
+     * any valid admin token could rewrite another store's customer PII.
+     */
+    public function test_update_customer_refuses_another_stores_customer(): void
+    {
+        [, , $tokenA, , $storeB] = $this->twoTenants();
+
+        $victim = $this->makeCustomerIn($storeB);
+
+        $this->withHeader('Authorization', 'Bearer ' . $tokenA)
+            ->postJson('/api/admin/update-customer?store_id=' . $storeB->id, [
+                'customer_id' => $victim->id,
+                'first_name' => 'Hijacked',
+                'email' => 'attacker-controlled@example.test',
+                'status' => 0,
+            ])->assertStatus(403);
+
+        $fresh = $victim->fresh();
+
+        $this->assertSame('Victim', $fresh->first_name, 'The victim customer was rewritten.');
+        $this->assertSame($victim->email, $fresh->email, 'The victim customer email was taken over.');
+        $this->assertSame(1, (int) $fresh->status, 'The victim customer was disabled.');
+    }
+
+    public function test_update_customer_still_works_on_your_own_customer(): void
+    {
+        [, $storeA, $tokenA] = $this->twoTenants();
+
+        $own = $this->makeCustomerIn($storeA);
+
+        $response = $this->withHeader('Authorization', 'Bearer ' . $tokenA)
+            ->postJson('/api/admin/update-customer?store_id=' . $storeA->id, [
+                'customer_id' => $own->id,
+                'first_name' => 'Renamed',
+            ]);
+
+        $this->assertNotSame(
+            403,
+            $response->getStatusCode(),
+            'The new ownership gate has locked a merchant out of their own customer.'
+        );
+
+        $this->assertSame('Renamed', $own->fresh()->first_name);
+    }
+
+    /**
+     * POST /api/admin/assignOrders is a cross-tenant STATE CHANGE: with
+     * store_id=<victim>, order_id=<victim order> and delivery_boy=<victim rider> it
+     * reassigned another merchant's delivery.
+     */
+    public function test_assign_order_refuses_a_store_the_caller_does_not_own(): void
+    {
+        [, , $tokenA, , $storeB] = $this->twoTenants();
+
+        $victimOrder = $this->makeOrder($storeB);
+        $victimDriver = $this->makeDriverIn($storeB);
+
+        $this->withHeader('Authorization', 'Bearer ' . $tokenA)
+            ->postJson('/api/admin/assignOrders?store_id=' . $storeB->id, [
+                'order_id' => $victimOrder->id,
+                'delivery_boy' => $victimDriver->id,
+            ])->assertStatus(403);
+
+        $this->assertNull(
+            $victimOrder->fresh()->deliveryboy_id,
+            "Another merchant's order was assigned to their rider by an unrelated token."
+        );
+    }
+
+    /**
+     * THE POSITIVE DIRECTION, and the honest limit of it.
+     *
+     * The owner's own call must get PAST the new gate and past both row lookups.
+     * That is what is asserted: not 403 (the gate admitted the owner) and not 404
+     * (both the order and the rider were found inside the authorised store).
+     *
+     * The call does NOT complete, and no claim is made that it does:
+     * assignOrder's transaction begins with
+     * `DeliveryEarning::where('order_id', ...)->delete()` (:8221) and
+     * `delivery_earnings` is declared by NO migration -- one of the six GATE F money
+     * tables -- so the method's own catch returns a generic 500 and the order's
+     * deliveryboy_id is rolled back. End-to-end assignment is therefore
+     * BLOCKED -- EXTERNAL DEPENDENCY (GATE F), exactly as its web twin
+     * OrderController::order_assign (:1074/:1094) is. This test deliberately does
+     * NOT skip, because the authorization property it covers is fully exercised; it
+     * records what remains unproven instead of implying coverage.
+     */
+    public function test_assign_order_lets_the_owner_past_the_gate_but_gate_f_blocks_the_write(): void
+    {
+        [, $storeA, $tokenA] = $this->twoTenants();
+
+        $own = $this->makeOrder($storeA);
+        $driver = $this->makeDriverIn($storeA);
+
+        $response = $this->withHeader('Authorization', 'Bearer ' . $tokenA)
+            ->postJson('/api/admin/assignOrders?store_id=' . $storeA->id, [
+                'order_id' => $own->id,
+                'delivery_boy' => $driver->id,
+            ]);
+
+        $this->assertNotSame(
+            403,
+            $response->getStatusCode(),
+            'The new ownership gate has locked a merchant out of assigning their own order.'
+        );
+        $this->assertNotSame(
+            404,
+            $response->getStatusCode(),
+            'The order or the rider was not found inside the store the caller owns, '
+            . 'which would mean the resolved store id no longer matches the rows.'
+        );
+
+        $this->assertFalse(
+            \Illuminate\Support\Facades\Schema::hasTable('delivery_earnings'),
+            'delivery_earnings now exists, so this test must be rewritten to assert the '
+            . 'completed assignment instead of stopping at the GATE F boundary.'
+        );
+    }
+
     public static function denialRouteProvider(): array
     {
         return [
@@ -489,6 +778,11 @@ class AdminApiTenancyTest extends SecurityTestCase
             'deleteorder' => ['DELETE', '/api/admin/deleteorder', ['order_id' => 1]],
             'deletecategory' => ['DELETE', '/api/admin/deletecategory', ['category_id' => 1]],
             'editprofile' => ['POST', '/api/admin/editprofile', ['user_id' => 1]],
+            // The three repaired for NEW-ADMINAPI-UNOWNED-STORE-01. Their denial is
+            // new, so it is pinned against 401 from the day it exists.
+            'getStoreInfo' => ['GET', '/api/admin/getStoreInfo', []],
+            'update-customer' => ['POST', '/api/admin/update-customer', ['customer_id' => 1]],
+            'assignOrders' => ['POST', '/api/admin/assignOrders', ['order_id' => 1, 'delivery_boy' => 1]],
         ];
     }
 }
