@@ -298,13 +298,35 @@ class SubscriptionAuthorizationTest extends SecurityTestCase
         $admin = $this->makePlatformAdmin();
 
         foreach (['../../../etc', 'NotAModule', 'BulkDelete/../LandingPage', ''] as $name) {
-            $this->actingAs($admin)->post(route('module.enable'), ['name' => $name]);
+            $response = $this->actingAs($admin)->post(route('module.enable'), ['name' => $name]);
 
+            // THE DISCRIMINATOR IS THE STATUS, AND IT WAS MEASURED BOTH WAYS. "no row was
+            // created" is NOT the right assertion: it passes with the allowlist removed too,
+            // because the method then crashes before the insert can succeed. Measured, with the
+            // allowlist removed, for every one of these four names:
+            //     STATUS=500  session('error')=NULL  add_on_managers rows=0
+            // and with it in place:
+            //     STATUS=302  session('error')='Oops something went wrong!'  rows=0
+            // A 500 here means the request REACHED
+            // `Artisan::call('migrate --path=/packages/workdo/<name>/...')`,
+            // `Artisan::call('package:seed <name>')` and
+            // `file_get_contents(base_path('packages/workdo/<name>/module.json'))` and died in
+            // them. A 302 with that message means it was refused before any of the three.
+            $this->assertSame(
+                302,
+                $response->getStatusCode(),
+                "A bogus module name `{$name}` was not refused up front: a non-302 means the "
+                . 'request reached the Artisan --path call and the traversed module.json read.'
+            );
+            $this->assertSame(
+                'Oops something went wrong!',
+                session('error'),
+                "A bogus module name `{$name}` did not come back through the name allowlist."
+            );
             $this->assertSame(
                 0,
                 DB::table('add_on_managers')->where('module', $name)->count(),
-                "A bogus module name `{$name}` created an add_on_managers row, so it reached the "
-                . 'Artisan calls and the module.json read.'
+                "A bogus module name `{$name}` created an add_on_managers row."
             );
         }
 
