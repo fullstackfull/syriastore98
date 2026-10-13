@@ -3425,6 +3425,19 @@ private function webhook_backup($order, $r, $products_weight = []) {
 
     private function processPayHere($request, $slug, $response)
     {
+        // The storefront must not hard-fail when the PayHere SDK is absent.
+        // lahirulhr/laravel-payhere cannot be installed from composer.lock -- its upstream
+        // repository is gone (docs/BUILD-REPRODUCIBILITY.md) -- so in any tree built from
+        // this lock the facade used below does not exist. Calling a missing class raises
+        // \Error, which `catch (\Exception)` in this method does NOT catch, so a customer
+        // who picks PayHere at checkout gets an HTTP 500 instead of the intended
+        // redirect-with-error. Fail closed here, before any session write or attachment row.
+        if (!class_exists(PayHere::class)) {
+            \Log::error('PayHere checkout refused: package lahirulhr/laravel-payhere is not installed (' . PayHere::class . ' missing). See docs/BUILD-REPRODUCIBILITY.md.');
+
+            return redirect()->back()->with('error', __('PayHere is currently unavailable. Please choose another payment method.'));
+        }
+
         $slug = !empty($request->slug) ? $request->slug : '';
         $store = getStore($slug);
         
@@ -3488,7 +3501,7 @@ private function webhook_backup($order, $r, $products_weight = []) {
                 ->successUrl(route('store.payment.status', $slug))
                 ->failUrl(route('store.payment.status', $slug))
                 ->renderView();
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             \Log::debug($e->getMessage());
             return redirect()->back()->with('error', __($e->getMessage()));
         }
