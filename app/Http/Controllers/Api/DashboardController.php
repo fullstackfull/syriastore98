@@ -3779,7 +3779,12 @@ public function DeleteReview($id)
 
         $query = Store::where('id', $storeId);
 
-        if ($user->type !== 'super admin') {
+        // `strtolower(trim())`, matching PlatformOperatorOnly::handle():61 and
+        // App\Policies\PlanOrderPolicy::isPlatformAdmin(), and matching the sibling helper
+        // StoreController::resolveOwnedStore(). This helper now carries the tenancy decision for
+        // 102 call sites in this file, so it is the last place that should be comparing an
+        // unnormalised `type` string.
+        if (strtolower(trim((string) $user->type)) !== 'super admin') {
             $query->where('created_by', $user->creatorId());
         }
 
@@ -5197,20 +5202,16 @@ public function CustomerList(Request $request)
             ], 400);
         }
 
-        $store = \App\Models\Store::where('id', $storeId)
-            ->where('created_by', $adminUser->id)
-            ->first();
+        $store = $this->resolveOwnedStore($storeId);
 
         if (!$store) {
-            if ($adminUser->type !== 'super admin') {
-                return response()->json([
-                    'status' => 0,
-                    'message' => 'fail',
-                    'data' => [
-                        'message' => 'You do not have permission to access this store.'
-                    ]
-                ], 403);
-            }
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => [
+                    'message' => 'You do not have permission to access this store.'
+                ]
+            ], 403);
         }
 
         $query = \App\Models\Customer::where('store_id', $storeId);
@@ -5343,11 +5344,9 @@ public function destroy(Request $request, $id = null)
             ], 422);
         }
 
-        $store = \App\Models\Store::where('id', $storeId)
-            ->where('created_by', $adminUser->id)
-            ->first();
+        $store = $this->resolveOwnedStore($storeId);
 
-        if (!$store && $adminUser->type !== 'super admin') {
+        if (!$store) {
             return response()->json([
                 'status' => 0,
                 'message' => 'fail',
@@ -5427,11 +5426,9 @@ public function store(Request $request)
             'status' => 'required|in:0,1',
         ]);
 
-        $store = \App\Models\Store::where('id', $storeId)
-            ->where('created_by', $adminUser->id)
-            ->first();
+        $store = $this->resolveOwnedStore($storeId);
 
-        if (!$store && $adminUser->type !== 'super admin') {
+        if (!$store) {
             return response()->json([
                 'status' => 0,
                 'message' => 'fail',
@@ -5532,9 +5529,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
         $totalProductPrice = 0;
         $userId = auth()->id();
 
-        $store = \App\Models\Store::where('id', $storeId)
-                                  ->where('created_by', $userId)
-                                  ->first();
+        $store = $this->resolveOwnedStore($storeId);
 
         if (!$store) {
             return response()->json([
@@ -5737,11 +5732,9 @@ public function getActivePaymentMethods(Request $request)
             ], 400);
         }
 
-        $store = \App\Models\Store::where('id', $storeId)
-            ->where('created_by', $adminUser->id)
-            ->first();
+        $store = $this->resolveOwnedStore($storeId);
 
-        if (!$store && $adminUser->type !== 'super admin') {
+        if (!$store) {
             return response()->json([
                 'status' => 0,
                 'message' => 'fail',
@@ -6039,11 +6032,9 @@ private function buildStoreUrlLikeWeb($store, $settings)
         'store_id' => 'required|integer|exists:stores,id'
     ])->validate();
 
-    $store = \App\Models\Store::where('id', $storeId)
-        ->where('created_by', $adminUser->id)
-        ->first();
+    $store = $this->resolveOwnedStore($storeId);
 
-    if (!$store && $adminUser->type !== 'super admin') {
+    if (!$store) {
         return response()->json([
             'status' => 0,
             'message' => 'fail',
@@ -6108,11 +6099,9 @@ public function Top_orders(Request $request)
             'store_id' => 'required|integer|exists:stores,id'
         ])->validate();
 
-        $store = \App\Models\Store::where('id', $storeId)
-            ->where('created_by', $adminUser->id)
-            ->first();
+        $store = $this->resolveOwnedStore($storeId);
 
-        if (!$store && $adminUser->type !== 'super admin') {
+        if (!$store) {
             return response()->json([
                 'status' => 0,
                 'message' => 'fail',
@@ -6274,11 +6263,9 @@ public function indexAllPlan(Request $request)
             'store_id' => 'required|integer|exists:stores,id'
         ])->validate();
 
-        $store = \App\Models\Store::where('id', $storeId)
-            ->where('created_by', $user->id)
-            ->first();
+        $store = $this->resolveOwnedStore($storeId);
 
-        if (!$store && $user->type !== 'super admin') {
+        if (!$store) {
             return response()->json([
                 'status' => 0,
                 'message' => 'fail',
@@ -6444,11 +6431,9 @@ public function getCurrencyRatesApi(Request $request)
             'store_id' => 'required|integer|exists:stores,id'
         ])->validate();
 
-        $store = \App\Models\Store::where('id', $storeId)
-            ->where('created_by', $user->id)
-            ->first();
+        $store = $this->resolveOwnedStore($storeId);
 
-        if (!$store && $user->type !== 'super admin') {
+        if (!$store) {
             return response()->json([
                 'status' => 0,
                 'message' => 'fail',
@@ -6564,11 +6549,9 @@ public function updateCurrencyRateApi(Request $request)
             'rate_per_usd' => 'required|numeric|min:0.00000001',
         ]);
 
-        $store = \App\Models\Store::where('id', $validated['store_id'])
-            ->where('created_by', $user->id)
-            ->first();
+        $store = $this->resolveOwnedStore($validated['store_id']);
 
-        if (!$store && $user->type !== 'super admin') {
+        if (!$store) {
             return response()->json([
                 'status' => 0,
                 'message' => 'fail',
@@ -6644,11 +6627,9 @@ public function toggleCurrencyStatusApi(Request $request)
             'is_active' => 'required|boolean',
         ]);
 
-        $store = \App\Models\Store::where('id', $validated['store_id'])
-            ->where('created_by', $user->id)
-            ->first();
+        $store = $this->resolveOwnedStore($validated['store_id']);
 
-        if (!$store && $user->type !== 'super admin') {
+        if (!$store) {
             return response()->json([
                 'status' => 0,
                 'message' => 'fail',
@@ -6729,11 +6710,9 @@ public function updateStoreLanguage(Request $request)
             'store_id' => 'required|integer|exists:stores,id'
         ])->validate();
 
-        $store = \App\Models\Store::where('id', $storeId)
-            ->where('created_by', $user->id)
-            ->first();
+        $store = $this->resolveOwnedStore($storeId);
 
-        if (!$store && $user->type !== 'super admin') {
+        if (!$store) {
             return response()->json([
                 'status' => 0,
                 'message' => 'fail',
@@ -6820,11 +6799,9 @@ public function getAvailableLanguages(Request $request)
             'store_id' => 'required|integer|exists:stores,id'
         ])->validate();
 
-        $store = \App\Models\Store::where('id', $storeId)
-            ->where('created_by', $user->id)
-            ->first();
+        $store = $this->resolveOwnedStore($storeId);
 
-        if (!$store && $user->type !== 'super admin') {
+        if (!$store) {
             return response()->json([
                 'status' => 0,
                 'message' => 'fail',
@@ -6898,11 +6875,9 @@ public function updateCurrencyApi(Request $request)
             'store_id' => 'required|integer|exists:stores,id'
         ])->validate();
 
-        $store = \App\Models\Store::where('id', $storeId)
-            ->where('created_by', $adminUser->id)
-            ->first();
+        $store = $this->resolveOwnedStore($storeId);
 
-        if (!$store && $adminUser->type !== 'super admin') {
+        if (!$store) {
             return response()->json([
                 'status' => 0,
                 'message' => 'fail',
@@ -6999,11 +6974,9 @@ public function getCurrenciesApi(Request $request)
             'store_id' => 'required|integer|exists:stores,id'
         ])->validate();
 
-        $store = \App\Models\Store::where('id', $storeId)
-            ->where('created_by', $user->id)
-            ->first();
+        $store = $this->resolveOwnedStore($storeId);
 
-        if (!$store && $user->type !== 'super admin') {
+        if (!$store) {
             return response()->json([
                 'status' => 0,
                 'message' => 'fail',
@@ -7099,11 +7072,9 @@ public function getCurrentLanguageAndCurrency(Request $request)
             ['store_id' => 'required|integer|exists:stores,id']
         )->validate();
 
-        $store = \App\Models\Store::where('id', $storeId)
-            ->where('created_by', $user->id)
-            ->first();
+        $store = $this->resolveOwnedStore($storeId);
 
-        if (!$store && $user->type !== 'super admin') {
+        if (!$store) {
             return response()->json([
                 'status' => 0,
                 'message' => 'fail',
@@ -7204,8 +7175,8 @@ public function getCustomerOrdersApi(Request $request)
         $storeId = $request->query('store_id');
         \Validator::make(['store_id' => $storeId], ['store_id' => 'required|integer|exists:stores,id'])->validate();
 
-        $store = \App\Models\Store::where('id', $storeId)->where('created_by', $adminUser->id)->first();
-        if (!$store && $adminUser->type !== 'super admin') {
+        $store = $this->resolveOwnedStore($storeId);
+        if (!$store) {
             return response()->json([
                 'status' => 0, 'message' => 'fail',
                 'data' => ['message' => 'You do not have permission to access this store.']
@@ -7412,11 +7383,9 @@ public function addCustomer(Request $request)
             'address_type'        => 'nullable|in:0,1,2',
         ]);
 
-        $store = \App\Models\Store::where('id', $storeId)
-            ->where('created_by', $adminUser->id)
-            ->first();
+        $store = $this->resolveOwnedStore($storeId);
 
-        if (!$store && $adminUser->type !== 'super admin') {
+        if (!$store) {
             return response()->json([
                 'status' => 0,
                 'message' => 'fail',
@@ -7531,15 +7500,17 @@ public function updateStoreOwnerInfo(Request $request)
             return response()->json(['status' => 'error', 'message' => 'Store ID is required.', 'data' => null], 400);
         }
 
-        $store = \App\Models\Store::where('id', $storeId)->where('created_by', $adminUser->id)->first();
-        if (!$store && $adminUser->type !== 'super admin') {
+        // The old shape was `if (!$store && $adminUser->type !== 'super admin') -> 403;` followed
+        // by `if (!$store) { $store = \App\Models\Store::find($storeId); }` -- an UNSCOPED
+        // re-lookup whose only purpose was to repair the null a platform operator was left
+        // holding by the fallthrough guard. resolveOwnedStore() hands an operator the real Store,
+        // so that re-lookup is deleted rather than left sitting one edit away from being
+        // reachable by a merchant. The separate 404 'Store not found.' goes with it: an unknown
+        // id and an unowned id now answer the same 403, which is the deliberately non-oracle
+        // posture resolveOwnedStore() documents at :3765-3767.
+        $store = $this->resolveOwnedStore($storeId);
+        if (!$store) {
             return response()->json(['status' => 'error', 'message' => 'Permission denied.', 'data' => null], 403);
-        }
-        if (!$store) {
-            $store = \App\Models\Store::find($storeId);
-        }
-        if (!$store) {
-            return response()->json(['status' => 'error', 'message' => 'Store not found.', 'data' => null], 404);
         }
 
         $validated = $request->validate([
@@ -8030,11 +8001,9 @@ public function searchCustomerByName(Request $request)
             'store_id' => 'required|integer|exists:stores,id'
         ])->validate();
 
-        $store = \App\Models\Store::where('id', $storeId)
-            ->where('created_by', $adminUser->id)
-            ->first();
+        $store = $this->resolveOwnedStore($storeId);
 
-        if (!$store && $adminUser->type !== 'super admin') {
+        if (!$store) {
             return response()->json([
                 'status' => 0,
                 'message' => 'fail',
