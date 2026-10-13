@@ -1255,8 +1255,60 @@ Route::get('/zid/{storeId}/webhooks', function ($storeId) {
 
 
 Route::post('/zid/events/{v?}', function (\Illuminate\Http\Request $r) {
-    $allowed = $r->header('X-Hook-Secret') === config('services.zid.hook_pass')
-        || ($r->getUser() === config('services.zid.hook_user') && $r->getPassword() === config('services.zid.hook_pass'));
+    // NEW-ZID-HOOK-FAILOPEN-01. This check used to read:
+    //     $allowed = $r->header('X-Hook-Secret') === config('services.zid.hook_pass')
+    //         || ($r->getUser() === config('services.zid.hook_user')
+    //             && $r->getPassword() === config('services.zid.hook_pass'));
+    //
+    // Request::header() returns NULL for an absent header and Request::getUser() /
+    // getPassword() return NULL for a request with no basic-auth credentials, so if
+    // either configured value were ever absent -- moved to .env and the key not set,
+    // a typo in the config key, config:cache run before the value was added -- the
+    // comparison became `null === null`, $allowed became TRUE and this endpoint
+    // accepted ANY anonymous request. It writes `zid_events` and, on an
+    // `application.uninstall` payload, DELETES the caller-named store's `zid_stores`
+    // row (below), so failing open here is a destructive anonymous write.
+    //
+    // It is latent rather than live at HEAD: config/services.php does define both
+    // values today (not reproduced here). It is still wrong, because the whole point
+    // of moving those literals into the environment -- which SEC-CFG-02 asks for --
+    // would have silently opened the endpoint.
+    //
+    // Fails closed now, on both arms, and compares in constant time. Covered in both
+    // directions by tests/Feature/Security/ZidWebhookSecretTest: a correct secret is
+    // still accepted (header arm and basic-auth arm), and an unset secret is refused
+    // instead of waved through.
+    //
+    // The 401 below is NOT changed to 403. This is a server-to-server webhook
+    // rejection on a non-/api path; the 403-not-401 rule exists because repo B's
+    // lib/network/network.dart turns any 401 from the API it calls into a forced
+    // logout, and repo B is not in this worktree so no claim about its call sites is
+    // made here. Flagged for the coordinator rather than changed blind.
+    $configuredSecret = (string) config('services.zid.hook_pass');
+    $configuredUser   = (string) config('services.zid.hook_user');
+
+    $allowed = false;
+
+    if ($configuredSecret !== '') {
+        $headerSecret = (string) $r->header('X-Hook-Secret');
+
+        if ($headerSecret !== '' && hash_equals($configuredSecret, $headerSecret)) {
+            $allowed = true;
+        }
+
+        if (! $allowed && $configuredUser !== '') {
+            $basicUser = (string) $r->getUser();
+            $basicPass = (string) $r->getPassword();
+
+            if (
+                $basicUser !== '' && $basicPass !== ''
+                && hash_equals($configuredUser, $basicUser)
+                && hash_equals($configuredSecret, $basicPass)
+            ) {
+                $allowed = true;
+            }
+        }
+    }
 
     if (! $allowed) {
         \Illuminate\Support\Facades\Log::warning('Zid webhook rejected 401', [
