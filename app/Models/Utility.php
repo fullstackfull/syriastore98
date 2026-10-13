@@ -207,7 +207,7 @@ class Utility extends Model
             }
         }
 
-        return $return;
+        return \App\Payments\RetiredGateways::providerForEnableKey($name) !== null ? 'off' : $return;
     }
 
     public static function GetValByName($name = '', $store_id = '')
@@ -243,7 +243,7 @@ class Utility extends Model
             }
         }
 
-        return $return;
+        return \App\Payments\RetiredGateways::providerForEnableKey($name) !== null ? 'off' : $return;
     }
 
     public static function dateFormat($date)
@@ -1585,7 +1585,7 @@ class Utility extends Model
             $yookassa_secret_key = \App\Models\Utility::GetValueByName('yookassa_secret_key', $store_id);
             $yookassa_image = \App\Models\Utility::GetValueByName('yookassa_image', $store_id);
 
-            $Setting_array['status'] = $is_yookassa_enabled;
+            $Setting_array['status'] = \App\Payments\RetiredGateways::status('yookassa', $is_yookassa_enabled);
             $Setting_array['name'] = 'Yookassa';
             $Setting_array['detail'] = '';
             $Setting_array['image'] = $yookassa_image;
@@ -1677,7 +1677,7 @@ class Utility extends Model
             $payhere_app_id = \App\Models\Utility::GetValueByName('payhere_app_id', $store_id);
             $payhere_image = \App\Models\Utility::GetValueByName('payhere_image', $store_id);
 
-            $Setting_array['status'] = $is_payhere_enabled;
+            $Setting_array['status'] = \App\Payments\RetiredGateways::status('payhere', $is_payhere_enabled);
             $Setting_array['name'] = 'PayHere';
             $Setting_array['detail'] = '';
             $Setting_array['image'] = $payhere_image;

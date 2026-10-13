@@ -9,6 +9,7 @@ use App\Models\{ActivityLog, City, State, Country, DeliveryAddress, OrderNote, P
 use App\Models\Tax;
 use App\Models\Category;
 use App\Models\{Utility, Wishlist, FlashSale};
+use App\Payments\RetiredGateways;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -2383,7 +2384,9 @@ public function saveStoreFcmToken(Request $request)
             $yookassa_image = asset(Storage::url('uploads/payment/yookassa.png'));
         }
 
-        $Setting_array[25]['status'] = !empty($is_yookassa_enabled) ? $is_yookassa_enabled : 'off';
+        // RETIRED (RetiredGateways::PROVIDERS): published 'off' whatever the tenant's row says. The index,
+        // the key set and every credential key below are UNCHANGED: repo B parses this shape.
+        $Setting_array[25]['status'] = RetiredGateways::status('yookassa', $is_yookassa_enabled);
         $Setting_array[25]['name_string'] = 'yookassa';
         $Setting_array[25]['name'] = 'yookassa';
         $Setting_array[25]['detail'] = $yookassa_unfo;
@@ -2478,7 +2481,9 @@ public function saveStoreFcmToken(Request $request)
             $payhere_image = asset(Storage::url('uploads/payment/payhere.png'));
         }
 
-        $Setting_array[30]['status'] = !empty($is_payhere_enabled) ? $is_payhere_enabled : 'off';
+        // RETIRED (RetiredGateways::PROVIDERS): published 'off' whatever the tenant's row says. The index,
+        // the key set and every credential key below are UNCHANGED: repo B parses this shape.
+        $Setting_array[30]['status'] = RetiredGateways::status('payhere', $is_payhere_enabled);
         $Setting_array[30]['name_string'] = 'payhere';
         $Setting_array[30]['name'] = 'PayHere';
         $Setting_array[30]['detail'] = $payhere_unfo;

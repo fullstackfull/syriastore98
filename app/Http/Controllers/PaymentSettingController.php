@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Setting;
+use App\Models\Utility;
+use App\Payments\RetiredGateways;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\File;
 
@@ -59,6 +61,22 @@ class PaymentSettingController extends Controller
         $imageKey = "{$id}_image";
         $infoKey = "{$id}_unfo";
         
+        // A RETIRED gateway (RetiredGateways::PROVIDERS) cannot be switched back on from this
+        // form. Its enable row is pinned to 'off' and the `== 'on'` branch below is skipped,
+        // so an operator who ticks the box and saves changes nothing -- the attempt is
+        // INEFFECTIVE, not merely discouraged.
+        //
+        // NOTHING STORED IS DESTROYED. This method only ever writes the keys it places in
+        // $this->post, so returning here leaves every already-stored credential row
+        // (payhere_merchant_secret, yookassa_secret_key, the images, the descriptions)
+        // exactly as it was. Those rows are the owner's data. Deleting them is not this
+        // change's job and is explicitly out of scope.
+        if (RetiredGateways::isRetired($id)) {
+            $this->post[$enableKey] = 'off';
+
+            return;
+        }
+
         // Set default status to off
         $this->post[$enableKey] = 'off';
         
@@ -283,6 +301,9 @@ class PaymentSettingController extends Controller
                 'fields' => ['is_paytr_enabled', 'paytr_merchant_id', 'paytr_merchant_key', 'paytr_salt_key', 'paytr_unfo'],
                 'required_fields' => ['paytr_merchant_id', 'paytr_merchant_key', 'paytr_salt_key']
             ],
+            // RETIRED (RetiredGateways::PROVIDERS). The entry is KEPT so the stored
+            // credentials keep a home and the admin block is not deleted; processGateway()
+            // above never reaches the fields below for a retired gateway.
             [
                 'id' => 'yookassa',
                 'fields' => ['is_yookassa_enabled', 'yookassa_shop_id_key', 'yookassa_secret_key', 'yookassa_unfo'],
@@ -303,6 +324,7 @@ class PaymentSettingController extends Controller
                 'fields' => ['is_nepalste_enabled', 'nepalste_public_key', 'nepalste_secret_key', 'nepalste_mode', 'nepalste_unfo'],
                 'required_fields' => ['nepalste_public_key', 'nepalste_secret_key', 'nepalste_mode']
             ],
+            // RETIRED (RetiredGateways::PROVIDERS). Entry KEPT -- see the note on 'yookassa'.
             [
                 'id' => 'payhere',
                 'fields' => ['is_payhere_enabled', 'payhere_merchant_id', 'payhere_merchant_secret', 'payhere_app_id', 'payhere_app_secret', 'payhere_mode', 'payhere_unfo'],
