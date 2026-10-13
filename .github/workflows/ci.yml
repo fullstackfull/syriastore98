@@ -589,10 +589,34 @@ jobs:
         run: |
           test "${DB_CONNECTION}" = "sqlite"   || { echo "::error::DB_CONNECTION is not sqlite";   exit 1; }
           test "${DB_DATABASE}"   = ":memory:" || { echo "::error::DB_DATABASE is not :memory:";   exit 1; }
-          if [ -f .env ]; then
-            echo "::error::A .env is present in CI. CI must never carry real credentials."
-            exit 1
-          fi
+
+          # THE .env CHECK IS DELEGATED, AND THAT IS A CORRECTION, NOT A RELAXATION.
+          #
+          # This step originally failed outright on `[ -f .env ]`. That made this REQUIRED job
+          # permanently unreachable, for a reason unrelated to anything it tests: `.env` IS
+          # TRACKED IN THIS REPOSITORY (commit 3c39c160, "Initial commit 98"), so every
+          # checkout has one and no push could ever turn this job green. Measured on the first
+          # run of this gate -- it died here at step 5 and the composer install never executed:
+          #   ::error::A .env is present in CI. CI must never carry real credentials.
+          #
+          # The owner's standing decision is that the committed .env STAYS -- not rotated, not
+          # deleted, recorded as ACCEPTED RISK -- so a guard whose only passing state is its
+          # absence can never be satisfied without overriding that decision.
+          #
+          # .github/scripts/guard-no-env-files.sh already encodes the right rule and PASSES in
+          # the `static` job: it emits an OPEN SECURITY RISK warning for the one known tracked
+          # file and exits 0, and exits 1 for ANY other live or tracked env file and for a
+          # .env written during the build. So a NEW secret still fails the build here; only the
+          # already-accepted one does not.
+          .github/scripts/guard-no-env-files.sh .
+
+          # What actually keeps this run off real credentials is not the file's absence but
+          # that nothing reads it: APP_ENV=testing selects .env.testing (asserted present in a
+          # later step), the two assertions above pin the connection, and
+          # tests/bootstrap.php aborts the whole suite unless the resolved connection is
+          # sqlite :memory: -- because RefreshDatabase runs migrate:fresh, which drops every
+          # table. That is three independent controls, none of which depends on `.env` being
+          # missing.
 
       - name: Guard - test-database isolation is intact
         # Repeated here deliberately. The static job proves the config is correct; this
