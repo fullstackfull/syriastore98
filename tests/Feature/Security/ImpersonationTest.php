@@ -157,4 +157,80 @@ class ImpersonationTest extends SecurityTestCase
         $this->assertFalse($platformAdmin->canBeImpersonated());
         $this->assertTrue($merchant->canBeImpersonated());
     }
+
+    // ---------------------------------------------------------------
+    // NEW-STORELINKS-UNGATED-01 -- the sibling route in the same family
+    // ---------------------------------------------------------------
+
+    /**
+     * `GET /{id}/stores-link` (routes/web.php:872, StoreController::StoreLinks) had
+     * NO authorization: it decrypted the caller-supplied id, looked the user up and
+     * listed every store that user owns. It is the only method in this
+     * platform-operator family without a `type == 'super admin'` test.
+     *
+     * The id is a Crypt payload, which is why this was not as loud as SEC-F6 -- but
+     * this suite's own premise is that APP_KEY is committed to the repository and
+     * rotation is deferred (SEC-ENV-01), so a ciphertext is forgeable by anyone who
+     * can read the repo. This test therefore FORGES one, exactly as
+     * test_forged_encrypted_id_is_denied does, instead of assuming the merchant has
+     * to be handed a link.
+     */
+    public function test_a_merchant_cannot_list_another_users_store_links(): void
+    {
+        [$attacker] = $this->makeTenant();
+        [$victimOwner, $victimStore] = $this->makeTenant();
+
+        $response = $this->actingAs($attacker)
+            ->get('/' . Crypt::encrypt($victimOwner->id) . '/stores-link');
+
+        $response->assertRedirect();
+
+        $this->assertStringNotContainsString(
+            $victimStore->slug,
+            $response->getContent(),
+            "Another user's store slug was disclosed to an unrelated merchant."
+        );
+        $this->assertStringNotContainsString(
+            $victimStore->name,
+            $response->getContent(),
+            "Another user's store name was disclosed to an unrelated merchant."
+        );
+    }
+
+    public function test_an_anonymous_caller_cannot_list_store_links(): void
+    {
+        [$victimOwner] = $this->makeTenant();
+
+        $this->get('/' . Crypt::encrypt($victimOwner->id) . '/stores-link')
+            ->assertRedirect();
+
+        $this->assertFalse(auth()->check());
+    }
+
+    /**
+     * THE POSITIVE DIRECTION. The screen is reached from store/index.blade.php:94 and
+     * store/action.blade.php:32, both of which only a platform operator can load
+     * (StoreController::index:44), so the operator must keep it.
+     *
+     * actingAsPlatformAdmin() disables the XSS updater nag for the same reason the
+     * rest of this file does; SecurityTestCase::satisfyUpdaterGate() is the other
+     * half of that story and runs in setUp.
+     */
+    public function test_a_platform_admin_can_still_list_a_users_store_links(): void
+    {
+        $platformAdmin = $this->makePlatformAdmin();
+        [$merchant, $store] = $this->makeTenant();
+
+        $response = $this->actingAsPlatformAdmin($platformAdmin)
+            ->get('/' . Crypt::encrypt($merchant->id) . '/stores-link');
+
+        $response->assertOk();
+
+        $this->assertStringContainsString(
+            $store->slug,
+            $response->getContent(),
+            'The platform operator can no longer see the store links they came for, so '
+            . 'the gate has broken the workflow it was meant to protect.'
+        );
+    }
 }

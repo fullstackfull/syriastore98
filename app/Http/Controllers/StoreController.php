@@ -804,7 +804,36 @@ foreach ($defaultCurrencies as $currency) {
 
     public function StoreLinks(Request $request, $id)
     {
-        $user = User::find(decrypt($id));
+        // NEW-STORELINKS-UNGATED-01. This method had no authorization at all. It is
+        // the only one in this platform-operator family without a `type == 'super
+        // admin'` test -- upgradePlan (:813), activePlan (:826), customDomain (:867),
+        // subDomain, index (:44) and LoginWithAdmin (via
+        // $this->authorize('impersonate')) all have one -- and it discloses every
+        // store belonging to the named user.
+        //
+        // Exploitability was LIMITED, not absent, and the distinction is the reason
+        // this is gated rather than ignored: the id is a Crypt payload, so it cannot
+        // be forged without APP_KEY, and the only screens that mint one
+        // (store/index.blade.php:94 and store/action.blade.php:32) are themselves
+        // super-admin-only because StoreController::index refuses anyone else. But a
+        // Crypt payload is a bearer capability -- it appears in a URL, so it travels
+        // in browser history, proxy logs, Referer headers and anything pasted into a
+        // ticket -- and any authenticated merchant holding one reached this screen.
+        // APP_KEY is also committed to this repository and the owner has deferred
+        // rotation (SEC-ENV-01), which removes the unforgeability argument entirely.
+        //
+        // Gated on the same literal the rest of the family uses, so the legitimate
+        // workflow -- a platform operator clicking "store links" on the stores list
+        // -- is unchanged. Both directions are pinned by
+        // tests/Feature/Security/ImpersonationTest.
+        if (!auth()->user() || auth()->user()->type !== 'super admin') {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        // findOrFail, not find: a valid Crypt payload for a deleted user id used to
+        // reach `$user->id` on null and raise a 500.
+        $user = User::findOrFail(decrypt($id));
+
         $stores = Store::where('created_by', $user->id)->get();
 
         return view('store.view-storelinks', compact('stores'));
