@@ -1373,7 +1373,14 @@ if (!function_exists('ActivatedModule')) {
                     $user_not_com = Cache::remember("user_{$user->created_by}", 3600, function () use ($user) {
                         return User::find($user->created_by);
                     });
-                    if (!empty($user)) {
+                    // NEW-NULLGUARD-04. This guard tested `$user` -- which the enclosing
+                    // `if (!empty($user))` has already proven non-empty -- while the very next
+                    // line dereferences `$user_not_com`, a `User::find($user->created_by)` that
+                    // IS null whenever a staff member's employer row is absent. So the guard was
+                    // a no-op over the one variable that needed guarding. Pre-existing, not a
+                    // regression: the same wrong variable is at the p1b/integration baseline. It
+                    // was MASKED only because an earlier 500 short-circuited this path first.
+                    if (!empty($user_not_com)) {
                         if ($active_module == null) {
                             $active_module =  userActiveModule::where('user_id', $user_not_com->id)->pluck('module')->toArray();
                         }
@@ -1384,8 +1391,17 @@ if (!function_exists('ActivatedModule')) {
                     }
                 }
 
-                // Find the common modules
-                $commonModules = array_intersect($active_module, $available_modules);
+                // Find the common modules.
+                //
+                // `$active_module ?? []` is REQUIRED by the guard repair above, not cosmetic.
+                // With the guard finally doing its job, a staff member whose employer row is
+                // missing now leaves `$active_module` at its `null` initial value, and
+                // `array_intersect(null, ...)` is a TypeError on PHP 8 -- so fixing the
+                // dereference alone would merely have moved the 500 two lines down. The fallback
+                // is written HERE, locally, rather than by assigning `$active_module = []`,
+                // because `$active_module` is a `static` keyed on nothing: writing [] into it
+                // would memoise "no modules" for every later principal in the same process.
+                $commonModules = array_intersect($active_module ?? [], $available_modules);
                 $user_active_module = array_unique(array_merge($commonModules, $activated_module));
             }
         }
