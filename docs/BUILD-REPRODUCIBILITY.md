@@ -1,6 +1,9 @@
 # Store Syria — Build Reproducibility: `composer install` from `composer.lock`
 
 Owner: agent3-composer, branch `p1f/agent3-composer`, branched from `p1b/integration` @ `167c73ff`.
+Continued on branch `x/a3-payhere`, branched from `p1b/integration` @ `e2c187ad`, which adds
+§9 (the single blocker statement, and the two routes re-probed independently) and the storefront
+`\Error` guard recorded there. `composer.json` and `composer.lock` are **still unchanged**.
 Scope of this document: `composer.json`, `composer.lock`, and the installability of the locked
 dependency set. Nothing else.
 
@@ -587,7 +590,9 @@ remove the gateway from the merchant payment-settings UI so no store can enable 
 cannot work. This is a product decision with store-facing consequences for Sri Lankan merchants,
 and it must not be done as a side effect of a dependency cleanup. **Nothing on this branch takes
 a step toward it.** Note that until something is decided, the gateway is still *offerable* in
-settings while every attempt to use it 500s.
+settings while no attempt to use it can ever complete. As of §9 an attempt no longer 500s --
+it is refused with a redirect-and-error at the storefront -- which removes the crash but does
+**not** make the gateway work, and does not reduce the need for this decision.
 
 **Do not choose "ignore it".** The options that look like ignoring it — pruning the package from
 the lock, or adding `--ignore-platform-reqs`-style hand-waving — are the two that convert a
@@ -605,3 +610,146 @@ Until step 1, every dependency number this project reports — including the 70,
 and this document's own baseline — comes from a `vendor/` tree that does not match the lock
 (`laravel/framework 11.57.0` installed against `11.47.0` locked, 148 of 239 packages differing).
 That is `NEW-VENDOR-DRIFT-01`, and it is unchanged by this work.
+
+---
+
+## 9. The blocker, in one statement — and the two supply routes, re-probed independently
+
+Added on `x/a3-payhere`. Nothing here reverses §1–§8; it closes the two questions that were
+still open about *alternative versions* and *alternative transports*, and records the one
+question that cannot honestly be answered from this container.
+
+### 9.1 The blocker statement
+
+> **`composer install` from this `composer.lock` cannot be made to succeed by any change inside
+> this repository.** The lock requires `lahirulhr/laravel-payhere` `v1.0.4`, whose dist is a
+> GitHub zipball of `Visanduma/laravel-payhere` — a repository that returns **HTTP 404 on a
+> clean `ubuntu-latest` runner**, i.e. it no longer exists upstream. **All eight published
+> versions** of this package resolve to a zipball of the *same two* GitHub repositories, and
+> **neither repository resolves over the Git transport either**, so there is no older version to
+> fall back to and `--prefer-source` is not a route. **No published version carries a dist
+> `shasum`** — the field is empty for all eight — so even a recovered or forked copy could not
+> be integrity-verified against the lock by Composer. Therefore the only ways forward require an
+> input from outside this repository: an authentic copy obtained from a machine that still has
+> one (§8 Option 1/2), a deliberate migration (Option 3), or a deliberate retirement (Option 4).
+> **Owner action required; this is not an agent-fixable defect.**
+
+### 9.2 Every published version points at the same two dead repositories
+
+From live Packagist metadata (`https://repo.packagist.org/p2/lahirulhr/laravel-payhere.json`,
+HTTP 200, 6986 bytes — metadata is served from a host that is reachable; that says nothing about
+whether a dist can be downloaded):
+
+| version | dist (all `api.github.com/repos/…/zipball/`) | dist `shasum` |
+|---|---|---|
+| `v1.0.4` **(locked)** | `Visanduma/laravel-payhere` @ `72ce0aa8…` | *empty* |
+| `1.0.3` | `Visanduma/laravel-payhere` @ `043d2467…` | *empty* |
+| `1.0.2` | `Visanduma/laravel-payhere` @ `eead14ad…` | *empty* |
+| `1.0.1` | `Visanduma/laravel-payhere` @ `0d32a3bc…` | *empty* |
+| `v1.0.0` | `Visanduma/laravel-payhere` @ `e8f7c12e…` | *empty* |
+| `0.2.1` | `Visanduma/laravel-payhere` @ `e5886224…` | *empty* |
+| `0.2.0` | `Visanduma/laravel-payhere` @ `5626185e…` | *empty* |
+| `v0.1.0` | `lahirulhr/laravel-payhere` @ `0c6b3e0f…` | *empty* |
+
+Two consequences beyond §2(d):
+
+1. **The empty `shasum` is the decisive argument against a fork or a mirror.** There is no
+   digest anywhere in the lock for this package, so Composer cannot tell an authentic archive
+   from an altered one. For a package that computes payment hashes, "download it from somewhere
+   that looks right" is not an option, and the §8 Option 1 caveat applies to *every* route that
+   does not start from a copy whose provenance a human has established.
+2. The ownership split (`v0.1.0` under `lahirulhr`, `0.2.0`+ under `Visanduma`) means the
+   package changed hands. If the `Visanduma` repository is gone, **seven versions die together**
+   — this is not one force-pushed commit.
+
+### 9.3 The Git transport does not resolve either, so `--prefer-source` is not a route
+
+`--prefer-source` would be a legitimate install strategy if the repository existed. Re-run here
+with `GIT_TERMINAL_PROMPT=0`, unauthenticated, with a positive **and** a negative control on the
+same transport:
+
+```
+=== laravel/framework                      (positive control)
+d63eca049e55b2d9b68a468802ff6ed7f70cc7ad	HEAD
+74e222cee687f957d95aaadddae69270e3205cf7	refs/heads/10.x
+
+=== Visanduma/laravel-payhere              (the locked source)
+fatal: Authentication failed for 'https://github.com/Visanduma/laravel-payhere.git/'
+
+=== lahirulhr/laravel-payhere              (the other owner, for v0.1.0)
+fatal: Authentication failed for 'https://github.com/lahirulhr/laravel-payhere.git/'
+
+=== laravel/definitely-no-such-repo-zzz99  (negative control)
+fatal: Authentication failed for 'https://github.com/laravel/definitely-no-such-repo-zzz99.git/'
+```
+
+Both PayHere repositories are indistinguishable from the negative control, while a public
+repository on the same transport returns refs. GitHub answers *nonexistent* and *private* alike,
+so the precise reading stays **"deleted, or made private"** — and either way an unauthenticated
+clean runner, which is what CI is, cannot clone it. **`--prefer-source` changes the transport,
+not the existence of the repository.**
+
+### 9.4 What this container cannot answer, and the honest route to the answer
+
+`api.github.com` is refused by this container's egress proxy for **every** URL, including
+repositories that certainly exist (§1 measured it; it was re-measured on this branch and the 403
+body is the proxy's own text, not GitHub's). **A 403 here is not evidence in either direction and
+must not be reported as any.** Only the clean runner's 404 is authoritative about existence.
+
+One question therefore remains open and is worth exactly one bounded probe:
+
+> Is the nearest older version, `1.0.3` (`zipball/043d2467…`), fetchable on a clean runner?
+
+It is **unlikely** — it is a zipball of the same repository whose newer commit 404s, and a
+repository 404 is not commit-specific — but it is cheap to settle and it is the only remaining
+cell in the matrix. The honest route is the repo's existing `lockfile-reproducibility` job,
+which already performs a clean-runner fetch; it must be run by the coordinator, because
+`.github/**` is another agent's file ownership and **a probe workflow must not be added here**.
+Two preconditions on any version change, before it is even attempted:
+
+- **§2(e) measured that Composer will not move this package anyway**: `composer update
+  lahirulhr/laravel-payhere --with-dependencies` moved nine *unrelated* packages and left
+  PayHere at `v1.0.4` on the identical dead URL. A bump has to be forced, and forcing it is a
+  lock edit, not a resolver result.
+- **The call surface must survive it.** Five sites call
+  `PayHere::checkOut()->data()->successUrl()->failUrl()->renderView()` (listed in §9.5). A
+  version that silently drops that fluent API is worse than the current block, because it
+  converts a build failure into a runtime failure on a payment path.
+
+A further trap for anyone measuring this locally: this container's Composer cache
+(`/root/.cache/composer`, ~6.8G) holds metadata for this package but **no dist** for it, while
+satisfying most *other* packages. A scratch `composer install` can therefore go green from cache
+and still fail on a clean runner. Any local reproducibility measurement must pass `--no-cache`
+or point `COMPOSER_CACHE_DIR` at an empty directory, or it is not evidence.
+
+### 9.5 Why the package is not removed from the lock
+
+Removing it would be a fatal at class load, not a cleanup. The hard references are:
+
+| file:line | reference |
+|---|---|
+| `app/Services/PaymentService.php:46` | `use Lahirulhr\PayHere\PayHere;` |
+| `app/Services/PaymentService.php:3499` | `return PayHere::checkOut()` |
+| `app/Http/Controllers/PayHerePaymnetController.php:12` | `use Lahirulhr\PayHere\PayHere;` |
+| `app/Http/Controllers/PayHerePaymnetController.php:92` | `return PayHere::checkOut()` |
+| `packages/workdo/Campaigns/src/app/Services/CampaignsPaymentService.php:45,1470` | `use` + `PayHere::checkOut()` |
+| `packages/workdo/Donation/src/app/Services/DonationPaymentService.php:21,1478` | `use` + `PayHere::checkOut()` |
+| `packages/workdo/LotteryPrizes/src/app/Services/LotteryPaymentService.php:21,1480` | `use` + `PayHere::checkOut()` |
+
+`vendor/lahirulhr/` does not exist in the working tree (`ls` -> *No such file or directory*,
+against 120 installed vendor directories), so these five call paths are **already** dead at
+runtime. That is the state the §9.6 guard addresses.
+
+### 9.6 The storefront no longer 500s on this — the build is still blocked
+
+`app/Services/PaymentService.php:3435`, the first statement of `processPayHere` (declared at
+`:3426`), now refuses PayHere checkout with a `class_exists()` guard, returning the same redirect-with-error the method already produced for every other
+failure, and the block's `catch (\Exception $e)` is widened to `catch (\Throwable $e)`
+(`\Error` is not an `\Exception`, which is why the uncaught crash reached the customer; the
+file already used `catch (\Throwable)` in 15 other places). Held by
+`tests/Feature/Payments/PayHereAbsentCheckoutGuardTest.php`.
+
+**This is a crash fix, not a reproducibility fix.** `composer install` from this lock still
+fails, the required CI `tests` job still dies at the same download, and PayHere still cannot
+take a payment. The guard only ensures that the customer-facing symptom of the blocker is a
+refusal rather than an HTTP 500 while the owner decides §8.
