@@ -304,6 +304,8 @@ class StorefrontContextModelIsolationTest extends SecurityTestCase
     public function test_no_registered_route_is_both_a_storefront_route_and_web_guard_authenticated(): void
     {
         $violations = [];
+        $storefrontRoutes = 0;
+        $webAuthenticatedRoutes = 0;
 
         foreach (RouteFacade::getRoutes() as $route) {
             $middleware = (array) $route->middleware();
@@ -329,10 +331,29 @@ class StorefrontContextModelIsolationTest extends SecurityTestCase
                 }
             }
 
+            $storefrontRoutes += $isStorefront ? 1 : 0;
+            $webAuthenticatedRoutes += $isWebAuthenticated ? 1 : 0;
+
             if ($isStorefront && $isWebAuthenticated) {
                 $violations[] = $route->methods()[0] . ' ' . $route->uri();
             }
         }
+
+        // ANTI-VACUITY. A scan that detects NOTHING would assert `[] === []` and pass while
+        // proving absolutely nothing -- and it would pass for the worst possible reason, that
+        // `Route::middleware()` does not report group middleware, which is the exact mechanism
+        // StoreScope::routeIsStorefront() depends on. So both populations are asserted non-empty
+        // first. If these two lines fail, the finding is not "no violations"; it is that the
+        // storefront detector is blind.
+        $this->assertGreaterThan(100, $storefrontRoutes,
+            'The ActiveTheme middleware was not detected on any meaningful number of registered '
+            . 'routes. routes/customer.php:49 wraps the whole storefront group in it and declares '
+            . '106 {storeSlug} routes, so a low count means Route::middleware() is not reporting '
+            . 'GROUP middleware -- and StoreScope::routeIsStorefront() would then be blind in '
+            . 'production while every test here passed.');
+        $this->assertGreaterThan(100, $webAuthenticatedRoutes,
+            'No meaningful number of registered routes carry the `auth` middleware, so the other '
+            . 'half of this scan is blind too and the empty intersection below means nothing.');
 
         $this->assertSame([], $violations,
             'These routes are BOTH storefront routes (ActiveTheme) AND merchant-guard '
