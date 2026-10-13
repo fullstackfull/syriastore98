@@ -372,8 +372,30 @@ class ResidualTenancyExposureTest extends TestCase
 
     private const RAW_EXPRESSION_PATTERN = '/\\\\?DB::raw\\s*\\(/';
 
-    public function test_the_raw_query_entry_points_in_the_owned_files_are_exactly_these_fourteen(): void
+    /**
+     * WHY THIS ASSERTION IS SPLIT IN TWO, which is a correction to how it was written.
+     *
+     * The inventory used to be one exact `path:line` list covering all fourteen sites, including
+     * the two inside App\Scopes\StoreScope. That made it BRITTLE IN A WAY THAT HURT: this
+     * workstream edits StoreScope's docblocks every increment, so adding a paragraph of
+     * explanation above a method shifted the two line numbers and turned this test red -- twice
+     * in this increment alone -- for a change that altered no query and introduced no bypass.
+     * A ratchet that cries wolf gets its expectations rubber-stamped, and then it stops catching
+     * the thing it exists for. Worse, it would fire again during integration if another
+     * workstream's change to an owned file landed above any of these lines.
+     *
+     * So the twelve sites in files this workstream rarely edits keep their exact `path:line`
+     * form, which is the most navigable, and StoreScope's own two are asserted BY WHAT THEY DO
+     * instead -- same strictness (a third raw query in that class still fails the count), no
+     * sensitivity to prose above them.
+     */
+    public function test_the_raw_query_entry_points_in_the_owned_models_are_exactly_these_twelve(): void
     {
+        $sites = array_values(array_filter(
+            $this->rawSqlSites(self::RAW_ENTRY_POINT_PATTERN),
+            fn (string $site) => ! str_starts_with($site, 'app/Scopes/StoreScope.php:')
+        ));
+
         $this->assertSame([
             // ------------------------------------------------------------------------------
             // THE SLUG-UNIQUENESS HELPER. Five live copies of one method, each
@@ -427,21 +449,60 @@ class ResidualTenancyExposureTest extends TestCase
             'app/Models/Utility.php:3212',
             'app/Models/Utility.php:3214',
 
-            // ------------------------------------------------------------------------------
-            // The scope's OWN two `stores` lookups, raw ON PURPOSE: no Eloquent, no global
-            // scopes, no Cachable, so neither can re-enter the model-cache key machinery from
-            // inside query compilation, and neither can re-enter this scope. `Store` carries no
-            // `store_id` and is asserted platform-global by TenantModelClassificationTest.
-            //   :803  StoreScope::storeIdForSlug()  -- slug => store id, the storefront tenant
-            //   :1113 StoreScope::ownedStoreIds()   -- created_by => owned store ids
-            // Both are exempt from the "needs an explicit predicate" remedy below: they are the
-            // machinery that WRITES the predicate, and a `stores` row has no tenant above it.
-            'app/Scopes/StoreScope.php:803',
-            'app/Scopes/StoreScope.php:1113',
-        ], $this->rawSqlSites(self::RAW_ENTRY_POINT_PATTERN), 'The raw-query inventory in the owned '
-            . 'files changed. A NEW site here is invisible to every global scope and needs an '
-            . 'explicit predicate written at the call site; a REMOVED one means a finding above was '
-            . 'addressed and its note should go with it.');
+        ], $sites, 'The raw-query inventory in the owned models changed. A NEW site here is '
+            . 'invisible to every global scope and needs an explicit predicate written at the '
+            . 'call site; a REMOVED one means a finding above was addressed and its note should '
+            . 'go with it.');
+    }
+
+    /**
+     * THE SCOPE'S OWN TWO RAW LOOKUPS, asserted by what they query rather than by line number.
+     *
+     * Both are raw ON PURPOSE and the reasons are worth stating, because "the tenancy scope
+     * contains two unscoped raw queries" reads like a contradiction until you see why:
+     *   - no Eloquent, so neither can re-enter this scope from inside query compilation;
+     *   - no `Cachable`, so neither can re-enter the model-cache key machinery either;
+     *   - and `stores` is the tenant REGISTRY -- a `stores` row has no tenant above it, so there
+     *     is no predicate that could correctly be written here.
+     * They are the machinery that WRITES the predicate, so the "needs an explicit predicate"
+     * remedy that applies to every other site in this file does not apply to these two.
+     *
+     * The COUNT is what makes this a real ratchet: a third raw query appearing in this class
+     * fails here regardless of what it does.
+     */
+    public function test_the_scopes_own_raw_lookups_are_exactly_two_and_both_read_the_store_registry(): void
+    {
+        $file = 'app/Scopes/StoreScope.php';
+
+        $sites = array_values(array_filter(
+            $this->rawSqlSites(self::RAW_ENTRY_POINT_PATTERN),
+            fn (string $site) => str_starts_with($site, $file . ':')
+        ));
+
+        $this->assertCount(2, $sites,
+            'App\Scopes\StoreScope must contain EXACTLY two raw queries. A third one is a new '
+            . 'scope bypass written inside the scope itself. Found: ' . implode(', ', $sites));
+
+        $statements = [];
+
+        foreach ($sites as $site) {
+            $line = (int) substr($site, strlen($file) + 1);
+            $statements[] = trim(preg_replace('/\s+/', ' ', (file(base_path($file)) ?: [])[$line - 1] ?? ''));
+        }
+
+        sort($statements);
+
+        // Sorted, so the order below is byte order ('$' < 'D') rather than a choice.
+        $this->assertSame([
+            // StoreScope::storeIdForSlug() -- slug => store id, i.e. the STOREFRONT tenant. This
+            // one is new in this increment and is what makes per-context resolution possible.
+            "\$id = DB::table('stores')->where('slug', \$slug)->value('id');",
+            // StoreScope::ownedStoreIds() -- creatorId => the stores this principal owns.
+            "DB::table('stores')->where('created_by', \$creatorId)->pluck('id')->all()",
+        ], $statements, 'The two raw lookups inside the scope changed shape. Both must read the '
+            . '`stores` registry and nothing else -- a raw read of a TENANT-OWNED table from '
+            . 'inside the scope would be an unscoped cross-tenant query in the one place that '
+            . 'cannot be defended by adding a predicate.');
     }
 
     public function test_the_single_db_raw_expression_site_is_inside_an_eloquent_query(): void
