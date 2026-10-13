@@ -15,12 +15,33 @@ use Tests\TestCase;
  * and FALSE of the rest, so the file is corrected here, not retired.
  *
  *  - test_profile_page_is_displayed GETs /profile, and /profile is served by
- *    UserController@profile (routes/web.php:865 at de8646b7), NOT by Breeze's
- *    ProfileController@edit: two GET declarations shared the URI and the later one won the
- *    RouteCollection method+URI index. So this test exercises THE REAL MERCHANT PROFILE
- *    PAGE by accident, and its 500 is a real defect -- `Attempt to read property "id" on
- *    null` at app/Helper/helper.php:1378, reached through
- *    resources/views/partision/sidebar.blade.php. Keep it red; it is telling the truth.
+ *    UserController@profile (routes/web.php:937), NOT by Breeze's ProfileController@edit. It
+ *    originally reached that handler BY ACCIDENT -- two GET declarations shared the URI and the
+ *    later one won the RouteCollection method+URI index -- and it still reaches it now that the
+ *    shadowing is fixed, because the fix moved Breeze's screen to GET /profile/edit (:489) and
+ *    left UserController@profile on GET profile (:937). So this test exercises THE REAL MERCHANT
+ *    PROFILE PAGE and its 500 is a real defect. Keep it red; it is telling the truth.
+ *
+ *    THE CITATION IS CORRECTED HERE. This docblock recorded the cause as `Attempt to read
+ *    property "id" on null` at app/Helper/helper.php:1378 via
+ *    resources/views/partision/sidebar.blade.php -- the view is header.blade.php. RE-MEASURED on p1f/agent5-ci, read off the
+ *    real failure output rather than carried forward:
+ *
+ *        ErrorException: Attempt to read property "slug" on null
+ *        in app/Http/Controllers/HomeController.php:367
+ *        reached through resources/views/partision/header.blade.php
+ *
+ *    which is `return route('landing_page', $store->slug);` on a null $store -- the same
+ *    expression is repeated at :369 in the sibling branch, so a guard has to cover both. The
+ *    helper.php:1378 site was presumably guarded between branches; whatever the reason, the old
+ *    line number sent a reader to the wrong file, and a stale citation is worse than none
+ *    because it gets trusted.
+ *
+ *    IT IS ALSO NOT the owner_menu_settings casing bug that accounts for the other six failures.
+ *    Measured: with every stranded LandingPage migration present, GET /profile still answers 500
+ *    on this line. tests/Feature/Platform/AddonMigrationStrandingTest::
+ *    test_the_profile_page_failure_is_not_this_bug asserts exactly that, so the two causes
+ *    cannot be merged again by assumption.
  *
  *  - test_user_can_delete_their_account and
  *    test_correct_password_must_be_provided_to_delete_account are green and stay untouched.
@@ -74,7 +95,7 @@ class ProfileTest extends TestCase
         // Route::has() first so an unregistered name is an assertion FAILURE carrying the
         // diagnosis, not a RouteNotFoundException ERROR -- the suite's 0-errors baseline
         // is a property worth keeping, and an error hides the message.
-        $this->assertTrue(Route::has('profile.edit'), 'Route [profile.edit] is not registered, so the redirect ProfileController.php:37 actually issues cannot be asserted. routes/web.php:417 declares profile.edit on GET /profile and :865 re-declares that same method+URI as "profile", which replaces it in RouteCollection\'s method+URI index and drops the name. Fixed on p1e/agent2-security by moving profile.edit to GET /profile/edit (:476).');
+        $this->assertTrue(Route::has('profile.edit'), 'Route [profile.edit] is not registered, so the redirect ProfileController.php:37 actually issues cannot be asserted. This was the NEW-ROUTE-SHADOW-01 defect: profile.edit was declared on GET /profile and later re-declared as "profile" on the same method+URI, which replaced it in RouteCollection\'s index and dropped the name. FIXED on this branch -- profile.edit is now GET /profile/edit (routes/web.php:489) and UserController@profile keeps GET profile (:937), so Route::has() passes. The guard stays because it turns a regression of that fix into an assertion failure carrying the diagnosis, instead of a RouteNotFoundException ERROR that hides the message and breaks the suite\'s 0-errors baseline.');
         $response->assertRedirect(route('profile.edit'));
 
         $user->refresh();
@@ -98,7 +119,7 @@ class ProfileTest extends TestCase
         $response->assertSessionHasNoErrors();
 
         // CORRECTED from assertRedirect('/profile'); see the class docblock.
-        $this->assertTrue(Route::has('profile.edit'), 'Route [profile.edit] is not registered, so the redirect ProfileController.php:37 actually issues cannot be asserted. routes/web.php:417 declares profile.edit on GET /profile and :865 re-declares that same method+URI as "profile", which replaces it in RouteCollection\'s method+URI index and drops the name. Fixed on p1e/agent2-security by moving profile.edit to GET /profile/edit (:476).');
+        $this->assertTrue(Route::has('profile.edit'), 'Route [profile.edit] is not registered, so the redirect ProfileController.php:37 actually issues cannot be asserted. This was the NEW-ROUTE-SHADOW-01 defect: profile.edit was declared on GET /profile and later re-declared as "profile" on the same method+URI, which replaced it in RouteCollection\'s index and dropped the name. FIXED on this branch -- profile.edit is now GET /profile/edit (routes/web.php:489) and UserController@profile keeps GET profile (:937), so Route::has() passes. The guard stays because it turns a regression of that fix into an assertion failure carrying the diagnosis, instead of a RouteNotFoundException ERROR that hides the message and breaks the suite\'s 0-errors baseline.');
         $response->assertRedirect(route('profile.edit'));
 
         $this->assertNotNull($user->refresh()->email_verified_at);
