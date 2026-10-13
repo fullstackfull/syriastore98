@@ -243,6 +243,98 @@ class PlanPaymentVerificationInventoryTest extends TestCase
     }
 
     /**
+     * THE TWO VERIFIED HANDLERS WHOSE RECORDED PRICE WAS THE CALLER'S.
+     *
+     * Both ask their provider before activating, so neither is on the config/payments.php map
+     * and neither gate was touched -- but both recorded an amount the caller chose, and
+     * AuthorizeNet's was worse than a bad row: the same figure was CHARGED TO THE CARD.
+     *
+     *   AuthorizeNet  $amount came from json_decode($input['data'])['amount'], a POSTED hidden
+     *                 field (plans/request.blade.php:34), and was handed to
+     *                 setAmount() before being recorded. So
+     *                 {"id":<expensive plan>,"amount":0.01} bought any plan for a cent -- and
+     *                 the provider verification confirmed it honestly, because the cent really
+     *                 was charged. It is computed once now, so the figure charged and the figure
+     *                 recorded cannot disagree.
+     *   PayPal        $order->price came from the {amount} ROUTE parameter
+     *                 ({id}/{amount}/plan-paypal-payment/, routes/web.php:601).
+     *
+     * ASSERTED STRUCTURALLY, AND SCOPED TO THE WRITING METHOD, because neither path can be
+     * driven here: AuthorizeNet's SDK and srmklive/paypal both carry their own HTTP clients, so
+     * Http::fake() cannot reach either capture. A file-wide assertion would be satisfied by a
+     * serverOwnedPlanPrice() call in some OTHER method, which is precisely the kind of proxy
+     * assertion that let the previous version of this file stay green across a
+     * fifteen-handler repair.
+     *
+     * The FORGEABLE SOURCE is asserted absent as well as the helper present: adding the helper
+     * while leaving the old expression in place would restore the defect and satisfy a
+     * presence-only check.
+     */
+    public static function repairedVerifiedPrices(): array
+    {
+        return [
+            'AuthorizeNet: amount from a posted blob' => [
+                'AuthorizeNetPaymnetController',
+                'planPayWithAuthorizeNetData',
+                "\$amount = \$data['amount']",
+            ],
+            'PayPal: amount from the route' => [
+                'PaypalPaymentController',
+                'planGetPaymentStatus',
+                '$order->price = $amount',
+            ],
+        ];
+    }
+
+    #[DataProvider('repairedVerifiedPrices')]
+    public function test_a_verified_handler_records_the_plans_price_and_not_the_callers(
+        string $controller,
+        string $method,
+        string $forgeableSource
+    ): void {
+        $body = $this->bodyOfMethod($this->codeOnly($this->source($controller)), $method);
+
+        $this->assertNotNull(
+            $body,
+            $controller . '::' . $method . ' has been renamed or removed; this pin must follow '
+            . 'it rather than be deleted.'
+        );
+
+        $this->assertStringContainsString(
+            'serverOwnedPlanPrice(',
+            $body,
+            $controller . '::' . $method . ' no longer prices through '
+            . 'GuardsPlanActivation::serverOwnedPlanPrice(). This provider DOES verify with its '
+            . 'gateway, so nothing refuses the request -- the recorded amount is simply whatever '
+            . 'the caller supplied again'
+            . ($controller === 'AuthorizeNetPaymnetController'
+                ? ', and on this handler that figure is also the one charged to the card.'
+                : '.')
+        );
+
+        $this->assertStringNotContainsString(
+            $forgeableSource,
+            $body,
+            $controller . '::' . $method . ' has taken `' . $forgeableSource . '` back. Adding '
+            . 'serverOwnedPlanPrice() while leaving the caller-supplied source in place restores '
+            . 'the defect and still satisfies a presence-only check, which is why both halves '
+            . 'are asserted.'
+        );
+    }
+
+    /** One named method's body, or null. Brace-matched; see methodsIn(). */
+    private function bodyOfMethod(string $src, string $method): ?string
+    {
+        foreach ($this->methodsIn($src) as [$name, , $bodyStart, $bodyEnd]) {
+            if ($name === $method) {
+                return substr($src, $bodyStart, $bodyEnd - $bodyStart);
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * THE NINETEENTH HANDLER: AN APPROVAL, NOT A RETURN.
      *
      * BankTransferController::planPayWithbank records a PENDING order with an uploaded receipt
