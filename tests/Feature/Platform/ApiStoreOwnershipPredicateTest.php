@@ -116,6 +116,14 @@ class ApiStoreOwnershipPredicateTest extends SecurityTestCase
      * 403 AND NOT 401, asserted rather than assumed. repo B's lib/network/network.dart maps ANY
      * 401 into a forced logout that clears stored preferences, so a denial answered 401 would
      * sign a merchant out of the mobile admin app instead of telling them no.
+     *
+     * THIS ASSERTION WAS VACUOUS IN ITS FIRST VERSION AND IS CORRECTED. It read
+     * assertNotSame(401, $status), and when the tenancy predicate was deliberately removed as a
+     * teeth proof it PASSED -- because with no predicate there is no denial at all, and "not 401"
+     * is trivially true of the 422 the attacker then got. assertSame(403) is the property: a
+     * denial, and that denial carrying the code repo B can survive. Same mistake as the
+     * storefront smoke test that passed with the tenancy defect reintroduced because an empty
+     * basket renders the same chrome as a full one -- assert the thing, not a proxy for it.
      */
     public function test_the_denial_is_403_and_never_401(): void
     {
@@ -124,20 +132,32 @@ class ApiStoreOwnershipPredicateTest extends SecurityTestCase
         [, $victimStore] = $this->tenantWithToken();
         [, , $attackerToken] = $this->tenantWithToken();
 
+        // THE VERB MATTERS, and getting it wrong was the SECOND vacuity in this one test.
+        // searchProductsByName is declared POST (routes/api.php:269); the loop issued getJson()
+        // to both, so that endpoint answered 405 Method Not Allowed -- and assertNotSame(401)
+        // was happily true of a 405 that never reached the authorization check at all. Two
+        // different ways for the same assertion to pass without testing anything.
         foreach ([
-            '/api/admin/customerlist?store_id=' . $victimStore->id,
-            '/api/admin/searchProductsByName?store_id=' . $victimStore->id,
-        ] as $uri) {
-            $status = $this->withHeader('Authorization', 'Bearer ' . $attackerToken)
-                ->getJson($uri)
+            ['get',  '/api/admin/customerlist?store_id=' . $victimStore->id],
+            ['post', '/api/admin/searchProductsByName?store_id=' . $victimStore->id],
+        ] as [$verb, $uri]) {
+            $request = $this->withHeader('Authorization', 'Bearer ' . $attackerToken);
+
+            $status = ($verb === 'get'
+                ? $request->getJson($uri)
+                : $request->postJson($uri, ['name' => 'abc']))
                 ->getStatusCode();
 
-            $this->assertNotSame(
-                401,
+            $this->assertSame(
+                403,
                 $status,
-                $uri . ' answers 401 to an AUTHENTICATED caller who is merely not allowed. '
-                . 'repo B treats any 401 as "the session is dead" and clears preferences, so this '
-                . 'denial would log the merchant out of the admin app. It must be 403.'
+                strtoupper($verb) . ' ' . $uri . ' answered ' . $status
+                . ' to a foreign merchant.' . "\n"
+                . '  401 would be the dangerous answer: repo B treats any 401 as "the session is '
+                . 'dead" and clears preferences, so the merchant is logged out of the admin app.' . "\n"
+                . '  Anything in the 2xx or 4xx-validation range means the ownership predicate is '
+                . 'GONE and the request reached the handler -- a cross-tenant read, not a denial.' . "\n"
+                . '  405 means this test is issuing the wrong HTTP verb and is testing nothing.'
             );
         }
     }
