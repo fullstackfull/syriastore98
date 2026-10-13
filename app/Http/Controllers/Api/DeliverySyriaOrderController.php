@@ -39,10 +39,32 @@ class DeliverySyriaOrderController extends Controller
         $secret = trim((string) $request->bearerToken());
 
         if ($secret === '') {
+            // NEW-DS-ROUTE-SHADOW-01 (second half). This answered 401, and it is now
+            // 403 with the same message its sibling endpoint uses.
+            //
+            // Two reasons, in order of weight:
+            //  1. 401 is forbidden across this project because repo B's
+            //     lib/network/network.dart turns ANY 401 from this API into a forced
+            //     logout that clears stored preferences, so a 401 anywhere under /api
+            //     is a logout bomb for the Flutter admin app.
+            //  2. This is not a behaviour change for any caller that existed, because
+            //     NO CALLER COULD REACH THIS METHOD. Until the duplicate closure was
+            //     removed from routes/web.php, POST api/delivery-syria/orders/update-status
+            //     was served by that closure -- measured, by dispatching the request:
+            //     an empty POST returned 422 {"message":"product_order_id and status are
+            //     required."} (the closure) and never 403 {"message":"Invalid platform."}
+            //     (this controller, :27-32). A response contract that was unreachable
+            //     cannot have been depended on.
+            //
+            // The message is aligned with DeliverySyriaStatusController's
+            // 'Invalid credentials.' so that a caller without a token and a caller with a
+            // wrong token are indistinguishable, which is the property
+            // DeliverySyriaWebhookTest::test_the_credential_check_precedes_input_validation
+            // already pins on the sibling endpoint.
             return response()->json([
                 'success' => false,
-                'message' => 'Authorization token is required.',
-            ], 401);
+                'message' => 'Invalid credentials.',
+            ], 403);
         }
 
         /*
