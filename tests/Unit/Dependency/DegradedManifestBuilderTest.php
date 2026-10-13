@@ -389,12 +389,37 @@ final class DegradedManifestBuilderTest extends TestCase
     // -----------------------------------------------------------------------------------------
 
     /**
-     * The fixture above proves the logic; this proves it against the actual 239-entry lock,
-     * which is where the one real exclusion has to work. The committed files are COPIED into the
-     * sandbox first, so this test cannot write anything into the repository even if the builder
-     * had a defect.
+     * THE OWNER DECISION HAS LANDED, SO THIS TEST NOW ASSERTS THE OPPOSITE VERDICT.
+     *
+     * It used to assert that excluding the dead package from the REAL committed pair yielded
+     * exactly one fewer locked entry -- the one exclusion the `tests-degraded` job actually
+     * performed. That scenario no longer exists: PayHere was retired by owner decision and
+     * `lahirulhr/laravel-payhere` has been removed from composer.json and composer.lock, so
+     * `composer install` from the lock succeeds and nothing needs excluding.
+     *
+     * The previous revision of this test anticipated exactly this and prescribed DELETING these
+     * tests outright. This is deliberately narrower, because deletion would drop two properties
+     * that are still worth holding against the real committed pair:
+     *
+     *   * the builder REFUSES a stale exclusion instead of emitting a manifest identical to the
+     *     input while reporting success -- which is precisely the failure mode that would hide a
+     *     misspelled package name; and
+     *   * the builder does not write to composer.json or composer.lock.
+     *
+     * The exclusion logic itself is still fully covered against a fixture that DOES contain the
+     * package: see test_exactly_the_named_package_is_removed_from_the_lock() and
+     * test_no_surviving_entry_is_altered_in_any_way(). Nothing was weakened to get this green.
+     *
+     * HOUSEKEEPING STILL OWED, and it is NOT this agent's to do -- .github/ is out of scope for
+     * the dependency change. The `tests-degraded` job self-retires correctly (ci.yml:999 takes
+     * the `degraded=false` branch the moment the strict install succeeds and never invokes the
+     * builder), so CI does not go red. But the job, the --allow-missing flag,
+     * make-degraded-manifest.php, screen-install-failure.php and their unit tests are now dead
+     * weight and should be deleted in one commit, with docs/BUILD-REPRODUCIBILITY.md updated.
+     *
+     * @see \Tests\Feature\Payments\PayHereRemovedTest for the removal itself
      */
-    public function test_the_real_committed_pair_yields_exactly_one_fewer_locked_entry(): void
+    public function test_the_real_committed_pair_no_longer_contains_the_dead_package_and_a_stale_exclusion_is_refused(): void
     {
         $repo = __DIR__ . '/../../..';
 
@@ -403,26 +428,42 @@ final class DegradedManifestBuilderTest extends TestCase
 
         $before = $this->hashes();
         $lock   = json_decode((string) file_get_contents($this->sandbox . '/composer.lock'), true);
-        $total  = count($lock['packages'] ?? []) + count($lock['packages-dev'] ?? []);
 
+        $names = [];
+
+        foreach (['packages', 'packages-dev'] as $section) {
+            foreach ($lock[$section] ?? [] as $package) {
+                $names[] = $package['name'];
+            }
+        }
+
+        $this->assertNotContains(
+            self::DEAD,
+            $names,
+            self::DEAD . ' is back in composer.lock. If the package has been restored on '
+            . 'purpose then this whole degraded-manifest apparatus is live again and this test '
+            . 'must go back to asserting that the exclusion yields one fewer entry.'
+        );
+
+        // The builder must now REFUSE, because an exclusion for a package the lock does not
+        // contain is either stale or misspelled, and it cannot tell which.
         [$code, $output] = $this->build('composer-ci-degraded', self::DEAD);
 
-        $this->assertSame(
+        $this->assertNotSame(
             0,
             $code,
-            "The one exclusion the pipeline actually performs must work against the real lock. "
-            . "If this fails because " . self::DEAD . " is no longer in composer.lock, the owner "
-            . "decision has LANDED: delete the tests-degraded job, the --allow-missing flag, both "
-            . "helper scripts and these tests, in one commit. Output:\n" . $output
+            "An exclusion naming a package that is NOT in the lock must be refused. Emitting a "
+            . "manifest unchanged from the input while reporting success is how a misspelled "
+            . "package name would pass for a working tolerance. Output:\n" . $output
         );
 
-        $derived = json_decode((string) file_get_contents($this->sandbox . '/composer-ci-degraded.lock'), true);
+        $this->assertStringContainsString('NOT IN THE LOCK: ' . self::DEAD, $output);
 
-        $this->assertSame(
-            $total - 1,
-            count($derived['packages'] ?? []) + count($derived['packages-dev'] ?? []),
-            'Exactly one entry, no more and no fewer.'
+        $this->assertFileDoesNotExist(
+            $this->sandbox . '/composer-ci-degraded.lock',
+            'The builder refused but still wrote a derived manifest.'
         );
+
         $this->assertSame($before, $this->hashes(), 'The copied committed pair was modified.');
     }
 }
