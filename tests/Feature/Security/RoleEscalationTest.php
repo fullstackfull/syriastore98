@@ -414,4 +414,121 @@ class RoleEscalationTest extends SecurityTestCase
             'permission_id' => $unknownId,
         ]);
     }
+
+    // ---------------------------------------------------------------
+    // NEW-ROLE-FORM-UNGATED-01 -- the two role SCREENS, which had no gate at all
+    // ---------------------------------------------------------------
+
+    /**
+     * RoleController::create() carried no authorization of any kind, and the view
+     * it renders lists `Permission::all()` -- every permission name on the
+     * platform, the config/superadminaccess.php operator names included. store()
+     * has required 'Create Role' since the beginning, so the write was gated and
+     * the screen was not: the same sibling-endpoint asymmetry as SEC-F3.
+     */
+    public function test_the_role_creation_screen_is_denied_without_the_create_role_permission(): void
+    {
+        [$merchant] = $this->makeTenant();
+
+        // Deliberately NO grantPermission() call: a self-registered merchant who
+        // has not been given 'Create Role'.
+        $this->assertFalse(
+            $merchant->isAbleTo('Create Role'),
+            'Fixture check: this test is meaningless if the actor already holds the '
+            . 'permission.'
+        );
+
+        $this->actingAs($merchant)->get('/roles/create')->assertForbidden();
+    }
+
+    /**
+     * THE POSITIVE DIRECTION. The gate must not have closed the screen for the
+     * people whose screen it is -- a storefront-breaking control has shipped twice
+     * on this codebase.
+     */
+    public function test_the_role_creation_screen_still_opens_for_a_holder_of_create_role(): void
+    {
+        // A platform operator must EXIST for any view rendering the shared layout:
+        // app/Helper/helper.php:143-145 reads ->current_store off
+        // User::where('type','super admin')->first() with no null guard
+        // (NEW-NULLGUARD-01, another agent's file). Every real install has one, so
+        // this fixture matches production rather than asserting around the defect.
+        $this->makePlatformAdmin();
+
+        [$merchant] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Create Role');
+
+        $response = $this->actingAs($merchant->fresh())->get('/roles/create');
+
+        $this->assertNotSame(
+            403,
+            $response->getStatusCode(),
+            'The new gate has locked the role-creation screen for a user who holds '
+            . "'Create Role'."
+        );
+        $response->assertOk();
+    }
+
+    /**
+     * The IDOR half. edit() had no authorization and no ownership predicate, so
+     * any authenticated user could open the update form for ANY role id on the
+     * platform and read its name back out of the rendered view. update() and
+     * destroy() already authorized; the form that leads to update() did not.
+     */
+    public function test_a_merchant_cannot_open_the_edit_form_for_another_stores_role(): void
+    {
+        [$attacker] = $this->makeTenant();
+        $this->grantPermission($attacker, 'Edit Role');
+
+        [$victimOwner, $victimStore] = $this->makeTenant();
+        $victimRole = $this->makeRole($victimOwner, $victimStore, 'victim-role-form');
+
+        $response = $this->actingAs($attacker->fresh())->get("/roles/{$victimRole->id}/edit");
+
+        $response->assertForbidden();
+
+        $this->assertStringNotContainsString(
+            'victim-role-form',
+            $response->getContent(),
+            'The denial must not still disclose the victim role name.'
+        );
+    }
+
+    public function test_a_merchant_cannot_open_the_edit_form_for_the_shared_global_admin_role(): void
+    {
+        [$attacker] = $this->makeTenant();
+        $this->grantPermission($attacker, 'Edit Role');
+
+        $globalRole = $this->makeGlobalAdminRole();
+
+        $this->actingAs($attacker->fresh())
+            ->get("/roles/{$globalRole->id}/edit")
+            ->assertForbidden();
+    }
+
+    /**
+     * THE POSITIVE DIRECTION for edit(): a merchant must still be able to open the
+     * form for a role they own, or role administration is broken outright.
+     */
+    public function test_a_merchant_can_still_open_the_edit_form_for_their_own_role(): void
+    {
+        $this->makePlatformAdmin();
+
+        [$merchant, $store] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Edit Role');
+
+        $ownRole = $this->makeRole($merchant, $store, 'own-role-form');
+
+        $response = $this->actingAs($merchant->fresh())->get("/roles/{$ownRole->id}/edit");
+
+        $this->assertNotSame(
+            403,
+            $response->getStatusCode(),
+            'The new gate has locked a merchant out of their own role edit form. '
+            . 'RolePolicy::ownsRole requires roles.created_by == creatorId() AND '
+            . 'roles.store_id == getCurrentStore(), which is exactly what update() '
+            . 'already enforced on the write.'
+        );
+        $response->assertOk();
+    }
 }
