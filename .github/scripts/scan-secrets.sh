@@ -109,6 +109,43 @@ for file in "${FILES[@]}"; do
                 continue
             fi
 
+            # NARROWING 1: the value must be a QUOTED LITERAL.
+            #
+            # This rule's header claims it "targets an ASSIGNMENT of a literal, not a mere
+            # mention", but it never actually checked for one, and that gap produced a
+            # blocking false positive on the first PR this screen ever ran against:
+            #
+            #   app/Http/Middleware/CustomAuth.php:60
+            #   $accessToken = PersonalAccessToken::findToken($bearer);
+            #
+            # `access_?token` matches `accessToken`, then `=`, then 12+ word characters of
+            # `PersonalAccessToken` -- a Sanctum model lookup read as a credential. The whole
+            # class is the same: `$secret = $request->secret`, `$key = config('x')`,
+            # `$token = Str::random(40)`. A credential committed to source is a quoted string;
+            # a method call is not. Requiring a quote after the operator removes every one of
+            # those without touching what the rule is for.
+            #
+            # Only this low-confidence rule is narrowed. An AKIA key, a PEM block or an
+            # sk_live_ key is still caught wherever it appears, quoted or not.
+            if [[ "${name}" == 'generic-assigned-secret' ]] \
+                && ! grep -Eqi '(password|passwd|secret|api_?key|apikey|auth_?token|access_?token|client_?secret)[[:space:]]*(=|=>|:)[[:space:]]*['"'"'"]' <<<"${content}"; then
+                continue
+            fi
+
+            # NARROWING 2: self-labelled test fixtures.
+            #
+            # The second blocking false positive on that same run was
+            #   tests/Feature/Security/ZidWebhookSecretTest.php:45
+            #   private const SECRET = 'zid-hook-secret-for-tests-only';
+            # which IS a quoted literal, so narrowing 1 does not reach it. The value says in
+            # words that it is not real. These markers are explicit and self-documenting, so a
+            # developer cannot hide a live credential behind one without writing the claim
+            # into the line that a reviewer reads.
+            if [[ "${name}" == 'generic-assigned-secret' ]] \
+                && grep -Eqi '(for[-_]tests?[-_]only|test[-_]only|not[-_]a[-_]real|fixture|dummy|sample)' <<<"${content}"; then
+                continue
+            fi
+
             printf '  HIT [%s] %s:%s\n' "${name}" "${file}" "${lineno}" >&2
             HITS=$((HITS + 1))
         # `-e` is required, not stylistic: the private-key pattern begins with '-', which
