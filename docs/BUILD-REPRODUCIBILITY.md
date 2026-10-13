@@ -151,11 +151,21 @@ against live Packagist with an empty, isolated `COMPOSER_HOME`:
 | `dev-main` | 2024-08-01 | `Visanduma` |
 | `dev-dumithsalinda-patch-1`, `dev-form-detach` | — | *no source recorded* |
 
-**There is no version to move to.** Everything from `0.2.0` onward is hosted on the dead
-`Visanduma` repository; the single version on the `lahirulhr` repository is `v0.1.0` from
-January 2022, which is outside the root constraint `^1.0`, predates Laravel 11 support
-(`illuminate/contracts ^9.0|^10.0|^11.0` appears only in the 1.x line), and is hosted on a
-repository that probe (a) shows is **equally unreachable**.
+**There is no version to move to, and it fails on two independent grounds.** Everything from
+`0.2.0` onward is hosted on the dead `Visanduma` repository. The single version on the
+`lahirulhr` repository is `v0.1.0` from January 2022 — and that repository is **equally
+unreachable** per probe (a). Even if it were reachable, its own requirements rule it out;
+read from the same live Packagist metadata:
+
+| version | `illuminate/contracts` | `php` | supports Laravel 11? |
+|---|---|---|---|
+| `v1.0.4` (locked) | `^9.0｜^10.0｜^11.0` | `^8.1` | **yes** |
+| `0.2.0` | `^9.0` | `^8.0` | no — Laravel 9 only |
+| `v0.1.0` | `^8.37` | `^7.4｜^8.0` | no — **Laravel 8 only** |
+
+`v0.1.0` is also outside the root constraint `^1.0`. So the only version hosted anywhere other
+than the dead repository cannot run on this platform at all: a downgrade is not a fallback here,
+it is a second dead end.
 
 ### (e) Measured consequence: a version bump cannot fix this, and makes things worse
 
