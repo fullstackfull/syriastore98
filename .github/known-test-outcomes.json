@@ -13,8 +13,8 @@
     "",
     "MEASURED on p1f/agent5-ci against vendor/ as installed in the development container",
     "(PHPUnit 11.5.57, PHP 8.3.6, sqlite :memory:):",
-    "  vendor/bin/phpunit --testsuite Unit     ->  51 tests, 279 assertions, 0 failures",
-    "  vendor/bin/phpunit --testsuite Feature  ->  8 failures, 0 errors, 17 skipped",
+    "  vendor/bin/phpunit --testsuite Unit     ->  107 tests, 810 assertions, 0 failures",
+    "  vendor/bin/phpunit --testsuite Feature  ->  1126 tests, 6135 assertions, 0 errors, 8 failures, 17 skipped",
     "Note that those numbers come from a vendor/ tree that does NOT match composer.lock (148 of",
     "239 packages differ). The required `tests` job installs from the lock, which is the whole",
     "point of making it required -- and which is why it cannot pass until the dead",
@@ -36,7 +36,7 @@
   "_minimum_testcases_note": [
     "A floor, not the count. Its only job is to stop the gate passing on a log from a run that",
     "died early -- every set comparison in the checker is trivially satisfied by an empty log.",
-    "The real count at the time of writing is 1114 Feature testcases. Lower this ONLY when tests",
+    "The real count at the time of writing is 1126 Feature testcases. Lower this ONLY when tests",
     "are removed on purpose, and record why here."
   ],
 

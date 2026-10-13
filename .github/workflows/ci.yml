@@ -597,7 +597,7 @@ jobs:
       - name: Create the storage skeleton (absent from the repo)
         # storage/ is gitignored, so a fresh clone cannot boot the framework without
         # this. It is also a standing reminder that a fresh clone is not runnable.
-        run: mkdir -p storage/framework/{cache/data,sessions,views,testing} storage/logs bootstrap/cache build
+        run: mkdir -p storage/framework/{cache/data,sessions,views,testing} storage/logs bootstrap/cache
 
       - name: Clear the committed-and-stale bootstrap cache
         # NO LONGER STRICTLY NEEDED, and kept as cheap insurance.
@@ -668,7 +668,9 @@ jobs:
 
       - name: Unit suite -- BLOCKING
         # MEASURED on this branch, PHPUnit 11.5.57 / PHP 8.3.6 / sqlite :memory:
-        #   OK -- 51 tests, 279 assertions, 0 failures, 0 skipped
+        #   OK -- 107 tests, 810 assertions, 0 failures, 0 skipped
+        #   (51 / 279 was the figure inherited at 167c73ff, before this branch added the
+        #    gate's own tests; both are real runs, neither is quoted from elsewhere.)
         # (The figures recorded here before -- 8/16, then 21/189, then 25/212 -- were each
         # correct for their own branch and are superseded. Re-measure; do not quote.)
         #
@@ -688,7 +690,7 @@ jobs:
         # static source check for a test. --testsuite Feature is the whole directory.
         #
         # MEASURED on this branch:
-        #   1114 tests, 6113 assertions, 0 ERRORS, 8 failures, 17 skipped
+        #   1126 tests, 6135 assertions, 0 ERRORS, 8 failures, 17 skipped
         #     Security  tests/Feature/Security/
         #     Tenancy   tests/Feature/Tenancy/
         #     Commerce  tests/Feature/Commerce/
@@ -761,8 +763,8 @@ jobs:
         run: |
           vendor/bin/phpunit --testsuite Feature \
             --display-skipped \
-            --log-junit build/feature-junit.xml \
-            --log-teamcity build/feature-teamcity.txt
+            --log-junit storage/logs/feature-junit.xml \
+            --log-teamcity storage/logs/feature-teamcity.txt
 
       - name: The Feature outcome set must match the record -- BLOCKING
         # always(), so the assertion still runs when phpunit exited non-zero -- which it
@@ -778,16 +780,22 @@ jobs:
         if: always() && (steps.feature.outcome == 'success' || steps.feature.outcome == 'failure')
         run: |
           php .github/scripts/assert-known-test-outcomes.php \
-            build/feature-junit.xml \
+            storage/logs/feature-junit.xml \
             .github/known-test-outcomes.json \
-            build/feature-teamcity.txt
+            storage/logs/feature-teamcity.txt
 
       - name: Upload the test logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: feature-suite-logs
-          path: build/
+          # storage/logs/ rather than a new build/ directory, deliberately: storage/* is
+          # already gitignored (.gitignore:8), so a developer running the gate locally does
+          # not get an untracked directory in `git status`, and no .gitignore edit is needed
+          # in a cycle where five agents are editing at once.
+          path: |
+            storage/logs/feature-junit.xml
+            storage/logs/feature-teamcity.txt
           if-no-files-found: warn
 
   # ---------------------------------------------------------------------------
