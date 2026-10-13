@@ -298,8 +298,15 @@ return [
         |----------------------------------------------------------------------------------------
         |
         | These three carry the BelongsToStore trait and their tables really do have `store_id`,
-        | so they are one line each from enforcement. They are NOT enabled, and the reason is a
-        | measurement rather than caution:
+        | so each is one config line from enforcement -- EXCEPT that a test already forbids it.
+        | All three are named in TenantModelClassificationTest::publicStorefrontModels() with the
+        | storefront surface each one renders ("the catalogue itself, on every shop page";
+        | "the category navigation and listing pages"; "shipping options at checkout"), and
+        | test_no_public_storefront_model_is_enforced asserts that none of them is allowlisted.
+        | So adding one here turns that suite RED, deliberately, and the failure message says what
+        | evidence is needed first. `Setting` and `Order` are in that list too.
+        |
+        | THEY ARE NOT ENABLED, and the reason is a measurement rather than caution:
         |
         | THEY ARE READ BY BARE PRIMARY KEY ON THE STOREFRONT, WHERE NOTHING NAMES A STORE.
         | The per-context repair above fixes the reads that filter on a slug-resolved store id;
