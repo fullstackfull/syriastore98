@@ -494,6 +494,98 @@ class ReturnApprovalStockTest extends TestCase
 
     /*
     |--------------------------------------------------------------------------
+    | DEFECT 2 -- atomicity, which a sequential test cannot see
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * The return path goes through ProductStockService, not `+=` and `save()`.
+     *
+     * STATED PLAINLY, because the rest of this file would not reveal it: the
+     * behavioural tests above CANNOT distinguish the lost update from the fix.
+     * Run sequentially, `$model->stock += $qty; $model->save();` and
+     * `increment()` produce identical numbers, so every assertion here would
+     * stay green if the read-modify-write were put back. The race needs two
+     * concurrent writers and this suite runs single-process on sqlite :memory:.
+     *
+     * The atomicity claim therefore rests on two things, neither of which is
+     * this file's behavioural assertions:
+     *
+     *   1. ProductStockService's own atomicity, proven directly against the
+     *      database in OrderStockConcurrencyTest.
+     *   2. This structural assertion, that the return path actually ROUTES
+     *      through that service -- the part a refactor could silently undo.
+     *
+     * Reading source to assert a property is weaker than exercising it, and is
+     * used here only because the stronger form is not available in this
+     * environment. The same assertion and the same caveat are in
+     * OrderCancelRestockTest for the cancellation path.
+     */
+    public function test_the_return_path_routes_stock_through_the_atomic_service(): void
+    {
+        $source = $this->executableSourceOfRestoreReturnedStock();
+
+        $this->assertStringContainsString(
+            'restoreProductStock(',
+            $source,
+            'the return restock must go through ProductStockService'
+        );
+        $this->assertStringContainsString(
+            'restoreVariantStock(',
+            $source,
+            'the variant return restock must go through ProductStockService'
+        );
+
+        $this->assertDoesNotMatchRegularExpression(
+            '/(product_stock|->stock)\s*\+=/',
+            $source,
+            'the return restock has a read-modify-write increment again. Two concurrent '
+                . 'return approvals both write `stock + qty` and the second overwrites the '
+                . 'first, so the returned goods never come back. Use ProductStockService, '
+                . 'which issues an increment() the database applies to the row\'s current '
+                . 'value.'
+        );
+    }
+
+    /**
+     * restoreReturnedStock()'s body with comments stripped, so a comment that
+     * merely mentions `+=` cannot satisfy or break the assertions above.
+     */
+    private function executableSourceOfRestoreReturnedStock(): string
+    {
+        $method = new \ReflectionMethod(OrderController::class, 'restoreReturnedStock');
+
+        $lines = file($method->getFileName());
+        $body = implode(
+            '',
+            array_slice(
+                $lines,
+                $method->getStartLine() - 1,
+                $method->getEndLine() - $method->getStartLine() + 1
+            )
+        );
+
+        $code = '';
+
+        foreach (token_get_all('<?php ' . $body) as $token) {
+            if (is_array($token)) {
+                if ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT) {
+                    continue;
+                }
+
+                $code .= $token[1];
+
+                continue;
+            }
+
+            $code .= $token;
+        }
+
+        return $code;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | Fixture
     |--------------------------------------------------------------------------
     */
