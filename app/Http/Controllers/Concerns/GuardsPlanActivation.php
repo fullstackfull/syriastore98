@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Concerns;
 
 use App\Models\Plan;
 use App\Models\PlanCoupon;
-use Illuminate\Support\Facades\DB;
+use App\Models\PlanOrder;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -205,9 +205,20 @@ trait GuardsPlanActivation
      * Real idempotency has to key on the PROVIDER's transaction identifier, and this returns the
      * already-recorded row for one so the caller can return success without writing again.
      *
-     * The query goes through the query builder rather than the PlanOrder model on purpose:
+     * THE READ MUST NOT BE SERVED FROM A CACHE, AND IT MUST NOT BE A RAW QUERY.
+     *
      * PlanOrder composes GeneaLabs\LaravelModelCaching\Traits\Cachable, and an idempotency
-     * check is exactly the read that must not be served from a cache.
+     * check is exactly the read that must not come out of a cache -- so this first used
+     * DB::table('plan_orders'). That was wrong for a different reason:
+     * tests/Feature/Tenancy/RawQueryTenancyInventoryTest counts every raw query-builder entry
+     * point in app/ precisely because a raw query is invisible to every Eloquent global scope,
+     * and it went red on the new one (app 111 -> 112, plus a new plan_orders row). Settling a
+     * caching question by adding a raw entry point trades a caching problem for a
+     * tenancy-visibility problem.
+     *
+     * disableCache() is the scope Cachable itself provides
+     * (vendor/genealabs/laravel-model-caching/src/Traits/ModelCaching.php:157), so the read is
+     * Eloquent -- visible to any scope PlanOrder ever acquires -- and still uncached.
      *
      * WHERE NO PROVIDER TRANSACTION IDENTIFIER IS AVAILABLE, this is not called and no claim of
      * idempotency is made. Only two of the twelve forgeable handlers read one that is
@@ -222,7 +233,7 @@ trait GuardsPlanActivation
             return null;
         }
 
-        return DB::table('plan_orders')
+        return PlanOrder::disableCache()
             ->where('payment_type', $paymentType)
             ->where('txn_id', (string) $txnId)
             ->first();
