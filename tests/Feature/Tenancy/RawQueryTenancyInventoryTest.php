@@ -54,7 +54,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
      * builder, and the surrounding query still carries its scopes, so conflating the two would
      * overstate this inventory.
      */
-    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_fifty_six(): void
+    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_fifty_nine(): void
     {
         $perDir = [];
 
@@ -62,13 +62,33 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             $perDir[$dir] = count($this->rawEntryPoints($dir));
         }
 
-        $this->assertSame(['app' => 111, 'packages' => 45], $perDir,
+        // 114, UP FROM 111, AND THE DELTA IS ACCOUNTED FOR SITE BY SITE. All three are in
+        // app/Http/Middleware/BulkDeleteTenantGuard.php (:431, :454, :469) and they are not new
+        // exposure -- they ARE the tenant predicate for NEW-BULKDELETE-01. The guard rewrites
+        // the bulk-delete `ids` list to the subset the caller's tenant provably owns, and it
+        // has to read that back with a raw query precisely BECAUSE an Eloquent global scope
+        // cannot be relied on here: 56 of the 61 models in BulkDeleteController's map are not
+        // allowlisted, so the scope adds no predicate for them at all.
+        //
+        // The PER-TABLE breakdown below is unchanged by them, and that is correct rather than
+        // an oversight: all three are `DB::table($table)` with the table resolved from the
+        // request type at runtime, so they fall under LIMIT 2 in this class's docblock -- not
+        // attributable to a table name, counted in this total only.
+        //
+        // Two of the three write the predicate COLUMN inline as 'store_id'; the third
+        // (BulkDeleteTenantGuard.php:454) binds the column from
+        // BulkDeleteTenantGuard::DERIVED_OWNERSHIP, whose only entry resolves user_coupons'
+        // tenant through `coupons.store_id`. All three are pinned, per-site and with the
+        // variable binding justified, by
+        // tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest, and exercised end to end by
+        // tests/Feature/Tenancy/BulkDeleteAuthorizationTest.
+        $this->assertSame(['app' => 114, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
             . 'a raw query became Eloquent, which is an improvement worth recording here.');
 
-        $this->assertSame(156, array_sum($perDir));
+        $this->assertSame(159, array_sum($perDir));
     }
 
     /**

@@ -105,9 +105,33 @@ use Throwable;
  *     sites, all on platform-global City/State/Country) and reported OPEN, pinned by
  *     tests/Feature/Tenancy/EloquentScopeBypassInventoryTest.
  *   - `DB::table()` sites bypass Eloquent entirely, so NO global scope reaches them
- *     (app/Http/Controllers/RoleController.php:182 is a live example). Proven, not assumed, by
+ *     Proven, not assumed, by
  *     EnforcedModelIsolationTest::test_raw_db_table_queries_bypass_the_scope_entirely. The remedy
- *     at those sites is an explicit predicate, and those files are other workstreams'.
+ *     at those sites is an explicit predicate.
+ *
+ *     CORRECTION, 2026-10-13. This note used to cite
+ *     "app/Http/Controllers/RoleController.php:182 is a live example". THAT SITE NO LONGER
+ *     EXISTS: the `DB::table('role_user')->where('role_id', ...)` / `User::whereIn(...)
+ *     ->update(['type' => ...])` pair WAS the SEC-F3 privilege-escalation primitive and was
+ *     deleted in that fix -- all that survives at RoleController.php:232-240 is the commented
+ *     record of what it was. Re-measured over the paths this workstream owns (the seven
+ *     controllers, app/Policies, app/Http/Middleware, routes/), the raw query ENTRY POINTS are:
+ *       app/Http/Controllers/StoreController.php:800      shetabit_visits, `where('store_id', $store->id)`
+ *                                                          and now behind resolveOwnedStore()
+ *       app/Http/Controllers/StoreFinanceController.php:137 store_order_financials, `where('store_id', $storeId)`
+ *       app/Http/Controllers/StoreFinanceController.php:302 store_order_financials, `where('store_id', $storeId)`
+ *       app/Http/Middleware/BulkDeleteTenantGuard.php:431/:454/:469  the tenant filter itself
+ *       app/Http/Middleware/XSS.php:28                    the framework `migrations` table, which has
+ *                                                          no tenant and must not have one
+ *       routes/web.php:1401/:1410                         the Zid webhook closure, which has no
+ *                                                          authenticated tenant at all and whose
+ *                                                          `store_id` is an EXTERNAL Zid string,
+ *                                                          not a local stores.id; the control
+ *                                                          there is the hash_equals secret check
+ *     Every one of them carries an explicit tenant predicate or is platform bookkeeping by
+ *     design, and that is pinned by
+ *     tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest so this paragraph cannot go stale
+ *     again without a test going red.
  *   - `orWhere` sites WOULD be escapes if the framework did not group the pre-existing where
  *     clauses before appending the scope's. The previous note here marked that UNVERIFIED because
  *     vendor source was unavailable. IT IS NOW VERIFIED, by execution rather than by reading:
