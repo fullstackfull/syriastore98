@@ -205,17 +205,18 @@ class PlanPaymentFailClosedTest extends PlanPaymentTestCase
     // =========================================================================================
 
     /**
-     * Yookassa is absent from this provider set and has its own test below: its handler
-     * constructs a YooKassa\Client, and that SDK is not installed in this environment, so the
-     * activation path cannot be reached here at all.
+     * Yookassa has no positive path here: the owner has RETIRED it, so "it still works when
+     * enabled" is not a property anyone wants proven about it. See
+     * test_yookassa_is_retired_and_stays_refused below, and
+     * Tests\Feature\Payments\YookassaRetiredTest for the initiator.
      */
     public static function enableableProviders(): array
     {
         $rows = self::forgeableProviders();
 
-        // Yookassa: its handler constructs a YooKassa\Client and that SDK is not installed
-        // here, so the activation path cannot be reached at all. See
-        // test_yookassa_verification_is_unimplementable_because_its_sdk_is_absent.
+        // Yookassa: RETIRED by owner decision, so there is deliberately no enabled path to
+        // exercise. (The earlier reason given here -- that its SDK is not installed -- was an
+        // artifact of one development container, not a fact about the project.)
         unset($rows['Yookassa (gate is a session flag)']);
 
         // PayTabs calls $this->Verify() -- an outbound Http request -- before its gate, so its
@@ -966,27 +967,23 @@ class PlanPaymentFailClosedTest extends PlanPaymentTestCase
     }
 
     /**
-     * YooKassa activation stays REFUSED, and the reason is no longer "the SDK is missing".
+     * YOOKASSA IS RETIRED, AND BOTH OF ITS PATHS MUST STAY REFUSED.
      *
-     * This test previously asserted `class_exists('YooKassa\Client') === false` and called the
-     * verification "unimplementable". That was measured in this development container, where
-     * vendor/ is an incomplete tree, and it was WRONG as a statement about the project: a clean
-     * `composer install` from composer.lock installs yoomoney/yookassa-sdk-php 3.7.1 and the
-     * class DOES exist. CI proved it -- the first run of the degraded gate failed this very
-     * assertion on a correct install. An environment artifact had been recorded as a fact.
+     * This test used to be called "...its_verification_is_owed_not_impossible" and said the
+     * verification was OWED. That is no longer true: the owner has decided YooKassa is not
+     * needed, so nothing is owed -- the provider is retired and the refusal is permanent until
+     * that decision is reversed.
      *
-     * So the classification changes: YooKassa is NOT "blocked, external evidence required".
-     * Its contract is readable wherever the lock is honoured, which means the verification is
-     * OWED, not impossible. What has not changed is the exposure: the handler constructs a
-     * Client and never asks it anything, activating on the strength of having been returned to
-     * the URL, so it remains shipped-disabled and refused.
+     * It pins only what is environment-independent: the entry is still on the map, it still
+     * ships disabled, and the SDK is still pinned in the lock. It deliberately does NOT assert
+     * class_exists() in EITHER direction. An earlier revision asserted the SDK was absent, which
+     * was true only inside one development container, and CI -- running a correct install from
+     * the lock -- failed on it. That mistake is not to be reintroduced in either polarity.
      *
-     * This test now pins only what is environment-independent: the provider ships disabled, and
-     * the SDK is pinned in the lock so nobody can claim it is unobtainable. It deliberately does
-     * NOT assert class_exists() in either direction -- that is precisely the mistake being
-     * corrected. The fail-closed behaviour itself is covered by the 403 tests above.
+     * The behaviour itself is proven elsewhere, not here: the return handler by the 403 rows in
+     * this file's provider set, the initiator by Tests\Feature\Payments\YookassaRetiredTest.
      */
-    public function test_yookassa_ships_disabled_and_its_verification_is_owed_not_impossible(): void
+    public function test_yookassa_is_retired_and_stays_refused(): void
     {
         $shipped = require __DIR__ . '/../../../config/payments.php';
 
@@ -994,17 +991,17 @@ class PlanPaymentFailClosedTest extends PlanPaymentTestCase
             'yookassa',
             $shipped['plan_activation'],
             'yookassa left the plan_activation map. assertPlanActivationEnabled() aborts on a '
-            . 'MISSING key, so this is fail-safe, but the entry documents the reason and the '
-            . 're-enable conditions and must not be dropped silently.'
+            . 'MISSING key, so this is fail-safe, but the entry records that the provider is '
+            . 'RETIRED by owner decision and what reversing that would require, and it must not '
+            . 'be dropped silently.'
         );
 
         $this->assertFalse(
-            $shipped['plan_activation']['yookassa'],
-            'yookassa now ALLOWS plan activation. Its return handler builds a YooKassa\Client '
-            . 'and never queries it, so activation turns on having reached the return URL -- '
-            . 'which the caller can do from an abandoned checkout. Before enabling it, make '
-            . 'planGetYooKassaStatus fetch the payment by its stored id and require a captured '
-            . 'status and the plan price, then replace this test with one that proves it.'
+            filter_var($shipped['plan_activation']['yookassa'], FILTER_VALIDATE_BOOLEAN),
+            'yookassa now ALLOWS plan activation, but the owner retired this provider. Enabling '
+            . 'it reopens both paths at once: an initiator that opens a real checkout with a '
+            . 'retired gateway, and a return handler that activates on the strength of having '
+            . 'been returned to -- it builds a YooKassa\Client and never queries it.'
         );
 
         $lock = json_decode(file_get_contents(__DIR__ . '/../../../composer.lock'), true);
@@ -1013,10 +1010,11 @@ class PlanPaymentFailClosedTest extends PlanPaymentTestCase
         $this->assertArrayHasKey(
             'yoomoney/yookassa-sdk-php',
             $locked,
-            'The YooKassa SDK left composer.lock. While it was pinned, the payment-info contract '
-            . 'was readable from a correct install and the verification above was implementable. '
-            . 'If the dependency is really gone, the honest move is to remove the integration, '
-            . 'not to describe the verification as impossible.'
+            'yoomoney/yookassa-sdk-php left composer.lock. Retiring YooKassa was a decision about '
+            . 'the INTEGRATION, not about dependencies: the owner\'s closure decision removes '
+            . 'only PayHere\'s dependency, whose pinned commit is gone upstream and which '
+            . 'therefore broke `composer install`. This SDK installs fine and stays, so removing '
+            . 'it is an unrelated dependency change that was not sanctioned.'
         );
     }
 }

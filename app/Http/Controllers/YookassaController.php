@@ -35,11 +35,47 @@ class YookassaController extends Controller
 {
     use GuardsPlanActivation;
 
-    //
+    /**
+     * YOOKASSA IS RETIRED BY OWNER DECISION, so no checkout may be STARTED, not merely
+     * completed.
+     *
+     * The refusal used to live only on the return handler below. That was the right place for a
+     * verification defect and the wrong place for a retired provider: it still let a merchant
+     * open a real payment with YooKassa, and -- in the coupon-covers-the-full-price branch --
+     * still activated a paid plan with no provider involvement at all. The gate therefore sits
+     * at the TOP of the initiator:
+     *
+     *   - before getSuperAdminAllSetting() and the Plan and coupon lookups, so a refusal reads
+     *     nothing and writes nothing;
+     *   - before $client->createPayment(), so no payment is ever opened with a retired provider;
+     *   - before BOTH assignPlan() calls, and before the PlanOrder that the coupon branch
+     *     records with payment_status = 'success'.
+     *
+     * THE PLAN ID IS DECRYPTED ONLY SO THE REFUSAL LOG CAN NAME IT, which is why the decrypt is
+     * not allowed to decide anything. It is wrapped, a failure leaves $planID null, and the
+     * guard then runs unconditionally -- there is no path through this method that reaches a
+     * lookup, a write or the SDK without passing it. That also removes an uncaught 500: the
+     * decrypt sat outside both of this method's try blocks, so a tampered plan_id raised
+     * DecryptException straight out of the controller.
+     *
+     * The guard is assertPlanActivationEnabled() -- the same mechanism and the same 403 as every
+     * other retired provider on the config/payments.php map, not a second bespoke one. 403 and
+     * never 401: repo B's lib/network/network.dart turns any 401 into a forced logout.
+     */
     public function paywithyookassa(Request $request)
     {
+        $planID = null;
+
+        try {
+            $planID = Crypt::decrypt($request->plan_id);
+        } catch (\Throwable $e) {
+            // Deliberately no return: an unreadable token must not get a softer answer than a
+            // readable one. Fall through to the refusal with a null plan id.
+        }
+
+        $this->assertPlanActivationEnabled('yookassa', $planID);
+
         $payment_setting = getSuperAdminAllSetting();
-        $planID = \Illuminate\Support\Facades\Crypt::decrypt($request->plan_id);
         $plan = Plan::find($planID);
         $user = \Auth::user();
         if ($plan) {
@@ -163,32 +199,25 @@ class YookassaController extends Controller
     }
 
     /**
-     * P0 (free activation). THE GATE PROVED A CHECKOUT WAS STARTED, NOT THAT IT WAS PAID.
+     * THE RETURN HANDLER. Refused for the same reason as the initiator: the provider is RETIRED.
      *
-     * The only check was `\Session::get('payment_id') != null`. paywithyookassa() puts that in
-     * the session the moment it CREATES the payment, before the merchant has paid anything -- so
-     * a merchant who starts a YooKassa checkout, abandons it, and then hits the return URL got
-     * the plan for free. The price came from `$request->amount` on that return URL.
+     * What was wrong here is still worth recording, because it is why this handler must never be
+     * re-enabled as it stands. The only check was `\Session::get('payment_id') != null`, and
+     * paywithyookassa() put that in the session the moment it CREATED the payment -- before the
+     * merchant had paid anything. So a merchant who started a YooKassa checkout, abandoned it and
+     * then hit the return URL got the plan for free, priced from `$request->amount`. A
+     * YooKassa\Client is constructed below and then never asked anything: the verification call
+     * is missing, not the client.
      *
-     * A YooKassa\Client IS constructed at :180 and then never asked anything, which is the
-     * whole defect in one line: the verification call is missing, not the client.
+     * WHY THERE IS NO VERIFICATION HERE. Not because the SDK is unreadable -- an earlier version
+     * of this docblock argued that at length, having measured an incomplete vendor/ tree in one
+     * development container and recorded it as a fact about the project; CI disproved it. The
+     * reason is simply that the owner has retired YooKassa. There is nothing left to implement
+     * and nothing left to verify, so the verification is not owed either.
      *
-     * WHY THE VERIFICATION IS STILL NOT IMPLEMENTED -- and it is NOT because the SDK is
-     * missing. An earlier revision of this docblock said the SDK is absent, that
-     * `class_exists('YooKassa\Client')` is false and that the contract therefore cannot be
-     * read. That was measured in a development container whose vendor/ tree is incomplete, and
-     * it is false as a statement about the project: composer.lock pins
-     * yoomoney/yookassa-sdk-php 3.7.1 and a clean install from the lock provides the class. CI
-     * demonstrated this by failing a test that had asserted the absence.
-     *
-     * The verification is therefore OWED, not impossible: fetch the payment by the id this
-     * handler already has and require a captured status and the plan's own price before
-     * activating. It is not implemented here only because this environment cannot reach the
-     * package to read the exact method and response shape, and guessing the response shape of a
-     * money API is the one thing that must not be done.
-     *
-     * Activation is therefore refused. The guard runs FIRST, before the unresolvable `new
-     * Client()`, so the refusal is a clean 403 rather than a fatal.
+     * The guard runs FIRST, before the plan lookup and before `new Client()`, so a refusal is a
+     * clean 403 and not a fatal -- on an install where the SDK is present and on one where it is
+     * not.
      */
     public function planGetYooKassaStatus(Request $request)
     {

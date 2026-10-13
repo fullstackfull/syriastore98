@@ -79,18 +79,21 @@ return [
         'nepalste' => env('PLAN_ACTIVATION_NEPALSTE', false),
 
         /*
-         * PayHerePaymnetController::planGetPayHereStatus
+         * PayHerePaymnetController::planGetPayHereStatus (and ::planPayWithPayHere)
          * env key: PLAN_ACTIVATION_PAYHERE
-         * REASON:  No gate. PayHere's md5 hash IS computed in this repo, but OUTBOUND only
-         *          (planPayWithPayHere, where the merchant secret is folded in before
-         *          redirecting). Nothing is checked on the return, and the same URL is used as
-         *          both successUrl and failUrl, so even a FAILED payment activates the plan.
-         * RE-ENABLE WHEN: the return's `md5sig` is recomputed from the documented PayHere
-         *          formula (merchant_id + order_id + payhere_amount + payhere_currency +
-         *          status_code + md5(merchant_secret)) and compared, with a test over a faked
-         *          return. NOTE the deployment also depends on lahirulhr/laravel-payhere, whose
-         *          pinned commit no longer exists upstream (composer install 404s on a clean
-         *          runner), so this provider cannot currently be built reproducibly either.
+         * STATUS:  RETIRED by owner decision at closure.
+         * REASON:  The owner has decided PayHere is not needed. It also never verified: the md5
+         *          hash IS computed in this repo, but OUTBOUND only (planPayWithPayHere, where
+         *          the merchant secret is folded in before redirecting). Nothing is checked on
+         *          the return, and the same URL serves as both successUrl and failUrl, so even a
+         *          FAILED payment activated the plan.
+         * RE-ENABLE WHEN: the owner reverses the retirement AND the return's `md5sig` is
+         *          recomputed from the documented PayHere formula (merchant_id + order_id +
+         *          payhere_amount + payhere_currency + status_code + md5(merchant_secret)) and
+         *          compared, with a test over a faked return. It would also need a buildable
+         *          SDK: lahirulhr/laravel-payhere is being removed at closure because its pinned
+         *          commit no longer exists upstream, which is what made `composer install` fail
+         *          on a clean runner. Re-enabling would mean sourcing a maintained package first.
          */
         'payhere' => env('PLAN_ACTIVATION_PAYHERE', false),
 
@@ -155,21 +158,31 @@ return [
         'dpopay' => env('PLAN_ACTIVATION_DPOPAY', false),
 
         /*
-         * YookassaController::planGetYooKassaStatus
+         * YookassaController::paywithyookassa (the INITIATOR) and ::planGetYooKassaStatus
          * env key: PLAN_ACTIVATION_YOOKASSA
-         * REASON:  The only gate is a SESSION value (`\Session::get('payment_id')`), which
-         *          merely proves this browser once started a checkout -- not that it completed.
-         *          A YooKassa\Client IS constructed in the handler and then never asked
-         *          anything.
-         * RE-ENABLE WHEN: the handler calls the SDK's payment-info lookup for the stored
-         *          payment id and requires a succeeded/paid state with a matching amount and
-         *          currency.
-         * BLOCKED ON MORE THAN CODE: yoomoney/yookassa-sdk-php is pinned in composer.lock but
-         *          is NOT INSTALLED in this environment -- `class_exists('YooKassa\Client')` is
-         *          false and no file under vendor/ declares that namespace. So `new Client()` in
-         *          the handler raises an Error today, which the handler's `catch (\Exception)`
-         *          does not catch. The SDK's contract therefore cannot be read here and its
-         *          verification cannot be implemented or tested until the SDK is installed.
+         * STATUS:  RETIRED by owner decision at closure -- not "disabled pending verification".
+         * REASON:  The owner has decided YooKassa is not needed, so BOTH of its paths refuse.
+         *          The return handler's only gate was a SESSION value (`Session::get(
+         *          'payment_id')`) which paywithyookassa() set when it CREATED the payment, so an
+         *          abandoned checkout activated the plan; a YooKassa\Client is built there and
+         *          never asked anything. The INITIATOR is now gated too, so no checkout can be
+         *          opened with a retired provider at all, and the coupon-covers-the-full-price
+         *          branch -- which recorded a PlanOrder and called assignPlan() with no provider
+         *          involvement whatsoever -- cannot be entered.
+         * RE-ENABLE WHEN: the owner reverses the retirement AND planGetYooKassaStatus fetches the
+         *          payment by its stored id through the SDK and requires a succeeded/paid state
+         *          with a matching amount and currency, covered by a test over a faked response.
+         *          Nothing external blocks that: yoomoney/yookassa-sdk-php installs from this
+         *          lock and its contract is readable on any correct install. (An earlier note
+         *          here claimed the SDK was absent and the contract unreadable. That was measured
+         *          in one development container with an incomplete vendor/ tree and was false
+         *          about the project; CI disproved it.) The work is simply not owed while the
+         *          provider is retired.
+         * NOT A DEPENDENCY REMOVAL: yoomoney/yookassa-sdk-php STAYS in composer.lock. The
+         *          owner's decision was to retire this integration, not to strip unrelated
+         *          dependencies. (Written without a slash-star glob on purpose: PlanPaymentPosture
+         *          Test reads this block by backing up to the nearest comment opener, and one
+         *          inside the prose truncates it.)
          */
         'yookassa' => env('PLAN_ACTIVATION_YOOKASSA', false),
 
@@ -427,7 +440,9 @@ return [
         /*
          * PaymentWallPaymentController::planPayWithPaymentWall
          * env key: PLAN_ACTIVATION_PAYMENTWALL
-         * REASON:  A different sub-class, and the Yookassa precedent: the gate WOULD be a real
+         * REASON:  A different sub-class -- and no longer "the Yookassa precedent", which has
+         *          been retracted: Yookassa's SDK does install from this lock, whereas no
+         *          paymentwall package is required at all. The gate here WOULD be a real
          *          provider charge -- `$charge->isSuccessful() and empty($responseData['secure'])`
          *          then `$charge->isCaptured()` (:135-136) -- but \Paymentwall_Charge DOES NOT
          *          EXIST in this environment. Measured:
