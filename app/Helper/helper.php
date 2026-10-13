@@ -1361,15 +1361,26 @@ if (!function_exists('activated_modules_for_owner')) {
     {
         $key = "lynomia.activated_modules.owner.{$ownerId}";
 
-        if (app()->bound($key)) {
-            return (array) app($key);
+        // scoped(), not instance(). Both memoise per owner, so neither can answer one
+        // tenant's question with another's modules -- that was the bug this helper exists to
+        // fix. They differ in how long the answer survives: an instance() binding lives as
+        // long as the application object, which in a queue worker is many jobs, so an owner
+        // whose plan lapsed mid-run would keep passing module_is_active() until the worker
+        // restarted. A scoped() binding is cleared by forgetScopedInstances(), which the
+        // queue fires between jobs, so the memo lasts exactly one unit of work. Under
+        // PHP-FPM, where a request is the unit, the two are identical.
+        //
+        // bound() guards the REGISTRATION, not the value: after a scope flush the binding is
+        // still bound while its resolved instance is gone, so app() re-runs the closure and
+        // re-reads the table. Registering again would simply be wasted work.
+        if (! app()->bound($key)) {
+            app()->scoped(
+                $key,
+                fn () => userActiveModule::where('user_id', $ownerId)->pluck('module')->toArray()
+            );
         }
 
-        $modules = userActiveModule::where('user_id', $ownerId)->pluck('module')->toArray();
-
-        app()->instance($key, $modules);
-
-        return $modules;
+        return (array) app($key);
     }
 }
 

@@ -1,6 +1,6 @@
 <?php
 
-namespace Workdo\LynomiaChat\Database\Seeders;
+namespace Workdo\LynomiaChat\database\seeders;
 
 use App\Models\AddOnManager;
 use Illuminate\Database\Eloquent\Model;

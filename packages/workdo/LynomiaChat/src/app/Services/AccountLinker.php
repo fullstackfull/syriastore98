@@ -69,10 +69,36 @@ class AccountLinker
 
         $existing = LynomiaStoreLink::forStore((int) $store->id)->first();
 
-        if ($existing !== null && $existing->state === LinkState::ACTIVE) {
+        // A CLAIM MAY ONLY BE OPENED ON NOTHING, OR ON AN UNAPPROVED CLAIM.
+        //
+        // This used to refuse only an ACTIVE row, which let a merchant re-open a REVOKED or
+        // SUSPENDED one. That was not merely untidy, it was an operator-deception bug: the
+        // attribute set below rewrites lynomia_account_id but says nothing about
+        // lynomia_user_id, so a previously provisioned row kept the ORIGINAL workspace's user
+        // id while presenting itself as a fresh claim for an unrelated account. allowsSso()
+        // asks only that both ids are non-null, so approving the claim the operator was shown
+        // minted a session for the workspace they had just revoked -- and the approval screen
+        // showed them the new account id, not the inherited user id.
+        //
+        // Refusing every non-pending state fixes that at the cause rather than by scrubbing
+        // the symptom: a pending row has no identifiers to inherit. A claim never sets
+        // lynomia_user_id, and a failed provision leaves the row pending with both ids still
+        // null because AccountProvisioner only writes them after the attach succeeds. So the
+        // rows that reach the force-fill below carry nothing to leak, and nulling the columns
+        // there would be unreachable code.
+        //
+        // It also makes the states mean what LinkState says they mean. REVOKED is documented
+        // "terminal for this row" and is an operator's deliberate act -- often for abuse --
+        // so the merchant must not be able to undo it by filing a new claim. SUSPENDED is
+        // documented as keeping the account ids "so the same workspace is reconnected rather
+        // than a second one created", which a claim naming a different account would throw
+        // away. Both are operator business now.
+        if ($existing !== null && $existing->state !== LinkState::PENDING_VERIFICATION) {
             throw new LynomiaApiException(
                 LynomiaApiException::KIND_CONFLICT,
-                'This store is already connected to a Lynomia workspace.'
+                $existing->state === LinkState::ACTIVE
+                    ? 'This store is already connected to a Lynomia workspace.'
+                    : 'This store\'s Lynomia connection was ended by support. Please contact support to restore it.'
             );
         }
 

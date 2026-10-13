@@ -3,6 +3,8 @@
 namespace Tests\Feature\Lynomia;
 
 use App\Models\AddOnManager;
+use App\Models\Permission;
+use App\Models\Role;
 use App\Models\Store;
 use App\Models\User;
 use App\Models\userActiveModule;
@@ -11,6 +13,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
+use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\AccountLinker;
 use Workdo\LynomiaChat\app\Services\AccountProvisioner;
@@ -99,6 +102,75 @@ class LynomiaConnectionTest extends TestCase
             ['user_id' => $owner->id, 'module' => 'LynomiaChat'],
             []
         );
+
+        // Entitlement is the PLAN's answer; the permission is the ROLE's. A merchant owner
+        // holds both in production -- PermissionTableSeeder grants `Manage Lynomia Chat` to
+        // the global `admin` role that every owner carries -- so the fixture gives both.
+        // They are granted together here precisely because they are NOT the same control:
+        // the staff test below entitles the tenant and withholds only the permission.
+        $this->grantLynomiaPermission($owner);
+    }
+
+    /**
+     * Give a user a real Laratrust role carrying the module's permission.
+     *
+     * forceCreate, not create: App\Models\Role sets `public $guarded = []` but extends
+     * Laratrust's Role, whose non-empty `protected $fillable` wins in isFillable(), so
+     * store_id and created_by are silently dropped by create().
+     */
+    private function grantLynomiaPermission(User $user): void
+    {
+        $permission = Permission::firstOrCreate(
+            ['name' => 'Manage Lynomia Chat'],
+            ['display_name' => 'Manage Lynomia Chat', 'guard_name' => 'web', 'module' => 'LynomiaChat']
+        );
+
+        $role = Role::firstWhere('name', 'lynomia-role-' . $user->id)
+            ?? Role::forceCreate([
+                'name' => 'lynomia-role-' . $user->id,
+                'display_name' => 'Lynomia Role',
+                'guard_name' => 'web',
+                'created_by' => $user->creatorId(),
+                'store_id' => $user->current_store,
+            ]);
+
+        $role->givePermission($permission);
+        $role->flushCache();
+
+        // addRole unconditionally, and NEVER probe with hasRole() first: Laratrust memoises
+        // the user's role set on the first read, so a probe taken before the attach caches an
+        // empty set and every later isAbleTo() in the same request answers from it.
+        $user->addRole($role);
+        $user->flushCache();
+    }
+
+    /**
+     * A staff member of the owner's tenant with a role that carries NO permissions --
+     * the shape UserController::store creates: type = the role's name, created_by = the
+     * owner, current_store copied from the owner, email already verified.
+     */
+    private function staffOf(User $owner): User
+    {
+        $staff = User::factory()->create([
+            'type' => 'Packing',
+            'created_by' => $owner->id,
+            'current_store' => $owner->current_store,
+            'is_active' => 1,
+            'email_verified_at' => now(),
+        ]);
+
+        $role = Role::forceCreate([
+            'name' => 'packing-' . $staff->id,
+            'display_name' => 'Packing',
+            'guard_name' => 'web',
+            'created_by' => $owner->id,
+            'store_id' => $owner->current_store,
+        ]);
+
+        $staff->addRole($role);
+        $staff->flushCache();
+
+        return $staff->fresh();
     }
 
     /** @return array{0: User, 1: Store} an entitled merchant with a store selected */
@@ -132,7 +204,7 @@ class LynomiaConnectionTest extends TestCase
      * This is the control that cannot be defeated by test ordering or by a helper memoising
      * state: whatever the behavioural tests below do, these four stacks must be present.
      */
-    public function test_every_merchant_route_carries_session_csrf_auth_entitlement_and_tenancy(): void
+    public function test_every_merchant_route_carries_session_csrf_auth_entitlement_permission_and_tenancy(): void
     {
         $expected = [
             \Illuminate\Session\Middleware\StartSession::class,
@@ -157,6 +229,16 @@ class LynomiaConnectionTest extends TestCase
             $this->assertTrue(
                 (bool) preg_grep('/EnsureStoreOwnsLink/', array_filter($stack, 'is_string')),
                 "{$name} is not tenant-scoped."
+            );
+            // Entitlement and tenancy are both tenant-level answers; neither asks whether
+            // THIS user may act. Pinned separately so the permission layer cannot be dropped
+            // on the assumption that the other two already cover it -- they did not.
+            $this->assertTrue(
+                (bool) preg_grep(
+                    '/Laratrust\\\\Middleware\\\\Permission:Manage Lynomia Chat/',
+                    array_filter($stack, 'is_string')
+                ),
+                "{$name} does not require the 'Manage Lynomia Chat' permission."
             );
         }
     }
@@ -553,5 +635,172 @@ class LynomiaConnectionTest extends TestCase
 
         // Refused outright rather than rendered with A's workspace.
         $this->assertSame(302, $response->getStatusCode());
+    }
+
+    // ------------------------------------------------- authorization within the tenant
+
+    /**
+     * FINDING 1. Entitlement is the plan's answer and tenancy is the store's; neither is a
+     * ROLE check. A staff member inherits both -- PlanModuleCheck resolves the OWNER's module
+     * list, and creatorId() resolves staff to the owning admin so EnsureStoreOwnsLink matches
+     * the owner's row. The module seeds `Manage Lynomia Chat` and hides the menu on it, but
+     * hiding a menu is not authorization: the staff member types the path.
+     *
+     * /lynomia/open is the one that matters. The provisioned Lynomia user is attached as
+     * `administrator` (AccountProvisioner), so a successful redirect hands a warehouse packer
+     * full read/write over every customer conversation in the merchant's workspace.
+     */
+    public function test_staff_without_the_permission_reach_no_merchant_route(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+        $this->fakeLynomia();
+        app(AccountProvisioner::class)->provision($store, $owner);
+
+        $staff = $this->staffOf($owner->fresh());
+
+        $this->assertFalse($staff->isAbleTo('Manage Lynomia Chat'), 'fixture: staff must not hold the permission');
+
+        // Provisioning sent three requests. Any SSO leak would be a fourth.
+        $sentBefore = count(Http::recorded());
+
+        foreach (['get:/lynomia', 'get:/lynomia/open'] as $probe) {
+            [$verb, $uri] = explode(':', $probe, 2);
+            $response = $this->actingAs($staff)->{$verb}($uri);
+
+            $this->assertSame(403, $response->getStatusCode(), "{$uri} admitted staff");
+            $this->assertStringNotContainsString(
+                'sso_auth_token',
+                (string) $response->headers->get('Location'),
+                "{$uri} handed staff an SSO url"
+            );
+        }
+
+        foreach (['/lynomia/connect/provision', '/lynomia/connect/link'] as $uri) {
+            $response = $this->actingAs($staff)->post($uri, ['lynomia_account_id' => 4242]);
+            $this->assertSame(403, $response->getStatusCode(), "{$uri} admitted staff");
+            $this->assertNull(session('lynomia_verification_code'), "{$uri} leaked a claim code to staff");
+        }
+
+        $this->assertSame($sentBefore, count(Http::recorded()), 'staff caused a call to Lynomia');
+    }
+
+    /**
+     * FINDING 2. request() refused a re-claim only when the row was ACTIVE, and the attribute
+     * set it force-filled rewrote lynomia_account_id but left lynomia_user_id untouched. A
+     * revoked row therefore kept the ORIGINAL workspace's user id while presenting itself as a
+     * fresh claim for an unrelated account, and allowsSso() asks only that both ids are
+     * non-null -- so approving the claim the operator was shown minted a session for the
+     * workspace they had revoked.
+     */
+    public function test_a_revoked_link_cannot_be_reclaimed_back_into_the_old_workspace(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+        $this->fakeLynomia();
+
+        $link = app(AccountProvisioner::class)->provision($store, $owner->fresh());
+        $originalUserId = (int) $link->lynomia_user_id;
+        $this->assertGreaterThan(0, $originalUserId);
+
+        app(AccountLinker::class)->revoke($link->fresh(), $this->operator(), 'abuse');
+
+        // The merchant tries to re-open the row as a claim on a DIFFERENT account. Before the
+        // fix this succeeded and silently carried $originalUserId across, so an operator who
+        // approved "account 777777" was in fact restoring the workspace they had revoked.
+        try {
+            app(AccountLinker::class)->request($store, $owner->fresh(), 777777);
+            $this->fail('a revoked link was re-opened as a claim');
+        } catch (LynomiaApiException $e) {
+            $this->assertSame(LynomiaApiException::KIND_CONFLICT, $e->kind);
+        }
+
+        $after = $link->fresh();
+        $this->assertSame(LinkState::REVOKED, $after->state, 'the revoked row was mutated');
+        $this->assertNull($after->verification_code_hash, 'a claim code was issued on a revoked row');
+
+        // And the merchant is still locked out.
+        $sentBefore = count(Http::recorded());
+        $response = $this->actingAs($owner->fresh())->get('/lynomia/open');
+
+        $this->assertStringNotContainsString(
+            'sso_auth_token',
+            (string) $response->headers->get('Location'),
+            'a revoked link still opened a workspace'
+        );
+        $this->assertSame($sentBefore, count(Http::recorded()), 'a login call was made for a revoked workspace');
+    }
+
+    /**
+     * The middleware authorized the LINK but not the STORE, so the one case with no link to
+     * compare against -- a foreign store that has never connected -- passed its id through to
+     * the controller, and provisioning claimed it. store_id is unique, so the real owner would
+     * then have been permanently unable to connect.
+     *
+     * No HTTP path writes users.current_store without an ownership check today, so this was
+     * defence-in-depth rather than a live exploit; the fixture sets the column directly. That
+     * is the point: this middleware is not supposed to depend on those checks staying correct.
+     */
+    public function test_a_merchant_cannot_provision_onto_another_tenants_unconnected_store(): void
+    {
+        [$ownerA, $storeA] = $this->entitledTenant();
+
+        $ownerB = $this->merchant();
+        $storeB = $this->storeFor($ownerB);
+        $this->entitle($ownerB);
+
+        $this->fakeLynomia();
+
+        $ownerB->current_store = $storeA->id;
+        $ownerB->save();
+
+        $response = $this->actingAs($ownerB->fresh())->post('/lynomia/connect/provision');
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertFalse(
+            LynomiaStoreLink::forStore((int) $storeA->id)->exists(),
+            "another tenant's store was claimed"
+        );
+        $this->assertSame(0, count(Http::recorded()), 'a workspace was created for a foreign store');
+    }
+
+    /**
+     * THE GATE AND THE SEEDER ARE NOW LOAD-BEARING FOR EACH OTHER.
+     *
+     * The merchant routes require `Manage Lynomia Chat`. Nothing grants a merchant owner that
+     * permission except PermissionTableSeeder, which attaches it to the single global `admin`
+     * role every owner carries. If the seeder has not run on an installation, the gate does
+     * not fail open -- it fails CLOSED, and every merchant owner on the platform gets a 403
+     * on a feature their plan includes. So the seeder is asserted here rather than assumed,
+     * and `php artisan package:seed LynomiaChat` is a deployment prerequisite, not a nicety.
+     */
+    public function test_the_seeder_grants_the_permission_the_routes_require(): void
+    {
+        $adminRole = Role::forceCreate([
+            'name' => 'admin',
+            'display_name' => 'Admin',
+            'guard_name' => 'web',
+            'created_by' => 0,
+        ]);
+
+        (new \Workdo\LynomiaChat\database\seeders\PermissionTableSeeder())->run();
+
+        $this->assertTrue(
+            $adminRole->fresh()->hasPermission('Manage Lynomia Chat'),
+            'the global admin role does not carry the permission the merchant routes require'
+        );
+
+        // THE NAMESPACE CASE IS LOAD-BEARING, so pin it rather than trusting it.
+        // PackageSeed::getSeederClass() builds the name as
+        // Workdo\{Module}\database\seeders\{Module}DatabaseSeeder -- lower case, matching the
+        // directories on disk, which is what every other module in packages/workdo declares.
+        // This module first declared Database\Seeders instead. PSR-4 maps the namespace
+        // straight onto a path, so on a case-sensitive filesystem the capitalised spelling
+        // resolves to src/Database/Seeders/..., which does not exist: `new PermissionTableSeeder`
+        // inside the module seeder fatals, and package:seed finds nothing to run. The
+        // permission below is then never granted and -- now that the routes require it --
+        // every merchant owner gets a 403 on a feature their plan includes.
+        $this->assertTrue(
+            class_exists('Workdo\\LynomiaChat\\database\\seeders\\LynomiaChatDatabaseSeeder'),
+            'package:seed cannot resolve the module seeder'
+        );
     }
 }

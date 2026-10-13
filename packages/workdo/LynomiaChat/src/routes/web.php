@@ -23,11 +23,30 @@ use Workdo\LynomiaChat\app\Http\Middleware\EnsureStoreOwnsLink;
  * (docs/development/phase-1/02-P0-SECURITY-REVALIDATION.md §5.10). One registration, from
  * LynomiaChatServiceProvider::boot(), is easier to reason about and to assert on.
  *
- * FOUR LAYERS GUARD EVERY MERCHANT ROUTE:
- *   auth/xss/setlocate/verified  the standard administrative stack
- *   PlanModuleCheck:LynomiaChat  entitlement -- the plan's module list must include it
- *   EnsureStoreOwnsLink          tenancy -- resolves the caller's OWN store's link
- *   (no route parameter)         there is no id to tamper with, so no IDOR surface
+ * FIVE LAYERS GUARD EVERY MERCHANT ROUTE, and they answer five different questions:
+ *   auth/xss/setlocate/verified   is there a verified session
+ *   PlanModuleCheck:LynomiaChat   ENTITLEMENT -- does this tenant's PLAN include the module
+ *   permission:Manage Lynomia…    AUTHORIZATION -- may THIS user, not just this tenant, act
+ *   EnsureStoreOwnsLink           TENANCY -- is the current store this tenant's
+ *   (no route parameter)          there is no id to tamper with, so no IDOR surface
+ *
+ * THE PERMISSION LAYER IS NOT REDUNDANT WITH THE OTHER TWO, which is exactly how it came to
+ * be missing. PlanModuleCheck resolves the module list of the tenant OWNER, so every staff
+ * member inherits the owner's entitlement and passes it. EnsureStoreOwnsLink resolves staff
+ * to their owning admin through creatorId() -- deliberately, so a merchant's staff reach the
+ * merchant's store -- so they match the owner's link too. Neither is a role check, and the
+ * module's menu entry was gated on a permission that nothing server-side enforced: hiding a
+ * menu item is not authorization, the staff member types the path.
+ *
+ * What that cost, before this line existed: any staff user in the tenant -- a warehouse
+ * packer with an empty role -- could GET /lynomia/open and be redirected into the merchant's
+ * workspace signed in as its ADMINISTRATOR (AccountProvisioner attaches the service user with
+ * that role), with full read/write over every customer conversation, contact and channel.
+ * They could also consume the tenant's single provisioning slot and read a claim code.
+ *
+ * Laratrust's own middleware rather than a hand-rolled one: it is already a dependency, and
+ * `laratrust.middleware.handling` is 'abort' => 403 here, which is the right answer for a
+ * user who is legitimately signed in and simply may not do this.
  */
 
 /**
@@ -43,7 +62,10 @@ use Workdo\LynomiaChat\app\Http\Middleware\EnsureStoreOwnsLink;
 Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(function () {
 
     // ---------------------------------------------------------------- merchant
-    Route::middleware(['PlanModuleCheck:LynomiaChat'])
+    Route::middleware([
+        'PlanModuleCheck:LynomiaChat',
+        \Laratrust\Middleware\Permission::class . ':Manage Lynomia Chat',
+    ])
         ->prefix('lynomia')
         ->name('lynomia.')
         ->group(function () {
