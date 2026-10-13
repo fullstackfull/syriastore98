@@ -102,7 +102,179 @@ class PlanPaymentVerificationInventoryTest extends TestCase
             'CyberSource: outbound payments API' => ['CyberSourceController', '"AUTHORIZED"'],
             'Mollie: SDK payment lookup'         => ['MolliePaymentController', '$payment->isPaid()'],
             'Stripe: live charge creation'       => ['StripePaymentController', 'Stripe\\Charge::create'],
+
+            // -------------------------------------------------------------------------------
+            // SEVEN OF THE NINETEEN HANDLERS THAT HAD NEVER BEEN CLASSIFIED AT ALL.
+            //
+            // Nineteen assignPlan() callers had never had their activation gate read. Eleven
+            // are now fail-closed on the config/payments.php map, one (BankTransfer) is a
+            // platform-operator approval rather than a provider return, and these seven ask
+            // their provider before activating.
+            //
+            // FOUR OF THE SEVEN TAKE THE MONEY ON THIS VERY REQUEST -- AuthorizeNet's
+            // authCaptureTransaction, Braintree's sale, NMI's type=sale and PayPal's capture --
+            // which is the strongest verification available anywhere in this codebase: the
+            // charge succeeds or the gate fails. The other three re-fetch the transaction from
+            // the provider with the merchant secret.
+            //
+            // AND THE TWO THAT PATTERN-MATCHING WOULD HAVE GOT WRONG, in both directions.
+            // Khalti reads as ungated to a scan for an HTTP client because it verifies through
+            // App\Khalti\Khalti::verifyPayment() (app/Khalti/Khalti.php:16-42, a curl POST to
+            // khalti.com/api/v2/payment/verify/ carrying the merchant secret, whose HTTP status
+            // is the gate) -- the same helper-indirection trap as Paynow. Razorpay reads as
+            // VERIFIED to the same scan because it genuinely curls api.razorpay.com -- and then
+            // never looks at the answer, so it is on the disabled map instead. The outbound
+            // call is not the property; requiring its result is.
+            //
+            // A RESIDUAL WEAKNESS IS RECORDED, NOT HIDDEN. Flutterwave and Paystack gate on the
+            // verify call's envelope (`$response['status'] == 'success'`, `$result['status'] ==
+            // true`) rather than on the transaction state that the same response carries --
+            // Paystack's own handler reads `$result['data']['status']` as the payment status two
+            // lines later. So a reference from the caller's own FAILED or ABANDONED checkout may
+            // satisfy these gates. That is a narrowing of an existing verification, not a free
+            // activation of the kind the eleven had, and tightening a gate on a live integration
+            // needs the provider's documented response contract -- which this environment cannot
+            // reach. Left as-is deliberately; see the report and config/payments.php.
+            // -------------------------------------------------------------------------------
+            'AuthorizeNet: SDK authCapture'      => ['AuthorizeNetPaymnetController', 'getResultCode() == "Ok"'],
+            'Braintree: SDK sale'                => ['BraintreeController', '$gateway->transaction()->sale('],
+            'Flutterwave: outbound verify'       => ['FlutterwaveController', 'getpaidx/api/v2/verify'],
+            'Khalti: provider verify helper'     => ['KhaltiPaymnetController', 'verifyPayment('],
+            'NMI: outbound sale'                 => ['NMIPayController', "\$parsedResponse['response'] == 1"],
+            'PayPal: outbound capture'           => ['PaypalPaymentController', 'capturePaymentOrder('],
+            'Paystack: outbound verify'          => ['PaystackPaymentController', 'api.paystack.co/transaction/verify'],
         ];
+    }
+
+    /**
+     * THE NINETEEN THAT HAD NEVER BEEN CLASSIFIED, AND WHERE EACH ONE LANDED.
+     *
+     * [provider map key | null, verification marker | null]. Exactly one of the two is set:
+     *
+     *   a map key   => FORGEABLE. The handler must call assertPlanActivationEnabled() for that
+     *                  key, and that key's shipped default must be DISABLED.
+     *   a marker    => PROVIDER-VERIFIED. The controller must still carry the marker, and must
+     *                  be recorded in config('payments.plan_activation_provider_verified').
+     *
+     * WHY THIS IS A PIN AND NOT A SCAN. The classification is hand-read -- this question has
+     * been misread five times on this project -- so what is pinned is the ANSWER, in both
+     * directions. Moving a handler from one column to the other reddens this file, which is the
+     * point: a silent FIX (verification implemented, guard quietly dropped) and a silent
+     * REGRESSION (guard removed, nothing implemented) look identical to a test that only
+     * asserts the guard is present.
+     *
+     * BankTransferController is the nineteenth and is in neither column; see
+     * test_bank_transfer_activation_is_gated_by_platform_operator_authorization.
+     */
+    public static function newlyClassifiedHandlers(): array
+    {
+        return [
+            // The eleven forgeable ones.
+            'Aamarpay'    => ['AamarpayController', 'aamarpay', null],
+            'IyziPay'     => ['IyziPayController', 'iyzipay', null],
+            'Mercado'     => ['MercadoPaymentController', 'mercado', null],
+            'Midtrans'    => ['MidtransController', 'midtrans', null],
+            'PayFast'     => ['PayFastController', 'payfast', null],
+            'PaymentWall' => ['PaymentWallPaymentController', 'paymentwall', null],
+            'PayU'        => ['PayUPaymentController', 'payu', null],
+            'Razorpay'    => ['RazorpayPaymentController', 'razorpay', null],
+            'Skrill'      => ['SkrillPaymentController', 'skrill', null],
+            'Sspay'       => ['SspayController', 'sspay', null],
+            'Toyyibpay'   => ['ToyyibpayController', 'toyyibpay', null],
+
+            // The seven provider-verified ones.
+            'AuthorizeNet' => ['AuthorizeNetPaymnetController', null, 'getResultCode() == "Ok"'],
+            'Braintree'    => ['BraintreeController', null, '$gateway->transaction()->sale('],
+            'Flutterwave'  => ['FlutterwaveController', null, 'getpaidx/api/v2/verify'],
+            'Khalti'       => ['KhaltiPaymnetController', null, 'verifyPayment('],
+            'NMI'          => ['NMIPayController', null, "\$parsedResponse['response'] == 1"],
+            'PayPal'       => ['PaypalPaymentController', null, 'capturePaymentOrder('],
+            'Paystack'     => ['PaystackPaymentController', null, 'api.paystack.co/transaction/verify'],
+        ];
+    }
+
+    #[DataProvider('newlyClassifiedHandlers')]
+    public function test_a_newly_classified_handler_stays_on_the_side_it_was_read_onto(
+        string $controller,
+        ?string $mapKey,
+        ?string $marker
+    ): void {
+        $src = $this->source($controller);
+
+        if ($mapKey !== null) {
+            $this->assertStringContainsString(
+                "assertPlanActivationEnabled('" . $mapKey . "'",
+                $src,
+                $controller . ' no longer calls assertPlanActivationEnabled(\'' . $mapKey . '\'). '
+                . 'This handler activates a paid subscription on something the caller holds -- a '
+                . 'query parameter, a pre-payment blob this server sealed and handed out, a '
+                . 'session key its own abandoned checkout wrote, or in two cases nothing at all. '
+                . 'Without the guard the subscription is FREE. If real provider verification has '
+                . 'been implemented, move this row to the marker column and the provider out of '
+                . 'config(payments.plan_activation) into plan_activation_provider_verified.'
+            );
+
+            $this->assertNotNull(
+                config('payments.plan_activation.' . $mapKey),
+                $mapKey . ' has been removed from config(payments.plan_activation). A missing key '
+                . 'is treated as DISABLED by GuardsPlanActivation, so this is not an open door -- '
+                . 'but the entry carried the REASON and the RE-ENABLE CONDITIONS.'
+            );
+
+            return;
+        }
+
+        $this->assertStringContainsString(
+            $marker,
+            $src,
+            $controller . ' no longer carries the provider verification that put it on the SAFE '
+            . 'side of this census (' . $marker . '). It is NOT on the config/payments.php map, '
+            . 'because it asks its provider before activating -- so if that is gone, nothing is '
+            . 'standing in the way and this handler now activates paid plans on caller-supplied '
+            . 'data.'
+        );
+
+        $this->assertArrayHasKey(
+            $controller,
+            (array) config('payments.plan_activation_provider_verified'),
+            $controller . ' is no longer recorded as provider-verified in config/payments.php, so '
+            . 'the file no longer says WHY it is absent from the disabled map.'
+        );
+    }
+
+    /**
+     * THE NINETEENTH HANDLER: AN APPROVAL, NOT A RETURN.
+     *
+     * BankTransferController::planPayWithbank records a PENDING order with an uploaded receipt
+     * and assigns nothing. The activation is orderapprove() (:119), which sets
+     * payment_status = 'Approved' and calls assignPlan() on whatever PlanOrder id it is given --
+     * so what has to stand in its way is AUTHORIZATION, not provider verification. Before the
+     * middleware was attached, any authenticated merchant could approve THEIR OWN pending
+     * bank-transfer order and receive a paid plan for nothing.
+     *
+     * Asserted on the route table because that is where the gate lives: BankTransferController
+     * is an upstream payments file and the smaller the structural change, the smaller the merge
+     * surface.
+     */
+    public function test_bank_transfer_activation_is_gated_by_platform_operator_authorization(): void
+    {
+        $route = \Illuminate\Support\Facades\Route::getRoutes()->getByName('order.approve');
+
+        $this->assertNotNull(
+            $route,
+            'route("order.approve") has gone. It is the only activation path for a bank-transfer '
+            . 'plan purchase; if it has been renamed, this assertion has to follow it.'
+        );
+
+        $this->assertContains(
+            \App\Http\Middleware\PlatformOperatorOnly::class,
+            $route->gatherMiddleware(),
+            'route("order.approve") no longer carries PlatformOperatorOnly. '
+            . 'BankTransferController::orderapprove() sets payment_status = "Approved" and calls '
+            . 'assignPlan() on any PlanOrder id with no authorization of its own, so without this '
+            . 'middleware any authenticated merchant can approve their own pending bank-transfer '
+            . 'order and receive a paid plan without paying.'
+        );
     }
 
     private function source(string $controller): string
@@ -310,6 +482,303 @@ class PlanPaymentVerificationInventoryTest extends TestCase
             . 'measured more than forty, so the scan has probably broken and this file is now '
             . 'asserting nothing.'
         );
+    }
+
+    /**
+     * THE HOLE THAT LET NINETEEN HANDLERS HIDE: A PRICE TAKEN FROM A ROUTE PARAMETER.
+     *
+     * The census above looks for `$request->` and `$request[`. That is not the only way a
+     * caller's number reaches a PlanOrder. Laravel binds route segments to METHOD PARAMETERS,
+     * so
+     *     Route::get('plan-sspay-payment/{plan_id}/{amount}/{couponCode}', ...)
+     *     public function SspayPlanGetPayment(Request $request, $planId, $getAmount, $couponCode)
+     *     $order->price = $getAmount;
+     * is request-sourced pricing with no `$request` anywhere near it -- and it was invisible to
+     * every scan this file has ever run. Four handlers priced this way (Sspay, Toyyibpay,
+     * IyziPay and PayPal), and PayFast reached the same place through a Crypt blob passed as a
+     * route parameter. That is the same class of mistake as the previous version of this file
+     * pinning an assignment instead of the value's origin: the net was narrower than the defect.
+     *
+     * WHAT THIS ASSERTS, and why it is not simply "never do this": a parameter-priced writer is
+     * acceptable ONLY while its provider is DISABLED on the config/payments.php map, because
+     * then the handler refuses before it can record anything. So every hit must be a provider
+     * that is both guarded and shipped-disabled. A new gateway that lands pricing from its URL
+     * with no guard reddens this immediately; so does removing the guard from one of the five.
+     *
+     * The parameter list is read from the enclosing method, not file-wide: a name that is a
+     * parameter of some OTHER method in the same controller is an ordinary local variable here,
+     * and treating it as caller input is how a census starts crying wolf.
+     */
+    public function test_a_plan_purchase_writer_that_prices_from_a_route_parameter_must_be_disabled(): void
+    {
+        /**
+         * The five that price from a parameter and are refused before the write. Each value is
+         * the config/payments.php key that must be guarding it.
+         *
+         * Aamarpay and PayFast reach it through a Crypt::decrypt() of the parameter -- which is
+         * unforgeable (it is sealed with APP_KEY) but is minted at checkout START, before any
+         * money moves, and then handed out; PayFast's is rendered into a hidden input in the
+         * caller's own browser. Sealed is not the same as paid.
+         */
+        $parameterPricedButGuarded = [
+            'AamarpayController'   => 'aamarpay',
+            'IyziPayController'    => 'iyzipay',
+            'PayFastController'    => 'payfast',
+            'SspayController'      => 'sspay',
+            'ToyyibpayController'  => 'toyyibpay',
+        ];
+
+        $flagged = [];
+
+        foreach ((glob(app_path('Http/Controllers') . '/*.php') ?: []) as $file) {
+            $src = $this->codeOnly((string) file_get_contents($file));
+
+            if (! str_contains($src, 'assignPlan(')) {
+                continue;
+            }
+
+            $why = $this->parameterSourcedPrice($src);
+
+            if ($why !== null) {
+                $flagged[basename($file, '.php')] = $why;
+            }
+        }
+
+        $unexpected = array_diff_key($flagged, $parameterPricedButGuarded);
+
+        $message = '';
+        foreach ($unexpected as $controller => $why) {
+            $message .= "\n  " . $controller . "\n      " . $why;
+        }
+
+        $this->assertSame(
+            [],
+            array_keys($unexpected),
+            'A plan-purchase writer records the PlanOrder price from one of its own METHOD '
+            . "PARAMETERS -- i.e. from the URL:" . $message
+            . "\n\nThat is request-sourced pricing with no \$request in sight, which is exactly "
+            . 'how nineteen handlers stayed out of this census. Price it from $plan->price plus a '
+            . 'server-validated coupon (GuardsPlanActivation::serverOwnedPlanPrice()), and then '
+            . 'ask the harder question: before assignPlan(), does this handler check anything the '
+            . 'caller cannot forge? If not, it needs an entry on the config/payments.php map and '
+            . 'a case in PlanPaymentNewlyGuardedTest.'
+        );
+
+        // AND THE EXEMPTIONS MUST STILL BE EARNING THEIR EXEMPTION. A named exception that
+        // stops being guarded is worse than no exception at all: it reads as "known and
+        // handled" while being neither.
+        foreach ($parameterPricedButGuarded as $controller => $key) {
+            $this->assertArrayHasKey(
+                $controller,
+                $flagged,
+                $controller . ' no longer prices from a route parameter. If it has been repaired '
+                . 'to price from the plan, remove it from this list -- leaving it here hides the '
+                . 'next handler that does this.'
+            );
+
+            $this->assertStringContainsString(
+                "assertPlanActivationEnabled('" . $key . "'",
+                $this->source($controller),
+                $controller . ' prices a plan purchase from a route parameter and NO LONGER '
+                . 'carries its fail-closed guard. One authenticated request now records any '
+                . 'amount it likes against any plan -- and activates it.'
+            );
+
+            $this->assertFalse(
+                filter_var(config('payments.plan_activation.' . $key), FILTER_VALIDATE_BOOLEAN),
+                $controller . ' prices from a route parameter and ' . $key . ' is now ENABLED, so '
+                . 'the guard lets the forged amount through. Enabling this provider requires the '
+                . 'price to come from the plan first.'
+            );
+        }
+    }
+
+    /**
+     * Does this file assign $order->price from a parameter of the method that writes it?
+     *
+     * Returns the offending chain (for the failure message) or null. One hop, within the
+     * enclosing method body only -- the same depth as requestSourcedPrice(), for the same
+     * reason: two hops across method boundaries is where the previous tracer produced the
+     * false positives that Braintree, MyFatoorah and Mollie are named for.
+     */
+    private function parameterSourcedPrice(string $src): ?string
+    {
+        $methods = $this->methodsIn($src);
+        $writes  = [];
+
+        foreach (['/\$order->price\s*=\s*([^;]+);/s', '/\$planorder->price\s*=\s*([^;]+);/s'] as $pattern) {
+            if (preg_match_all($pattern, $src, $m, PREG_OFFSET_CAPTURE)) {
+                foreach ($m[1] as $hit) {
+                    $writes[] = [$hit[0], $hit[1]];
+                }
+            }
+        }
+
+        $offset = 0;
+
+        while (($at = strpos($src, 'PlanOrder::create(', $offset)) !== false) {
+            $call   = $this->balancedCall($src, $at + strlen('PlanOrder::create'));
+            $offset = $at + strlen('PlanOrder::create(');
+
+            if (preg_match_all("/'price'\\s*=>\\s*([^,\\n]+)/", $call, $m)) {
+                foreach ($m[1] as $expr) {
+                    $writes[] = [$expr, $at];
+                }
+            }
+        }
+
+        foreach ($writes as [$expr, $position]) {
+            if ($this->isServerOwnedPriceExpression($expr)) {
+                continue;
+            }
+
+            $method = $this->enclosingMethod($methods, $position);
+
+            if ($method === null) {
+                continue;
+            }
+
+            [$name, $params, $bodyStart, $bodyEnd] = $method;
+
+            // `Request $request` is a parameter too, but it is the framework's object and is
+            // already covered by requestSourcedPrice(); counting it here would double-report.
+            $params = array_values(array_diff($params, ['request']));
+
+            preg_match_all('/\$([A-Za-z_]\w*)/', $expr, $vm);
+
+            $direct = array_values(array_intersect($vm[1], $params));
+
+            if ($direct !== []) {
+                return $name . '(): $order->price = ' . trim($expr)
+                    . '   <=   route parameter $' . $direct[0];
+            }
+
+            $body = substr($src, $bodyStart, $bodyEnd - $bodyStart);
+
+            foreach ($vm[1] as $variable) {
+                if (! preg_match_all('/\$' . $variable . '\s*=\s*([^;]+);/s', $body, $am)) {
+                    continue;
+                }
+
+                foreach ($am[1] as $assign) {
+                    if ($this->isServerOwnedPriceExpression($assign)) {
+                        continue;
+                    }
+
+                    preg_match_all('/\$([A-Za-z_]\w*)/', $assign, $am2);
+
+                    $hit = array_values(array_intersect($am2[1], $params));
+
+                    if ($hit !== []) {
+                        return $name . '(): $order->price = ' . trim($expr) . '   <=   '
+                            . trim($assign) . '   <=   route parameter $' . $hit[0];
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Sources that are server-owned whatever else the expression mentions.
+     *
+     * serverOwnedPlanPrice()  the shared helper.
+     * priceFromPlanOrFail()   eSewa's and Sofort's equivalent from the previous phase, which
+     *                         additionally refuses a mismatched claimed amount. Its signature is
+     *                         ($plan, $request) -- the request carries only the coupon CODE --
+     *                         so without recognising it by name those two read as request-priced.
+     * $plan->                 the plan's own price. MercadoPaymentController is
+     *                         `$price == null ? 0 : $price` where `$price = $plan->price`, and
+     *                         $plan is its route parameter: plan-sourced through a parameter is
+     *                         still plan-sourced.
+     * session()/Session::get  server-side state reached through the request object.
+     */
+    private function isServerOwnedPriceExpression(string $expression): bool
+    {
+        foreach (['serverOwnedPlanPrice(', 'priceFromPlanOrFail(', '$plan->', 'session()', 'Session::get'] as $marker) {
+            if (str_contains($expression, $marker)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Every method in the file as [name, parameter names, body-start offset, body-end offset].
+     *
+     * Brace-matched rather than guessed at, for the same reason balancedCall() counts
+     * parentheses: a fixed window over a 967-line controller lands in the middle of another
+     * method and reports its parameters as this one's.
+     */
+    private function methodsIn(string $src): array
+    {
+        $methods = [];
+        $offset  = 0;
+
+        while (($at = strpos($src, 'function', $offset)) !== false) {
+            $offset = $at + strlen('function');
+
+            $paren = strpos($src, '(', $at);
+
+            if ($paren === false) {
+                break;
+            }
+
+            $signature = $this->balancedCall($src, $paren);
+
+            preg_match_all('/\$([A-Za-z_]\w*)/', $signature, $m);
+
+            $brace = strpos($src, '{', $paren + strlen($signature));
+
+            if ($brace === false) {
+                continue;
+            }
+
+            $depth  = 0;
+            $end    = strlen($src);
+            $length = strlen($src);
+
+            for ($i = $brace; $i < $length; $i++) {
+                if ($src[$i] === '{') {
+                    $depth++;
+                } elseif ($src[$i] === '}') {
+                    $depth--;
+
+                    if ($depth === 0) {
+                        $end = $i;
+
+                        break;
+                    }
+                }
+            }
+
+            $methods[] = [
+                trim(substr($src, $at + strlen('function'), $paren - $at - strlen('function'))),
+                $m[1],
+                $brace,
+                $end,
+            ];
+        }
+
+        return $methods;
+    }
+
+    /** The innermost method containing $position (closures nest inside methods). */
+    private function enclosingMethod(array $methods, int $position): ?array
+    {
+        $best = null;
+
+        foreach ($methods as $method) {
+            if ($position > $method[2] && $position < $method[3]) {
+                if ($best === null || $method[2] > $best[2]) {
+                    $best = $method;
+                }
+            }
+        }
+
+        return $best;
     }
 
     /**

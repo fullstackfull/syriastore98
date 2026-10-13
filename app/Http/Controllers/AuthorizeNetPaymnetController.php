@@ -37,9 +37,11 @@ use App\Models\TaxMethod;
 use App\Models\UserCoupon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Cookie;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class AuthorizeNetPaymnetController extends Controller
 {
+    use GuardsPlanActivation;
     use ApiResponser;
     //
     public function planPayWithAuthorizeNet(Request $request)
@@ -96,10 +98,32 @@ class AuthorizeNetPaymnetController extends Controller
         $input          = $request->all();
 
         $data           = json_decode($input['data'] , true);
-        $amount = $data['amount'];
         $coupanCode =  $data['coupon_code'];
         $user = \Auth::user();
         $plan = Plan::find($data['id']);
+
+        if (empty($plan)) {
+            return redirect()->route('plan.index')->with('error', __('Plan is deleted.'));
+        }
+
+        // THE AMOUNT IS THE PLAN'S, NOT THE BROWSER'S.
+        //
+        // This was `$amount = $data['amount']`, and $data is json_decode($input['data']) --
+        // i.e. a POSTED FORM FIELD (plans/request.blade.php:34 renders it as a hidden input).
+        // The caller therefore chose the figure that is CHARGED TO THE CARD at :120 and then
+        // RECORDED at :154: `{"id":<expensive plan>,"amount":0.01,"coupon_code":null}` bought
+        // any plan for a cent, and the charge succeeded, so the provider verification below
+        // confirmed it honestly.
+        //
+        // AuthorizeNet IS genuinely verified on this path -- the SDK executes a real
+        // authCaptureTransaction against Authorize.Net and the gate is its resultCode plus
+        // $tresponse->getMessages() -- so this provider is NOT on the config/payments.php map
+        // and its gate is untouched. Only the amount changes, and it is computed once here so
+        // that the figure charged and the figure recorded cannot disagree.
+        //
+        // No amount-mismatch refusal is added; see GuardsPlanActivation for why that is
+        // deliberate.
+        $amount = $this->serverOwnedPlanPrice($plan, $coupanCode);
 
         try {
             $merchantAuthentication = new AnetAPI\MerchantAuthenticationType();

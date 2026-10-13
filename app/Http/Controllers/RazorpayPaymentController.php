@@ -10,9 +10,11 @@ use App\Models\Plan;
 use App\Models\Utility;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class RazorpayPaymentController extends Controller
 {
+    use GuardsPlanActivation;
     //
     public $secret_key;
     public $public_key;
@@ -118,6 +120,15 @@ class RazorpayPaymentController extends Controller
 
     public function getPaymentStatus(Request $request, $pay_id, $plan)
     {
+        // FAIL CLOSED FIRST. This handler DOES curl api.razorpay.com below -- and then never
+        // reads the answer. There is no conditional of any kind between the curl and
+        // assignPlan(); $response is used only for `$response->amount / 100` and the txn_id, so
+        // the payment's `status` is never judged. The payment id is a route parameter, so a
+        // merchant's own ABANDONED or FAILED payment -- which Razorpay returns happily, with an
+        // amount -- activates the plan. The PayTabs pattern: the verification is performed and
+        // then discarded. See config/payments.php.
+        $this->assertPlanActivationEnabled('razorpay');
+
         $payment = $this->paymentConfig();
         $planID  = \Illuminate\Support\Facades\Crypt::decrypt($plan);
         $plan    = Plan::find($planID);

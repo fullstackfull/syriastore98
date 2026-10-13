@@ -29,9 +29,11 @@ use Srmklive\PayPal\Services\PayPal as PayPalClient;
 use App\Models\OrderNote;
 use App\Models\Setting;
 use Illuminate\Support\Facades\Crypt;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class PaypalPaymentController extends Controller
 {
+    use GuardsPlanActivation;
 
     public function paymentConfig()
     {
@@ -160,7 +162,20 @@ class PaypalPaymentController extends Controller
                 $order->card_exp_year = '';
                 $order->plan_name = $plan->name;
                 $order->plan_id = $plan->id;
-                $order->price = $amount;
+                // Server-owned: was `$amount`, which is a ROUTE PARAMETER
+                // ({id}/{amount}/plan-paypal-payment/, routes/web.php:601) -- so the recorded
+                // amount was whatever the caller put in the URL, and `&amount=0` recorded a
+                // zero-value purchase of a paid plan.
+                //
+                // PayPal IS verified on this path: capturePaymentOrder() above is an outbound
+                // capture and the gate requires $response['status'] == 'COMPLETED', so a forged
+                // return cannot activate a plan and this provider is NOT on the
+                // config/payments.php map. Only the RECORDED price changes, which is why no
+                // amount-mismatch refusal is added -- see GuardsPlanActivation.
+                $order->price = $this->serverOwnedPlanPrice(
+                    $plan,
+                    optional(PlanCoupon::find($request->coupon_id))->code
+                );
                 $order->price_currency = $currency;
                 $order->payment_type = __('PAYPAL');
                 $order->payment_status = $statuses;

@@ -9,8 +9,9 @@ use Tests\TestCase;
  * THE FAIL-CLOSED POSTURE IS NOT A SILENT KILL SWITCH.
  * =============================================================================================
  *
- * config/payments.php disables plan activation for fifteen payment providers whose return
- * handlers cannot be verified from this environment. A switch like that is dangerous in exactly
+ * config/payments.php disables plan activation for TWENTY-SIX payment providers whose return
+ * handlers cannot be verified from this environment (fifteen from the first pass, and eleven
+ * more once the nineteen never-classified handlers were read). A switch like that is dangerous in exactly
  * two directions, and this file nails both:
  *
  *   DRIFT TOWARDS OPEN -- someone flips a default to true, or deletes an entry, and a free
@@ -35,7 +36,7 @@ use Tests\TestCase;
 class PlanPaymentPostureTest extends TestCase
 {
     /**
-     * The fifteen forgeable providers, each with the env key its entry must read.
+     * Every forgeable provider, each with the env key its entry must read.
      *
      * FAIL-CLOSED -- DISABLED PENDING VERIFICATION, every one. None of these is verified.
      */
@@ -60,6 +61,30 @@ class PlanPaymentPostureTest extends TestCase
             'CoinGate'    => ['coingate', 'PLAN_ACTIVATION_COINGATE'],
             'PayTabs'     => ['paytabs', 'PLAN_ACTIVATION_PAYTABS'],
             'SSLCommerz'  => ['sslcommerz', 'PLAN_ACTIVATION_SSLCOMMERZ'],
+
+            // ------------------------------------------------------------------------------
+            // THE ELEVEN FROM THE LAST UNCLASSIFIED BLOCK. Nineteen plan-purchase handlers
+            // had never had their activation gate read; seven turned out to verify with their
+            // provider and one (BankTransfer) is a platform-operator approval rather than a
+            // provider return. These eleven are the residue, and each one activates a paid
+            // subscription on something the caller holds. config/payments.php carries the
+            // per-provider reason and re-enable conditions.
+            //
+            // NONE of the eleven can forge the amount upward, unlike most of the fifteen
+            // above -- each prices from $plan->price, a server-sealed blob or server-side
+            // session state. The defect here is purely that THE SUBSCRIPTION IS FREE.
+            // ------------------------------------------------------------------------------
+            'Aamarpay'    => ['aamarpay', 'PLAN_ACTIVATION_AAMARPAY'],
+            'IyziPay'     => ['iyzipay', 'PLAN_ACTIVATION_IYZIPAY'],
+            'Mercado'     => ['mercado', 'PLAN_ACTIVATION_MERCADO'],
+            'Midtrans'    => ['midtrans', 'PLAN_ACTIVATION_MIDTRANS'],
+            'PayFast'     => ['payfast', 'PLAN_ACTIVATION_PAYFAST'],
+            'PaymentWall' => ['paymentwall', 'PLAN_ACTIVATION_PAYMENTWALL'],
+            'PayU'        => ['payu', 'PLAN_ACTIVATION_PAYU'],
+            'Razorpay'    => ['razorpay', 'PLAN_ACTIVATION_RAZORPAY'],
+            'Skrill'      => ['skrill', 'PLAN_ACTIVATION_SKRILL'],
+            'Sspay'       => ['sspay', 'PLAN_ACTIVATION_SSPAY'],
+            'Toyyibpay'   => ['toyyibpay', 'PLAN_ACTIVATION_TOYYIBPAY'],
         ];
     }
 
@@ -82,6 +107,17 @@ class PlanPaymentPostureTest extends TestCase
             'CoinGate'    => ['coingate', 'CoingateController'],
             'PayTabs'     => ['paytabs', 'PaytabsController'],
             'SSLCommerz'  => ['sslcommerz', 'SSLCommerzPaymentController'],
+            'Aamarpay'    => ['aamarpay', 'AamarpayController'],
+            'IyziPay'     => ['iyzipay', 'IyziPayController'],
+            'Mercado'     => ['mercado', 'MercadoPaymentController'],
+            'Midtrans'    => ['midtrans', 'MidtransController'],
+            'PayFast'     => ['payfast', 'PayFastController'],
+            'PaymentWall' => ['paymentwall', 'PaymentWallPaymentController'],
+            'PayU'        => ['payu', 'PayUPaymentController'],
+            'Razorpay'    => ['razorpay', 'RazorpayPaymentController'],
+            'Skrill'      => ['skrill', 'SkrillPaymentController'],
+            'Sspay'       => ['sspay', 'SspayController'],
+            'Toyyibpay'   => ['toyyibpay', 'ToyyibpayController'],
         ];
     }
 
@@ -90,7 +126,7 @@ class PlanPaymentPostureTest extends TestCase
         $path = config_path('payments.php');
         $this->assertFileExists($path, 'config/payments.php has been deleted. Every plan-payment '
             . 'guard reads it, and a missing key fails closed -- so deleting it refuses all '
-            . 'fifteen providers rather than opening them, but the posture documentation is gone.');
+            . 'mapped providers rather than opening them, but the posture documentation is gone.');
 
         return (string) file_get_contents($path);
     }
@@ -194,7 +230,14 @@ class PlanPaymentPostureTest extends TestCase
      *
      * Fail-closed is the right answer for an unverifiable provider and the WRONG answer for a
      * working one: disabling CinetPay or Powertranz would break live subscription sales for no
-     * security gain. The map must therefore contain the fifteen and only the fifteen.
+     * security gain. The map must therefore contain these providers and only these.
+     *
+     * This is the assertion that cost the most care in the second pass. Seven of the nineteen
+     * newly read handlers DO verify with their provider -- four of them by taking the payment
+     * outright on the request (AuthorizeNet, Braintree, NMI, PayPal's capture) -- and sweeping
+     * any of those onto this map would have stopped real subscription sales. Razorpay is the
+     * near miss in the other direction: it curls api.razorpay.com and then never reads the
+     * answer, so it is on the map while the seven that read theirs are not.
      */
     public function test_no_verified_provider_has_been_swept_onto_the_disabled_map(): void
     {
@@ -207,7 +250,7 @@ class PlanPaymentPostureTest extends TestCase
         $this->assertSame(
             $expected,
             $map,
-            "config('payments.plan_activation') no longer holds exactly the fifteen forgeable "
+            "config('payments.plan_activation') no longer holds exactly the forgeable "
             . "providers.\n  Added entries disable a provider that may well verify with its "
             . "gateway, which breaks real subscription sales.\n  Removed entries lose that "
             . "provider's recorded reason and re-enable conditions.\n  Either way, update "
@@ -216,7 +259,7 @@ class PlanPaymentPostureTest extends TestCase
     }
 
     /**
-     * The eight verified providers are documented, and documented as verified -- not disabled.
+     * The verified providers are documented, and documented as verified -- not disabled.
      */
     public function test_every_verified_provider_is_recorded_with_its_verification_marker(): void
     {
@@ -234,6 +277,18 @@ class PlanPaymentPostureTest extends TestCase
             'CyberSourceController',
             'MolliePaymentController',
             'StripePaymentController',
+
+            // The seven from the nineteen never-classified handlers that turned out to ask
+            // their provider before activating. HAND-READ, not grepped: Khalti verifies
+            // through App\Khalti\Khalti::verifyPayment() rather than an inline HTTP client,
+            // and Braintree's and AuthorizeNet's calls go out through vendor SDKs.
+            'AuthorizeNetPaymnetController',
+            'BraintreeController',
+            'FlutterwaveController',
+            'KhaltiPaymnetController',
+            'NMIPayController',
+            'PaypalPaymentController',
+            'PaystackPaymentController',
         ];
 
         foreach ($expected as $controller) {

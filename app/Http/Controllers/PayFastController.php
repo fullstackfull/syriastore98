@@ -10,9 +10,11 @@ use App\Models\PlanUserCoupon;
 use App\Models\Plan;
 use App\Models\PlanOrder;
 use Illuminate\Http\Request;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class PayFastController extends Controller
 {
+    use GuardsPlanActivation;
     //
     protected $payfast_merchant_id, $payfast_merchant_key, $payfast_signature, $payfast_mode, $is_enabled, $currency;
     public function paymentConfig()
@@ -125,6 +127,13 @@ class PayFastController extends Controller
 
     public function success($success)
     {
+        // FAIL CLOSED FIRST. There is no gate below at all -- and the capability is handed
+        // straight to the caller: index() seals plan_id/plan_amount into $success, puts
+        // route('payfast.payment.success', $success) in return_url (:79), renders every field
+        // into hidden inputs (:98-100) and returns that HTML to the browser (:101-104). The
+        // success URL is in the caller's hands before any payment. See config/payments.php.
+        $this->assertPlanActivationEnabled('payfast');
+
         try {
             $user = Auth::user();
             $data = Crypt::decrypt($success);

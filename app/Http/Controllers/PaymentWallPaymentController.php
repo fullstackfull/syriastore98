@@ -9,9 +9,11 @@ use App\Models\UserCoupon;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Order;
 use Illuminate\Http\Request;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class PaymentWallPaymentController extends Controller
 {
+    use GuardsPlanActivation;
     public $secret_key;
     public $public_key;
     public $is_enabled;
@@ -43,6 +45,14 @@ class PaymentWallPaymentController extends Controller
 
     public function planPayWithPaymentWall(Request $request, $plan_id)
     {
+        // FAIL CLOSED FIRST. The gate below WOULD be a real provider charge
+        // ($charge->isSuccessful() / isCaptured()), but \Paymentwall_Charge does not exist in
+        // this environment -- no paymentwall package is required in composer.json and
+        // class_exists('Paymentwall_Charge') is false -- so the SDK's contract cannot be read
+        // or tested here, and the private key below is a hardcoded literal rather than a
+        // setting. The Yookassa precedent. See config/payments.php.
+        $this->assertPlanActivationEnabled('paymentwall');
+
         $planID    = \Illuminate\Support\Facades\Crypt::decrypt($plan_id);
 
         $plan      = Plan::find($planID);
