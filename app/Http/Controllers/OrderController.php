@@ -687,36 +687,52 @@ public function store(Request $request)
             // out of the support workflow.
             $this->authorize('updateStatus', $order);
 
-            if ($status == 2) {
-                $product_json = json_decode($order->product_json, true);
-                foreach ($product_json as $key => $product) {
-                    $product_id = $product['product_id'];
-                    $variant_id = $product['variant_id'];
-                    if ($variant_id == 0 || empty($variant_id)) {
-                        // $productModel, NOT $product. The previous line reassigned
-                        // $product -- the ARRAY element carrying 'qty' -- to the Product
-                        // MODEL, and then read $product['qty'] from that model. Product has
-                        // no `qty` attribute, so the expression was null and
-                        // `product_stock += null` added ZERO. Every non-variant line's stock
-                        // restore was a silent no-op on return approval, while the variant
-                        // branch below worked because it keeps $product as the array.
-                        $productModel = Product::find($product_id);
-                        if (!empty($productModel)) {
-                            $productModel->product_stock += $product['qty'];
-                            $productModel->save();
-                        }
-                    } else {
-                        $productVariant = ProductVariant::where('product_id', $product_id)->where('id', $variant_id)->first();
-                        if (!empty($productVariant)) {
-                            $productVariant->stock += $product['qty'];
-                            $productVariant->save();
-                        }
-                    }
+            /*
+             * IDEMPOTENCY. The restock below used to run on EVERY call carrying
+             * $status == 2, with no reference to the return state the order was
+             * already in. `return_status` is not single-assignment -- this same
+             * method writes it, and nothing refuses a second POST -- so an
+             * authenticated merchant replaying one approval added `qty` back to
+             * every line again, without limit.
+             *
+             * That is the SAME unbounded inventory-inflation primitive that was
+             * closed on `status.cancel` (see the comment in status_cancel()
+             * about the loop that ran before the success branch was examined).
+             * It was left open here because the two fixes were made for two
+             * different endpoints, and nothing tied them together.
+             *
+             * The marker is the order's OWN `return_status`, read BEFORE
+             * anything is written: 2 is "Return" (App\Models\Order.php:145), so
+             * an order already at 2 has already had its goods counted back in.
+             * No note row and no cache key is needed -- the durable state is
+             * already on the row this method updates, and it is updated inside
+             * the same transaction as the stock it accounts for.
+             */
+            $previousReturnStatus = (int) $order->return_status;
+            $isNewApproval = ((int) $status === 2) && $previousReturnStatus !== 2;
+
+            /*
+             * TRANSACTION BOUNDARY, around the LOCAL writes only. This method
+             * makes no external call -- the e-mail and webhook side effects of
+             * the order flow live in other methods -- so the boundary covers
+             * exactly the stock restore and the order row that records it.
+             *
+             * Before this, the restock loop and `$order->save()` were separate
+             * autocommitted writes. A throw part-way through the loop left some
+             * lines restocked and `return_status` NEVER written, so the order
+             * stayed un-approved while its inventory had already moved -- and
+             * because the guard above reads `return_status`, the next attempt
+             * then restocked the surviving lines a second time.
+             */
+            DB::transaction(function () use ($order, $status, $isNewApproval) {
+                if ($isNewApproval) {
+                    $this->restoreReturnedStock($order);
                 }
-            }
-            $order->return_price = $order->final_price;
-            $order->return_status = $status;
-            $order->save();
+
+                $order->return_price = $order->final_price;
+                $order->return_status = $status;
+                $order->save();
+            });
         }
 
         $return['message'] = __('Return request approve successfully');
@@ -724,6 +740,121 @@ public function store(Request $request)
             $return['message'] = __('Return request reject successfully');
         }
         return response()->json($return);
+    }
+
+    /**
+     * Put an approved return's goods back into stock, exactly once per line.
+     *
+     * ATOMIC. Each line used to be `$model->stock += $qty; $model->save();` --
+     * a read-modify-write, i.e. the lost update
+     * App\Services\ProductStockService exists to remove. Two concurrent
+     * approvals both read the same stock and both wrote `stock + qty`, so the
+     * second overwrote the first and returned goods vanished from inventory.
+     * The service issues an `increment()`, which the database applies to the
+     * row's current value.
+     *
+     * The CALLER owns both the transaction and the replay guard; this method
+     * only does the arithmetic, so it must not be called without them.
+     */
+    private function restoreReturnedStock(Order $order): void
+    {
+        $lines = json_decode((string) $order->product_json, true);
+
+        if (!is_array($lines)) {
+            Log::warning('Return approval restored no stock: order carries no readable product_json', [
+                'order_id' => $order->id,
+            ]);
+
+            return;
+        }
+
+        /*
+         * The store comes from the ORDER, not from getCurrentStore().
+         *
+         * OrderPolicy::allow checks isPlatformAdmin BEFORE isAbleTo, so a
+         * platform operator may legitimately approve a return on a store that is
+         * not their current_store. Scoping this lookup to getCurrentStore()
+         * would silently restore nothing for exactly that supported workflow.
+         * The order has already passed authorize('updateStatus'), so its own
+         * store_id is the authorised one.
+         */
+        $storeId = $order->store_id;
+
+        foreach ($lines as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+
+            $productId = $line['product_id'] ?? null;
+            $variantId = $line['variant_id'] ?? null;
+            $qty = $line['qty'] ?? null;
+
+            /*
+             * `qty` is read out of a JSON blob on the order row, so it is
+             * neither typed nor validated. A negative value would have
+             * SUBTRACTED stock through a restore path, and a non-numeric one was
+             * coerced to 0 silently. Both are skipped and logged rather than
+             * applied.
+             */
+            if ($productId === null || !is_numeric($qty) || (int) $qty <= 0) {
+                Log::warning('Return approval skipped a line with an unusable product id or quantity', [
+                    'order_id' => $order->id,
+                    'product_id' => $productId,
+                ]);
+
+                continue;
+            }
+
+            $qty = (int) $qty;
+
+            /*
+             * The store predicate is new. `product_id` comes from the order's own
+             * product_json, which is a JSON blob rather than a validated foreign
+             * key, so the previous bare `Product::find($product_id)` would have
+             * written product_stock onto a product in ANY store.
+             */
+            $product = Product::where('id', $productId)
+                ->where('store_id', $storeId)
+                ->first();
+
+            if (!$product) {
+                Log::warning("Return approval skipped a line whose product is not in the order's store", [
+                    'order_id' => $order->id,
+                    'product_id' => $productId,
+                    'store_id' => $storeId,
+                ]);
+
+                continue;
+            }
+
+            if ($variantId == 0 || empty($variantId)) {
+                $this->stockService()->restoreProductStock($product->id, $qty);
+
+                continue;
+            }
+
+            /*
+             * BOTH predicates are kept. Looking a variant up by `id` alone would
+             * accept a variant belonging to a different product, and looking it
+             * up by `product_id` alone is the wrong-row write already fixed in
+             * OrderRefundController::RefundStock.
+             */
+            $variant = ProductVariant::where('id', $variantId)
+                ->where('product_id', $product->id)
+                ->first();
+
+            if (!$variant) {
+                Log::warning('Return approval skipped a line whose variant does not belong to its product', [
+                    'order_id' => $order->id,
+                    'product_id' => $product->id,
+                    'variant_id' => $variantId,
+                ]);
+
+                continue;
+            }
+
+            $this->stockService()->restoreVariantStock($variant->id, $qty);
+        }
     }
 
     public function order_status_change(Request $request)
@@ -955,21 +1086,84 @@ public function store(Request $request)
         if ($responce['status'] == 'success') {
             $order_detail = Order::order_detail($request->order_id);
 
-            foreach ($order_detail['product'] as $item) {
-                if ($item['variant_id'] == 0) {
-                    $product = Product::where('id', $item['product_id'])->first();
-                    if (! empty($product)) {
-                        $product->product_stock += $item['qty'];
-                        $product->save();
+            /*
+             * ATOMIC, AND TRANSACTIONAL. Each line was
+             * `$model->stock += $item['qty']; $model->save();` -- the same
+             * read-modify-write lost update App\Services\ProductStockService
+             * exists to remove: two concurrent cancellations both read the same
+             * stock and both wrote `stock + qty`, so the second overwrote the
+             * first and a cancelled order's goods never came back.
+             *
+             * THE BOUNDARY COVERS THIS LOOP ONLY, deliberately. It does NOT
+             * extend over the Order::order_status_change() call above, because
+             * that method fires `event(new OrderPaymentStatus($order))`
+             * (app/Models/Order.php:554) whose listeners send notifications --
+             * an external HTTP call must never sit inside a transaction, and a
+             * wallet listener behind GATE F must not be rolled back by a stock
+             * failure either. The replay guard stays exactly where it was: this
+             * loop still runs only on `$responce['status'] == 'success'`, which
+             * a second attempt never reaches.
+             *
+             * The store predicate is new, for the same reason as in
+             * restoreReturnedStock(): `product_id` comes out of the order's
+             * product_json, so the previous unscoped lookup could add stock to a
+             * product in another store.
+             */
+            DB::transaction(function () use ($order_detail, $order) {
+                foreach ($order_detail['product'] as $item) {
+                    $productId = $item['product_id'] ?? null;
+                    $qty = $item['qty'] ?? null;
+
+                    if ($productId === null || !is_numeric($qty) || (int) $qty <= 0) {
+                        Log::warning('Order cancellation skipped a line with an unusable product id or quantity', [
+                            'order_id' => $order->id,
+                            'product_id' => $productId,
+                        ]);
+
+                        continue;
                     }
-                } else {
-                    $variant = ProductVariant::where('id', $item['variant_id'])->first();
-                    if (! empty($variant)) {
-                        $variant->stock += $item['qty'];
-                        $variant->save();
+
+                    $qty = (int) $qty;
+
+                    $product = Product::where('id', $productId)
+                        ->where('store_id', $order->store_id)
+                        ->first();
+
+                    if (! $product) {
+                        Log::warning("Order cancellation skipped a line whose product is not in the order's store", [
+                            'order_id' => $order->id,
+                            'product_id' => $productId,
+                            'store_id' => $order->store_id,
+                        ]);
+
+                        continue;
                     }
+
+                    if ($item['variant_id'] == 0) {
+                        $this->stockService()->restoreProductStock($product->id, $qty);
+
+                        continue;
+                    }
+
+                    // Both predicates, so a variant_id belonging to another
+                    // product cannot be credited against this line.
+                    $variant = ProductVariant::where('id', $item['variant_id'])
+                        ->where('product_id', $product->id)
+                        ->first();
+
+                    if (! $variant) {
+                        Log::warning('Order cancellation skipped a line whose variant does not belong to its product', [
+                            'order_id' => $order->id,
+                            'product_id' => $product->id,
+                            'variant_id' => $item['variant_id'],
+                        ]);
+
+                        continue;
+                    }
+
+                    $this->stockService()->restoreVariantStock($variant->id, $qty);
                 }
-            }
+            });
 
             $return['status'] = 'success';
             $return['message'] = __('Order cancel successfully!');
