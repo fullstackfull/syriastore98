@@ -79,6 +79,13 @@ class AccountLinker
 
         $this->assertClaimable($existing);
 
+        // Captured BEFORE the row is overwritten. A pending row may already carry a workspace
+        // from an earlier claim, and that workspace is one Lynomia has already granted this
+        // app access to. Overwriting the row in place would discard the only reference to it
+        // and leave administrative access nothing in Store Syria records -- the orphan this
+        // flow exists to avoid, reachable with no race at all: claim 7001, then claim 7002.
+        $displacedAccountId = $existing?->lynomia_account_id;
+
         // Proof first. Lynomia answers with the account and the administrator who authorized
         // it, or refuses -- and a refusal here is the end of it, with nothing written.
         $proof = $this->api->redeemLinkCode($connectionCode);
@@ -106,8 +113,37 @@ class AccountLinker
 
         try {
             if ($existing !== null) {
-                $existing->forceFill($attributes)->save();
-                $link = $existing;
+                // A CONDITIONAL UPDATE, BECAUSE THE DECISION IS OLDER THAN THE WRITE.
+                //
+                // assertClaimable ran against a snapshot taken before a remote call that can
+                // take fifteen seconds, and an operator can approve the claim it was shown
+                // inside that window. A plain save() writes only the columns dirty relative
+                // to that stale snapshot: `state` matches in both, so it is NOT in the
+                // UPDATE, and the operator's state=active survives while the ids they
+                // approved are silently replaced -- an ACTIVE link, with verified_by set, to
+                // a workspace nobody approved. Reproduced before this guard existed.
+                //
+                // Re-asserting the state in the WHERE clause makes the database refuse the
+                // write when the row is no longer the one the decision was made about. The
+                // affected-row count is meaningful here because verification_code_hash is a
+                // fresh random hash on every call, so the SET list always changes something
+                // even on MySQL, which counts rows CHANGED rather than matched.
+                $written = LynomiaStoreLink::query()
+                    ->whereKey($existing->getKey())
+                    ->where('state', LinkState::PENDING_VERIFICATION)
+                    ->where('link_mode', LynomiaStoreLink::MODE_LINK_EXISTING)
+                    ->update($attributes + ['updated_at' => now()]);
+
+                if ($written !== 1) {
+                    $this->handBackGrantIfUnreferenced($proof['account_id']);
+
+                    throw new LynomiaApiException(
+                        LynomiaApiException::KIND_CONFLICT,
+                        'This connection changed while your request was being confirmed. Please check the page and try again.'
+                    );
+                }
+
+                $link = $existing->fresh();
             } else {
                 $link = LynomiaStoreLink::create($attributes);
             }
@@ -134,14 +170,18 @@ class AccountLinker
             // Not hypothetical and not an attack: one merchant with two stores, following the
             // instructions on the page, pasting the code for store A's workspace into store
             // B's form.
-            if (! LynomiaStoreLink::where('lynomia_account_id', $proof['account_id'])->exists()) {
-                $this->handBackGrant($proof['account_id']);
-            }
+            $this->handBackGrantIfUnreferenced($proof['account_id']);
 
             throw new LynomiaApiException(
                 LynomiaApiException::KIND_CONFLICT,
                 'That Lynomia workspace is already connected to another store.'
             );
+        }
+
+        // The claim this one replaced left a grant behind. Nothing references that workspace
+        // now, so nothing could ever revoke it -- hand it back here or never.
+        if ($displacedAccountId !== null && (int) $displacedAccountId !== (int) $proof['account_id']) {
+            $this->handBackGrantIfUnreferenced((int) $displacedAccountId);
         }
 
         AuditLog::record('lynomia_link_requested', $link, [], [
@@ -158,10 +198,10 @@ class AccountLinker
     /**
      * A claim may be opened on nothing, or on an unapproved claim -- nothing else.
      *
-     * Refusing every non-pending state is what stops a REVOKED or SUSPENDED row being re-opened
-     * by the merchant. REVOKED is documented terminal and is an operator's deliberate act,
-     * often for abuse; SUSPENDED keeps its ids so the SAME workspace is reconnected, which a
-     * claim naming a different one would throw away. Both are operator business now.
+     * Refusing every non-pending state is what stops a REVOKED row being re-opened by the
+     * merchant. Revocation is an operator's deliberate act, often for abuse, and undoing it is
+     * theirs too -- SuperAdmin\IntegrationController::restore exists for exactly that and is
+     * the only way back.
      *
      * It is also what keeps a pending row free of identifiers it did not earn: before this
      * existed, re-opening a revoked row rewrote lynomia_account_id while leaving
@@ -214,6 +254,53 @@ class AccountLinker
     }
 
     /**
+     * Undo a revocation, so an operator is not the only thing standing between a merchant who
+     * settled their bill and a workspace they still own.
+     *
+     * REVOCATION IS NOT SYMMETRIC, SO NEITHER IS THIS. A provisioned workspace kept its grant
+     * when it was revoked, so restoring it is just a state change -- the access never went
+     * away. A linked workspace had its grant handed back, so this app genuinely cannot reach
+     * it any more and no state change can conjure that back: the row is returned to an empty
+     * claim and the merchant re-proves ownership with a fresh code. Clearing the ids also
+     * releases the unique index, which is what was keeping the workspace unreachable from
+     * every other store as well.
+     */
+    public function restore(LynomiaStoreLink $link, User $actor): LynomiaStoreLink
+    {
+        if ($link->state !== LinkState::REVOKED) {
+            throw new LynomiaApiException(
+                LynomiaApiException::KIND_CONFLICT,
+                'Only a revoked connection can be restored.'
+            );
+        }
+
+        $attributes = $link->link_mode === LynomiaStoreLink::MODE_PROVISION && $link->isProvisioned()
+            ? ['state' => LinkState::ACTIVE, 'last_error' => null]
+            : [
+                'state' => LinkState::PENDING_VERIFICATION,
+                'lynomia_account_id' => null,
+                'lynomia_user_id' => null,
+                'lynomia_account_name' => null,
+                'ownership_proven_at' => null,
+                'verified_at' => null,
+                'verified_by' => null,
+                'verification_code_hash' => null,
+                'verification_expires_at' => null,
+                'last_error' => null,
+            ];
+
+        $link->forceFill($attributes)->save();
+
+        AuditLog::record('lynomia_link_restored', $link, ['state' => LinkState::REVOKED], [
+            'state' => $link->state,
+            'store_id' => $link->store_id,
+            'actor_id' => (int) $actor->id,
+        ]);
+
+        return $link->refresh();
+    }
+
+    /**
      * Give back a grant this app should not be holding.
      *
      * Best effort, and deliberately so: the local refusal has already been decided and must
@@ -221,6 +308,18 @@ class AccountLinker
      * rather than thrown, because turning "we could not hand the grant back" into "your
      * request failed" would invite the merchant to retry and redeem a second code.
      */
+    private function handBackGrantIfUnreferenced(int $accountId): void
+    {
+        // A grant another link is standing on is not ours to return: revoking it would break
+        // SSO for a store that did nothing wrong and hide its workspace from the recovery
+        // lookup.
+        if (LynomiaStoreLink::where('lynomia_account_id', $accountId)->exists()) {
+            return;
+        }
+
+        $this->handBackGrant($accountId);
+    }
+
     private function handBackGrant(int $accountId): void
     {
         try {

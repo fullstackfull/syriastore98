@@ -82,4 +82,31 @@ class IntegrationController extends Controller
 
         return back()->with('success', __('The workspace connection has been revoked.'));
     }
+
+    /**
+     * Undo a revocation.
+     *
+     * Without this, revoking for a billing hold -- the ordinary reason to revoke -- was a one
+     * way door: the merchant could not re-claim (a revoked row is refused), could not
+     * provision (same), and could not move to another store either, because the revoked row
+     * still owned the account id under the unique index.
+     */
+    public function restore(int $link): RedirectResponse
+    {
+        $model = LynomiaStoreLink::find($link);
+
+        if (! $model) {
+            return back()->with('error', __('That connection no longer exists.'));
+        }
+
+        try {
+            $restored = $this->linker->restore($model, auth()->user());
+        } catch (LynomiaApiException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return back()->with('success', $restored->isActive()
+            ? __('The workspace connection has been restored.')
+            : __('The connection has been reset. The merchant can connect their workspace again.'));
+    }
 }

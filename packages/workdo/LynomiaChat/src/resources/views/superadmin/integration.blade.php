@@ -105,6 +105,12 @@
                                                 @csrf
                                                 <button class="btn btn-sm btn-outline-danger">{{ __('Revoke') }}</button>
                                             </form>
+                                        @elseif ($row->state === \Workdo\LynomiaChat\app\Support\LinkState::REVOKED)
+                                            {{-- Without this, revoking for a billing hold was a one way door. --}}
+                                            <form method="POST" action="{{ route('lynomia.admin.links.restore', $row->id) }}">
+                                                @csrf
+                                                <button class="btn btn-sm btn-outline-secondary">{{ __('Restore') }}</button>
+                                            </form>
                                         @else
                                             <span class="text-muted">—</span>
                                         @endif

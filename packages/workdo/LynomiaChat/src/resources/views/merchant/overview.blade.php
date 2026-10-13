@@ -70,10 +70,6 @@
                         @endif
                     </div>
 
-                @elseif ($link && $link->state === \Workdo\LynomiaChat\app\Support\LinkState::SUSPENDED)
-                    <div class="alert alert-warning mb-0">
-                        {{ __('Access to this workspace is currently suspended. Please contact support.') }}
-                    </div>
 
                 @else
                     <p>{{ __('Connect this store to Lynomia Chat to manage conversations, customers and campaigns.') }}</p>

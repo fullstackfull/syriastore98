@@ -21,20 +21,23 @@ final class LinkState
     /** Provisioned or approved. The store may open its workspace. */
     public const ACTIVE = 'active';
 
-    /**
-     * Access withdrawn without discarding the mapping -- a lapsed entitlement, a billing
-     * hold, or an operator decision. Reversible, and it keeps the account ids so the same
-     * workspace is reconnected rather than a second one created.
-     */
-    public const SUSPENDED = 'suspended';
 
-    /** Deliberately unlinked. Terminal for this row. */
+    /**
+     * Unlinked by an operator. Terminal for the merchant -- they cannot re-open it -- but NOT
+     * terminal for the row: SuperAdmin\IntegrationController::restore returns it to a usable
+     * state, which is what a billing hold needs once the bill is settled.
+     *
+     * There was a SUSPENDED state here too, documented as the reversible one. Nothing ever
+     * wrote it: no service, no controller, no job. It was a state the product could reach only
+     * by hand-editing a row, and three places branched on it as though it meant something.
+     * Removed rather than given a writer, because the reversibility it promised is what
+     * restore() actually provides.
+     */
     public const REVOKED = 'revoked';
 
     public const ALL = [
         self::PENDING_VERIFICATION,
         self::ACTIVE,
-        self::SUSPENDED,
         self::REVOKED,
     ];
 

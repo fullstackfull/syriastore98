@@ -89,14 +89,16 @@ class AccountProvisioner
             );
         }
 
-        if (in_array($link->state, [LinkState::SUSPENDED, LinkState::REVOKED], true)) {
+        if ($link->state === LinkState::REVOKED) {
             throw new LynomiaApiException(
                 LynomiaApiException::KIND_CONFLICT,
                 "This store's Lynomia connection was ended by support. Please contact support to restore it."
             );
         }
 
-        if (! $this->acquireLock($link)) {
+        $claim = $this->acquireLock($link);
+
+        if ($claim === null) {
             throw new LynomiaApiException(
                 LynomiaApiException::KIND_IN_PROGRESS,
                 'This store is already being connected to Lynomia. Please wait a moment and refresh.'
@@ -108,7 +110,7 @@ class AccountProvisioner
         } finally {
             // Released whether the attempt succeeded or threw: a failed attempt that kept the
             // lock would block every retry until the claim went stale.
-            $this->releaseLock($link);
+            $this->releaseLock($link, $claim);
         }
 
         return $link->refresh();
@@ -344,11 +346,14 @@ class AccountProvisioner
      * That is safe to do while the original might still be running, because every step it
      * could repeat is either idempotent or guarded by the adopt-before-create lookup.
      */
-    private function acquireLock(LynomiaStoreLink $link): bool
+    /** @return \Illuminate\Support\Carbon|null The claim taken, or null if somebody else holds it. */
+    private function acquireLock(LynomiaStoreLink $link)
     {
         $staleBefore = now()->subMinutes(
             max(1, (int) config('lynomia.provisioning_lock_minutes', 5))
         );
+
+        $claimedAt = now();
 
         $claimed = LynomiaStoreLink::query()
             ->whereKey($link->getKey())
@@ -357,7 +362,7 @@ class AccountProvisioner
                       ->orWhere('provisioning_started_at', '<', $staleBefore);
             })
             ->update([
-                'provisioning_started_at' => now(),
+                'provisioning_started_at' => $claimedAt,
                 // THE INCREMENT IS LOAD-BEARING, NOT BOOKKEEPING. This lock reads the
                 // affected-row count to decide who won, and the two databases do not count
                 // the same thing: SQLite (tests) returns rows MATCHED, MySQL (production)
@@ -373,18 +378,30 @@ class AccountProvisioner
             ]);
 
         if ($claimed !== 1) {
-            return false;
+            return null;
         }
 
         $link->refresh();
 
-        return true;
+        return $claimedAt;
     }
 
-    private function releaseLock(LynomiaStoreLink $link): void
+    /**
+     * Release only the claim this caller took.
+     *
+     * THE TIMESTAMP IS THE FENCING TOKEN, which is why it is passed back in rather than read
+     * from the row. An attempt that overran its window does not know it was superseded: its
+     * finally block still runs, and an unconditional release would clear the SUCCESSOR's
+     * claim, letting a third request start while the second is still mid-flight -- two
+     * attempts between the lookup and the create, which is the duplicate the lookup exists to
+     * prevent. Two acquisitions can never share a timestamp, because a second one inside the
+     * same second would have found the claim un-stale and not acquired at all.
+     */
+    private function releaseLock(LynomiaStoreLink $link, $claimedAt): void
     {
         LynomiaStoreLink::query()
             ->whereKey($link->getKey())
+            ->where('provisioning_started_at', $claimedAt)
             ->update(['provisioning_started_at' => null, 'updated_at' => now()]);
     }
 

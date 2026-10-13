@@ -17,6 +17,7 @@ use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\AccountLinker;
 use Workdo\LynomiaChat\app\Services\AccountProvisioner;
+use Workdo\LynomiaChat\app\Services\PlatformApiClient;
 use Workdo\LynomiaChat\app\Support\LinkState;
 use Workdo\LynomiaChat\app\Support\ProvisioningStage;
 
@@ -358,7 +359,12 @@ class LynomiaConnectionTest extends TestCase
 
     public function test_every_admin_route_requires_the_platform_operator(): void
     {
-        foreach (['lynomia.admin.index', 'lynomia.admin.links.approve', 'lynomia.admin.links.revoke'] as $name) {
+        foreach ([
+            'lynomia.admin.index',
+            'lynomia.admin.links.approve',
+            'lynomia.admin.links.revoke',
+            'lynomia.admin.links.restore',
+        ] as $name) {
             $this->assertTrue(Route::has($name), "Route {$name} is missing.");
 
             $stack = app('router')->gatherRouteMiddleware(Route::getRoutes()->getByName($name));
@@ -1507,5 +1513,220 @@ class LynomiaConnectionTest extends TestCase
         }
 
         $this->assertSame(1, LynomiaStoreLink::whereNotNull('lynomia_account_id')->count());
+    }
+
+    // --------------------------------------------------- restoring a revoked connection
+
+    /**
+     * Revocation for a billing hold was a one way door: the merchant could not re-claim (a
+     * revoked row is refused), could not provision (same), and could not move to another
+     * store either, because the revoked row still owned the account id under the unique
+     * index. The docblock on revoke() said the mapping was kept "so the same workspace is
+     * reconnected rather than a second one created". Nothing reconnected it.
+     */
+    public function test_an_operator_can_restore_a_revoked_provisioned_link(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+        $this->fakeLynomia();
+        $link = app(AccountProvisioner::class)->provision($store, $owner);
+        app(AccountLinker::class)->revoke($link->fresh(), $this->operator(), 'billing hold');
+
+        $restored = app(AccountLinker::class)->restore($link->fresh(), $this->operator());
+
+        // The grant was never handed back for a provisioned workspace, so the access never
+        // went away and restoring it is only a state change.
+        $this->assertSame(LinkState::ACTIVE, $restored->state);
+        $this->assertSame(7001, (int) $restored->lynomia_account_id);
+        $this->assertTrue($restored->allowsSso());
+    }
+
+    public function test_restoring_a_revoked_claim_releases_the_workspace_for_a_fresh_proof(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+        $this->fakeLynomia();
+        $result = app(AccountLinker::class)->request($store, $owner, 'ABCD2345EFGH6789');
+        app(AccountLinker::class)->approve($result['link']->fresh(), $this->operator(), $result['verification_code']);
+        app(AccountLinker::class)->revoke($result['link']->fresh(), $this->operator(), 'billing hold');
+
+        $restored = app(AccountLinker::class)->restore($result['link']->fresh(), $this->operator());
+
+        // This app gave the grant back, so no state change can conjure the access back. The
+        // row becomes an empty claim and the merchant re-proves with a fresh code.
+        $this->assertSame(LinkState::PENDING_VERIFICATION, $restored->state);
+        $this->assertNull($restored->lynomia_account_id, 'the unique index must be released');
+        $this->assertNull($restored->ownership_proven_at);
+        $this->assertFalse($restored->allowsSso());
+
+        // And the merchant can actually get back in.
+        $this->fakeLynomia();
+        $again = app(AccountLinker::class)->request($store->fresh(), $owner->fresh(), 'JKLM2345NPQR6789');
+        $this->assertNotNull($again['link']->ownership_proven_at);
+    }
+
+    public function test_only_a_revoked_link_can_be_restored(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+        $this->fakeLynomia();
+        $link = app(AccountProvisioner::class)->provision($store, $owner);
+
+        try {
+            app(AccountLinker::class)->restore($link->fresh(), $this->operator());
+            $this->fail('an active link was "restored"');
+        } catch (LynomiaApiException $e) {
+            $this->assertSame(LynomiaApiException::KIND_CONFLICT, $e->kind);
+        }
+    }
+
+    public function test_restore_is_a_platform_operator_action(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+        $this->fakeLynomia();
+        $link = app(AccountProvisioner::class)->provision($store, $owner);
+        app(AccountLinker::class)->revoke($link->fresh(), $this->operator(), 'abuse');
+
+        $response = $this->actingAs($owner->fresh())
+            ->post("/super-admin/lynomia-integration/links/{$link->id}/restore");
+
+        $this->assertNotSame(200, $response->getStatusCode());
+        $this->assertSame(LinkState::REVOKED, $link->fresh()->state);
+    }
+
+    /** The state had three places branching on it and nothing anywhere writing it. */
+    public function test_there_is_no_unwritable_suspended_state(): void
+    {
+        $this->assertFalse(defined(LinkState::class . '::SUSPENDED'));
+        $this->assertSame(
+            [LinkState::PENDING_VERIFICATION, LinkState::ACTIVE, LinkState::REVOKED],
+            LinkState::ALL
+        );
+    }
+
+    // ------------------------------- second review round: lost updates and displaced grants
+
+    /**
+     * assertClaimable ran against a snapshot taken before a remote call that can take fifteen
+     * seconds, and an operator could approve the claim they were shown inside that window. A
+     * plain save() writes only the columns dirty relative to that stale snapshot -- `state`
+     * matched in both, so it was never in the UPDATE -- and the operator's state=active
+     * survived while the ids they approved were silently replaced. An ACTIVE link, carrying
+     * their verified_by, to a workspace nobody approved.
+     */
+    public function test_a_claim_cannot_overwrite_a_link_an_operator_approved_mid_flight(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+        $this->fakeLynomia();
+        $first = app(AccountLinker::class)->request($store, $owner, 'ABCD2345EFGH6789');
+        $operator = $this->operator();
+
+        // THE WINDOW, REPRODUCED AT THE POINT IT ACTUALLY OPENS. assertClaimable has already
+        // run against a row that was pending; the operator approves while the redemption is
+        // on the wire. Driving it from inside redeemLinkCode is the faithful shape -- a test
+        // that approves BEFORE calling request() proves nothing, because the fresh read
+        // inside request() would see the approval and refuse for a different reason.
+        $this->mock(PlatformApiClient::class, function ($mock) use ($first, $operator) {
+            $mock->shouldReceive('isEnabled')->andReturn(true);
+            $mock->shouldReceive('isConfigured')->andReturn(true);
+            $mock->shouldReceive('revokeAccountLink')->andReturnNull();
+            $mock->shouldReceive('redeemLinkCode')->andReturnUsing(function () use ($first, $operator) {
+                app(AccountLinker::class)->approve(
+                    $first['link']->fresh(),
+                    $operator,
+                    $first['verification_code']
+                );
+
+                return [
+                    'account_id' => 7002, 'account_name' => 'Other WS',
+                    'user_id' => 9002, 'user_name' => 'Other Admin',
+                ];
+            });
+        });
+
+        try {
+            app(AccountLinker::class)->request($store->fresh(), $owner->fresh(), 'JKLM2345NPQR6789');
+            $this->fail('a claim overwrote a link an operator had just approved');
+        } catch (LynomiaApiException $e) {
+            $this->assertSame(LynomiaApiException::KIND_CONFLICT, $e->kind);
+        }
+
+        $link = LynomiaStoreLink::forStore((int) $store->id)->first();
+        $this->assertSame(LinkState::ACTIVE, $link->state);
+        $this->assertSame(7001, (int) $link->lynomia_account_id, 'the approved workspace was replaced');
+        $this->assertSame(9001, (int) $link->lynomia_user_id);
+        $this->assertSame((int) $operator->id, (int) $link->verified_by);
+    }
+
+    /**
+     * A pending claim may be re-opened -- a merchant who pasted the wrong code should be able
+     * to paste the right one. But the first redemption already made Lynomia grant this app
+     * access to the first workspace, and overwriting the row in place discarded the only
+     * reference to it: nothing left to revoke it with, ever. No race needed.
+     */
+    public function test_reclaiming_hands_back_the_workspace_it_displaces(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+
+        $this->fakeLynomia(['account_id' => 7001, 'user_id' => 9001]);
+        app(AccountLinker::class)->request($store, $owner, 'ABCD2345EFGH6789');
+
+        $this->fakeLynomia(['account_id' => 7002, 'user_id' => 9002]);
+        $second = app(AccountLinker::class)->request($store->fresh(), $owner->fresh(), 'JKLM2345NPQR6789');
+
+        $this->assertSame(7002, (int) $second['link']->lynomia_account_id);
+        // The displaced workspace is given back rather than left as access nobody records.
+        $this->assertSame(1, $this->sentCount('DELETE', '/account_links/7001'));
+        $this->assertSame(0, $this->sentCount('DELETE', '/account_links/7002'));
+    }
+
+    public function test_reclaiming_the_same_workspace_does_not_hand_its_own_grant_back(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+        $this->fakeLynomia();
+        app(AccountLinker::class)->request($store, $owner, 'ABCD2345EFGH6789');
+
+        $this->fakeLynomia();
+        app(AccountLinker::class)->request($store->fresh(), $owner->fresh(), 'JKLM2345NPQR6789');
+
+        // Same workspace, re-proved. Revoking the grant we are about to rely on would be
+        // self-defeating.
+        $this->assertSame(0, $this->sentCount('DELETE', '/account_links/7001'));
+    }
+
+    /**
+     * An attempt that overran its window does not know it was superseded: its finally block
+     * still runs. An unconditional release would clear the SUCCESSOR's claim and let a third
+     * request start while the second was still mid-flight -- two attempts between the lookup
+     * and the create, which is the duplicate the lookup exists to prevent.
+     */
+    public function test_a_superseded_attempt_does_not_release_the_claim_that_replaced_it(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+
+        $link = LynomiaStoreLink::create([
+            'store_id' => (int) $store->id,
+            'owner_user_id' => (int) $owner->creatorId(),
+            'state' => LinkState::PENDING_VERIFICATION,
+            'link_mode' => LynomiaStoreLink::MODE_PROVISION,
+            'provisioning_stage' => ProvisioningStage::CLAIMED,
+        ]);
+
+        $provisioner = app(AccountProvisioner::class);
+        $release = new \ReflectionMethod($provisioner, 'releaseLock');
+        $release->setAccessible(true);
+
+        // A took the claim long ago and is still running; B took it over when it went stale.
+        $overrun = now()->subHours(2);
+        $successor = now();
+        $link->forceFill(['provisioning_started_at' => $successor])->save();
+
+        $release->invoke($provisioner, $link, $overrun);
+
+        $this->assertNotNull(
+            $link->fresh()->provisioning_started_at,
+            "the overrunning attempt cleared its successor's claim"
+        );
+
+        // The successor's own release still works.
+        $release->invoke($provisioner, $link, $successor);
+        $this->assertNull($link->fresh()->provisioning_started_at);
     }
 }

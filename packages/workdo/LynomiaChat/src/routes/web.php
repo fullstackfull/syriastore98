@@ -109,5 +109,9 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
             Route::post('/links/{link}/revoke', [IntegrationController::class, 'revoke'])
                 ->whereNumber('link')
                 ->name('links.revoke');
+
+            Route::post('/links/{link}/restore', [IntegrationController::class, 'restore'])
+                ->whereNumber('link')
+                ->name('links.restore');
         });
 });
