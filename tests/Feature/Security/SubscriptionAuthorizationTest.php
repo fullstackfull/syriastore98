@@ -542,6 +542,502 @@ class SubscriptionAuthorizationTest extends SecurityTestCase
     //  EditProfile -- ESTABLISHED, NOT RE-IMPLEMENTED
     // =========================================================================================
 
+    // =========================================================================================
+    //  plan.order.show -- READ ANY MERCHANT'S SUBSCRIPTION ORDER, AND THEIR BANK SLIP
+    //  NEW-PLAN-ORDER-SHOW-IDOR-01
+    // =========================================================================================
+
+    /**
+     * BankTransferController::show():111 resolved its subject as `PlanOrder::find($id)` with NO
+     * ownership test and rendered resources/views/order/show.blade.php for it, so any
+     * authenticated user could walk the plan_orders primary key.
+     *
+     * WHAT THE TEMPLATE PRINTS, and therefore what leaked (order/show.blade.php:4/8/12/20/31):
+     * the order id, the plan the merchant is on, the price they actually paid, the payment
+     * status, and a download link to the bank slip they uploaded. The gate is attached as route
+     * middleware (App\Http\Middleware\PlanOrderViewGate) because BankTransferController is a
+     * plan-purchase gateway controller -- the same division of ownership PlatformOperatorOnly
+     * documents for order.approve/order.reject on this same controller.
+     *
+     * ASSERTION ORDER: the DISCLOSURE is asserted before the status code. A bare
+     * assertSame(403) would also pass against a 403 produced by something unrelated, and this
+     * project has already shipped three status-only assertions that passed with the defect
+     * reintroduced.
+     */
+    public function test_a_merchant_cannot_read_another_merchants_plan_order(): void
+    {
+        $this->seedBankTransferSetting();
+
+        [$attacker] = $this->makeTenant();
+        [$victim, $victimStore] = $this->makeTenant();
+        $plan = $this->makePlan(['name' => 'VictimGold-' . uniqid()]);
+        $orderId = $this->makePlanOrder($victim, $plan, $victimStore, [
+            'price' => 4242,
+            'receipt' => 'uploads/receipt/victim-bank-slip.png',
+        ]);
+
+        $response = $this->actingAs($attacker)->get(route('plan.order.show', [$orderId]));
+
+        $body = (string) $response->getContent();
+
+        // THE DISCLOSURE ITSELF. Each of these is a distinct field the template renders, and
+        // each was readable by any session before the gate existed.
+        $this->assertStringNotContainsString($plan->name, $body,
+            'DISCLOSURE: another merchant\'s plan name was rendered to a foreign merchant.');
+        $this->assertStringNotContainsString('4242', $body,
+            'DISCLOSURE: another merchant\'s subscription price was rendered to a foreign merchant.');
+        $this->assertStringNotContainsString('victim-bank-slip.png', $body,
+            'DISCLOSURE: the download link to another merchant\'s UPLOADED BANK SLIP was rendered '
+            . 'to a foreign merchant.');
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    /**
+     * THE POSITIVE PROOF, and it is not vacuous: the owner must get 200 AND see their own data.
+     * "not 403" alone would be satisfied by the 500 this view throws when $order is null.
+     */
+    public function test_the_paying_merchant_can_still_read_their_own_plan_order(): void
+    {
+        $this->seedBankTransferSetting();
+
+        [$merchant, $store] = $this->makeTenant();
+        $plan = $this->makePlan(['name' => 'MyGold-' . uniqid()]);
+        $orderId = $this->makePlanOrder($merchant, $plan, $store, [
+            'price' => 777,
+            'receipt' => 'uploads/receipt/my-bank-slip.png',
+        ]);
+
+        $response = $this->actingAs($merchant)->get(route('plan.order.show', [$orderId]));
+
+        $this->assertSame(
+            200,
+            $response->getStatusCode(),
+            'The paying merchant can no longer read their own plan order, which is a regression: '
+            . 'PlanOrderDataTable::query():87-89 lists exactly these rows to them.'
+        );
+
+        $body = (string) $response->getContent();
+        $this->assertStringContainsString($plan->name, $body);
+        $this->assertStringContainsString('777', $body);
+        $this->assertStringContainsString('my-bank-slip.png', $body);
+    }
+
+    /**
+     * The platform operator reviews the uploaded receipt -- that is what this modal is FOR
+     * (the Approval/Reject buttons at order/show.blade.php:39-40 are theirs). So the operator
+     * must still read an order they did not pay for.
+     */
+    public function test_the_platform_operator_can_still_read_any_merchants_plan_order(): void
+    {
+        $this->seedBankTransferSetting();
+
+        $admin = $this->makePlatformAdmin();
+        [$merchant, $store] = $this->makeTenant();
+        $plan = $this->makePlan(['name' => 'OpGold-' . uniqid()]);
+        $orderId = $this->makePlanOrder($merchant, $plan, $store, ['price' => 999]);
+
+        $response = $this->actingAs($admin)->get(route('plan.order.show', [$orderId]));
+
+        $this->assertSame(
+            200,
+            $response->getStatusCode(),
+            'The platform operator can no longer review a bank-transfer receipt, which breaks the '
+            . 'only workflow this route exists for.'
+        );
+        $this->assertStringContainsString($plan->name, (string) $response->getContent());
+    }
+
+    /**
+     * STAFF ARE NOT THE PAYER. plan_orders.user_id is written from `Auth::user()` at
+     * BankTransferController:101, and PlanOrderDataTable never listed a merchant's orders to
+     * their staff either. Pinned so a later "widen it to creatorId()" is a deliberate decision
+     * rather than an accident.
+     */
+    public function test_staff_are_not_handed_their_employers_plan_order(): void
+    {
+        $this->seedBankTransferSetting();
+
+        [$merchant, $store] = $this->makeTenant();
+        $staff = $this->makeStaff($merchant, ['current_store' => $store->id]);
+        $plan = $this->makePlan();
+        $orderId = $this->makePlanOrder($merchant, $plan, $store, [
+            'receipt' => 'uploads/receipt/employer-slip.png',
+        ]);
+
+        $response = $this->actingAs($staff)->get(route('plan.order.show', [$orderId]));
+
+        $this->assertStringNotContainsString(
+            'employer-slip.png',
+            (string) $response->getContent(),
+            'A staff user was handed their employer\'s uploaded bank slip.'
+        );
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    /**
+     * An unknown id must be the SAME answer as an unowned one, so this route is not an oracle
+     * for which plan_orders ids exist -- and must not be the 500 it used to be, because
+     * order/show.blade.php dereferenced the null that `PlanOrder::find()` returned.
+     */
+    public function test_an_unknown_plan_order_id_is_a_denial_and_not_a_server_error(): void
+    {
+        $this->seedBankTransferSetting();
+
+        [$merchant] = $this->makeTenant();
+
+        $this->assertSame(
+            403,
+            $this->actingAs($merchant)->get(route('plan.order.show', [999999]))->getStatusCode()
+        );
+    }
+
+    /**
+     * 403 AND NEVER 401. repo B's lib/network/network.dart maps any 401 to a forced logout that
+     * clears stored preferences, so answering a tenancy denial with 401 would sign the merchant
+     * out of the shipped admin app instead of telling them no.
+     */
+    public function test_the_plan_order_denial_is_403_and_never_401(): void
+    {
+        $this->seedBankTransferSetting();
+
+        [$attacker] = $this->makeTenant();
+        [$victim, $victimStore] = $this->makeTenant();
+        $orderId = $this->makePlanOrder($victim, $this->makePlan(), $victimStore);
+
+        $status = $this->actingAs($attacker)
+            ->get(route('plan.order.show', [$orderId]))
+            ->getStatusCode();
+
+        $this->assertSame(403, $status,
+            'plan.order.show answered ' . $status . ' to a foreign merchant. 401 is the dangerous '
+            . 'answer (repo B force-logs-out on it); a 2xx means the gate is gone.');
+    }
+
+    /**
+     * order/show.blade.php:23 renders `$admin_payment_setting['bank_transfer']` with no
+     * null-coalesce, so without this row the view raises "Undefined array key" and every
+     * POSITIVE test above would 500 for a reason that has nothing to do with authorization.
+     * getSuperAdminAllSetting() (app/Helper/helper.php:338-345) reads the settings of the FIRST
+     * `type = 'super admin'` user, keyed by that user's current_store.
+     */
+    private function seedBankTransferSetting(): void
+    {
+        $admin = \App\Models\User::where('type', 'super admin')->first()
+            ?? $this->makePlatformAdmin();
+
+        \Illuminate\Support\Facades\Cache::flush();
+
+        DB::table('settings')->insert([
+            'name' => 'bank_transfer',
+            'value' => 'ACME Bank / IBAN 0000',
+            'created_by' => $admin->id,
+            'store_id' => $admin->current_store,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    // =========================================================================================
+    //  PlanCouponController -- PLATFORM PLAN COUPONS GATED ON MERCHANT STORE-COUPON PERMISSIONS
+    //  NEW-PLAN-COUPON-MERCHANT-PERM-01
+    // =========================================================================================
+
+    private function makePlanCoupon(array $attributes = []): int
+    {
+        return (int) DB::table('plan_coupons')->insertGetId(array_merge([
+            'name' => 'PlatformPromo-' . uniqid(),
+            'code' => strtoupper('PC' . uniqid()),
+            'discount' => 25,
+            'limit' => '10',
+            'is_active' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ], $attributes));
+    }
+
+    /**
+     * THE DEFECT, AND THE REASON THIS TEST IS NOT VACUOUS: the merchant is GRANTED the real
+     * 'Delete Coupon' permission first. That is the permission the unfixed destroy() checked, so
+     * before the gate this request genuinely deleted the platform's subscription coupon. Without
+     * the grant the row would survive for the wrong reason -- a merchant who simply lacks the
+     * permission -- and the test would pass against the defect.
+     *
+     * 'Delete Coupon' is a MERCHANT permission for STORE coupons: Utility.php:3018-3021 grants
+     * it to the merchant `admin` role (and :3126-3129 to `super admin`). That dual grant is the
+     * whole defect, and it is pinned as a source property below.
+     */
+    public function test_a_merchant_with_store_coupon_rights_cannot_delete_a_platform_plan_coupon(): void
+    {
+        [$merchant] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Delete Coupon');
+        $this->assertTrue($merchant->fresh()->isAbleTo('Delete Coupon'),
+            'Fixture: the merchant must really hold the permission the unfixed destroy() checked, '
+            . 'or the row below survives for the wrong reason.');
+
+        $couponId = $this->makePlanCoupon();
+
+        $response = $this->actingAs($merchant)
+            ->delete(route('plan-coupon.destroy', [$couponId]));
+
+        $this->assertSame(
+            1,
+            DB::table('plan_coupons')->where('id', $couponId)->count(),
+            'A merchant holding ordinary STORE-coupon rights deleted a PLATFORM subscription '
+            . 'coupon. plan_coupons is platform revenue configuration and has no store_id at all.'
+        );
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    /**
+     * THE SAME MISTAKE ON THE OTHER SIX METHODS. destroy() was the reported one; index(),
+     * create(), store(), edit() and update() repeat it, and show() had NO check whatsoever.
+     * Every one is gated now, so every one is asserted.
+     */
+    public function test_a_merchant_with_store_coupon_rights_is_refused_every_plan_coupon_route(): void
+    {
+        [$merchant] = $this->makeTenant();
+        foreach (['Manage Coupon', 'Create Coupon', 'Edit Coupon', 'Delete Coupon'] as $permission) {
+            $this->grantPermission($merchant, $permission);
+        }
+
+        $couponId = $this->makePlanCoupon();
+
+        $cases = [
+            ['get',  route('plan-coupon.index')],
+            ['get',  route('plan-coupon.create')],
+            ['get',  route('plan-coupon.show', [$couponId])],
+            ['get',  route('plan-coupon.edit', [$couponId])],
+        ];
+
+        foreach ($cases as [$verb, $uri]) {
+            $this->assertSame(
+                403,
+                $this->actingAs($merchant)->{$verb}($uri)->getStatusCode(),
+                "{$verb} {$uri} was not refused to a merchant holding store-coupon rights."
+            );
+        }
+
+        // store() -- a WRITE. The row count is the assertion; the status code is the corroboration.
+        $before = DB::table('plan_coupons')->count();
+        $storeResponse = $this->actingAs($merchant)->post(route('plan-coupon.store'), [
+            'name' => 'MerchantMade-' . uniqid(),
+            'code' => 'MM' . uniqid(),
+            'discount' => 30,
+            'limit' => 5,
+        ]);
+        $this->assertSame($before, DB::table('plan_coupons')->count(),
+            'A merchant created a PLATFORM plan coupon.');
+        $this->assertSame(403, $storeResponse->getStatusCode());
+
+        // update() -- a WRITE against an existing platform coupon.
+        $originalDiscount = DB::table('plan_coupons')->where('id', $couponId)->value('discount');
+        $updateResponse = $this->actingAs($merchant)->put(route('plan-coupon.update', [$couponId]), [
+            'name' => 'Hijacked-' . uniqid(),
+            'code' => 'HJ' . uniqid(),
+            'discount' => 99,
+            'limit' => 99999,
+        ]);
+        $this->assertSame(
+            (float) $originalDiscount,
+            (float) DB::table('plan_coupons')->where('id', $couponId)->value('discount'),
+            'A merchant rewrote a PLATFORM plan coupon\'s discount -- i.e. set their own price '
+            . 'for a subscription.'
+        );
+        $this->assertSame(403, $updateResponse->getStatusCode());
+    }
+
+    /**
+     * THE POSITIVE PROOF. The platform operator still administers plan coupons. The existing
+     * isAbleTo() checks were deliberately LEFT IN PLACE behind the new operator gate, so the
+     * operator needs the permission too -- which Utility.php:3126-3130 grants to the `super
+     * admin` role in production and grantPermission() supplies here.
+     */
+    public function test_the_platform_operator_can_still_delete_a_plan_coupon(): void
+    {
+        $admin = $this->makePlatformAdmin();
+        $this->grantPermission($admin, 'Delete Coupon');
+
+        $couponId = $this->makePlanCoupon();
+
+        $this->actingAs($admin)->delete(route('plan-coupon.destroy', [$couponId]));
+
+        $this->assertSame(
+            0,
+            DB::table('plan_coupons')->where('id', $couponId)->count(),
+            'The platform operator can no longer delete a plan coupon, which is a regression.'
+        );
+    }
+
+    public function test_the_platform_operator_can_still_reach_the_plan_coupon_list(): void
+    {
+        $admin = $this->makePlatformAdmin();
+
+        // THE OPERATOR NEEDS A STORE, and this is fixture necessity rather than padding: this
+        // route renders the full admin chrome, and resources/views/partision/header.blade.php
+        // dereferences the current store's `slug`. Without one the request is a 500 --
+        // "Attempt to read property \"slug\" on null" -- for a reason that has nothing to do
+        // with authorization, which would make a 200 assertion impossible and a "not 403"
+        // assertion vacuous.
+        $adminStore = $this->makeStore($admin);
+        $admin->current_store = $adminStore->id;
+        $admin->save();
+        $admin = $admin->fresh();
+
+        $this->grantPermission($admin, 'Manage Coupon');
+
+        $this->assertSame(
+            200,
+            $this->actingAs($admin)->get(route('plan-coupon.index'))->getStatusCode(),
+            'The platform operator can no longer list plan coupons, which is a regression.'
+        );
+    }
+
+    /**
+     * THE EXEMPTION, AND WHY IT IS ONE. applyCoupon is the AJAX price preview on the
+     * plan-purchase page and its caller is the MERCHANT who is buying a plan. Gating the whole
+     * controller without excluding it would 403 every merchant out of applying a plan coupon at
+     * checkout -- the "tightened a predicate without checking who it excludes" failure this
+     * phase has already caused twice. So the exemption is asserted, not assumed.
+     *
+     * ASSERTED ON THE MIDDLEWARE STACK, because the handler CANNOT BE RUN HERE. applyCoupon
+     * resolves the code with `whereRaw('BINARY `code` = ?')` (PlanCouponController::applyCoupon),
+     * and `BINARY` is MySQL-only: on the sqlite :memory: database these suites are pinned to
+     * (tests/bootstrap.php aborts on anything else) it is a hard
+     *     SQLSTATE[HY000]: General error: 1 near "`code`": syntax error
+     * -- measured, not assumed. So a 200 assertion is impossible in this environment and a
+     * "not 403" assertion would be vacuously true of that 500. The route's gathered middleware
+     * is the exact property the exemption consists of, and it is environment-independent.
+     *
+     * The companion assertion -- that the gated sibling DOES carry the middleware -- is what
+     * stops this test passing because the gate was removed from the whole controller.
+     */
+    public function test_apply_coupon_is_exempt_from_the_platform_operator_gate(): void
+    {
+        $routes = app('router')->getRoutes();
+
+        $applyMiddleware = $routes->getByName('apply.coupon')->gatherMiddleware();
+
+        $this->assertNotContains(
+            \App\Http\Middleware\PlatformOperatorOnly::class,
+            $applyMiddleware,
+            'apply.coupon is now behind the platform-operator gate, which 403s every merchant out '
+            . 'of applying a plan coupon at checkout. It must stay outside the plan-coupon '
+            . 'resource declaration.'
+        );
+
+        // Still authenticated -- exempt from the OPERATOR gate, not from the session.
+        $this->assertContains('auth', $applyMiddleware,
+            'apply.coupon must still require authentication.');
+
+        $this->assertContains(
+            \App\Http\Middleware\PlatformOperatorOnly::class,
+            $routes->getByName('plan-coupon.destroy')->gatherMiddleware(),
+            'plan-coupon.destroy has LOST the platform-operator gate -- the defect is back, and '
+            . 'the exemption assertion above would then pass for the wrong reason.'
+        );
+    }
+
+    /**
+     * THE sqlite BLOCKER ABOVE, PINNED BY NAME so it is not mistaken for an authorization
+     * problem and so it reddens if it is ever repaired. `BINARY` is MySQL-only and
+     * PlanCouponController::applyCoupon uses it (as does BankTransferController:57 and every plan
+     * gateway), so this endpoint cannot complete on sqlite at all. The status is a 500 from the
+     * QUERY, which proves the request got PAST the operator gate and into the handler -- the
+     * closest behavioural evidence of the exemption available here.
+     */
+    public function test_apply_coupon_reaches_the_handler_and_is_blocked_only_by_mysql_only_sql(): void
+    {
+        [$merchant] = $this->makeTenant();
+        $plan = $this->makePlan();
+        $couponId = $this->makePlanCoupon();
+        $code = DB::table('plan_coupons')->where('id', $couponId)->value('code');
+
+        $response = $this->actingAs($merchant)->get(route('apply.coupon', [
+            'plan_id' => \Illuminate\Support\Facades\Crypt::encrypt($plan->id),
+            'coupon' => $code,
+        ]));
+
+        $this->assertNotSame(
+            403,
+            $response->getStatusCode(),
+            'A merchant was refused the checkout coupon preview by the platform-operator gate.'
+        );
+
+        $this->assertSame(500, $response->getStatusCode(),
+            'applyCoupon no longer dies on the MySQL-only BINARY comparison. If that was fixed, '
+            . 'replace this test with a real assertion that a merchant gets is_success=true.');
+
+        $this->assertStringContainsString(
+            'BINARY',
+            (string) $response->getContent(),
+            'applyCoupon now fails for a DIFFERENT reason than the MySQL-only BINARY comparison. '
+            . 'Find out what it is -- a 500 here wearing this test\'s expected status code would '
+            . 'hide a real regression.'
+        );
+    }
+
+    /**
+     * THE SOURCE PROPERTY THAT MAKES THE DEFECT A DEFECT, pinned so nobody "simplifies" the gate
+     * back to isAbleTo('Delete Coupon'). The five coupon permissions are granted to the MERCHANT
+     * role as well as to super admin, so they cannot distinguish a platform operator.
+     *
+     * It also pins the opposite trap: these names ARE created by Utility::addNewData(), so the
+     * gate did not need a new permission name -- and inventing one that addNewData() does not
+     * seed is exactly the 'Edit Order' defect this project already shipped once.
+     */
+    public function test_the_coupon_permissions_are_merchant_permissions_and_cannot_gate_the_platform(): void
+    {
+        $utility = (string) file_get_contents(base_path('app/Models/Utility.php'));
+
+        // The merchant (`admin`) role's grant list and the super-admin grant list both contain
+        // them -- that dual grant is the defect.
+        $this->assertGreaterThanOrEqual(
+            2,
+            substr_count($utility, '"Delete Coupon"'),
+            "'Delete Coupon' is expected in BOTH the merchant and the super-admin grant lists in "
+            . 'Utility::addNewData(). If it is now in only one, re-check whether the '
+            . 'platform-operator gate on PlanCouponController is still the right control.'
+        );
+
+        // And it is NOT a platform-scoped permission, unlike 'Manage Module' etc.
+        $this->assertNotContains(
+            'Delete Coupon',
+            config('superadminaccess'),
+            'If the coupon permissions became platform-scoped, revisit the gate.'
+        );
+
+        // The gate in place is the EXISTING platform-operator middleware, not a new permission
+        // name. Asserted on routes/web.php because that is where it is attached: the base
+        // App\Http\Controllers\Controller extends the legacy Illuminate\Routing\Controller,
+        // whose non-static middleware() makes Laravel 11's HasMiddleware a fatal error on these
+        // controllers -- `php -l` accepts it and every request then dies at class load.
+        $routes = (string) file_get_contents(base_path('routes/web.php'));
+        $this->assertMatchesRegularExpression(
+            "/Route::resource\('plan-coupon'.*?PlatformOperatorOnly/s",
+            $routes,
+            'The plan-coupon resource must keep the platform-operator gate.'
+        );
+
+        // And NO new permission name was invented for this. Utility::addNewData() is the only
+        // thing that creates Permission rows, so a name it does not seed is a permanent 403 for
+        // everyone including the operator -- the 'Edit Order' defect this project already shipped.
+        $controller = (string) file_get_contents(
+            base_path('app/Http/Controllers/PlanCouponController.php')
+        );
+        $utility = (string) file_get_contents(base_path('app/Models/Utility.php'));
+        preg_match_all("/isAbleTo\('([^']+)'\)/", $controller, $gated);
+        foreach (array_unique($gated[1]) as $permission) {
+            $this->assertStringContainsString(
+                '"' . $permission . '"',
+                $utility,
+                "PlanCouponController gates on '{$permission}', which Utility::addNewData() does "
+                . 'not create. An unseeded permission name can never be granted to any role, so '
+                . 'that route is a permanent 403 for every user including the platform operator.'
+            );
+        }
+    }
+
     /**
      * The WEB half of EditProfile takes no identity from the request: it resolves the subject as
      * `\Auth::guard()->user()->id` and writes that row only. Asserted as a source property so a

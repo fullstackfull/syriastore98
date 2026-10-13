@@ -531,7 +531,26 @@ Route::middleware(['web'])->group(function () {
     Route::get('request-response/{id}/{response}', [PlanRequestController::class, 'acceptRequest'])->name('response.request');
 
     // *************************PlanCoupon*****************************
-    Route::resource('plan-coupon', PlanCouponController::class);
+    // NEW-PLAN-COUPON-MERCHANT-PERM-01. Every method on PlanCouponController operates on
+    // `plan_coupons` -- the discount codes the PLATFORM issues against its own subscription
+    // Plans, with no store_id at all -- but the controller gated them on 'Manage/Create/Edit/
+    // Delete Coupon', which are MERCHANT permissions for STORE coupons: Utility.php:3018-3021
+    // grants them to the merchant `admin` role and :3126-3129 to `super admin`, so any merchant
+    // with ordinary store-coupon rights passed every check and could read, create, edit and
+    // DELETE platform subscription coupons. show() had no check at all. The bulk path for this
+    // same model is already refused -- `plan-coupon` is in BulkDeleteTenantGuard::PLATFORM_GLOBAL
+    // (app/Http/Middleware/BulkDeleteTenantGuard.php:213) -- and these are the single-row paths
+    // that guard does not inspect. Gated with the EXISTING platform-operator control rather than
+    // a new permission name, because Utility::addNewData() is the only thing that creates
+    // Permission rows and a name absent from it is a permanent 403 for everyone (the 'Edit Order'
+    // defect). The controller's own isAbleTo() checks are left in place behind this gate.
+    Route::resource('plan-coupon', PlanCouponController::class)
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class);
+    // DELIBERATELY OUTSIDE THE GATE. applyCoupon is the AJAX price preview on the plan-purchase
+    // page and its caller is the MERCHANT buying a plan: it takes an encrypted plan id and a
+    // coupon code, writes nothing, and returns a recomputed price for the plan the buyer is
+    // already looking at. Gating it would 403 every merchant out of applying a plan coupon at
+    // checkout.
     Route::get('/apply-coupon', [PlanCouponController::class, 'applyCoupon'])->name('apply.coupon');
     Route::resource('setting', SettingController::class);
 
@@ -628,7 +647,19 @@ Route::get(
     Route::post('iyzipay/callback/plan/{id}/{amount}/{coupan_code?}', [IyziPayController::class, 'iyzipayCallback'])->name('iyzipay.payment.callback');
 
     Route::post('plan-pay-with-bank', [BankTransferController::class, 'planPayWithbank'])->name('plan.pay.with.bank');
-    Route::get('plan/orders/show/{id}', [BankTransferController::class, 'show'])->name('plan.order.show');
+    // NEW-PLAN-ORDER-SHOW-IDOR-01. show() (BankTransferController.php:111) does
+    // `PlanOrder::find($id)` with NO ownership test and renders order/show.blade.php, which
+    // prints the plan name, the price paid, the payment status and a DOWNLOAD LINK TO THE
+    // UPLOADED BANK SLIP -- so any authenticated user could read any merchant's subscription
+    // order, and their bank document, by changing one path segment. The predicate enforced here
+    // is the one PlanOrderDataTable::query():87-89 has always used for the LISTING (a merchant
+    // sees rows with their own plan_orders.user_id, a super admin sees all); only the detail
+    // route never applied it. Gated on the route, not in the controller, because
+    // BankTransferController is a plan-purchase gateway controller -- the same reason
+    // order.approve and order.reject below are gated here.
+    Route::get('plan/orders/show/{id}', [BankTransferController::class, 'show'])
+        ->middleware(\App\Http\Middleware\PlanOrderViewGate::class)
+        ->name('plan.order.show');
     Route::delete('/bank_transfer/{order}/', [BankTransferController::class, 'destroy'])->name('bank_transfer.destroy');
     // NEW-PLAN-APPROVE-UNGATED-01. orderapprove (BankTransferController.php:119) sets
     // payment_status = 'Approved' on any PlanOrder id and calls

@@ -16,6 +16,12 @@ class AuthServiceProvider extends ServiceProvider
         \App\Models\User::class  => \App\Policies\UserPolicy::class,
         \App\Models\Role::class  => \App\Policies\RolePolicy::class,
         \App\Models\Order::class => \App\Policies\OrderPolicy::class,
+        // NEW-PLAN-ORDER-SHOW-IDOR-01. Enforced on the route through
+        // App\Http\Middleware\PlanOrderViewGate, because the handler
+        // (BankTransferController::show) is a plan-purchase gateway controller and belongs to
+        // the payments workstream -- the same division PlatformOperatorOnly documents for
+        // order.approve/order.reject on that same controller.
+        \App\Models\PlanOrder::class => \App\Policies\PlanOrderPolicy::class,
     ];
 
     /**
