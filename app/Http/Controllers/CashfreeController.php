@@ -36,8 +36,12 @@ use Session;
 use App\Models\OrderNote;
 use App\Models\Setting;
 
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
+
 class CashfreeController extends Controller
 {
+    use GuardsPlanActivation;
+
     //
     public function paymentConfig()
     {
@@ -185,13 +189,16 @@ class CashfreeController extends Controller
         $user = \Auth::user();
         $plan = Plan::find($request->plan_id);
         $couponCode = $request->coupon;
-        $getAmount = $request->amount;
+        // Server-owned: was `$request->amount`. Cashfree IS verified on this path
+        // ($info->payment_status == "SUCCESS"), so only the RECORDED price changes.
+        $getAmount = $plan ? $this->serverOwnedPlanPrice($plan, $couponCode) : 0;
         $orderID = strtoupper(str_replace('.', '', uniqid('', true)));
-        if ($couponCode != 0) {
-            $coupons = PlanCoupon::whereRaw('BINARY `code` = ?', [$couponCode])->where('is_active', '1')->first();
+        // Portable and case-exact; see GuardsPlanActivation::findPlanCouponExact(). Also no
+        // longer dereferences ->id on a miss: upstream read $coupons->id unconditionally, so an
+        // unknown coupon code 500ed here.
+        $coupons = $this->planCouponForRecording($couponCode);
+        if ($coupons !== null) {
             $request['coupon_id'] = $coupons->id;
-        } else {
-            $coupons = null;
         }
 
         try {

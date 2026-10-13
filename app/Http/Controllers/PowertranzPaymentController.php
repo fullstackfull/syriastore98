@@ -12,8 +12,12 @@ use App\Models\PlanOrder;
 use Illuminate\Support\Facades\Auth;
 use App\Models\PlanUserCoupon;
 
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
+
 class PowertranzPaymentController extends Controller
 {
+    use GuardsPlanActivation;
+
 
     private $currencyArray = [
         "USD" => "840",
@@ -227,7 +231,15 @@ class PowertranzPaymentController extends Controller
                     $order->card_exp_year = '';
                     $order->plan_name = $plan->name;
                     $order->plan_id = $plan->id;
-                    $order->price = !empty($request->amount) ? $request->amount : 0;
+                    // Server-owned: was `!empty($request->amount) ? $request->amount : 0`.
+                    //
+                    // HAND-CLASSIFIED THIS CYCLE, and it resolves onto the SAFE side: previously
+                    // recorded as "not hand-verified". It posts to .../api/spi/Payment and
+                    // requires $response_data['Approved'] === true AND
+                    // $response_data['IsoResponseCode'] == '00' (above), which is a real
+                    // provider check, so it is NOT on the config/payments.php map. Only the
+                    // RECORDED price changes.
+                    $order->price = $this->serverOwnedPlanPrice($plan, $request->coupon_code);
                     $order->price_currency = $currency;
                     $order->txn_id = time();
                     $order->payment_type = __('PowerTranz');

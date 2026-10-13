@@ -200,37 +200,45 @@ class OzowController extends Controller
         // stored value cannot disagree if a translation for 'Ozow' is ever added.
         $paymentType = __('Ozow');
 
+        // THESE TWO CHECKS SIT OUTSIDE THE try BELOW, DELIBERATELY.
+        //
+        // That try catches \Exception, and Symfony's HttpException -- which is what abort()
+        // throws -- IS an \Exception. A 403 raised inside it would be swallowed and rewritten
+        // as a 302 "Oops something went wrong", turning a refusal into something a caller could
+        // not distinguish from a declined payment. A test caught exactly that.
+        if ($plan && isset($request['Status']) && $request['Status'] == 'Complete') {
+
+            // Ozow's own transaction identifier is the idempotency key, and it is also what
+            // upstream writes into the UNIQUE order_id column. Without it the insert below
+            // violates NOT NULL on order_id and surfaces as a generic "something went wrong"
+            // after an exception; refusing up front is both honest and a precondition for the
+            // replay guard to mean anything.
+            if (empty($request->TransactionId)) {
+                \Log::warning('Ozow plan return refused: no TransactionId to key on.', [
+                    'plan_id' => $plan->id,
+                    'user_id' => optional($user)->id,
+                ]);
+
+                abort(403, __('The payment confirmation is incomplete.'));
+            }
+
+            // REPLAY / RETRY IS A NO-OP, NOT A SECOND PURCHASE.
+            //
+            // Ozow posts notifyUrl server-to-server AND redirects the browser to the same route,
+            // so the SAME transaction legitimately arrives twice on every successful payment.
+            // plan_orders.order_id is UNIQUE, but upstream had nothing else keyed on the
+            // provider, and the second arrival raised a constraint violation that the catch
+            // below turned into a user-facing error on a payment that had in fact succeeded. Now
+            // the first write wins and later arrivals return the same success without a second
+            // PlanOrder, a second coupon usage or a second assignPlan().
+            if ($this->existingPlanOrderForProviderTxn($paymentType, $request->TransactionId) !== null) {
+                return redirect()->route('plan.index')->with('success', __('Plan activated Successfully.'));
+            }
+        }
+
         if ($plan) {
             try {
                 if (isset($request['Status']) && $request['Status'] == 'Complete') {
-
-                    // Ozow's own transaction identifier is the idempotency key, and it is also
-                    // what upstream writes into the UNIQUE order_id column. Without it the
-                    // insert below violates NOT NULL on order_id and surfaces as a generic
-                    // "something went wrong" after an exception; refusing up front is both
-                    // honest and a precondition for the replay guard to mean anything.
-                    if (empty($request->TransactionId)) {
-                        \Log::warning('Ozow plan return refused: no TransactionId to key on.', [
-                            'plan_id' => $plan->id,
-                            'user_id' => optional($user)->id,
-                        ]);
-
-                        abort(403, __('The payment confirmation is incomplete.'));
-                    }
-
-                    // REPLAY / RETRY IS A NO-OP, NOT A SECOND PURCHASE.
-                    //
-                    // Ozow posts notifyUrl server-to-server AND redirects the browser to the
-                    // same route, so the SAME transaction legitimately arrives twice on every
-                    // successful payment. plan_orders.order_id is UNIQUE, but upstream had
-                    // nothing else keyed on the provider, and the second arrival raised a
-                    // constraint violation that the catch below turned into a user-facing
-                    // error on a payment that had in fact succeeded. Now the first write wins
-                    // and later arrivals return the same success without a second PlanOrder,
-                    // a second coupon usage or a second assignPlan().
-                    if ($this->existingPlanOrderForProviderTxn($paymentType, $request->TransactionId) !== null) {
-                        return redirect()->route('plan.index')->with('success', __('Plan activated Successfully.'));
-                    }
 
                     $order = new PlanOrder();
                     $order->order_id = $request->TransactionId;

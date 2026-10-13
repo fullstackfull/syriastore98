@@ -11,8 +11,12 @@ use Exception;
 use App\Models\PlanCoupon;
 use Illuminate\Support\Facades\Auth;
 
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
+
 class BenefitPaymentController extends Controller
 {
+    use GuardsPlanActivation;
+
     //
 
     public function initiatePayment(Request $request)
@@ -143,14 +147,17 @@ class BenefitPaymentController extends Controller
         $user = \Auth::user();
         $plan = Plan::find($request->plan_id);
         $couponCode = $request->coupon;
-        $getAmount = $request->amount;
+        // Server-owned: was `$request->amount`. Benefit IS verified on this path -- an outbound
+        // GET to api.tap.company/v2/charges/{tap_id} gated on
+        // $data->gateway->response->code == '00' -- so only the RECORDED price changes.
+        $getAmount = $plan ? $this->serverOwnedPlanPrice($plan, $couponCode) : 0;
         $orderID = strtoupper(str_replace('.', '', uniqid('', true)));
 
-        if ($couponCode != 0) {
-            $coupons = PlanCoupon::whereRaw('BINARY `code` = ?', [$couponCode])->where('is_active', '1')->first();
+        // Portable and case-exact; see GuardsPlanActivation::findPlanCouponExact(). Also no
+        // longer dereferences ->id on a miss.
+        $coupons = $this->planCouponForRecording($couponCode);
+        if ($coupons !== null) {
             $request['coupon_id'] = $coupons->id;
-        } else {
-            $coupons = null;
         }
         try {
             $post = $request->all();

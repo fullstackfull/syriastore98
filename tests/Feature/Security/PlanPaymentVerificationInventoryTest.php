@@ -6,151 +6,103 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
- * AN INVENTORY RATCHET OVER THE PLAN-PURCHASE RETURN HANDLERS.
+ * THE PLAN-PURCHASE INVENTORY, AS A RATCHET IN BOTH DIRECTIONS.
+ * =============================================================================================
  *
- * WHY THIS EXISTS. Two of these handlers were repaired this phase
- * (ESewaPaymentController::success and SofortController::success): each took the plan AND the
- * price from the query string, hardcoded a success status and called assignPlan(), so one
- * authenticated GET activated any paid plan for zero. An audit of all 55 assignPlan() callers
- * then found EIGHT MORE with the same shape. They are NOT repaired, and this file is why that
- * is a deliberate decision rather than an oversight.
+ * WHY THIS FILE WAS REWRITTEN, and the lesson in it. Its previous version pinned the INVENTORY
+ * of unrepaired handlers by asserting that each one still contained the literal text
+ * `$order->price = $getAmount;` -- the idea being that repairing a handler would redden its
+ * entry so a fix could not be silent.
  *
- * WHY THE EIGHT WERE NOT PATCHED. Their return parameters are POSTED BY THE PROVIDER, and the
- * field names and units differ per gateway (`get_amount`, `amount`, `response.Result`; major
- * units in some, minor units in others). No payment provider is reachable from this
- * environment, so a reject-on-mismatch guard applied blind could refuse every GENUINE payment
- * on eight gateways at once. eSewa and Sofort were safe to fix precisely because THIS codebase
- * builds their success_url, so the parameter names and units are server-generated and known.
- * Repairing the rest needs each provider's verification contract, which is the standing
- * BLOCKED -- EXTERNAL DEPENDENCY finding on payment providers.
+ * It did not work. The repair changed where $getAmount COMES FROM
+ * (`$getAmount = $request->get_amount` became `$getAmount = $this->serverOwnedPlanPrice(...)`)
+ * and left the assignment line untouched, so all sixteen tests stayed green across a change that
+ * closed twelve free-activation paths. Worse, the census helper traced one hop from the
+ * assignment and found `$request` inside `serverOwnedPlanPrice($plan, $request->coupon_code)`,
+ * so it still counted every repaired handler as request-priced.
  *
- * WHAT THIS TEST DOES. It pins the inventory from both sides. If a new gateway lands with the
- * same shape, the census test goes red. If one of the eight is repaired, its own case goes red
- * and the fixer must move it into the repaired list -- so a fix cannot be silent either. And
- * the three handlers that DO verify server-side are pinned too, so a regression that removes
- * verification is caught.
+ * That is the same failure as the storefront smoke test that passed with the tenancy defect
+ * reintroduced: the assertion was on a PROXY for the property, not the property. A text pin on
+ * an assignment is a proxy for where a value comes from. This version asserts the thing itself.
  *
- * CLASSIFICATION WAS HAND-VERIFIED, and two classifier errors were corrected in the process:
- * TapPaymnetController first looked ungated because its gate reads `->status != "CAPTURED"`,
- * and BenefitPaymentController looked ungated until its outbound Guzzle call was read. Pattern
- * matching alone got this wrong twice, which is the reason the lists below are explicit names
- * rather than a regex verdict computed at runtime.
+ * WHAT IT NOW PINS.
+ *
+ *   THE CENSUS, INVERTED. No plan-purchase writer may record $order->price from request data at
+ *   all. Previously nineteen-to-twenty-two did; the measured count is now zero, excluding three
+ *   handlers that price from SESSION state and are named individually with the reason. A new
+ *   gateway that lands with a request-sourced price reddens this immediately, and so does a
+ *   regression in an existing one.
+ *
+ *   THE GUARD, PER FORGEABLE HANDLER. Covered behaviourally by PlanPaymentFailClosedTest (403,
+ *   no plan_orders row, no entitlement change, per provider) and structurally by
+ *   PlanPaymentPostureTest. This file does not duplicate that.
+ *
+ *   THE VERIFICATION MARKERS of the eight handlers that genuinely ask their gateway, so that
+ *   losing one is caught. CLASSIFICATION IS HAND-READ, NOT COMPUTED: pattern matching got it
+ *   wrong four separate times here. Tap looked ungated because its gate reads
+ *   `->status != "CAPTURED"`; Benefit looked ungated until its outbound Guzzle call was read;
+ *   Paynow, Paytm and Xendit looked unverified to a scan for a raw HTTP client because they
+ *   verify through a helper or an SDK; and PayTR looked SAFE because PlanpayWithPaytr assigns
+ *   `$request['payment_status']` from its own curl result -- in a different Request, in a
+ *   different HTTP lifecycle, which the callback route does not share.
  */
 class PlanPaymentVerificationInventoryTest extends TestCase
 {
-    /** Handlers repaired this phase. Their guards are proven by PlanPaymentBypassTest. */
+    /**
+     * Handlers repaired across this phase and the last. Their guards are proven behaviourally:
+     * eSewa and Sofort by PlanPaymentBypassTest, the other twelve by PlanPaymentFailClosedTest.
+     */
     private const REPAIRED = [
         'ESewaPaymentController',
         'SofortController',
+        'NepalstePaymnetController',
+        'PayHerePaymnetController',
+        'PhonePePaymentController',
+        'PaddlePaymentController',
+        'FedPayPaymentController',
+        'EasebuzzController',
+        'DPOPayController',
+        'YookassaController',
+        'SenangPayController',
+        'PaytrController',
+        'PaiementProPaymentController',
+        'OzowController',
     ];
 
     /**
-     * Handlers that record a plan purchase on request-supplied data with no verification the
-     * caller cannot forge. [file, the exact request-sourced price assignment, what gates it].
-     */
-    public static function unverifiedHandlers(): array
-    {
-        return [
-            'Nepalste: no gate whatsoever' => [
-                'NepalstePaymnetController', '$order->price = $getAmount;', 'none',
-            ],
-            'PayHere: no gate; its md5 is outbound-only' => [
-                'PayHerePaymnetController', '$order->price = $getAmount;', 'none',
-            ],
-            'PhonePe: no gate' => [
-                'PhonePePaymentController', '$order->price = $getAmount;', 'none',
-            ],
-            'Paddle: no gate' => [
-                'PaddlePaymentController', '$order->price = $getAmount;', 'none',
-            ],
-            'FedPay: gate reads $request->status' => [
-                'FedPayPaymentController', '$order->price = $getAmount;', "\$request->status == 'approved'",
-            ],
-            'Easebuzz: gate reads $request->error' => [
-                'EasebuzzController', '$order->price          = $price == null ? 0 : $price;', "\$request->error ==",
-            ],
-            'DPOPay: gate reads $request[response][Result]' => [
-                'DPOPayController', '$order->price = $getAmount;', "\$request['response']['Result']",
-            ],
-            'Yookassa: gate is a session value, client built but never called' => [
-                'YookassaController', '$order->price = $getAmount;', "\\Session::get('payment_id')",
-            ],
-
-            // A DISTINCT SUB-CLASS, and the reason it still belongs here. SenangPay takes the
-            // plan AND the price from server-side session state, so neither can be forged and
-            // the recorded amount is always right. But the ONLY thing standing between a
-            // caller and an activated plan is `$request->status_id == 1`, which the caller
-            // supplies. A merchant who starts a SenangPay checkout (populating the session),
-            // abandons the payment and then hits the callback with status_id=1 gets the plan
-            // at the correct price without paying. Price integrity intact, payment
-            // verification absent.
-            'SenangPay: session-priced, but gated only on $request->status_id' => [
-                'SenangPayController',
-                "\$order->price = !empty(\$senangPaySession['price']) ? \$senangPaySession['price'] : 0;",
-                '$request->status_id == 1',
-            ],
-        ];
-    }
-
-    /**
      * Handlers that DO verify with the provider before activating, so a forged return cannot
-     * activate a plan. Each still records a REQUEST-SUPPLIED price, which is a lesser
-     * data-integrity problem (the plan_orders row can carry a wrong amount) and not a free
-     * activation. Pinned so that losing the verification would be caught.
+     * activate a plan. The value is the marker that proves it.
      *
-     * Three of these were initially mis-flagged as unverified by a scan for an outbound HTTP
-     * client, because they verify through a helper or an SDK rather than a raw client:
-     * Paynow via $this->paynowgetstatus(), Paytm via $transaction->isSuccessful(), Xendit via
-     * an invoice lookup. That is the second time pattern matching got this classification
-     * wrong, which is why these lists are explicit.
+     * CinetPay and Powertranz joined this list this cycle. Both were previously recorded as
+     * "not hand-verified"; reading them resolves them onto the safe side, and the other three in
+     * that residue (PayTR, PaiementPro, Ozow) resolved onto the forgeable side and are now in
+     * REPAIRED above. The residue is empty.
+     *
+     * Each of these ALSO used to record a request-supplied price -- a data-integrity defect
+     * rather than a free activation -- and that is now closed for all eight. No amount-mismatch
+     * refusal was added on these paths: the amount a verified provider posts back may
+     * legitimately be in minor units, and this environment cannot reach one to find out.
      */
     public static function verifiedHandlers(): array
     {
         return [
-            'Tap: provider charge status'      => ['TapPaymnetController', 'CAPTURED'],
-            'Cashfree: provider order status'  => ['CashfreeController', 'payment_status == "SUCCESS"'],
-            'Benefit: outbound charges lookup' => ['BenefitPaymentController', "\$data->gateway->response->code"],
-            'Paynow: provider status helper'   => ['PaynowController', 'paynowgetstatus('],
-            'Paytm: SDK transaction check'     => ['PaytmPaymentController', 'isSuccessful()'],
-            'Xendit: invoice status lookup'    => ['XenditPaymentController', "'PAID'"],
+            'Tap: provider charge status'       => ['TapPaymnetController', 'CAPTURED'],
+            'Cashfree: provider order status'   => ['CashfreeController', 'payment_status == "SUCCESS"'],
+            'Benefit: outbound charges lookup'  => ['BenefitPaymentController', "\$data->gateway->response->code"],
+            'Paynow: provider status helper'    => ['PaynowController', 'paynowgetstatus('],
+            'Paytm: SDK transaction check'      => ['PaytmPaymentController', 'isSuccessful()'],
+            'Xendit: invoice status lookup'     => ['XenditPaymentController', "'PAID'"],
+            'CinetPay: outbound status lookup'  => ['CinetPayController', "\$response_body['code'] == '00'"],
+            'Powertranz: outbound SPI payment'  => ['PowertranzPaymentController', "\$response_data['IsoResponseCode'] == \"00\""],
         ];
     }
 
     private function source(string $controller): string
     {
-        $path = base_path('app/Http/Controllers/' . $controller . '.php');
+        $path = app_path('Http/Controllers/' . $controller . '.php');
         $this->assertFileExists($path, $controller . ' has moved or been deleted; update this inventory.');
 
         return (string) file_get_contents($path);
-    }
-
-    #[DataProvider('unverifiedHandlers')]
-    public function test_an_unverified_plan_purchase_handler_is_still_on_the_inventory(
-        string $controller,
-        string $priceAssignment,
-        string $gate
-    ): void {
-        $src = $this->source($controller);
-
-        $this->assertStringContainsString(
-            $priceAssignment,
-            $src,
-            $controller . " no longer records the plan price from request-supplied data.\n\n"
-            . "IF YOU REPAIRED IT: good -- move it from unverifiedHandlers() into REPAIRED and "
-            . "add its proof to PlanPaymentBypassTest, the way eSewa and Sofort were done. This "
-            . "assertion exists so a repair cannot be silent.\n\n"
-            . "Its gate was: " . $gate
-        );
-
-        if ($gate !== 'none') {
-            $this->assertStringContainsString(
-                $gate,
-                $src,
-                $controller . "'s gate has changed. It used to be " . $gate
-                . ', which the caller supplies and can therefore forge. If the new gate is a '
-                . 'real provider check, move this entry to verifiedHandlers().'
-            );
-        }
     }
 
     #[DataProvider('verifiedHandlers')]
@@ -162,120 +114,130 @@ class PlanPaymentVerificationInventoryTest extends TestCase
             $marker,
             $this->source($controller),
             $controller . ' no longer carries its provider verification marker (' . $marker
-            . '). Losing it would put this handler into the same class as the eight unverified '
-            . 'ones.'
+            . '). Losing it would put this handler into the same class as the twelve that had to '
+            . 'be disabled -- and unlike those, this one is NOT on the config/payments.php map, '
+            . 'so nothing else is standing in the way.'
         );
     }
 
     /**
-     * THE CENSUS: every plan-purchase writer that records a REQUEST-SUPPLIED price must be
-     * classified by this file. A new gateway with that shape must not slip in unnoticed.
+     * THE CENSUS, INVERTED: NOTHING MAY PRICE A PLAN PURCHASE FROM THE REQUEST.
      *
-     * The scope is deliberately the request-sourced ones. A handler that records
-     * $plan->price is not part of this problem at all, and there are many of those -- 42
-     * plan-purchase writers were measured in total, of which 19 recorded a request-supplied
-     * price. Flagging all 42 would make this test noise.
+     * The scan is deliberately WIDER than the real defect and the exceptions are NAMED, because
+     * a wide net with named exceptions misses less than a narrow net -- the previous version's
+     * one-hop tracer was narrowed by accident and went blind to a twelve-handler repair.
      */
-    public function test_every_plan_purchase_writer_with_a_request_sourced_price_is_classified(): void
+    public function test_no_plan_purchase_writer_records_a_request_sourced_price(): void
     {
         $writers = [];
+        $flagged = [];
 
-        foreach ((glob(base_path('app/Http/Controllers') . '/*.php') ?: []) as $file) {
+        foreach ((glob(app_path('Http/Controllers') . '/*.php') ?: []) as $file) {
             $src = (string) file_get_contents($file);
 
             if (! str_contains($src, 'assignPlan(') || ! preg_match('/\$order->price\s*=/', $src)) {
                 continue;
             }
 
-            if ($this->priceIsRequestSourced($src)) {
-                $writers[] = basename($file, '.php');
+            $writers[] = basename($file, '.php');
+
+            $why = $this->requestSourcedPrice($src);
+
+            if ($why !== null) {
+                $flagged[basename($file, '.php')] = $why;
             }
         }
 
-        sort($writers);
-
-        // NAMED, NOT SILENTLY COUNTED AS SAFE. These record a request-supplied price and carry
-        // some gate, but were not hand-verified, so this inventory makes no claim about them.
-        // They are the honest residue of the audit and the next place to look.
-        $notHandVerified = [
-            'PaytrController',
-            'PaiementProPaymentController',
-            'CinetPayController',
-            'OzowController',
-            'PowertranzPaymentController',
+        /**
+         * SESSION-PRICED, AND THEREFORE ALREADY SERVER-OWNED. Named rather than detected,
+         * because the detector traces one hop from the price variable to the array literal that
+         * built the session payload, and that literal mentions $request->coupon -- so all three
+         * read as request-priced to any automatic rule that is not told otherwise.
+         *
+         *   SenangPayController   price from $senangPaySession['price'], written by
+         *                         planPayWithSenangpay from $plan->price. KEPT ON PURPOSE rather
+         *                         than recomputed: the session holds the amount the server
+         *                         actually charged at checkout, which is strictly more accurate
+         *                         than a recompute if the plan's price changes mid-flight.
+         *   BraintreeController   plan path reads $session from $request->session()->get() at
+         *                         :112 and prices from $session->amount at :143. The
+         *                         `$session = $request->toArray()` at :67 belongs to the STORE
+         *                         payment path.
+         *   MyFatoorahController  prices from $MyFatoorahSession['price'] (:160), read from the
+         *                         session at :117, and verifies through
+         *                         MyFatoorahPaymentStatus::getPaymentStatus() at :143.
+         */
+        $sessionPriced = [
+            'SenangPayController',
+            'BraintreeController',
+            'MyFatoorahController',
         ];
 
-        // HAND-VERIFIED SAFE, and kept as an explicit exclusion rather than by loosening the
-        // detector -- a wider net with named exceptions misses less than a narrow net.
-        //
-        // Both are false positives of file-scoped one-hop analysis: the detector sees EVERY
-        // assignment to the price variable anywhere in the file, including ones belonging to
-        // a different method.
-        //   BraintreeController   the plan path reads $session from
-        //                         $request->session()->get($request->order_id) at :112 and
-        //                         prices from $session->amount at :143. The
-        //                         `$session = $request->toArray()` at :67 is the STORE
-        //                         payment path, not the plan path.
-        //   MyFatoorahController  prices from $MyFatoorahSession['price'] (:160), read from
-        //                         the session at :117, and it also verifies through
-        //                         MyFatoorahPaymentStatus::getPaymentStatus() at :143.
-        $detectorFalsePositives = ['BraintreeController', 'MyFatoorahController'];
+        $unexpected = array_diff_key($flagged, array_flip($sessionPriced));
 
-        $known = array_merge(
-            self::REPAIRED,
-            $detectorFalsePositives,
-            array_map(fn ($row) => $row[0], array_values(self::unverifiedHandlers())),
-            array_map(fn ($row) => $row[0], array_values(self::verifiedHandlers())),
-            $notHandVerified
-        );
-
-        $unclassified = array_values(array_diff($writers, $known));
+        $message = '';
+        foreach ($unexpected as $controller => $why) {
+            $message .= "\n  " . $controller . "\n      " . $why;
+        }
 
         $this->assertSame(
             [],
-            $unclassified,
-            "A plan-purchase writer records a REQUEST-SUPPLIED price and is not classified:\n  "
-            . implode("\n  ", $unclassified)
-            . "\n\nClassify it before merging. The question is single: before assignPlan(), does "
-            . 'it check anything the caller cannot forge? If not, it is a P0 of the same family '
-            . 'as ESewaPaymentController::success and belongs in unverifiedHandlers().'
+            array_keys($unexpected),
+            "A plan-purchase writer records the PlanOrder price from REQUEST-SUPPLIED data:"
+            . $message
+            . "\n\nThat is the pricing half of the free-activation family that cost twelve "
+            . "handlers this phase. Price it from \$plan->price plus a server-validated coupon "
+            . "-- GuardsPlanActivation::serverOwnedPlanPrice() does exactly that -- and then ask "
+            . "the harder question: before assignPlan(), does this handler check anything the "
+            . "caller cannot forge? If not, it also needs an entry on the "
+            . "config/payments.php map and a case in PlanPaymentFailClosedTest."
         );
 
-        // Guard the floor: if this collapses, the scan has broken rather than the problem
-        // having gone away. 19 were measured when the inventory was taken.
+        // Guard the floor. If this collapses, the scan has broken rather than the problem having
+        // gone away. 42 plan-purchase writers were measured when this inventory was retaken.
         $this->assertGreaterThanOrEqual(
-            14,
+            35,
             count($writers),
-            'Only ' . count($writers) . ' request-sourced plan-purchase writers were found; 19 '
-            . 'were measured when this inventory was taken, so the scan has probably broken.'
+            'Only ' . count($writers) . ' plan-purchase writers were found; 42 were measured '
+            . 'when this inventory was retaken, so the scan has probably broken and this file '
+            . 'is now asserting nothing.'
         );
     }
 
     /**
      * Is $order->price assigned from request data, directly or through one hop?
      *
-     * One hop is enough in this codebase: every instance found was either
-     * `$order->price = $request->x` or `$var = $request->x; ... $order->price = $var`
-     * (the variable is almost always $getAmount). Deeper chains would need real dataflow
-     * analysis, which is why the hand-verified lists above are the authority and this is only
-     * the net that decides what MUST be hand-verified.
+     * Returns the offending expression (for the failure message) or null.
+     *
+     * TWO SOURCES COUNT AS SERVER-OWNED and are skipped:
+     *   serverOwnedPlanPrice(   the shared helper, which prices from $plan->price plus a
+     *                           server-validated coupon. Its own argument list mentions
+     *                           $request (the coupon CODE, which is only ever used to look a
+     *                           coupon up), which is why it must be recognised explicitly
+     *                           rather than left to the $request substring test.
+     *   session()/Session::get  server-side state reached THROUGH the request object, so a bare
+     *                           '$request->' test misreads it as caller input.
      */
-    private function priceIsRequestSourced(string $src): bool
+    private function requestSourcedPrice(string $src): ?string
     {
-        if (! preg_match_all('/\$order->price\s*=\s*([^;]+);/', $src, $m)) {
-            return false;
+        if (! preg_match_all('/\$order->price\s*=\s*([^;]+);/s', $src, $m)) {
+            return null;
         }
 
         foreach ($m[1] as $expr) {
+            if (str_contains($expr, 'serverOwnedPlanPrice(')) {
+                continue;
+            }
+
             if (str_contains($expr, '$request->') || str_contains($expr, '$request[')) {
-                return true;
+                return trim($expr);
             }
 
             // The expression names the plan's own price, so it is plan-sourced whatever else
             // appears in it. BankTransferController is
-            // `isset($coupons) ? $plan->discounted_price : $plan->price`; without this the
-            // first variable matched is $coupons, which IS assigned from a PlanCoupon lookup
-            // keyed on $request->coupon, and the handler is misread as request-priced.
+            // `isset($coupons) ? $plan->discounted_price : $plan->price`; without this the first
+            // variable matched is $coupons, which IS assigned from a PlanCoupon lookup keyed on
+            // $request->coupon, and the handler is misread as request-priced.
             if (str_contains($expr, '$plan->')) {
                 continue;
             }
@@ -284,22 +246,61 @@ class PlanPaymentVerificationInventoryTest extends TestCase
                 continue;
             }
 
-            if (preg_match_all('/\$' . $vm[1] . '\s*=\s*([^;]+);/', $src, $am)) {
+            if (preg_match_all('/\$' . $vm[1] . '\s*=\s*([^;]+);/s', $src, $am)) {
                 foreach ($am[1] as $assign) {
-                    // Server-side state, not caller input. $request->session() reads the
-                    // session THROUGH the request object, so a bare '$request->' test misreads
-                    // it as caller input.
+                    if (str_contains($assign, 'serverOwnedPlanPrice(')) {
+                        continue;
+                    }
+
                     if (str_contains($assign, 'session()') || str_contains($assign, 'Session::get')) {
                         continue;
                     }
 
                     if (str_contains($assign, '$request->') || str_contains($assign, '$request[')) {
-                        return true;
+                        return trim($expr) . '   <=   ' . trim($assign);
                     }
                 }
             }
         }
 
-        return false;
+        return null;
+    }
+
+    /**
+     * The repaired handlers all route their pricing through the one shared helper.
+     *
+     * This is what stops the money rule being reimplemented fourteen times and drifting -- in
+     * particular the coupon lookup, which must NOT filter on is_active (the checkout initiator
+     * deactivates a coupon at its limit, so filtering would recompute a HIGHER price than the
+     * server advertised and refuse a paying customer).
+     *
+     * eSewa and Sofort are exempt: they were repaired in the previous phase with their own
+     * priceFromPlanOrFail(), which ADDITIONALLY refuses a return whose claimed amount disagrees
+     * -- safe there because this server builds their success_url, so the units are known. Those
+     * two are proven by seven tests in PlanPaymentBypassTest and were deliberately left alone
+     * rather than refactored during a closure cycle.
+     */
+    public function test_every_newly_repaired_handler_uses_the_one_shared_pricing_rule(): void
+    {
+        $exempt = ['ESewaPaymentController', 'SofortController'];
+
+        // SenangPay keeps its session price (see the census above), so it does not price through
+        // the helper -- but it must still carry the guard, which PlanPaymentPostureTest asserts.
+        $exempt[] = 'SenangPayController';
+
+        foreach (self::REPAIRED as $controller) {
+            if (in_array($controller, $exempt, true)) {
+                continue;
+            }
+
+            $this->assertStringContainsString(
+                'serverOwnedPlanPrice(',
+                $this->source($controller),
+                $controller . ' no longer prices through GuardsPlanActivation::serverOwnedPlanPrice(). '
+                . 'If it now prices from $plan->price inline, that is not wrong, but the coupon '
+                . 'rule has been duplicated and will drift -- in particular the deliberate '
+                . 'absence of an is_active filter when pricing.'
+            );
+        }
     }
 }
