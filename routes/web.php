@@ -716,6 +716,23 @@ Route::get(
     Route::post('plan-pay-with-khalti', [KhaltiPaymnetController::class, 'planPayWithKhalti'])->name('pay.khalti.payment');
     Route::post('plan-get-khalti-status', [KhaltiPaymnetController::class, 'planGetKhaltiStatus'])->name('plan.get.khalti.status');
 
+    // PAYHERE IS RETIRED (owner decision) BUT THESE ROUTES DELIBERATELY STAY REGISTERED.
+    //
+    // Both handlers now refuse: planPayWithPayHere() returns a redirect-with-error before any
+    // lookup or write, and planGetPayHereStatus() is gated by assertPlanActivationEnabled(),
+    // which aborts 403 before any write. Keeping them means an old link or a stale bookmark
+    // gets a clean "not available" instead of a 404, and nothing about the refusal depends on
+    // the route being absent.
+    //
+    // DELETING THEM WOULD BE WORSE, and this is measured rather than assumed. Three live
+    // references resolve these NAMES at render or test time, and route() on an unregistered
+    // name raises RouteNotFoundException -- a 500 on a page that currently loads:
+    //   resources/views/plans/stripe.blade.php:1871  route('pay.payhere.payment') -- and its
+    //     @if at :1863 is `isset(...) == 'on'`, i.e. `true == 'on'`, which is TRUE in PHP 8,
+    //     so the block renders whenever payhere_merchant_secret is non-empty, regardless of
+    //     is_payhere_enabled. That view belongs to another agent, so it is not edited here.
+    //   tests/Feature/Security/PlanPaymentInitiatorAvailabilityTest.php:69,106
+    //   tests/Feature/Security/PlanPaymentFailClosedTest.php:80,959
     Route::post('plan-pay-with-payhere', [PayHerePaymnetController::class, 'planPayWithPayHere'])->name('pay.payhere.payment');
     Route::any('plan-get-payhere-status/{plan_id}', [PayHerePaymnetController::class, 'planGetPayHereStatus'])->name('plan.get.payhere.status');
 

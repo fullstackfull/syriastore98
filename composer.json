@@ -27,7 +27,6 @@
         "kkomelin/laravel-translatable-string-exporter": "^1.22",
         "konekt/html": "^6.5",
         "lab404/laravel-impersonate": "^1.7",
-        "lahirulhr/laravel-payhere": "^1.0",
         "larabug/larabug": "^3.1",
         "laravel/cashier-paddle": "^1.9",
         "laravel/framework": "^11.9",

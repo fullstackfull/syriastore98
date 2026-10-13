@@ -44,6 +44,34 @@ class PayHerePaymnetController extends Controller
         // this provider is assertPlanActivationEnabled('payhere') on the RETURN handler at
         // :134, where it belongs, and payhere remains shipped-disabled in config/payments.php.
         // An initiator that 500s is a broken checkout, not an open door.
+        // PAYHERE IS RETIRED BY OWNER DECISION. REFUSE DELIBERATELY, NOT INCIDENTALLY.
+        //
+        // The closure decision is that PayHere is not needed, so the integration is withdrawn:
+        // lahirulhr/laravel-payhere is gone from composer.json and composer.lock and this
+        // subscription path is closed on purpose. The refusal is FIRST and UNCONDITIONAL --
+        // it does not depend on the SDK being unloadable, so a tree that vendored the SDK back
+        // in would still refuse rather than resume selling plans through a retired gateway.
+        //
+        // It runs BEFORE the Crypt::decrypt of plan_id, before the coupon lookup, before the
+        // config() write and before the hash computation, so a refused purchase performs no
+        // lookup and leaves no side effect. It returns the SAME redirect-with-error this method
+        // already produces when the plan has been deleted.
+        //
+        // This is NOT the activation gate and does not replace one: activation is refused by
+        // assertPlanActivationEnabled('payhere') on the RETURN handler (planGetPayHereStatus,
+        // below), and payhere stays shipped-disabled in config/payments.php. An initiator that
+        // refuses is a closed checkout, not an authorisation control.
+        \Log::warning('PayHere plan checkout refused: the integration is retired (owner decision).', [
+            'user_id' => optional(\Auth::user())->id,
+        ]);
+
+        return redirect()->route('plan.index')
+            ->with('error', __('This payment method is not available for subscription purchases.'));
+
+        // Second line of defence. Unreachable while the refusal above stands; retained so that
+        // deleting the refusal cannot silently re-expose a static call to a class the committed
+        // lock does not install (a missing class raises \Error, not \Exception, which is how
+        // this path used to reach the merchant as an uncaught 500).
         if (! class_exists(PayHere::class)) {
             \Log::warning('PayHere plan checkout refused: the PayHere SDK is not installed.', [
                 'class'   => PayHere::class,

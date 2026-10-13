@@ -3425,13 +3425,35 @@ private function webhook_backup($order, $r, $products_weight = []) {
 
     private function processPayHere($request, $slug, $response)
     {
-        // The storefront must not hard-fail when the PayHere SDK is absent.
-        // lahirulhr/laravel-payhere cannot be installed from composer.lock -- its upstream
-        // repository is gone (docs/BUILD-REPRODUCIBILITY.md) -- so in any tree built from
-        // this lock the facade used below does not exist. Calling a missing class raises
-        // \Error, which `catch (\Exception)` in this method does NOT catch, so a customer
-        // who picks PayHere at checkout gets an HTTP 500 instead of the intended
-        // redirect-with-error. Fail closed here, before any session write or attachment row.
+        // PAYHERE IS RETIRED BY OWNER DECISION. REFUSE DELIBERATELY, NOT INCIDENTALLY.
+        //
+        // The owner's closure decision is that PayHere is not needed, so the integration is
+        // withdrawn rather than merely broken: lahirulhr/laravel-payhere has been removed from
+        // composer.json and composer.lock, and this path is closed on purpose and permanently.
+        //
+        // This refusal is FIRST and UNCONDITIONAL. It does not ask whether the SDK happens to
+        // be loadable, because "the class is missing" is a symptom of the removal, not the
+        // reason for it -- and a future tree that somehow vendored the SDK back in must still
+        // refuse, instead of quietly resuming charges through a gateway the owner retired.
+        // The class_exists() check below is kept as a SECOND line of defence only.
+        //
+        // It returns the SAME redirect-with-error this method already produces for other
+        // failures, and it runs BEFORE $store/$admin_payment_setting are read and before the
+        // try block's Session::put('request_data') and CheckoutAttachmentStore() writes, so a
+        // refused checkout leaves no row, no session state and no attachment behind.
+        //
+        // NOT the plan-activation gate: that is assertPlanActivationEnabled('payhere') driven
+        // by config/payments.php, and it stays where it is. See docs/BUILD-REPRODUCIBILITY.md.
+        \Log::warning('PayHere storefront checkout refused: the integration is retired (owner decision).', [
+            'store_slug' => is_object($request) ? ($request->slug ?? null) : null,
+        ]);
+
+        return redirect()->back()->with('error', __('PayHere is currently unavailable. Please choose another payment method.'));
+
+        // Second line of defence. Unreachable while the refusal above stands; it is retained so
+        // that deleting the refusal does not silently re-expose a call to a class that the
+        // committed lock does not install. Calling a missing class raises \Error, which
+        // `catch (\Exception)` would NOT catch, which is how this path used to 500.
         if (!class_exists(PayHere::class)) {
             \Log::error('PayHere checkout refused: package lahirulhr/laravel-payhere is not installed (' . PayHere::class . ' missing). See docs/BUILD-REPRODUCIBILITY.md.');
 
