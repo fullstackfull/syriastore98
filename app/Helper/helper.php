@@ -2606,3 +2606,57 @@ if (!function_exists('getAiModelName')) {
         ];
     }
 }
+/*
+|--------------------------------------------------------------------------------------------------
+| TENANCY NOTE -- WHY getCurrentStore() WAS *NOT* CHANGED
+|--------------------------------------------------------------------------------------------------
+|
+| Appended at the END OF THE FILE ON PURPOSE. Inserting it next to getCurrentStore() would shift
+| every line number below it, and this file is cited by line in other workstreams' documents
+| (docs/STABILIZATION-REGISTER.md cites app/Helper/helper.php:143-145 and :1373-1378) and in test
+| failure messages. A note that invalidates other people's references pays for its own
+| discoverability with everyone else's accuracy. Grep for `getCurrentStore` and you will find both
+| ends.
+|
+| THE PROBLEM. getCurrentStore() (this file, the `getCurrentStore` function) reads the `web` guard
+| and returns the principal's `current_store`. Storefronts are path-prefixed (`{storeSlug?}`, 106
+| declarations in routes/customer.php) on the SAME host; routes/customer.php is `require`d from
+| routes/web.php:1222 so storefront routes carry the `web` group; and config/session.php:146 sets
+| the session cookie path to '/'. So on a storefront request made by anyone holding a live admin
+| session, this function returns THEIR ADMIN STORE -- not the store whose shop is being rendered.
+|
+| That mismatch is what made a tenant predicate derived from this function AND the storefront's own
+| `where('store_id', $slugResolvedStore->id)` compile to `store_id = A AND store_id = B` -> zero
+| rows, silently. It is why Cart and Customer were enabled once and reverted.
+|
+| THE OBVIOUS FIX IS THE WRONG ONE, and that is the whole point of this note. The tempting change
+| is to make THIS FUNCTION return the slug-resolved store on a storefront request. It must not be
+| made here:
+|
+|   1. BLAST RADIUS. This is the single tenant resolver for the whole product -- roughly 497 of the
+|      1,282 `where('store_id', ...)` filters pass its result, and it also feeds writes. Changing
+|      what it returns would silently re-target INSERTs and UPDATEs, so a merchant doing admin work
+|      in one browser tab while another tab sat on some storefront could write rows against the
+|      wrong store. That is data corruption, not a blank page.
+|   2. IT WOULD FIGHT THE CALL SITES, NOT HELP THEM. The storefront already resolves its own store
+|      correctly, through `getStore($storeSlug)` in this file (405 call sites). Those sites are not
+|      broken and do not need this function to change; they needed the SCOPE to stop disagreeing
+|      with them.
+|   3. IT WOULD BREAK THE AUTHORIZATION HELPERS. `App\Models\Concerns\BelongsToStore::
+|      isOwnedByCurrentStore()` is used as `abort_unless($model->isOwnedByCurrentStore(), 403)`.
+|      If "current store" became the slug store, that check would start ADMITTING requests it
+|      denies today -- a permission change wearing a tenancy change's clothes.
+|
+| WHERE THE FIX ACTUALLY LIVES. App\Scopes\StoreScope::resolveTenant() resolves the tenant PER
+| CONTEXT and leaves this function's contract untouched. On a storefront request the slug-resolved
+| store is admitted ALONGSIDE the owned stores (`tenancy.storefront_tenant` = 'additive'), so the
+| set is a strict superset of today's and cannot blank a working page; on an admin route there is
+| no slug and the predicate is the owned-stores set exactly. `StoreScope::resolveStoreId()` still
+| returns what this function returns, which is what keeps point 3 above true -- asserted by
+| tests/Feature/Tenancy/StorefrontContextTenantResolutionTest::
+| test_the_storefront_repair_did_not_widen_an_authorization_helper.
+|
+| So: ONE resolver, ONE `store_id` discriminator, ONE shared database. The scope learned to ask the
+| right question per context; the resolver did not change its answer.
+|
+*/
