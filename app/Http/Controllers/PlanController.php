@@ -3,9 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Models\{Addon, Plan, PlanCoupon, User, userActiveModule};
+use App\Models\AuditLog;
 use App\Models\PlanOrder;
 use App\Models\Utility;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use App\Facades\ModuleFacade as Module;
 use App\DataTables\PlanOrderDataTable;
 use Illuminate\Support\Facades\Artisan;
