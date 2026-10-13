@@ -172,8 +172,13 @@ class User extends Authenticatable implements LaratrustUser, MustVerifyEmail
         if($plan)
         {
             $this->plan_id = $plan->id;
-            if($this->trial_expire_date != null);
-            {
+            // The `;` that used to terminate this `if` made the block below unconditional.
+            // Behaviour is unchanged by removing it -- clearing an already-null column is a
+            // no-op, so both forms null the field in every reachable case -- but the guard
+            // now means what it reads as, instead of being a trap for the next change.
+            // trial_plan is deliberately NOT cleared here: it is the permanent
+            // "has already trialled" marker PlanController::planTrial enforces against.
+            if ($this->trial_expire_date != null) {
                 $this->trial_expire_date = null;
             }
             if($plan->duration == 'Month')
