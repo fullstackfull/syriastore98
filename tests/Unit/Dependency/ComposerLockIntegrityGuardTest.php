@@ -287,4 +287,167 @@ final class ComposerLockIntegrityGuardTest extends TestCase
             . 'drifting vendor/, not about a missing lock file.'
         );
     }
+
+    // -----------------------------------------------------------------------------------------
+    // --allow-missing: THE ONE NARROW TOLERANCE, AND THE FOUR WAYS IT MUST STILL BITE.
+    //
+    // One locked package's upstream is gone (lahirulhr/laravel-payhere: the pinned zipball 404s
+    // from a clean runner), so `composer install` from the lock fails and the REQUIRED test gate
+    // had NEVER run a Laravel test. The `tests-degraded` job installs the locked set minus that
+    // one entry so the real suites can execute, and then has to measure the tree it produced
+    // against the real lock -- which is what --allow-missing is for.
+    //
+    // A tolerance is the most dangerous thing that can be added to a guard, so the tests below
+    // are mostly about what it must NOT absorb. If any of the four "still fails" tests ever goes
+    // green, this guard has stopped being a lock-integrity check and become a rubber stamp.
+    // -----------------------------------------------------------------------------------------
+
+    public function test_allow_missing_tolerates_exactly_the_named_absent_package(): void
+    {
+        $this->fixture(
+            [['acme/one', '1.2.3'], ['dead/upstream', '2.0.0'], ['acme/two', '4.5.6']],
+            [['acme/one', '1.2.3'], ['acme/two', '4.5.6']]
+        );
+
+        [$code, $out] = $this->runGuard('--allow-missing=dead/upstream');
+
+        $this->assertSame(0, $code, "Output:\n$out");
+        $this->assertStringContainsString('TOLERATED absent', $out);
+        $this->assertStringContainsString('dead/upstream', $out);
+    }
+
+    /**
+     * THE HONESTY CHECK ON THE PASS MESSAGE. A tolerated run must not print "vendor/ matches
+     * composer.lock exactly", because it does not: one of the locked packages is not installed.
+     * A reader skimming the log is entitled to learn that from the log.
+     */
+    public function test_a_tolerated_pass_does_not_claim_the_tree_matches_the_lock(): void
+    {
+        $this->fixture(
+            [['acme/one', '1.2.3'], ['dead/upstream', '2.0.0']],
+            [['acme/one', '1.2.3']]
+        );
+
+        [$code, $out] = $this->runGuard('--allow-missing=dead/upstream');
+
+        $this->assertSame(0, $code, "Output:\n$out");
+        $this->assertStringNotContainsString('matches composer.lock exactly', $out);
+        $this->assertStringContainsString('This is NOT "vendor/ matches composer.lock"', $out);
+    }
+
+    /** STILL FAILS 1 of 4: one dead upstream buys no amnesty for a second. */
+    public function test_allow_missing_does_not_tolerate_a_second_absent_package(): void
+    {
+        $this->fixture(
+            [['acme/one', '1.2.3'], ['dead/upstream', '2.0.0'], ['acme/two', '4.5.6']],
+            [['acme/one', '1.2.3']]
+        );
+
+        [$code, $out] = $this->runGuard('--allow-missing=dead/upstream');
+
+        $this->assertSame(1, $code, "A second missing package must still fail. Output:\n$out");
+        $this->assertStringContainsString('acme/two', $out);
+    }
+
+    /**
+     * STILL FAILS 2 of 4, and the most important one. The tolerance is for ABSENCE only. If the
+     * allow-listed package turns up at a DIFFERENT version, that is ordinary drift -- the exact
+     * class of defect that hid four major-version crossings on this project -- and the exact
+     * version-string match must still catch it.
+     */
+    public function test_allow_missing_does_not_tolerate_a_version_difference_on_the_named_package(): void
+    {
+        $this->fixture(
+            [['acme/one', '1.2.3'], ['dead/upstream', '2.0.0']],
+            [['acme/one', '1.2.3'], ['dead/upstream', '2.0.1']]
+        );
+
+        [$code, $out] = $this->runGuard('--allow-missing=dead/upstream');
+
+        $this->assertSame(
+            1,
+            $code,
+            "The tolerance covers absence, NOT a wrong version. A single patch release of drift "
+            . "on the tolerated package must still fail. Output:\n$out"
+        );
+        $this->assertStringContainsString('TOLERANCE UNUSED', $out);
+    }
+
+    /** STILL FAILS 3 of 4: nothing may be installed that the lock does not name. */
+    public function test_allow_missing_does_not_tolerate_a_package_absent_from_the_lock(): void
+    {
+        $this->fixture(
+            [['acme/one', '1.2.3'], ['dead/upstream', '2.0.0']],
+            [['acme/one', '1.2.3'], ['sneaky/extra', '9.9.9']]
+        );
+
+        [$code, $out] = $this->runGuard('--allow-missing=dead/upstream');
+
+        $this->assertSame(1, $code, "Output:\n$out");
+        $this->assertStringContainsString('sneaky/extra', $out);
+    }
+
+    /**
+     * STILL FAILS 4 of 4: THE STRICT JOB IS UNAFFECTED. The `tests` job calls this guard with no
+     * flag and is what gates the day the upstream returns. The same tree the tolerant mode
+     * accepts must still redden the default mode, or adding the tolerance would have quietly
+     * weakened the required gate too.
+     */
+    public function test_the_default_mode_still_fails_on_the_very_package_the_tolerance_names(): void
+    {
+        $this->fixture(
+            [['acme/one', '1.2.3'], ['dead/upstream', '2.0.0']],
+            [['acme/one', '1.2.3']]
+        );
+
+        [$tolerantCode] = $this->runGuard('--allow-missing=dead/upstream');
+        [$strictCode, $strictOut] = $this->runGuard();
+
+        $this->assertSame(0, $tolerantCode);
+        $this->assertSame(
+            1,
+            $strictCode,
+            "Default (strict) mode must be untouched by the existence of the tolerance. Output:\n$strictOut"
+        );
+    }
+
+    /** An absent vendor/ is never tolerable, flag or no flag. */
+    public function test_allow_missing_does_not_tolerate_a_missing_installed_json(): void
+    {
+        $this->fixture([['dead/upstream', '2.0.0']], [], writeInstalled: false);
+
+        [$code, $out] = $this->runGuard('--allow-missing=dead/upstream');
+
+        $this->assertSame(1, $code, "Output:\n$out");
+        $this->assertStringContainsString('installed.json not found', $out);
+    }
+
+    public function test_an_empty_allow_list_is_refused_rather_than_treated_as_enforce(): void
+    {
+        $this->fixture([['acme/one', '1.2.3']], [['acme/one', '1.2.3']]);
+
+        [$code, $out] = $this->runGuard('--allow-missing=');
+
+        $this->assertSame(
+            1,
+            $code,
+            "`--allow-missing=` with nothing after it is a mistake, most likely an unset shell "
+            . "variable. Treating it as enforce mode would be the friendly behaviour and the wrong "
+            . "one: the caller believes it passed a list. Output:\n$out"
+        );
+    }
+
+    public function test_an_unrecognised_mode_is_refused(): void
+    {
+        $this->fixture([['acme/one', '1.2.3']], [['acme/one', '1.2.3']]);
+
+        [$code, $out] = $this->runGuard('--allow-everything');
+
+        $this->assertSame(
+            1,
+            $code,
+            "An unknown flag used to fall through to enforce mode, which means a typo in a "
+            . "tolerance flag would have produced a silently different verdict. Output:\n$out"
+        );
+    }
 }

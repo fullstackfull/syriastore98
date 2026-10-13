@@ -828,6 +828,348 @@ jobs:
           if-no-files-found: warn
 
   # ---------------------------------------------------------------------------
+  # THE SECOND REQUIRED TEST GATE -- REAL SUITES, ONE DECLARED-DEAD PACKAGE EXCLUDED.
+  #
+  # WHY THIS JOB EXISTS. The `tests` job above is the strict gate and is correct, and it
+  # CANNOT PASS: `composer install` from composer.lock dies on one package whose upstream
+  # is gone (lahirulhr/laravel-payhere; HTTP 404 on the pinned zipball from a clean
+  # ubuntu-latest runner). The consequence is not that one dependency is unverified -- the
+  # consequence is that THE LARAVEL SUITES HAVE NEVER EXECUTED IN CI AT ALL, so the
+  # required gate protects nothing. One dead payment package currently buys a merge past
+  # every security, tenancy and commerce test the project has.
+  #
+  # THE SUITES DO NOT NEED THAT PACKAGE. Measured, not reasoned: the development tree that
+  # produced the current board -- Unit 107 tests / 810 assertions, Feature 1255 tests /
+  # 6704 assertions / 8 failures / 17 skips -- has NO vendor/lahirulhr directory and no
+  # lahirulhr entry in vendor/composer/installed.json. The whole suite already runs with
+  # the package absent. What CI was missing was never a capability; it was a tolerance
+  # rule.
+  #
+  # SO THIS JOB IS THE SAME GATE WITH ONE NAMED EXCEPTION, AND IT IS BLOCKING.
+  #   1. It runs the REAL strict `composer install` first, and keeps the log.
+  #   2. If that fails, .github/scripts/screen-install-failure.php decides WHICH packages
+  #      failed -- by name from composer's own message, and by URL resolved through
+  #      composer.lock for the TransportException form that names only a URL. The job
+  #      proceeds ONLY if that set is EXACTLY {lahirulhr/laravel-payhere}. A second dead
+  #      package, or a non-zero exit with no attributable package (a resolver failure, a
+  #      platform requirement, a corrupt lock), is a HARD STOP. `|| true` on the install
+  #      would have tolerated all of those forever; that is the difference between this
+  #      and hiding the problem.
+  #   3. .github/scripts/make-degraded-manifest.php derives composer-ci-degraded.json/.lock
+  #      from the committed pair, minus exactly those entries, and composer is pointed at
+  #      the derived pair through its COMPOSER environment variable. THE COMMITTED
+  #      composer.json AND composer.lock ARE NOT EDITED -- they are read-only inputs, and
+  #      their sha256 is compared before and after as proof. The derived pair is a build
+  #      artefact, regenerated every run; the day the upstream returns, step 1 succeeds,
+  #      the derivation never happens, and the tolerance evaporates with no commit.
+  #   4. The installed tree is then measured against the REAL committed lock with
+  #      --allow-missing, which tolerates the named package ONLY in the "locked, not
+  #      installed" category. A version difference on ANY package, including that one, and
+  #      any other missing or unlocked package, still fails.
+  #   5. The absence of the package is ASSERTED, so this job can never be misread as the
+  #      PayHere problem being fixed. It is not fixed. Every code path that needs those
+  #      classes is still broken.
+  #   6. Then the real Unit and Feature suites, nothing narrowed, and the same blocking
+  #      known-outcome assertion the strict job uses, against the same manifest.
+  #
+  # WHAT IS NOT CLAIMED. This job does NOT verify the locked dependency set -- one of its
+  # 239 entries is absent and it says so on every run. That claim belongs to the `tests`
+  # job, which is why `tests` REMAINS, strict and unmodified: the day PayHere is restored,
+  # the strict path is what gates, and this job's own step 1 will say so in a ::notice.
+  #
+  # DEPENDENCY ON ANOTHER AGENT'S CHANGE. app/Services/PaymentService.php:3486 and
+  # app/Http/Controllers/PayHerePaymnetController.php:92 both call PayHere::checkOut(),
+  # both inside `try { } catch (\Exception $e)`. A missing class raises \Error, which is a
+  # \Throwable and NOT an \Exception, so neither catch holds it: those two call sites fatal
+  # if they are ever reached with the package absent. The dependency agent is adding a
+  # class_exists()/\Throwable guard at PaymentService.php:3486. This job does not require
+  # that guard for the CURRENT test set -- measured: no test reaches either call site,
+  # because the only PayHere route the suite exercises is plan.get.payhere.status, which
+  # aborts 403 in assertPlanActivationEnabled() long before any vendor class is touched --
+  # but any FUTURE test that exercises a PayHere checkout will ERROR, and an error fails
+  # the known-outcome gate unconditionally and correctly. PayHerePaymnetController.php:92
+  # is a SECOND unguarded call site and is not this agent's file; see the report.
+  #
+  # NOTHING HERE LOADS THE MISSING CLASS. No artisan call, no route:list, no config:cache,
+  # no package:discover (--no-scripts, as in the strict job). The degraded install
+  # regenerates the autoloader WITHOUT the package, so class_exists() on its classes
+  # returns false cleanly rather than trying to include a file that is not there.
+  #
+  # DELETE THIS WHOLE JOB when the owner decision on PayHere lands. It has exactly one
+  # reason to exist and that reason is named in one place.
+  # ---------------------------------------------------------------------------
+  tests-degraded:
+    name: Tests (REQUIRED -- real suites, PayHere excluded and NOT fixed)
+    runs-on: ubuntu-latest
+
+    env:
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      APP_ENV: testing
+      # THE ONE DECLARED-DEAD PACKAGE. Named here, in the workflow, rather than inside a
+      # script, so what is being tolerated is visible to anyone reading the pipeline. Every
+      # script below takes it as an argument and prints it. Adding a second name here is a
+      # reviewable act; it is not something a build can do to itself.
+      DEAD_PACKAGES: lahirulhr/laravel-payhere
+      DEGRADED_BASENAME: composer-ci-degraded
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Refuse to run as root
+        run: |
+          if [ "$(id -u)" = "0" ]; then
+            echo "::error::CI is running as root (uid 0). Refusing to proceed."
+            exit 1
+          fi
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: ctype, curl, dom, fileinfo, filter, gd, iconv, intl, mbstring, openssl, pdo, pdo_sqlite, phar, simplexml, sodium, tokenizer, xml, xmlreader, xmlwriter, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Hard guard - refuse to run against anything but sqlite
+        # Identical to the strict job's guard, and duplicated rather than factored out on
+        # purpose: RefreshDatabase runs migrate:fresh, which DROPS EVERY TABLE in whatever
+        # database the suite resolves. A second job that runs the suite needs its own copy
+        # of that control, not a reference to one.
+        run: |
+          test "${DB_CONNECTION}" = "sqlite"   || { echo "::error::DB_CONNECTION is not sqlite";   exit 1; }
+          test "${DB_DATABASE}"   = ":memory:" || { echo "::error::DB_DATABASE is not :memory:";   exit 1; }
+          .github/scripts/guard-no-env-files.sh .
+
+      - name: Guard - test-database isolation is intact
+        run: .github/scripts/guard-test-isolation.sh .
+
+      - name: Guard - GATE F money tables are still created by nothing
+        # Repeated in the job that actually runs migrate:fresh. The `static` job proves the
+        # property against the files; this proves it is still true in the job whose
+        # migrations really execute, which until this job existed was never the case for any
+        # job at all.
+        run: .github/scripts/guard-gate-f-containment.sh .
+
+      - name: Create the storage skeleton (absent from the repo)
+        run: mkdir -p storage/framework/{cache/data,sessions,views,testing} storage/logs bootstrap/cache
+
+      - name: Clear the committed-and-stale bootstrap cache
+        # Load-bearing HERE in a way it is not in the strict job: a stale packages.php
+        # naming Lahirulhr\PayHere\PayHereServiceProvider would be read by
+        # PackageManifest and the framework would fatal on boot trying to register a
+        # provider whose class this job deliberately does not install. The manifest must be
+        # rebuilt from the degraded vendor/composer/installed.json.
+        run: rm -f bootstrap/cache/packages.php bootstrap/cache/services.php
+
+      - name: Satisfy the installer sentinel
+        # app/Http/Controllers/HomeController.php has a bare exit() in its CONSTRUCTOR when
+        # storage/installed is absent, which under PHPUnit kills the process with no output
+        # and no junit file.
+        run: touch storage/installed
+
+      - name: Install dependencies - strict first, then exclude ONLY the declared-dead set
+        id: install
+        shell: bash
+        run: |
+          # errexit is DELIBERATELY OFF for this step. The strict install is EXPECTED to
+          # fail, and its exit status is the input to a decision rather than a reason to
+          # stop. Every failure path below therefore exits explicitly, and the step ends
+          # with assertions rather than with an implicit success.
+          set +e
+          set -uo pipefail
+
+          # Proof material for the "the committed manifests were not edited" assertion below.
+          before_json="$(sha256sum composer.json | cut -d' ' -f1)"
+          before_lock="$(sha256sum composer.lock | cut -d' ' -f1)"
+          echo "composer.json sha256 before : ${before_json}"
+          echo "composer.lock sha256 before : ${before_lock}"
+
+          log="${RUNNER_TEMP}/strict-install.log"
+
+          echo "::group::Strict composer install from composer.lock (the real thing)"
+          composer install --prefer-dist --no-interaction --no-progress --no-scripts 2>&1 | tee "${log}"
+          rc=${PIPESTATUS[0]}
+          echo "::endgroup::"
+          echo "strict composer install exit status: ${rc}"
+
+          if [ "${rc}" = "0" ]; then
+            echo 'degraded=false' >> "$GITHUB_OUTPUT"
+            echo "::notice::composer install from composer.lock SUCCEEDED. The PayHere blocker has"
+            echo "::notice::cleared and NOTHING WAS EXCLUDED on this run. The strict 'tests' job is now"
+            echo "::notice::the gate. Housekeeping, in one commit: delete the 'tests-degraded' job, the"
+            echo "::notice::--allow-missing flag, screen-install-failure.php, make-degraded-manifest.php"
+            echo "::notice::and their unit tests, and update docs/BUILD-REPRODUCIBILITY.md."
+          else
+            echo "The strict install failed. Deciding WHETHER that failure is the one declared dead."
+
+            echo "::group::Install failure screen"
+            php .github/scripts/screen-install-failure.php "${log}" composer.lock "${DEAD_PACKAGES}"
+            screen_rc=$?
+            echo "::endgroup::"
+
+            if [ "${screen_rc}" != "0" ]; then
+              echo "::error::The install failure is NOT the declared dead-upstream failure, or could not"
+              echo "::error::be attributed to any locked package. Refusing to run a degraded install:"
+              echo "::error::a tolerance that fires on an unscreened failure tolerates everything."
+              exit 1
+            fi
+
+            echo "::group::Derive the degraded manifest"
+            php .github/scripts/make-degraded-manifest.php . "${DEGRADED_BASENAME}" "${DEAD_PACKAGES}"
+            derive_rc=$?
+            echo "::endgroup::"
+
+            if [ "${derive_rc}" != "0" ]; then
+              echo "::error::The degraded manifest could not be derived (exit ${derive_rc}). Read its"
+              echo "::error::refusal above; it refuses on purpose rather than producing a manifest whose"
+              echo "::error::contents do not match what it says it did."
+              exit 1
+            fi
+
+            # A clean tree, so the measurement against the real lock afterwards is of the
+            # degraded install and nothing left behind by the strict attempt.
+            rm -rf vendor
+
+            echo "::group::Degraded composer install (committed manifests untouched)"
+            COMPOSER="${DEGRADED_BASENAME}.json" composer install --prefer-dist --no-interaction --no-progress --no-scripts
+            drc=$?
+            echo "::endgroup::"
+
+            if [ "${drc}" != "0" ]; then
+              echo "::error::The install still failed with the declared-dead package excluded (exit ${drc})."
+              echo "::error::That means there is a SECOND cause the screen above did not see. Do not widen"
+              echo "::error::the exclusion to find out; read the log."
+              exit 1
+            fi
+
+            echo 'degraded=true' >> "$GITHUB_OUTPUT"
+          fi
+
+          # ---------------------------------------------------------------------------
+          # THE PREMISE OF THE WHOLE JOB, ASSERTED RATHER THAN ASSUMED: the committed
+          # dependency manifests are read-only inputs here. They belong to the dependency
+          # owner, and a build that edits them turns a recoverable upstream outage into a
+          # committed dependency change nobody reviewed.
+          # ---------------------------------------------------------------------------
+          after_json="$(sha256sum composer.json | cut -d' ' -f1)"
+          after_lock="$(sha256sum composer.lock | cut -d' ' -f1)"
+
+          if [ "${after_json}" != "${before_json}" ] || [ "${after_lock}" != "${before_lock}" ]; then
+            echo "::error::composer.json or composer.lock was MODIFIED by this job."
+            echo "::error::  composer.json ${before_json} -> ${after_json}"
+            echo "::error::  composer.lock ${before_lock} -> ${after_lock}"
+            echo "::error::This job must never edit either file. Refusing to report anything else."
+            exit 1
+          fi
+          echo "composer.json and composer.lock are byte-identical to the checkout. Verified by sha256."
+
+          test -f vendor/autoload.php || {
+            echo "::error::vendor/autoload.php was not produced, so no suite below could run."
+            exit 1
+          }
+
+      - name: The excluded package is ABSENT -- this job is not a PayHere fix
+        # THE ANTI-THEATRE STEP. Without it, a reader skimming a green 'tests-degraded' would
+        # reasonably conclude the dependency problem was solved. It is not solved. This step
+        # fails if the package it claims to have excluded is somehow present, so the job
+        # cannot pass while telling a different story than its own name.
+        if: steps.install.outputs.degraded == 'true'
+        shell: bash
+        run: |
+          failed=0
+          IFS=',' read -ra pkgs <<< "${DEAD_PACKAGES}"
+          for pkg in "${pkgs[@]}"; do
+            if [ -d "vendor/${pkg}" ]; then
+              echo "::error::vendor/${pkg} EXISTS, but this job excluded it. The exclusion did not take."
+              failed=1
+            fi
+            if grep -q "\"${pkg}\"" vendor/composer/installed.json; then
+              echo "::error::${pkg} is in vendor/composer/installed.json despite being excluded."
+              failed=1
+            fi
+            echo "ABSENT, deliberately: ${pkg}"
+          done
+          [ "${failed}" = "0" ] || exit 1
+          echo "::warning title=DEPENDENCY STILL BROKEN::lahirulhr/laravel-payhere is ABSENT from this build. Its upstream is gone (404 on the pinned zipball from a clean runner) and this job EXCLUDED it so the real test suites could run at all. It is NOT fixed, NOT mirrored and NOT vendored: PaymentService::processPayHere() and PayHerePaymnetController::planPayWithPayHere() cannot work. An owner decision on the dependency is still owed. See docs/BUILD-REPRODUCIBILITY.md."
+
+      - name: vendor/ must match composer.lock except the declared-dead set -- BLOCKING
+        # The strict job's integrity guard, with the one narrow tolerance. The tolerance
+        # applies ONLY to the "locked, not installed" category: a version difference on ANY
+        # package -- including the tolerated one, if it turned up at the wrong version -- a
+        # second absent package, or anything installed that the lock does not name, all
+        # still fail. Proven in tests/Unit/Dependency/ComposerLockIntegrityGuardTest.php.
+        #
+        # When the strict install succeeded there is nothing to tolerate and the guard runs
+        # in its ordinary blocking mode, identical to the `tests` job.
+        shell: bash
+        run: |
+          if [ "${{ steps.install.outputs.degraded }}" = "true" ]; then
+            .github/scripts/guard-composer-lock-integrity.sh . "--allow-missing=${DEAD_PACKAGES}"
+          else
+            .github/scripts/guard-composer-lock-integrity.sh .
+          fi
+
+      - name: Assert the committed fake test key is present
+        run: |
+          test -f .env.testing || { echo "::error::.env.testing is missing."; exit 1; }
+          grep -q '^APP_KEY=base64:' .env.testing || { echo "::error::.env.testing has no fixed test APP_KEY."; exit 1; }
+
+      - name: Unit suite -- BLOCKING
+        # The REAL Unit suite, whole, nothing narrowed and nothing excluded. BLOCKING with no
+        # tolerance: the Unit suite has no known failures and no known skips, so any red here
+        # is a regression by definition, and there is no manifest section for it.
+        run: vendor/bin/phpunit --testsuite Unit --testdox
+
+      - name: Feature suite -- BLOCKING on the known-outcome SET
+        # THE REAL FEATURE SUITE. `--testsuite Feature` is the whole tests/Feature directory:
+        # Security/, Tenancy/, Commerce/, Auth/, Platform/ and ProfileTest. Nothing here
+        # narrows the selection, excludes a directory, filters a group or substitutes a
+        # static source check for a test. This is the first time any of it executes in CI.
+        #
+        # continue-on-error on THIS STEP ONLY, and it is not a tolerance: eight tests fail by
+        # record, so phpunit exits non-zero on every run. The step reports its own failure and
+        # the next step -- which is NOT continue-on-error -- decides whether that failure is
+        # the accepted one, by NAME, against .github/known-test-outcomes.json. The same
+        # manifest and the same script as the strict job; there is no second, laxer record.
+        id: feature
+        continue-on-error: true
+        run: |
+          vendor/bin/phpunit --testsuite Feature \
+            --display-skipped \
+            --log-junit storage/logs/feature-junit.xml \
+            --log-teamcity storage/logs/feature-teamcity.txt
+
+      - name: The Feature outcome set must match the record -- BLOCKING
+        # Narrowed to "phpunit actually ran", exactly as in the strict job: when an earlier
+        # step failed there is no JUnit log to judge, and a bare always() would add a second
+        # red that blames the wrong thing.
+        if: always() && (steps.feature.outcome == 'success' || steps.feature.outcome == 'failure')
+        run: |
+          php .github/scripts/assert-known-test-outcomes.php \
+            storage/logs/feature-junit.xml \
+            .github/known-test-outcomes.json \
+            storage/logs/feature-teamcity.txt
+
+      - name: Upload the test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: feature-suite-logs-degraded
+          path: |
+            storage/logs/feature-junit.xml
+            storage/logs/feature-teamcity.txt
+          if-no-files-found: warn
+
+      - name: Remove the derived manifest
+        # The derived pair is a build artefact and must not outlive the job. Deleting it here
+        # also means a developer who runs these steps locally is not left with two untracked
+        # composer files that look like someone's half-finished dependency change. (No
+        # .gitignore entry is added: .gitignore is not this agent's file this cycle, and a
+        # build artefact that deletes itself needs no ignore rule.)
+        if: always()
+        run: rm -f "${DEGRADED_BASENAME}.json" "${DEGRADED_BASENAME}.lock"
+
+  # ---------------------------------------------------------------------------
   # IS THE PAYHERE BLOCKER STILL THERE? -- a diagnostic, not a gate.
   #
   # WHAT THIS JOB IS NOW FOR. The `tests` job above is the required gate and does the

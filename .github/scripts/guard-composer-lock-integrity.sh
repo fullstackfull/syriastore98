@@ -31,16 +31,61 @@
 # where vendor/ is known to be a shared, hardlinked, drifting tree that must not be
 # touched (every agent worktree in this project).
 #
+# ------------------------------------------------------------------------------------------
+# --allow-missing=<pkg>[,<pkg>...]  -- THE ONE NARROW TOLERANCE, AND WHY IT IS NARROW
+# ------------------------------------------------------------------------------------------
+# One locked package, lahirulhr/laravel-payhere, is gone from its upstream: the dist zipball
+# composer.lock pins 404s from a clean runner because the commit no longer exists. For as long
+# as that is true, `composer install` from the lock cannot succeed ON ANY MACHINE, and the
+# consequence was that the REQUIRED test gate died at the install step and the Laravel suites
+# NEVER EXECUTED in CI. The `tests-degraded` job exists to run the real suites anyway, from an
+# install that excludes exactly that one package -- and it then has to measure the tree it
+# produced against the real lock, which is what this mode is for.
+#
+# The tolerance is deliberately the smallest shape that works:
+#
+#   * It applies ONLY to the "locked, not installed" category. A version DIFFERENCE on a
+#     tolerated package, or a tolerated package appearing in the tree but not the lock, is
+#     still drift and still fails. The whole value of this guard is the exact version-string
+#     match, and a tolerance that reached the differ/extra categories would throw that away.
+#   * A package not in the allow list is still drift, in every category. One dead upstream does
+#     not buy amnesty for a second.
+#   * It changes NOTHING about the default mode, so the strict `tests` job -- which is what
+#     gates the day the upstream returns -- is unaffected and still fails on this very package.
+#   * It is passed in by the CALLER, so what is being tolerated is visible in the workflow file
+#     and printed in this script's output, not buried in a constant here.
+#
+# When the owner decision on PayHere lands, delete the flag from the workflow and the
+# `tests-degraded` job with it. Covered by tests/Unit/Dependency/ComposerLockIntegrityGuardTest.php,
+# which proves each of the four "still fails" properties above.
+#
 # WHAT IT DELIBERATELY DOES NOT DO. It never edits the lock, never installs, never
 # removes a package to make the numbers agree, and never treats "close enough" as equal.
 # An exact version-string match is the whole point: the four major-version crossings
 # above are exactly the kind of difference a fuzzy comparison would have hidden.
 #
-# Usage: guard-composer-lock-integrity.sh [repo-root] [--report]
+# Usage: guard-composer-lock-integrity.sh [repo-root] [--report|--allow-missing=<pkg>,...]
 set -euo pipefail
 
 ROOT="${1:-.}"
 MODE="${2:-enforce}"
+ALLOW_MISSING=""
+
+case "${MODE}" in
+  --allow-missing=*)
+    ALLOW_MISSING="${MODE#--allow-missing=}"
+    MODE="--allow-missing"
+    if [ -z "${ALLOW_MISSING}" ]; then
+      echo "::error::--allow-missing= was given with an empty list. Name the package(s) or drop the flag." >&2
+      exit 1
+    fi
+    ;;
+  --report|enforce) ;;
+  *)
+    echo "::error::Unknown mode '${MODE}'. Use --report or --allow-missing=<pkg>[,<pkg>...]." >&2
+    exit 1
+    ;;
+esac
 
 LOCK="$ROOT/composer.lock"
 INSTALLED="$ROOT/vendor/composer/installed.json"
@@ -65,7 +110,15 @@ fi
 php -r '
 $lockPath = $argv[1];
 $instPath = $argv[2];
-$report   = ($argv[3] ?? "") === "--report";
+$mode     = $argv[3] ?? "";
+$report   = $mode === "--report";
+$allowed  = [];
+if ($mode === "--allow-missing") {
+    foreach (explode(",", (string) ($argv[4] ?? "")) as $n) {
+        $n = trim($n);
+        if ($n !== "") { $allowed[$n] = true; }
+    }
+}
 
 $lock = json_decode(file_get_contents($lockPath), true);
 $inst = json_decode(file_get_contents($instPath), true);
@@ -83,9 +136,17 @@ foreach ($inst["packages"] ?? [] as $p) {
     $installed[$p["name"]] = $p["version"];
 }
 
-$match = 0; $differ = []; $missing = []; $extra = []; $major = [];
+$match = 0; $differ = []; $missing = []; $extra = []; $major = []; $tolerated = []; $unusedTolerance = [];
 foreach ($locked as $name => $want) {
-    if (!array_key_exists($name, $installed)) { $missing[$name] = $want; continue; }
+    if (!array_key_exists($name, $installed)) {
+        # TOLERATED ABSENCE, and ONLY absence. A tolerated package that is present but at the
+        # wrong version falls through to the $differ branch below and still fails -- the
+        # tolerance never reaches the version comparison.
+        if (isset($allowed[$name])) { $tolerated[$name] = $want; continue; }
+        $missing[$name] = $want;
+        continue;
+    }
+    if (isset($allowed[$name])) { $unusedTolerance[$name] = $installed[$name]; }
     $have = $installed[$name];
     if ($have === $want) { $match++; continue; }
     $differ[$name] = [$want, $have];
@@ -105,8 +166,24 @@ printf("  at a DIFFERENT version   : %d\n", count($differ));
 printf("  locked, not installed    : %d\n", count($missing));
 printf("  installed, not in lock   : %d\n", count($extra));
 printf("  crossing a MAJOR version : %d\n", count($major));
+if ($allowed !== []) {
+    printf("  TOLERATED absent         : %d  (allow-missing: %s)\n", count($tolerated), implode(", ", array_keys($allowed)));
+}
 
 $drift = count($differ) + count($missing) + count($extra);
+
+if ($tolerated !== []) {
+    printf("\nTOLERATED ABSENT -- declared dead upstream, excluded from the install ON PURPOSE.\n");
+    printf("These packages are NOT installed. Nothing here says they work; every code path that\n");
+    printf("needs their classes is still broken until an owner decision lands on the dependency.\n");
+    foreach ($tolerated as $n => $v) { printf("  %-40s %s (locked, absent)\n", $n, $v); }
+}
+
+if ($unusedTolerance !== []) {
+    printf("\nTOLERANCE UNUSED -- these are allow-listed as possibly-absent but ARE installed:\n");
+    foreach ($unusedTolerance as $n => $v) { printf("  %-40s %s\n", $n, $v); }
+    printf("If the upstream has returned, DELETE the --allow-missing flag and the degraded job.\n");
+}
 
 if ($drift > 0) {
     if ($major) {
@@ -128,6 +205,13 @@ if ($drift > 0) {
 }
 
 if ($drift === 0) {
+    if ($tolerated !== []) {
+        printf("\nvendor/ matches composer.lock on EVERY package except the %d tolerated absence(s)\n", count($tolerated));
+        printf("named above. This is NOT \"vendor/ matches composer.lock\": the installed set is the\n");
+        printf("locked set MINUS those entries, deliberately and by name, and no other package\n");
+        printf("differs by so much as a patch release.\n");
+        exit(0);
+    }
     printf("\nvendor/ matches composer.lock exactly.\n");
     exit(0);
 }
@@ -140,4 +224,4 @@ if ($report) {
 
 fwrite(STDERR, "::error::vendor/ does not match composer.lock. A suite run against this tree does not verify the locked dependency set.\n");
 exit(1);
-' "$LOCK" "$INSTALLED" "$MODE"
+' "$LOCK" "$INSTALLED" "$MODE" "$ALLOW_MISSING"

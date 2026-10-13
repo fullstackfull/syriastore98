@@ -228,6 +228,83 @@ class KnownTestOutcomesCheckerTest extends TestCase
     }
 
     // -----------------------------------------------------------------------------------------
+    // ADDITIVE CHANGE MUST NOT REDDEN THE GATE.
+    //
+    // WHY THIS IS A TEST AND NOT A COMMENT. In the cycle this was written for, four agents were
+    // adding tests and three were adding new 403 denials to the same branch. The gate has to stay
+    // EXACT on failures and skips -- a new failure or a new skip must still redden it -- while
+    // being completely indifferent to new PASSING tests. If those two properties were ever in
+    // tension, the pressure would be to relax the exact half, and the project has already lost
+    // this argument once: `continue-on-error` on the Feature suite was exactly that relaxation.
+    //
+    // The property holds because minimum_testcases is a FLOOR, compared with `<`, and because
+    // every other comparison in the script is a set operation keyed on test identity. The counts
+    // the script prints -- "failures observed : 8 (manifest declares 8)" -- are NOTICES. They
+    // are never compared. These two tests pin that.
+    // -----------------------------------------------------------------------------------------
+    public function test_adding_hundreds_of_passing_tests_does_not_change_the_verdict(): void
+    {
+        $manifest = $this->manifest(
+            ['Tests\Feature\A::test_one' => ['cause' => 'known defect at Foo.php:1']],
+            ['Tests\Feature\B::test_two' => ['blocked_on' => 'store_wallets']],
+            floor: 1000
+        );
+
+        $cases = [
+            'Tests\Feature\A::test_one' => ['failure' => 'boom'],
+            'Tests\Feature\B::test_two' => ['skipped' => 'BLOCKED: store_wallets has no migration'],
+        ];
+
+        [$atFloor, $atFloorOut] = $this->invoke($this->junit($cases, padding: 998), $manifest);
+        [$wayOver, $wayOverOut] = $this->invoke($this->junit($cases, padding: 2500), $manifest);
+
+        $this->assertSame(0, $atFloor, "Exactly at the floor must pass. Output:\n" . $atFloorOut);
+        $this->assertSame(
+            0,
+            $wayOver,
+            "1502 extra PASSING tests must not change anything: the floor is a minimum and every "
+            . "other comparison is keyed on test identity. If this ever fails, someone has turned "
+            . "a count into an assertion and adding a test now breaks the build. Output:\n" . $wayOverOut
+        );
+    }
+
+    /**
+     * THE OTHER HALF, in the same breath, so neither can be loosened alone: the same log that
+     * passes with 1502 extra PASSING tests must FAIL the moment one of them fails or skips. The
+     * floor's leniency buys nothing for a new red.
+     */
+    public function test_but_one_new_failure_or_skip_among_them_still_reddens_the_gate(): void
+    {
+        $manifest = $this->manifest(
+            ['Tests\Feature\A::test_one' => ['cause' => 'known defect at Foo.php:1']],
+            ['Tests\Feature\B::test_two' => ['blocked_on' => 'store_wallets']],
+            floor: 1000
+        );
+
+        $base = [
+            'Tests\Feature\A::test_one' => ['failure' => 'boom'],
+            'Tests\Feature\B::test_two' => ['skipped' => 'BLOCKED: store_wallets has no migration'],
+        ];
+
+        [$failureCode, $failureOut] = $this->invoke(
+            $this->junit($base + ['Tests\Feature\New\DenialTest::test_a_403_is_returned' => ['failure' => 'expected 403, got 200']], padding: 2500),
+            $manifest
+        );
+
+        $this->assertSame(1, $failureCode, "Output:\n" . $failureOut);
+        $this->assertStringContainsString('NEW FAILURE, not in the manifest', $failureOut);
+        $this->assertStringContainsString('Tests\Feature\New\DenialTest::test_a_403_is_returned', $failureOut);
+
+        [$skipCode, $skipOut] = $this->invoke(
+            $this->junit($base + ['Tests\Feature\New\DenialTest::test_a_403_is_returned' => ['skipped' => 'no table']], padding: 2500),
+            $manifest
+        );
+
+        $this->assertSame(1, $skipCode, "Output:\n" . $skipOut);
+        $this->assertStringContainsString('NEW SKIP, not in the manifest', $skipOut);
+    }
+
+    // -----------------------------------------------------------------------------------------
     // THE REGRESSION CASE.
     // -----------------------------------------------------------------------------------------
     public function test_one_undeclared_failure_fails_the_gate(): void
@@ -568,18 +645,94 @@ XML);
 
         $this->assertIsArray($manifest, 'The committed manifest is not valid JSON: ' . json_last_error_msg());
 
-        $this->assertCount(
-            8,
-            $manifest['expected_failures'],
-            'The committed manifest no longer declares exactly 8 failures. The MEASURED Feature '
-            . 'baseline is 8 failures / 0 errors / 17 skips. If that changed for a good reason, '
-            . 'change this number in the same commit and account for the delta test by test.'
+        // -------------------------------------------------------------------------------------
+        // THE SET, BY NAME -- NOT THE COUNT.
+        //
+        // This used to be assertCount(8) and assertCount(17). Two problems with a count, and the
+        // second one matters in a cycle where four agents are adding tests and three are adding
+        // new 403 denials at once:
+        //
+        //   * A COUNT IS WEAKER. Eight is still eight when one accepted failure is quietly
+        //     retired and a different one is parked in its place. That is the precise scenario
+        //     assert-known-test-outcomes.php compares names to catch, and the test covering the
+        //     committed manifest was checking it with the one method that cannot see it.
+        //   * A COUNT CANNOT SAY WHAT TO DO. "no longer declares exactly 8" tells the agent who
+        //     tripped it nothing about which entry moved. The names below make the diff the
+        //     failure message.
+        //
+        // ADDING PASSING TESTS CANNOT TRIP THIS. These lists describe the manifest file, not the
+        // run: a new test that passes is in neither list and changes neither. What trips it is a
+        // change to the ACCEPTED-OUTCOME RECORD itself, which is exactly when a human should be
+        // looking -- and the gate stays EXACT, so a new failure or a new skip still reddens CI.
+        //
+        // IF YOU ARE HERE BECAUSE THIS TEST WENT RED: the manifest and these lists disagree. Fix
+        // whichever is wrong, in the SAME commit, and do not delete an entry to get green. An
+        // entry leaving expected_failures means the underlying defect was fixed; prove that, do
+        // not assume it.
+        // -------------------------------------------------------------------------------------
+        $expectedFailureIds = [
+            'Tests\Feature\Auth\AuthenticationTest::test_login_screen_can_be_rendered',
+            'Tests\Feature\Auth\EmailVerificationTest::test_email_verification_screen_can_be_rendered',
+            'Tests\Feature\Auth\PasswordConfirmationTest::test_confirm_password_screen_can_be_rendered',
+            'Tests\Feature\Auth\PasswordResetTest::test_reset_password_link_screen_can_be_rendered',
+            'Tests\Feature\Auth\PasswordResetTest::test_reset_password_screen_can_be_rendered',
+            'Tests\Feature\Auth\RegistrationTest::test_registration_screen_can_be_rendered',
+            'Tests\Feature\Auth\RegistrationTest::test_new_users_can_register',
+            'Tests\Feature\ProfileTest::test_profile_page_is_displayed',
+        ];
+
+        $expectedSkipIds = [
+            'Tests\Feature\Commerce\FinancialSurfaceCoverageTest::test_a_cross_currency_conversion_is_blocked',
+            'Tests\Feature\Commerce\FinancialSurfaceCoverageTest::test_creating_an_order_financial_record_is_blocked',
+            'Tests\Feature\Commerce\FinancialSurfaceCoverageTest::test_marking_a_financial_record_paid_is_blocked',
+            'Tests\Feature\Commerce\FinancialSurfaceCoverageTest::test_marking_a_financial_record_unpaid_is_blocked',
+            'Tests\Feature\Commerce\FinancialSurfaceCoverageTest::test_converting_a_stores_current_values_is_blocked',
+            'Tests\Feature\Commerce\FinancialSurfaceCoverageTest::test_wallet_and_withdrawal_authorization_is_blocked_and_not_owned_here',
+            'Tests\Feature\Commerce\FinancialSurfaceCoverageTest::test_delivery_earnings_writes_are_blocked',
+            'Tests\Feature\Security\CustomerAccountBoundaryTest::test_an_anonymous_visitor_is_not_gated_out_of_newsletter_signup',
+            'Tests\Feature\Security\DeliverySyriaWebhookTest::test_a_valid_token_cannot_move_another_stores_order',
+            'Tests\Feature\Security\FinancePermissionTest::test_a_super_admin_can_approve_a_pending_withdrawal_on_a_fresh_database',
+            'Tests\Feature\Security\WithdrawalAuthorizationTest::test_a_view_only_user_cannot_change_a_withdrawals_state_end_to_end',
+            'Tests\Feature\Tenancy\CrossTenantModelIsolationTest::test_ownership_check_denies_the_other_tenant with data set "finance: wallets"',
+            'Tests\Feature\Tenancy\CrossTenantModelIsolationTest::test_ownership_check_denies_the_other_tenant with data set "finance: wallet ledger"',
+            'Tests\Feature\Tenancy\CrossTenantModelIsolationTest::test_ownership_check_denies_the_other_tenant with data set "finance: withdrawals"',
+            'Tests\Feature\Tenancy\ModelInitializationTest::test_query_actually_executes with data set "StoreWallet"',
+            'Tests\Feature\Tenancy\ModelInitializationTest::test_query_actually_executes with data set "StoreWalletTransaction"',
+            'Tests\Feature\Tenancy\ModelInitializationTest::test_query_actually_executes with data set "StoreWithdrawal"',
+        ];
+
+        $declaredFailures = array_keys($manifest['expected_failures']);
+        $declaredSkips    = array_keys($manifest['expected_skips']);
+
+        sort($expectedFailureIds);
+        sort($declaredFailures);
+        sort($expectedSkipIds);
+        sort($declaredSkips);
+
+        $this->assertSame(
+            $expectedFailureIds,
+            $declaredFailures,
+            "The committed manifest's accepted-failure SET is not the recorded one.\n"
+            . "  ADDED to the manifest    : " . implode(', ', array_diff($declaredFailures, $expectedFailureIds)) . "\n"
+            . "  REMOVED from the manifest: " . implode(', ', array_diff($expectedFailureIds, $declaredFailures)) . "\n"
+            . 'The MEASURED Feature baseline is 8 failures / 0 errors / 17 skips: six of the eight '
+            . 'are NEW-ADDON-SCHEMA-02 (no such table: owner_menu_settings, a mis-cased '
+            . 'loadMigrationsFrom inside guard-protected packages/workdo/) and two are real '
+            . 'defects in app/. If an entry genuinely belongs here now, add it to BOTH this list '
+            . 'and the manifest in the same commit, with the file:line of its cause. If one was '
+            . 'fixed, delete it from both -- and the gate will then fail if the test still fails, '
+            . 'which is the point.'
         );
 
-        $this->assertCount(
-            17,
-            $manifest['expected_skips'],
-            'The committed manifest no longer declares exactly 17 skips.'
+        $this->assertSame(
+            $expectedSkipIds,
+            $declaredSkips,
+            "The committed manifest's accepted-skip SET is not the recorded one.\n"
+            . "  ADDED to the manifest    : " . implode(', ', array_diff($declaredSkips, $expectedSkipIds)) . "\n"
+            . "  REMOVED from the manifest: " . implode(', ', array_diff($expectedSkipIds, $declaredSkips)) . "\n"
+            . 'All seventeen are blocked on an undeclared table; fifteen are GATE F money tables. '
+            . 'A skipped test is NOT a passed test, and a NEW skip is not something to park here '
+            . 'to get green.'
         );
 
         // Every entry must carry its evidence. A bare name in this file would be an accepted
