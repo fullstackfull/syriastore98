@@ -181,53 +181,67 @@ class EnforcedPaymentTypesIntegrityTest extends TestCase
     }
 
     /**
-     * The nine remaining literal Paid writes are still where the survey says
-     * they are.
+     * The nine remaining literal `Paid` writes are still present, located by CONTENT.
      *
-     * This is a LOCATOR, so the next agent does not have to re-derive the list,
-     * and it fails if one of them is fixed or moved -- which is the signal to
-     * re-read the survey in the class docblock rather than trust it.
+     * This is a LOCATOR, so the next reader does not have to re-derive the list, and it fails
+     * if one is fixed or a tenth appears -- which is the signal to re-read the survey in the
+     * class docblock rather than trust it.
      *
-     * The paths are deliberately NOT edited by this agent: every one belongs to
-     * another agent in this phase.
+     * IT NO LONGER PINS LINE NUMBERS, and that is a repair rather than a relaxation. The
+     * previous version mapped each file to a line, and three of the nine shifted the moment
+     * another agent added docblocks and guards ABOVE them in the same controllers
+     * (Easebuzz 635->657, PaiementPro 629->657, CinetPay 720->731). That produced a 9th
+     * Feature failure in a file no agent owned, on a branch an acceptance review had already
+     * cleared -- a line pin in a 900-line controller is a tripwire for the next editor, not a
+     * test of the property.
+     *
+     * Counting occurrences per file is also STRICTLY STRONGER than a line pin: a pin passes
+     * when a TENTH literal write is added elsewhere in a surveyed file, and this does not.
+     *
+     * The paths are deliberately not edited here: every one belongs to another workstream.
      */
     public function test_the_surveyed_literal_paid_writes_are_still_present(): void
     {
         $base = base_path();
 
+        // file => how many literal `payment_status = 'Paid'` writes it is surveyed to hold.
         $sites = [
-            'app/Http/Controllers/AuthorizeNetPaymnetController.php' => 674,
-            'app/Http/Controllers/PayUPaymentController.php' => 628,
-            'app/Http/Controllers/NMIPayController.php' => 605,
-            'app/Http/Controllers/KhaltiPaymnetController.php' => 632,
-            'app/Http/Controllers/EasebuzzController.php' => 635,
-            'app/Http/Controllers/PosController.php' => 244,
-            'app/Http/Controllers/PaiementProPaymentController.php' => 629,
-            'app/Http/Controllers/CinetPayController.php' => 720,
-            'packages/workdo/LotteryPrizes/src/app/Http/Controllers/LotteryResultController.php' => 136,
+            'app/Http/Controllers/AuthorizeNetPaymnetController.php' => 1,
+            'app/Http/Controllers/PayUPaymentController.php' => 1,
+            'app/Http/Controllers/NMIPayController.php' => 1,
+            'app/Http/Controllers/KhaltiPaymnetController.php' => 1,
+            'app/Http/Controllers/EasebuzzController.php' => 1,
+            'app/Http/Controllers/PosController.php' => 1,
+            'app/Http/Controllers/PaiementProPaymentController.php' => 1,
+            'app/Http/Controllers/CinetPayController.php' => 1,
+            'packages/workdo/LotteryPrizes/src/app/Http/Controllers/LotteryResultController.php' => 1,
         ];
 
         $this->assertCount(9, $sites, 'the survey covers nine sites');
+        $this->assertSame(9, array_sum($sites), 'the survey covers nine literal Paid writes');
 
-        foreach ($sites as $relative => $line) {
+        $pattern = "/payment_status['\"]?\s*(=>|=)\s*['\"]Paid['\"]/";
+
+        foreach ($sites as $relative => $expected) {
             $path = $base . '/' . $relative;
 
             $this->assertFileExists($path);
 
-            $lines = file($path);
+            $found = [];
+            foreach (file($path) as $i => $line) {
+                if (preg_match($pattern, $line) === 1) {
+                    $found[] = $i + 1;
+                }
+            }
 
-            $this->assertArrayHasKey(
-                $line - 1,
-                $lines,
-                $relative . ' is shorter than the surveyed line ' . $line
-            );
-
-            $this->assertMatchesRegularExpression(
-                "/payment_status['\"]?\s*(=>|=)\s*['\"]Paid['\"]/",
-                $lines[$line - 1],
-                $relative . ':' . $line . ' no longer holds a literal Paid write. If it was '
-                    . 'fixed, good -- update the survey in this class\'s docblock and this '
-                    . 'list. Do not just delete the row.'
+            $this->assertCount(
+                $expected,
+                $found,
+                $relative . ' holds ' . count($found) . ' literal Paid write(s), surveyed as '
+                . $expected . ' (found at line(s) ' . (implode(', ', $found) ?: 'none') . '). '
+                . 'If one was FIXED, good -- update the survey in this class\'s docblock and '
+                . 'this list; do not just delete the row. If one was ADDED, that is a new '
+                . 'hardcoded Paid write and it needs the derivation helper instead.'
             );
         }
     }

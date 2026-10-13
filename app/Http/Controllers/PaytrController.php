@@ -8,9 +8,12 @@ use App\Models\PlanOrder;
 use App\Models\PlanUserCoupon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class PaytrController extends Controller
 {
+    use GuardsPlanActivation;
+
     //
 
     public function PlanpayWithPaytr(Request $request)
@@ -184,26 +187,49 @@ class PaytrController extends Controller
         }
     }
 
+    /**
+     * P0 (free activation). CLASSIFIED BY HAND THIS CYCLE -- it was previously listed as
+     * "not hand-verified", and it is NOT safe.
+     *
+     * The gate is `$request->payment_status == "success"`. It LOOKS server-set, because
+     * PlanpayWithPaytr assigns `$request['payment_status']` at :131/:133 from its own curl
+     * result -- but that is a different Request object in a different HTTP lifecycle. The
+     * callback route (Route::any 'pay.paytr.success', routes/web.php:641) receives whatever the
+     * caller sends. This is precisely the pattern-matching trap the inventory warns about, and
+     * reading it carefully is what resolves it: the write is on the forgeable side.
+     *
+     * The price came from `$request->price` and the plan from `$request->plan_id`, both on the
+     * same forgeable request. PayTR's HMAC-SHA256 primitive is already used outbound at :126;
+     * the callback hash is simply never checked. See config/payments.php.
+     */
     public function paytrsuccessCallback(Request $request)
     {
+        $plan = Plan::find($request->plan_id);
+
+        $this->assertPlanActivationEnabled('paytr', $plan);
 
         if ($request->payment_status == "success") {
 
-            $getAmount = $request->price;
             $product_id = $request->plan_id;
 
             $planId = $request->plan_id;
             $couponCode = $request->coupon;
 
-
-            if ($couponCode != 0) {
-                $coupons = PlanCoupon::whereRaw('BINARY `code` = ?', [$couponCode])->where('is_active', '1')->first();
-                $request['coupon_id'] = $coupons->id;
-            } else {
-                $coupons = null;
+            if (empty($plan)) {
+                abort(404, __('Plan not found.'));
             }
 
-            $plan = Plan::find($planId);
+            // Server-owned: was `$request->price`.
+            $getAmount = $this->serverOwnedPlanPrice($plan, $couponCode);
+
+            // Portable and case-exact; see GuardsPlanActivation::findPlanCouponExact(). Also no
+            // longer dereferences ->id on a miss: upstream read $coupons->id unconditionally,
+            // so an unknown coupon code 500ed here.
+            $coupons = $this->planCouponForRecording($couponCode);
+            if ($coupons !== null) {
+                $request['coupon_id'] = $coupons->id;
+            }
+
             $user = auth()->user();
             $payment_setting = getSuperAdminAllSetting();
             $orderID = strtoupper(str_replace('.', '', uniqid('', true)));

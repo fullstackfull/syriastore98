@@ -34,9 +34,12 @@ use Illuminate\Http\Request;
 use App\Facades\ModuleFacade as Module;
 use Illuminate\Support\Facades\Cache;
 use App\Traits\ApiResponser;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class PaiementProPaymentController extends Controller
 {
+    use GuardsPlanActivation;
+
     use ApiResponser;//
 
     public function planPayWithPaiementpro(Request $request)
@@ -131,16 +134,40 @@ class PaiementProPaymentController extends Controller
         }
     }
 
+    /**
+     * P0 (free activation). CLASSIFIED BY HAND THIS CYCLE -- previously "not hand-verified".
+     *
+     * The gate is `$request->responsecode == 0`, read straight off the return. planPayWithPaiementpro
+     * builds the callback URL itself at :77 with the plan and the amount on it, so a merchant's
+     * first checkout hands them a URL that needs only `&responsecode=0` appended.
+     *
+     * Note the comparison is loose against integer 0, so in PHP 8 an ABSENT responsecode (null)
+     * also satisfies it -- `null == 0` is true. The gate was therefore satisfied by a bare GET
+     * to the callback with no responsecode at all.
+     *
+     * Activation is refused until the transaction is confirmed against PaiementPro; see
+     * config/payments.php.
+     *
+     * THIS IS THE PLAN PATH ONLY. getProductStatus() in this controller is the storefront order
+     * path and is untouched.
+     */
     public function planGetPaiementproStatus(Request $request)
     {
+        $plan = Plan::find($request->plan_id);
+
+        $this->assertPlanActivationEnabled('paiementpro', $plan);
+
+        if (empty($plan)) {
+            abort(404, __('Plan not found.'));
+        }
+
         $payment_setting = getSuperAdminAllSetting();
         $currency = isset($payment_setting['CURRENCY_NAME']) ? $payment_setting['CURRENCY_NAME'] : 'USD';
         $orderID = strtoupper(str_replace('.', '', uniqid('', true)));
 
-        $getAmount = $request->amount;
+        $getAmount = $this->serverOwnedPlanPrice($plan, $request->coupon_code);
         $coupanCode = $request->coupon_code;
         $user = \Auth::user();
-        $plan = Plan::find($request->plan_id);
 
         if ($request->responsecode == 0) {
 
@@ -162,7 +189,8 @@ class PaiementProPaymentController extends Controller
             $order->user_id = $user->id;
             $order->save();
 
-            $coupons = PlanCoupon::whereRaw('BINARY `code` = ?', [$coupanCode])->where('is_active', '1')->first();
+            // Portable and case-exact; see GuardsPlanActivation::findPlanCouponExact().
+            $coupons = $this->planCouponForRecording($coupanCode);
             if (!empty($coupons)) {
                 $userCoupon         = new PlanUserCoupon();
                 $userCoupon->user_id   = $user->id;

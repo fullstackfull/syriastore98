@@ -30,57 +30,13 @@ use Illuminate\Support\Facades\DB;
  * moved: no payment provider is reachable from this environment, so the gateway contract stays
  * unverified and that finding stays open. A green run here is not a verified integration.
  */
-class PlanPaymentBypassTest extends SecurityTestCase
+class PlanPaymentBypassTest extends PlanPaymentTestCase
 {
     use RefreshDatabase;
 
-    private function makePlan(string $price = '499'): Plan
-    {
-        return Plan::create([
-            'name'             => 'Paid Plan ' . uniqid(),
-            'price'            => $price,
-            'duration'         => 'Monthly',
-            'themes'           => '[]',
-            'max_stores'       => '5',
-            'max_products'     => '50',
-            'max_users'        => '5',
-            'storage_limit'    => '100',
-            'enable_domain'    => 'off',
-            'enable_subdomain' => 'off',
-            'enable_chatgpt'   => 'off',
-            'pwa_store'        => 'off',
-        ]);
-    }
-
-
-    /**
-     * Seed what getSuperAdminAllSetting() reads, so the COMPLETION path can actually run.
-     *
-     * Without this the legitimate return dies at `$admin_payment_setting['CURRENCY_NAME']`
-     * with "Undefined array key" -- a pre-existing fixture gap in untouched upstream code,
-     * downstream of the amount check, not a consequence of the repair. The positive tests
-     * would otherwise pass vacuously by never reaching the order at all, which would make
-     * them worthless as proof that a real purchase still works.
-     *
-     * getSuperAdminAllSetting() (app/Helper/helper.php) resolves the super admin through a
-     * 3600-second Cache::remember('super_admin_details'), so the cache is flushed here --
-     * otherwise the first test in the process fixes the value for every later one.
-     */
-    private function seedSuperAdminCurrency(string $currency = 'USD'): void
-    {
-        \Illuminate\Support\Facades\Cache::flush();
-
-        $admin = $this->makePlatformAdmin();
-
-        DB::table('settings')->insert([
-            'name'       => 'CURRENCY_NAME',
-            'value'      => $currency,
-            'created_by' => $admin->id,
-            'store_id'   => $admin->current_store,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-    }
+    // makePlan(), seedSuperAdminCurrency() and enableProvider() now live on
+    // PlanPaymentTestCase, so this file and PlanPaymentFailClosedTest cannot drift apart on the
+    // currency fixture that decides whether a positive test is real or vacuous.
 
     // =====================================================================================
     //  eSewa

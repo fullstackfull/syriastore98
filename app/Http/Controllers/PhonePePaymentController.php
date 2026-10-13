@@ -8,9 +8,12 @@ use App\Models\PlanCoupon;
 use App\Models\PlanUserCoupon;
 use Illuminate\Http\Request;
 use Dipesh79\LaravelPhonePe\LaravelPhonePe;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class PhonePePaymentController extends Controller
 {
+    use GuardsPlanActivation;
+
     //
 
     public function planPayWithPhonePe(Request $request)
@@ -85,16 +88,36 @@ class PhonePePaymentController extends Controller
         }
     }
 
+    /**
+     * P0 (free activation). NO GATE.
+     *
+     * App\Libraries\PhonePe\PhonePe is used to INITIATE a payment (:60) and is never asked
+     * whether that payment completed. The redirectUrl it is handed (:63-67) carries the plan and
+     * the amount on the query string, and this handler trusted both.
+     *
+     * Activation is refused until PhonePe's order-status API is consulted. NOTE FOR WHOEVER
+     * IMPLEMENTS THAT: do not add an amount comparison until the unit is settled.
+     * planPayWithPhonePe sends `(int) str_replace([' ', ',', $currency], '', $price)` at :62,
+     * which is the same class of defect as processPaymera stripping '.' -- 1250.50 becomes
+     * 125050 while 1250 stays 1250. Comparing against a guessed unit would refuse real payments.
+     */
     public function planGetPhonePeStatus(Request $request)
     {
+        $plan = Plan::find($request->plan);
+
+        $this->assertPlanActivationEnabled('phonepe', $plan);
+
+        if (empty($plan)) {
+            abort(404, __('Plan not found.'));
+        }
+
         $payment_setting = getSuperAdminAllSetting();
         $currency = isset($payment_setting['CURRENCY_NAME']) ? $payment_setting['CURRENCY_NAME'] : 'USD';
         $orderID = strtoupper(str_replace('.', '', uniqid('', true)));
 
-        $getAmount = $request->amount;
+        $getAmount = $this->serverOwnedPlanPrice($plan, $request->coupon_code);
         $coupanCode = $request->coupon_code;
         $user = \Auth::user();
-        $plan = Plan::find($request->plan);
 
         $order = new PlanOrder();
         $order->order_id = $orderID;
@@ -114,7 +137,8 @@ class PhonePePaymentController extends Controller
         $order->user_id = $user->id;
         $order->save();
 
-        $coupons = PlanCoupon::whereRaw('BINARY `code` = ?', [$coupanCode])->where('is_active', '1')->first();
+        // Portable and case-exact; see GuardsPlanActivation::findPlanCouponExact().
+        $coupons = $this->planCouponForRecording($coupanCode);
         if (!empty($coupons)) {
             $userCoupon         = new PlanUserCoupon();
             $userCoupon->user_id   = $user->id;

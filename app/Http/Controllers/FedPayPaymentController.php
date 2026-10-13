@@ -7,9 +7,12 @@ use App\Models\PlanOrder;
 use App\Models\PlanCoupon;
 use App\Models\PlanUserCoupon;
 use Illuminate\Http\Request;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class FedPayPaymentController extends Controller
 {
+    use GuardsPlanActivation;
+
     //
 
     public function planPayWithFedPay(Request $request)
@@ -88,16 +91,35 @@ class FedPayPaymentController extends Controller
         }
     }
 
+    /**
+     * P0 (free activation). THE GATE WAS A WORD THE CALLER CHOOSES.
+     *
+     * `$request->status == 'approved'` is read straight off the return, so appending
+     * `&status=approved` to the published return URL satisfied it. The price came from
+     * `$request->amount` on the same URL. Nothing asked FedPay anything.
+     *
+     * Activation is refused until the transaction is confirmed with FedPay; see
+     * config/payments.php. The `status` check is kept below -- it is a legitimate cheap
+     * rejection of an obviously failed payment, it is simply not a security control, and
+     * removing it would widen the path it sits on.
+     */
     public function planGetFedPayStatus(Request $request)
     {
+        $plan = Plan::find($request->plan_id);
+
+        $this->assertPlanActivationEnabled('fedpay', $plan);
+
+        if (empty($plan)) {
+            abort(404, __('Plan not found.'));
+        }
+
         $payment_setting = getSuperAdminAllSetting();
         $currency = isset($payment_setting['CURRENCY_NAME']) ? $payment_setting['CURRENCY_NAME'] : 'USD';
         $orderID = strtoupper(str_replace('.', '', uniqid('', true)));
 
-        $getAmount = $request->amount;
+        $getAmount = $this->serverOwnedPlanPrice($plan, $request->coupon_code);
         $coupanCode = $request->coupon_code;
         $user = \Auth::user();
-        $plan = Plan::find($request->plan_id);
 
         if ($request->status == 'approved') {
             $order = new PlanOrder();
@@ -118,7 +140,8 @@ class FedPayPaymentController extends Controller
             $order->user_id = $user->id;
             $order->save();
 
-            $coupons = PlanCoupon::whereRaw('BINARY `code` = ?', [$coupanCode])->where('is_active', '1')->first();
+            // Portable and case-exact; see GuardsPlanActivation::findPlanCouponExact().
+            $coupons = $this->planCouponForRecording($coupanCode);
             if (!empty($coupons)) {
                 $userCoupon         = new PlanUserCoupon();
                 $userCoupon->user_id   = $user->id;

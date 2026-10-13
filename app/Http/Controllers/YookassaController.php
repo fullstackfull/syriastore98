@@ -29,9 +29,12 @@ use YooKassa\Client;
 use App\Models\OrderNote;
 use App\Models\Setting;
 use Illuminate\Support\Facades\Crypt;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class YookassaController extends Controller
 {
+    use GuardsPlanActivation;
+
     //
     public function paywithyookassa(Request $request)
     {
@@ -159,19 +162,51 @@ class YookassaController extends Controller
 
     }
 
+    /**
+     * P0 (free activation). THE GATE PROVED A CHECKOUT WAS STARTED, NOT THAT IT WAS PAID.
+     *
+     * The only check was `\Session::get('payment_id') != null`. paywithyookassa() puts that in
+     * the session the moment it CREATES the payment, before the merchant has paid anything -- so
+     * a merchant who starts a YooKassa checkout, abandons it, and then hits the return URL got
+     * the plan for free. The price came from `$request->amount` on that return URL.
+     *
+     * A YooKassa\Client IS constructed at :180 and then never asked anything, which is the
+     * whole defect in one line: the verification call is missing, not the client.
+     *
+     * WHY THE VERIFICATION IS NOT IMPLEMENTED HERE, contrary to the expectation that the SDK is
+     * vendored and readable. It is NOT installed in this environment:
+     *   - `class_exists('YooKassa\Client')` is false at runtime;
+     *   - no file under vendor/ declares `namespace YooKassa`;
+     *   - vendor/composer/installed.json contains no 'yoomoney' entry,
+     * even though composer.lock pins yoomoney/yookassa-sdk-php 3.7.1. So `new Client()` below
+     * raises an Error -- which the `catch (\Exception $e)` does NOT catch -- and the SDK's
+     * payment-info contract cannot be read, let alone tested, from here. Guessing it is exactly
+     * what must not be done with a money API.
+     *
+     * Activation is therefore refused. The guard runs FIRST, before the unresolvable `new
+     * Client()`, so the refusal is a clean 403 rather than a fatal.
+     */
     public function planGetYooKassaStatus(Request $request)
     {
+        $plan = Plan::find($request->plan_id);
+
+        $this->assertPlanActivationEnabled('yookassa', $plan);
+
+        if (empty($plan)) {
+            abort(404, __('Plan not found.'));
+        }
+
         $payment_setting = getSuperAdminAllSetting();
         $user = \Auth::user();
-        $plan = Plan::find($request->plan_id);
         $couponCode = $request->coupon;
-        $getAmount = $request->amount;
+        $getAmount = $this->serverOwnedPlanPrice($plan, $couponCode);
         $orderID = strtoupper(str_replace('.', '', uniqid('', true)));
-        if ($couponCode != 0) {
-            $coupons = PlanCoupon::whereRaw('BINARY `code` = ?', [$couponCode])->where('is_active', '1')->first();
+        // Portable and case-exact; see GuardsPlanActivation::findPlanCouponExact(). Also no
+        // longer dereferences ->id on a miss: upstream read $coupons->id unconditionally, so an
+        // unknown coupon code 500ed here.
+        $coupons = $this->planCouponForRecording($couponCode);
+        if ($coupons !== null) {
             $request['coupon_id'] = $coupons->id;
-        } else {
-            $coupons = null;
         }
 
         try {

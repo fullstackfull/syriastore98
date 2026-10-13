@@ -8,9 +8,12 @@ use App\Models\PlanCoupon;
 use App\Models\PlanUserCoupon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
 
 class NepalstePaymnetController extends Controller
 {
+    use GuardsPlanActivation;
+
     //
     public function planPayWithnepalste(Request $request)
     {
@@ -93,16 +96,41 @@ class NepalstePaymnetController extends Controller
         }
     }
 
+    /**
+     * P0 (free activation). THIS HANDLER HAD NO GATE AT ALL.
+     *
+     * planPayWithnepalste() publishes route('nepalste.status') as BOTH the success_url and the
+     * ipn_url (:62, :64), with the plan and the amount on the query string. A GET to it created
+     * the PlanOrder and called assignPlan() unconditionally, pricing the order from
+     * `$request->get_amount` -- so `?plan=<any>&get_amount=0` activated any paid plan for zero,
+     * and the URL needed to do it is handed to the merchant by their own first checkout.
+     *
+     * TWO THINGS CHANGED. Activation is refused outright until Nepalste's return can actually be
+     * verified (config/payments.php names the re-enable conditions), and the recorded price is
+     * recomputed from the plan so that a forged amount cannot be recorded even once the owner
+     * re-enables the provider.
+     *
+     * ORDER MATTERS: the guard runs before the PlanOrder is built, so a refusal leaves no row.
+     */
     public function planGetNepalsteStatus(Request $request)
     {
+        $plan = Plan::find($request->plan);
+
+        $this->assertPlanActivationEnabled('nepalste', $plan);
+
+        // Upstream reached $plan->name on a missing plan and 500ed with a half-built order in
+        // scope. A 404 is the honest answer and it happens before any write.
+        if (empty($plan)) {
+            abort(404, __('Plan not found.'));
+        }
+
         $payment_setting = getSuperAdminAllSetting();
         $currency = isset($payment_setting['CURRENCY_NAME']) ? $payment_setting['CURRENCY_NAME'] : 'USD';
         $orderID = strtoupper(str_replace('.', '', uniqid('', true)));
 
-        $getAmount = $request->get_amount;
+        $getAmount = $this->serverOwnedPlanPrice($plan, $request->coupon_code);
         $coupanCode = $request->coupon_code;
         $user = \Auth::user();
-        $plan = Plan::find($request->plan);
 
         $order = new PlanOrder();
         $order->order_id = $orderID;
@@ -122,7 +150,12 @@ class NepalstePaymnetController extends Controller
         $order->user_id = $user->id;
         $order->save();
 
-        $coupons = PlanCoupon::whereRaw('BINARY `code` = ?', [$coupanCode])->where('is_active', '1')->first();
+        // Portable, case-exact, and skipped entirely for an empty code. The upstream
+        // `whereRaw('BINARY `code` = ?')` is MySQL-only: on sqlite it is a syntax error, and
+        // this query ran UNCONDITIONALLY right after the order was saved -- so on any
+        // non-MySQL driver the order was written and the handler then threw, before
+        // assignPlan(). See GuardsPlanActivation::findPlanCouponExact().
+        $coupons = $this->planCouponForRecording($coupanCode);
         if (!empty($coupons)) {
             $userCoupon         = new PlanUserCoupon();
             $userCoupon->user_id   = $user->id;

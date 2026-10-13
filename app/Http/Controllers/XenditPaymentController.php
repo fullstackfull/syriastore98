@@ -32,8 +32,12 @@ use App\Xendit\Invoice;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Cache;
 
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
+
 class XenditPaymentController extends Controller
 {
+    use GuardsPlanActivation;
+
     public function PaywithXendit(Request $request)
     {
         $planID = \Illuminate\Support\Facades\Crypt::decrypt($request->plan_id);
@@ -145,7 +149,14 @@ class XenditPaymentController extends Controller
             $order->card_exp_year  = '';
             $order->plan_name      = $plan->name;
             $order->plan_id        = $plan->id;
-            $order->price          = $request['get_amount'] == null ? 0 : $request['get_amount'];
+            // Server-owned: was `$request['get_amount'] == null ? 0 : $request['get_amount']`.
+            // Xendit IS verified on this path ($getInvoice['status'] == 'PAID'), so only the
+            // RECORDED price changes. This gateway carries the coupon as an id rather than a
+            // code, so the code is resolved before pricing.
+            $order->price          = $this->serverOwnedPlanPrice(
+                $plan,
+                optional($request->coupon_id ? PlanCoupon::find($request->coupon_id) : null)->code
+            );
             $order->price_currency = $currency;
             $order->txn_id         = '';
             $order->payment_type   = __('Xendit');

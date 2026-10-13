@@ -11,8 +11,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 
+use App\Http\Controllers\Concerns\GuardsPlanActivation;
+
 class CoingateController extends Controller
 {
+    use GuardsPlanActivation;
+
     public function coingatePaymentPrepare(Request $request)
     {
         $validator = \Validator::make(
@@ -33,13 +37,36 @@ class CoingateController extends Controller
         
         $plan_id = decrypt($request->plan_id);
         $plan    = Plan::find($plan_id);
-        $price   = $request->total_price;
+
+        if (empty($plan)) {
+            abort(404, __('Plan not found.'));
+        }
+
+        // P0 (free activation), AND IT NEEDS NO GATEWAY AT ALL.
+        //
+        // This was `$price = $request->total_price`, and `total_price` is POSTed by the merchant
+        // to route('coingate.prepare.plan'). Sixty lines below, `if ($price <= 0)` sets
+        // $authuser->plan, saves, and calls assignPlan() -- a shortcut that exists so a 100%
+        // coupon does not have to round-trip through CoinGate. With the price taken from the
+        // request, a merchant POSTing total_price=0 and no coupon activated ANY paid plan
+        // instantly, without CoinGate being involved in any way.
+        //
+        // THIS IS A SHAPE NO EARLIER AUDIT HERE HAD LOOKED AT. Every pass examined the RETURN
+        // handlers; the free-plan shortcut inside the CHECKOUT INITIATOR was never examined, and
+        // it is a shorter path than any of them -- no callback, no forged provider field, one
+        // authenticated POST.
+        //
+        // Recomputing from $plan->price makes `$price <= 0` true only for a plan that really is
+        // free or a coupon that really is 100%. The coupon block below still runs: it keeps the
+        // limit check, the invalid-code rejection and the usage recording, and recomputes the
+        // same number.
+        $price   = $this->serverOwnedPlanPrice($plan, $request->coupon);
         $admin_payment_setting = getSuperAdminAllSetting();
 
         try {
             if(!empty($request->coupon))
             {
-                $coupons = PlanCoupon::whereRaw('BINARY `code` = ?', [$request->coupon])->where('is_active', '1')->first();
+                $coupons = $this->planCouponForRecording($request->coupon);
                 if(!empty($coupons))
                 {
                     $usedCoupun     = $coupons->used_coupon();
@@ -147,8 +174,30 @@ class CoingateController extends Controller
         }
     }
 
+    /**
+     * P0 (free activation). FOUND BY CLOSING A HOLE IN THE AUDIT'S OWN CENSUS.
+     *
+     * This handler was never on the plan-purchase inventory at all, and the reason is worth
+     * recording: the census looked for `$order->price = ...`, and this method writes
+     * `$planorder->price`. A different variable name was enough to make a free-activation path
+     * invisible to the audit that was supposed to find it.
+     *
+     * THERE IS NO GATE OF ANY KIND. route('coingate.coingate.callback') is a plain GET
+     * (routes/web.php:607). This method reads plan_id off the request, writes
+     * `$planorder->payment_status = 'success'` and calls assignPlan(). Nothing asks CoinGate
+     * whether the invoice was paid, and no signature is checked.
+     *
+     * THE PRICE WAS ALREADY SERVER-OWNED here ($price = $plan->price with a coupon recompute),
+     * so this is a free activation without a forged amount -- the plan_orders row records the
+     * correct price for a payment that never happened.
+     *
+     * Activation is refused until CoinGate's own order-status API is consulted; see
+     * config/payments.php for the re-enable conditions.
+     */
     public function coingatePlanGetPayment(Request $request)
     {
+
+        $this->assertPlanActivationEnabled('coingate', $request->plan_id);
 
         $user                  = Auth::user();
         $plan_id               = $request->plan_id;
@@ -161,7 +210,12 @@ class CoingateController extends Controller
             {
                 $order_id = strtoupper(str_replace('.', '', uniqid('', true)));
                 $price     = $plan->price;
-                $coupons = PlanCoupon::whereRaw('BINARY `code` = ?', [$request->coupon])->where('is_active', '1')->first();
+                // Portable and case-exact; see GuardsPlanActivation::findPlanCouponExact(). The
+                // upstream `whereRaw('BINARY `code` = ?')` is MySQL-only -- a hard syntax error
+                // on sqlite -- and it ran UNCONDITIONALLY here, before the order was written,
+                // so on any non-MySQL driver this handler threw before doing anything. That
+                // also made the legitimate-activation path impossible to test.
+                $coupons = $this->planCouponForRecording($request->coupon);
                 if(!empty($coupons))
                 {
 
