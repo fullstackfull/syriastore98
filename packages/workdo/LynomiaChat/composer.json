@@ -1,0 +1,25 @@
+{
+    "name": "workdo/lynomia-chat",
+    "description": "Store Syria x Lynomia Chat integration module",
+    "type": "library",
+    "license": "MIT",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Workdo\\LynomiaChat\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Store Syria",
+            "email": "support@storesyria.example"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Workdo\\LynomiaChat\\app\\Providers\\LynomiaChatServiceProvider"
+            ]
+        }
+    }
+}

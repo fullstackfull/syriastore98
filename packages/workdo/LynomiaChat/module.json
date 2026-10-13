@@ -1,0 +1,10 @@
+{
+    "name": "LynomiaChat",
+    "alias": "Lynomia Chat",
+    "description": "Communication & Marketing Center powered by Lynomia Chat.",
+    "priority": 41,
+    "version": 1.0,
+    "monthly_price": 0,
+    "yearly_price": 0,
+    "package_name": "lynomia-chat"
+}
