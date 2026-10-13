@@ -514,7 +514,16 @@ Route::middleware(['web'])->group(function () {
     //strip
     Route::get('/stripe/{code}', [StripePaymentController::class, 'stripe'])->name('stripe.plan');
 
-    Route::get('/refund/{id}/{user_id}', [PlanController::class, 'refund'])->name('plan.order.refund');
+    // NEW-PLAN-REFUND-UNGATED-01. PlanController::refund marks ANY plan order `is_refund = 1`
+    // and then calls `$user->assignPlan(1)` on a caller-supplied user_id, so it downgraded an
+    // ARBITRARY merchant to the free plan. The Refund affordance is already super-admin-only in
+    // the UI -- resources/views/plans/action.blade.php:20-23 renders it inside
+    // `@foreach ($userOrders ...)` and PlanOrderDataTable.php:22-32 populates $userOrders ONLY
+    // for `type == 'super admin'` -- so the route was the only thing not enforcing it.
+    // PlanController is not this workstream's file; the gate is attached here, where it is.
+    Route::get('/refund/{id}/{user_id}', [PlanController::class, 'refund'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('plan.order.refund');
 
     Route::resource('plan-request', PlanRequestController::class);
     Route::get('request-send/{id}', [PlanRequestController::class, 'userRequest'])->name('send.request');
@@ -621,8 +630,21 @@ Route::get(
     Route::post('plan-pay-with-bank', [BankTransferController::class, 'planPayWithbank'])->name('plan.pay.with.bank');
     Route::get('plan/orders/show/{id}', [BankTransferController::class, 'show'])->name('plan.order.show');
     Route::delete('/bank_transfer/{order}/', [BankTransferController::class, 'destroy'])->name('bank_transfer.destroy');
-    Route::any('order_approve/{id}', [BankTransferController::class, 'orderapprove'])->name('order.approve');
-    Route::any('order_reject/{id}', [BankTransferController::class, 'orderreject'])->name('order.reject');
+    // NEW-PLAN-APPROVE-UNGATED-01. orderapprove (BankTransferController.php:119) sets
+    // payment_status = 'Approved' on any PlanOrder id and calls
+    // `$user->assignPlan($order->plan_id, $plann->duration)` -- with NO authorization, so any
+    // authenticated merchant could approve THEIR OWN pending bank-transfer order and receive a
+    // paid plan without paying. Reviewing an uploaded bank-transfer receipt is a platform
+    // action; the Approval/Reject buttons rendering for the payer
+    // (resources/views/order/show.blade.php:39-40, reached through the plan.order.show modal)
+    // is the defect itself, not a workflow to preserve. BankTransferController is the payments
+    // workstream's file, so the gate is attached on the route.
+    Route::any('order_approve/{id}', [BankTransferController::class, 'orderapprove'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('order.approve');
+    Route::any('order_reject/{id}', [BankTransferController::class, 'orderreject'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('order.reject');
 
     Route::post('plan-pay-with-payfast', [PayFastController::class, 'index'])->name('payfast.payment');
     Route::any('plan-payfast-payment/{success}', [PayFastController::class, 'success'])->name('payfast.payment.success');

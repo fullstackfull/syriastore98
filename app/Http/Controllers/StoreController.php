@@ -508,7 +508,21 @@ foreach ($defaultCurrencies as $currency) {
     public function pwaSetting(Request $request, $id)
     {
         session()->put(['setting_tab' => 'pwa_setting']);
-        $store = Store::find($id);
+
+        // NEW-STORE-OWNERSHIP-01. Was `Store::find($id)` with no ownership test, so a merchant
+        // could rewrite ANOTHER store's `enable_pwa_store` flag and overwrite that store's
+        // published manifest.json with caller-supplied title, name and colours.
+        //
+        // The raw `$id` is ALSO interpolated straight into three filesystem paths further down
+        // ('storage/uploads/customer_app/store_' . $id), so an id of the form `1/../../x` was a
+        // path-traversal write. Every one of those sites now uses `$store->id`, an integer the
+        // database returned, rather than the request string.
+        $store = $this->resolveOwnedStore($id);
+
+        if (!$store) {
+            abort(403, __('You do not have permission to access this store.'));
+        }
+
         $themeSettings = getThemeSetting($store->id, $store->theme_id);
         $favicon = $themeSettings['header_favicon'] ?? '';
         $theme_name = APP_THEME();
@@ -610,16 +624,49 @@ foreach ($defaultCurrencies as $currency) {
                         }
                     ]
                 }';
-            if (!file_exists('storage/uploads/customer_app/store_' . $id)) {
-                mkdir(storage_path('uploads/customer_app/store_' . $id), 0777, true);
+            // `$store->id` (an integer from the database), NOT the raw request `$id` -- see the
+            // path-traversal note at the top of this method.
+            if (!file_exists('storage/uploads/customer_app/store_' . $store->id)) {
+                mkdir(storage_path('uploads/customer_app/store_' . $store->id), 0777, true);
             }
-            if (!file_exists('storage/uploads/customer_app/store_' . $id . '/manifest.json')) {
-                fopen('storage/uploads/customer_app/store_' . $id . "/manifest.json", "w");
+            if (!file_exists('storage/uploads/customer_app/store_' . $store->id . '/manifest.json')) {
+                fopen('storage/uploads/customer_app/store_' . $store->id . "/manifest.json", "w");
             }
-            \File::put('storage/uploads/customer_app/store_' . $id . '/manifest.json', $mainfest);
+            \File::put('storage/uploads/customer_app/store_' . $store->id . '/manifest.json', $mainfest);
         }
         $store->update();
         return redirect()->back()->with('success', __('PWA setting successfully Update.'));
+    }
+
+    /**
+     * NEW-STORE-OWNERSHIP-01 -- the one ownership predicate for a caller-supplied store id.
+     *
+     * This is `changeStore()`'s R4-03 predicate, lifted into a method so the three methods
+     * below cannot drift from it. `creatorId()` resolves a staff member to their owning admin
+     * (User.php:95-105), which is what keeps staff and multi-store merchants working, and the
+     * platform operator is admitted unconstrained because that is the contract every other
+     * method in this controller already uses (index:44, edit:439, update:456, destroy:497,
+     * list:978).
+     *
+     * Returns null when the id names no store OR names a store the caller does not own -- the
+     * two cases are DELIBERATELY indistinguishable to the caller, so this is not an oracle for
+     * which store ids exist.
+     */
+    private function resolveOwnedStore($id): ?Store
+    {
+        $user = auth()->user();
+
+        if (!$user) {
+            return null;
+        }
+
+        $query = Store::where('id', $id);
+
+        if ($user->type !== 'super admin') {
+            $query->where('created_by', $user->creatorId());
+        }
+
+        return $query->first();
     }
 
     public function changeStore($id)
@@ -709,7 +756,28 @@ foreach ($defaultCurrencies as $currency) {
     {
 
         $user = auth()->user();
-        $store = Store::find($id);
+
+        // NEW-STORE-OWNERSHIP-01, THE WORST OF THE THREE. This was `Store::find($id)` with NO
+        // ownership test, while the `$user_stores > 1` guard below counts the CALLER's stores --
+        // so the guard answered a question about the caller and the deletion then ran against a
+        // store chosen by the caller. Any merchant holding two or more stores could
+        // IRREVERSIBLY destroy ANY OTHER merchant's store: the block below deletes that store's
+        // pages, orders, app settings, blogs, contacts, coupons, categories, newsletters, plan
+        // orders, testimonials, settings, shippings, taxes, product variants and
+        // shetabit_visits, runs ProductController::destroy over every product (which unlinks
+        // uploaded media from disk), and finally deletes the store row. Nothing here is
+        // recoverable and nothing here was authorized.
+        //
+        // The `$user_stores` count is left EXACTLY as it was, deliberately: it is the
+        // pre-existing "you cannot delete your last store" guard, and rewriting it to
+        // creatorId() would newly ALLOW a staff member to delete their employer's store. This
+        // change only ever REMOVES capability.
+        $store = $this->resolveOwnedStore($id);
+
+        if (!$store) {
+            abort(403, __('You do not have permission to access this store.'));
+        }
+
         $user_stores = Store::where('created_by', $user->id)->count();
 
         if ($user_stores > 1) {
@@ -950,7 +1018,20 @@ foreach ($defaultCurrencies as $currency) {
 
     public function changeStatus(Request $request)
     {
-        $store = Store::find($request->id);
+        // NEW-STORE-OWNERSHIP-01. Was `Store::find($request->id)` with no ownership test, then
+        // `$store->is_active = $request->status; $store->save()` -- so ANY authenticated user
+        // could take ANY store's storefront offline by posting a competitor's id. It also
+        // dereferenced `$store->created_by` BEFORE its own `if ($store)` check two statements
+        // later, so an unknown id was "Attempt to read property on null", not an error message.
+        $store = $this->resolveOwnedStore($request->id);
+
+        if (!$store) {
+            return response()->json([
+                'status' => 'error',
+                'message' => __('You do not have permission to access this store.'),
+            ], 403);
+        }
+
         $adminId = $store->created_by;
         $activeStoresCount = Store::where('is_active', 1)->where('created_by', $adminId)->count();
 
