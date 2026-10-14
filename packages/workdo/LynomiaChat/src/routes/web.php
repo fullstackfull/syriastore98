@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use Workdo\LynomiaChat\app\Http\Controllers\CommunicationCenterController;
 use Workdo\LynomiaChat\app\Http\Controllers\ConnectionController;
+use Workdo\LynomiaChat\app\Http\Controllers\CommerceApiController;
 use Workdo\LynomiaChat\app\Http\Controllers\EventIngressController;
 use Workdo\LynomiaChat\app\Http\Middleware\GuardEventIngress;
 use Workdo\LynomiaChat\app\Http\Controllers\InboxApiController;
@@ -95,6 +96,25 @@ Route::post('/lynomia/events/{store}', [EventIngressController::class, 'store'])
     // and destroy their events.
     ->middleware(['throttle:lynomia-ingress', GuardEventIngress::class, 'throttle:lynomia-events'])
     ->name('lynomia.events.ingress');
+
+// ---------------------------------------------------------------- commerce API (Phase 3)
+//
+// A SURFACE OF ITS OWN, and not part of the `api` group. That group carries the platform-wide
+// throttle:120,1 keyed on the caller IP -- the same shared bucket that was silently destroying
+// webhook deliveries before A1 -- and Lynomia's adapter calls from one address on behalf of
+// every connected store. It also brings SubstituteBindings, which this surface cannot use: there
+// is no store id in any of these paths to bind, because the CREDENTIAL names the store.
+//
+// No `web` either: no session, no CSRF, no cookies. This is server to server.
+Route::prefix('api/lynomia/commerce/v1')
+    ->middleware([
+        'throttle:lynomia-commerce',
+        \Workdo\LynomiaChat\app\Http\Middleware\AuthenticateCommerceApi::class,
+    ])
+    ->name('lynomia.commerce.v1.')
+    ->group(function () {
+        Route::get('/store', [CommerceApiController::class, 'store'])->name('store');
+    });
 
 Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(function () {
 
@@ -196,5 +216,16 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
             // same door, not on the core plan form where it would have two owners.
             Route::post('/seats', [IntegrationController::class, 'updateSeats'])
                 ->name('seats.update');
+
+            // The commerce credential. Same operator-only door as the link actions: it grants a
+            // machine read access to a merchant's orders and customers, which is an operator
+            // act, not a permission a merchant role could carry.
+            Route::post('/links/{link}/commerce-credential', [IntegrationController::class, 'issueCommerceCredential'])
+                ->whereNumber('link')
+                ->name('commerce.issue');
+
+            Route::delete('/links/{link}/commerce-credential', [IntegrationController::class, 'revokeCommerceCredential'])
+                ->whereNumber('link')
+                ->name('commerce.revoke');
         });
 });

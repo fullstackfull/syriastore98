@@ -131,6 +131,20 @@ class LynomiaChatServiceProvider extends ServiceProvider
             ];
         });
 
+        // The commerce API: per credential-bearing store, resolved from the token rather than
+        // the IP, so one merchant's adapter traffic cannot starve another's. Unauthenticated
+        // callers fall to the IP tier below because the middleware rejects them before any
+        // store is known.
+        RateLimiter::for('lynomia-commerce', function (Request $request) {
+            $store = $request->attributes->get(
+                \Workdo\LynomiaChat\app\Http\Middleware\AuthenticateCommerceApi::STORE_ID
+            );
+
+            return is_int($store)
+                ? [Limit::perMinute((int) config('lynomia.commerce_rate_per_minute', 600))->by('lynomia-commerce:store:' . $store)]
+                : [Limit::perMinute(120)->by('lynomia-commerce:ip:' . $request->ip())];
+        });
+
         // TIER 2 -- the real per-store budget, and ONLY a signature-verified delivery reaches
         // it. GuardEventIngress checks the HMAC first and stamps the verified store id; the
         // route parameter is never trusted here, because it is attacker-chosen and keying an

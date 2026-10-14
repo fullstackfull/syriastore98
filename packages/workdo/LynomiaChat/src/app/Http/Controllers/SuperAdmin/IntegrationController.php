@@ -15,6 +15,7 @@ use Workdo\LynomiaChat\app\Models\LynomiaInboxEvent;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreIdentity;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\AccountLinker;
+use Workdo\LynomiaChat\app\Services\CommerceCredential;
 use Workdo\LynomiaChat\app\Services\PlatformApiClient;
 use Workdo\LynomiaChat\app\Services\SeatAllowanceSync;
 
@@ -172,6 +173,84 @@ class IntegrationController extends Controller
             'plan' => $plan->name,
             'count' => $synced,
         ]));
+    }
+
+    /**
+     * Mint the commerce credential for a store, and revoke whatever came before it.
+     *
+     * SHOWN ONCE AND NEVER STORED. The credential is derived from the installation's master key
+     * plus the store id and a version (see CommerceCredential), so there is nothing in the
+     * database to read it back out of -- which is the point, given APP_KEY is published in this
+     * installation and the `encrypted` cast therefore protects nothing. An operator who loses it
+     * issues another, and issuing another revokes the first.
+     *
+     * ISSUING IS REVOKING. Bumping the version changes the signed material, so every credential
+     * minted before this call stops verifying immediately, without a deploy and without a row
+     * to delete.
+     */
+    public function issueCommerceCredential(int $link): RedirectResponse
+    {
+        $model = LynomiaStoreLink::find($link);
+
+        if (! $model) {
+            return back()->with('error', __('That connection no longer exists.'));
+        }
+
+        if (! $model->allowsSso()) {
+            return back()->with('error', __('That workspace connection is not active.'));
+        }
+
+        $previous = (int) $model->commerce_credential_version;
+
+        $model->forceFill([
+            'commerce_credential_version' => $previous + 1,
+            'commerce_credential_issued_at' => now(),
+        ])->save();
+
+        AuditLog::record('lynomia_commerce_credential_issued', $model, [
+            'commerce_credential_version' => $previous,
+        ], [
+            'commerce_credential_version' => $previous + 1,
+            'store_id' => $model->store_id,
+            'actor_id' => auth()->id(),
+            // The credential itself is NEVER written to the audit trail. Only the fact and the
+            // version, which is what an operator needs to answer "when was this rotated".
+        ]);
+
+        return back()
+            ->with('success', __('A new commerce credential was issued. The previous one no longer works.'))
+            ->with('lynomia_commerce_credential', CommerceCredential::issue($model->fresh()));
+    }
+
+    /**
+     * Turn the credential off without issuing a replacement.
+     */
+    public function revokeCommerceCredential(int $link): RedirectResponse
+    {
+        $model = LynomiaStoreLink::find($link);
+
+        if (! $model) {
+            return back()->with('error', __('That connection no longer exists.'));
+        }
+
+        $previous = (int) $model->commerce_credential_version;
+
+        // Version 0 is the "never issued" state and nothing verifies against it, so bumping is
+        // also how a revocation is expressed -- there is no separate disabled flag to drift.
+        $model->forceFill([
+            'commerce_credential_version' => $previous + 1,
+            'commerce_credential_issued_at' => null,
+        ])->save();
+
+        AuditLog::record('lynomia_commerce_credential_revoked', $model, [
+            'commerce_credential_version' => $previous,
+        ], [
+            'commerce_credential_version' => $previous + 1,
+            'store_id' => $model->store_id,
+            'actor_id' => auth()->id(),
+        ]);
+
+        return back()->with('success', __('The commerce credential has been revoked.'));
     }
 
     public function approve(ApproveLinkRequest $request, int $link): RedirectResponse
