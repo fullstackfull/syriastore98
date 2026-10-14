@@ -215,4 +215,103 @@ class LynomiaSeatAllowanceTest extends TestCase
 
         $this->assertNull($plan->lynomia_agent_seats);
     }
+
+    // ================================================================ A4: configurability
+    //
+    // The brief requires seat quantities to be CONFIGURABLE by a Store Syria Super Admin. They
+    // were storable and displayable but not settable: lynomia_agent_seats appeared in no form
+    // anywhere and PlanController's validation never mentioned it, so the only way to change one
+    // was a direct database write.
+    //
+    // WHY THESE DRIVE THE CONTROLLER RATHER THAN THE HTTP STACK. Exactly as the Phase 1
+    // super-admin tests in this suite already do: the platform's `xss` middleware redirects to
+    // /update whenever migration files are not recorded in the migrations table, and in a test
+    // database over a hundred of OTHER Workdo modules' migrations are pending. Every super-admin
+    // request therefore 302s before reaching any controller. Asserting through the stack would
+    // produce tests that pass because nothing happened, which is worse than no test. The route's
+    // own guard is asserted separately, from the booted router.
+
+    private function seatRequest(int $planId, mixed $seats): \Illuminate\Http\Request
+    {
+        return \Illuminate\Http\Request::create('/super-admin/lynomia-integration/seats', 'POST', [
+            'plan_id' => $planId, 'seats' => $seats,
+        ]);
+    }
+
+    private function controller(): \Workdo\LynomiaChat\app\Http\Controllers\SuperAdmin\IntegrationController
+    {
+        return app(\Workdo\LynomiaChat\app\Http\Controllers\SuperAdmin\IntegrationController::class);
+    }
+
+    public function test_the_seat_route_is_behind_the_platform_operator_guard(): void
+    {
+        $route = \Illuminate\Support\Facades\Route::getRoutes()->getByName('lynomia.admin.seats.update');
+
+        $this->assertNotNull($route, 'there is no route to configure included seats');
+        $this->assertContains(
+            \App\Http\Middleware\PlatformOperatorOnly::class,
+            app('router')->gatherRouteMiddleware($route),
+            'a merchant could configure their own included seats'
+        );
+        $this->assertSame(['POST'], array_values(array_diff($route->methods(), ['HEAD'])));
+    }
+
+    public function test_an_operator_can_set_a_plans_included_seats(): void
+    {
+        $this->actingAs($this->operator());
+        $plan = $this->planWithSeats(null);
+
+        $this->controller()->updateSeats($this->seatRequest($plan->id, 7));
+
+        $this->assertSame(7, (int) $plan->fresh()->lynomia_agent_seats);
+    }
+
+    // CLEARING IS A REAL OPERATION, AND IT IS NOT ZERO. Empty means "grant and withhold
+    // nothing" -- the integration withdraws its ceiling entirely. Zero is a deliberate lockout.
+    public function test_clearing_the_field_returns_the_plan_to_granting_nothing(): void
+    {
+        $this->actingAs($this->operator());
+        $plan = $this->planWithSeats(5);
+
+        $this->controller()->updateSeats($this->seatRequest($plan->id, null));
+
+        $this->assertNull($plan->fresh()->lynomia_agent_seats);
+    }
+
+    public function test_zero_is_stored_as_zero_and_not_confused_with_unset(): void
+    {
+        $this->actingAs($this->operator());
+        $plan = $this->planWithSeats(null);
+
+        $this->controller()->updateSeats($this->seatRequest($plan->id, 0));
+
+        $this->assertSame(0, (int) $plan->fresh()->lynomia_agent_seats);
+    }
+
+    public function test_a_negative_or_absurd_seat_count_is_refused(): void
+    {
+        $this->actingAs($this->operator());
+        $plan = $this->planWithSeats(null);
+
+        foreach ([-1, 10001] as $bad) {
+            try {
+                $this->controller()->updateSeats($this->seatRequest($plan->id, $bad));
+                $this->fail("a seat count of {$bad} was accepted");
+            } catch (\Illuminate\Validation\ValidationException $e) {
+                $this->assertArrayHasKey('seats', $e->errors());
+            }
+        }
+
+        $this->assertNull($plan->fresh()->lynomia_agent_seats);
+    }
+
+    public function test_the_change_is_audited(): void
+    {
+        $this->actingAs($this->operator());
+        $plan = $this->planWithSeats(null);
+
+        $this->controller()->updateSeats($this->seatRequest($plan->id, 3));
+
+        $this->assertDatabaseHas('audit_logs', ['action' => 'lynomia_plan_seats_changed']);
+    }
 }

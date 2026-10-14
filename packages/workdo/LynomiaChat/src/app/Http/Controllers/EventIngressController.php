@@ -43,9 +43,11 @@ class EventIngressController extends Controller
 
         if (! EventSignature::verify($store, $body, $request->header(EventSignature::SIGNATURE_HEADER),
             $request->header(EventSignature::TIMESTAMP_HEADER))) {
-            // Deliberately uninformative. Telling a caller whether the signature, the timestamp
-            // or the store was wrong is three oracles in one response.
-            return response()->json(['error' => 'Unauthorized'], 401);
+            // Deliberately uninformative TO THE CALLER -- telling them whether the signature, the
+            // timestamp or the store was wrong is three oracles in one response. The operator
+            // still gets a log line, because this is the refusal that matters most and it was
+            // the one that was silent.
+            return $this->refuse($store, 'bad_signature', 401);
         }
 
         $payload = json_decode($body, true);

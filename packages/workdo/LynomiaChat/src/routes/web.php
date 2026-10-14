@@ -186,5 +186,11 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
             Route::post('/links/{link}/restore', [IntegrationController::class, 'restore'])
                 ->whereNumber('link')
                 ->name('links.restore');
+
+            // Included agent seats per plan. Same PlatformOperatorOnly group as the link
+            // actions above -- a seat ceiling is a commercial control and belongs behind the
+            // same door, not on the core plan form where it would have two owners.
+            Route::post('/seats', [IntegrationController::class, 'updateSeats'])
+                ->name('seats.update');
         });
 });

@@ -1301,3 +1301,121 @@ jobs:
       # mean two jobs installing 239 packages to measure the same thing, and the stale
       # per-suite numbers in their comments (30/232, 924/4184/12/17) were already three
       # branches out of date. Re-measure from the required gate; do not quote.
+
+  # ===================================================================================
+  # MERGE-BASE REGRESSION GATE  (additive -- the official gate above is unchanged)
+  # ===================================================================================
+  #
+  # WHY THIS EXISTS. `.github/known-test-outcomes.json` is the owner's record of failures
+  # accepted with a named root cause, and `assert-known-test-outcomes.php` enforces it in both
+  # directions. That gate is correct and is NOT weakened here. It is, however, currently stale:
+  # the repository's own merge base produces failures the manifest does not declare, so the
+  # official gate is red on main as well as on branches cut from it, and the manifest's README
+  # explicitly forbids adding entries to obtain green.
+  #
+  # While that reconciliation is an open owner decision, a reviewer still needs one question
+  # answered: did THIS BRANCH break something that worked at the merge base? This job answers
+  # exactly that, by running the suite at both commits and comparing failing test IDENTITIES.
+  # Counts are never compared -- a branch that fixes one test and breaks another keeps the same
+  # total and must still fail.
+  #
+  # NOTHING HERE ACCEPTS ANYTHING. Inherited failures are reported as unresolved baseline drift
+  # on every run. This job should be deleted once the manifest is reconciled.
+  regression-gate:
+    name: "Merge-base regression gate (new failures only)"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    env:
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      APP_ENV: testing
+    steps:
+      - name: Refuse to run as root
+        run: '[ "$(id -u)" != "0" ] || { echo "refusing to run as root"; exit 1; }'
+
+      # Full history: the merge base cannot be resolved from a shallow clone.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: ctype,curl,dom,fileinfo,filter,gd,iconv,intl,mbstring,openssl,pdo,pdo_sqlite,phar,simplexml,sodium,tokenizer,xml,xmlreader,xmlwriter,zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Resolve the merge base
+        id: base
+        run: |
+          set -euo pipefail
+          BASE="$(git merge-base "origin/${{ github.base_ref }}" HEAD)"
+          echo "sha=${BASE}" >> "$GITHUB_OUTPUT"
+          echo "merge base: ${BASE}"
+
+      # Deliberately the SAME install for both runs. Installing twice would let a dependency
+      # difference masquerade as a code regression, and the point of this job is attribution.
+      - name: Install dependencies once
+        run: composer install --no-interaction --prefer-dist --no-progress || \
+             composer install --no-interaction --prefer-dist --no-progress --ignore-platform-reqs
+
+      - name: Hard guard - sqlite only
+        run: |
+          [ "${DB_CONNECTION}" = "sqlite" ] && [ "${DB_DATABASE}" = ":memory:" ] || {
+            echo "refusing to run against anything but sqlite :memory:"; exit 1; }
+
+      - name: Run the Feature suite at HEAD
+        continue-on-error: true
+        run: |
+          mkdir -p storage/logs
+          vendor/bin/phpunit --testsuite Feature \
+            --log-junit storage/logs/head-junit.xml \
+            --log-teamcity storage/logs/head-teamcity.txt
+
+      # The official gate, run here only so its status can be REPORTED honestly alongside the
+      # comparison. Its verdict is recorded, never suppressed.
+      - name: Record the official known-outcome gate's verdict
+        id: official
+        continue-on-error: true
+        run: |
+          set +e
+          php .github/scripts/assert-known-test-outcomes.php \
+            storage/logs/head-junit.xml \
+            .github/known-test-outcomes.json \
+            storage/logs/head-teamcity.txt
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Run the Feature suite at the merge base
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          git worktree add --detach /tmp/base "${{ steps.base.outputs.sha }}"
+          ln -s "$PWD/vendor" /tmp/base/vendor
+          mkdir -p /tmp/base/storage/logs /tmp/base/storage/framework/{cache,sessions,views} /tmp/base/bootstrap/cache
+          touch /tmp/base/storage/installed
+          cd /tmp/base
+          vendor/bin/phpunit --testsuite Feature --log-junit "$GITHUB_WORKSPACE/storage/logs/base-junit.xml" || true
+
+      - name: Compare failing test identities
+        run: |
+          php .github/scripts/regression-gate.php \
+            storage/logs/base-junit.xml \
+            storage/logs/head-junit.xml \
+            --manifest=.github/known-test-outcomes.json \
+            --json=storage/logs/regression-gate.json \
+            --base-ref="${{ steps.base.outputs.sha }}" \
+            --official-exit="${{ steps.official.outputs.exit }}"
+
+      - name: Require the human checklist on a security-sensitive diff
+        run: |
+          printf '%s' "${{ github.event.pull_request.body }}" > /tmp/pr-body.txt
+          .github/scripts/flag-sensitive-diff.sh "${{ steps.base.outputs.sha }}" /tmp/pr-body.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: regression-gate
+          path: |
+            storage/logs/regression-gate.json
+            storage/logs/base-junit.xml
+            storage/logs/head-junit.xml

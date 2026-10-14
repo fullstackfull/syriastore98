@@ -3,9 +3,12 @@
 namespace Workdo\LynomiaChat\app\Http\Controllers\SuperAdmin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AuditLog;
 use App\Models\Plan;
+use App\Models\User;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Http\Requests\ApproveLinkRequest;
 use Workdo\LynomiaChat\app\Models\LynomiaInboxEvent;
@@ -13,6 +16,7 @@ use Workdo\LynomiaChat\app\Models\LynomiaStoreIdentity;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\AccountLinker;
 use Workdo\LynomiaChat\app\Services\PlatformApiClient;
+use Workdo\LynomiaChat\app\Services\SeatAllowanceSync;
 
 /**
  * The dedicated "Lynomia Chat Integration" page in Store Syria Super Admin.
@@ -33,7 +37,8 @@ class IntegrationController extends Controller
 {
     public function __construct(
         private readonly PlatformApiClient $api,
-        private readonly AccountLinker $linker
+        private readonly AccountLinker $linker,
+        private readonly SeatAllowanceSync $seats
     ) {
     }
 
@@ -81,6 +86,81 @@ class IntegrationController extends Controller
             'last_at' => $latest?->created_at?->diffForHumans(),
             'stores_reporting' => LynomiaInboxEvent::query()->distinct()->count('store_id'),
         ];
+    }
+
+    /**
+     * Set how many Lynomia agent seats a Store Syria plan includes.
+     *
+     * CONFIGURABLE, AND DELIBERATELY NOT DEFAULTED. The column is nullable with no default and
+     * every plan starts null, which means "this plan grants and withholds nothing" -- the
+     * integration withdraws its entitlement grant and Lynomia's own rules apply unchanged. A
+     * default of 0 would lock every merchant out of an inbox they are already paying for the
+     * moment enforcement arrived; a default of 5 would invent a commercial decision nobody made.
+     * Clearing the field returns a plan to that state.
+     *
+     * IT LIVES HERE RATHER THAN ON THE CORE PLAN FORM. Approved decision 14 keeps integration
+     * configuration on each platform's dedicated integration page, and PlanController belongs to
+     * the host platform -- adding a Lynomia field to it would scatter the integration across an
+     * unrelated module and give the setting two owners.
+     *
+     * CHANGING IT DOES NOT TOUCH ANYBODY'S SEATS. The new ceiling is pushed to every connected
+     * store on that plan, and Lynomia applies it to what happens NEXT: a merchant already over a
+     * lowered ceiling keeps every person they have, and simply cannot add another. Nobody is
+     * removed, which is the rule a downgrade has to obey.
+     */
+    public function updateSeats(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'plan_id' => ['required', 'integer', 'exists:plans,id'],
+            // `nullable` IS the product feature, not laxity -- an empty field is how an operator
+            // says "grant nothing", which is a different statement from "grant zero".
+            'seats' => ['nullable', 'integer', 'min:0', 'max:10000'],
+        ]);
+
+        $plan = Plan::find($validated['plan_id']);
+
+        if (! $plan) {
+            return back()->with('error', __('That plan no longer exists.'));
+        }
+
+        $seats = $validated['seats'] === null || $validated['seats'] === ''
+            ? null
+            : (int) $validated['seats'];
+
+        $before = $plan->lynomia_agent_seats;
+        $plan->lynomia_agent_seats = $seats;
+        $plan->save();
+
+        AuditLog::record('lynomia_plan_seats_changed', $plan, ['lynomia_agent_seats' => $before], [
+            'lynomia_agent_seats' => $seats,
+            'plan_id' => $plan->id,
+            'actor_id' => auth()->id(),
+        ]);
+
+        // Push the new ceiling to every connected store on this plan. Quietly: a workspace that
+        // is unreachable right now must not block an operator's configuration change, and the
+        // next sync picks it up.
+        $synced = 0;
+
+        LynomiaStoreLink::query()
+            ->where('state', 'active')
+            ->whereNotNull('lynomia_account_id')
+            ->get()
+            ->each(function (LynomiaStoreLink $link) use ($plan, &$synced) {
+                $owner = User::find($link->owner_user_id);
+
+                if ($owner === null || (int) $owner->plan_id !== (int) $plan->id) {
+                    return;
+                }
+
+                $this->seats->syncQuietly($link, auth()->user());
+                $synced++;
+            });
+
+        return back()->with('success', __('Included seats updated for :plan (:count store(s) synced).', [
+            'plan' => $plan->name,
+            'count' => $synced,
+        ]));
     }
 
     public function approve(ApproveLinkRequest $request, int $link): RedirectResponse

@@ -91,6 +91,7 @@
                             <tr>
                                 <th>{{ __('Plan') }}</th>
                                 <th>{{ __('Included Lynomia agent seats') }}</th>
+                                <th style="width:200px">{{ __('Change') }}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -106,9 +107,25 @@
                                             <span class="badge bg-primary">{{ $plan->lynomia_agent_seats }}</span>
                                         @endif
                                     </td>
+                                    <td>
+                                        {{-- An empty field is a real answer: it means "grant and
+                                             withhold nothing", which is not the same statement as
+                                             zero. Zero is a deliberate lockout. --}}
+                                        <form method="POST" action="{{ route('lynomia.admin.seats.update') }}" class="d-flex gap-2 align-items-center">
+                                            @csrf
+                                            <input type="hidden" name="plan_id" value="{{ $plan->id }}">
+                                            <label class="visually-hidden" for="seats-{{ $plan->id }}">{{ __('Included Lynomia agent seats') }}</label>
+                                            <input type="number" min="0" max="10000" inputmode="numeric"
+                                                   class="form-control form-control-sm" style="max-width:7rem"
+                                                   id="seats-{{ $plan->id }}" name="seats"
+                                                   value="{{ $plan->lynomia_agent_seats }}"
+                                                   placeholder="{{ __('Not set') }}">
+                                            <button type="submit" class="btn btn-sm btn-primary">{{ __('Save') }}</button>
+                                        </form>
+                                    </td>
                                 </tr>
                             @empty
-                                <tr><td colspan="2" class="text-muted">{{ __('No plans yet.') }}</td></tr>
+                                <tr><td colspan="3" class="text-muted">{{ __('No plans yet.') }}</td></tr>
                             @endforelse
                         </tbody>
                     </table>
