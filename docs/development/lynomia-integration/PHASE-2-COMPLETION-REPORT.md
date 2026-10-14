@@ -252,7 +252,7 @@ rule that stacks the three panes and hides the empty context pane. The page rend
 | Store Syria — Lynomia module | **133 tests, 2 985 assertions, 0 failures** |
 | Store Syria — full suite | **1 716 tests, 13 failures** — the *identical* pre-existing set |
 | Lynomia — Phase 2 specs | scoped tokens 15, channel claims 24, entitlement grants 23, webhook secret 4 — 0 failures |
-| Lynomia — broad regression | **8 813 examples** — see §12a |
+| Lynomia — broad regression | **8 818 examples, 0 failures**, 70 pending — see §12a |
 | RuboCop (Lynomia) | clean on all changed files |
 
 The 13 Store Syria failures are the documented baseline from `f2d16cab`: 8 `owner_menu_settings`
@@ -327,10 +327,11 @@ preserves the override; the guard, which only needs `validate`, is free to be a 
 - `Inbox` still carries both `Billing::InboxLimit` and `Channels::ExclusivityGuard`.
 - **Mutation-verified**: disabling the new injection fails 2 channel-claim examples, so it is
   load-bearing rather than decorative.
-- Full suite re-run after the fix: **in flight when this report was committed.** The pre-fix run
-  was 8 813 examples / 2 failures, and those two are the ones fixed and independently re-verified
-  green above, so the expected result is 0 — but it is not claimed until measured. The final count
-  is recorded in a follow-up commit to this file.
+- **Full suite re-run after all three fixes: 8 818 examples, 0 failures, 70 pending.** Run against
+  a clean tree at `79f3cc3b`. The count is 8 813 + the 5 examples the fixes added, which is the
+  arithmetic one wants to see: nothing was skipped to get to green. Two earlier re-runs were
+  started and deliberately **discarded** rather than reported, because application code was edited
+  while they were in flight and a suite that loads code at boot cannot be trusted across that.
 
 ### What this says about the rest of Phase 2
 
@@ -516,8 +517,12 @@ work rather than defects in what was built.
 **Implementation is complete for Phase 2's stated scope. Production readiness is not claimed.**
 Phase 3 is not started.
 
-One caveat on confidence, stated plainly: a defect that silently removed an audit control shipped
-in commit `8892bd1c` and survived every Phase 2 test. It was caught only by running the whole
-Lynomia suite, and is fixed and verified (§12a). It is reasonable to treat the rest of Phase 2 as
-carrying some residual risk of the same kind until the broad suite is green in CI rather than once
-on a developer's machine.
+One caveat on confidence, stated plainly. A defect that silently removed an audit control shipped
+in `8892bd1c` and survived every Phase 2 test; two more problems were then found by reading, with
+no failing example anywhere. All three are fixed, mutation-verified, and the full Lynomia suite is
+**8 818 / 0 failures** (§12a). What that number does *not* establish is the absence of a fourth of
+the same kind — the first defect proves this suite can be green while a control is missing, and
+two of the three were invisible to it. The residual risk is therefore lower than it was and not
+zero, and the honest mitigation is the §17 condition: the broad suite as a CI gate, plus a human
+reading of the Phase 2 diff for *removals* specifically, which is a different question from
+whether the new code works.
