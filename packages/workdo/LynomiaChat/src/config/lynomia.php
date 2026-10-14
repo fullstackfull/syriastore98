@@ -66,6 +66,33 @@ return [
      * point this at it and get the round trip back.
      */
     'credential_lifetime_seconds' => (int) env('LYNOMIA_CREDENTIAL_TTL_SECONDS', 3600),
+
+    /*
+     * THE MASTER KEY EVERY STORE'S WEBHOOK SECRET IS DERIVED FROM.
+     *
+     * Lynomia signs each delivery with a per-webhook secret. Accepting the one it generates would
+     * mean storing a live signing key in this database -- and APP_KEY is published here, so
+     * "encrypted at rest" means nothing (see the note at the top of this file). Store Syria
+     * therefore CHOOSES the secret instead: HMAC(master, "lynomia-webhook:{store}"), recomputed
+     * from the environment on every delivery and never written down.
+     *
+     * Per store rather than one shared key, so a secret that does leak forges deliveries for one
+     * store rather than all of them. Unset is a hard failure, not a default: a predictable
+     * fallback would leave the signature check apparently passing while verifying nothing.
+     */
+    'webhook_master_secret' => env('LYNOMIA_WEBHOOK_MASTER_SECRET'),
+
+    /*
+     * How far out of date a delivery's timestamp may be. The signature covers the timestamp, so
+     * a replay cannot move it; this bounds how long a captured delivery stays replayable, and the
+     * delivery-id uniqueness behind it makes a replay inside the window a no-op anyway. Generous
+     * relative to normal webhook latency, because a queue backlog is ordinary and must not look
+     * like an attack.
+     */
+    'webhook_tolerance_seconds' => (int) env('LYNOMIA_WEBHOOK_TOLERANCE_SECONDS', 300),
+
+    /* How often the open inbox asks what has changed. */
+    'inbox_poll_seconds' => (int) env('LYNOMIA_INBOX_POLL_SECONDS', 10),
     'credential_cache_store' => env('LYNOMIA_CREDENTIAL_CACHE_STORE', 'array'),
 
     // How long a merchant has to complete an existing-account link before the pending row

@@ -65,7 +65,8 @@ class AccountLinker
 {
     public function __construct(
         private readonly PlatformApiClient $api,
-        private readonly IdentityProvisioner $identities
+        private readonly IdentityProvisioner $identities,
+        private readonly SeatAllowanceSync $seats
     ) {
     }
 
@@ -423,6 +424,11 @@ class AccountLinker
             'verification_expires_at' => null,
             'last_synced_at' => now(),
         ])->save();
+
+        // Approval is the other moment a workspace becomes usable, so the seat allowance is
+        // pushed here too -- a linked workspace is included in the merchant's package exactly as
+        // a provisioned one is.
+        $this->seats->syncQuietly($link->refresh(), $approver);
 
         AuditLog::record('lynomia_link_approved', $link, [
             'state' => LinkState::PENDING_VERIFICATION,

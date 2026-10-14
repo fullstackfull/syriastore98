@@ -26,6 +26,7 @@ use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
  *   DELETE /platform/api/v1/account_links/{account}       hand the grant back
  *   POST   /platform/api/v1/users/{id}/scoped_access_token  a per-person, per-workspace bearer
  *   GET/POST/DELETE /platform/api/v1/channel_claims        one channel identity, one store
+ *   GET/PUT/DELETE  .../accounts/{id}/entitlement_grants   seats a Store Syria package includes
  *
  * The last two are added by this integration on the Lynomia side. Everything else is stock.
  *
@@ -363,6 +364,62 @@ class PlatformApiClient
         ], static fn ($value) => $value !== null));
 
         return array_values(array_filter((array) ($body['claims'] ?? []), 'is_array'));
+    }
+
+    // ------------------------------------------------------------------ included seats
+
+    /**
+     * Tell Lynomia how many seats this merchant's Store Syria package includes.
+     *
+     * A GRANT, NOT A SUBSCRIPTION. Lynomia composes this with whatever else the account has -- an
+     * independent plan it bought directly, an operator's override -- by taking the HIGHEST, so
+     * this can raise a merchant's ceiling and can never lower one they paid for separately. And
+     * because it is not a subscription, there is no second place the merchant could be charged
+     * for seats their Store Syria package already covers.
+     */
+    public function grantEntitlement(int $accountId, string $resource, int $limit, ?string $externalRef = null): array
+    {
+        return $this->send('put', "/platform/api/v1/accounts/{$accountId}/entitlement_grants", array_filter([
+            'resource' => $resource,
+            'limit_value' => $limit,
+            'external_ref' => $externalRef,
+        ], static fn ($value) => $value !== null));
+    }
+
+    /**
+     * Stop including seats. The merchant keeps every member they already have -- Lynomia does not
+     * remove anybody when a ceiling goes away -- so this is a change to what happens NEXT, not a
+     * downgrade that deletes people.
+     */
+    public function withdrawEntitlementGrant(int $accountId, string $resource): bool
+    {
+        $body = $this->send('delete', "/platform/api/v1/accounts/{$accountId}/entitlement_grants", [
+            'resource' => $resource,
+        ]);
+
+        return (bool) ($body['withdrawn'] ?? false);
+    }
+
+    /**
+     * What is actually enforced for this workspace, which layer decided it, and how much is used.
+     *
+     * THE EFFECTIVE NUMBER, NOT OUR GRANT. Showing a merchant "3 of 5 seats" from the Store Syria
+     * plan alone would be wrong whenever the account also has its own Lynomia plan or an operator
+     * override -- the number that refuses the next invitation is Lynomia's, so that is the number
+     * to display.
+     *
+     * @return array{limit:?int, source:?string, used:?int}
+     */
+    public function effectiveEntitlement(int $accountId, string $resource = 'agents'): array
+    {
+        $body = $this->send('get', "/platform/api/v1/accounts/{$accountId}/entitlement_grants");
+        $effective = $body['effective'][$resource] ?? [];
+
+        return [
+            'limit' => isset($effective['limit']) ? (int) $effective['limit'] : null,
+            'source' => isset($effective['source']) ? (string) $effective['source'] : null,
+            'used' => isset($effective['used']) ? (int) $effective['used'] : null,
+        ];
     }
 
     // ------------------------------------------------------------------ transport

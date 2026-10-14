@@ -5,9 +5,11 @@ namespace Workdo\LynomiaChat\app\Providers;
 use Illuminate\Support\ServiceProvider;
 use Workdo\LynomiaChat\app\Services\AccountLinker;
 use Workdo\LynomiaChat\app\Services\AccountProvisioner;
+use Workdo\LynomiaChat\app\Services\EventSubscriptionManager;
 use Workdo\LynomiaChat\app\Services\IdentityProvisioner;
 use Workdo\LynomiaChat\app\Services\MerchantInboxGateway;
 use Workdo\LynomiaChat\app\Services\PlatformApiClient;
+use Workdo\LynomiaChat\app\Services\SeatAllowanceSync;
 use Workdo\LynomiaChat\app\Services\SsoLinkIssuer;
 
 class LynomiaChatServiceProvider extends ServiceProvider
@@ -31,11 +33,20 @@ class LynomiaChatServiceProvider extends ServiceProvider
 
         $this->app->bind(AccountProvisioner::class, fn ($app) => new AccountProvisioner(
             $app->make(PlatformApiClient::class),
-            $app->make(IdentityProvisioner::class)
+            $app->make(IdentityProvisioner::class),
+            $app->make(SeatAllowanceSync::class),
+            $app->make(EventSubscriptionManager::class)
         ));
         $this->app->bind(AccountLinker::class, fn ($app) => new AccountLinker(
             $app->make(PlatformApiClient::class),
-            $app->make(IdentityProvisioner::class)
+            $app->make(IdentityProvisioner::class),
+            $app->make(SeatAllowanceSync::class)
+        ));
+        $this->app->bind(EventSubscriptionManager::class, fn ($app) => new EventSubscriptionManager(
+            $app->make(MerchantInboxGateway::class)
+        ));
+        $this->app->bind(SeatAllowanceSync::class, fn ($app) => new SeatAllowanceSync(
+            $app->make(PlatformApiClient::class)
         ));
         $this->app->bind(MerchantInboxGateway::class, fn ($app) => new MerchantInboxGateway(
             $app->make(PlatformApiClient::class),

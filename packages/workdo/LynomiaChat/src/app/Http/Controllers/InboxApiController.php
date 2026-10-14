@@ -7,6 +7,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Http\Middleware\EnsureStoreOwnsLink;
+use Workdo\LynomiaChat\app\Models\LynomiaInboxEvent;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\AgentApiClient;
 use Workdo\LynomiaChat\app\Services\MerchantInboxGateway;
@@ -152,6 +153,50 @@ class InboxApiController extends Controller
                 'thumbnail' => $payload['thumbnail'] ?? null,
             ]];
         });
+    }
+
+    /**
+     * What has changed in this store's workspace since the caller last looked.
+     *
+     * THE CURSOR IS THE WHOLE DESIGN. A client sends the last event id it saw and gets everything
+     * after it, which makes reconnection, catch-up after a dropped connection and ordinary
+     * polling the SAME operation -- there is no separate recovery path that only runs when
+     * something has already gone wrong, and therefore no recovery path that is never exercised.
+     * Out-of-order and duplicate deliveries are harmless for the same reason: the client re-reads
+     * current state rather than applying a diff.
+     *
+     * EVENTS CARRY NO CONTENT. A row says "conversation 41 changed"; the browser then asks for
+     * that conversation through the ordinary authorized routes above. So this endpoint cannot
+     * leak a message even if an event were somehow misrouted -- there is nothing in it to leak.
+     *
+     * The store is taken from the middleware, never from the caller, so a cursor can only ever
+     * move forward within this store's own rows.
+     */
+    public function events(Request $request): JsonResponse
+    {
+        /** @var LynomiaStoreLink|null $link */
+        $link = $request->attributes->get(EnsureStoreOwnsLink::ATTRIBUTE);
+
+        if (! $link) {
+            return response()->json(['error' => __('This store is not connected to Lynomia Chat.')], 409);
+        }
+
+        $after = max(0, (int) $request->query('after', 0));
+        $events = LynomiaInboxEvent::forStoreAfter((int) $link->store_id, $after)
+            ->limit(100)
+            ->get(['id', 'event', 'conversation_display_id', 'occurred_at']);
+
+        return response()->json([
+            'events' => $events->map(fn (LynomiaInboxEvent $event) => [
+                'id' => $event->id,
+                'event' => $event->event,
+                'conversation_id' => $event->conversation_display_id,
+                'at' => $event->occurred_at?->toIso8601String(),
+            ])->all(),
+            // Where to resume from. Sent explicitly rather than inferred from the last row, so a
+            // poll that returns nothing still tells the client where it is.
+            'cursor' => $events->last()->id ?? $after,
+        ]);
     }
 
     // ------------------------------------------------------------------ plumbing

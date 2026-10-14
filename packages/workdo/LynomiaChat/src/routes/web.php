@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use Workdo\LynomiaChat\app\Http\Controllers\CommunicationCenterController;
 use Workdo\LynomiaChat\app\Http\Controllers\ConnectionController;
+use Workdo\LynomiaChat\app\Http\Controllers\EventIngressController;
 use Workdo\LynomiaChat\app\Http\Controllers\InboxApiController;
 use Workdo\LynomiaChat\app\Http\Controllers\InboxController;
 use Workdo\LynomiaChat\app\Http\Controllers\SuperAdmin\IntegrationController;
@@ -61,6 +62,28 @@ use Workdo\LynomiaChat\app\Http\Middleware\EnsureStoreOwnsLink;
  * before this was added: the stack was Authenticate,XSS,SetLocate,EmailIsVerified with no
  * session and no CSRF middleware at all.
  */
+/**
+ * WHERE LYNOMIA TELLS US SOMETHING CHANGED.
+ *
+ * OUTSIDE THE AUTHENTICATED GROUP, AND THAT IS THE POINT RATHER THAN AN OVERSIGHT. This is called
+ * server to server by Lynomia, which has no Store Syria session and never will, so `auth` would
+ * refuse every legitimate delivery. What authenticates it is the per-store HMAC signature
+ * Lynomia already sends on every webhook, verified in EventIngressController before anything
+ * else happens.
+ *
+ * `web` is omitted deliberately too: it would add CSRF protection to a request that has no
+ * browser, no session and no token to carry, and the delivery would be rejected for lacking
+ * something it could not have.
+ *
+ * The route carries a store id, which is NOT trusted: each store's deliveries are signed with
+ * that store's own derived key, and the account id in the body is checked against the link that
+ * store actually holds.
+ */
+Route::post('/lynomia/events/{store}', [EventIngressController::class, 'store'])
+    ->whereNumber('store')
+    ->middleware('api')
+    ->name('lynomia.events.ingress');
+
 Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(function () {
 
     // ---------------------------------------------------------------- merchant
@@ -109,6 +132,8 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
                     Route::get('/conversations/{conversation}/messages', [InboxApiController::class, 'messages'])
                         ->whereNumber('conversation')->name('messages');
                     Route::get('/agents', [InboxApiController::class, 'agents'])->name('agents');
+                    // What changed since the caller last looked. Carries ids, never content.
+                    Route::get('/events', [InboxApiController::class, 'events'])->name('events');
                     Route::get('/contacts/{contact}', [InboxApiController::class, 'contact'])
                         ->whereNumber('contact')->name('contact');
                     Route::post('/conversations/{conversation}/read', [InboxApiController::class, 'markRead'])

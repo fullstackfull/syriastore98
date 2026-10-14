@@ -34,7 +34,9 @@ class AccountProvisioner
 {
     public function __construct(
         private readonly PlatformApiClient $api,
-        private readonly IdentityProvisioner $identities
+        private readonly IdentityProvisioner $identities,
+        private readonly SeatAllowanceSync $seats,
+        private readonly EventSubscriptionManager $events
     ) {
     }
 
@@ -186,6 +188,15 @@ class AccountProvisioner
                 'last_error' => null,
                 'last_synced_at' => now(),
             ]);
+
+            // The workspace is live, so tell Lynomia what this merchant's package includes. Done
+            // AFTER the state write rather than before: a failure here must not undo a workspace
+            // that exists, and the grant is re-pushed on the next sync anyway.
+            $this->seats->syncQuietly($link, $owner);
+            // ...and ask the workspace to tell us when anything changes in it. Best effort for
+            // the same reason: without it the inbox refreshes on demand, which is a slower
+            // inbox rather than a broken one.
+            $this->events->ensureSubscribed($link, $owner);
         } catch (QueryException $e) {
             // WRITING A DISCOVERED ID CAN ITSELF FAIL, and it must not escape as a raw
             // database error. The only way it does is the unique index on

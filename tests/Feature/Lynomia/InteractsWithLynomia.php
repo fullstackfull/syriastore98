@@ -30,6 +30,9 @@ trait InteractsWithLynomia
         config()->set('lynomia.enabled', true);
         config()->set('lynomia.base_url', self::FAKE_BASE);
         config()->set('lynomia.platform_token', 'test-token-not-a-real-credential');
+        // The master key every store's webhook secret is derived from. A dummy, and the
+        // derivation is what the signature tests exercise -- not this value.
+        config()->set('lynomia.webhook_master_secret', 'test-master-not-a-real-secret');
 
         // The client is a singleton built from config at resolve time, so the config above
         // must be set before anything resolves it.
@@ -318,6 +321,18 @@ trait InteractsWithLynomia
                     => Http::response([['id' => 1, 'name' => 'Agent', 'email' => 'agent@example.test']], 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/contacts/\d+$#', $path)
                     => Http::response(['payload' => ['id' => 55, 'name' => 'Customer', 'email' => null]], 200),
+                // Seats a Store Syria package includes. `effective` is what Lynomia actually
+                // enforces -- the grant composed with any plan and any operator override -- not
+                // an echo of what was granted.
+                (bool) preg_match('#^/platform/api/v1/accounts/\d+/entitlement_grants$#', $path)
+                    => Http::response([
+                        'account_id' => $accountId,
+                        'grants' => $this->lynomiaScript['grants'] ?? [],
+                        'effective' => $this->lynomiaScript['effective'] ?? [
+                            'agents' => ['limit' => null, 'source' => 'default', 'used' => 0],
+                        ],
+                        'withdrawn' => true,
+                    ], 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/webhooks$#', $path)
                     => Http::response($method === 'GET' ? ['payload' => []] : ['payload' => ['id' => 1]], 200),
                 // An unscripted call is a test bug, not a 404 to shrug at: say which one.

@@ -12,7 +12,8 @@
 
     Built in the stack this dashboard actually renders with -- Blade, Bootstrap 5 and jQuery,
     loaded from public/assets by layouts/app.blade.php. The repository also carries Vite, Alpine
-    and Tailwind, but no dashboard view calls @vite and the layout loads none of them, so
+    and Tailwind, but no dashboard view invokes the Vite directive and the layout loads none of
+    them, so
     building here in Tailwind would have produced an unstyled page. Measured, not assumed.
 
     DIRECTION IS INHERITED, NOT RESTATED. layouts/app.blade.php already sets <html dir="rtl"> and
@@ -58,6 +59,8 @@
                 <div class="lyn-inbox" id="lyn-inbox"
                      data-endpoint-conversations="{{ route('lynomia.inbox.api.conversations') }}"
                      data-endpoint-agents="{{ route('lynomia.inbox.api.agents') }}"
+                     data-endpoint-events="{{ route('lynomia.inbox.api.events') }}"
+                     data-poll-seconds="{{ max(5, (int) config('lynomia.inbox_poll_seconds', 10)) }}"
                      data-can-reply="{{ $canReply ? '1' : '0' }}"
                      data-can-assign="{{ $canAssign ? '1' : '0' }}">
 
@@ -486,7 +489,65 @@
         });
     }
 
+    // ---------------------------------------------------------------- live updates
+    //
+    // THE TRANSPORT IS A CURSOR, NOT A SOCKET, and that is a measured choice rather than a
+    // shortcut. This dashboard loads no Echo client: resources/js/echo.js imports laravel-echo
+    // and pusher-js, neither is in package.json, `npx vite build` fails on that import, and no
+    // dashboard view invokes the Vite directive at all. Reverb's server is in composer.json but
+    // BROADCAST_CONNECTION defaults to null and no deployment here runs the daemon. Shipping a
+    // socket would have meant shipping an inbox that silently never updates.
+    //
+    // What the cursor gives up is sub-second latency. What it keeps is everything the approved
+    // guarantees actually ask for: reconnection and missed-event recovery are the SAME call as
+    // an ordinary poll, so the recovery path is exercised constantly instead of only after a
+    // failure; duplicates and out-of-order delivery are harmless because the client re-reads
+    // state rather than applying a diff; and when the server is unreachable the inbox degrades
+    // to exactly what it was a moment ago rather than to a broken page.
+    //
+    // An event carries only ids. Whatever it names is re-fetched through the ordinary authorized
+    // routes, so a misrouted event could not show this merchant another store's message.
+    var cursor = 0;
+    var pollTimer = null;
+    var pollMs = Math.max(5, parseInt(root.dataset.pollSeconds, 10) || 10) * 1000;
+
+    function applyEvents(events) {
+        if (!events.length) { return; }
+
+        var touchesOpenThread = state.conversationId !== null && events.some(function (event) {
+            return event.conversation_id === state.conversationId;
+        });
+
+        // Re-read rather than patch. The list's counts, ordering and previews all move together
+        // and re-deriving them is both simpler and correct under out-of-order delivery.
+        loadConversations(false);
+        if (touchesOpenThread) { loadMessages(state.conversationId); }
+    }
+
+    function poll() {
+        $.getJSON(root.dataset.endpointEvents, { after: cursor }).done(function (data) {
+            cursor = data.cursor || cursor;
+            applyEvents(data.events || []);
+        }).always(function () {
+            // Scheduled after the answer, not on an interval: a slow or failing server must not
+            // accumulate overlapping requests behind it.
+            pollTimer = setTimeout(poll, pollMs);
+        });
+    }
+
+    // Stop while the tab is hidden. A background tab polling forever is the thing that makes an
+    // inbox expensive to leave open, and the cursor means resuming costs exactly one request.
+    document.addEventListener('visibilitychange', function () {
+        if (document.hidden) {
+            clearTimeout(pollTimer);
+            pollTimer = null;
+        } else if (pollTimer === null) {
+            poll();
+        }
+    });
+
     loadConversations(false);
+    poll();
 }(jQuery));
 </script>
 @endpush

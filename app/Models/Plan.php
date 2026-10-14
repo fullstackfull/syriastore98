@@ -16,6 +16,11 @@ class Plan extends Model
         'max_stores',
         'max_products',
         'max_users',
+        // How many Lynomia agent seats this package includes. Null means the package says
+        // nothing about them, which is every plan that predates the Lynomia Chat module;
+        // Workdo\LynomiaChat\app\Services\SeatAllowanceSync treats null as "grant nothing"
+        // rather than as zero, so an unconfigured plan locks nobody out.
+        'lynomia_agent_seats',
         'storage_limit',
         'enable_domain',
         'enable_subdomain',

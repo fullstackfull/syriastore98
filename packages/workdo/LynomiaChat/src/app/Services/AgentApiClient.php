@@ -137,11 +137,21 @@ class AgentApiClient
         return $this->http->send('get', $this->path('webhooks'));
     }
 
-    public function createWebhook(string $url, array $subscriptions): array
+    /**
+     * @param string|null $secret The key deliveries will be signed with. Chosen by the RECEIVER
+     *   rather than accepted from Lynomia, so Store Syria can derive it per request from an
+     *   environment master key instead of storing a copy of a signing key in a database whose
+     *   APP_KEY is published. Omitting it lets Lynomia generate one, which is its default.
+     */
+    public function createWebhook(string $url, array $subscriptions, ?string $secret = null): array
     {
         return $this->http->send('post', $this->path('webhooks'), [
-            'url' => $url,
-            'subscriptions' => $subscriptions,
+            // Upstream requires the nested `webhook` key (webhook_params uses params.require).
+            'webhook' => array_filter([
+                'url' => $url,
+                'subscriptions' => $subscriptions,
+                'secret' => $secret,
+            ], static fn ($value) => $value !== null),
         ], retryTransport: false);
     }
 
