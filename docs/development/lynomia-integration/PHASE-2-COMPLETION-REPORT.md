@@ -268,15 +268,19 @@ declared done.
 
 ## 12a. The broad Lynomia regression — two regressions and one undelivered claim
 
-**This run was not a formality. It found three real problems in Phase 2, all three mine.** Two are
-regressions — Phase 2 removed or weakened a control that already worked. The third is a different
+**This run was not a formality.** It failed, and the failure led to three real problems in Phase 2,
+all three mine. The suite itself found exactly one of them; the other two were found by the sweep
+that the first one prompted — which is the more useful fact, because a defect that hides from
+8 813 examples is a reason to go looking by hand rather than to run more examples. Two of the
+three are regressions — Phase 2 removed or weakened a control that already worked. The third is a different
 and milder thing, and the distinction is kept rather than flattened: a feature this report claimed
 in §7 that did not actually reach the path a merchant takes. Nothing that worked before got worse;
 something this phase promised was only two-thirds delivered.
 
 `spec/requests spec/controllers spec/models spec/services spec/lib` — **8 813 examples**, run for the
-first time in this engagement at the end of Phase 2. Result before the fix: **2 failures**, both in
-`spec/requests/audit_capture_spec.rb` (B-17, B-18 — channel configuration).
+first time in this engagement at the end of Phase 2. Result: **2 failures**, both in
+`spec/requests/audit_capture_spec.rb` (B-17, B-18 — channel configuration), and both the same
+defect. Defects 2 and 3 below produced **no failing example at all** and were found by reading.
 
 ### Defect 1 — the channel audit trail was deleted
 
