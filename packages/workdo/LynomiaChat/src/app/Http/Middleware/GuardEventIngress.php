@@ -5,6 +5,7 @@ namespace Workdo\LynomiaChat\app\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Workdo\LynomiaChat\app\Services\EventSignature;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -33,6 +34,9 @@ class GuardEventIngress
      */
     public const MAX_BYTES = 262144;
 
+    /** Set once the HMAC has been checked, and read by the per-store rate limiter. */
+    public const VERIFIED_STORE = 'lynomia.verified_store';
+
     public function handle(Request $request, Closure $next): Response
     {
         $declared = $request->server('CONTENT_LENGTH');
@@ -46,6 +50,31 @@ class GuardEventIngress
         if ($length > self::MAX_BYTES) {
             return $this->refuse($request, 'body_too_large', $length, 413);
         }
+
+        // THE SIGNATURE IS CHECKED HERE, BEFORE THE PER-STORE RATE LIMIT, AND THAT ORDERING IS
+        // THE WHOLE POINT. It used to be checked in the controller, which runs AFTER the
+        // throttle -- so an unauthenticated caller who merely knew a store id could spend that
+        // store's entire delivery budget on garbage. Every genuine delivery after that got a
+        // 429, and because Lynomia never retries an account webhook, each one was destroyed.
+        // A rate limiter that an anonymous attacker can aim at one merchant is a remote
+        // data-destruction primitive, not a protection.
+        //
+        // Verifying first costs one HMAC over a body already capped at 256 KiB, and the
+        // unauthenticated flood is bounded by the separate per-IP limit in front of this.
+        $store = (int) $request->route('store');
+
+        if (! EventSignature::verify(
+            $store,
+            $request->getContent(),
+            $request->header(EventSignature::SIGNATURE_HEADER),
+            $request->header(EventSignature::TIMESTAMP_HEADER)
+        )) {
+            // Deliberately uninformative TO THE CALLER: telling them whether the signature, the
+            // timestamp or the store was wrong is three oracles in one response.
+            return $this->refuse($request, 'bad_signature', 0, 401);
+        }
+
+        $request->attributes->set(self::VERIFIED_STORE, $store);
 
         return $next($request);
     }

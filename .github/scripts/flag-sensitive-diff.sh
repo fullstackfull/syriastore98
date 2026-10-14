@@ -24,7 +24,7 @@ if [[ -z "$CHANGED" ]]; then
   exit 0
 fi
 
-PATTERN='(Audit|audit/|Middleware/|^routes/|bootstrap/app\.php|Policies/|Permission|Role|Billing|Entitlement|Seat|Plan|Signature|Secret|Credential|Token|/config/|^\.github/)'
+PATTERN='(^config/|/config/|routes/|Audit|audit/|Middleware/|^routes/|bootstrap/app\.php|Policies/|Permission|Role|Billing|Entitlement|Seat|Plan|Signature|Secret|Credential|Token|/config/|^\.github/)'
 SENSITIVE="$(echo "$CHANGED" | grep -E "$PATTERN" || true)"
 
 if [[ -z "$SENSITIVE" ]]; then

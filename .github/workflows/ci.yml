@@ -1390,7 +1390,19 @@ jobs:
         run: |
           set -euo pipefail
           git worktree add --detach /tmp/base "${{ steps.base.outputs.sha }}"
-          ln -s "$PWD/vendor" /tmp/base/vendor
+          # HARD LINKS, NOT A SYMLINK. PHP resolves __DIR__ through symlinks, so a symlinked
+          # vendor/ makes Composer's $baseDir (dirname(dirname(__DIR__))) point back at the HEAD
+          # checkout -- and the "base" run then executes HEAD's app/ code with base's tests,
+          # silently classifying a real app/ regression as inherited. Proven by resolving
+          # App\Models\Order from the worktree: it returned the HEAD path. cp -al keeps it a real
+          # directory (so $baseDir is the worktree) while sharing inodes, so it costs no disk.
+          cp -al "$PWD/vendor" /tmp/base/vendor
+          php -r 'require "/tmp/base/vendor/autoload.php";
+                  $f = (new ReflectionClass("App\\Models\\Order"))->getFileName();
+                  if (!str_starts_with($f, "/tmp/base/")) {
+                      fwrite(STDERR, "base worktree is loading $f -- aborting\n"); exit(1);
+                  }
+                  echo "base autoload verified: $f\n";'
           mkdir -p /tmp/base/storage/logs /tmp/base/storage/framework/{cache,sessions,views} /tmp/base/bootstrap/cache
           touch /tmp/base/storage/installed
           cd /tmp/base
@@ -1407,9 +1419,15 @@ jobs:
             --official-exit="${{ steps.official.outputs.exit }}"
 
       - name: Require the human checklist on a security-sensitive diff
+        env:
+          # VIA THE ENVIRONMENT, NEVER INTERPOLATED INTO THE SCRIPT. ${{ }} substitution happens
+          # before the shell sees the line, so a pull request body is attacker-controlled text
+          # pasted into a command -- a body containing a quote and a semicolon executes.
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
         run: |
-          printf '%s' "${{ github.event.pull_request.body }}" > /tmp/pr-body.txt
-          .github/scripts/flag-sensitive-diff.sh "${{ steps.base.outputs.sha }}" /tmp/pr-body.txt
+          printf '%s' "$PR_BODY" > /tmp/pr-body.txt
+          .github/scripts/flag-sensitive-diff.sh "$BASE_SHA" /tmp/pr-body.txt
 
       - uses: actions/upload-artifact@v4
         if: always()

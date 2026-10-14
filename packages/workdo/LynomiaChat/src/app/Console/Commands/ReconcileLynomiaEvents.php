@@ -39,7 +39,8 @@ use Workdo\LynomiaChat\app\Services\MerchantInboxGateway;
  */
 class ReconcileLynomiaEvents extends Command
 {
-    protected $signature = 'lynomia:reconcile-events {--limit=50 : how many stores to examine in one sweep}';
+    protected $signature = 'lynomia:reconcile-events
+                            {--limit= : examine at most this many stores (default: every one)}';
 
     protected $description = 'Close gaps left by undelivered Lynomia events, and prune the cursor table.';
 
@@ -57,15 +58,31 @@ class ReconcileLynomiaEvents extends Command
         $examined = 0;
         $repaired = 0;
 
+        // EVERY ACTIVE LINK, NOT A PREFIX OF THEM. This took `--limit=50` by default and
+        // ordered by id, so only the fifty lowest-id stores were ever examined: the recovery
+        // that justifies refusing a delivery at all simply did not exist for store 51 onwards,
+        // silently and forever. A cap that quietly decides which merchants get a working inbox
+        // is worse than no cap.
+        //
+        // chunkById rather than get(): the set grows with the business and must not be loaded
+        // whole. The option survives for a manual, deliberately narrowed run.
+        $limit = $this->option('limit') === null ? null : max(1, (int) $this->option('limit'));
+
         LynomiaStoreLink::query()
             ->where('state', 'active')
             ->whereNotNull('lynomia_account_id')
             ->orderBy('id')
-            ->limit(max(1, (int) $this->option('limit')))
-            ->get()
-            ->each(function (LynomiaStoreLink $link) use ($gateway, &$examined, &$repaired) {
-                $examined++;
-                $repaired += $this->reconcile($gateway, $link) ? 1 : 0;
+            ->chunkById(100, function ($links) use ($gateway, &$examined, &$repaired, $limit) {
+                foreach ($links as $link) {
+                    if ($limit !== null && $examined >= $limit) {
+                        return false;
+                    }
+
+                    $examined++;
+                    $repaired += $this->reconcile($gateway, $link) ? 1 : 0;
+                }
+
+                return true;
             });
 
         $this->info("examined={$examined} repaired={$repaired} pruned={$pruned}");
@@ -98,7 +115,7 @@ class ReconcileLynomiaEvents extends Command
             return false;
         }
 
-        $latest = $this->latestActivity($body);
+        [$latest, $conversationId] = $this->latestActivity($body);
 
         if ($latest === null) {
             return false;
@@ -127,7 +144,10 @@ class ReconcileLynomiaEvents extends Command
                 'store_id' => (int) $link->store_id,
                 'lynomia_account_id' => (int) $link->lynomia_account_id,
                 'event' => self::RECONCILE_EVENT,
-                'conversation_display_id' => null,
+                // NAME THE CONVERSATION THAT MOVED. A marker with a null conversation id makes
+                // the browser reload the LIST, but leaves the thread the agent is actually
+                // reading stale -- which is the one view a dropped message matters in most.
+                'conversation_display_id' => $conversationId,
                 // WHEN THE GAP WAS NOTICED, not when the remote activity happened. The remote
                 // time goes on the watermark. Stamping the marker with old remote activity made
                 // it instantly older than the retention window, so the next sweep pruned the
@@ -149,22 +169,38 @@ class ReconcileLynomiaEvents extends Command
         return true;
     }
 
-    private function latestActivity(array $body): ?\Illuminate\Support\Carbon
+    /**
+     * The newest activity in the workspace, and the conversation it belongs to.
+     *
+     * @return array{0: \Illuminate\Support\Carbon|null, 1: int|null}
+     */
+    private function latestActivity(array $body): array
     {
         $payload = $body['data']['payload'] ?? [];
 
         if (! is_array($payload) || $payload === []) {
-            return null;
+            return [null, null];
         }
 
-        $stamps = array_filter(array_map(
-            static fn ($conversation) => is_array($conversation) && is_numeric($conversation['last_activity_at'] ?? null)
-                ? (int) $conversation['last_activity_at']
-                : null,
-            $payload
-        ));
+        $newest = null;
 
-        return $stamps === [] ? null : \Illuminate\Support\Carbon::createFromTimestampUTC(max($stamps));
+        foreach ($payload as $conversation) {
+            if (! is_array($conversation) || ! is_numeric($conversation['last_activity_at'] ?? null)) {
+                continue;
+            }
+
+            $at = (int) $conversation['last_activity_at'];
+
+            if ($newest === null || $at > $newest[0]) {
+                // `id` IS the display id in Lynomia's payload
+                // (_conversation.json.jbuilder:70 emits conversation.display_id as `id`).
+                $newest = [$at, is_numeric($conversation['id'] ?? null) ? (int) $conversation['id'] : null];
+            }
+        }
+
+        return $newest === null
+            ? [null, null]
+            : [\Illuminate\Support\Carbon::createFromTimestampUTC($newest[0]), $newest[1]];
     }
 
     private function prune(): int

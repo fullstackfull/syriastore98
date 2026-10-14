@@ -121,15 +121,36 @@ class LynomiaChatServiceProvider extends ServiceProvider
      */
     protected function registerIngressLimiter(): void
     {
+        // TIER 1 -- the anonymous flood. Everyone pays this, before anything is parsed or
+        // verified, keyed on the caller. It is the only limit an UNVERIFIED request can consume,
+        // so no amount of garbage can touch a merchant's delivery budget.
+        RateLimiter::for('lynomia-ingress', function (Request $request) {
+            return [
+                Limit::perMinute((int) config('lynomia.ingress_unverified_rate_per_minute', 300))
+                    ->by('lynomia-ingress:ip:' . $request->ip()),
+            ];
+        });
+
+        // TIER 2 -- the real per-store budget, and ONLY a signature-verified delivery reaches
+        // it. GuardEventIngress checks the HMAC first and stamps the verified store id; the
+        // route parameter is never trusted here, because it is attacker-chosen and keying an
+        // unbounded cache on it is itself a resource leak on a file-backed store.
         RateLimiter::for('lynomia-events', function (Request $request) {
-            $store = (int) $request->route('store');
+            $store = $request->attributes->get(\Workdo\LynomiaChat\app\Http\Middleware\GuardEventIngress::VERIFIED_STORE);
+
+            // Unreachable in the configured stack -- the guard rejects an unverified request
+            // before this runs. If some future wiring lets one through, it gets no budget at
+            // all rather than somebody else's.
+            if (! is_int($store)) {
+                return [Limit::perMinute(1)->by('lynomia-events:unverified:' . $request->ip())];
+            }
+
             $perMinute = max(60, (int) config('lynomia.ingress_rate_per_minute', 600));
 
             return [
-                // The store's own ceiling.
                 Limit::perMinute($perMinute)->by('lynomia-events:store:' . $store),
-                // A whole-installation ceiling, so a flood spread across many fabricated store
-                // ids cannot multiply the per-store allowance into an unbounded one.
+                // A whole-installation ceiling, so many verified stores together still cannot
+                // saturate the host.
                 Limit::perMinute($perMinute * 10)->by('lynomia-events:all'),
             ];
         });

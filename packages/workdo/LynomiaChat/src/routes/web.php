@@ -89,7 +89,11 @@ use Workdo\LynomiaChat\app\Http\Middleware\EnsureStoreOwnsLink;
 // with. See LynomiaChatServiceProvider::registerIngressLimiter.
 Route::post('/lynomia/events/{store}', [EventIngressController::class, 'store'])
     ->whereNumber('store')
-    ->middleware([GuardEventIngress::class, 'throttle:lynomia-events'])
+    // ORDER MATTERS. The per-IP limit is first and is the only one an unverified caller can
+    // spend. GuardEventIngress then caps the body and checks the HMAC. Only a verified delivery
+    // reaches the per-store budget, so no anonymous caller can exhaust a merchant's allowance
+    // and destroy their events.
+    ->middleware(['throttle:lynomia-ingress', GuardEventIngress::class, 'throttle:lynomia-events'])
     ->name('lynomia.events.ingress');
 
 Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(function () {

@@ -54,6 +54,23 @@ class LynomiaStoreLink extends Model
         'ownership_proven_at',
     ];
 
+    /**
+     * A WATERMARK BELONGS TO ONE WORKSPACE. If a store is re-pointed at a different Lynomia
+     * account, the old reconciliation watermark is a timestamp from somebody else's workspace --
+     * and because it is almost certainly LATER than the new workspace's early activity, the
+     * sweep concludes there is nothing to recover and stays blind indefinitely. Clearing it on
+     * any account change is the only safe default, and it lives here rather than in the three
+     * services that assign the column so no future writer can forget.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (self $link) {
+            if ($link->exists && $link->isDirty('lynomia_account_id')) {
+                $link->events_reconciled_at = null;
+            }
+        });
+    }
+
     protected $casts = [
         'store_id' => 'integer',
         'owner_user_id' => 'integer',

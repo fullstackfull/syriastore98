@@ -101,19 +101,65 @@ class LynomiaAuditPreservationTest extends TestCase
         $this->assertTrue(true);
     }
 
-    /** The ingress is the one unauthenticated surface; a refusal there must stay observable. */
+    /**
+     * The ingress is the one unauthenticated surface; a refusal there must stay observable.
+     *
+     * Read across the whole ingress PATH rather than one file. The signature check deliberately
+     * lives in the middleware now -- it has to run before the per-store rate limit so an
+     * anonymous caller cannot spend a merchant's delivery budget -- so pinning the controller
+     * alone would have failed for a change that improved the design.
+     */
     public function test_the_event_ingress_still_logs_every_refusal(): void
     {
-        $controller = file_get_contents(
-            base_path('packages/workdo/LynomiaChat/src/app/Http/Controllers/EventIngressController.php')
-        );
+        $path = base_path('packages/workdo/LynomiaChat/src/app/Http/');
+        $source = file_get_contents($path . 'Controllers/EventIngressController.php')
+            . file_get_contents($path . 'Middleware/GuardEventIngress.php');
 
-        $this->assertStringContainsString('Log::warning', $controller,
-            'the ingress controller no longer logs refusals; a rejected delivery would be silent');
+        $this->assertStringContainsString('Log::warning', $source,
+            'the ingress no longer logs refusals; a rejected delivery would be silent');
 
-        foreach (['bad_signature', 'malformed_json', 'unknown_workspace', 'missing_delivery_id'] as $reason) {
-            $this->assertStringContainsString("'{$reason}'", $controller,
+        $reasons = [
+            'bad_signature', 'malformed_json', 'unknown_workspace',
+            'missing_delivery_id', 'body_too_large', 'unverified_request',
+        ];
+
+        foreach ($reasons as $reason) {
+            $this->assertStringContainsString("'{$reason}'", $source,
                 "the ingress no longer distinguishes the {$reason} refusal");
         }
+    }
+
+    /**
+     * THE ORDERING IS THE CONTROL. Verification must happen before the per-store throttle:
+     * otherwise an unauthenticated caller who knows a store id spends that store's budget, and
+     * since Lynomia never retries an account webhook, every genuine delivery after it is
+     * destroyed. Pinned because it is invisible in any single file.
+     */
+    public function test_the_signature_is_verified_before_the_per_store_throttle(): void
+    {
+        $route = \Illuminate\Support\Facades\Route::getRoutes()->getByName('lynomia.events.ingress');
+        $this->assertNotNull($route);
+
+        $stack = array_values(array_map(
+            static fn ($m) => is_string($m) ? $m : (is_object($m) ? get_class($m) : (string) $m),
+            app('router')->gatherRouteMiddleware($route)
+        ));
+
+        $guard = null;
+        $storeThrottle = null;
+
+        foreach ($stack as $i => $entry) {
+            if (str_contains($entry, 'GuardEventIngress')) {
+                $guard = $i;
+            }
+            if (str_contains($entry, 'ThrottleRequests:lynomia-events')) {
+                $storeThrottle = $i;
+            }
+        }
+
+        $this->assertNotNull($guard, 'the signature guard is not on the ingress route');
+        $this->assertNotNull($storeThrottle, 'the per-store throttle is not on the ingress route');
+        $this->assertLessThan($storeThrottle, $guard,
+            'the per-store throttle runs before verification, so anonymous traffic can burn a merchant budget');
     }
 }

@@ -102,6 +102,13 @@ return [
      * Whatever is dropped here is recoverable by the reconciliation sweep, which re-reads state
      * from Lynomia rather than waiting for a re-delivery that never comes.
      */
+    /**
+     * The ceiling on UNVERIFIED inbound requests, per caller IP, per minute. This is the only
+     * limit a request without a valid signature can consume -- the per-store budget below is
+     * spent exclusively by deliveries that have already proved they came from Lynomia.
+     */
+    'ingress_unverified_rate_per_minute' => (int) env('LYNOMIA_INGRESS_UNVERIFIED_RATE_PER_MINUTE', 300),
+
     'ingress_rate_per_minute' => (int) env('LYNOMIA_INGRESS_RATE_PER_MINUTE', 600),
 
     /**

@@ -7,6 +7,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Workdo\LynomiaChat\app\Http\Middleware\GuardEventIngress;
 use Workdo\LynomiaChat\app\Models\LynomiaInboxEvent;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\EventSignature;
@@ -41,13 +42,12 @@ class EventIngressController extends Controller
     {
         $body = $request->getContent();
 
-        if (! EventSignature::verify($store, $body, $request->header(EventSignature::SIGNATURE_HEADER),
-            $request->header(EventSignature::TIMESTAMP_HEADER))) {
-            // Deliberately uninformative TO THE CALLER -- telling them whether the signature, the
-            // timestamp or the store was wrong is three oracles in one response. The operator
-            // still gets a log line, because this is the refusal that matters most and it was
-            // the one that was silent.
-            return $this->refuse($store, 'bad_signature', 401);
+        // The signature was checked by GuardEventIngress, BEFORE the per-store rate limit, so
+        // that an unauthenticated caller cannot spend a merchant's delivery budget. This asserts
+        // the guard actually ran rather than assuming it: a route rewired without it must fail
+        // closed, not accept unsigned deliveries.
+        if ($request->attributes->get(GuardEventIngress::VERIFIED_STORE) !== $store) {
+            return $this->refuse($store, 'unverified_request', 401);
         }
 
         $payload = json_decode($body, true);

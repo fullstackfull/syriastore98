@@ -378,16 +378,29 @@ class LynomiaEventIngressTest extends TestCase
         $limiter = app(\Illuminate\Cache\RateLimiter::class)->limiter('lynomia-events');
         $this->assertNotNull($limiter, 'the lynomia-events limiter is not registered');
 
+        // The limiter reads the store id the GUARD verified, never the route parameter: the
+        // parameter is attacker-chosen, and keying an unbounded file-backed cache on it would
+        // be a resource leak as well as a way to spend another store's budget.
         $keyFor = function (int $store) use ($limiter) {
             $request = \Illuminate\Http\Request::create("/lynomia/events/{$store}", 'POST');
-            $request->setRouteResolver(fn () => (new \Illuminate\Routing\Route('POST', 'lynomia/events/{store}', []))
-                ->bind($request));
+            $request->attributes->set(
+                \Workdo\LynomiaChat\app\Http\Middleware\GuardEventIngress::VERIFIED_STORE,
+                $store
+            );
 
             return collect((array) $limiter($request))->first()->key;
         };
 
         $this->assertNotSame($keyFor(11), $keyFor(12), 'two stores share a rate-limit bucket');
         $this->assertStringContainsString('11', $keyFor(11));
+
+        // An UNVERIFIED request gets no store budget at all -- not somebody else's.
+        $anonymous = \Illuminate\Http\Request::create('/lynomia/events/11', 'POST');
+        $this->assertStringNotContainsString(
+            'store:11',
+            collect((array) $limiter($anonymous))->first()->key,
+            'an unverified request can reach a store budget'
+        );
     }
 
     public function test_an_oversized_body_is_refused_before_it_is_parsed(): void

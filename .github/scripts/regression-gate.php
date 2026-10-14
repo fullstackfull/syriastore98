@@ -40,7 +40,10 @@ function fail_hard(string $message): never
     exit(2);
 }
 
-/** @return array{failures: array<string,string>, errors: array<string,string>, total: int} */
+/**
+ * @return array{failures: array<string,string>, errors: array<string,string>,
+ *               skipped: array<string,bool>, present: array<string,bool>, total: int}
+ */
 function read_junit(string $path): array
 {
     if (! is_file($path)) {
@@ -57,6 +60,8 @@ function read_junit(string $path): array
 
     $failures = [];
     $errors = [];
+    $skipped = [];
+    $present = [];
     $total = 0;
 
     foreach ($xml->xpath('//testcase') ?: [] as $case) {
@@ -72,6 +77,8 @@ function read_junit(string $path): array
         // identity and is kept, because two data sets of one method fail independently.
         $id = $class . '::' . $name;
 
+        $present[$id] = true;
+
         if (isset($case->failure)) {
             $failures[$id] = trim((string) $case->failure);
         }
@@ -79,13 +86,22 @@ function read_junit(string $path): array
         if (isset($case->error)) {
             $errors[$id] = trim((string) $case->error);
         }
+
+        // Tracked because a failing test that becomes SKIPPED is not a fix, and a gate that
+        // only reads <failure> would score it as resolved.
+        if (isset($case->skipped)) {
+            $skipped[$id] = true;
+        }
     }
 
     if ($total === 0) {
         fail_hard("junit file contains no testcases, which means the run did not happen: {$path}");
     }
 
-    return ['failures' => $failures, 'errors' => $errors, 'total' => $total];
+    return [
+        'failures' => $failures, 'errors' => $errors,
+        'skipped' => $skipped, 'present' => $present, 'total' => $total,
+    ];
 }
 
 $argvRest = array_slice($argv, 1);
@@ -136,8 +152,22 @@ if (is_file($manifestPath)) {
 }
 
 $newFailures = array_diff_key($headBad, $baseBad);
-$resolved = array_diff_key($baseBad, $headBad);
 $inherited = array_intersect_key($headBad, $baseBad);
+
+// A FAILURE CAN STOP BEING A FAILURE WITHOUT BEING FIXED. Two ways, and a gate that compares
+// only <failure> elements calls both of them "resolved":
+//   - the test is now SKIPPED. Nothing was fixed; the evidence was switched off.
+//   - the test is GONE from the run entirely -- renamed, moved, or deleted.
+// Neither fails this gate (a legitimate rename or deletion is ordinary work), but both are
+// reported, because "resolved" is a claim and these are not it.
+$stoppedFailing = array_diff_key($baseBad, $headBad);
+$nowSkipped = array_intersect_key($stoppedFailing, $head['skipped']);
+$disappeared = array_diff_key($stoppedFailing, $head['present']);
+$resolved = array_diff_key($stoppedFailing, $nowSkipped, $disappeared);
+
+// Separately: any test that existed at the base and is absent at head, whether or not it was
+// failing. A deleted passing test is how a regression hides from an identity comparison.
+$vanishedTests = array_diff_key($base['present'], $head['present']);
 
 // Inherited failures split in two: the ones the owner has formally accepted in the manifest,
 // and the ones nobody has -- the drift that makes the official gate red.
@@ -157,11 +187,17 @@ $result = [
     'counts' => [
         'new' => count($newFailures),
         'resolved' => count($resolved),
+        'now_skipped_not_fixed' => count($nowSkipped),
+        'disappeared_from_run' => count($disappeared),
+        'tests_present_at_base_absent_at_head' => count($vanishedTests),
         'inherited_accepted' => count($inheritedAccepted),
         'inherited_unaccepted_drift' => count($inheritedDrift),
     ],
     'new_failures' => array_keys($newFailures),
     'resolved_failures' => array_keys($resolved),
+    'now_skipped_not_fixed' => array_keys($nowSkipped),
+    'disappeared_from_run' => array_keys($disappeared),
+    'tests_present_at_base_absent_at_head' => array_keys($vanishedTests),
     'inherited_accepted_failures' => array_keys($inheritedAccepted),
     'inherited_unaccepted_drift' => array_keys($inheritedDrift),
     'official_gate' => [
@@ -205,6 +241,21 @@ foreach ($newFailures as $id => $message) {
 
 foreach ($resolved as $id => $_) {
     echo "resolved by this branch : {$id}\n";
+}
+
+foreach ($nowSkipped as $id => $_) {
+    echo "::warning::NOT FIXED, NOW SKIPPED (it failed at the merge base and is skipped at head): "
+        . "{$id}\n";
+}
+
+foreach ($disappeared as $id => $_) {
+    echo "::warning::FAILING TEST NO LONGER IN THE RUN (renamed, moved or deleted -- not a fix): "
+        . "{$id}\n";
+}
+
+if ($vanishedTests !== []) {
+    echo '::warning::' . count($vanishedTests) . " test(s) present at the merge base are absent at "
+        . "head. A deleted test cannot fail, so confirm each removal was intended.\n";
 }
 
 foreach ($inheritedDrift as $id => $_) {
