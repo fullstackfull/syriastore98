@@ -305,6 +305,52 @@ class LynomiaSeatAllowanceTest extends TestCase
         $this->assertNull($plan->fresh()->lynomia_agent_seats);
     }
 
+    /**
+     * AN UNREACHABLE WORKSPACE MUST NOT BE REPORTED AS SYNCED. syncQuietly returned void and the
+     * controller incremented its counter unconditionally, so an operator who changed a plan
+     * while Lynomia was down was told every store had been updated when none had -- and nothing
+     * retried, because the only scheduled command did not touch seats.
+     *
+     * The failing sync is injected rather than simulated over HTTP: the defect is the
+     * CONTROLLER'S COUNTING, and a stubbed collaborator tests that directly instead of through
+     * three layers of transport that could fail for unrelated reasons.
+     */
+    public function test_a_failed_push_is_reported_as_failed_and_not_as_synced(): void
+    {
+        $this->actingAs($this->operator());
+        [$owner, , ] = $this->tenantOnPlan(null);
+        $plan = \App\Models\Plan::find($owner->plan_id);
+
+        $this->app->bind(\Workdo\LynomiaChat\app\Services\SeatAllowanceSync::class, fn () => new class extends \Workdo\LynomiaChat\app\Services\SeatAllowanceSync
+        {
+            public function __construct() {}
+
+            public function syncQuietly($link, $actor = null): bool
+            {
+                return false;
+            }
+        });
+
+        $this->controller()->updateSeats($this->seatRequest($plan->id, 4));
+
+        $this->assertSame(4, (int) $plan->fresh()->lynomia_agent_seats,
+            'the local configuration change must still stick when a workspace is unreachable');
+        $this->assertNotNull(session('warning'), 'an unreachable workspace was reported as success');
+        $this->assertNull(session('success'), 'a failed push was also reported as a success');
+        $this->assertStringContainsString('1', (string) session('warning'));
+    }
+
+    public function test_the_scheduled_sweep_retries_seat_allowances(): void
+    {
+        $command = file_get_contents(base_path(
+            'packages/workdo/LynomiaChat/src/app/Console/Commands/ReconcileLynomiaEvents.php'
+        ));
+
+        $this->assertStringContainsString('SeatAllowanceSync', $command,
+            'nothing retries a failed seat push, so "will be retried automatically" is false');
+        $this->assertStringContainsString('syncQuietly', $command);
+    }
+
     public function test_the_change_is_audited(): void
     {
         $this->actingAs($this->operator());

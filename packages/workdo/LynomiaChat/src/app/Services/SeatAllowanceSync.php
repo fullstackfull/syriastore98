@@ -82,16 +82,28 @@ class SeatAllowanceSync
      * something that is already done. The grant is pushed again on the next sync, and until then
      * the account simply has no integration ceiling, which is the state it was in a moment ago.
      */
-    public function syncQuietly(LynomiaStoreLink $link, ?User $actor = null): void
+    /**
+     * @return bool whether the ceiling actually reached Lynomia
+     *
+     * IT RETURNS THE ANSWER NOW. It used to return void, and its callers counted attempts --
+     * so an operator who changed a plan's seats while Lynomia was unreachable was told every
+     * store had been synced when none had. Swallowing the exception is right (one unreachable
+     * workspace must not block a configuration change); reporting it as success was not.
+     */
+    public function syncQuietly(LynomiaStoreLink $link, ?User $actor = null): bool
     {
         try {
             $this->sync($link, $actor);
+
+            return true;
         } catch (LynomiaApiException $e) {
             Log::warning('[lynomia] could not sync the included seat allowance', [
                 'store_id' => $link->store_id,
                 'lynomia_account_id' => $link->lynomia_account_id,
                 'kind' => $e->kind,
             ]);
+
+            return false;
         }
     }
 

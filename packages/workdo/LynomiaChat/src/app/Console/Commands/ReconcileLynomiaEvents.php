@@ -9,6 +9,7 @@ use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Models\LynomiaInboxEvent;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\MerchantInboxGateway;
+use Workdo\LynomiaChat\app\Services\SeatAllowanceSync;
 
 /**
  * The half of the delivery guarantee that push cannot provide.
@@ -46,7 +47,7 @@ class ReconcileLynomiaEvents extends Command
 
     public const RECONCILE_EVENT = 'reconciled';
 
-    public function handle(MerchantInboxGateway $gateway): int
+    public function handle(MerchantInboxGateway $gateway, SeatAllowanceSync $seats): int
     {
         if (! config('lynomia.enabled')) {
             $this->info('Lynomia integration is disabled; nothing to reconcile.');
@@ -57,6 +58,8 @@ class ReconcileLynomiaEvents extends Command
         $pruned = $this->prune();
         $examined = 0;
         $repaired = 0;
+        $seatsSynced = 0;
+        $seatsFailed = 0;
 
         // EVERY ACTIVE LINK, NOT A PREFIX OF THEM. This took `--limit=50` by default and
         // ordered by id, so only the fifty lowest-id stores were ever examined: the recovery
@@ -72,7 +75,7 @@ class ReconcileLynomiaEvents extends Command
             ->where('state', 'active')
             ->whereNotNull('lynomia_account_id')
             ->orderBy('id')
-            ->chunkById(100, function ($links) use ($gateway, &$examined, &$repaired, $limit) {
+            ->chunkById(100, function ($links) use ($gateway, $seats, &$examined, &$repaired, &$seatsSynced, &$seatsFailed, $limit) {
                 foreach ($links as $link) {
                     if ($limit !== null && $examined >= $limit) {
                         return false;
@@ -80,12 +83,26 @@ class ReconcileLynomiaEvents extends Command
 
                     $examined++;
                     $repaired += $this->reconcile($gateway, $link) ? 1 : 0;
+
+                    // THE SEAT CEILING RIDES THE SAME SWEEP, which is what makes
+                    // IntegrationController's "will be retried automatically" true rather than
+                    // a hope. Nothing retried a failed seat push before: SeatAllowanceSync had
+                    // three callers, all one-shot (provisioning, operator approval, the admin
+                    // form), and the only scheduled command was this one, which did not touch
+                    // seats. An operator who changed a plan while a workspace was unreachable
+                    // silently never reached it.
+                    //
+                    // Cheap and safe to repeat: the Lynomia grant endpoint is an upsert, so a
+                    // store already carrying the right ceiling is a no-op, and a plan that
+                    // includes nothing withdraws rather than granting zero.
+                    $seats->syncQuietly($link) ? $seatsSynced++ : $seatsFailed++;
                 }
 
                 return true;
             });
 
-        $this->info("examined={$examined} repaired={$repaired} pruned={$pruned}");
+        $this->info("examined={$examined} repaired={$repaired} pruned={$pruned} "
+            . "seats_synced={$seatsSynced} seats_failed={$seatsFailed}");
 
         return self::SUCCESS;
     }

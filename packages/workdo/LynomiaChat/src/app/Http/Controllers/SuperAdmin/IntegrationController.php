@@ -137,25 +137,36 @@ class IntegrationController extends Controller
             'actor_id' => auth()->id(),
         ]);
 
-        // Push the new ceiling to every connected store on this plan. Quietly: a workspace that
-        // is unreachable right now must not block an operator's configuration change, and the
-        // next sync picks it up.
+        // Push the new ceiling to the connected stores on this plan. Quietly, because one
+        // unreachable workspace must not block an operator's configuration change -- but the
+        // counts below are the TRUTH, not the number of attempts, and whatever fails here is
+        // picked up by the scheduled sweep rather than lost.
         $synced = 0;
+        $failed = 0;
 
         LynomiaStoreLink::query()
             ->where('state', 'active')
             ->whereNotNull('lynomia_account_id')
-            ->get()
-            ->each(function (LynomiaStoreLink $link) use ($plan, &$synced) {
-                $owner = User::find($link->owner_user_id);
+            ->orderBy('id')
+            ->chunkById(100, function ($links) use ($plan, &$synced, &$failed) {
+                foreach ($links as $link) {
+                    $owner = User::find($link->owner_user_id);
 
-                if ($owner === null || (int) $owner->plan_id !== (int) $plan->id) {
-                    return;
+                    if ($owner === null || (int) $owner->plan_id !== (int) $plan->id) {
+                        continue;
+                    }
+
+                    $this->seats->syncQuietly($link, auth()->user()) ? $synced++ : $failed++;
                 }
 
-                $this->seats->syncQuietly($link, auth()->user());
-                $synced++;
+                return true;
             });
+
+        if ($failed > 0) {
+            return back()->with('warning', __('Included seats updated for :plan. :count store(s) synced, :failed could not be reached and will be retried automatically.', [
+                'plan' => $plan->name, 'count' => $synced, 'failed' => $failed,
+            ]));
+        }
 
         return back()->with('success', __('Included seats updated for :plan (:count store(s) synced).', [
             'plan' => $plan->name,
