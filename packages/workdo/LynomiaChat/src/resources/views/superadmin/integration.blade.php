@@ -21,6 +21,9 @@
                 <a class="nav-link" data-bs-toggle="tab" href="#lynomia-seats" role="tab">{{ __('Agent Seats') }}</a>
             </li>
             <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="tab" href="#lynomia-automation" role="tab">{{ __('Automation') }}</a>
+            </li>
+            <li class="nav-item">
                 <a class="nav-link" data-bs-toggle="tab" href="#lynomia-accounts" role="tab">
                     {{ __('Merchant Accounts') }}
                     @if ($pendingCount > 0)
@@ -194,6 +197,66 @@
                         </ul>
                     </div>
                 @endif
+            </div>
+
+            {{-- ------------------------------------------------------------ automation --}}
+            {{--
+                WHAT THIS SIDE ACTUALLY CONTROLS, and where the rest lives.
+
+                The Automation Studio's engine, its ceilings and its kill switches are Lynomia's
+                and are administered in Lynomia's own Super Admin. What Store Syria decides is
+                WHICH of a merchant's people reach the Studio at all, and that is a grant in this
+                database -- so that is what this tab reports, without reaching Lynomia. The times
+                an operator opens this page are the times Lynomia may be the thing that is wrong.
+
+                COUNTS, NOT NAMES. A list of everyone holding a permission is a list of other
+                tenants' employees. The store count is what makes the role count readable: four
+                roles across four stores is ordinary, four roles in one store is worth a look.
+            --}}
+            <div class="tab-pane fade" id="lynomia-automation" role="tabpanel">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-1">{{ __('Who can build automations') }}</h5>
+                        <small class="text-muted">
+                            {{ __('Granted in each merchant\'s own roles. Counts only — never the people.') }}
+                        </small>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">{{ __('Permission') }}</th>
+                                        <th scope="col" class="text-end">{{ __('Roles holding it') }}</th>
+                                        <th scope="col" class="text-end">{{ __('Stores covered') }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach ($automationAccess as $row)
+                                        <tr>
+                                            <td>{{ __($row['name']) }}</td>
+                                            <td class="text-end">{{ $row['roles'] }}</td>
+                                            <td class="text-end">{{ $row['stores'] }}</td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <hr>
+
+                        <h6>{{ __('Administered in Lynomia, not here') }}</h6>
+                        <p class="small text-muted mb-2">
+                            {{ __('These are deliberately not duplicated in this page: a second switch for the same thing is a switch that disagrees.') }}
+                        </p>
+                        <ul class="small mb-0">
+                            <li>{{ __('How many automations a workspace may have — its plan\'s flow ceiling.') }}</li>
+                            <li>{{ __('Whether the Flow Builder and store automation are included at all — the workspace\'s features.') }}</li>
+                            <li>{{ __('Whether abandoned-basket events are collected for a provider — the commerce recovery switches.') }}</li>
+                            <li>{{ __('The engine\'s own safety limits on steps, messages and session length.') }}</li>
+                        </ul>
+                    </div>
+                </div>
             </div>
 
             <div class="tab-pane fade" id="lynomia-accounts" role="tabpanel">

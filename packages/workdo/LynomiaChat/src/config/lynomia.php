@@ -112,6 +112,16 @@ return [
     'ingress_rate_per_minute' => (int) env('LYNOMIA_INGRESS_RATE_PER_MINUTE', 600),
 
     /**
+     * The Automation Studio's own budget, per PERSON rather than per store.
+     *
+     * Higher than it looks because one Studio page is several requests: opening the builder is
+     * the flow, the references and the condition vocabulary, and a merchant moving between
+     * flows pays that each time. Low enough that one stuck poll cannot sit on Lynomia all
+     * afternoon -- which is the case this exists for, rather than a hostile one.
+     */
+    'studio_rate_per_minute' => (int) env('LYNOMIA_STUDIO_RATE_PER_MINUTE', 240),
+
+    /**
      * How long an accepted delivery row is kept. The table is an append-only cursor source, not
      * a record anybody reads twice: the browser polls forward from its own cursor and never asks
      * for history. Without pruning it is the one unbounded resource in the ingress path.

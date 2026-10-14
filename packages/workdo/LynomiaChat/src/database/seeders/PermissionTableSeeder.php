@@ -6,6 +6,7 @@ use App\Models\Permission;
 use App\Models\Role;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Seeder;
+use Workdo\LynomiaChat\app\Http\Controllers\SuperAdmin\IntegrationController;
 
 /**
  * The merchant-side permission this module gates on.
@@ -54,8 +55,9 @@ class PermissionTableSeeder extends Seeder
         Model::unguard();
 
         $module = 'LynomiaChat';
-        $permissions = ['Manage Lynomia Chat', 'Reply Lynomia Chat', 'Assign Lynomia Chat',
-            'Manage Lynomia Automation', 'Manage Lynomia Consent'];
+        // ONE LIST, shared with the Super Admin page that reports how widely each is granted.
+        // A permission added here and forgotten there is a control nobody can see the reach of.
+        $permissions = IntegrationController::MODULE_PERMISSIONS;
 
         $companyRole = Role::where('name', 'admin')->first();
 

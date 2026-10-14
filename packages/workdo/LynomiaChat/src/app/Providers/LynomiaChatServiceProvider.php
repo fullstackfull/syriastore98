@@ -191,6 +191,29 @@ class LynomiaChatServiceProvider extends ServiceProvider
                 Limit::perMinute($perMinute * 10)->by('lynomia-events:all'),
             ];
         });
+
+        // THE STUDIO, WHICH IS THE FIRST SURFACE THAT AMPLIFIES.
+        //
+        // An inbox request is roughly one Lynomia call. A Studio request is not: opening the
+        // builder is a flow read AND four reference reads AND the condition vocabulary, and the
+        // rules page is a listing AND the vocabulary. One merchant holding refresh therefore
+        // costs Lynomia several times what the same behaviour costs from the inbox, and a
+        // merchant does not have to be hostile to do it -- a stuck poll or a reopened laptop
+        // will.
+        //
+        // KEYED ON THE PERSON, NOT THE STORE OR THE IP. The cost is per credential minted, which
+        // is per person; keying on the store would let one person's loop exhaust their
+        // colleagues' budget, and keying on the IP would do the same to everyone behind one
+        // office connection. An unauthenticated caller never reaches here -- `auth` refuses
+        // first -- so the fallback exists only so a future wiring mistake gets a small bucket
+        // rather than somebody else's.
+        RateLimiter::for('lynomia-studio', function (Request $request) {
+            $user = $request->user();
+
+            return is_null($user)
+                ? [Limit::perMinute(10)->by('lynomia-studio:anonymous:' . $request->ip())]
+                : [Limit::perMinute((int) config('lynomia.studio_rate_per_minute', 240))->by('lynomia-studio:user:' . $user->id)];
+        });
     }
 
     /**

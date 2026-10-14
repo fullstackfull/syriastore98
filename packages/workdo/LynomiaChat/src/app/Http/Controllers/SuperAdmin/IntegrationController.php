@@ -4,7 +4,9 @@ namespace Workdo\LynomiaChat\app\Http\Controllers\SuperAdmin;
 
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
+use App\Models\Permission;
 use App\Models\Plan;
+use App\Models\Role;
 use App\Models\User;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -51,6 +53,20 @@ class IntegrationController extends Controller
     ) {
     }
 
+    /**
+     * The merchant-side permissions this module defines, in the order they widen.
+     *
+     * READ FROM ONE PLACE so the Super Admin page cannot drift from the seeder that creates
+     * them: a permission added there and forgotten here is a control nobody can see the reach of.
+     */
+    public const MODULE_PERMISSIONS = [
+        'Manage Lynomia Chat',
+        'Reply Lynomia Chat',
+        'Assign Lynomia Chat',
+        'Manage Lynomia Automation',
+        'Manage Lynomia Consent',
+    ];
+
     public function show(): View
     {
         return view('lynomia-chat::superadmin.integration', [
@@ -77,7 +93,43 @@ class IntegrationController extends Controller
             // event this side could not deliver is still sitting in the table, so its health
             // is a count rather than a timestamp.
             'commerceHealth' => $this->commerceHealth(),
+            // Phase 4. Who, on this side, can build an automation or record a consent decision.
+            'automationAccess' => $this->automationAccess(),
         ]);
+    }
+
+    /**
+     * WHO CAN DO WHAT, counted from this side's own grants.
+     *
+     * The Automation Studio's engine, its limits and its kill switches are Lynomia's and are
+     * administered there; what Store Syria decides is WHICH of a merchant's people reach the
+     * Studio at all, and that is a Laratrust grant in this database. An operator asked "who in
+     * this installation can publish an automation to customers" can answer it here without
+     * reaching Lynomia -- which matters, because the times an operator asks are the times
+     * Lynomia may be the thing that is wrong.
+     *
+     * COUNTS, NOT NAMES. A list of every staff member who holds a permission is a list of other
+     * tenants' employees, and an operator deciding whether a control is too widely granted needs
+     * the shape rather than the people. The store count is what makes the number readable: four
+     * roles across four stores is ordinary, four roles in one store is worth a look.
+     *
+     * @return list<array{name:string, roles:int, stores:int}>
+     */
+    private function automationAccess(): array
+    {
+        return collect(self::MODULE_PERMISSIONS)->map(function (string $name): array {
+            $permission = Permission::query()->where('name', $name)->where('module', 'LynomiaChat')->first();
+
+            $roles = $permission
+                ? Role::query()->whereHas('permissions', fn ($query) => $query->where('permissions.id', $permission->id))
+                : Role::query()->whereRaw('1 = 0');
+
+            return [
+                'name' => $name,
+                'roles' => (clone $roles)->count(),
+                'stores' => (clone $roles)->distinct()->count('store_id'),
+            ];
+        })->all();
     }
 
     /**

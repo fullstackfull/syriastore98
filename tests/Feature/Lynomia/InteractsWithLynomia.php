@@ -126,10 +126,22 @@ trait InteractsWithLynomia
      */
     protected function grantLynomiaPermission(User $user, array $names = ['Manage Lynomia Chat']): void
     {
-        $permissions = array_map(static fn (string $name) => Permission::firstOrCreate(
-            ['name' => $name],
-            ['display_name' => $name, 'guard_name' => 'web', 'module' => 'LynomiaChat']
-        ), $names);
+        // forceFill for `module`, for the same reason the role below uses forceCreate:
+        // App\Models\Permission sets `public $guarded = []` but extends Laratrust's Permission,
+        // whose non-empty `protected $fillable` wins in isFillable() -- so `module` is silently
+        // dropped by create() and firstOrCreate(). PermissionTableSeeder gets it right by
+        // wrapping the whole run in Model::unguard(); a fixture that did not would produce
+        // permissions with a NULL module, which is not what production has and not what the
+        // Super Admin page counts.
+        $permissions = array_map(static function (string $name) {
+            $permission = Permission::firstOrCreate(['name' => $name], ['display_name' => $name, 'guard_name' => 'web']);
+
+            if ($permission->module !== 'LynomiaChat') {
+                $permission->forceFill(['module' => 'LynomiaChat'])->save();
+            }
+
+            return $permission;
+        }, $names);
 
         $role = Role::firstWhere('name', 'lynomia-role-' . $user->id)
             ?? Role::forceCreate([

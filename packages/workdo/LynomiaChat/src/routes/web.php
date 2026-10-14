@@ -222,6 +222,12 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
             Route::middleware([
                 EnsureStoreOwnsLink::class . ':existing',
                 \Laratrust\Middleware\Permission::class . ':Manage Lynomia Automation',
+                // THE FIRST SURFACE THAT AMPLIFIES. An inbox request is roughly one Lynomia
+                // call; opening the builder is the flow AND four reference reads AND the
+                // condition vocabulary. Keyed on the PERSON, because the cost is per credential
+                // minted -- keying on the store would let one person's stuck poll exhaust their
+                // colleagues' budget. See LynomiaChatServiceProvider::registerIngressLimiter.
+                'throttle:lynomia-studio',
             ])->group(function () {
                 Route::get('/automation', [AutomationController::class, 'index'])->name('automation');
 
