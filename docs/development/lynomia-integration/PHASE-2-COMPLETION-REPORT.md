@@ -367,7 +367,10 @@ two controls are written against "this column cannot move once the row exists":
   `PATCH {"secret": ""}` **permanently unsigns every future delivery** for that webhook.
 
 Fixed by permitting `:secret` on **create only** — closing both at the root rather than patching
-two symptoms. It costs the integration nothing: Store Syria sets the key at creation and never
+two symptoms. That is the *complete* closure, not merely the main one: `config/routes.rb:289`
+declares `resources :webhooks, only: [:index, :create, :update, :destroy]` with no `reset_secret`
+member (the two `reset_secret` routes in this fork belong to **agent bots**), so once `update`
+cannot carry the field there is no remaining path from the API to that column. It costs the integration nothing: Store Syria sets the key at creation and never
 updates it. Rotation is create-then-delete, which leaves an audit trail and a signed row
 throughout. A blank secret at *create* is still safe, because a blank string makes `secret?` false
 and `has_secure_token` generates one.
@@ -391,6 +394,13 @@ behaviour and the assertion was not true on the path that matters — and becaus
 lesson.
 
 ### Verification of both
+
+The sweep that found these ran **12 agents over 6 review targets plus adversarial verification**,
+with 0 agent errors. It returns `confirmed: []`, and that needs reading correctly: every candidate
+was **already fixed before the verification phase ran**, so each verifier reported "does not
+reproduce against the current working tree" while explicitly affirming the mechanism — the last
+one's words were *"the reviewer's mechanism was correct."* The refutations are a timing artifact,
+not a contradiction. What settles it is the mutation test, which does not depend on reading.
 
 Five new examples. **Mutation-verified**: reverting either fix fails exactly the example that pins
 it. `entitlement_grants` 23, `webhook_controller` 18, `audit_capture` + `channel_claims` 47 — all
