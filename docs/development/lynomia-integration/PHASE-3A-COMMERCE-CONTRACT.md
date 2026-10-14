@@ -62,7 +62,14 @@ Authorization: Bearer <store-bound commerce token>
 | `POST …/v1/customers/lookup` | by verified email **or** E.164 phone, never by name |
 | `GET  …/v1/customers/{id}/orders` | newest first, bounded |
 | `GET  …/v1/orders/{id}` | one order, full detail |
+| `GET  …/v1/orders?number=` | order search by the number the store printed |
 | `GET  …/v1/carts/abandoned` | eligible carts only, per the Phase 3 criteria |
+
+The lookup is a **POST** so the identifier stays out of the URL, and therefore out of this
+application's access logs. For the same reason a **guest** — who has no `customers` row — is
+referenced by the id of the order they were found on (`guest:{orderId}`) rather than by their
+email address, and that reference resolves server side, scoped to the credential's store, to
+every guest order sharing that order's email or telephone.
 
 Normalisation happens on the **Lynomia** side, in the provider's `Normalizer`, exactly as the
 other four providers do — the store returns its own vocabulary and the adapter maps it.
@@ -85,9 +92,38 @@ The mapping is therefore pinned from the source:
 | 7 | Partially Paid | `pending` |
 | 8 | Pre Order | `pending` |
 
-Payment status is canonicalised **by Store Syria**, reusing the one normaliser that already
-exists — `OrderFinancialService::normalizePaymentStatus()` — so the adapter never has to know
-that `success`, `succeeded`, `Succeeded` and `Paid` are the same thing.
+Payment status is canonicalised **by Store Syria**, so the adapter never has to know that
+`success`, `succeeded`, `Succeeded` and `Paid` are the same thing.
+
+> **Correction, measured during 3B.** This originally said the canonicalisation would reuse
+> `OrderFinancialService::normalizePaymentStatus()`. It cannot: that method's match arms name
+> `paid`, `success` and `completed`, and **`succeeded` is not among them** — while `succeeded`
+> is the single most common spelling in this codebase, written by thirteen sites across Stripe,
+> Mercado Pago, Skrill, Midtrans, PayTabs, PayTR, Paytm, Flutterwave, CoinGate and NMI, against
+> four for `success`. It falls through to `default => 'unpaid'`.
+>
+> Reusing it faithfully would make this API report paid orders as unpaid. The map therefore
+> lives in `CommerceReader::PAYMENT_STATUSES`, which also answers `unknown` for a value it does
+> not recognise rather than `unpaid` — the right answer for an agent's panel, where the two are
+> not the same claim.
+>
+> **This is also a pre-existing defect in Store Syria's own financial records, and it is
+> reported rather than fixed here.** `store_order_financials` records `payment_status` `unpaid`,
+> `paid_amount` `0`, `remaining_amount` = the full total and `paid_at` `null` for every order
+> paid through any of those ten gateways. Correcting it changes money-bearing rows in another
+> workstream, which is an owner decision.
+
+### Phone numbers carry the region they are written in
+
+A number stored as `0955111222` is only a number once you know which country it is in; Lynomia
+refuses to guess a region and returns no match rather than a wrong one. Store Syria records **no
+country code for a store** — the only country it has is the free-text `store_country` app
+setting, and `countries` carries a name and nothing else, no `iso2` and no dialling code. So
+every customer payload carries `phone_region`, an ISO 3166-1 alpha-2 code from
+`config('lynomia.commerce_phone_region')` (`LYNOMIA_COMMERCE_PHONE_REGION`, default `SY`).
+
+A store whose shoppers are elsewhere still matches every number entered in international form;
+only its locally-written numbers go unmatched.
 
 There is **no separate shipping status column**: fulfilment is folded into `delivered_status`,
 with `picked_date` / `shipped_date` / `delivery_date` as timestamps. The contract reports

@@ -114,6 +114,17 @@ Route::prefix('api/lynomia/commerce/v1')
     ->name('lynomia.commerce.v1.')
     ->group(function () {
         Route::get('/store', [CommerceApiController::class, 'store'])->name('store');
+
+        // Customers are found by ONE verified identifier, never by name. The {customer} segment
+        // below is a reference this surface issued, not a tenant: the credential already decided
+        // which store answers, so there is nothing here that widens what a caller can read.
+        Route::post('/customers/lookup', [CommerceApiController::class, 'lookupCustomers'])->name('customers.lookup');
+        Route::get('/customers/{customer}/orders', [CommerceApiController::class, 'customerOrders'])->name('customers.orders');
+
+        Route::get('/orders', [CommerceApiController::class, 'orders'])->name('orders.search');
+        Route::get('/orders/{order}', [CommerceApiController::class, 'order'])->name('orders.show');
+
+        Route::get('/carts/abandoned', [CommerceApiController::class, 'abandonedCarts'])->name('carts.abandoned');
     });
 
 Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(function () {

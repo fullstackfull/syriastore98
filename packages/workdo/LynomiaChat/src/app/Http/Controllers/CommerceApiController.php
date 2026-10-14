@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Models\Store;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Workdo\LynomiaChat\app\Http\Middleware\AuthenticateCommerceApi;
+use Workdo\LynomiaChat\app\Services\CommerceReader;
 
 /**
  * Store Syria's commerce surface for the Lynomia adapter.
@@ -66,6 +68,106 @@ class CommerceApiController extends Controller
             ],
             'contract_version' => 'v1',
         ]);
+    }
+
+    /**
+     * Candidates for ONE verified identifier. Exactly one of email or phone, never both and
+     * never a name: a name search is how one customer is shown another's orders, and the
+     * contract has no endpoint for it.
+     *
+     * Candidates only. The adapter verifies each one carries the identifier it asked for and
+     * drops the rest, so a loose match here cannot become a wrong match there.
+     */
+    public function lookupCustomers(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'email' => ['nullable', 'string', 'email', 'max:255', 'required_without:phone', 'prohibits:phone'],
+            'phone' => ['nullable', 'string', 'max:32', 'required_without:email'],
+        ]);
+
+        $reader = $this->reader($request);
+
+        return $this->collection(isset($data['email'])
+            ? $reader->customersByEmail($data['email'])
+            : $reader->customersByPhone($data['phone']));
+    }
+
+    /**
+     * This customer's orders in THIS store. The customer reference is the one this surface
+     * issued in a lookup; it is read as a reference and never as a tenant.
+     */
+    public function customerOrders(Request $request, string $customer): JsonResponse
+    {
+        return $this->collection(
+            $this->reader($request)->customerOrders($customer, $this->limit($request, CommerceReader::MAX_ORDERS))
+        );
+    }
+
+    public function order(Request $request, string $order): JsonResponse
+    {
+        if (! ctype_digit($order)) {
+            // An order id is a primary key. Anything else is a malformed request, not a 404 that
+            // tells a caller whether some other store's order exists.
+            throw ValidationException::withMessages(['order' => 'Invalid order id.']);
+        }
+
+        $payload = $this->reader($request)->order((int) $order);
+
+        // An order of another store and an order that does not exist answer identically: the
+        // reader's query is already scoped, so there is no state here to probe for.
+        return $payload === null
+            ? response()->json(['error' => 'Not found'], 404)
+            : response()->json($payload);
+    }
+
+    /**
+     * Order search by the number printed on the order, which Store Syria keeps separately from
+     * the primary key (orders.product_order_id).
+     */
+    public function orders(Request $request): JsonResponse
+    {
+        $data = $request->validate(['number' => ['required', 'string', 'max:64']]);
+
+        return $this->collection($this->reader($request)->ordersByNumber($data['number']));
+    }
+
+    /**
+     * Carts left behind, reported and nothing more. Offering RECOVERY is a separate decision
+     * that waits on the consent model; see the contract.
+     */
+    public function abandonedCarts(Request $request): JsonResponse
+    {
+        $data = $request->validate(['customer' => ['nullable', 'string', 'max:64']]);
+
+        return $this->collection($this->reader($request)->abandonedCarts(
+            $data['customer'] ?? null,
+            $this->limit($request, CommerceReader::MAX_CARTS)
+        ));
+    }
+
+    /**
+     * The store comes from the credential, through the middleware, and from nowhere else. No
+     * handler above resolves a tenant any other way, and there is no parameter that widens it.
+     */
+    private function reader(Request $request): CommerceReader
+    {
+        return new CommerceReader((int) $request->attributes->get(AuthenticateCommerceApi::STORE_ID));
+    }
+
+    /**
+     * Always wrapped. The adapter refuses a bare array on purpose: a bare array means a
+     * different server answered.
+     */
+    private function collection(array $rows): JsonResponse
+    {
+        return response()->json(['data' => $rows]);
+    }
+
+    private function limit(Request $request, int $ceiling): int
+    {
+        $request->validate(['limit' => ['nullable', 'integer', 'min:1', 'max:' . $ceiling]]);
+
+        return (int) $request->query('limit', (string) $ceiling);
     }
 
     /**

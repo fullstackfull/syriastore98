@@ -165,6 +165,28 @@ return [
      * changes, and set explicitly where it does not. Two installations that genuinely share
      * this value are, as far as this integration is concerned, one installation.
      */
+    /*
+     * THE REGION A LOCAL PHONE NUMBER IS READ IN, as an ISO 3166-1 alpha-2 code.
+     *
+     * Lynomia matches a WhatsApp conversation to a shopper by E.164 phone number, and a number
+     * stored as "0955111222" is only a number once you know which country it is in: parsed with
+     * no region at all it is not a valid international number and matches nobody. Lynomia
+     * refuses to guess one -- "a local number with no region returns nil rather than a guess" --
+     * so the region has to come from here.
+     *
+     * IT IS AN INSTALLATION DEFAULT RATHER THAN A PER-STORE SETTING BECAUSE STORE SYRIA RECORDS
+     * NO COUNTRY CODE FOR A STORE. The only country a store has is the free-text `store_country`
+     * app setting, typed by the merchant ("Syria", "سوريا", "SY"), and `countries` carries a
+     * name and nothing else -- no iso2, no dialling code. Resolving a region out of that would
+     * be a guess wearing a lookup's clothes.
+     *
+     * A store whose shoppers are somewhere else still matches every number its customers
+     * entered in international form ("+965...", "00965..."); only its locally-written numbers
+     * go unmatched. That is the honest failure: a customer not found, rather than the wrong
+     * customer found.
+     */
+    'commerce_phone_region' => strtoupper((string) env('LYNOMIA_COMMERCE_PHONE_REGION', 'SY')),
+
     'installation_ref' => (string) env(
         'LYNOMIA_INSTALLATION_REF',
         parse_url((string) env('APP_URL', 'localhost'), PHP_URL_HOST) ?: 'localhost'
