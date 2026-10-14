@@ -11,6 +11,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Http\Requests\ApproveLinkRequest;
+use Workdo\LynomiaChat\app\Models\LynomiaCommerceEvent;
 use Workdo\LynomiaChat\app\Models\LynomiaInboxEvent;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreIdentity;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
@@ -36,6 +37,13 @@ use Workdo\LynomiaChat\app\Services\SeatAllowanceSync;
  */
 class IntegrationController extends Controller
 {
+    /**
+     * Attempts after which a waiting event stops being ordinary backlog and starts being a
+     * store that needs an operator. The dispatcher's backoff reaches ten minutes by the third
+     * attempt, so anything at five has been failing for the better part of an hour.
+     */
+    private const STUCK_AFTER_ATTEMPTS = 5;
+
     public function __construct(
         private readonly PlatformApiClient $api,
         private readonly AccountLinker $linker,
@@ -65,7 +73,43 @@ class IntegrationController extends Controller
                 ->groupBy('store_id')
                 ->pluck('seats', 'store_id'),
             'eventHealth' => $this->eventHealth(),
+            // Phase 3. The OUTBOUND feed, which fails differently from the inbound one: an
+            // event this side could not deliver is still sitting in the table, so its health
+            // is a count rather than a timestamp.
+            'commerceHealth' => $this->commerceHealth(),
         ]);
+    }
+
+    /**
+     * Is the commerce event feed draining, and which stores are stuck?
+     *
+     * THE NUMBER THAT MATTERS IS THE BACKLOG, not the throughput. An inbound delivery that
+     * fails is gone and the only evidence is a gap; an OUTBOUND one that fails is still in the
+     * outbox with its attempt count and its last error, so "how many are waiting, how old is
+     * the oldest, and which stores are they" is a question this side can answer exactly.
+     *
+     * A store appearing here with a double-digit attempt count is the one thing on this page
+     * an operator has to act on: its credential has almost certainly been revoked or rotated
+     * on the Lynomia side, and nothing will deliver until it is reissued.
+     *
+     * @return array{enabled:bool, pending:int, stuck:int, oldest:?string, stores:array<int,int>}
+     */
+    private function commerceHealth(): array
+    {
+        $pending = LynomiaCommerceEvent::query()->whereNull('delivered_at');
+
+        return [
+            'enabled' => (bool) config('lynomia.commerce_events_enabled'),
+            'pending' => (clone $pending)->count(),
+            // Tried repeatedly and still failing: a backlog is ordinary for a minute, this is not.
+            'stuck' => (clone $pending)->where('attempts', '>=', self::STUCK_AFTER_ATTEMPTS)->count(),
+            'oldest' => (clone $pending)->oldest('id')->first()?->occurred_at?->diffForHumans(),
+            'stores' => (clone $pending)->where('attempts', '>=', self::STUCK_AFTER_ATTEMPTS)
+                ->selectRaw('store_id, count(*) as waiting')
+                ->groupBy('store_id')
+                ->pluck('waiting', 'store_id')
+                ->all(),
+        ];
     }
 
     /**

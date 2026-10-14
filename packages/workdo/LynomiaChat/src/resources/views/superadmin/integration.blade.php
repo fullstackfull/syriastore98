@@ -161,6 +161,39 @@
                         <strong>{{ $eventHealth['last_at'] ?? __('never') }}</strong>
                     </li>
                 </ul>
+
+                <hr>
+                <h6>{{ __('Commerce events') }}</h6>
+                <p class="text-muted small mb-1">
+                    {{ __('Order changes this installation sends to Lynomia. An event that could not be delivered is still here, with the store it belongs to.') }}
+                </p>
+                <ul class="list-unstyled mb-0">
+                    <li>
+                        {{ __('Feed') }}:
+                        <strong>{{ $commerceHealth['enabled'] ? __('On') : __('Off') }}</strong>
+                    </li>
+                    <li>{{ __('Waiting to be delivered') }}: <strong>{{ $commerceHealth['pending'] }}</strong></li>
+                    <li>
+                        {{ __('Oldest waiting') }}:
+                        <strong>{{ $commerceHealth['oldest'] ?? __('none') }}</strong>
+                    </li>
+                </ul>
+                @if (! empty($commerceHealth['stores']))
+                    {{-- The one thing on this page an operator has to act on: a store whose credential has almost
+                         certainly been revoked or rotated on the Lynomia side, so nothing will deliver until it is
+                         reissued above. --}}
+                    <div class="alert alert-warning mt-2 mb-0" role="alert">
+                        <strong>{{ __('Stores whose events are not being delivered') }}</strong>
+                        <ul class="mb-0">
+                            @foreach ($commerceHealth['stores'] as $storeId => $waiting)
+                                <li>
+                                    {{ __('Store') }} #{{ $storeId }} &mdash;
+                                    {{ trans_choice('{1} :count event waiting|[2,*] :count events waiting', $waiting, ['count' => $waiting]) }}
+                                </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
             </div>
 
             <div class="tab-pane fade" id="lynomia-accounts" role="tabpanel">

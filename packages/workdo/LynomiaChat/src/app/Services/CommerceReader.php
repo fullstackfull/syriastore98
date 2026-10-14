@@ -241,6 +241,9 @@ class CommerceReader
         }
 
         $rows = $query->orderByDesc('updated_at')
+            // Eager loaded, because the line below reads each row's product name: without this
+            // a fifty-cart answer is five hundred queries, one per line.
+            ->with('product_data:id,name')
             // One basket is many rows, so the row budget has to be bigger than the cart budget.
             ->limit($this->bounded($limit, self::MAX_CARTS) * 10)
             ->get();

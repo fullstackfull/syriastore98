@@ -175,6 +175,22 @@ class LynomiaCommerceOutboxTest extends TestCase
         $this->assertSame(0, LynomiaCommerceEvent::count());
     }
 
+    // THE MEMO THAT WAS NOT. Caching the link check on the observer would have cached it for
+    // the life of the PROCESS, not the request -- so in a queue worker a store revoked an hour
+    // ago would go on recording events until the worker restarted. Two orders in one process,
+    // with the link revoked in between, is the case that catches it.
+    public function test_a_link_revoked_mid_process_stops_recording_at_once(): void
+    {
+        [$storeId, $link] = $this->connected();
+        $this->order($storeId, ['product_order_id' => 'BEFORE']);
+        $this->assertSame(1, LynomiaCommerceEvent::count());
+
+        $link->forceFill(['state' => LinkState::REVOKED])->save();
+        $this->order($storeId, ['product_order_id' => 'AFTER']);
+
+        $this->assertSame(1, LynomiaCommerceEvent::count(), 'the observer kept a stale link decision');
+    }
+
     // ---------------------------------------------------------------- delivery
 
     public function test_delivery_signs_the_body_and_names_the_store_without_sending_the_credential(): void

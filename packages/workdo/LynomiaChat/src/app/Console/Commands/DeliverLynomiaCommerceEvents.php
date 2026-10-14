@@ -44,6 +44,15 @@ class DeliverLynomiaCommerceEvents extends Command
             return self::SUCCESS;
         }
 
+        // Reported once here rather than thrown out of the dispatcher per row. An unset base
+        // URL is a configuration error either way, and the events stay in the outbox, but a
+        // scheduled command that says what is wrong beats one that stack-traces every minute.
+        if (blank(config('lynomia.base_url'))) {
+            $this->error('LYNOMIA_BASE_URL is not configured; nothing was delivered and nothing was lost.');
+
+            return self::FAILURE;
+        }
+
         $dispatcher = new CommerceEventDispatcher((array) config('lynomia.http', []));
         $limit = max(1, (int) $this->option('limit'));
         $delivered = 0;

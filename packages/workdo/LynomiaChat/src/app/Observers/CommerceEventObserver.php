@@ -32,9 +32,6 @@ use Workdo\LynomiaChat\app\Support\LinkState;
  */
 class CommerceEventObserver
 {
-    /** Stores whose link state has already been resolved in this process. */
-    private array $eligible = [];
-
     public function created(Order $order): void
     {
         $this->record($order, 'order.created');
@@ -83,13 +80,18 @@ class CommerceEventObserver
     }
 
     /**
-     * Only a store with a live Lynomia workspace records anything. Memoised per process because
-     * this runs on every order write, and a store's link state does not change inside one
-     * request; a worker process picks up a change on its next job.
+     * Only a store with a live Lynomia workspace records anything.
+     *
+     * NOT MEMOISED, deliberately. The obvious optimisation is to cache this per store on the
+     * observer instance -- but Laravel resolves an observer once and keeps it for the life of
+     * the PROCESS, not the request. In a queue worker that outlives thousands of jobs, a store
+     * revoked an hour ago would go on recording events until the worker restarted. That is the
+     * same shape of bug as a `static` memo keyed on nothing, and it is not worth saving one
+     * indexed existence check next to the order write that just happened.
      */
     private function isConnected(int $storeId): bool
     {
-        return $this->eligible[$storeId] ??= LynomiaStoreLink::forStore($storeId)
+        return LynomiaStoreLink::forStore($storeId)
             ->where('state', LinkState::ACTIVE)
             ->whereNotNull('lynomia_account_id')
             ->exists();
