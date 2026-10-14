@@ -343,6 +343,10 @@ trait InteractsWithLynomia
                         ],
                         'withdrawn' => true,
                     ], 200),
+                // Store Syria's OUTBOUND commerce event deliveries (P3D). Scriptable, because
+                // what the outbox does with a refusal is the part worth testing.
+                $key === 'POST /webhooks/storesyria'
+                    => Http::response([], $this->lynomiaScript['commerce_event_status'] ?? 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/webhooks$#', $path)
                     => Http::response($method === 'GET' ? ['payload' => []] : ['payload' => ['id' => 1]], 200),
                 // An unscripted call is a test bug, not a 404 to shrug at: say which one.

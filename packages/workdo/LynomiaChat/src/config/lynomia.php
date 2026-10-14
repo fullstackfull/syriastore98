@@ -118,6 +118,25 @@ return [
      */
     'event_retention_days' => (int) env('LYNOMIA_EVENT_RETENTION_DAYS', 14),
 
+    /*
+     * THE OUTBOUND COMMERCE EVENT FEED: order changes going to Lynomia so an agent's panel and
+     * the automation triggers see them. Its own switch, separate from `enabled`, because the
+     * inbox can be live while commerce is not -- a store can be connected for conversations
+     * long before its commerce connection exists on the Lynomia side.
+     *
+     * While it is off, NOTHING IS RECORDED rather than recorded and held. An outbox that fills
+     * up while switched off is a queue of deliveries nobody asked for, aimed at a workspace
+     * that may not exist by the time it is switched on.
+     */
+    'commerce_events_enabled' => env('LYNOMIA_COMMERCE_EVENTS_ENABLED', false),
+
+    /*
+     * How long a DELIVERED commerce event is kept. Undelivered rows are never pruned whatever
+     * their age: they are the evidence that a store stopped syncing, and deleting them is how
+     * that becomes invisible to the operator who needs to see it.
+     */
+    'commerce_event_retention_days' => (int) env('LYNOMIA_COMMERCE_EVENT_RETENTION_DAYS', 14),
+
     'webhook_tolerance_seconds' => (int) env('LYNOMIA_WEBHOOK_TOLERANCE_SECONDS', 300),
 
     /* How often the open inbox asks what has changed. */

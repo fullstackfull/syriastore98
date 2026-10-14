@@ -73,6 +73,7 @@ class LynomiaChatServiceProvider extends ServiceProvider
         $this->registerTranslations();
         $this->registerIngressLimiter();
         $this->registerCommands();
+        $this->registerCommerceEventObserver();
         $this->skipBodyTransformsOnIngress();
     }
 
@@ -88,12 +89,34 @@ class LynomiaChatServiceProvider extends ServiceProvider
             return;
         }
 
-        $this->commands([\Workdo\LynomiaChat\app\Console\Commands\ReconcileLynomiaEvents::class]);
+        $this->commands([
+            \Workdo\LynomiaChat\app\Console\Commands\ReconcileLynomiaEvents::class,
+            \Workdo\LynomiaChat\app\Console\Commands\DeliverLynomiaCommerceEvents::class,
+        ]);
 
         $this->app->booted(function () {
             $schedule = $this->app->make(\Illuminate\Console\Scheduling\Schedule::class);
             $schedule->command('lynomia:reconcile-events')->everyFiveMinutes()->withoutOverlapping();
+            // Every minute, because this one is the live path: an order's status changing is
+            // what an agent is waiting to see, and the sweep above is the safety net behind it.
+            $schedule->command('lynomia:deliver-commerce-events')->everyMinute()->withoutOverlapping();
         });
+    }
+
+    /**
+     * EVERY ORDER WRITE PASSES THROUGH THE MODEL, which is why the commerce outbox is filled
+     * from an observer rather than from App\Events\OrderPaymentStatus. That event is not
+     * dispatched on creation and not dispatched by the ~52 gateway controllers that write
+     * payment_status directly; the retired Chatwoot integration listened to it and therefore
+     * never saw a new order.
+     *
+     * Registered unconditionally, including in the web process: the observer's first act is to
+     * check the kill switch and the store's link, so an installation with the integration off
+     * or a store with no workspace writes nothing.
+     */
+    protected function registerCommerceEventObserver(): void
+    {
+        \App\Models\Order::observe(\Workdo\LynomiaChat\app\Observers\CommerceEventObserver::class);
     }
 
     /**
