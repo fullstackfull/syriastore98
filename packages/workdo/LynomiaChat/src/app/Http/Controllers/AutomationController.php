@@ -35,4 +35,23 @@ class AutomationController extends Controller
             'workspaceName' => $link?->lynomia_account_name,
         ]);
     }
+
+    /**
+     * The visual builder for one flow.
+     *
+     * THE FLOW ID IS PASSED STRAIGHT THROUGH AND IS NOT TRUSTED. Nothing is read with it here; the page
+     * ships it to the browser, which asks the BFF, which forwards it on a credential scoped to this store's
+     * workspace server side. Another store's flow id is a perfectly real id and resolves to nothing, which
+     * is a fact about the credential rather than a check written here that could be forgotten.
+     */
+    public function builder(Request $request, int $flow): View
+    {
+        /** @var LynomiaStoreLink|null $link */
+        $link = $request->attributes->get(EnsureStoreOwnsLink::ATTRIBUTE);
+
+        return view('lynomia-chat::merchant.builder', [
+            'flowId' => $flow,
+            'workspaceName' => $link?->lynomia_account_name,
+        ]);
+    }
 }

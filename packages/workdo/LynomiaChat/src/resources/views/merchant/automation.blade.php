@@ -49,6 +49,7 @@
 @section('content')
 <div class="row" id="lyn-studio"
      data-endpoint-flows="{{ route('lynomia.automation.api.flows') }}"
+     data-builder-url="{{ route('lynomia.automation.builder', ['flow' => 0]) }}"
      data-workspace="{{ $workspaceName }}">
     <div class="col-12">
 
@@ -164,6 +165,13 @@
     $.ajaxSetup({ headers: { 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content') } });
 
     var ENDPOINT = root.getAttribute('data-endpoint-flows');
+    // The builder's url with 0 standing in for the flow, so the PATH is Laravel's and this page
+    // substitutes an id into it rather than assembling a route out of string pieces.
+    var BUILDER_URL = root.getAttribute('data-builder-url');
+
+    function builderUrlFor(id) {
+        return BUILDER_URL.replace(/\/0\/builder$/, '/' + encodeURIComponent(id) + '/builder');
+    }
     // The page's language, not the browser's: a merchant who set Arabic should not get US date
     // formatting because their laptop is configured in English.
     var PAGE_LOCALE = document.documentElement.getAttribute('lang') || 'en';
@@ -180,9 +188,9 @@
         close: @json(__('Close')),
         never: @json(__('Never published')),
         states: {
-            published: @json(__('Live')),
+            published: @json(__('lynomia-chat::studio.state_published')),
             draft: @json(__('Draft')),
-            disabled: @json(__('Off'))
+            disabled: @json(__('lynomia-chat::studio.state_disabled'))
         },
         channels: @json(__('Channels')),
         noChannel: @json(__('Not connected to a channel')),
@@ -200,6 +208,7 @@
         removeBlocked: @json(__('Turn this automation off before deleting it.')),
         duplicate: @json(__('Duplicate')),
         rename: @json(__('Rename')),
+        edit: @json(__('Open builder')),
         limitReached: @json(__('You have used every automation your plan includes. Delete one, or ask support to raise your limit.')),
         // The graph validator's codes, rendered here so the merchant reads their own language
         // and never a sentence Lynomia wrote. An unrecognised code falls back to the code
@@ -347,6 +356,9 @@
         $inner.append($('<p>').addClass('small text-muted mb-3').text(meta.join(' · ')));
 
         var $actions = $('<div>').addClass('d-flex flex-wrap gap-2');
+        $actions.append($('<a>').addClass('btn btn-sm btn-outline-secondary')
+            .attr('href', builderUrlFor(flow.id))
+            .text(T.edit));
         if (flow.state === 'published') {
             $actions.append(button('btn-outline-secondary', T.disable, 'disable', flow));
         } else {

@@ -47,6 +47,16 @@ class AutomationApiController extends Controller
     private const NAME_MAX = 255;
     private const DESCRIPTION_MAX = 1000;
 
+    /**
+     * Flows::GraphValidator's own ceilings, restated at this boundary for ONE reason: to refuse a body that is
+     * obviously too large before it is forwarded, rather than paying a round trip to be told so. The authority
+     * is still Lynomia's -- a graph that passes here is validated there in full, and nothing is accepted here
+     * that would be refused there.
+     */
+    private const MAX_NODES = 300;
+    private const MAX_EDGES = 900;
+    private const MAX_INPUTS = 20;
+
     public function __construct(private readonly MerchantInboxGateway $gateway)
     {
     }
@@ -166,6 +176,141 @@ class AutomationApiController extends Controller
         ]);
     }
 
+    // ------------------------------------------------------------------ the builder
+
+    /**
+     * THE BUILDER'S WHOLE CONTRACT, in one response, because it is one upstream call.
+     *
+     * The graph, the node catalogue, each node type's field shapes, the channel limits, the variable
+     * allow-list, the templates this flow may send, and the validation errors on what is there now. The Studio
+     * renders its palette and every configuration form FROM these rather than from constants of its own --
+     * which is the difference between a form that matches the server and one that drifts from it between
+     * deploys and offers a setting that will be refused at publish.
+     */
+    public function builder(Request $request, int $flow): JsonResponse
+    {
+        return $this->proxy($request, function (AgentApiClient $client) use ($flow) {
+            $body = $client->getFlow($flow);
+
+            return [
+                'flow' => $this->projectFlow($body, detailed: true),
+                'graph' => $this->projectGraph($body['graph'] ?? []),
+                'catalogue' => [
+                    'node_types' => is_array($body['node_types'] ?? null) ? $body['node_types'] : [],
+                    'node_fields' => is_array($body['node_fields'] ?? null) ? $body['node_fields'] : [],
+                    'store_scopes' => array_values(array_filter(
+                        is_array($body['store_scopes'] ?? null) ? $body['store_scopes'] : [], 'is_string'
+                    )),
+                    'capabilities' => is_array($body['capabilities'] ?? null) ? $body['capabilities'] : [],
+                    'variables' => array_values(array_filter(
+                        is_array($body['variables'] ?? null) ? $body['variables'] : [], 'is_string'
+                    )),
+                    'templates' => is_array($body['templates'] ?? null) ? $body['templates'] : [],
+                ],
+            ];
+        });
+    }
+
+    /**
+     * The records a configuration form's pickers offer, and the vocabulary a condition is written in.
+     *
+     * SEPARATE FROM THE BUILDER PAYLOAD because it is four more upstream calls and it does not change while a
+     * flow is being edited: the Studio fetches it once alongside the flow and reuses it for every node. The
+     * agent roster deliberately carries no email -- a picker needs a name and an id, and configuring a flow is
+     * not a reason to hand a merchant every colleague's address.
+     */
+    public function references(Request $request): JsonResponse
+    {
+        return $this->proxy($request, fn (AgentApiClient $client) => [
+            'agents' => $this->projectNamed($client->listAgents(), 'name'),
+            'teams' => $this->projectNamed($client->listTeams(), 'name'),
+            'labels' => $this->projectNamed($client->listLabels()['payload'] ?? [], 'title'),
+            'inboxes' => $this->projectNamed($client->listInboxes()['payload'] ?? [], 'name'),
+            'contact_attributes' => $this->projectAttributes($client->listCustomAttributes('contact_attribute')),
+            'conversation_attributes' => $this->projectAttributes($client->listCustomAttributes('conversation_attribute')),
+            'vocabulary' => $this->projectVocabulary($client->automationVocabulary()),
+        ]);
+    }
+
+    /**
+     * Save the draft.
+     *
+     * `lock_version` IS REQUIRED, not optional-when-absent, because an optional precondition is not a
+     * precondition: a caller that omits it is back to silently overwriting whoever saved first. A 409 carries
+     * the other editor's graph and a fresh token so the Studio can show what changed and let the merchant
+     * reapply, rather than making them reload and lose what they were typing.
+     *
+     * THE GRAPH IS NOT INSPECTED HERE. Validating it would be a second validator, kept in step with
+     * Flows::GraphValidator by hand, and the one that drifted would be this one. What is checked is the shape
+     * of the REQUEST -- a graph object with nodes and edges, within a size this surface will carry -- so a
+     * malformed body is refused at the boundary instead of travelling to Lynomia to be refused there.
+     */
+    public function draft(Request $request, int $flow): JsonResponse
+    {
+        $validated = $request->validate([
+            'graph' => ['required', 'array'],
+            'graph.nodes' => ['required', 'array', 'max:' . self::MAX_NODES],
+            'graph.edges' => ['required', 'array', 'max:' . self::MAX_EDGES],
+            'lock_version' => ['required', 'integer', 'min:0'],
+        ]);
+
+        return $this->proxy($request, function (AgentApiClient $client) use ($flow, $validated) {
+            [$status, $body] = $client->saveFlowDraft($flow, $validated['graph'], (int) $validated['lock_version']);
+
+            if ($status === 409) {
+                return ['ok' => false, 'conflict' => [
+                    'graph' => $this->projectGraph($body['graph'] ?? []),
+                    'lock_version' => (int) ($body['lock_version'] ?? 0),
+                    'updated_at' => $body['updated_at'] ?? null,
+                ]];
+            }
+
+            return $status === 422
+                ? ['ok' => false, 'errors' => $this->projectGraphErrors($body)]
+                : ['ok' => true, 'flow' => $this->projectFlow($body, detailed: true)];
+        });
+    }
+
+    /**
+     * Test Mode: run the DRAFT against the real runtime and show what a customer would see.
+     *
+     * The runtime leaves nothing behind -- no message, conversation, contact, session or job -- which is
+     * asserted upstream rather than assumed here. That is what makes it safe to offer a merchant a button
+     * that runs their unpublished flow.
+     */
+    public function simulate(Request $request, int $flow): JsonResponse
+    {
+        $validated = $request->validate([
+            'inputs' => ['required', 'array', 'min:1', 'max:' . self::MAX_INPUTS],
+            'inputs.*.text' => ['sometimes', 'string', 'min:1', 'max:1024'],
+            'inputs.*.reply_id' => ['sometimes', 'nullable', 'string', 'max:256'],
+            'inputs.*.timer' => ['sometimes', 'boolean'],
+        ]);
+
+        return $this->proxy($request, function (AgentApiClient $client) use ($flow, $validated) {
+            $body = $client->simulateFlow($flow, array_values($validated['inputs']));
+
+            return [
+                'transcript' => array_values(array_map([$this, 'projectTranscript'],
+                    array_filter(is_array($body['transcript'] ?? null) ? $body['transcript'] : [], 'is_array'))),
+                'session' => [
+                    'status' => $body['session']['status'] ?? null,
+                    'current_node_id' => $body['session']['current_node_id'] ?? null,
+                    'end_reason' => $body['session']['end_reason'] ?? null,
+                    'failure_code' => $body['session']['failure_code'] ?? null,
+                ],
+                // Node ids and event names, never message bodies: the transcript above is where what a
+                // customer would read belongs, and duplicating it into a trace is a second place to leak it.
+                'trace' => array_values(array_map(static fn (array $step): array => [
+                    'event' => $step['event'] ?? null,
+                    'node_id' => $step['node_id'] ?? null,
+                    'node_type' => $step['node_type'] ?? null,
+                    'output' => $step['output'] ?? null,
+                ], array_filter(is_array($body['trace'] ?? null) ? $body['trace'] : [], 'is_array'))),
+            ];
+        });
+    }
+
     // ------------------------------------------------------------------ projections
 
     /**
@@ -211,6 +356,107 @@ class AutomationApiController extends Controller
         $projected['errors'] = $this->projectGraphErrors($flow);
 
         return $projected;
+    }
+
+    /**
+     * THE GRAPH, SHAPED, NOT TRUSTED AND NOT INTERPRETED.
+     *
+     * Node `data` is passed through whole, deliberately: its keys are the node type's own contract and are
+     * validated by Flows::NodeValidator, and a list written here of which keys may travel would be a second
+     * contract that silently drops a setting the day a node type gains one. What IS enforced is the frame --
+     * every node an object with an id, a type, a position and a data object; every edge four strings -- so a
+     * malformed graph is a graph the canvas refuses to draw rather than one that throws inside the renderer.
+     *
+     * IDS AND TYPES ARE BOUNDED because they are drawn into the DOM as attribute values and compared as
+     * strings. Lynomia's own ID pattern is at most 64 characters; anything longer is not a node this product
+     * made.
+     */
+    private function projectGraph(mixed $graph): array
+    {
+        $nodes = is_array($graph['nodes'] ?? null) ? $graph['nodes'] : [];
+        $edges = is_array($graph['edges'] ?? null) ? $graph['edges'] : [];
+
+        return [
+            'nodes' => array_values(array_map(static fn (array $node): array => [
+                'id' => mb_substr((string) ($node['id'] ?? ''), 0, 64),
+                'type' => mb_substr((string) ($node['type'] ?? ''), 0, 64),
+                'position' => [
+                    'x' => (float) ($node['position']['x'] ?? 0),
+                    'y' => (float) ($node['position']['y'] ?? 0),
+                ],
+                'data' => is_array($node['data'] ?? null) ? $node['data'] : [],
+            ], array_filter($nodes, 'is_array'))),
+            'edges' => array_values(array_map(static fn (array $edge): array => [
+                'id' => mb_substr((string) ($edge['id'] ?? ''), 0, 64),
+                'source' => mb_substr((string) ($edge['source'] ?? ''), 0, 64),
+                'sourceHandle' => mb_substr((string) ($edge['sourceHandle'] ?? ''), 0, 64),
+                'target' => mb_substr((string) ($edge['target'] ?? ''), 0, 64),
+            ], array_filter($edges, 'is_array'))),
+        ];
+    }
+
+    /** An id and a display name, and nothing else: a picker needs no more and an email is not its business. */
+    private function projectNamed(mixed $records, string $nameKey): array
+    {
+        return array_values(array_map(static fn (array $record): array => [
+            'id' => $record['id'] ?? null,
+            'name' => (string) ($record[$nameKey] ?? ''),
+        ], array_filter(is_array($records) ? $records : [], 'is_array')));
+    }
+
+    private function projectAttributes(mixed $definitions): array
+    {
+        return array_values(array_map(static fn (array $definition): array => [
+            'key' => $definition['attribute_key'] ?? null,
+            'name' => (string) ($definition['attribute_display_name'] ?? $definition['attribute_key'] ?? ''),
+            'type' => $definition['attribute_display_type'] ?? 'text',
+            'values' => array_values(array_filter(
+                is_array($definition['attribute_values'] ?? null) ? $definition['attribute_values'] : [],
+                'is_string'
+            )),
+        ], array_filter(is_array($definitions) ? $definitions : [], 'is_array')));
+    }
+
+    /**
+     * The condition vocabulary, carried through as structure. There is no human text in it by design -- the
+     * Studio writes every label in the merchant's own language from the key -- so this narrows the keys rather
+     * than filtering prose.
+     */
+    private function projectVocabulary(array $vocabulary): array
+    {
+        return [
+            'conditions' => array_values(array_map(static fn (array $entry): array => [
+                'key' => (string) ($entry['key'] ?? ''),
+                'scope' => $entry['scope'] ?? null,
+                'data_type' => $entry['data_type'] ?? 'text',
+                'operators' => array_values(array_filter(
+                    is_array($entry['operators'] ?? null) ? $entry['operators'] : [], 'is_string'
+                )),
+                'options_from' => $entry['options_from'] ?? null,
+                'values' => is_array($entry['values'] ?? null) ? array_values($entry['values']) : null,
+                'available' => $entry['available'] ?? true,
+                'custom_attribute' => (bool) ($entry['custom_attribute'] ?? false),
+            ], array_filter(is_array($vocabulary['conditions'] ?? null) ? $vocabulary['conditions'] : [], 'is_array'))),
+            'condition_patterns' => array_values(array_filter(
+                is_array($vocabulary['condition_patterns'] ?? null) ? $vocabulary['condition_patterns'] : [], 'is_array'
+            )),
+        ];
+    }
+
+    /**
+     * One turn of a Test Mode run. `items` are the choices a Buttons or List node offered, which is what makes
+     * the transcript clickable rather than something to read and guess at.
+     */
+    private function projectTranscript(array $entry): array
+    {
+        return [
+            'from' => $entry['from'] ?? null,
+            'text' => (string) ($entry['text'] ?? ''),
+            'items' => array_values(array_map(static fn (array $item): array => [
+                'value' => $item['value'] ?? null,
+                'title' => (string) ($item['title'] ?? ''),
+            ], array_filter(is_array($entry['items'] ?? null) ? $entry['items'] : [], 'is_array'))),
+        ];
     }
 
     private function projectVersion(mixed $version): ?array

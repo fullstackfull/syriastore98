@@ -376,6 +376,38 @@ trait InteractsWithLynomia
                     => Http::response([], 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/flows/\d+$#', $path)
                     => Http::response($this->lynomiaScript['flow'] ?? self::sampleFlow(), 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/flows/\d+/draft$#', $path) && $method === 'PUT'
+                    => Http::response(array_merge(self::sampleFlow(), [
+                        'state' => 'draft',
+                        'draft' => ['id' => 6, 'version' => 4, 'status' => 'draft', 'published_at' => null,
+                            'updated_at' => '2026-02-02T10:00:00Z',
+                            'lock_version' => (int) (json_decode($request->body(), true)['lock_version'] ?? 0) + 1],
+                    ]), 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/flows/\d+/simulate$#', $path)
+                    => Http::response($this->lynomiaScript['simulation'] ?? self::sampleSimulation(), 200),
+
+                // ---------------- the references a configuration form binds its pickers to
+                (bool) preg_match('#^/api/v1/accounts/\d+/labels$#', $path)
+                    => Http::response(['payload' => [
+                        ['id' => 3, 'title' => 'vip', 'description' => 'd', 'color' => '#fff', 'show_on_sidebar' => true],
+                    ]], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/teams$#', $path)
+                    => Http::response([['id' => 4, 'name' => 'Support', 'description' => 'd']], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/inboxes$#', $path)
+                    => Http::response(['payload' => [
+                        // `phone_number` and a provider config are what an inbox payload really
+                        // carries upstream; the BFF's projection must not pass them on.
+                        ['id' => 9, 'name' => 'WhatsApp', 'channel_type' => 'Channel::Whatsapp',
+                            'phone_number' => '+963900000000', 'provider_config' => ['api_key' => 'INBOX-SECRET-MUST-NOT-LEAK']],
+                    ]], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/custom_attribute_definitions$#', $path)
+                    => Http::response([
+                        ['id' => 1, 'attribute_key' => 'loyalty_tier', 'attribute_display_name' => 'Loyalty tier',
+                            'attribute_display_type' => 'list', 'attribute_values' => ['gold', 'silver']],
+                    ], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/automation_rules/vocabulary$#', $path)
+                    => Http::response($this->lynomiaScript['vocabulary'] ?? self::sampleVocabulary(), 200),
+
                 // What the account may do and how much of each allowance it has used, as
                 // Api::V1::Accounts::BillingController#entitlements answers it.
                 (bool) preg_match('#^/api/v1/accounts/\d+/billing/entitlements$#', $path)
@@ -445,6 +477,67 @@ trait InteractsWithLynomia
                 'runs_flows' => true, 'unsupported_nodes' => [],
             ]],
             'errors' => [],
+
+            // The builder half of show_json. Trimmed to two node types and their fields: the
+            // point under test is that the catalogue is CARRIED, not that this fixture restates
+            // Lynomia's whole contract -- which has its own specs on that side.
+            'graph' => [
+                'nodes' => [
+                    ['id' => 'start', 'type' => 'start', 'position' => ['x' => 0, 'y' => 0], 'data' => []],
+                    ['id' => 'hello', 'type' => 'send_message', 'position' => ['x' => 0, 'y' => 160],
+                        'data' => ['text' => 'Hi {{contact.name}}']],
+                ],
+                'edges' => [['id' => 'e1', 'source' => 'start', 'sourceHandle' => 'next', 'target' => 'hello']],
+            ],
+            'node_types' => [
+                'start' => ['outputs' => ['next'], 'data' => ['keywords', 'conditions']],
+                'send_message' => ['outputs' => ['next'], 'data' => ['text']],
+            ],
+            'node_fields' => [
+                'start' => [['key' => 'keywords', 'kind' => 'words', 'max_items' => 20, 'max_length' => 64]],
+                'send_message' => [['key' => 'text', 'kind' => 'text', 'required' => true,
+                    'max' => 4096, 'variables' => 'all']],
+            ],
+            'store_scopes' => ['contact', 'conversation', 'context'],
+            'capabilities' => ['text' => ['body' => 4096], 'buttons' => ['max' => 3, 'title' => 20, 'body' => 1024]],
+            'variables' => ['contact.name', 'flow.reply'],
+            'templates' => [['name' => 'spring_offer', 'language' => 'en_US', 'category' => 'MARKETING',
+                'slots' => [['section' => 'body', 'key' => '1', 'kind' => 'text']]]],
+        ];
+    }
+
+    /** A Test Mode run, as Flows::Simulator answers it. */
+    protected static function sampleSimulation(): array
+    {
+        return [
+            'transcript' => [
+                ['from' => 'customer', 'text' => 'hi', 'items' => []],
+                ['from' => 'bot', 'text' => 'How can we help?', 'items' => [
+                    ['value' => 'lfb:menu:track', 'title' => 'Track order'],
+                ]],
+            ],
+            'session' => ['status' => 'active', 'current_node_id' => 'menu', 'end_reason' => null, 'failure_code' => null],
+            // Node ids and events only -- the real simulator reports no message text here either.
+            'trace' => [['event' => 'flow.node.executed', 'node_id' => 'menu', 'node_type' => 'buttons', 'output' => 'track']],
+        ];
+    }
+
+    /** The condition vocabulary, as Automation::Vocabulary serves it. */
+    protected static function sampleVocabulary(): array
+    {
+        return [
+            'events' => ['conversation_created', 'commerce_order_paid'],
+            'actions' => ['send_message', 'add_label'],
+            'conditions' => [
+                ['key' => 'status', 'scope' => 'conversation', 'data_type' => 'text',
+                    'operators' => ['equal_to', 'not_equal_to'], 'values' => ['open', 'resolved'], 'available' => true],
+                ['key' => 'assignee_id', 'scope' => 'conversation', 'data_type' => 'text',
+                    'operators' => ['equal_to'], 'options_from' => 'agents', 'available' => true],
+                ['key' => 'commerce_order_status', 'scope' => 'commerce', 'data_type' => 'text',
+                    'operators' => ['equal_to'], 'values' => ['delivered'], 'available' => false],
+            ],
+            'condition_patterns' => [['prefix' => 'commerce_spend_', 'suffix' => 'currency', 'scope' => 'commerce',
+                'data_type' => 'number', 'operators' => ['is_greater_than'], 'available' => false]],
         ];
     }
 

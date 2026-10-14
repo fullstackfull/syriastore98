@@ -216,24 +216,6 @@ class AgentApiClient
     }
 
     /**
-     * 409 carries the other editor's graph and the retry token; 422 carries the shape errors.
-     *
-     * NOT TRANSPORT-RETRIED, for a reason specific to the optimistic lock: if the save landed
-     * and the answer was lost, the retry's `lock_version` is now stale and Lynomia answers 409 --
-     * the editor would be told somebody else had saved when nobody had. The browser re-reads
-     * instead, which gets the right answer in both cases.
-     *
-     * @return array{0:int,1:array}
-     */
-    public function saveFlowDraft(int $flowId, array $graph, int $lockVersion): array
-    {
-        return $this->http->sendAllowing([409, 422], 'put', $this->path("flows/{$flowId}/draft"), [
-            'graph' => $graph,
-            'lock_version' => $lockVersion,
-        ], retryTransport: false);
-    }
-
-    /**
      * 422 carries the graph's validation errors, keyed by node id: the one thing that lets a
      * merchant fix a flow that will not publish.
      *
@@ -256,12 +238,39 @@ class AgentApiClient
     }
 
     /**
-     * Test Mode on the draft. A pure function upstream: the spec that covers it asserts no
-     * message, conversation, contact, session or job survives it, so a retry costs nothing.
+     * The account references a configuration form binds its pickers to.
+     *
+     * FOUR CALLS RATHER THAN ONE, because Lynomia has no composite endpoint for them and inventing one here
+     * would be a new surface to maintain for a saving of three round trips on a page that is opened, not
+     * polled. They are the endpoints the dashboard itself uses.
      */
-    public function simulateFlow(int $flowId, array $inputs): array
+    public function listLabels(): array
     {
-        return $this->http->send('post', $this->path("flows/{$flowId}/simulate"), ['inputs' => $inputs]);
+        return $this->http->send('get', $this->path('labels'));
+    }
+
+    public function listTeams(): array
+    {
+        return $this->http->send('get', $this->path('teams'));
+    }
+
+    /** @param string $model contact_attribute | conversation_attribute */
+    public function listCustomAttributes(string $model): array
+    {
+        return $this->http->send('get', $this->path('custom_attribute_definitions'), ['attribute_model' => $model]);
+    }
+
+    /**
+     * What a condition may say: the attribute keys, their operators and their value sources.
+     *
+     * SERVED, NEVER COPIED. Lynomia's own dashboard keeps this vocabulary as JavaScript constants beside the
+     * server's; a second hand-maintained copy here would offer a merchant an attribute the server rejects, and
+     * they would find out when the flow refused to publish. Administrator-only upstream, like the flows
+     * endpoints themselves.
+     */
+    public function automationVocabulary(): array
+    {
+        return $this->http->send('get', $this->path('automation_rules/vocabulary'));
     }
 
     /**
@@ -278,6 +287,39 @@ class AgentApiClient
     public function entitlements(): array
     {
         return $this->http->send('get', $this->path('billing/entitlements'));
+    }
+
+    // ------------------------------------------------------------------ the builder
+
+    /**
+     * Save the draft graph, subject to the optimistic lock.
+     *
+     * 409 carries the OTHER editor's graph and the retry token; 422 carries the shape errors. Both are
+     * returned rather than thrown -- see AgentApiClient::saveFlowDraft's sibling on LynomiaHttp.
+     *
+     * NOT TRANSPORT-RETRIED, for a reason specific to the lock: if the save landed and the answer was lost,
+     * the retry's lock_version is stale and Lynomia answers 409 -- the editor would be told somebody else had
+     * saved when nobody had. The browser re-reads instead, which is right in both cases.
+     *
+     * @return array{0:int,1:array}
+     */
+    public function saveFlowDraft(int $flowId, array $graph, int $lockVersion): array
+    {
+        return $this->http->sendAllowing([409, 422], 'put', $this->path("flows/{$flowId}/draft"), [
+            'graph' => $graph,
+            'lock_version' => $lockVersion,
+        ], retryTransport: false);
+    }
+
+    /**
+     * Test Mode on the draft. A pure function upstream: the spec covering it asserts that no message,
+     * conversation, contact, session or job survives, so a retry costs nothing and changes nothing.
+     *
+     * @param list<array{text?:string,reply_id?:string,timer?:bool}> $inputs
+     */
+    public function simulateFlow(int $flowId, array $inputs): array
+    {
+        return $this->http->send('post', $this->path("flows/{$flowId}/simulate"), ['inputs' => $inputs]);
     }
 
     // ------------------------------------------------------------------ webhooks (admin only)

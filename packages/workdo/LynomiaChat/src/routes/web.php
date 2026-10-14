@@ -225,6 +225,12 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
             ])->group(function () {
                 Route::get('/automation', [AutomationController::class, 'index'])->name('automation');
 
+                // The visual builder. A page of its own rather than a panel on the list, because it
+                // owns the whole viewport and has its own unsaved state -- navigating away from a
+                // modal by accident is how a merchant loses a flow they were drawing.
+                Route::get('/automation/{flow}/builder', [AutomationController::class, 'builder'])
+                    ->whereNumber('flow')->name('automation.builder');
+
                 Route::prefix('automation/api')->name('automation.api.')->group(function () {
                     Route::get('/flows', [AutomationApiController::class, 'index'])->name('flows');
                     Route::post('/flows', [AutomationApiController::class, 'store'])->name('flows.store');
@@ -240,6 +246,21 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
                         ->whereNumber('flow')->name('flows.publish');
                     Route::post('/flows/{flow}/disable', [AutomationApiController::class, 'disable'])
                         ->whereNumber('flow')->name('flows.disable');
+
+                    // ---------------------------------------------------- the builder
+                    //
+                    // `references` carries no flow id: the labels, teams, agents, attributes and
+                    // condition vocabulary are the WORKSPACE's, and the credential already decided
+                    // which workspace that is.
+                    Route::get('/references', [AutomationApiController::class, 'references'])->name('references');
+                    Route::get('/flows/{flow}/builder', [AutomationApiController::class, 'builder'])
+                        ->whereNumber('flow')->name('flows.builder');
+                    Route::put('/flows/{flow}/draft', [AutomationApiController::class, 'draft'])
+                        ->whereNumber('flow')->name('flows.draft');
+                    // Test Mode runs the DRAFT and leaves nothing behind; it is still a write verb
+                    // because it is not a cacheable read and must carry the CSRF token.
+                    Route::post('/flows/{flow}/simulate', [AutomationApiController::class, 'simulate'])
+                        ->whereNumber('flow')->name('flows.simulate');
                 });
             });
         });
