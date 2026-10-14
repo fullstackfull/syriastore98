@@ -249,13 +249,19 @@ class AutomationApiController extends Controller
      * Flows::GraphValidator by hand, and the one that drifted would be this one. What is checked is the shape
      * of the REQUEST -- a graph object with nodes and edges, within a size this surface will carry -- so a
      * malformed body is refused at the boundary instead of travelling to Lynomia to be refused there.
+     *
+     * `present` RATHER THAN `required` ON BOTH ARRAYS, for the reason ruleParams() uses it: Laravel's
+     * `required` REFUSES AN EMPTY ARRAY. A flow that has no connections yet is the ordinary case -- a new
+     * flow is one start step and nothing else, and a starter graph arrives before anything is wired -- so
+     * `required` on `edges` refused the first save of almost every flow. `present` asks the question this
+     * boundary is actually asking: did the caller send the key, and is it an array.
      */
     public function draft(Request $request, int $flow): JsonResponse
     {
         $validated = $request->validate([
             'graph' => ['required', 'array'],
-            'graph.nodes' => ['required', 'array', 'max:' . self::MAX_NODES],
-            'graph.edges' => ['required', 'array', 'max:' . self::MAX_EDGES],
+            'graph.nodes' => ['present', 'array', 'max:' . self::MAX_NODES],
+            'graph.edges' => ['present', 'array', 'max:' . self::MAX_EDGES],
             'lock_version' => ['required', 'integer', 'min:0'],
         ]);
 

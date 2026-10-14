@@ -76,17 +76,36 @@ await busyRow.locator('button').click();
 await page.waitForSelector('#lynb-confirm-modal.show');
 const confirmBody = await page.locator('#lynb-confirm-body').textContent();
 check('replacing another automation is confirmed, and names it', confirmBody.includes('Order updates'), confirmBody.trim());
+// CONFIRMING IS DELIBERATELY NOT SYNCHRONOUS. The handler waits for `hidden.bs.modal` before it acts,
+// so that reopening the Channels panel cannot race the confirm dialog's own teardown -- which would
+// otherwise reset the scrollbar and drop `modal-open` from <body> underneath the panel that just
+// opened. So these wait for the dialog to actually be gone rather than for a fixed number of
+// milliseconds, which is both the real condition and not a number that goes stale on a slower box.
 await page.locator('#lynb-confirm-ok').click();
-await page.waitForTimeout(300);
+await page.waitForSelector('#lynb-confirm-modal', { state: 'hidden' });
+await page.waitForTimeout(200);
 check('confirming the replacement connects', connects.length === 2 && connects[1].inbox_id === 13);
 
-// Disconnecting asks too.
+// AND THE PANEL SURVIVES THE DIALOG IT WAS REOPENED BEHIND. Bootstrap tears a modal's backdrop down
+// well after hide() returns, and that teardown drops `modal-open` from <body> and resets the
+// scrollbar. Reopening the panel before it finished meant the page behind the open panel became
+// scrollable and the layout shifted, a few hundred milliseconds after the merchant clicked.
 await page.waitForSelector('#lynb-channels-modal.show');
+await page.waitForTimeout(600);
+const bodyState = await page.evaluate(() => ({
+  open: document.body.classList.contains('modal-open'),
+  panel: document.getElementById('lynb-channels-modal').classList.contains('show'),
+}));
+check('the reopened panel is not torn down by the dialog it replaced',
+  bodyState.open && bodyState.panel, JSON.stringify(bodyState));
+
+// Disconnecting asks too.
 await page.locator('#lynb-channels-list > div').nth(0).locator('button').click();
 await page.waitForSelector('#lynb-confirm-modal.show');
 check('disconnecting is confirmed', (await page.locator('#lynb-confirm-body').textContent()).includes('stop being answered'));
 await page.locator('#lynb-confirm-ok').click();
-await page.waitForTimeout(300);
+await page.waitForSelector('#lynb-confirm-modal', { state: 'hidden' });
+await page.waitForTimeout(200);
 check('confirming the disconnect clears the channel',
   disconnects.length === 1 && disconnects[0].endsWith('/channels/9'), disconnects.join(','));
 

@@ -228,6 +228,7 @@
                                     <tr>
                                         <th scope="col">{{ __('Permission') }}</th>
                                         <th scope="col" class="text-end">{{ __('Roles holding it') }}</th>
+                                        <th scope="col" class="text-end">{{ __('Platform-wide roles') }}</th>
                                         <th scope="col" class="text-end">{{ __('Stores covered') }}</th>
                                     </tr>
                                 </thead>
@@ -236,6 +237,7 @@
                                         <tr>
                                             <td>{{ __($row['name']) }}</td>
                                             <td class="text-end">{{ $row['roles'] }}</td>
+                                            <td class="text-end">{{ $row['platform_wide'] }}</td>
                                             <td class="text-end">{{ $row['stores'] }}</td>
                                         </tr>
                                     @endforeach

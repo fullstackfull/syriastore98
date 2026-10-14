@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Lynomia;
 
+use App\Models\Permission;
+use App\Models\Role;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
@@ -412,6 +414,40 @@ class LynomiaPhase4SecurityTest extends TestCase
         $view = (string) file_get_contents(base_path(self::MODULE . '/resources/views/superadmin/integration.blade.php'));
         $this->assertStringContainsString('lynomia-automation', $view);
         $this->assertStringContainsString('automationAccess', $view);
+    }
+
+    /**
+     * THE PRODUCTION GRANT IS ONE GLOBAL ROLE, AND IT MUST NOT READ AS "NOBODY".
+     *
+     * PermissionTableSeeder grants all five permissions to a single `admin` role with no
+     * store_id -- that is how every merchant owner on the installation gets them. Counted as
+     * `COUNT(DISTINCT store_id)` it comes back 0, because SQL skips NULL, so the broadest grant
+     * there is rendered as the narrowest. The two numbers are kept apart for that reason, and
+     * this pins the production shape rather than the per-store shape the other fixture builds.
+     */
+    public function test_the_automation_tab_counts_a_platform_wide_grant_as_platform_wide(): void
+    {
+        $this->fakeLynomia();
+
+        $permission = Permission::firstOrCreate(
+            ['name' => 'Manage Lynomia Automation'],
+            ['display_name' => 'Manage Lynomia Automation', 'guard_name' => 'web']
+        );
+        $permission->forceFill(['module' => 'LynomiaChat'])->save();
+
+        // No store_id: the shape the seeder creates.
+        $role = Role::forceCreate(['name' => 'admin-global', 'display_name' => 'Admin', 'guard_name' => 'web']);
+        $this->assertNull($role->store_id);
+        $role->permissions()->sync([$permission->id]);
+
+        $this->actingAs($this->operator());
+        $data = app(\Workdo\LynomiaChat\app\Http\Controllers\SuperAdmin\IntegrationController::class)
+            ->show()->getData();
+
+        $row = collect($data['automationAccess'])->firstWhere('name', 'Manage Lynomia Automation');
+        $this->assertSame(1, $row['roles']);
+        $this->assertSame(1, $row['platform_wide'], 'A role with no store_id reaches every tenant.');
+        $this->assertSame(0, $row['stores'], 'It is not confined to a store, so it covers no named store.');
     }
 
     /**

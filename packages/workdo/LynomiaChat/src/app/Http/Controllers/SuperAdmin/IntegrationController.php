@@ -113,7 +113,14 @@ class IntegrationController extends Controller
      * the shape rather than the people. The store count is what makes the number readable: four
      * roles across four stores is ordinary, four roles in one store is worth a look.
      *
-     * @return list<array{name:string, roles:int, stores:int}>
+     * A ROLE WITH NO store_id IS PLATFORM-WIDE, AND IS COUNTED SEPARATELY RATHER THAN AS A STORE.
+     * That is not a corner case -- it is the shape this module's own seeder creates, one global
+     * `admin` role granted all five permissions, reaching every merchant owner on the installation.
+     * Counted under "stores covered" it reads 0, because COUNT(DISTINCT store_id) skips NULL: the
+     * broadest grant there is would render as the narrowest. So the store count covers only the
+     * roles that really are confined to one store, and the platform-wide ones are their own number.
+     *
+     * @return list<array{name:string, roles:int, platform_wide:int, stores:int}>
      */
     private function automationAccess(): array
     {
@@ -127,7 +134,8 @@ class IntegrationController extends Controller
             return [
                 'name' => $name,
                 'roles' => (clone $roles)->count(),
-                'stores' => (clone $roles)->distinct()->count('store_id'),
+                'platform_wide' => (clone $roles)->whereNull('store_id')->count(),
+                'stores' => (clone $roles)->whereNotNull('store_id')->distinct()->count('store_id'),
             ];
         })->all();
     }

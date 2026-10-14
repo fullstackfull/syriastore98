@@ -265,6 +265,51 @@ class LynomiaFlowBuilderTest extends TestCase
         Http::assertNothingSent();
     }
 
+    /**
+     * A FLOW WITH NO CONNECTIONS IS THE ORDINARY FIRST SAVE, NOT A MALFORMED REQUEST.
+     *
+     * A brand new flow is one start step and nothing else; a merchant who drags a step before
+     * wiring it has the same graph. Laravel's `required` refuses an empty array, so the rule
+     * that looked like "send me the edges" actually meant "send me at least one edge" -- and
+     * every one of those saves 422'd at this boundary without reaching Lynomia, which is where
+     * a graph is supposed to be judged. The builder funnels Save, Test and Publish through this
+     * one call, so it took all three down together.
+     */
+    public function test_a_graph_with_no_connections_yet_is_forwarded_rather_than_refused(): void
+    {
+        [$owner] = $this->connectedTenant();
+
+        $graph = ['nodes' => [['id' => 'start', 'type' => 'start', 'position' => ['x' => 0, 'y' => 0], 'data' => []]],
+                  'edges' => []];
+
+        $this->actingAs($owner)->putJson(self::DRAFT, ['graph' => $graph, 'lock_version' => 0])
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        Http::assertSent(function ($request) {
+            return str_contains($request->url(), '/flows/42/draft')
+                && $request['graph']['edges'] === []
+                && count($request['graph']['nodes']) === 1;
+        });
+    }
+
+    /** The key still has to BE there, and still has to be an array -- `present` is not `nullable`. */
+    public function test_a_graph_missing_its_edges_key_entirely_is_still_refused(): void
+    {
+        [$owner] = $this->connectedTenant();
+        Http::fake();
+
+        $nodes = [['id' => 'start', 'type' => 'start', 'position' => ['x' => 0, 'y' => 0], 'data' => []]];
+
+        $this->actingAs($owner)->putJson(self::DRAFT, ['graph' => ['nodes' => $nodes], 'lock_version' => 0])
+            ->assertStatus(422);
+        $this->actingAs($owner)->putJson(self::DRAFT, [
+            'graph' => ['nodes' => $nodes, 'edges' => 'not-a-list'], 'lock_version' => 0,
+        ])->assertStatus(422);
+
+        Http::assertNothingSent();
+    }
+
     // ================================================================ test mode
 
     public function test_test_mode_returns_the_transcript_and_the_clickable_choices(): void

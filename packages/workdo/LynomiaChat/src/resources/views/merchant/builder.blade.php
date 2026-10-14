@@ -359,6 +359,7 @@
         template: @json(__('Template')),
         testEnded: @json(__('The run ended: :reason')),
         testWaiting: @json(__('Waiting for the customer.')),
+        testNotSaved: @json(__('Test Mode runs the saved draft, and this draft could not be saved. Close this and fix the problem shown on the canvas.')),
         unsupportedHere: @json(__('This step cannot run on :channel.')),
         confirm: @json(__('Confirm')),
         channels: @json(__('Channels')),
@@ -1364,7 +1365,7 @@
             if (options.length < (field.max_items || 3)) {
                 $box.append($('<button>').attr('type', 'button').addClass('btn btn-sm btn-light')
                     .text(T.addOption).on('click', function () {
-                        options.push({ id: 'o' + (options.length + 1), title: '' });
+                        options.push({ id: freshOptionId(options), title: '' });
                         commit();
                         redraw();
                         render();   // a new choice is a new output handle on the canvas
@@ -1373,6 +1374,26 @@
         }
 
         function commit() { setValue(node, field.key, options.length ? options : null); }
+
+        // AN OPTION ID IS AN OUTPUT HANDLE, so two choices sharing one is not a cosmetic clash: outputsOf()
+        // emits the id twice, handlePoint() resolves both to the first handle's position, and connect()
+        // matches on sourceHandle, so the second choice can never be routed anywhere. Counting the list
+        // ('o' + length) produced exactly that the moment a merchant deleted an earlier choice. Counting
+        // PAST THE HIGHEST ID IN USE instead, so a deletion can never hand the next choice a live id.
+        function freshOptionId(existing) {
+            var taken = {};
+            var highest = 0;
+            existing.forEach(function (option) {
+                var id = text(option.id);
+                taken[id] = true;
+                var n = /^o(\d+)$/.exec(id);
+                if (n) { highest = Math.max(highest, Number(n[1])); }
+            });
+
+            var next = highest + 1;
+            while (taken['o' + next]) { next++; }
+            return 'o' + next;
+        }
 
         redraw();
         return wrap(field, node, $box, field.max_items + ' · ' + field.title_max);
@@ -1772,17 +1793,26 @@
         });
     }
 
-    function saveDraft(onSaved) {
+    /**
+     * `onBlocked` EXISTS BECAUSE THE PAGE'S OWN ALERT IS NOT ALWAYS VISIBLE. showAlert() writes into the
+     * page chrome, which sits behind a modal backdrop; a caller that saves from inside a dialog -- Test
+     * Mode is the one -- has to be told the save did not happen so it can say so somewhere the merchant
+     * is actually looking. Every branch that does not reach `onSaved` calls it, the conflict included:
+     * "nothing was saved" is the same answer to the caller whichever way the save was refused.
+     */
+    function saveDraft(onSaved, onBlocked) {
         clearAlert();
         var $save = $('#lynb-save').prop('disabled', true);
+        var blocked = function () { if (onBlocked) { onBlocked(); } };
 
         send('PUT', '/draft', { graph: state.graph, lock_version: state.lockVersion })
             .done(function (body) {
-                if (body.ok === false && body.conflict) { openConflict(body.conflict); return; }
+                if (body.ok === false && body.conflict) { openConflict(body.conflict); blocked(); return; }
                 if (body.ok === false) {
                     state.errors = body.errors || [];
                     renderProblems();
                     showAlert(T.shapeProblems);
+                    blocked();
                     return;
                 }
                 applyFlow(body.flow || {});
@@ -1792,7 +1822,7 @@
                 showNotice(T.saved);
                 if (onSaved) { onSaved(); }
             })
-            .fail(function (xhr) { showAlert(failureOf(xhr)); })
+            .fail(function (xhr) { showAlert(failureOf(xhr)); blocked(); })
             .always(function () { $save.prop('disabled', false); });
     }
 
@@ -1891,11 +1921,14 @@
         confirmModal.show();
     }
 
+    // THROUGH whenHidden RATHER THAN hide()-then-act. Bootstrap strips the `show` class synchronously
+    // inside hide() but tears the backdrop down ~150ms later, so an action that reopened another modal
+    // immediately had the confirm dialog's teardown reset the scrollbar and drop `modal-open` from <body>
+    // underneath it. Calling whenHidden while this modal is still shown is what lets it do its job.
     $('#lynb-confirm-ok').on('click', function () {
         var action = confirmAction;
         confirmAction = null;
-        confirmModal.hide();
-        if (action) { action(); }
+        whenHidden('lynb-confirm-modal', confirmModal, function () { if (action) { action(); } });
     });
 
     /**
@@ -2131,7 +2164,11 @@
                 .fail(function (xhr) { $('#lynb-test-status').text(failureOf(xhr)); });
         };
 
-        if (state.dirty) { saveDraft(run); } else { run(); }
+        if (state.dirty) {
+            saveDraft(run, function () { $('#lynb-test-status').text(T.testNotSaved); });
+        } else {
+            run();
+        }
     }
 
     function pushInput(input) {

@@ -115,8 +115,13 @@ class LynomiaApiException extends RuntimeException
                 $status
             ),
             $status === 404 => new self(self::KIND_NOT_FOUND, 'The Lynomia resource does not exist.', $status),
-            $status === 409 => new self(self::KIND_CONFLICT, 'Lynomia reported a conflict.', $status),
-            $status === 422 => new self(self::KIND_CONFLICT, 'Lynomia rejected the request as invalid.', $status),
+            // TRANSLATED, UNLIKE THEIR NEIGHBOURS, BECAUSE THESE TWO ARE THE ONLY ONES A MERCHANT READS.
+            // Every other kind below is replaced by a merchant-facing sentence in merchantMessage();
+            // KIND_CONFLICT alone passes getMessage() straight through, because most of its carriers
+            // (AccountLinker, IdentityProvisioner) already build a translated sentence. These two do not,
+            // so without __() an Arabic dashboard shows an English developer note.
+            $status === 409 => new self(self::KIND_CONFLICT, __('Lynomia reported a conflict.'), $status),
+            $status === 422 => new self(self::KIND_CONFLICT, __('Lynomia rejected the request as invalid.'), $status),
             $status === 429 => new self(self::KIND_RATE_LIMITED, 'Lynomia is rate limiting this app.', $status),
             default => new self(self::KIND_REMOTE_ERROR, "Lynomia returned HTTP {$status}.", $status),
         };

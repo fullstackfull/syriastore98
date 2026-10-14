@@ -324,6 +324,41 @@ async function openBuilder(locale, viewport) {
   const choices = await page.locator('#lynb-test-choices button').allTextContents();
   check('Test Mode offers the choices the flow sent', choices.includes('Track order'), choices.join(','));
 
+  // --- AN OPTION ID IS AN OUTPUT HANDLE, so a duplicate is not cosmetic: the second choice with a
+  // repeated id draws its handle over the first one's position and can never be routed anywhere,
+  // with nothing on screen to say why. Minting ids by list length produced exactly that as soon as a
+  // merchant deleted an earlier choice, which is the sequence below.
+  await page.locator('#lynb-test-modal [data-bs-dismiss="modal"]').first().click();
+  await page.waitForTimeout(500);              // the backdrop intercepts clicks until it is torn down
+  await page.locator('.lynb-node[data-node="menu"]').click();
+  await page.waitForTimeout(80);
+
+  const optionIds = () => page.locator('#lynb-inspector-body .border.rounded span.text-muted').allTextContents();
+  const addChoice = async () => {
+    await page.getByRole('button', { name: 'Add choice', exact: true }).click();
+    await page.waitForTimeout(40);
+  };
+  const removeChoice = async (index) => {
+    await page.locator('#lynb-inspector-body .border.rounded button[aria-label]').nth(index).click();
+    await page.waitForTimeout(40);
+  };
+
+  await removeChoice(0);                       // drop the two fixture ids so the minter starts clean
+  await removeChoice(0);
+  await addChoice(); await addChoice(); await addChoice();
+  check('choices are minted in order from empty', (await optionIds()).join(',') === 'o1,o2,o3', (await optionIds()).join(','));
+
+  await removeChoice(0);                       // o1 goes; the list is now o2,o3 and two long
+  await addChoice();
+  const minted = await optionIds();
+  check('a choice added after a deletion does not reuse a live id',
+    new Set(minted).size === minted.length && minted.includes('o4'), minted.join(','));
+
+  const outputs = await page.locator('.lynb-node[data-node="menu"] circle[data-output]')
+    .evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-output')));
+  check('and every output handle on the canvas is reachable on its own',
+    new Set(outputs).size === outputs.length, outputs.join(','));
+
   await page.screenshot({ path: (process.env.SHOT_DIR || '/tmp') + '/shot-builder-en.png', fullPage: false });
   await context.close();
 }
@@ -423,6 +458,41 @@ async function openBuilder(locale, viewport) {
   check('no horizontal overflow on the Studio in Arabic', overflow <= 1, `${overflow}px`);
 
   await page.screenshot({ path: (process.env.SHOT_DIR || '/tmp') + '/shot-studio-ar.png', fullPage: true });
+  await context.close();
+}
+
+// ================================== 5. Test Mode when the draft behind it cannot be saved
+//
+// Test Mode runs the SAVED draft, so it saves first. When that save is refused, the only place the
+// builder said so was the page's own alert strip -- which sits behind the test modal's backdrop. The
+// merchant was left with a dialog frozen on an ellipsis and the explanation hidden underneath it.
+{
+  const { context, page } = await openBuilder('en', { width: 1440, height: 900 });
+
+  await page.unroute('**/automation/api/flows/42/draft');
+  await page.route('**/automation/api/flows/42/draft', (route) => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ ok: false, errors: [{ code: 'unconnected_output', node_id: 'menu', detail: 'care' }] }),
+  }));
+
+  await page.getByRole('button', { name: 'Ask a question', exact: true }).click();   // make it dirty
+  await page.waitForTimeout(80);
+  await page.locator('#lynb-test').click();
+  await page.waitForSelector('#lynb-test-modal.show');
+  await page.locator('#lynb-test-form input').fill('hi');
+  await page.locator('#lynb-test-form button[type="submit"]').click();
+  await page.waitForTimeout(500);
+
+  const status = (await page.locator('#lynb-test-status').textContent()).trim();
+  check('a refused pre-save is explained inside the dialog, not behind it',
+    status.length > 1 && status !== '…' && status.includes('could not be saved'), status);
+
+  const alertHidden = await page.locator('#lynb-alert').evaluate((n) => {
+    const box = n.getBoundingClientRect();
+    return document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) !== n;
+  }).catch(() => true);
+  check('and the page alert really is unreachable behind the backdrop', alertHidden);
+
   await context.close();
 }
 
