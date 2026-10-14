@@ -112,6 +112,7 @@
                     <i class="ti ti-layout-sidebar" aria-hidden="true"></i>
                     <span class="d-none d-sm-inline ms-1">{{ __('Panels') }}</span>
                 </button>
+                <button type="button" class="btn btn-sm btn-light" id="lynb-channels">{{ __('Channels') }}</button>
                 <button type="button" class="btn btn-sm btn-light" id="lynb-test">{{ __('Test') }}</button>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="lynb-save">{{ __('Save draft') }}</button>
                 <button type="button" class="btn btn-sm btn-primary" id="lynb-publish">{{ __('Publish') }}</button>
@@ -161,6 +162,28 @@
     </div>
 </div>
 
+{{-- ------------------------------------------------------------------ channels --}}
+<div class="modal fade" id="lynb-channels-modal" tabindex="-1" aria-labelledby="lynb-channels-title" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="lynb-channels-title">{{ __('Channels') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ __('Close') }}"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted">
+                    {{ __('An automation answers customers on the channels it is connected to. A channel runs one automation at a time.') }}
+                </p>
+                <div id="lynb-channels-alert" class="alert alert-danger d-none" role="alert"></div>
+                <div id="lynb-channels-list" class="d-grid gap-2"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">{{ __('Close') }}</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {{-- ------------------------------------------------------------------ test mode --}}
 <div class="modal fade" id="lynb-test-modal" tabindex="-1" aria-labelledby="lynb-test-title" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-lg">
@@ -188,6 +211,23 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-light" id="lynb-test-reset">{{ __('Start over') }}</button>
                 <button type="button" class="btn btn-primary" data-bs-dismiss="modal">{{ __('Close') }}</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{-- ------------------------------------------------------------------ confirm --}}
+<div class="modal fade" id="lynb-confirm-modal" tabindex="-1" aria-labelledby="lynb-confirm-title" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="lynb-confirm-title"></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ __('Close') }}"></button>
+            </div>
+            <div class="modal-body"><p id="lynb-confirm-body" class="mb-0"></p></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">{{ __('Cancel') }}</button>
+                <button type="button" class="btn btn-primary" id="lynb-confirm-ok">{{ __('Confirm') }}</button>
             </div>
         </div>
     </div>
@@ -277,6 +317,19 @@
         testEnded: @json(__('The run ended: :reason')),
         testWaiting: @json(__('Waiting for the customer.')),
         unsupportedHere: @json(__('This step cannot run on :channel.')),
+        confirm: @json(__('Confirm')),
+        channels: @json(__('Channels')),
+        connect: @json(__('Connect')),
+        disconnect: @json(__('Disconnect')),
+        connected: @json(__('Running this automation')),
+        channelBusy: @json(__('Running :flow')),
+        channelTakenByOther: @json(__('Taken by something set up by support')),
+        channelCannotRun: @json(__('This channel cannot run automations yet')),
+        channelNone: @json(__('No channels are connected to this workspace yet.')),
+        replaceTitle: @json(__('Replace the automation on this channel?')),
+        replaceBody: @json(__('":flow" is running on this channel. Connecting this one will turn that one off here.')),
+        disconnectTitle: @json(__('Disconnect this channel?')),
+        disconnectBody: @json(__('Customers on this channel will stop being answered automatically.')),
         // Node type names and the groups they sit in. Keyed by the server's own type ids, so a
         // type the server adds and this build does not know still appears, under its raw id,
         // rather than vanishing from the palette.
@@ -1740,6 +1793,158 @@
         event.preventDefault();
         event.returnValue = T.leave;
         return T.leave;
+    });
+
+    // ------------------------------------------------------------------ channels
+    //
+    // WHAT A CHANNEL CAN DO IS SHOWN, NOT HIDDEN. A channel that cannot run an automation is
+    // listed and said to be unable, because a merchant who cannot find their email inbox here
+    // learns nothing, while one told "this channel cannot run automations yet" knows where they
+    // stand. Connect is offered only where it would work: the server would accept the
+    // attachment and the PUBLISH would then refuse it, which is a worse way to find out.
+
+    var channelsModal = new bootstrap.Modal(document.getElementById('lynb-channels-modal'));
+    var confirmModal = new bootstrap.Modal(document.getElementById('lynb-confirm-modal'));
+    var confirmAction = null;
+
+    /**
+     * Ask before doing something that changes what customers see.
+     *
+     * Connecting a channel that is already taken turns another automation off, and
+     * disconnecting stops customers being answered. Neither is a thing to do on one click.
+     */
+    function ask(title, body, okClass, onConfirm) {
+        $('#lynb-confirm-title').text(title);
+        $('#lynb-confirm-body').text(body);
+        $('#lynb-confirm-ok').removeClass('btn-primary btn-danger').addClass(okClass).text(T.confirm);
+        confirmAction = onConfirm;
+        confirmModal.show();
+    }
+
+    $('#lynb-confirm-ok').on('click', function () {
+        var action = confirmAction;
+        confirmAction = null;
+        confirmModal.hide();
+        if (action) { action(); }
+    });
+
+    /**
+     * Hand one dialog over to another.
+     *
+     * BOOTSTRAP FINISHES HIDING A MODAL ASYNCHRONOUSLY, and a `show()` issued during that
+     * transition is swallowed: the first dialog closes and the second never opens. Clicking
+     * Connect on a channel that was already taken did exactly that -- the panel shut and the
+     * confirmation the merchant was supposed to answer never appeared, so the replacement
+     * silently did not happen. Found in a browser.
+     */
+    function whenHidden(id, modal, then) {
+        var node = document.getElementById(id);
+        if (!node.classList.contains('show')) { then(); return; }
+
+        node.addEventListener('hidden.bs.modal', function once() {
+            node.removeEventListener('hidden.bs.modal', once);
+            then();
+        });
+        modal.hide();
+    }
+
+    function loadChannels() {
+        var $list = $('#lynb-channels-list').empty().append($('<div>').addClass('text-muted small').text('…'));
+        $('#lynb-channels-alert').addClass('d-none').text('');
+
+        $.getJSON(BASE + '/channels')
+            .done(function (body) { renderChannels(body.channels || []); })
+            .fail(function (xhr) {
+                $list.empty();
+                $('#lynb-channels-alert').text(failureOf(xhr)).removeClass('d-none');
+            });
+    }
+
+    function renderChannels(channels) {
+        var $list = $('#lynb-channels-list').empty();
+        if (!channels.length) {
+            $list.append($('<div>').addClass('text-muted small').text(T.channelNone));
+            return;
+        }
+
+        var mine = Number(FLOW_ID);
+
+        channels.forEach(function (channel) {
+            var isMine = channel.flow && Number(channel.flow.id) === mine;
+            var $row = $('<div>').addClass('d-flex flex-wrap align-items-center justify-content-between gap-2 border rounded p-2');
+
+            var $left = $('<div>').addClass('me-auto');
+            $left.append($('<div>').addClass('fw-semibold').text(channel.name));
+
+            var status;
+            if (!channel.runs_flows) { status = T.channelCannotRun; }
+            else if (isMine) { status = T.connected; }
+            else if (channel.flow) { status = T.channelBusy.split(':flow').join(channel.flow.name); }
+            else if (channel.occupied_by_other) { status = T.channelTakenByOther; }
+            else { status = ''; }
+            $left.append($('<div>').addClass('small ' + (channel.runs_flows ? 'text-muted' : 'text-warning')).text(status));
+            $row.append($left);
+
+            if (isMine) {
+                $row.append($('<button>').attr('type', 'button').addClass('btn btn-sm btn-light text-danger')
+                    .text(T.disconnect)
+                    .on('click', function () { disconnectChannel(channel); }));
+            } else if (channel.runs_flows) {
+                $row.append($('<button>').attr('type', 'button').addClass('btn btn-sm btn-outline-primary')
+                    .text(T.connect)
+                    .on('click', function () { connectChannel(channel); }));
+            }
+
+            $list.append($row);
+        });
+    }
+
+    function connectChannel(channel) {
+        var go = function () {
+            $.ajax({ url: url('/channels'), method: 'POST', contentType: 'application/json',
+                     dataType: 'json', data: JSON.stringify({ inbox_id: channel.id }) })
+                .done(function () { loadChannels(); load(); })
+                .fail(function (xhr) { $('#lynb-channels-alert').text(failureOf(xhr)).removeClass('d-none'); });
+        };
+
+        // Connecting replaces whatever is there. Turning off a colleague's automation without
+        // saying so is not something to do quietly, so a channel that is taken is confirmed
+        // first -- including one taken by something an operator set up, which is named only as
+        // "set up by support" because a bot from outside this account is not the merchant's.
+        if (channel.flow || channel.occupied_by_other) {
+            whenHidden('lynb-channels-modal', channelsModal, function () {
+                ask(T.replaceTitle,
+                    T.replaceBody.split(':flow').join(channel.flow ? channel.flow.name : T.channelTakenByOther),
+                    'btn-primary',
+                    function () {
+                        go();
+                        whenHidden('lynb-confirm-modal', confirmModal, function () { channelsModal.show(); });
+                    });
+            });
+            return;
+        }
+
+        go();
+    }
+
+    function disconnectChannel(channel) {
+        whenHidden('lynb-channels-modal', channelsModal, function () {
+            ask(T.disconnectTitle, T.disconnectBody, 'btn-danger', function () {
+                var reopen = function () { whenHidden('lynb-confirm-modal', confirmModal, function () { channelsModal.show(); }); };
+
+                $.ajax({ url: BASE + '/channels/' + encodeURIComponent(channel.id), method: 'DELETE', dataType: 'json' })
+                    .done(function () { reopen(); loadChannels(); load(); })
+                    .fail(function (xhr) {
+                        reopen();
+                        $('#lynb-channels-alert').text(failureOf(xhr)).removeClass('d-none');
+                    });
+            });
+        });
+    }
+
+    $('#lynb-channels').on('click', function () {
+        channelsModal.show();
+        loadChannels();
     });
 
     // ------------------------------------------------------------------ test mode

@@ -311,6 +311,82 @@ class AutomationApiController extends Controller
         });
     }
 
+    // ------------------------------------------------------------------ channels
+
+    /**
+     * The channels this workspace has, what each can do, and what each is running.
+     *
+     * HONEST ABOUT WHAT A CHANNEL CANNOT DO. Flows run on WhatsApp Cloud and nowhere else today.
+     * An inbox that cannot run one is listed and SAID to be unable, rather than hidden: a
+     * merchant who cannot find their email inbox in this list learns nothing, and a merchant
+     * told "this channel cannot run automations yet" knows where they stand. It is also why
+     * connecting is offered only where it would work -- the server would accept the attachment,
+     * and the publish would then refuse, which is a worse way to find out.
+     */
+    public function channels(Request $request): JsonResponse
+    {
+        return $this->proxy($request, function (AgentApiClient $client) {
+            $payload = $client->flowChannels()['payload'] ?? [];
+
+            return ['channels' => array_values(array_map([$this, 'projectChannel'],
+                array_filter(is_array($payload) ? $payload : [], 'is_array')))];
+        });
+    }
+
+    /**
+     * Connect this flow to a channel, or disconnect whatever is on one.
+     *
+     * ONE CHANNEL RUNS ONE AUTOMATION. Connecting to a channel that is already running another
+     * replaces it -- Chatwoot's own rule, kept rather than reinvented -- and the Studio asks
+     * before it does, because silently turning off a colleague's automation is not something a
+     * confirmation dialog is optional for.
+     *
+     * THE FLOW IS RESOLVED BEFORE IT IS ATTACHED, and that is a real control rather than a
+     * formality. Chatwoot's set_agent_bot accepts any bot `accessible_to` the account, which
+     * INCLUDES installation-wide bots with no account of their own -- attach one and its token
+     * reaches this merchant's conversations. Reading the flow first through /flows/:id, which is
+     * scoped to this account's own flow bots, is what makes an id from outside answer 404 here
+     * rather than being forwarded.
+     */
+    public function connectChannel(Request $request, int $flow): JsonResponse
+    {
+        $validated = $request->validate(['inbox_id' => ['required', 'integer', 'min:1']]);
+
+        return $this->proxy($request, function (AgentApiClient $client) use ($flow, $validated) {
+            $client->getFlow($flow);
+            $client->setInboxFlow((int) $validated['inbox_id'], $flow);
+
+            return ['ok' => true];
+        });
+    }
+
+    public function disconnectChannel(Request $request, int $inbox): JsonResponse
+    {
+        return $this->proxy($request, function (AgentApiClient $client) use ($inbox) {
+            $client->setInboxFlow($inbox, null);
+
+            return ['ok' => true];
+        });
+    }
+
+    private function projectChannel(array $channel): array
+    {
+        return [
+            'id' => $channel['id'] ?? null,
+            'name' => (string) ($channel['name'] ?? ''),
+            'channel_type' => $channel['channel_type'] ?? null,
+            'runs_flows' => (bool) ($channel['runs_flows'] ?? false),
+            // Named only when it is one of this account's own automations; an installation-wide
+            // bot is reported as "taken" and never identified.
+            'flow' => is_array($channel['flow'] ?? null) ? [
+                'id' => $channel['flow']['id'] ?? null,
+                'name' => (string) ($channel['flow']['name'] ?? ''),
+                'state' => $channel['flow']['state'] ?? 'draft',
+            ] : null,
+            'occupied_by_other' => (bool) ($channel['occupied_by_other'] ?? false),
+        ];
+    }
+
     // ------------------------------------------------------------------ projections
 
     /**

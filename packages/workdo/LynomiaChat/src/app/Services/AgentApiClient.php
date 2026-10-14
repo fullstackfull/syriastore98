@@ -289,6 +289,30 @@ class AgentApiClient
         return $this->http->send('get', $this->path('billing/entitlements'));
     }
 
+    /** Every inbox: whether it can run an automation, and which one it is running. */
+    public function flowChannels(): array
+    {
+        return $this->http->send('get', $this->path('flows/channels'));
+    }
+
+    /**
+     * Connect a flow to an inbox, or disconnect whatever is on it.
+     *
+     * CHATWOOT'S OWN ENDPOINT, deliberately: one inbox carries one bot, and set_agent_bot is
+     * where that rule lives -- attaching a second replaces the first, which is the behaviour a
+     * merchant expects and the behaviour the dashboard already has. A separate endpoint here
+     * would be a second place that rule could be written differently.
+     *
+     * @param int|null $flowId null disconnects whatever the inbox is running
+     */
+    public function setInboxFlow(int $inboxId, ?int $flowId): array
+    {
+        // Upstream treats an ABSENT agent_bot as "disconnect" -- `if params[:agent_bot]` -- so a
+        // null is sent as an explicit null rather than omitted, and both read the same there.
+        return $this->http->send('post', $this->path("inboxes/{$inboxId}/set_agent_bot"),
+            ['agent_bot' => $flowId], retryTransport: false);
+    }
+
     // ------------------------------------------------------------------ the builder
 
     /**

@@ -253,6 +253,16 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
                     // condition vocabulary are the WORKSPACE's, and the credential already decided
                     // which workspace that is.
                     Route::get('/references', [AutomationApiController::class, 'references'])->name('references');
+
+                    // Which channels can run an automation, and connecting one to a channel.
+                    // Disconnecting is keyed on the INBOX rather than the flow, because one
+                    // inbox runs one bot: "clear this channel" is the operation, and naming a
+                    // flow as well would invite a request that disconnects a different one.
+                    Route::get('/channels', [AutomationApiController::class, 'channels'])->name('channels');
+                    Route::post('/flows/{flow}/channels', [AutomationApiController::class, 'connectChannel'])
+                        ->whereNumber('flow')->name('flows.channels.connect');
+                    Route::delete('/channels/{inbox}', [AutomationApiController::class, 'disconnectChannel'])
+                        ->whereNumber('inbox')->name('channels.disconnect');
                     Route::get('/flows/{flow}/builder', [AutomationApiController::class, 'builder'])
                         ->whereNumber('flow')->name('flows.builder');
                     Route::put('/flows/{flow}/draft', [AutomationApiController::class, 'draft'])

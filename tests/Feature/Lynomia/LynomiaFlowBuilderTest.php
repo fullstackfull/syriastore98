@@ -304,6 +304,112 @@ class LynomiaFlowBuilderTest extends TestCase
         Http::assertNothingSent();
     }
 
+    // ================================================================ channels
+
+    public function test_the_channel_list_says_what_each_channel_can_do_and_what_it_runs(): void
+    {
+        [$owner] = $this->connectedTenant();
+
+        $response = $this->actingAs($owner)->getJson('/lynomia/automation/api/channels');
+
+        $response->assertOk();
+        $response->assertJsonPath('channels.0.runs_flows', true);
+        $response->assertJsonPath('channels.0.flow.name', 'Welcome menu');
+        // Listed and SAID to be unable, rather than hidden: a merchant who cannot find their
+        // channel here learns nothing.
+        $response->assertJsonPath('channels.1.runs_flows', false);
+        $this->assertNull($response->json('channels.1.flow'));
+        // Taken by something with no account of its own -- warned about, never named.
+        $response->assertJsonPath('channels.2.occupied_by_other', true);
+        $this->assertNull($response->json('channels.2.flow'));
+    }
+
+    /**
+     * THE FLOW IS RESOLVED BEFORE IT IS ATTACHED, and that is the control rather than a
+     * formality: Chatwoot's set_agent_bot accepts any bot `accessible_to` the account, which
+     * includes installation-wide bots with no account at all -- attach one and its token reaches
+     * this merchant's conversations. Reading the flow first, through an endpoint scoped to this
+     * account's own flow bots, is what stops an id from outside being forwarded.
+     */
+    public function test_connecting_resolves_the_flow_first_and_then_sets_it_on_the_inbox(): void
+    {
+        [$owner] = $this->connectedTenant();
+
+        $this->actingAs($owner)->postJson('/lynomia/automation/api/flows/42/channels', ['inbox_id' => 9])
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        $calls = [];
+        Http::assertSent(function ($request) use (&$calls) {
+            $calls[] = $request->method() . ' ' . parse_url($request->url(), PHP_URL_PATH);
+
+            return true;
+        });
+
+        $flowRead = array_search('GET /api/v1/accounts/7001/flows/42', $calls, true);
+        $attach = array_search('POST /api/v1/accounts/7001/inboxes/9/set_agent_bot', $calls, true);
+        $this->assertNotFalse($flowRead, 'the flow was never resolved');
+        $this->assertNotFalse($attach, 'the inbox was never set');
+        $this->assertLessThan($attach, $flowRead, 'the inbox was set before the flow was resolved');
+    }
+
+    public function test_a_flow_this_account_does_not_own_is_never_attached_to_an_inbox(): void
+    {
+        [$owner] = $this->connectedTenant();
+        $this->fakeLynomia(['fail' => [
+            'GET /api/v1/accounts/7001/flows/999' => Http::response(['error' => 'not found'], 404),
+        ]]);
+
+        $this->actingAs($owner)->postJson('/lynomia/automation/api/flows/999/channels', ['inbox_id' => 9])
+            ->assertStatus(404);
+
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), 'set_agent_bot'));
+    }
+
+    public function test_disconnecting_clears_the_channel(): void
+    {
+        [$owner] = $this->connectedTenant();
+
+        $this->actingAs($owner)->deleteJson('/lynomia/automation/api/channels/9')
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        Http::assertSent(function ($request) {
+            if (! str_contains($request->url(), 'set_agent_bot')) {
+                return true;
+            }
+
+            // An explicit null, not an omitted key: upstream reads an absent agent_bot as
+            // "disconnect" and both have to mean the same thing here.
+            return array_key_exists('agent_bot', $request->data()) && $request->data()['agent_bot'] === null;
+        });
+    }
+
+    public function test_connecting_without_an_inbox_never_reaches_lynomia(): void
+    {
+        [$owner] = $this->connectedTenant();
+        Http::fake();
+
+        $this->actingAs($owner)->postJson('/lynomia/automation/api/flows/42/channels', [])->assertStatus(422);
+        $this->actingAs($owner)->postJson('/lynomia/automation/api/flows/42/channels', ['inbox_id' => 'nine'])
+            ->assertStatus(422);
+
+        Http::assertNothingSent();
+    }
+
+    public function test_the_channel_routes_carry_the_same_stack_as_the_rest_of_the_studio(): void
+    {
+        foreach (['lynomia.automation.api.channels', 'lynomia.automation.api.flows.channels.connect',
+            'lynomia.automation.api.channels.disconnect'] as $name) {
+            $this->assertTrue(Route::has($name), "Route {$name} is missing.");
+
+            $stack = array_filter(app('router')->gatherRouteMiddleware(Route::getRoutes()->getByName($name)), 'is_string');
+
+            $this->assertTrue((bool) preg_grep('/EnsureStoreOwnsLink:existing/', $stack), $name);
+            $this->assertTrue((bool) preg_grep('/Permission:Manage Lynomia Automation/', $stack), $name);
+        }
+    }
+
     // ================================================================ the page
 
     public function test_the_builder_page_is_a_shell_that_makes_no_lynomia_call_of_its_own(): void

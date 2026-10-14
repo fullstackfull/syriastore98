@@ -386,6 +386,19 @@ trait InteractsWithLynomia
                 (bool) preg_match('#^/api/v1/accounts/\d+/flows/\d+/simulate$#', $path)
                     => Http::response($this->lynomiaScript['simulation'] ?? self::sampleSimulation(), 200),
 
+                (bool) preg_match('#^/api/v1/accounts/\d+/flows/channels$#', $path)
+                    => Http::response(['payload' => $this->lynomiaScript['channels'] ?? [
+                        ['id' => 9, 'name' => 'WhatsApp', 'channel_type' => 'Channel::Whatsapp', 'runs_flows' => true,
+                            'flow' => ['id' => 42, 'name' => 'Welcome menu', 'state' => 'published'],
+                            'occupied_by_other' => false],
+                        ['id' => 12, 'name' => 'Live chat', 'channel_type' => 'Channel::WebWidget', 'runs_flows' => false,
+                            'flow' => null, 'occupied_by_other' => false],
+                        ['id' => 13, 'name' => 'Second WhatsApp', 'channel_type' => 'Channel::Whatsapp',
+                            'runs_flows' => true, 'flow' => null, 'occupied_by_other' => true],
+                    ]], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/inboxes/\d+/set_agent_bot$#', $path)
+                    => Http::response([], 200),
+
                 // ---------------- the references a configuration form binds its pickers to
                 (bool) preg_match('#^/api/v1/accounts/\d+/labels$#', $path)
                     => Http::response(['payload' => [
