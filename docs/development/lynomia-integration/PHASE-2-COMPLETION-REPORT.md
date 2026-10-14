@@ -266,9 +266,13 @@ declared done.
 
 ---
 
-## 12a. The broad Lynomia regression — and the three defects it caught
+## 12a. The broad Lynomia regression — two regressions and one undelivered claim
 
-**This run was not a formality. It found three real defects in Phase 2, and all three were mine.**
+**This run was not a formality. It found three real problems in Phase 2, all three mine.** Two are
+regressions — Phase 2 removed or weakened a control that already worked. The third is a different
+and milder thing, and the distinction is kept rather than flattened: a feature this report claimed
+in §7 that did not actually reach the path a merchant takes. Nothing that worked before got worse;
+something this phase promised was only two-thirds delivered.
 
 `spec/requests spec/controllers spec/models spec/services spec/lib` — **8 813 examples**, run for the
 first time in this engagement at the end of Phase 2. Result before the fix: **2 failures**, both in
@@ -364,7 +368,7 @@ updates it. Rotation is create-then-delete, which leaves an audit trail and a si
 throughout. A blank secret at *create* is still safe, because a blank string makes `secret?` false
 and `has_secure_token` generates one.
 
-### Defect 3 — the seat refusal never reached the path a merchant takes
+### Not a regression, but an undelivered claim — the seat refusal never reached the path a merchant takes
 
 §7 claims an integration-funded merchant is told to *ask their provider* rather than to upgrade a
 Lynomia plan they do not have. Three sites build that message; `ec96b43b` updated two. The third,
@@ -375,6 +379,12 @@ feature existed only on the path the UI reaches second. The spec that covered it
 the validator rather than the request, which is why it passed.
 
 Fixed by passing `limit_source` through, and the new test drives `POST /agents` as a real request.
+
+To be precise about severity: nothing regressed here. Before Phase 2 there was no provider wording
+at all, so no merchant saw worse copy than they used to. This is listed because §7 asserted the
+behaviour and the assertion was not true on the path that matters — and because the spec that
+"covered" it asserted against the validator instead of the request, which is the more useful
+lesson.
 
 ### Verification of both
 
