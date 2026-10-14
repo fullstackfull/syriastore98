@@ -217,7 +217,9 @@ effective limit = operator override
 
 **Mutation-verified** (the enforcement was removed and the tests were watched to fail): per-action
 route permissions (2), per-person credential (1), access-token account scope (2), both exclusivity
-layers (3), no-stacking rule (3), replay window and per-store key derivation (3).
+layers (3), no-stacking rule (3), replay window and per-store key derivation (3), the relocated
+channel identity guard (2), webhook secret immutability on update (1), and the seat-refusal
+wording on the invite path (1).
 
 ---
 
@@ -249,7 +251,7 @@ rule that stacks the three panes and hides the empty context pane. The page rend
 |---|---|
 | Store Syria — Lynomia module | **133 tests, 2 985 assertions, 0 failures** |
 | Store Syria — full suite | **1 716 tests, 13 failures** — the *identical* pre-existing set |
-| Lynomia — Phase 2 specs | scoped tokens 15, channel claims 24, entitlement grants 22 — 0 failures |
+| Lynomia — Phase 2 specs | scoped tokens 15, channel claims 24, entitlement grants 23, webhook secret 4 — 0 failures |
 | Lynomia — broad regression | **8 813 examples** — see §12a |
 | RuboCop (Lynomia) | clean on all changed files |
 
@@ -257,20 +259,24 @@ The 13 Store Syria failures are the documented baseline from `f2d16cab`: 8 `owne
 Auth/Profile and 5 tenancy-census. Phase 2 added 46 Store Syria tests (19 ingress + 17 BFF + 10 seat allowance) and **no new failure**. Per the brief they
 are out of scope, and this report does not claim all tests pass.
 
-New tests: 17 BFF, 19 event ingress, 10 seat allowance (Store Syria); 15 scoped token, 24 channel
-claim, 22 entitlement grant (Lynomia) — **107 new examples**.
+New tests: 17 BFF, 19 event ingress, 10 seat allowance (Store Syria) = 46; 15 scoped token, 24
+channel claim, 23 entitlement grant, 4 webhook-secret boundary (Lynomia) = 66 — **112 new
+examples**. The last five were added by the §12a fixes and did not exist when Phase 2 was first
+declared done.
 
 ---
 
-## 12a. The broad Lynomia regression — and the defect it caught
+## 12a. The broad Lynomia regression — and the three defects it caught
 
-**This run was not a formality. It found a real defect in Phase 2, and that defect was mine.**
+**This run was not a formality. It found three real defects in Phase 2, and all three were mine.**
 
 `spec/requests spec/controllers spec/models spec/services spec/lib` — **8 813 examples**, run for the
 first time in this engagement at the end of Phase 2. Result before the fix: **2 failures**, both in
 `spec/requests/audit_capture_spec.rb` (B-17, B-18 — channel configuration).
 
-### What broke
+### Defect 1 — the channel audit trail was deleted
+
+#### What broke
 
 `custom/app/models/custom/channelable.rb` **already existed**. It is a plain module prepended into
 the `Channelable` concern, filling in the empty `create_audit_log_entry` hook that
@@ -281,13 +287,13 @@ keys that moved and never by their values.
 Phase 2B **overwrote that entire file** with the channel-exclusivity validation: 31 insertions,
 80 deletions. The audit emitter ceased to exist.
 
-### Why it was silent
+#### Why it was silent
 
 The PATCH still returned **200**. Nothing raised, nothing logged, no Phase 2 spec failed. The only
 symptom anywhere was two red examples in a suite that Phase 2 had no reason to run. A compliance
 control was removed and the product reported success.
 
-### The fix
+#### The fix
 
 1. `custom/app/models/custom/channelable.rb` **restored byte-for-byte** from `3cd137e5` (verified
    with `diff` against `git show`), so the audit behaviour is exactly what it was — not a
@@ -304,7 +310,7 @@ lands *ahead* of it, but an `ActiveSupport::Concern` prepended into another Conc
 a dependency and gets *included*, which can land it *behind*. Keeping the audit module plain
 preserves the override; the guard, which only needs `validate`, is free to be a Concern.
 
-### Verified after the fix
+#### Verified after the fix
 
 - `audit_capture_spec.rb` + `channel_claims_spec.rb`: **47 examples, 0 failures**.
 - Runtime ancestor check on all twelve channel classes: `Custom::Channelable` present on **12/12**
@@ -323,11 +329,66 @@ preserves the override; the guard, which only needs `validate`, is free to be a 
 Every Phase 2 spec passed while this defect was live, so Phase 2's own tests could not have caught
 it. A sweep of the other eleven modified Lynomia files, and of the Store Syria module, was run
 specifically for the same signature — a modification that removes pre-existing behaviour.
-Result on the Store Syria side, completed: `PlatformApiClient` is the only module file with a
-large deletion (−68) and all **nine** of its pre-existing public methods survive — the deletion was
-transport extraction into `LynomiaHttp`. The remaining modified files delete between one and four
-lines each, all accounted for. The equivalent sweep of the other eleven modified **Lynomia** files
-was still running when this was committed; its result is recorded in a follow-up commit.
+**The sweep found two more defects of the same family, and both are now fixed.** Neither was in
+the brief's scope; both were holes Phase 2 itself opened in controls it never looked at.
+
+**Store Syria** — clean. `PlatformApiClient` is the only module file with a large deletion (−68)
+and all **nine** pre-existing public methods survive; the deletion was transport extraction into
+`LynomiaHttp`. Remaining files delete one to four lines each, all accounted for.
+
+**Lynomia** — six reviewers over the twelve modified files plus a dedicated method-resolution
+sweep. `users_controller`, `ensure_current_account_helper` and the access-token change (including
+the new `where(account_id: nil)` scope on the pre-existing `has_one :access_token`) came back
+clean. The MRO sweep checked all **33** files under `custom/app/models/custom/` and confirmed the
+invariant holds everywhere — plain modules at every `prepend_mod_with` site, Concerns at every
+`include_mod_with` site, no inversion — and confirmed the restored `Custom::Channelable` is
+byte-identical and still winning its ancestor chain. Two findings survived:
+
+### Defect 2 — the webhook signing secret was mutable through the API
+
+Permitting `:secret` (§12a's sibling change, commit `ec96b43b`) is the right feature: it is what
+lets a receiver *derive* a key instead of storing one. It was permitted on **every action**, and
+two controls are written against "this column cannot move once the row exists":
+
+- `custom/app/models/custom/audit/webhook.rb` audits `only:` five configuration columns and
+  excludes the secret so the trail can never contain one. `audited` slices the change set to those
+  columns, so an update touching **only** the secret produces an empty slice and therefore **no
+  audit row at all** — a signing key could be rotated leaving nothing behind.
+- `lib/webhooks/trigger.rb:57` signs only `if @secret.present?`; `app/models/webhook.rb` validates
+  no presence on it; `has_secure_token` fills it `before_create` and never again. A single
+  `PATCH {"secret": ""}` **permanently unsigns every future delivery** for that webhook.
+
+Fixed by permitting `:secret` on **create only** — closing both at the root rather than patching
+two symptoms. It costs the integration nothing: Store Syria sets the key at creation and never
+updates it. Rotation is create-then-delete, which leaves an audit trail and a signed row
+throughout. A blank secret at *create* is still safe, because a blank string makes `secret?` false
+and `has_secure_token` generates one.
+
+### Defect 3 — the seat refusal never reached the path a merchant takes
+
+§7 claims an integration-funded merchant is told to *ask their provider* rather than to upgrade a
+Lynomia plan they do not have. Three sites build that message; `ec96b43b` updated two. The third,
+`Billing::AccessGuard#ensure_agent_limit`, is the pre-flight on `agents#create` — it runs *before*
+the `AccountUser` validation that holds the lock, so it is what answers a merchant inviting a
+colleague from the dashboard. It passed no source and so always said "Upgrade your plan". The
+feature existed only on the path the UI reaches second. The spec that covered it asserted against
+the validator rather than the request, which is why it passed.
+
+Fixed by passing `limit_source` through, and the new test drives `POST /agents` as a real request.
+
+### Verification of both
+
+Five new examples. **Mutation-verified**: reverting either fix fails exactly the example that pins
+it. `entitlement_grants` 23, `webhook_controller` 18, `audit_capture` + `channel_claims` 47 — all
+0 failures. RuboCop clean.
+
+One assertion of mine was **wrong and was corrected**: I asserted the webhook index does not
+disclose the secret. It does — pre-existing upstream behaviour, not introduced here. That is now a
+pinned test rather than a deleted one, because it is precisely *why* a per-receiver derived key is
+necessary rather than tidy: an administrator can read the key their own deliveries are signed
+with, so a single shared key would hand every administrator the means to forge deliveries for
+every other account. Per-store derivation confines that to their own store, where the only
+achievable effect is making their own browser re-poll — events carry ids, never content.
 
 Also reverted: Phase 2 had accidentally committed a `package-lock.json` upgrade (lockfileVersion
 1 → 3, 182 added entries) with **no `package.json` change** — an artifact of probing `npx vite
@@ -344,6 +405,8 @@ build` while measuring the frontend stack. It is restored to its pre-Phase-2 sta
 | `64dddd55` | account-scoped, expiring access tokens; `scoped_access_token` endpoint |
 | `8892bd1c` | channel identity claims; exclusivity at the Inbox + channel chokepoints |
 | `ec96b43b` | integration entitlement grants; receiver-chosen webhook secret |
+| `db98c096` | **fix** — restore the channel audit trail `8892bd1c` overwrote (§12a defect 1) |
+| `79f3cc3b` | **fix** — webhook secret create-only; seat refusal wording on the invite path (§12a defects 2–3) |
 
 **syriastore98** — `claude/store-syria-lynomia-integration-1oa1tt`
 
@@ -353,6 +416,7 @@ build` while measuring the frontend stack. It is restored to its pre-Phase-2 sta
 | `f20fdb6e` | channel-claim consumer |
 | `a9bcd51d` | included seats + event ingress/delivery |
 | `3b19e148` | Agent Seats admin tab |
+| `cefd8205` | this report; revert an accidental `package-lock.json` upgrade |
 
 ---
 
