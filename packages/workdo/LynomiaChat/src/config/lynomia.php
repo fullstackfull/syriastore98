@@ -89,6 +89,28 @@ return [
      * relative to normal webhook latency, because a queue backlog is ordinary and must not look
      * like an attack.
      */
+    /**
+     * The per-store ceiling on inbound event deliveries, per minute.
+     *
+     * AN ABUSE CEILING, NOT A QUEUE. A refused delivery is GONE -- Lynomia swallows an account
+     * webhook failure and never retries it -- so this number must sit far above anything honest
+     * traffic reaches. A busy merchant generates an event per message and per status change; 600
+     * a minute is ten a second for one store, sustained. The installation-wide ceiling is ten
+     * times this. Below 60 is refused outright, because a value that low would make the limiter
+     * a data-loss device rather than a guard.
+     *
+     * Whatever is dropped here is recoverable by the reconciliation sweep, which re-reads state
+     * from Lynomia rather than waiting for a re-delivery that never comes.
+     */
+    'ingress_rate_per_minute' => (int) env('LYNOMIA_INGRESS_RATE_PER_MINUTE', 600),
+
+    /**
+     * How long an accepted delivery row is kept. The table is an append-only cursor source, not
+     * a record anybody reads twice: the browser polls forward from its own cursor and never asks
+     * for history. Without pruning it is the one unbounded resource in the ingress path.
+     */
+    'event_retention_days' => (int) env('LYNOMIA_EVENT_RETENTION_DAYS', 14),
+
     'webhook_tolerance_seconds' => (int) env('LYNOMIA_WEBHOOK_TOLERANCE_SECONDS', 300),
 
     /* How often the open inbox asks what has changed. */

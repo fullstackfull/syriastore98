@@ -341,4 +341,88 @@ class LynomiaEventIngressTest extends TestCase
     {
         $this->assertNotSame(EventSignature::secretFor(1), EventSignature::secretFor(2));
     }
+
+    // ================================================================ A1 hardening
+    //
+    // The ingress inherited `->middleware('api')`, which applies the platform-wide
+    // `throttle:120,1`: ONE bucket, keyed on the client IP, shared by every store AND by the two
+    // hundred-odd routes/api.php endpoints. Lynomia sends every store's deliveries from a single
+    // egress address, so one merchant's burst spent everybody's budget -- and an account webhook
+    // is never retried upstream, so each 429 destroyed a real event. These pin the replacement.
+
+    public function test_the_ingress_no_longer_shares_the_platform_wide_api_throttle(): void
+    {
+        $route = collect(app('router')->getRoutes())->first(
+            fn ($r) => $r->getName() === 'lynomia.events.ingress'
+        );
+        $this->assertNotNull($route);
+
+        $middleware = collect(app('router')->gatherRouteMiddleware($route))
+            ->map(fn ($m) => is_string($m) ? $m : (is_object($m) ? get_class($m) : gettype($m)))
+            ->all();
+
+        $this->assertNotContains(
+            'Illuminate\\Routing\\Middleware\\ThrottleRequests:120,1',
+            $middleware,
+            'the ingress is back on the shared IP-keyed bucket'
+        );
+        $this->assertContains(
+            'Illuminate\\Routing\\Middleware\\ThrottleRequests:lynomia-events',
+            $middleware,
+            'the ingress must use its own per-store limiter'
+        );
+    }
+
+    public function test_the_limiter_is_keyed_per_store_so_one_merchant_cannot_spend_anothers_budget(): void
+    {
+        $limiter = app(\Illuminate\Cache\RateLimiter::class)->limiter('lynomia-events');
+        $this->assertNotNull($limiter, 'the lynomia-events limiter is not registered');
+
+        $keyFor = function (int $store) use ($limiter) {
+            $request = \Illuminate\Http\Request::create("/lynomia/events/{$store}", 'POST');
+            $request->setRouteResolver(fn () => (new \Illuminate\Routing\Route('POST', 'lynomia/events/{store}', []))
+                ->bind($request));
+
+            return collect((array) $limiter($request))->first()->key;
+        };
+
+        $this->assertNotSame($keyFor(11), $keyFor(12), 'two stores share a rate-limit bucket');
+        $this->assertStringContainsString('11', $keyFor(11));
+    }
+
+    public function test_an_oversized_body_is_refused_before_it_is_parsed(): void
+    {
+        [, $store] = $this->connectedTenant();
+
+        $payload = $this->payload();
+        $payload['content'] = str_repeat('x', \Workdo\LynomiaChat\app\Http\Middleware\GuardEventIngress::MAX_BYTES + 1);
+
+        $response = $this->deliver($store->id, $payload);
+
+        $response->assertStatus(413);
+        $this->assertDatabaseCount('lynomia_inbox_events', 0);
+    }
+
+    public function test_a_body_at_the_limit_is_still_accepted(): void
+    {
+        [, $store] = $this->connectedTenant();
+
+        $response = $this->deliver($store->id, $this->payload());
+
+        $response->assertOk();
+    }
+
+    // The row records when LYNOMIA says it happened, which is inside the signature, not when
+    // this server happened to parse it. The two differ by the delivery latency, and after an
+    // outage they differ by the length of the outage.
+    public function test_the_row_carries_the_signed_timestamp_not_the_arrival_time(): void
+    {
+        [, $store] = $this->connectedTenant();
+        $signed = time() - 120;
+
+        $this->deliver($store->id, $this->payload(), ['timestamp' => (string) $signed])->assertOk();
+
+        $row = \Workdo\LynomiaChat\app\Models\LynomiaInboxEvent::first();
+        $this->assertSame($signed, $row->occurred_at->getTimestamp());
+    }
 }

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Workdo\LynomiaChat\app\Models\LynomiaInboxEvent;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\EventSignature;
@@ -50,7 +51,7 @@ class EventIngressController extends Controller
         $payload = json_decode($body, true);
 
         if (! is_array($payload)) {
-            return response()->json(['error' => 'Bad payload'], 400);
+            return $this->refuse($store, 'malformed_json', 400);
         }
 
         $link = LynomiaStoreLink::forStore($store)->first();
@@ -59,16 +60,29 @@ class EventIngressController extends Controller
         // an account this store does not hold is dropped even when correctly signed.
         if ($link === null || $link->lynomia_account_id === null
             || (int) $link->lynomia_account_id !== $this->accountIdOf($payload)) {
-            return response()->json(['error' => 'Unknown workspace'], 404);
+            return $this->refuse($store, 'unknown_workspace', 404);
         }
 
         $deliveryId = (string) $request->header(EventSignature::DELIVERY_HEADER, '');
 
         if ($deliveryId === '') {
-            return response()->json(['error' => 'Missing delivery id'], 400);
+            return $this->refuse($store, 'missing_delivery_id', 400);
         }
 
-        return response()->json(['recorded' => $this->record($link, $payload, $deliveryId)]);
+        $recorded = $this->record($link, $payload, $deliveryId,
+            $request->header(EventSignature::TIMESTAMP_HEADER));
+
+        if (! $recorded) {
+            // A duplicate is a success, not a problem: the unique index on delivery_id did its
+            // job. Logged at debug rather than warning so a retrying proxy does not look like
+            // an incident.
+            Log::debug('[lynomia] duplicate event delivery ignored', [
+                'store_id' => (int) $link->store_id,
+                'delivery_id' => mb_substr($deliveryId, 0, 64),
+            ]);
+        }
+
+        return response()->json(['recorded' => $recorded]);
     }
 
     /**
@@ -76,15 +90,21 @@ class EventIngressController extends Controller
      * once; both would read "not seen" and both would insert. The index settles it and the
      * loser reports success, because from Lynomia's side the event WAS delivered.
      */
-    private function record(LynomiaStoreLink $link, array $payload, string $deliveryId): bool
+    private function record(LynomiaStoreLink $link, array $payload, string $deliveryId, ?string $signedTimestamp = null): bool
     {
+        $occurredAt = ctype_digit((string) $signedTimestamp)
+            ? \Illuminate\Support\Carbon::createFromTimestampUTC((int) $signedTimestamp)
+            : now();
+
         try {
             LynomiaInboxEvent::create([
                 'store_id' => (int) $link->store_id,
                 'lynomia_account_id' => (int) $link->lynomia_account_id,
                 'event' => mb_substr((string) ($payload['event'] ?? 'unknown'), 0, 64),
                 'conversation_display_id' => $this->conversationIdOf($payload),
-                'occurred_at' => now(),
+                // The moment LYNOMIA says it happened, not the moment this server parsed it.
+                // The timestamp is inside the signature, so it is as trustworthy as the body.
+                'occurred_at' => $occurredAt,
                 'delivery_id' => mb_substr($deliveryId, 0, 64),
             ]);
 
@@ -136,6 +156,25 @@ class EventIngressController extends Controller
         }
 
         return null;
+    }
+
+    /**
+     * One shape for every refusal, so a rejected delivery is visible.
+     *
+     * The controller logged NOTHING before this: a bad signature, a stale timestamp, a workspace
+     * mismatch and a malformed body were all indistinguishable silence, which is the worst
+     * possible property for the one unauthenticated endpoint in the module. Identifiers and a
+     * reason only -- the body is unauthenticated and never reaches the log.
+     */
+    private function refuse(int $store, string $reason, int $status): JsonResponse
+    {
+        Log::warning('[lynomia] refused an inbound event', [
+            'store_id' => $store,
+            'reason' => $reason,
+            'status' => $status,
+        ]);
+
+        return response()->json(['error' => 'Rejected'], $status);
     }
 
     private function isUniqueViolation(QueryException $e): bool

@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use Workdo\LynomiaChat\app\Http\Controllers\CommunicationCenterController;
 use Workdo\LynomiaChat\app\Http\Controllers\ConnectionController;
 use Workdo\LynomiaChat\app\Http\Controllers\EventIngressController;
+use Workdo\LynomiaChat\app\Http\Middleware\GuardEventIngress;
 use Workdo\LynomiaChat\app\Http\Controllers\InboxApiController;
 use Workdo\LynomiaChat\app\Http\Controllers\InboxController;
 use Workdo\LynomiaChat\app\Http\Controllers\SuperAdmin\IntegrationController;
@@ -79,9 +80,16 @@ use Workdo\LynomiaChat\app\Http\Middleware\EnsureStoreOwnsLink;
  * that store's own derived key, and the account id in the body is checked against the link that
  * store actually holds.
  */
+// NOT `->middleware('api')`, which is how this started. That group applies the platform-wide
+// `throttle:120,1` -- a single IP-keyed bucket shared by every store AND by the two hundred-odd
+// routes/api.php endpoints. Lynomia sends every store's deliveries from one egress address, so
+// one merchant's burst silently destroyed other merchants' events: a rejected account webhook is
+// never retried upstream. The group also brought SubstituteBindings, which this route cannot use
+// -- `store` is a bare integer deliberately, so there is no model to bind and nothing to tamper
+// with. See LynomiaChatServiceProvider::registerIngressLimiter.
 Route::post('/lynomia/events/{store}', [EventIngressController::class, 'store'])
     ->whereNumber('store')
-    ->middleware('api')
+    ->middleware([GuardEventIngress::class, 'throttle:lynomia-events'])
     ->name('lynomia.events.ingress');
 
 Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(function () {

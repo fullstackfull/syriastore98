@@ -348,7 +348,12 @@ trait InteractsWithLynomia
             'id' => 1,
             'status' => 'open',
             'unread_count' => 2,
-            'last_activity_at' => '2026-10-14T09:00:00Z',
+            // A UNIX INTEGER, because that is what Lynomia sends:
+            // app/views/api/v1/conversations/partials/_conversation.json.jbuilder:70 is
+            // `json.last_activity_at conversation.last_activity_at.to_i`. This fixture carried an
+            // ISO8601 string, so every test that touched it agreed with code that would have been
+            // wrong against the real payload. Checked against the jbuilder, not assumed.
+            'last_activity_at' => 1760000000,
             'inbox_id' => 9,
             'meta' => [
                 'channel' => 'Channel::Whatsapp',
