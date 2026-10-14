@@ -105,8 +105,10 @@ is a field that fails with `unknown_field` on save. Both are silent; both are no
 
 ## 6. Defects found and fixed during Phase 4
 
-Nine, of which **six were found only by opening the page in a real browser** and were invisible
-to PHPUnit. That ratio is the single most useful thing to report.
+Twenty-four. Nine during construction (below), and fifteen more in a final adversarial review of
+the whole diff in both repositories (§6b). **Eleven of the twenty-four were found only by opening
+the page in a real browser** and were invisible to PHPUnit. That ratio is the single most useful
+thing to report.
 
 | # | Defect | Found by | Fix |
 |---|---|---|---|
@@ -119,6 +121,48 @@ to PHPUnit. That ratio is the single most useful thing to report.
 | 7 | Bootstrap swallows a modal shown while another is still hiding — Connect on a taken channel closed the panel and the confirmation never appeared, so the replacement silently did not happen. | Browser | Dialogs hand over on `hidden.bs.modal` |
 | 8 | Changing a rule's trigger to one that forbids an action left that action in the draft while the select displayed something else — the form said one thing and submitted another. | Browser | Forbidden actions dropped on the switch, and the merchant told which went |
 | 9 | The builder's history table rendered nothing and reported no error: it called `formatDate` and `PAGE_LOCALE`, which existed only on the Studio page. | Browser | Both defined in the builder |
+
+### 6b. Found by the final adversarial review of the diff
+
+Two independent reviews read the complete Phase 4 diff in each repository with no knowledge of
+the other's findings. Every item below was reproduced before it was fixed — through the real
+route, in a real browser, or with `rails runner` against the real objects — and every one is
+now covered by a test that fails without the fix.
+
+**Store Syria**
+
+| # | Defect | Severity | How it was reproduced |
+|---|---|---|---|
+| 10 | **A flow with no connections could not be saved at all.** Laravel's `required` refuses an *empty* array, so `graph.edges => required` meant "send me at least one edge". A brand-new flow is one start step and nothing else; a starter graph arrives unwired. Save, Test and Publish all funnel through that call, so all three failed — and the 422 is Laravel's `{message,errors}` shape while the builder reads `body.error`, so the merchant got "please contact support". | **High** | `PUT …/flows/42/draft` with `edges: []` through the real route → 422 |
+| 11 | **Two choices could share one option id**, and an option id is an output handle: the duplicate drew over the first handle's position and could never be routed anywhere. `'o' + length` reissued a live id as soon as an earlier choice was deleted. | Medium | Chromium: add 3, delete the first, add → `o2,o3,o3` |
+| 12 | **Test Mode froze on an ellipsis** when the pre-save was refused — the explanation went to the page alert strip, behind the modal backdrop. | Medium | Chromium with a 422 draft stub |
+| 13 | **Confirming raced the dialog's own teardown.** Bootstrap strips `show` synchronously inside `hide()` but removes the backdrop ~150 ms later, so `whenHidden` — written to prevent exactly this — took its immediate branch at the one site that hides before acting, and the reopened Channels panel lost `modal-open` underneath itself. | Low | Chromium: `hidden.bs.modal` traced firing after the assertion window |
+| 14 | **"Stores covered" read 0 for the grant that reaches everyone.** The seeder grants one global `admin` role with a NULL `store_id`, and `COUNT(DISTINCT store_id)` skips NULL — the broadest grant on the installation rendered as the narrowest. | Medium-low | Controller called directly with the production grant shape |
+| 15 | **An English sentence reached Arabic dashboards.** `KIND_CONFLICT` is the one kind passed through verbatim; two `fromStatus()` literals were not translated. | Low | Read against `merchantMessage`'s mapping |
+| 16 | **The browser harness was verifying a stale build.** `render-studio-pages.php` wrote to one directory while the server served another, with nothing to say so. The first run of fixes 10–15 passed every check *against the pages from before them*; the duplicate-id check only failed once the server was pointed at the fresh render. | **Process** | `curl` of the served page still showed the old minter |
+
+Fix 16 is the one worth dwelling on: a verification harness that can silently verify the wrong
+build is worse than no harness, because it produces evidence. `tests/Browser/run.sh` now renders,
+serves and runs from one derived root, so the three paths cannot drift apart again.
+
+**Lynomia**
+
+| # | Defect | Severity | How it was reproduced |
+|---|---|---|---|
+| 17 | **Custom attributes were offered two operators each, whatever their type.** The server has no opinion here — `ConditionValidationService` checks only that the attribute exists — so the real set is the dashboard's `getOperatorTypes`. The Studio was withholding `is_present`/`is_not_present` on text attributes and `is_greater_than`/`is_less_than` on dates: a silent reduction of functionality Lynomia's own UI offers. | Medium | Read `automationHelper.js` against the served payload |
+| 18 | **`commerce_event_store` had no picker**, so a client drew a free-text box whose every value `own_stores?` rejects as `invalid_store`. | Medium | Read against `event_errors` |
+| 19 | **Three Commerce conditions were declared `text`** while being compared with `is_greater_than`, `days_before` and a boolean `equal_to`. A client cannot draw a number, date or yes/no input for a field it is told is text. | Medium | Read against `CommerceCondition::FIELDS` |
+| 20 | **Three keys were served twice** (`labels`, `created_at`, `last_activity_at`) under contradictory scopes. The validator resolves conversation-first, so the contact copy can never be the one evaluated. | Low | `rails runner` tally: each key appeared twice |
+| 21 | **The insights panel was five sequential scans.** All five aggregates filter on `agent_bot_id` + `created_at` and no index leads with `agent_bot_id`; the nearest, `(account_id, agent_bot_id, status)`, cannot serve a query that does not name the account, and the association does not. | Medium | `db/schema.rb` index list |
+| 22 | **A starter graph shipped with a duplicate output.** `welcome_menu`'s third button used the id `other`, which is the reserved no-match handle. | Medium | `rails runner`: outputs `["order","product","other","other","timeout"]` |
+| 23 | **`duplicate_name` read `params[:name]` directly**, so `name[]=x` became the literal `["x"]` as a flow name. Also: `channels` resolved each flow's lifecycle once per attached *inbox*; `TemplateValidator.candidates` loaded inboxes without their channels (a query per candidate, on every draft save); the event vocabulary made eight identical remote round trips per response. | Low | Read, each against its own caller |
+| 24 | **A consent filter the server did not understand was dropped, not refused** — so "show me who opted out" answered with every decision, and the opt-ins read as opt-outs. | Low | `GET …/consents?state=opted_out` → 200 with the full list |
+
+**One review claim was examined and rejected rather than acted on.** A `RecordNotUnique` was
+reported as reachable on concurrent draft/publish. It is not: `Flows::Versions#draft` is a
+correct double-checked lock inside `@bot.with_lock`. The capability matrix was corrected
+instead of adding a guard for a case that cannot occur — per the repository's own rule against
+speculative defences.
 
 ---
 
@@ -227,19 +271,12 @@ minted, and keying on the store would let one person's stuck poll exhaust their 
 
 ## 11. Tests
 
-| Suite | Result |
-|---|---|
-| Store Syria — Lynomia module | 305 tests |
-| Store Syria — whole suite | see §12 |
-| Lynomia — flows, automation, commerce, billing | see §12 |
-| Browser (Chromium via Playwright) | 4 harnesses, see §13 |
+New Phase 4 test files on the Store Syria side:
 
-New test files:
-
-- `tests/Feature/Lynomia/LynomiaAutomationStudioTest.php` — 22 tests
-- `tests/Feature/Lynomia/LynomiaFlowBuilderTest.php` — 25 tests
-- `tests/Feature/Lynomia/LynomiaCommerceAutomationTest.php` — 17 tests
-- `tests/Feature/Lynomia/LynomiaPhase4SecurityTest.php` — 16 tests
+- `tests/Feature/Lynomia/LynomiaAutomationStudioTest.php` — 22 tests, 165 assertions
+- `tests/Feature/Lynomia/LynomiaFlowBuilderTest.php` — 27 tests, 191 assertions
+- `tests/Feature/Lynomia/LynomiaCommerceAutomationTest.php` — 17 tests, 113 assertions
+- `tests/Feature/Lynomia/LynomiaPhase4SecurityTest.php` — 18 tests, 549 assertions
 - Lynomia: `spec/services/flows/starters_spec.rb`, `spec/requests/automation/vocabulary_spec.rb`,
   `spec/controllers/api/v1/accounts/commerce/consents_controller_spec.rb`, plus additions to
   `flows_controller_spec.rb`, `versions_spec.rb` and `resource_limit_spec.rb`.
@@ -248,7 +285,37 @@ New test files:
 
 ## 12. Suite results
 
-*(filled from the final runs — see the section below)*
+All figures below are from the final runs on the committed heads, after the §6b fixes.
+
+### Store Syria
+
+| Run | Result |
+|---|---|
+| `phpunit --filter Lynomia` (all 15 Lynomia suites, Phase 1–4) | **295 tests, 4,404 assertions, 0 failures** |
+| `phpunit` (whole suite) | **1,929 tests, 12,936 assertions — 8 failures, 17 skipped, 0 errors** |
+| `.github/scripts/assert-known-test-outcomes.php` | **PASS** — "the observed outcome set matches the manifest exactly" |
+
+The 8 failures and 17 skips are the **pre-existing, declared** set: the GATE F
+`owner_menu_settings` family and the drifted tenancy censuses, each recorded in
+`.github/known-test-outcomes.json` with a reason and an owner. Phase 4 added none of them and
+reclassified none of them. The gate refuses to run at all unless **both** `--log-junit` and
+`--log-teamcity` are supplied, so dropping one CI flag cannot silently disable the skip-reason
+half of the check.
+
+### Lynomia
+
+| Run | Result |
+|---|---|
+| `spec/requests/automation/vocabulary_spec.rb` | 17 examples, 0 failures |
+| `spec/controllers/api/v1/accounts/flows_controller_spec.rb` | 33 examples, 0 failures |
+| `spec/controllers/api/v1/accounts/commerce/consents_controller_spec.rb` | 9 examples, 0 failures |
+| `spec/services/flows` + `spec/models/billing` (with the above) | **141 examples, 0 failures** |
+| `rubocop` on every changed file | clean |
+
+A broader sweep (`spec/services spec/controllers spec/requests spec/models/billing`) was
+started and had not finished inside this session's execution budget; it is listed as an open
+item in §18. The 141 examples above cover every file Phase 4 changed and every caller of the
+changed methods that has a spec.
 
 ---
 
@@ -260,10 +327,15 @@ application** with the real translations and the real route table. Harnesses are
 
 | Harness | Assertions | Covers |
 |---|---|---|
-| `p4c-flow-builder.mjs` | 44 | canvas, palette, inspector from the served schema, drag, connect, keyboard, save, the 409 conflict, publish errors, Test Mode, Arabic RTL, 390px phone |
-| `p4d-channels.mjs` | 13 | eligibility shown not hidden, connect/disconnect, the replacement confirmation, Arabic phone |
+| `p4c-flow-builder.mjs` | 49 | canvas, palette, inspector from the served schema, drag, connect, keyboard, save, the 409 conflict, publish errors, Test Mode (including a refused pre-save), option-id minting after a deletion, Arabic RTL, 390px phone |
+| `p4d-channels.mjs` | 14 | eligibility shown not hidden, connect/disconnect, the replacement confirmation, the panel surviving the dialog's teardown, Arabic phone |
 | `p4e-commerce-automation.mjs` | 25 | the unavailable trigger, offerable actions, the dropped-action defect, consent notes, the absent tab, Arabic phone |
 | `p4f-templates-history.mjs` | 15 | templates listed with what they need, the graph actually saved, stop reasons as sentences, Arabic phone |
+| **Total** | **103** | all passing, 0 uncaught JavaScript errors |
+
+**Run them with `tests/Browser/run.sh`, not by hand.** It renders the pages, serves them and runs
+the harnesses from one derived root. That is not convenience — rendering and serving used to be
+two steps with two different directories, and defect 16 in §6b is what that cost.
 
 `docs/development/lynomia-integration/PHASE-4C-BROWSER-VERIFICATION.md` records exactly what the
 harness does and does not cover. **What it does not cover: a live Lynomia.** Every API response
@@ -353,6 +425,22 @@ Nothing in Phase 4 was deployed, merged, activated or connected.
 6. **The condition editor supports one value per condition.** The engine accepts a list; the UI
    writes a single-element array. Adequate for every condition the vocabulary marks as
    enumerated or id-valued, and a limitation for free-text `contains`-style conditions.
+7. **A billed plan can no longer be given a flows ceiling.** Making `flows` a
+   `BillingPlan::LIMIT_KEYS` resource — which is how the P4A usage gap was closed without
+   adding an endpoint — puts it under `refuse_narrowing_while_billed`, so an operator cannot
+   introduce a flows limit on a plan that already has paying accounts. That is the rule working
+   as designed (a ceiling applied retroactively would break live workspaces), but it means a
+   flows limit has to be set on a new plan, and it is worth knowing before somebody tries.
+8. **The condition vocabulary still makes one Redis read per Lynomia key.**
+   `LynomiaCondition#available?` calls `Automation::Extensions.enabled?` per instance, about
+   twelve times per response. The eight duplicated *event* lookups were removed; removing these
+   means either request-local memoisation on a shared class or restating `available?`'s rule in
+   a second place, and neither was worth it for twelve sub-millisecond reads on an endpoint
+   called once per page load. Recorded rather than fixed.
+9. **A broad Lynomia `rspec` sweep did not complete inside this session.** Two attempts over
+   `spec/services spec/controllers spec/requests` exceeded the available execution window. The
+   targeted 141 examples in §12 cover everything Phase 4 touched; a full-suite run on CI is
+   still owed before merge and is listed in §20 as a gate.
 
 ---
 
@@ -389,6 +477,23 @@ Nothing in Phase 4 was deployed, merged, activated or connected.
 the deployed pages, create and publish one flow per starter template on a test WhatsApp number,
 and confirm the consent gate refuses a promotional send to a contact with no grant. Then go.
 
+**Gates still owed before merge, none of them blocked on anything:**
+
+1. A full `rspec` run on Lynomia's CI (§18.9). The targeted 141 examples pass; the broad sweep
+   did not fit in this session's execution window and has not been seen green.
+2. `rails db:migrate` on a production-shaped database for
+   `20261020000002_add_agent_bot_created_at_index_to_flow_sessions`. It is written
+   `disable_ddl_transaction!` + `algorithm: :concurrently` so it does not lock the table, and
+   it ran clean against the test database — but a concurrent index build on a large
+   `flow_sessions` is the one migration here that deserves to be watched.
+3. The staging run above.
+
+**What would make this NOT ready, and is not the case:** an unproven authorization story, a
+credential reachable from a browser, a UI that offers what the server refuses, or a test suite
+whose failures nobody has accounted for. Each of those was checked and each came back clean.
+The one genuinely unproven dimension is end-to-end against a live Lynomia, and that is a
+staging task rather than a code task.
+
 ---
 
 ## 21. Commits
@@ -406,6 +511,13 @@ b2a3784e  feat(automation): describe what each action takes, and which a Commerc
 da105fbc  feat(flows): starting points the server has checked, and how a flow is running
 ```
 
+**Lynomia**, review round:
+
+```
+88630724  fix(automation): serve the vocabulary the server really accepts, and index the
+          insights scan        -- §6b items 17-24
+```
+
 **Store Syria** (`claude/store-syria-lynomia-integration-1oa1tt`), 5 commits from `6571a09e`
 plus P4G:
 
@@ -415,7 +527,9 @@ plus P4G:
 800f77f3  feat(lynomia): connect an automation to a channel, honestly
 ef2b064c  feat(lynomia): commerce automation rules and a consent surface
 11e1f0ff  feat(lynomia): start from a template, and see how an automation is running
-          + P4G: Super Admin tab, Studio throttle, Phase 4 security sweep, this report
+ce88f8b9  P4G: Super Admin automation tab, a Studio budget, and the Phase 4 security sweep
+634c5aed  fix(lynomia): unbreak the first save of every flow, and three Studio defects
+          behind it        -- §6b items 10-16
 ```
 
 **The financial fix, isolated as instructed:** `50bea59a  fix(finance): recognise 'succeeded' as
