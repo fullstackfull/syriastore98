@@ -462,7 +462,7 @@ build` while measuring the frontend stack. It is restored to its pre-Phase-2 sta
 | `vite build` broken | Pre-existing; irrelevant to merchant pages, blocks any future Vite asset. |
 | Browser/visual validation | Not performed. |
 | Ingress rate limiting | Not added. |
-| Webhook re-subscription | `EnsureSubscribed` matches an existing webhook **by URL only**. Rotating `LYNOMIA_WEBHOOK_MASTER_SECRET`, or changing `APP_URL`, leaves the registered webhook signing with the old secret (deliveries then fail verification) or pointing at the old URL. Both need an operator re-subscribe; neither is a security defect, and neither is automated. |
+| Webhook re-subscription | `EnsureSubscribed` matches an existing webhook **by URL only**. Rotating `LYNOMIA_WEBHOOK_MASTER_SECRET`, or changing `APP_URL`, leaves the registered webhook signing with the old secret (deliveries then fail verification) or pointing at the old URL. Both need an operator re-subscribe, which since §12a defect 2 means **delete then create** — the secret is immutable once the row exists, and `AgentApiClient` exposes exactly those two calls and no update. Neither is a security defect, and neither is automated. |
 
 ---
 
