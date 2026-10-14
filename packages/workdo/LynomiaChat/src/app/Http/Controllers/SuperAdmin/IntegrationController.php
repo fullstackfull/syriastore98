@@ -3,10 +3,13 @@
 namespace Workdo\LynomiaChat\app\Http\Controllers\SuperAdmin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Plan;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Http\Requests\ApproveLinkRequest;
+use Workdo\LynomiaChat\app\Models\LynomiaInboxEvent;
+use Workdo\LynomiaChat\app\Models\LynomiaStoreIdentity;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\AccountLinker;
 use Workdo\LynomiaChat\app\Services\PlatformApiClient;
@@ -46,7 +49,38 @@ class IntegrationController extends Controller
             'pendingCount' => LynomiaStoreLink::query()
                 ->where('state', \Workdo\LynomiaChat\app\Support\LinkState::PENDING_VERIFICATION)
                 ->count(),
+            // Phase 2. Seats, channels and event health, read from THIS side only -- the page
+            // renders without reaching Lynomia at all, so it still answers when the integration
+            // is unreachable, which is exactly when an operator opens it.
+            'planSeats' => Plan::query()->orderBy('name')->get(['id', 'name', 'lynomia_agent_seats']),
+            'seatedStores' => LynomiaStoreIdentity::query()
+                ->selectRaw('store_id, count(*) as seats, sum(case when role = ? then 1 else 0 end) as admins',
+                    [LynomiaStoreIdentity::ROLE_ADMINISTRATOR])
+                ->groupBy('store_id')
+                ->pluck('seats', 'store_id'),
+            'eventHealth' => $this->eventHealth(),
         ]);
+    }
+
+    /**
+     * Is the event pipe alive, and how stale is it?
+     *
+     * READ FROM THE EVENTS WE RECEIVED, not by asking Lynomia. An operator opening this page
+     * usually does so because something is wrong, and a health panel that itself needs the
+     * remote system to answer is a panel that goes blank exactly when it is needed. "The last
+     * delivery we accepted was N minutes ago" is a fact this side already holds.
+     *
+     * @return array{total:int, last_at:?string, stores_reporting:int}
+     */
+    private function eventHealth(): array
+    {
+        $latest = LynomiaInboxEvent::query()->latest('id')->first();
+
+        return [
+            'total' => LynomiaInboxEvent::query()->count(),
+            'last_at' => $latest?->created_at?->diffForHumans(),
+            'stores_reporting' => LynomiaInboxEvent::query()->distinct()->count('store_id'),
+        ];
     }
 
     public function approve(ApproveLinkRequest $request, int $link): RedirectResponse

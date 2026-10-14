@@ -167,6 +167,47 @@ class LynomiaSeatAllowanceTest extends TestCase
         $this->assertStringStartsWith('plan:', (string) $log->new_values['plan_ref']);
     }
 
+    /**
+     * The operator surface, asserted on the CONTROLLER rather than through the route.
+     *
+     * WHY NOT A REAL REQUEST, which would be the better test. The App\Http\Middleware\XSS
+     * middleware redirects any `super admin` GET to the updater whenever migration files exist
+     * that the migrations table does not list -- and in this test environment over a hundred
+     * OTHER Workdo modules' migrations are in exactly that state, because they are only loaded
+     * conditionally. Measured, and none of them belong to this module: the Lynomia migrations
+     * run. So a super-admin GET is unreachable here for reasons that predate this work and are
+     * out of this phase's scope, and dressing that up as a passing route test would be worse
+     * than saying so. The route's own guard (PlatformOperatorOnly) is covered by the Phase 1
+     * route-surface tests, which assert it from the booted router.
+     */
+    public function test_the_operator_view_carries_plan_seats_usage_and_event_health(): void
+    {
+        [, , $link] = $this->tenantOnPlan(5);
+
+        $view = app(\Workdo\LynomiaChat\app\Http\Controllers\SuperAdmin\IntegrationController::class)->show();
+        $data = $view->getData();
+
+        $this->assertSame(
+            5,
+            (int) collect($data['planSeats'])->firstWhere('lynomia_agent_seats', 5)->lynomia_agent_seats
+        );
+        // The owner's identity consumed a seat when the workspace was provisioned.
+        $this->assertSame(1, (int) $data['seatedStores'][(int) $link->store_id]);
+        $this->assertArrayHasKey('total', $data['eventHealth']);
+        $this->assertSame(0, $data['eventHealth']['total']);
+    }
+
+    /** Null is shown as "not set", never as a ceiling of zero. */
+    public function test_a_plan_with_no_allowance_is_carried_as_null_not_zero(): void
+    {
+        $this->planWithSeats(null);
+
+        $data = app(\Workdo\LynomiaChat\app\Http\Controllers\SuperAdmin\IntegrationController::class)
+            ->show()->getData();
+
+        $this->assertNull(collect($data['planSeats'])->last()->lynomia_agent_seats);
+    }
+
     /** No seat number is hardcoded anywhere: an unconfigured plan yields no allowance. */
     public function test_no_default_seat_count_is_invented(): void
     {
