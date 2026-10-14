@@ -112,7 +112,8 @@ trait InteractsWithLynomia
         // gives both. They are granted together here precisely because they are NOT the same
         // control: the staff tests entitle the tenant and withhold individual permissions.
         $this->grantLynomiaPermission($owner, [
-            'Manage Lynomia Chat', 'Reply Lynomia Chat', 'Assign Lynomia Chat', 'Manage Lynomia Automation',
+            'Manage Lynomia Chat', 'Reply Lynomia Chat', 'Assign Lynomia Chat',
+            'Manage Lynomia Automation', 'Manage Lynomia Consent',
         ]);
     }
 
@@ -418,6 +419,30 @@ trait InteractsWithLynomia
                         ['id' => 1, 'attribute_key' => 'loyalty_tier', 'attribute_display_name' => 'Loyalty tier',
                             'attribute_display_type' => 'list', 'attribute_values' => ['gold', 'silver']],
                     ], 200),
+                // ---------------- Phase 4E: commerce automation rules and consent
+                (bool) preg_match('#^/api/v1/accounts/\d+/automation_rules$#', $path) && $method === 'GET'
+                    => Http::response(['payload' => $this->lynomiaScript['rules'] ?? [self::sampleRule()]], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/automation_rules$#', $path) && $method === 'POST'
+                    => Http::response(array_merge(self::sampleRule(), ['id' => 88] +
+                        (json_decode($request->body(), true) ?: [])), 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/automation_rules/\d+$#', $path) && $method === 'DELETE'
+                    => Http::response([], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/automation_rules/\d+$#', $path)
+                    => Http::response(array_merge(self::sampleRule(), json_decode($request->body(), true) ?: []), 200),
+
+                (bool) preg_match('#^/api/v1/accounts/\d+/commerce/consents$#', $path)
+                    => Http::response(['payload' => $this->lynomiaScript['consents'] ?? [
+                        ['contact_id' => 55, 'contact_name' => 'Rasha', 'purpose' => 'promotional',
+                            'state' => 'granted', 'source' => 'checkout', 'decided_at' => '2026-02-01T10:00:00Z'],
+                    ]], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/commerce/consents/\d+$#', $path)
+                    => Http::response($this->lynomiaScript['consent'] ?? self::sampleConsent(), 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/contacts/search$#', $path)
+                    => Http::response(['payload' => [
+                        ['id' => 55, 'name' => 'Rasha', 'email' => 'rasha@example.test',
+                            'phone_number' => '+963900000055', 'identifier' => 'secret-identifier'],
+                    ]], 200),
+
                 (bool) preg_match('#^/api/v1/accounts/\d+/automation_rules/vocabulary$#', $path)
                     => Http::response($this->lynomiaScript['vocabulary'] ?? self::sampleVocabulary(), 200),
 
@@ -535,12 +560,50 @@ trait InteractsWithLynomia
         ];
     }
 
+    /** One automation rule, as the rules API serves it. */
+    protected static function sampleRule(): array
+    {
+        return [
+            'id' => 7, 'name' => 'Tell them when it ships', 'description' => null,
+            'event_name' => 'commerce_order_shipped', 'active' => true,
+            'conditions' => [['attribute_key' => 'commerce_order_status', 'filter_operator' => 'equal_to',
+                'values' => ['shipped'], 'query_operator' => null]],
+            'actions' => [['action_name' => 'add_label', 'action_params' => ['vip']]],
+            'created_at' => '2026-02-01T10:00:00Z',
+        ];
+    }
+
+    /** One shopper's consent, as Commerce::ConsentsController answers it. */
+    protected static function sampleConsent(): array
+    {
+        return [
+            'contact_id' => 55, 'contact_name' => 'Rasha',
+            'purposes' => [
+                'transactional' => ['state' => null, 'source' => null, 'decided_at' => null, 'note' => null,
+                    'refusal' => null],
+                'promotional' => ['state' => 'granted', 'source' => 'merchant', 'decided_at' => '2026-02-01T10:00:00Z',
+                    'note' => 'Agreed on the phone', 'refusal' => null],
+            ],
+        ];
+    }
+
     /** The condition vocabulary, as Automation::Vocabulary serves it. */
     protected static function sampleVocabulary(): array
     {
         return [
-            'events' => ['conversation_created', 'commerce_order_paid'],
-            'actions' => ['send_message', 'add_label'],
+            'events' => [
+                ['name' => 'conversation_created', 'available' => true],
+                ['name' => 'commerce_order_shipped', 'available' => true],
+                ['name' => 'commerce_cart_abandoned', 'available' => false, 'reason' => 'recovery_unavailable'],
+            ],
+            'actions' => [
+                ['name' => 'send_message', 'commerce_safe' => false,
+                    'fields' => [['key' => 'message', 'kind' => 'text']]],
+                ['name' => 'add_label', 'commerce_safe' => true,
+                    'fields' => [['key' => 'labels', 'kind' => 'labels', 'required' => true]]],
+                // Described by nothing upstream, so the Studio must not offer it.
+                ['name' => 'send_attachment', 'commerce_safe' => true],
+            ],
             'conditions' => [
                 ['key' => 'status', 'scope' => 'conversation', 'data_type' => 'text',
                     'operators' => ['equal_to', 'not_equal_to'], 'values' => ['open', 'resolved'], 'available' => true],

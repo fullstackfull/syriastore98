@@ -57,6 +57,11 @@ class AutomationApiController extends Controller
     private const MAX_EDGES = 900;
     private const MAX_INPUTS = 20;
 
+    /** Automation rule shape limits: the engine's own MAX_CONDITIONS, and bounds this surface will carry. */
+    private const MAX_CONDITIONS = 10;
+    private const MAX_ACTIONS = 10;
+    private const MAX_VALUES = 50;
+
     public function __construct(private readonly MerchantInboxGateway $gateway)
     {
     }
@@ -309,6 +314,267 @@ class AutomationApiController extends Controller
                 ], array_filter(is_array($body['trace'] ?? null) ? $body['trace'] : [], 'is_array'))),
             ];
         });
+    }
+
+    // ------------------------------------------------------------------ commerce automation
+
+    /**
+     * The store's automation RULES, and the vocabulary they are written in.
+     *
+     * A RULE IS NOT A FLOW. A flow answers a conversation the customer started; a rule reacts to
+     * something that happened -- an order paid -- and takes an action. The Commerce triggers this
+     * integration exists for are rules, which is why they live on their own surface rather than
+     * as a node in the builder.
+     *
+     * THE VOCABULARY TRAVELS WITH THE LIST because the editor cannot be drawn without it, and
+     * because what it carries is the honest part: each trigger says whether it can actually fire
+     * for THIS store, and each action says whether a Commerce trigger would refuse it. A Store
+     * Syria merchant is offered neither the cart trigger, whose provider is still PRE_UAT and
+     * produces no abandoned carts, nor a free-form message action a Commerce rule cannot save.
+     */
+    public function rules(Request $request): JsonResponse
+    {
+        return $this->proxy($request, function (AgentApiClient $client) {
+            $payload = $client->listAutomationRules()['payload'] ?? [];
+            $vocabulary = $client->automationVocabulary();
+
+            return [
+                'rules' => array_values(array_map([$this, 'projectRule'],
+                    array_filter(is_array($payload) ? $payload : [], 'is_array'))),
+                'vocabulary' => $this->projectVocabulary($vocabulary) + [
+                    'events' => $this->projectEvents($vocabulary),
+                    'actions' => $this->projectActions($vocabulary),
+                ],
+            ];
+        });
+    }
+
+    public function storeRule(Request $request): JsonResponse
+    {
+        $rule = $this->ruleParams($request);
+
+        return $this->proxy($request, function (AgentApiClient $client) use ($rule) {
+            [$status, $body] = $client->createAutomationRule($rule);
+
+            return $this->ruleOutcome($status, $body);
+        });
+    }
+
+    public function updateRule(Request $request, int $rule): JsonResponse
+    {
+        $payload = $this->ruleParams($request);
+
+        return $this->proxy($request, function (AgentApiClient $client) use ($rule, $payload) {
+            [$status, $body] = $client->updateAutomationRule($rule, $payload);
+
+            return $this->ruleOutcome($status, $body);
+        });
+    }
+
+    public function destroyRule(Request $request, int $rule): JsonResponse
+    {
+        return $this->proxy($request, function (AgentApiClient $client) use ($rule) {
+            $client->deleteAutomationRule($rule);
+
+            return ['ok' => true];
+        });
+    }
+
+    /**
+     * THE SHAPE OF A RULE IS CHECKED HERE; WHAT IT MEANS IS CHECKED UPSTREAM. A condition's
+     * attribute, its operator and an action's parameters are validated by AutomationRule and its
+     * Lynomia extensions against the account's own labels, teams, audiences and entitlements --
+     * none of which this side can see. Re-deciding any of it here would be a second validator
+     * kept in step by hand, and the one that drifted would be this one. So the boundary refuses
+     * a malformed REQUEST and forwards a well-formed one to be judged where the rules live.
+     */
+    private function ruleParams(Request $request): array
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'min:1', 'max:' . self::NAME_MAX],
+            'description' => ['sometimes', 'nullable', 'string', 'max:' . self::DESCRIPTION_MAX],
+            'event_name' => ['required', 'string', 'max:64'],
+            'active' => ['sometimes', 'boolean'],
+            'conditions' => ['present', 'array', 'max:' . self::MAX_CONDITIONS],
+            'conditions.*.attribute_key' => ['required', 'string', 'max:64'],
+            'conditions.*.filter_operator' => ['required', 'string', 'max:32'],
+            'conditions.*.values' => ['present', 'array', 'max:' . self::MAX_VALUES],
+            'conditions.*.query_operator' => ['sometimes', 'nullable', 'string', 'in:AND,OR'],
+            'actions' => ['required', 'array', 'min:1', 'max:' . self::MAX_ACTIONS],
+            'actions.*.action_name' => ['required', 'string', 'max:64'],
+            'actions.*.action_params' => ['present', 'array', 'max:' . self::MAX_VALUES],
+        ]);
+
+        $validated['active'] = (bool) ($validated['active'] ?? false);
+
+        return $validated;
+    }
+
+    /** A 422 from a rule carries its own errors keyed by attribute; they are codes enough to show. */
+    private function ruleOutcome(int $status, array $body): array
+    {
+        if ($status !== 422) {
+            return ['ok' => true, 'rule' => $this->projectRule($body['payload'] ?? $body)];
+        }
+
+        $errors = is_array($body['errors'] ?? null) ? $body['errors'] : [];
+
+        return ['ok' => false, 'errors' => array_map(
+            static fn ($messages) => array_values(array_map('strval', (array) $messages)),
+            array_slice($errors, 0, 10, true)
+        )];
+    }
+
+    private function projectRule(array $rule): array
+    {
+        return [
+            'id' => $rule['id'] ?? null,
+            'name' => (string) ($rule['name'] ?? ''),
+            'description' => $rule['description'] ?? null,
+            'event_name' => $rule['event_name'] ?? null,
+            'active' => (bool) ($rule['active'] ?? false),
+            // Conditions and actions are passed through as structure, for the reason node `data`
+            // is: their keys are the vocabulary's own contract, and a list written here of which
+            // may travel would silently drop a setting the day the vocabulary gains one.
+            'conditions' => is_array($rule['conditions'] ?? null) ? array_values($rule['conditions']) : [],
+            'actions' => is_array($rule['actions'] ?? null) ? array_values($rule['actions']) : [],
+            'created_at' => $rule['created_at'] ?? null,
+        ];
+    }
+
+    /** Each trigger with whether it can fire here; `reason` is a code the browser renders. */
+    private function projectEvents(array $vocabulary): array
+    {
+        return array_values(array_map(static fn (array $event): array => [
+            'name' => (string) ($event['name'] ?? ''),
+            'available' => (bool) ($event['available'] ?? false),
+            'reason' => $event['reason'] ?? null,
+        ], array_filter(is_array($vocabulary['events'] ?? null) ? $vocabulary['events'] : [], 'is_array')));
+    }
+
+    /**
+     * Only the actions the server DESCRIBES are forwarded. An action with no field schema is one
+     * whose parameters are a file upload, a webhook or an email body -- each needing a surface
+     * and an authorization story of its own -- and offering a form that happens to post the
+     * right-shaped JSON is how a half-built action ships.
+     */
+    private function projectActions(array $vocabulary): array
+    {
+        $described = array_filter(is_array($vocabulary['actions'] ?? null) ? $vocabulary['actions'] : [],
+            static fn ($action) => is_array($action) && isset($action['fields']));
+
+        return array_values(array_map(static fn (array $action): array => [
+            'name' => (string) ($action['name'] ?? ''),
+            'commerce_safe' => (bool) ($action['commerce_safe'] ?? false),
+            'fields' => array_values($action['fields']),
+        ], $described));
+    }
+
+    // ------------------------------------------------------------------ consent
+
+    /**
+     * What shoppers have agreed to receive, and recording what one of them decided.
+     *
+     * READ AND WRITTEN THROUGH LYNOMIA, never out of this database, even though Store Syria has
+     * its own customers table. The decision governs what LYNOMIA sends; a copy kept here would be
+     * a second answer to "may we message this person", and the gate would keep reading the other
+     * one. The same reason the inbox proxies a conversation's orders rather than reading them
+     * locally.
+     */
+    public function consents(Request $request): JsonResponse
+    {
+        return $this->proxy($request, function (AgentApiClient $client) use ($request) {
+            $payload = $client->listConsents(array_filter([
+                'purpose' => $this->oneOf($request->query('purpose'), ['transactional', 'promotional']),
+                'state' => $this->oneOf($request->query('state'), ['granted', 'withdrawn', 'suppressed']),
+            ], static fn ($value) => $value !== null))['payload'] ?? [];
+
+            return ['decisions' => array_values(array_map(static fn (array $row): array => [
+                'contact_id' => $row['contact_id'] ?? null,
+                'contact_name' => (string) ($row['contact_name'] ?? ''),
+                'purpose' => $row['purpose'] ?? null,
+                'state' => $row['state'] ?? null,
+                'source' => $row['source'] ?? null,
+                'decided_at' => $row['decided_at'] ?? null,
+            ], array_filter(is_array($payload) ? $payload : [], 'is_array')))];
+        });
+    }
+
+    public function contactConsent(Request $request, int $contact): JsonResponse
+    {
+        return $this->proxy($request, fn (AgentApiClient $client) => [
+            'consent' => $this->projectConsent($client->contactConsent($contact)),
+        ]);
+    }
+
+    /**
+     * A NOTE IS REQUIRED, and that is not red tape. A grant recorded by a merchant is a claim
+     * about a conversation that happened somewhere else; without a note saying where, it is
+     * indistinguishable from adding a person to a marketing list. Lynomia requires it too -- this
+     * refuses it early so the merchant is told by the form rather than by a failed request.
+     */
+    public function recordConsent(Request $request, int $contact): JsonResponse
+    {
+        $validated = $request->validate([
+            'purpose' => ['required', 'string', 'in:transactional,promotional'],
+            // `suppressed` is the provider's word, never a merchant's; it is not offered here.
+            'state' => ['required', 'string', 'in:granted,withdrawn'],
+            'note' => ['required', 'string', 'min:1', 'max:500'],
+        ]);
+
+        return $this->proxy($request, fn (AgentApiClient $client) => [
+            'consent' => $this->projectConsent($client->recordConsent(
+                $contact, $validated['purpose'], $validated['state'], $validated['note']
+            )),
+        ]);
+    }
+
+    public function clearConsentSuppression(Request $request, int $contact): JsonResponse
+    {
+        return $this->proxy($request, fn (AgentApiClient $client) => [
+            'consent' => $this->projectConsent($client->clearConsentSuppression($contact)),
+        ]);
+    }
+
+    public function searchContacts(Request $request): JsonResponse
+    {
+        $validated = $request->validate(['q' => ['required', 'string', 'min:2', 'max:100']]);
+
+        return $this->proxy($request, function (AgentApiClient $client) use ($validated) {
+            $payload = $client->searchContacts($validated['q'])['payload'] ?? [];
+
+            return ['contacts' => array_values(array_map(static fn (array $contact): array => [
+                'id' => $contact['id'] ?? null,
+                'name' => (string) ($contact['name'] ?? ''),
+                // Enough to tell two people with the same name apart, and no more.
+                'identifier' => $contact['phone_number'] ?? $contact['email'] ?? null,
+            ], array_slice(array_filter(is_array($payload) ? $payload : [], 'is_array'), 0, 20)))];
+        });
+    }
+
+    private function projectConsent(array $body): array
+    {
+        $purposes = is_array($body['purposes'] ?? null) ? $body['purposes'] : [];
+
+        return [
+            'contact_id' => $body['contact_id'] ?? null,
+            'contact_name' => (string) ($body['contact_name'] ?? ''),
+            'purposes' => array_map(static fn ($entry): array => [
+                'state' => is_array($entry) ? ($entry['state'] ?? null) : null,
+                'source' => is_array($entry) ? ($entry['source'] ?? null) : null,
+                'decided_at' => is_array($entry) ? ($entry['decided_at'] ?? null) : null,
+                'note' => is_array($entry) ? ($entry['note'] ?? null) : null,
+                // What would happen NOW, which a state alone cannot say: no row means allowed for
+                // one class and refused for the other.
+                'refusal' => is_array($entry) ? ($entry['refusal'] ?? null) : null,
+            ], $purposes),
+        ];
+    }
+
+    /** Accept only a value from the list, or nothing. An unknown filter is dropped, not forwarded. */
+    private function oneOf(mixed $value, array $allowed): ?string
+    {
+        return is_string($value) && in_array($value, $allowed, true) ? $value : null;
     }
 
     // ------------------------------------------------------------------ channels

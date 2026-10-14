@@ -83,5 +83,18 @@ class CompanyMenuListener
             'module' => $module,
             'permission' => 'Manage Lynomia Automation',
         ]);
+
+        $menu->add([
+            'title' => __('Commerce automation'),
+            'icon' => '',
+            'name' => 'lynomia-commerce-automation',
+            'parent' => 'lynomia',
+            'order' => 40,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'lynomia.automation.commerce',
+            'module' => $module,
+            'permission' => 'Manage Lynomia Automation',
+        ]);
     }
 }

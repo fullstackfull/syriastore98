@@ -225,6 +225,12 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
             ])->group(function () {
                 Route::get('/automation', [AutomationController::class, 'index'])->name('automation');
 
+                // Commerce automation and consent: one page, two tabs, because they are the two
+                // halves of one question -- what the store sends on its own, and whom it is
+                // allowed to send it to.
+                Route::get('/automation/commerce', [AutomationController::class, 'commerce'])
+                    ->name('automation.commerce');
+
                 // The visual builder. A page of its own rather than a panel on the list, because it
                 // owns the whole viewport and has its own unsaved state -- navigating away from a
                 // modal by accident is how a merchant loses a flow they were drawing.
@@ -271,6 +277,41 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
                     // because it is not a cacheable read and must carry the CSRF token.
                     Route::post('/flows/{flow}/simulate', [AutomationApiController::class, 'simulate'])
                         ->whereNumber('flow')->name('flows.simulate');
+
+                    // ---------------------------------------------------- commerce automation
+                    //
+                    // RULES ARE NOT FLOWS and are a different model upstream: a flow answers a
+                    // conversation the customer started, a rule reacts to something that
+                    // happened. The Commerce triggers this integration exists for are rules.
+                    Route::get('/rules', [AutomationApiController::class, 'rules'])->name('rules');
+                    Route::post('/rules', [AutomationApiController::class, 'storeRule'])->name('rules.store');
+                    Route::patch('/rules/{rule}', [AutomationApiController::class, 'updateRule'])
+                        ->whereNumber('rule')->name('rules.update');
+                    Route::delete('/rules/{rule}', [AutomationApiController::class, 'destroyRule'])
+                        ->whereNumber('rule')->name('rules.destroy');
+
+                    // ---------------------------------------------------- consent
+                    //
+                    // Recording what a shopper decided changes whether they are messaged at all,
+                    // which is a heavier act than editing an automation -- so it carries its own
+                    // permission on top of the Studio's.
+                    //
+                    // The contact search is declared BEFORE the numeric {contact} routes so that
+                    // /consents/contacts is read as a path rather than as a contact whose id
+                    // happens to be a word. whereNumber would refuse it anyway; relying on that
+                    // alone would make the ordering look accidental.
+                    Route::middleware(\Laratrust\Middleware\Permission::class . ':Manage Lynomia Consent')
+                        ->group(function () {
+                            Route::get('/consents', [AutomationApiController::class, 'consents'])->name('consents');
+                            Route::get('/consents/contacts', [AutomationApiController::class, 'searchContacts'])
+                                ->name('consents.search');
+                            Route::get('/consents/{contact}', [AutomationApiController::class, 'contactConsent'])
+                                ->whereNumber('contact')->name('consents.show');
+                            Route::put('/consents/{contact}', [AutomationApiController::class, 'recordConsent'])
+                                ->whereNumber('contact')->name('consents.record');
+                            Route::delete('/consents/{contact}', [AutomationApiController::class, 'clearConsentSuppression'])
+                                ->whereNumber('contact')->name('consents.clear');
+                        });
                 });
             });
         });

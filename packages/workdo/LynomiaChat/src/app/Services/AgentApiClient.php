@@ -346,6 +346,79 @@ class AgentApiClient
         return $this->http->send('post', $this->path("flows/{$flowId}/simulate"), ['inputs' => $inputs]);
     }
 
+    // ------------------------------------------------------------------ commerce automation
+
+    /**
+     * Automation RULES, which are not flows and must not be confused with them.
+     *
+     * A flow answers a conversation a customer started. A rule reacts to something that happened --
+     * an order paid, a conversation opened -- and takes an action. The Commerce triggers this
+     * integration cares about are rules, and the Studio's Commerce section is a rule editor; the
+     * Flow Builder is a different surface on a different model.
+     */
+    public function listAutomationRules(): array
+    {
+        return $this->http->send('get', $this->path('automation_rules'), ['page' => 1]);
+    }
+
+    /** @return array{0:int,1:array} 422 carries the rule's own validation errors, keyed by attribute. */
+    public function createAutomationRule(array $rule): array
+    {
+        return $this->http->sendAllowing([422], 'post', $this->path('automation_rules'), $rule, retryTransport: false);
+    }
+
+    /** @return array{0:int,1:array} */
+    public function updateAutomationRule(int $ruleId, array $rule): array
+    {
+        return $this->http->sendAllowing([422], 'patch', $this->path("automation_rules/{$ruleId}"), $rule,
+            retryTransport: false);
+    }
+
+    public function deleteAutomationRule(int $ruleId): array
+    {
+        return $this->http->send('delete', $this->path("automation_rules/{$ruleId}"), retryTransport: false);
+    }
+
+    // ------------------------------------------------------------------ consent
+
+    /** Recent consent decisions in this workspace, newest first. */
+    public function listConsents(array $filters = []): array
+    {
+        return $this->http->send('get', $this->path('commerce/consents'), $filters);
+    }
+
+    /** One shopper's two classes, and whether a send would be allowed right now. */
+    public function contactConsent(int $contactId): array
+    {
+        return $this->http->send('get', $this->path("commerce/consents/{$contactId}"));
+    }
+
+    /**
+     * Record what a shopper decided.
+     *
+     * NOT TRANSPORT-RETRIED. A retry is harmless on the wire -- it is an upsert of one row -- but
+     * each attempt writes an audit entry, and a consent trail with a phantom duplicate decision is
+     * worse than one extra round trip for the person reading it later.
+     */
+    public function recordConsent(int $contactId, string $purpose, string $state, string $note): array
+    {
+        return $this->http->send('put', $this->path("commerce/consents/{$contactId}"), [
+            'purpose' => $purpose, 'state' => $state, 'note' => $note,
+        ], retryTransport: false);
+    }
+
+    /** Clears a SUPPRESSION. A withdrawal is the shopper's and is never cleared from here. */
+    public function clearConsentSuppression(int $contactId): array
+    {
+        return $this->http->send('delete', $this->path("commerce/consents/{$contactId}"), retryTransport: false);
+    }
+
+    /** Find a shopper by name, email or phone, to look at or change their consent. */
+    public function searchContacts(string $query): array
+    {
+        return $this->http->send('get', $this->path('contacts/search'), ['q' => $query, 'page' => 1]);
+    }
+
     // ------------------------------------------------------------------ webhooks (admin only)
 
     /**

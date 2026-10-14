@@ -37,6 +37,30 @@ class AutomationController extends Controller
     }
 
     /**
+     * Commerce automation and consent: one page with two tabs.
+     *
+     * TOGETHER BECAUSE THEY ARE TWO HALVES OF ONE QUESTION -- what the store sends on its own, and
+     * whom it is allowed to send it to. A merchant setting up an order-shipped message and a
+     * merchant recording that a customer asked to stop are the same person on the same afternoon,
+     * and splitting them across two menu entries invites the first to be configured without the
+     * second ever being looked at.
+     *
+     * WHETHER THIS PERSON MAY RECORD A CONSENT DECISION IS PASSED FOR LAYOUT ONLY. It hides a tab
+     * they cannot use; the routes behind it carry their own permission, and the test suite proves
+     * they refuse. A hidden tab is not an authorization control.
+     */
+    public function commerce(Request $request): View
+    {
+        /** @var LynomiaStoreLink|null $link */
+        $link = $request->attributes->get(EnsureStoreOwnsLink::ATTRIBUTE);
+
+        return view('lynomia-chat::merchant.commerce-automation', [
+            'workspaceName' => $link?->lynomia_account_name,
+            'canManageConsent' => $request->user()->isAbleTo('Manage Lynomia Consent'),
+        ]);
+    }
+
+    /**
      * The visual builder for one flow.
      *
      * THE FLOW ID IS PASSED STRAIGHT THROUGH AND IS NOT TRUSTED. Nothing is read with it here; the page

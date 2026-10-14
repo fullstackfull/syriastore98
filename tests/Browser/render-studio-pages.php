@@ -25,6 +25,12 @@ $app['view']->getFinder()->prependLocation(__DIR__ . '/views');
 $targets = [
     ['automation', 'lynomia-chat::merchant.automation', ['workspaceName' => 'Damascus Store']],
     ['builder', 'lynomia-chat::merchant.builder', ['workspaceName' => 'Damascus Store', 'flowId' => 42]],
+    ['commerce', 'lynomia-chat::merchant.commerce-automation',
+        ['workspaceName' => 'Damascus Store', 'canManageConsent' => true]],
+    // The same page for a staff member who may build automations but may not record a consent
+    // decision: the tab has to be absent, not merely disabled.
+    ['commerce-noconsent', 'lynomia-chat::merchant.commerce-automation',
+        ['workspaceName' => 'Damascus Store', 'canManageConsent' => false]],
 ];
 
 $target = $argv[1] ?? sys_get_temp_dir() . '/lynomia-studio-pages';
