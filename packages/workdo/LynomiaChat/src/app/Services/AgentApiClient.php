@@ -165,7 +165,7 @@ class AgentApiClient
         return "/api/v1/accounts/{$this->accountId}/{$suffix}";
     }
 
-    /** @throws LynomiaApiException never thrown here; declared so callers see the contract. */
+    /** The workspace every path above is built against. */
     public function accountId(): int
     {
         return $this->accountId;
