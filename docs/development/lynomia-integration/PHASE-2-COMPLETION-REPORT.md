@@ -250,13 +250,15 @@ rule that stacks the three panes and hides the empty context pane. The page rend
 | Suite | Result |
 |---|---|
 | Store Syria — Lynomia module | **133 tests, 2 985 assertions, 0 failures** |
-| Store Syria — full suite | **1 716 tests, 13 failures** — the *identical* pre-existing set |
+| Store Syria — full suite | **1 718 tests, 11 342 assertions, 13 failures**, 17 skipped — the *identical* pre-existing set |
 | Lynomia — Phase 2 specs | scoped tokens 15, channel claims 24, entitlement grants 23, webhook secret 4 — 0 failures |
 | Lynomia — broad regression | **8 818 examples, 0 failures**, 70 pending — see §12a |
 | RuboCop (Lynomia) | clean on all changed files |
 
 The 13 Store Syria failures are the documented baseline from `f2d16cab`: 8 `owner_menu_settings`
-Auth/Profile and 5 tenancy-census. Phase 2 added 46 Store Syria tests (19 ingress + 17 BFF + 10 seat allowance) and **no new failure**. Per the brief they
+Auth/Profile and 5 tenancy-census — matched name for name, in the same order, on the final run.
+(The total reads 1 718 against 1 716 earlier in this phase: the two added tests are the module's
+own, written after the earlier run had already started.) Phase 2 added 46 Store Syria tests (19 ingress + 17 BFF + 10 seat allowance) and **no new failure**. Per the brief they
 are out of scope, and this report does not claim all tests pass.
 
 New tests: 17 BFF, 19 event ingress, 10 seat allowance (Store Syria) = 46; 15 scoped token, 24
