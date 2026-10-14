@@ -160,11 +160,7 @@ class IdentityProvisioner
         $remote = $this->api->createUser(
             $this->displayName($person),
             $this->identityEmail($link, $person),
-            // Generated, used once by the endpoint that requires the field, and dropped. It is
-            // never stored, logged or shown, and nobody -- including this integration -- can
-            // sign in with it afterwards. A repeated attempt generates a different one and
-            // that changes nothing: upstream ignores the field for a user that already exists.
-            Str::password(32),
+            $this->throwawaySecret(),
             $marker
         );
 
@@ -305,6 +301,53 @@ class IdentityProvisioner
     private function displayName(User $person): string
     {
         return Str::limit((string) ($person->name ?: "User {$person->id}"), 50, '');
+    }
+
+    /**
+     * A secret for the password field the upstream endpoint requires, which nobody will ever use.
+     *
+     * It is generated, sent once and dropped: never stored, logged or shown, and there is no
+     * password sign-in path for these identities -- access is the short-lived SSO link and
+     * nothing else. A repeated attempt generates a different one and that changes nothing,
+     * because upstream ignores the field for a user that already exists.
+     *
+     * BUILT TO LYNOMIA'S RULE RATHER THAN HOPING TO MEET IT. Lynomia enforces at least one
+     * uppercase, one lowercase, one digit and one special character
+     * (config/initializers/secure_password.rb there). Laravel's Str::password() seeds exactly
+     * one LETTER, of either case, and fills the rest at random -- so about one call in
+     * twenty-six thousand contains no uppercase, or no lowercase, and is refused with a 422 the
+     * merchant can do nothing with and nothing retries. Rare is not the same as impossible, and
+     * a cross-system coupling that holds by probability is one nobody can reason about.
+     * Seeding one of each class makes it hold by construction.
+     */
+    private function throwawaySecret(): string
+    {
+        $lower = 'abcdefghijklmnopqrstuvwxyz';
+        $upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        $digits = '0123456789';
+        // Every one of these is in Lynomia's special-character dictionary.
+        $specials = '!@#$%^&*()_+-=';
+        $pool = $lower . $upper . $digits . $specials;
+
+        $characters = [
+            $lower[random_int(0, strlen($lower) - 1)],
+            $upper[random_int(0, strlen($upper) - 1)],
+            $digits[random_int(0, strlen($digits) - 1)],
+            $specials[random_int(0, strlen($specials) - 1)],
+        ];
+
+        while (count($characters) < 32) {
+            $characters[] = $pool[random_int(0, strlen($pool) - 1)];
+        }
+
+        // Fisher-Yates over random_int, so the seeded characters are not always in the first
+        // four positions and the permutation comes from the same CSPRNG as the characters.
+        for ($i = count($characters) - 1; $i > 0; $i--) {
+            $j = random_int(0, $i);
+            [$characters[$i], $characters[$j]] = [$characters[$j], $characters[$i]];
+        }
+
+        return implode('', $characters);
     }
 
     private function installationRef(): string

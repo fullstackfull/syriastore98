@@ -260,6 +260,37 @@ class LynomiaIdentityTest extends TestCase
      * POST /platform/api/v1/users is the documented takeover primitive: upstream resolves an
      * existing user by email and grants this app a permissible on them.
      */
+    /**
+     * The password field upstream requires is never used by anyone, but it still has to be
+     * ACCEPTED. Lynomia enforces one uppercase, one lowercase, one digit and one special, and
+     * Str::password() seeds only one letter of either case -- so about one call in twenty-six
+     * thousand was refused with a 422 nothing retried. Asserted over many draws because a
+     * single sample proves nothing about a rule that fails rarely.
+     */
+    public function test_every_identity_secret_satisfies_lynomias_password_rule(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+        $this->fakeLynomia();
+
+        $provisioner = app(IdentityProvisioner::class);
+        $secret = new \ReflectionMethod($provisioner, 'throwawaySecret');
+
+        for ($i = 0; $i < 500; $i++) {
+            $password = $secret->invoke($provisioner);
+
+            $this->assertSame(32, strlen($password));
+            $this->assertMatchesRegularExpression('/[a-z]/', $password, "no lowercase in: {$password}");
+            $this->assertMatchesRegularExpression('/[A-Z]/', $password, "no uppercase in: {$password}");
+            $this->assertMatchesRegularExpression('/[0-9]/', $password, "no digit in: {$password}");
+            // Lynomia's own special-character dictionary (devise-secure_password).
+            $this->assertMatchesRegularExpression(
+                '/[!@#$%^&*()_+\-=]/',
+                $password,
+                "no special character in: {$password}"
+            );
+        }
+    }
+
     public function test_a_persons_real_email_is_never_sent_to_lynomia(): void
     {
         [$owner, $store] = $this->entitledTenant();
