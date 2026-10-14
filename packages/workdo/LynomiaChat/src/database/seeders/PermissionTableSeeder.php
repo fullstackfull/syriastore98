@@ -10,9 +10,18 @@ use Illuminate\Database\Seeder;
 /**
  * The merchant-side permission this module gates on.
  *
- * ONE PERMISSION IN PHASE 1, because there is one merchant surface. More arrive with the
- * phases that add surfaces; seeding permissions for screens that do not exist would put
- * names in the role editor that grant nothing.
+ * THREE PERMISSIONS, BECAUSE READING AND ACTING ARE DIFFERENT DECISIONS. Phase 1 had one
+ * surface and so one permission. The inbox makes the distinction real: a merchant may want a
+ * junior staff member to SEE what customers are asking without being able to answer them in
+ * the store's name, and may want only a lead to move a conversation between colleagues. A
+ * single permission would force all three on anyone allowed to look.
+ *
+ *   Manage Lynomia Chat   open the module and read conversations
+ *   Reply Lynomia Chat    send a reply or an internal note
+ *   Assign Lynomia Chat   assign a conversation and change its status
+ *
+ * These are enforced on the ROUTES, not in the interface. A hidden button is not an
+ * authorization control -- the staff member types the path.
  *
  * NOTE ON THE `admin` ROLE. Role::where('name','admin') is a single GLOBAL row shared by
  * every merchant owner on the platform (App\Models\Utility::addNewData re-grants it on every
@@ -28,7 +37,7 @@ class PermissionTableSeeder extends Seeder
         Model::unguard();
 
         $module = 'LynomiaChat';
-        $permissions = ['Manage Lynomia Chat'];
+        $permissions = ['Manage Lynomia Chat', 'Reply Lynomia Chat', 'Assign Lynomia Chat'];
 
         $companyRole = Role::where('name', 'admin')->first();
 

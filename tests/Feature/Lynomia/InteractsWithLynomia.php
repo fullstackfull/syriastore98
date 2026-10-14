@@ -104,11 +104,13 @@ trait InteractsWithLynomia
         );
 
         // Entitlement is the PLAN's answer; the permission is the ROLE's. A merchant owner
-        // holds both in production -- PermissionTableSeeder grants `Manage Lynomia Chat` to
-        // the global `admin` role that every owner carries -- so the fixture gives both.
-        // They are granted together here precisely because they are NOT the same control:
-        // the staff test below entitles the tenant and withholds only the permission.
-        $this->grantLynomiaPermission($owner);
+        // holds both in production -- PermissionTableSeeder grants all three module
+        // permissions to the global `admin` role that every owner carries -- so the fixture
+        // gives both. They are granted together here precisely because they are NOT the same
+        // control: the staff tests entitle the tenant and withhold individual permissions.
+        $this->grantLynomiaPermission($owner, [
+            'Manage Lynomia Chat', 'Reply Lynomia Chat', 'Assign Lynomia Chat',
+        ]);
     }
 
     /**
@@ -118,12 +120,12 @@ trait InteractsWithLynomia
      * Laratrust's Role, whose non-empty `protected $fillable` wins in isFillable(), so
      * store_id and created_by are silently dropped by create().
      */
-    protected function grantLynomiaPermission(User $user): void
+    protected function grantLynomiaPermission(User $user, array $names = ['Manage Lynomia Chat']): void
     {
-        $permission = Permission::firstOrCreate(
-            ['name' => 'Manage Lynomia Chat'],
-            ['display_name' => 'Manage Lynomia Chat', 'guard_name' => 'web', 'module' => 'LynomiaChat']
-        );
+        $permissions = array_map(static fn (string $name) => Permission::firstOrCreate(
+            ['name' => $name],
+            ['display_name' => $name, 'guard_name' => 'web', 'module' => 'LynomiaChat']
+        ), $names);
 
         $role = Role::firstWhere('name', 'lynomia-role-' . $user->id)
             ?? Role::forceCreate([
@@ -134,7 +136,9 @@ trait InteractsWithLynomia
                 'store_id' => $user->current_store,
             ]);
 
-        $role->givePermission($permission);
+        foreach ($permissions as $permission) {
+            $role->givePermission($permission);
+        }
         $role->flushCache();
 
         // addRole unconditionally, and NEVER probe with hasRole() first: Laratrust memoises
@@ -280,10 +284,78 @@ trait InteractsWithLynomia
                     'authorized_by_name' => 'Merchant Admin',
                 ], 201),
                 str_starts_with($key, 'DELETE /platform/api/v1/account_links/') => Http::response([], 200),
+
+                // --------------------------------------------------- Phase 2: the BFF's own calls
+                //
+                // A per-person, workspace-scoped bearer. The literal below is asserted on by the
+                // "no credential reaches the browser" test, so it is deliberately recognisable.
+                (bool) preg_match('#^/platform/api/v1/users/\d+/scoped_access_token$#', $path) && $method === 'POST'
+                    => Http::response([
+                        'token' => 'SCOPED-TOKEN-' . (json_decode($request->body(), true)['account_id'] ?? 0),
+                        'account_id' => json_decode($request->body(), true)['account_id'] ?? 0,
+                        'expires_at' => now()->addHour()->toIso8601String(),
+                    ], 200),
+
+                // The agent API, as the merchant person. Shapes mirror the real jbuilder views:
+                // conversations nest under data.payload with a meta of bucket counts, messages
+                // come back under payload, and a conversation is addressed by display_id.
+                (bool) preg_match('#^/api/v1/accounts/\d+/conversations$#', $path) && $method === 'GET'
+                    => Http::response(['data' => [
+                        'meta' => ['mine_count' => 0, 'assigned_count' => 0, 'unassigned_count' => 0, 'all_count' => 1],
+                        'payload' => $this->lynomiaScript['conversations'] ?? [self::sampleConversation()],
+                    ]], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/conversations/\d+/messages$#', $path) && $method === 'GET'
+                    => Http::response(['payload' => $this->lynomiaScript['messages'] ?? [self::sampleMessage()]], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/conversations/\d+/messages$#', $path) && $method === 'POST'
+                    => Http::response(self::sampleMessage(), 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/conversations/\d+/toggle_status$#', $path)
+                    => Http::response(['payload' => ['success' => true]], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/conversations/\d+/assignments$#', $path)
+                    => Http::response(['id' => 1, 'name' => 'Agent'], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/conversations/\d+/update_last_seen$#', $path)
+                    => Http::response([], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/agents$#', $path)
+                    => Http::response([['id' => 1, 'name' => 'Agent', 'email' => 'agent@example.test']], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/contacts/\d+$#', $path)
+                    => Http::response(['payload' => ['id' => 55, 'name' => 'Customer', 'email' => null]], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/webhooks$#', $path)
+                    => Http::response($method === 'GET' ? ['payload' => []] : ['payload' => ['id' => 1]], 200),
                 // An unscripted call is a test bug, not a 404 to shrug at: say which one.
                 default => Http::response(['error' => "unscripted call: {$key}"], 599),
             };
         });
+    }
+
+    /** The shape a conversation arrives in, trimmed to the keys the BFF projects. */
+    protected static function sampleConversation(): array
+    {
+        return [
+            'id' => 1,
+            'status' => 'open',
+            'unread_count' => 2,
+            'last_activity_at' => '2026-10-14T09:00:00Z',
+            'inbox_id' => 9,
+            'meta' => [
+                'channel' => 'Channel::Whatsapp',
+                'sender' => ['id' => 55, 'name' => 'Customer', 'thumbnail' => null],
+                'assignee' => [],
+            ],
+            'last_non_activity_message' => ['content' => 'Where is my order?'],
+        ];
+    }
+
+    protected static function sampleMessage(): array
+    {
+        return [
+            'id' => 101,
+            'message_type' => 0,
+            'content' => 'Where is my order?',
+            'private' => false,
+            'created_at' => 1760000000,
+            'status' => 'sent',
+            'sender' => ['name' => 'Customer', 'type' => 'contact'],
+            'attachments' => [],
+        ];
     }
 
     /** One workspace already registered to a store ON THIS INSTALLATION, as GET /accounts reports it. */

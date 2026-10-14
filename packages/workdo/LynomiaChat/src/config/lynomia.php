@@ -47,6 +47,27 @@ return [
         'retry_delay_ms' => (int) env('LYNOMIA_HTTP_RETRY_DELAY_MS', 250),
     ],
 
+    /*
+     * HOW LONG A PER-PERSON LYNOMIA CREDENTIAL LIVES, and where a copy of it may be kept.
+     *
+     * The BFF acts on a merchant's behalf with a bearer confined to their own workspace and
+     * carrying their own role. Lynomia clamps the lifetime to [5 minutes, 30 days]; an hour is
+     * short enough that a leaked copy dies on its own and long enough that a session of work
+     * does not re-mint constantly.
+     *
+     * THE CACHE STORE DEFAULTS TO `array`, WHICH IS NOT A CACHE AT ALL -- it lives for the
+     * request and is then gone. That costs one extra call to Lynomia per merchant request and
+     * it is the right default here: this installation's default cache driver is `file`, so any
+     * other default would write a live Lynomia bearer to disk in plaintext. That is the mistake
+     * the retired Chatwoot integration made with its agent token, and the reason nothing in
+     * this module is persisted (see the note at the top of this file about APP_KEY).
+     *
+     * An operator who has provisioned Redis, or anything else that is not a file on disk, can
+     * point this at it and get the round trip back.
+     */
+    'credential_lifetime_seconds' => (int) env('LYNOMIA_CREDENTIAL_TTL_SECONDS', 3600),
+    'credential_cache_store' => env('LYNOMIA_CREDENTIAL_CACHE_STORE', 'array'),
+
     // How long a merchant has to complete an existing-account link before the pending row
     // expires and the verification code stops being accepted.
     'link_verification_ttl_minutes' => (int) env('LYNOMIA_LINK_TTL_MINUTES', 60),

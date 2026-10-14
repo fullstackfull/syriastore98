@@ -20,8 +20,9 @@ use App\Events\CompanyMenuEvent;
  * (packages/workdo/LynomiaChat/src/routes/web.php), which is what keeps them out. Hiding a
  * link never did.
  *
- * PHASE 1 ADDS THE PARENT AND ONE CHILD. The approved navigation has sixteen sections. They
- * appear as their phases land; a menu entry that routes nowhere is worse than no entry.
+ * ENTRIES APPEAR AS THEIR PHASES LAND. The approved navigation has sixteen sections; a menu
+ * entry that routes nowhere is worse than no entry, so Flow Builder, Campaigns and the rest are
+ * absent rather than present and inert. Phase 2 adds Inbox, which routes to a working page.
  */
 class CompanyMenuListener
 {
@@ -52,6 +53,19 @@ class CompanyMenuListener
             'ignore_if' => [],
             'depend_on' => [],
             'route' => 'lynomia.overview',
+            'module' => $module,
+            'permission' => 'Manage Lynomia Chat',
+        ]);
+
+        $menu->add([
+            'title' => __('Inbox'),
+            'icon' => '',
+            'name' => 'lynomia-inbox',
+            'parent' => 'lynomia',
+            'order' => 20,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'lynomia.inbox',
             'module' => $module,
             'permission' => 'Manage Lynomia Chat',
         ]);

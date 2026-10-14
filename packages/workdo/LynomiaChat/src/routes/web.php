@@ -3,6 +3,8 @@
 use Illuminate\Support\Facades\Route;
 use Workdo\LynomiaChat\app\Http\Controllers\CommunicationCenterController;
 use Workdo\LynomiaChat\app\Http\Controllers\ConnectionController;
+use Workdo\LynomiaChat\app\Http\Controllers\InboxApiController;
+use Workdo\LynomiaChat\app\Http\Controllers\InboxController;
 use Workdo\LynomiaChat\app\Http\Controllers\SuperAdmin\IntegrationController;
 use Workdo\LynomiaChat\app\Http\Middleware\EnsureStoreOwnsLink;
 
@@ -88,6 +90,44 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
             Route::get('/open', [ConnectionController::class, 'openWorkspace'])
                 ->middleware(EnsureStoreOwnsLink::class . ':existing')
                 ->name('open');
+
+            // ------------------------------------------------------------ the inbox
+            //
+            // The page itself needs only the module permission; everything it can DO is gated
+            // per action below, because reading what a customer asked and answering them in
+            // the store's name are different decisions a merchant should be able to make
+            // separately. A staff member who may look is not thereby allowed to reply.
+            Route::get('/inbox', [InboxController::class, 'index'])
+                ->middleware(EnsureStoreOwnsLink::class . ':existing')
+                ->name('inbox');
+
+            // The browser's only door to Lynomia. Every route carries `:existing`, so a store
+            // with no link is refused by the middleware before any controller runs.
+            Route::prefix('inbox/api')->name('inbox.api.')->group(function () {
+                Route::middleware(EnsureStoreOwnsLink::class . ':existing')->group(function () {
+                    Route::get('/conversations', [InboxApiController::class, 'conversations'])->name('conversations');
+                    Route::get('/conversations/{conversation}/messages', [InboxApiController::class, 'messages'])
+                        ->whereNumber('conversation')->name('messages');
+                    Route::get('/agents', [InboxApiController::class, 'agents'])->name('agents');
+                    Route::get('/contacts/{contact}', [InboxApiController::class, 'contact'])
+                        ->whereNumber('contact')->name('contact');
+                    Route::post('/conversations/{conversation}/read', [InboxApiController::class, 'markRead'])
+                        ->whereNumber('conversation')->name('read');
+
+                    // Writing to a customer is its own permission.
+                    Route::post('/conversations/{conversation}/reply', [InboxApiController::class, 'reply'])
+                        ->middleware(\Laratrust\Middleware\Permission::class . ':Reply Lynomia Chat')
+                        ->whereNumber('conversation')->name('reply');
+
+                    // Moving work between colleagues, and declaring it done, is another.
+                    Route::post('/conversations/{conversation}/assign', [InboxApiController::class, 'assign'])
+                        ->middleware(\Laratrust\Middleware\Permission::class . ':Assign Lynomia Chat')
+                        ->whereNumber('conversation')->name('assign');
+                    Route::post('/conversations/{conversation}/status', [InboxApiController::class, 'updateStatus'])
+                        ->middleware(\Laratrust\Middleware\Permission::class . ':Assign Lynomia Chat')
+                        ->whereNumber('conversation')->name('status');
+                });
+            });
         });
 
     // ---------------------------------------------------------------- super admin

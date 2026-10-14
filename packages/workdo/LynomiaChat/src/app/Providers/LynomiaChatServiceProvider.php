@@ -6,6 +6,7 @@ use Illuminate\Support\ServiceProvider;
 use Workdo\LynomiaChat\app\Services\AccountLinker;
 use Workdo\LynomiaChat\app\Services\AccountProvisioner;
 use Workdo\LynomiaChat\app\Services\IdentityProvisioner;
+use Workdo\LynomiaChat\app\Services\MerchantInboxGateway;
 use Workdo\LynomiaChat\app\Services\PlatformApiClient;
 use Workdo\LynomiaChat\app\Services\SsoLinkIssuer;
 
@@ -33,6 +34,10 @@ class LynomiaChatServiceProvider extends ServiceProvider
             $app->make(IdentityProvisioner::class)
         ));
         $this->app->bind(AccountLinker::class, fn ($app) => new AccountLinker(
+            $app->make(PlatformApiClient::class),
+            $app->make(IdentityProvisioner::class)
+        ));
+        $this->app->bind(MerchantInboxGateway::class, fn ($app) => new MerchantInboxGateway(
             $app->make(PlatformApiClient::class),
             $app->make(IdentityProvisioner::class)
         ));

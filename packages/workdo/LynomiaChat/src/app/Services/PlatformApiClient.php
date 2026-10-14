@@ -2,10 +2,6 @@
 
 namespace Workdo\LynomiaChat\app\Services;
 
-use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Http\Client\PendingRequest;
-use Illuminate\Http\Client\Response;
-use Illuminate\Support\Facades\Http;
 use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 
 /**
@@ -28,6 +24,7 @@ use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
  *   GET    /platform/api/v1/users/{id}/login?account_id=  mint a one-time, workspace-scoped SSO URL
  *   POST   /platform/api/v1/account_links                 redeem a merchant's link code
  *   DELETE /platform/api/v1/account_links/{account}       hand the grant back
+ *   POST   /platform/api/v1/users/{id}/scoped_access_token  a per-person, per-workspace bearer
  *
  * The last two are added by this integration on the Lynomia side. Everything else is stock.
  *
@@ -262,84 +259,74 @@ class PlatformApiClient
         return $url;
     }
 
+    /**
+     * A credential this integration may hold to act AS one merchant person, in ONE workspace.
+     *
+     * WHY NOT THE PERSON'S PERSONAL TOKEN. Every Lynomia user has one, it never expires, and --
+     * measured on this fork before the account scope existed -- it reached every account that
+     * person belonged to. For a server acting on a merchant's behalf that is the wrong shape
+     * twice over: too broad, and permanent.
+     *
+     * WHY NOT AN SSO LINK. This integration can already mint one and it is account-scoped, but
+     * it is a five-minute single-use artefact that creates a browser SESSION. Redeeming one per
+     * request would burn a device slot each time and evict the merchant's own browser session
+     * once they reached max_number_of_devices -- signing a person out of their own workspace to
+     * service a background call.
+     *
+     * Lynomia verifies the pairing before honouring it: this app must already hold the account
+     * and the person must be a member of it, so this is a request for a boundary rather than an
+     * assertion of one.
+     *
+     * @return array{token:string,account_id:int,expires_at:?string}
+     */
+    public function issueScopedAccessToken(int $userId, int $accountId, ?int $lifetimeSeconds = null): array
+    {
+        $payload = array_filter([
+            'account_id' => $accountId,
+            'expires_in_seconds' => $lifetimeSeconds,
+        ], static fn ($value) => $value !== null);
+
+        $body = $this->send('post', "/platform/api/v1/users/{$userId}/scoped_access_token", $payload);
+
+        $token = $body['token'] ?? null;
+
+        if (! is_string($token) || $token === '') {
+            throw new LynomiaApiException(
+                LynomiaApiException::KIND_INVALID_RESPONSE,
+                'Lynomia did not return a scoped access token.'
+            );
+        }
+
+        return [
+            'token' => $token,
+            'account_id' => $this->requireInt($body, 'account_id'),
+            'expires_at' => isset($body['expires_at']) ? (string) $body['expires_at'] : null,
+        ];
+    }
+
     // ------------------------------------------------------------------ transport
 
     /**
-     * @param bool $retryTransport Whether a dropped connection may be retried.
+     * Speak to Lynomia as the INTEGRATION.
      *
-     *   RETRYING IS ONLY SAFE FOR A CALL WHOSE SECOND EXECUTION IS A NO-OP. A dropped
-     *   connection does not mean the server did nothing -- a read timeout is the case where
-     *   it did everything and the answer was lost on the way back. Retrying POST /accounts
-     *   there creates a SECOND workspace, which is precisely the duplicate this integration
-     *   must not produce, so account creation passes false and the caller reconciles instead.
-     *   The idempotent calls -- a user keyed by a deterministic address, an account_user
-     *   upsert, a GET -- pass true, because running them twice lands in the same place.
+     * The transport itself lives in LynomiaHttp, shared with AgentApiClient, which speaks as a
+     * merchant person with a workspace-scoped token. What stays here is the part that is
+     * specific to this credential: the readiness check, and the fact that the platform token is
+     * read from the environment on every call and never held anywhere else.
+     *
+     * @param bool $retryTransport see LynomiaHttp::send
      */
     private function send(string $method, string $path, array $payload = [], bool $retryTransport = true): array
     {
         $this->assertUsable();
 
-        $request = $this->request($retryTransport);
-
-        try {
-            /** @var Response $response */
-            $response = in_array($method, ['get', 'delete'], true) && $payload === []
-                ? $request->{$method}($path)
-                : $request->{$method}($path, $payload);
-        } catch (ConnectionException $e) {
-            // The message can name the host but never a credential: the token travels in a
-            // header, which Laravel does not put in a ConnectionException message.
-            throw new LynomiaApiException(
-                LynomiaApiException::KIND_UNREACHABLE,
-                'Could not reach Lynomia: ' . $e->getMessage()
-            );
-        }
-
-        if ($response->failed()) {
-            // THE CODE, NEVER THE PROSE. A rejected link code has two causes a merchant can
-            // act on differently -- a dead code, and a code minted for a different integration
-            // -- and they are only distinguishable from the body. What is read out of it is a
-            // short machine-readable token that this integration defines on both sides; the
-            // provider's sentence is still never shown to anyone (see LynomiaApiException).
-            throw LynomiaApiException::fromStatus($response->status(), $this->errorCode($response));
-        }
-
-        $decoded = $response->json();
-
-        if (! is_array($decoded)) {
-            throw new LynomiaApiException(
-                LynomiaApiException::KIND_INVALID_RESPONSE,
-                'Lynomia returned a non-JSON body.',
-                $response->status()
-            );
-        }
-
-        return $decoded;
-    }
-
-    private function request(bool $retryTransport = true): PendingRequest
-    {
-        $http = $this->config['http'] ?? [];
-
-        $request = Http::baseUrl(rtrim((string) $this->config['base_url'], '/'))
-            ->withHeaders(['api_access_token' => (string) $this->config['platform_token']])
-            ->acceptJson()
-            ->asJson()
-            ->connectTimeout((int) ($http['connect_timeout'] ?? 5))
-            ->timeout((int) ($http['timeout'] ?? 10));
-
-        if (! $retryTransport) {
-            return $request;
-        }
-
-        // Transport only, and only where a second execution is a no-op. A 4xx is never
-        // retried: re-sending a rejected create is another way duplicates appear.
-        return $request->retry(
-            max(1, (int) ($http['retries'] ?? 2)),
-            (int) ($http['retry_delay_ms'] ?? 250),
-            fn ($exception) => $exception instanceof ConnectionException,
-            throw: false
+        $http = new LynomiaHttp(
+            (string) $this->config['base_url'],
+            (string) $this->config['platform_token'],
+            (array) ($this->config['http'] ?? [])
         );
+
+        return $http->send($method, $path, $payload, $retryTransport);
     }
 
     private function assertUsable(): void
@@ -355,13 +342,6 @@ class PlatformApiClient
         if (blank($this->config['platform_token'] ?? null)) {
             throw LynomiaApiException::notConfigured('LYNOMIA_PLATFORM_TOKEN');
         }
-    }
-
-    private function errorCode(Response $response): ?string
-    {
-        $code = $response->json('error_code');
-
-        return is_string($code) && $code !== '' ? $code : null;
     }
 
     private function requireInt(array $body, string $key): int
