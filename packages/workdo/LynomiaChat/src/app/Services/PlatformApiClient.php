@@ -25,6 +25,7 @@ use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
  *   POST   /platform/api/v1/account_links                 redeem a merchant's link code
  *   DELETE /platform/api/v1/account_links/{account}       hand the grant back
  *   POST   /platform/api/v1/users/{id}/scoped_access_token  a per-person, per-workspace bearer
+ *   GET/POST/DELETE /platform/api/v1/channel_claims        one channel identity, one store
  *
  * The last two are added by this integration on the Lynomia side. Everything else is stock.
  *
@@ -302,6 +303,66 @@ class PlatformApiClient
             'account_id' => $this->requireInt($body, 'account_id'),
             'expires_at' => isset($body['expires_at']) ? (string) $body['expires_at'] : null,
         ];
+    }
+
+    // ------------------------------------------------------------------ channel exclusivity
+
+    /**
+     * Claim a channel identity for one of this integration's workspaces.
+     *
+     * THE REGISTRY LIVES IN LYNOMIA, NOT HERE, and that is the whole point. Inboxes are created
+     * in Lynomia through nine different paths -- the agent API, five OAuth callbacks, two
+     * WhatsApp services and the widget onboarding service -- and a registry kept only on this
+     * side would be consulted by none of them. A merchant with an administrator identity could
+     * connect a number in Lynomia directly and Store Syria would never hear about it. The claim
+     * has to be where the creation is.
+     *
+     * Lynomia normalizes the identity; this sends what the merchant typed. Two spellings of one
+     * phone number must collide, and deciding that here would mean two implementations of the
+     * same rule.
+     *
+     * @return array{claimed:bool, held_by:?string}
+     */
+    public function claimChannelIdentity(int $accountId, string $provider, string $identity, ?string $ownerRef = null): array
+    {
+        try {
+            $this->send('post', '/platform/api/v1/channel_claims', array_filter([
+                'account_id' => $accountId,
+                'provider' => $provider,
+                'identity' => $identity,
+                'external_owner_ref' => $ownerRef,
+            ], static fn ($value) => $value !== null), retryTransport: false);
+
+            return ['claimed' => true, 'held_by' => null];
+        } catch (LynomiaApiException $e) {
+            // A conflict is an ANSWER, not a failure: another store holds this channel, and the
+            // merchant needs to be told which one rather than shown an error.
+            if ($e->kind === LynomiaApiException::KIND_CONFLICT && $e->status === 409) {
+                return ['claimed' => false, 'held_by' => $e->heldBy];
+            }
+
+            throw $e;
+        }
+    }
+
+    public function releaseChannelIdentity(string $provider, string $identity): bool
+    {
+        $body = $this->send('delete', '/platform/api/v1/channel_claims', [
+            'provider' => $provider,
+            'identity' => $identity,
+        ]);
+
+        return (bool) ($body['released'] ?? false);
+    }
+
+    /** @return list<array{provider:string,identity:string,account_id:int,external_owner_ref:?string}> */
+    public function listChannelClaims(?string $ownerRef = null): array
+    {
+        $body = $this->send('get', '/platform/api/v1/channel_claims', array_filter([
+            'external_owner_ref' => $ownerRef,
+        ], static fn ($value) => $value !== null));
+
+        return array_values(array_filter((array) ($body['claims'] ?? []), 'is_array'));
     }
 
     // ------------------------------------------------------------------ transport

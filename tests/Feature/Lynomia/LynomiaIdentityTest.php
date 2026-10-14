@@ -571,15 +571,19 @@ class LynomiaIdentityTest extends TestCase
 
         $link = app(AccountProvisioner::class)->provision($store, $owner);
 
+        // DISTINCTIVE NAMES, NOT FAKER ONES. The page is the whole dashboard, the signed-in
+        // user's own name renders in its header, and faker repeats -- so a generated name can
+        // collide with something already on the page and make either direction of this
+        // assertion meaningless. Observed: a run where the staff name matched the owner's.
         $staff = $this->staffOf($owner->fresh());
+        $staff->forceFill(['name' => 'Zzqq Staffperson'])->save();
         $this->grantLynomiaPermission($staff);
         app(SsoLinkIssuer::class)->issueFor($link->fresh(), $staff->fresh());
 
         $response = $this->actingAs($owner->fresh())->get('/lynomia');
 
         $response->assertOk();
-        $response->assertSee($owner->name, false);
-        $response->assertSee($staff->name, false);
+        $response->assertSee('Zzqq Staffperson', false);
         $response->assertSee('Who has access', false);
     }
 
@@ -594,6 +598,7 @@ class LynomiaIdentityTest extends TestCase
 
         $link = app(AccountProvisioner::class)->provision($store, $owner);
         $staff = $this->staffOf($owner->fresh());
+        $staff->forceFill(['name' => 'Zzqq Staffperson'])->save();
         $this->grantLynomiaPermission($staff);
         app(SsoLinkIssuer::class)->issueFor($link->fresh(), $staff->fresh());
 
@@ -603,7 +608,7 @@ class LynomiaIdentityTest extends TestCase
         $response = $this->actingAs($owner->fresh())->get('/lynomia');
 
         $response->assertOk();
-        $response->assertDontSee($staff->name, false);
+        $response->assertDontSee('Zzqq Staffperson', false);
     }
 
     public function test_the_sso_url_is_never_written_down(): void

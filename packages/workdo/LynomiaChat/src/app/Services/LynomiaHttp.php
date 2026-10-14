@@ -70,7 +70,11 @@ class LynomiaHttp
             // -- and they are only distinguishable from the body. What is read out of it is a
             // short machine-readable token that this integration defines on both sides; the
             // provider's sentence is still never shown to anyone (see LynomiaApiException).
-            throw LynomiaApiException::fromStatus($response->status(), $this->errorCode($response));
+            throw LynomiaApiException::fromStatus(
+                $response->status(),
+                $this->errorCode($response),
+                is_string($response->json('held_by')) ? $response->json('held_by') : null
+            );
         }
 
         $decoded = $response->json();

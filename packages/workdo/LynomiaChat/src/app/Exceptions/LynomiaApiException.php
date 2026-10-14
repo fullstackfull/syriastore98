@@ -36,10 +36,18 @@ class LynomiaApiException extends RuntimeException
      */
     public const KIND_IN_PROGRESS = 'in_progress';
 
+    /**
+     * @param string|null $heldBy For a channel-claim conflict: what the OTHER holder is called on
+     *                            this side. It is the integration's own reference -- a store id --
+     *                            not anything of Lynomia's, so surfacing it leaks nothing about
+     *                            another workspace, and without it a merchant is told "somebody
+     *                            has this number" and cannot act.
+     */
     public function __construct(
         public readonly string $kind,
         string $message,
-        public readonly ?int $status = null
+        public readonly ?int $status = null,
+        public readonly ?string $heldBy = null
     ) {
         parent::__construct($message);
     }
@@ -66,13 +74,24 @@ class LynomiaApiException extends RuntimeException
      *                               sentence a merchant reads is written here, in their
      *                               language, and survives any rewording on the Lynomia side.
      */
-    public static function fromStatus(int $status, ?string $errorCode = null): self
+    public static function fromStatus(int $status, ?string $errorCode = null, ?string $heldBy = null): self
     {
         // The two link-code refusals are the only remote failures a MERCHANT can act on
         // differently, and the difference matters: one says "that code is dead, make another",
         // the other says "that code is alive but belongs to a different integration -- you
         // pasted the wrong one, and nothing was consumed". A single "invalid request" for both
         // sends a merchant to support for a mistake they could fix in ten seconds.
+        // A channel-claim conflict names the other holder, which is the one thing a merchant can
+        // act on: "store B already has this number" sends them somewhere, "conflict" does not.
+        if ($status === 409 && $errorCode === 'channel_claimed_elsewhere') {
+            return new self(
+                self::KIND_CONFLICT,
+                __('That channel is already connected to another one of your stores.'),
+                $status,
+                is_string($heldBy) && $heldBy !== '' ? $heldBy : null
+            );
+        }
+
         if ($status === 422 && $errorCode !== null) {
             $message = match ($errorCode) {
                 'wrong_platform_app' => __('That connection code was created for a different integration. Generate one for Store Syria in Lynomia and try again.'),
