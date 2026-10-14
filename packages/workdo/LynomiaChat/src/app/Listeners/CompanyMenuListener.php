@@ -21,8 +21,9 @@ use App\Events\CompanyMenuEvent;
  * link never did.
  *
  * ENTRIES APPEAR AS THEIR PHASES LAND. The approved navigation has sixteen sections; a menu
- * entry that routes nowhere is worse than no entry, so Flow Builder, Campaigns and the rest are
- * absent rather than present and inert. Phase 2 adds Inbox, which routes to a working page.
+ * entry that routes nowhere is worse than no entry, so Campaigns and the rest are absent rather
+ * than present and inert. Phase 2 added Inbox and Phase 4 adds Automation Studio, both of which
+ * route to working pages.
  */
 class CompanyMenuListener
 {
@@ -68,6 +69,19 @@ class CompanyMenuListener
             'route' => 'lynomia.inbox',
             'module' => $module,
             'permission' => 'Manage Lynomia Chat',
+        ]);
+
+        $menu->add([
+            'title' => __('Automation Studio'),
+            'icon' => '',
+            'name' => 'lynomia-automation',
+            'parent' => 'lynomia',
+            'order' => 30,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'lynomia.automation',
+            'module' => $module,
+            'permission' => 'Manage Lynomia Automation',
         ]);
     }
 }

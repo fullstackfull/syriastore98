@@ -1,6 +1,8 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Workdo\LynomiaChat\app\Http\Controllers\AutomationApiController;
+use Workdo\LynomiaChat\app\Http\Controllers\AutomationController;
 use Workdo\LynomiaChat\app\Http\Controllers\CommunicationCenterController;
 use Workdo\LynomiaChat\app\Http\Controllers\ConnectionController;
 use Workdo\LynomiaChat\app\Http\Controllers\CommerceApiController;
@@ -200,6 +202,44 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
                     Route::post('/conversations/{conversation}/status', [InboxApiController::class, 'updateStatus'])
                         ->middleware(\Laratrust\Middleware\Permission::class . ':Assign Lynomia Chat')
                         ->whereNumber('conversation')->name('status');
+                });
+            });
+
+            // ------------------------------------------------------------ Automation Studio
+            //
+            // ITS OWN PERMISSION, ON TOP OF THE MODULE'S. A flow decides what every customer of
+            // the store is told, automatically, with nobody reading it first -- which is a
+            // different decision from being allowed to read the inbox, and a merchant must be
+            // able to grant one without the other.
+            //
+            // THE PERMISSION IS NOT THE AUTHORIZATION, AND IS NOT CLAIMED TO BE. Lynomia
+            // authorizes every flows action with AgentBotPolicy#update? -- workspace
+            // administrator -- and only the store owner holds that identity. So this layer can
+            // narrow who reaches the Studio within the merchant's own staff; it can never widen
+            // it, and a staff member who gets past it is still refused by Lynomia. Both are
+            // asserted in tests, because a permission that only hides a menu entry is the
+            // mistake this module already made once.
+            Route::middleware([
+                EnsureStoreOwnsLink::class . ':existing',
+                \Laratrust\Middleware\Permission::class . ':Manage Lynomia Automation',
+            ])->group(function () {
+                Route::get('/automation', [AutomationController::class, 'index'])->name('automation');
+
+                Route::prefix('automation/api')->name('automation.api.')->group(function () {
+                    Route::get('/flows', [AutomationApiController::class, 'index'])->name('flows');
+                    Route::post('/flows', [AutomationApiController::class, 'store'])->name('flows.store');
+                    Route::get('/flows/{flow}', [AutomationApiController::class, 'show'])
+                        ->whereNumber('flow')->name('flows.show');
+                    Route::patch('/flows/{flow}', [AutomationApiController::class, 'update'])
+                        ->whereNumber('flow')->name('flows.update');
+                    Route::delete('/flows/{flow}', [AutomationApiController::class, 'destroy'])
+                        ->whereNumber('flow')->name('flows.destroy');
+                    Route::post('/flows/{flow}/duplicate', [AutomationApiController::class, 'duplicate'])
+                        ->whereNumber('flow')->name('flows.duplicate');
+                    Route::post('/flows/{flow}/publish', [AutomationApiController::class, 'publish'])
+                        ->whereNumber('flow')->name('flows.publish');
+                    Route::post('/flows/{flow}/disable', [AutomationApiController::class, 'disable'])
+                        ->whereNumber('flow')->name('flows.disable');
                 });
             });
         });

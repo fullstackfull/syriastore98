@@ -150,6 +150,136 @@ class AgentApiClient
         return $this->http->send('get', $this->path("conversations/{$displayId}/commerce/stores/{$storeId}"));
     }
 
+    // ------------------------------------------------------------------ automation (flows)
+
+    /**
+     * ALL OF THESE ARE ADMINISTRATOR-ONLY UPSTREAM, AND THAT IS NOT A BUG TO ROUTE AROUND.
+     * Api::V1::Accounts::FlowsController authorizes every action -- index included -- with
+     * AgentBotPolicy#update?, which is `administrator?`. IdentityProvisioner gives the store
+     * OWNER an administrator identity and the owner's STAFF an agent identity, so a staff
+     * member's own credential is refused by Lynomia on every call below.
+     *
+     * That is the correct answer and the Studio shows it as one: a flow decides what every
+     * customer of the store is told, automatically, with nobody reading it first. The
+     * alternative -- minting an administrator token for staff so the screens "work" -- would
+     * hand them full account-administrator rights over the whole workspace, which is the
+     * shortcut the Phase 4A capability review rejected by name.
+     */
+    public function listFlows(): array
+    {
+        return $this->http->send('get', $this->path('flows'));
+    }
+
+    public function getFlow(int $flowId): array
+    {
+        return $this->http->send('get', $this->path("flows/{$flowId}"));
+    }
+
+    /**
+     * 422 is returned rather than thrown because the flow CEILING lands here: Billing::FlowLimit
+     * refuses the create once the account is at the number its plan includes, and a merchant
+     * needs to be told which of the two it was.
+     *
+     * Not transport-retried: a retried create is a second flow the merchant did not ask for.
+     *
+     * @return array{0:int,1:array}
+     */
+    public function createFlow(string $name, ?string $description): array
+    {
+        return $this->http->sendAllowing([422], 'post', $this->path('flows'), array_filter([
+            'name' => $name,
+            'description' => $description,
+        ], static fn ($value) => $value !== null), retryTransport: false);
+    }
+
+    /** @return array{0:int,1:array} */
+    public function duplicateFlow(int $flowId, ?string $name): array
+    {
+        return $this->http->sendAllowing([422], 'post', $this->path("flows/{$flowId}/duplicate"),
+            $name === null ? [] : ['name' => $name], retryTransport: false);
+    }
+
+    public function updateFlow(int $flowId, array $attributes): array
+    {
+        return $this->http->send('patch', $this->path("flows/{$flowId}"), $attributes);
+    }
+
+    /**
+     * 422 carries `errors: [{ code: 'flow_active' }]` -- a published flow, or one with a live
+     * session, must be disabled first. Which is a thing the merchant does, not an error.
+     *
+     * @return array{0:int,1:array}
+     */
+    public function deleteFlow(int $flowId): array
+    {
+        return $this->http->sendAllowing([422], 'delete', $this->path("flows/{$flowId}"), retryTransport: false);
+    }
+
+    /**
+     * 409 carries the other editor's graph and the retry token; 422 carries the shape errors.
+     *
+     * NOT TRANSPORT-RETRIED, for a reason specific to the optimistic lock: if the save landed
+     * and the answer was lost, the retry's `lock_version` is now stale and Lynomia answers 409 --
+     * the editor would be told somebody else had saved when nobody had. The browser re-reads
+     * instead, which gets the right answer in both cases.
+     *
+     * @return array{0:int,1:array}
+     */
+    public function saveFlowDraft(int $flowId, array $graph, int $lockVersion): array
+    {
+        return $this->http->sendAllowing([409, 422], 'put', $this->path("flows/{$flowId}/draft"), [
+            'graph' => $graph,
+            'lock_version' => $lockVersion,
+        ], retryTransport: false);
+    }
+
+    /**
+     * 422 carries the graph's validation errors, keyed by node id: the one thing that lets a
+     * merchant fix a flow that will not publish.
+     *
+     * @return array{0:int,1:array}
+     */
+    public function publishFlow(int $flowId): array
+    {
+        return $this->http->sendAllowing([422], 'post', $this->path("flows/{$flowId}/publish"), retryTransport: false);
+    }
+
+    /** Idempotent upstream -- archiving an already-archived version is a no-op -- so it may retry. */
+    public function disableFlow(int $flowId): array
+    {
+        return $this->http->send('post', $this->path("flows/{$flowId}/disable"));
+    }
+
+    public function flowSessions(int $flowId, ?string $status = null): array
+    {
+        return $this->http->send('get', $this->path("flows/{$flowId}/sessions"), $status === null ? [] : ['status' => $status]);
+    }
+
+    /**
+     * Test Mode on the draft. A pure function upstream: the spec that covers it asserts no
+     * message, conversation, contact, session or job survives it, so a retry costs nothing.
+     */
+    public function simulateFlow(int $flowId, array $inputs): array
+    {
+        return $this->http->send('post', $this->path("flows/{$flowId}/simulate"), ['inputs' => $inputs]);
+    }
+
+    /**
+     * What this workspace may do and how much of each allowance it has used.
+     *
+     * READ FROM BILLING RATHER THAN COUNTED HERE. `limits` carries { used, limit } per resource
+     * -- agents, inboxes, stores, flows -- resolved through Billing::Entitlements, which is the
+     * same resolver that REFUSES the create. A number Store Syria computed itself would be a
+     * second answer to the same question, and the one on the screen is the one that would drift.
+     *
+     * Open to every member upstream, unlike the flows endpoints: it is what a client needs in
+     * order to render correctly, not a commercial detail.
+     */
+    public function entitlements(): array
+    {
+        return $this->http->send('get', $this->path('billing/entitlements'));
+    }
+
     // ------------------------------------------------------------------ webhooks (admin only)
 
     /**

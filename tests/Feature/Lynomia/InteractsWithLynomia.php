@@ -112,7 +112,7 @@ trait InteractsWithLynomia
         // gives both. They are granted together here precisely because they are NOT the same
         // control: the staff tests entitle the tenant and withhold individual permissions.
         $this->grantLynomiaPermission($owner, [
-            'Manage Lynomia Chat', 'Reply Lynomia Chat', 'Assign Lynomia Chat',
+            'Manage Lynomia Chat', 'Reply Lynomia Chat', 'Assign Lynomia Chat', 'Manage Lynomia Automation',
         ]);
     }
 
@@ -347,6 +347,50 @@ trait InteractsWithLynomia
                 // what the outbox does with a refusal is the part worth testing.
                 $key === 'POST /webhooks/storesyria'
                     => Http::response([], $this->lynomiaScript['commerce_event_status'] ?? 200),
+                // --------------------------------------------------- Phase 4: the Automation Studio
+                //
+                // The shapes Api::V1::Accounts::FlowsController answers with: a list under
+                // `payload`, and one flow as `flow_json` merged with the builder keys. A test
+                // that needs a refusal scripts it through `fail`, which matches verb+path and
+                // takes precedence above -- so 422 and 409 bodies are written where the example
+                // that needs them can be read, rather than as another option here.
+                (bool) preg_match('#^/api/v1/accounts/\d+/flows$#', $path) && $method === 'GET'
+                    => Http::response(['payload' => $this->lynomiaScript['flows'] ?? [self::sampleFlow()]], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/flows$#', $path) && $method === 'POST'
+                    => Http::response(array_merge(self::sampleFlow(), [
+                        'id' => 77, 'state' => 'draft', 'published' => null,
+                        'name' => json_decode($request->body(), true)['name'] ?? 'New',
+                    ]), 201),
+                (bool) preg_match('#^/api/v1/accounts/\d+/flows/\d+/duplicate$#', $path)
+                    => Http::response(array_merge(self::sampleFlow(), [
+                        'id' => 78, 'state' => 'draft', 'published' => null, 'inboxes' => [],
+                        'name' => json_decode($request->body(), true)['name'] ?? 'Copy',
+                    ]), 201),
+                (bool) preg_match('#^/api/v1/accounts/\d+/flows/\d+/publish$#', $path)
+                    => Http::response(array_merge(self::sampleFlow(), ['state' => 'published']), 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/flows/\d+/disable$#', $path)
+                    => Http::response(array_merge(self::sampleFlow(), [
+                        'state' => 'disabled', 'published' => null, 'live_sessions' => 0,
+                    ]), 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/flows/\d+$#', $path) && $method === 'DELETE'
+                    => Http::response([], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/flows/\d+$#', $path)
+                    => Http::response($this->lynomiaScript['flow'] ?? self::sampleFlow(), 200),
+                // What the account may do and how much of each allowance it has used, as
+                // Api::V1::Accounts::BillingController#entitlements answers it.
+                (bool) preg_match('#^/api/v1/accounts/\d+/billing/entitlements$#', $path)
+                    => Http::response([
+                        'active' => true,
+                        'status' => 'active',
+                        'is_admin' => true,
+                        'features' => ['lynomia_flow_builder' => true],
+                        'limits' => $this->lynomiaScript['limits'] ?? [
+                            'agents' => ['used' => 1, 'limit' => 5],
+                            'inboxes' => ['used' => 1, 'limit' => 3],
+                            'stores' => ['used' => 1, 'limit' => 1],
+                            'flows' => ['used' => 2, 'limit' => 10],
+                        ],
+                    ], 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/webhooks$#', $path)
                     => Http::response($method === 'GET' ? ['payload' => []] : ['payload' => ['id' => 1]], 200),
                 // An unscripted call is a test bug, not a 404 to shrug at: say which one.
@@ -374,6 +418,33 @@ trait InteractsWithLynomia
                 'item_count' => 2, 'shipments' => [['status' => 'pending']], 'tracking' => null,
                 'admin_order_url' => 'https://storesyria.test/order/55',
             ]],
+        ];
+    }
+
+    /**
+     * One flow, as Api::V1::Accounts::FlowsController#flow_json merged with #show_json
+     * answers it -- including the two fields the Studio's projection must DROP: a flow bot's
+     * `secret` and `access_token` are never a merchant's to see.
+     */
+    protected static function sampleFlow(): array
+    {
+        return [
+            'id' => 42,
+            'name' => 'Welcome menu',
+            'description' => 'First reply on WhatsApp',
+            'state' => 'published',
+            'live_sessions' => 3,
+            'secret' => 'BOT-SECRET-MUST-NOT-LEAK',
+            'access_token' => 'BOT-TOKEN-MUST-NOT-LEAK',
+            'inboxes' => [['id' => 9, 'name' => 'WhatsApp', 'channel_type' => 'Channel::Whatsapp']],
+            'published' => ['id' => 5, 'version' => 3, 'status' => 'published',
+                'published_at' => '2026-02-01T10:00:00Z', 'updated_at' => '2026-02-01T10:00:00Z', 'lock_version' => 0],
+            'draft' => null,
+            'channel_eligibility' => [[
+                'id' => 9, 'name' => 'WhatsApp', 'channel_type' => 'Channel::Whatsapp',
+                'runs_flows' => true, 'unsupported_nodes' => [],
+            ]],
+            'errors' => [],
         ];
     }
 

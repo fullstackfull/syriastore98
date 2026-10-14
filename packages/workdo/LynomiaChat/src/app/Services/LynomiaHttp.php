@@ -50,6 +50,38 @@ class LynomiaHttp
      */
     public function send(string $method, string $path, array $payload = [], bool $retryTransport = true): array
     {
+        return $this->exchange($method, $path, $payload, $retryTransport, [])[1];
+    }
+
+    /**
+     * Like send(), except that a listed status is an ANSWER rather than a failure.
+     *
+     * WHY THIS EXISTS, AND THE RULE THAT KEEPS IT FROM BECOMING "FORWARD THE PROVIDER'S BODY".
+     * Two of Lynomia's refusals are not error prose, they are the result: a draft save answers
+     * 409 with the OTHER editor's graph and the retry token, and a publish answers 422 with the
+     * graph's validation errors keyed by node id. A merchant whose flow will not publish cannot
+     * fix it from "Lynomia rejected the request as invalid" -- the codes are the answer, and
+     * throwing them away turns a working editor into a dead end.
+     *
+     * The rule is the one send() already applies to `error_code`: only a body whose SHAPE this
+     * integration defines on both sides of the wire may be read, it is matched and projected
+     * rather than rendered, and the controller still narrows it before a browser sees it. A
+     * status not named by the caller still throws, so nothing is passed through by default.
+     *
+     * @param  int[]  $allowed statuses to return instead of throwing
+     * @return array{0:int,1:array} the status and the decoded body
+     */
+    public function sendAllowing(array $allowed, string $method, string $path, array $payload = [], bool $retryTransport = true): array
+    {
+        return $this->exchange($method, $path, $payload, $retryTransport, $allowed);
+    }
+
+    /**
+     * @param  int[]  $allowed
+     * @return array{0:int,1:array}
+     */
+    private function exchange(string $method, string $path, array $payload, bool $retryTransport, array $allowed): array
+    {
         $request = $this->request($retryTransport);
 
         try {
@@ -64,7 +96,7 @@ class LynomiaHttp
             );
         }
 
-        if ($response->failed()) {
+        if ($response->failed() && ! in_array($response->status(), $allowed, true)) {
             // THE CODE, NEVER THE PROSE. A rejected link code has two causes a merchant can
             // act on differently -- a dead code, and a code minted for a different integration
             // -- and they are only distinguishable from the body. What is read out of it is a
@@ -87,7 +119,7 @@ class LynomiaHttp
             );
         }
 
-        return $decoded;
+        return [$response->status(), $decoded];
     }
 
     private function request(bool $retryTransport): PendingRequest
