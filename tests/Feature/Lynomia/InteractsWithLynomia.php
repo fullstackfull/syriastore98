@@ -321,6 +321,16 @@ trait InteractsWithLynomia
                     => Http::response([['id' => 1, 'name' => 'Agent', 'email' => 'agent@example.test']], 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/contacts/\d+$#', $path)
                     => Http::response(['payload' => ['id' => 55, 'name' => 'Customer', 'email' => null]], 200),
+                // The conversation's commerce section. The panel's shape mirrors
+                // Commerce::ConversationPanel: a state, the link when there is one, and the
+                // linked customer's orders as Commerce::Order serialises them.
+                (bool) preg_match('#^/api/v1/accounts/\d+/conversations/\d+/commerce/stores$#', $path)
+                    => Http::response(['payload' => $this->lynomiaScript['commerce_stores'] ?? [
+                        ['id' => 31, 'name' => 'Damascus Store', 'provider' => 'storesyria', 'linked' => true,
+                            'actions' => false, 'carts' => true],
+                    ]], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/conversations/\d+/commerce/stores/\d+$#', $path)
+                    => Http::response($this->lynomiaScript['commerce_panel'] ?? self::sampleCommercePanel(), 200),
                 // Seats a Store Syria package includes. `effective` is what Lynomia actually
                 // enforces -- the grant composed with any plan and any operator override -- not
                 // an echo of what was granted.
@@ -339,6 +349,28 @@ trait InteractsWithLynomia
                 default => Http::response(['error' => "unscripted call: {$key}"], 599),
             };
         });
+    }
+
+    /** The shape Commerce::ConversationPanel answers with for a linked contact. */
+    protected static function sampleCommercePanel(): array
+    {
+        return [
+            'store' => ['id' => 31, 'name' => 'Damascus Store', 'provider' => 'storesyria'],
+            'state' => 'linked',
+            'stale' => false,
+            'fetched_at' => '2026-01-02T09:00:00Z',
+            // The shape Commerce::ConversationPanel#link_json really answers with: how the
+            // contact was matched, not the store customer's name.
+            'link' => ['match_source' => 'verified_phone', 'linked_at' => 1767344400,
+                'confirmed_by' => null, 'customer_type' => 'registered'],
+            'orders' => [[
+                'provider' => 'storesyria', 'external_order_id' => '55', 'order_number' => 'A-1',
+                'status' => 'processing', 'provider_status' => 'Picked Up', 'payment_status' => 'paid',
+                'currency' => 'SYP', 'total' => '1500.50', 'created_at' => '2026-01-01T12:00:00Z',
+                'item_count' => 2, 'shipments' => [['status' => 'pending']], 'tracking' => null,
+                'admin_order_url' => 'https://storesyria.test/order/55',
+            ]],
+        ];
     }
 
     /** The shape a conversation arrives in, trimmed to the keys the BFF projects. */

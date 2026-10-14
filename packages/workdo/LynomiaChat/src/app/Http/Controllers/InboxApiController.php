@@ -139,6 +139,105 @@ class InboxApiController extends Controller
         });
     }
 
+    /**
+     * The commerce context of one conversation: the stores it can be looked up in, and for the
+     * one asked for, the linked customer and their recent orders.
+     *
+     * PROXIED, NOT READ OUT OF THIS DATABASE, even though the orders are in it. Which customer
+     * a conversation belongs to is decided once, by Lynomia's matcher, on verified identifiers
+     * only; answering it a second time here would be a second set of rules for the same
+     * question. The round trip is this application's own commerce API being called back, and
+     * Lynomia caches it per store and customer.
+     *
+     * THE AGENT'S OWN CREDENTIAL CARRIES IT, so a staff member who cannot see the conversation
+     * cannot see its orders either -- the authorization is the same one the inbox already has,
+     * rather than a second one written here and kept in step by hand.
+     */
+    public function commerce(Request $request, int $conversation): JsonResponse
+    {
+        $storeId = $request->query('store');
+
+        return $this->proxy($request, function (AgentApiClient $client) use ($conversation, $storeId) {
+            $stores = $client->listCommerceStores($conversation)['payload'] ?? [];
+            $stores = array_values(array_map([$this, 'projectCommerceStore'], is_array($stores) ? $stores : []));
+
+            if ($storeId === null || ! ctype_digit((string) $storeId)) {
+                return ['stores' => $stores, 'panel' => null];
+            }
+
+            // A store the listing did not offer is not asked for: the listing is already the
+            // set this conversation's account may read, so this refuses a stray id here rather
+            // than relying on Lynomia to refuse it.
+            if (! in_array((int) $storeId, array_column($stores, 'id'), true)) {
+                return ['stores' => $stores, 'panel' => null];
+            }
+
+            return ['stores' => $stores, 'panel' => $this->projectPanel($client->commercePanel($conversation, (int) $storeId))];
+        });
+    }
+
+    private function projectCommerceStore(array $store): array
+    {
+        return [
+            'id' => $store['id'] ?? null,
+            'name' => $store['name'] ?? '',
+            'provider' => $store['provider'] ?? null,
+            'linked' => (bool) ($store['linked'] ?? false),
+        ];
+    }
+
+    /**
+     * The order list an agent reads, and nothing else. Lynomia's panel also carries unlinked
+     * candidates, which are an agent's decision to make in Lynomia's own interface: offering
+     * "is this the same person?" here would be a second place that decision can be made, and
+     * the wrong answer links one customer's orders to another customer's conversation.
+     */
+    private function projectPanel(array $body): array
+    {
+        return [
+            'state' => $body['state'] ?? 'unavailable',
+            'error' => $body['error'] ?? null,
+            'stale' => (bool) ($body['stale'] ?? false),
+            'fetched_at' => $body['fetched_at'] ?? null,
+            // Commerce::ConversationPanel's link carries HOW the contact was matched, not the
+            // customer's name -- the inbox already shows the contact's name above this pane,
+            // and the store customer's own name is not a second thing to display there. What
+            // an agent needs is whether this is a real link and how confident it is.
+            'link' => isset($body['link']) && is_array($body['link'])
+                ? [
+                    'match_source' => $body['link']['match_source'] ?? null,
+                    'customer_type' => $body['link']['customer_type'] ?? null,
+                ]
+                : null,
+            'orders' => array_map([$this, 'projectOrder'], is_array($body['orders'] ?? null) ? $body['orders'] : []),
+        ];
+    }
+
+    /**
+     * Status, money and fulfilment. No addresses and no payment instrument data: the commerce
+     * API does not serve them, and this projection is the second place that stays true.
+     */
+    private function projectOrder(array $order): array
+    {
+        $shipment = is_array($order['shipments'] ?? null) ? ($order['shipments'][0] ?? []) : [];
+
+        return [
+            'number' => $order['order_number'] ?? null,
+            'status' => $order['status'] ?? null,
+            'provider_status' => $order['provider_status'] ?? null,
+            'payment_status' => $order['payment_status'] ?? null,
+            'currency' => $order['currency'] ?? null,
+            'total' => $order['total'] ?? null,
+            'created_at' => $order['created_at'] ?? null,
+            'item_count' => $order['item_count'] ?? null,
+            'shipment_status' => $shipment['status'] ?? null,
+            // Never invented. Store Syria records no tracking number, so this is null there,
+            // and showing an agent one it does not have is a thing they would read out loud.
+            'tracking_number' => is_array($order['tracking'] ?? null) ? ($order['tracking']['number'] ?? null) : null,
+            'admin_url' => $order['admin_order_url'] ?? null,
+        ];
+    }
+
     public function contact(Request $request, int $contact): JsonResponse
     {
         return $this->proxy($request, function (AgentApiClient $client) use ($contact) {

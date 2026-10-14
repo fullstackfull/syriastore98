@@ -124,6 +124,32 @@ class AgentApiClient
         return $this->http->send('get', $this->path('agents'));
     }
 
+    // ------------------------------------------------------------------ commerce context
+
+    /**
+     * The commerce stores this conversation can be looked up in, and whether its contact is
+     * already linked to a customer in each.
+     *
+     * PROXIED RATHER THAN ANSWERED LOCALLY, even though the orders live in this database. The
+     * question "which customer is this conversation" is decided once, by Lynomia's matcher,
+     * which matches only on verified identifiers and treats everything else as a candidate an
+     * agent has to confirm. Answering it a second time here would be a second engine with its
+     * own rules, and the two would disagree the first time one of them changed.
+     *
+     * Authorization comes free for the same reason: this call carries the merchant's own
+     * Lynomia credential, so someone who cannot see the conversation cannot see its orders.
+     */
+    public function listCommerceStores(int $displayId): array
+    {
+        return $this->http->send('get', $this->path("conversations/{$displayId}/commerce/stores"));
+    }
+
+    /** The panel for one store: the link or the candidates, and the linked customer's orders. */
+    public function commercePanel(int $displayId, int $storeId): array
+    {
+        return $this->http->send('get', $this->path("conversations/{$displayId}/commerce/stores/{$storeId}"));
+    }
+
     // ------------------------------------------------------------------ webhooks (admin only)
 
     /**

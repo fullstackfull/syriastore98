@@ -229,7 +229,26 @@
         sendFailed: @json(__('Your reply may not have been sent. Check the conversation before sending it again.')),
         attachment: @json(__('Attachment')),
         channel: @json(__('Channel')),
-        status: @json(__('Status'))
+        status: @json(__('Status')),
+        orders: @json(__('Recent orders')),
+        noOrders: @json(__('No orders are linked to this customer yet.')),
+        ordersUnavailable: @json(__('Orders could not be read from the store just now.')),
+        ordersStale: @json(__('Showing the last orders read from the store.')),
+        orderStatuses: {
+            pending: @json(__('Pending')), processing: @json(__('Processing')),
+            on_hold: @json(__('On hold')), shipped: @json(__('Shipped')),
+            delivered: @json(__('Delivered')), completed: @json(__('Completed')),
+            cancelled: @json(__('Cancelled')), refunded: @json(__('Refunded')),
+            failed: @json(__('Failed')), draft: @json(__('Draft')), other: @json(__('Other'))
+        },
+        paymentStatuses: {
+            paid: @json(__('Paid')), unpaid: @json(__('Unpaid')),
+            partially_paid: @json(__('Partially paid')), refunded: @json(__('Refunded')),
+            partially_refunded: @json(__('Partially refunded')), failed: @json(__('Payment failed')),
+            unknown: @json(__('Payment status unknown'))
+        },
+        tracking: @json(__('Tracking')),
+        openInStore: @json(__('Open in the store'))
     };
 
     var state = { conversationId: null, page: 1, status: 'open', assignee: 'all', search: '', loading: false, lastCount: 0 };
@@ -409,6 +428,98 @@
                 if (contact.phone_number) { body.appendChild(el('div', 'small', contact.phone_number)); }
             });
         }
+
+        renderCommerce(conversation.id, body);
+    }
+
+    // The conversation's orders, as the store reports them through Lynomia. READ ONLY: an
+    // agent can see what was ordered and where it is, and every action on an order stays in
+    // the store's own order screen, which is what `admin_url` opens.
+    //
+    // A failure here never breaks the panel. The contact details above are what this pane is
+    // for; orders are context, and a store that cannot be reached says so in one line.
+    function renderCommerce(conversationId, body) {
+        if (!conversationId) { return; }
+
+        var section = el('div', 'mt-3 pt-3 border-top');
+        section.appendChild(el('div', 'fw-semibold small mb-2', T.orders));
+        var list = el('div', 'd-flex flex-column gap-2');
+        section.appendChild(list);
+        body.appendChild(section);
+        list.appendChild(el('div', 'small text-muted', T.loading));
+
+        $.getJSON(url('commerce', conversationId)).done(function (data) {
+            var stores = (data && data.stores) || [];
+            // Nothing to show at all when no store is connected: an empty heading is noise.
+            if (!stores.length) { section.remove(); return; }
+
+            // The first store the conversation's account offers. One store is the normal case
+            // here; a merchant with several picks between them in Lynomia's own panel, which
+            // is also where linking a customer is decided.
+            $.getJSON(url('commerce', conversationId) + '?store=' + encodeURIComponent(stores[0].id))
+                .done(function (full) { renderOrders(list, (full && full.panel) || null); })
+                .fail(function () { replaceWith(list, el('div', 'small text-muted', T.ordersUnavailable)); });
+        }).fail(function () {
+            replaceWith(list, el('div', 'small text-muted', T.ordersUnavailable));
+        });
+    }
+
+    function replaceWith(container, node) {
+        container.textContent = '';
+        container.appendChild(node);
+    }
+
+    function renderOrders(list, panel) {
+        if (!panel || panel.state === 'unavailable') {
+            replaceWith(list, el('div', 'small text-muted', T.ordersUnavailable));
+            return;
+        }
+
+        var orders = panel.orders || [];
+        if (!orders.length) {
+            replaceWith(list, el('div', 'small text-muted', T.noOrders));
+            return;
+        }
+
+        list.textContent = '';
+        if (panel.stale) { list.appendChild(el('div', 'small text-muted', T.ordersStale)); }
+
+        orders.forEach(function (order) {
+            var card = el('div', 'border rounded p-2');
+            var head = el('div', 'd-flex justify-content-between align-items-center gap-2');
+            head.appendChild(el('span', 'small fw-semibold text-truncate', order.number || ''));
+            head.appendChild(el('span', 'badge bg-light text-dark', orderStatusLabel(order)));
+            card.appendChild(head);
+
+            if (order.total) {
+                card.appendChild(el('div', 'small', [order.total, order.currency || ''].join(' ').trim()));
+            }
+            card.appendChild(el('div', 'small text-muted', paymentLabel(order.payment_status)));
+            if (order.tracking_number) {
+                card.appendChild(el('div', 'small text-muted', T.tracking + ': ' + order.tracking_number));
+            }
+            // Only ever a URL the SERVER built from the store's validated base address. A URL
+            // out of a provider response is a link a compromised store chooses.
+            if (order.admin_url && /^https:\/\//.test(order.admin_url)) {
+                var link = el('a', 'small', T.openInStore);
+                link.href = order.admin_url;
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                card.appendChild(link);
+            }
+            list.appendChild(card);
+        });
+    }
+
+    // The store's OWN word wins where it has one: 'Picked Up' and 'Confirmed' both canonicalise
+    // to `processing`, and a merchant who ships from a warehouse cares about the difference.
+    function orderStatusLabel(order) {
+        if (order.provider_status) { return order.provider_status; }
+        return (T.orderStatuses && T.orderStatuses[order.status]) || order.status || '';
+    }
+
+    function paymentLabel(value) {
+        return (T.paymentStatuses && T.paymentStatuses[value]) || T.paymentStatuses.unknown;
     }
 
     function markRead(conversationId) {
@@ -426,7 +537,8 @@
         assign: @json(route('lynomia.inbox.api.assign', ['conversation' => '__ID__'])),
         status: @json(route('lynomia.inbox.api.status', ['conversation' => '__ID__'])),
         read: @json(route('lynomia.inbox.api.read', ['conversation' => '__ID__'])),
-        contact: @json(route('lynomia.inbox.api.contact', ['contact' => '__ID__']))
+        contact: @json(route('lynomia.inbox.api.contact', ['contact' => '__ID__'])),
+        commerce: @json(route('lynomia.inbox.api.commerce', ['conversation' => '__ID__']))
     };
     function url(name, id) { return templates[name].replace('__ID__', encodeURIComponent(id)); }
 

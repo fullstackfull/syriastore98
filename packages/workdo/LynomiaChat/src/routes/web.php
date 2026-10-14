@@ -179,6 +179,12 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
                     Route::get('/events', [InboxApiController::class, 'events'])->name('events');
                     Route::get('/contacts/{contact}', [InboxApiController::class, 'contact'])
                         ->whereNumber('contact')->name('contact');
+
+                    // The conversation's commerce context. Read-only, and carried by the
+                    // agent's own Lynomia credential, so it is visible to exactly the people
+                    // the conversation itself is.
+                    Route::get('/conversations/{conversation}/commerce', [InboxApiController::class, 'commerce'])
+                        ->whereNumber('conversation')->name('commerce');
                     Route::post('/conversations/{conversation}/read', [InboxApiController::class, 'markRead'])
                         ->whereNumber('conversation')->name('read');
 

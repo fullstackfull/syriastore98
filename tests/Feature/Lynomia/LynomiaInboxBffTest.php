@@ -208,6 +208,7 @@ class LynomiaInboxBffTest extends TestCase
             ['post', '/lynomia/inbox/api/conversations/1/reply'],
             ['post', '/lynomia/inbox/api/conversations/1/assign'],
             ['post', '/lynomia/inbox/api/conversations/1/status'],
+            ['get', '/lynomia/inbox/api/conversations/1/commerce'],
             ['get', '/lynomia/inbox/api/agents'],
         ];
 
@@ -215,6 +216,94 @@ class LynomiaInboxBffTest extends TestCase
             $response = $this->json($verb, $uri);
             $this->assertContains($response->getStatusCode(), [401, 403, 302], "{$uri} admitted an anonymous caller");
         }
+    }
+
+    // ================================================================ commerce context (P3C)
+
+    public function test_the_conversation_panel_shows_the_customers_orders(): void
+    {
+        [$owner] = $this->connectedTenant();
+
+        $response = $this->actingAs($owner)->getJson('/lynomia/inbox/api/conversations/7/commerce?store=31');
+
+        $response->assertOk();
+        $response->assertJsonPath('stores.0.provider', 'storesyria');
+        $response->assertJsonPath('panel.state', 'linked');
+        $response->assertJsonPath('panel.link.match_source', 'verified_phone');
+        $response->assertJsonPath('panel.link.customer_type', 'registered');
+        $response->assertJsonPath('panel.orders.0.number', 'A-1');
+        $response->assertJsonPath('panel.orders.0.total', '1500.50');
+        // The store's OWN word survives: 'Picked Up' and 'Confirmed' both canonicalise to
+        // `processing`, and a merchant who ships from a warehouse cares about the difference.
+        $response->assertJsonPath('panel.orders.0.provider_status', 'Picked Up');
+        $response->assertJsonPath('panel.orders.0.shipment_status', 'pending');
+        $response->assertJsonPath('panel.orders.0.tracking_number', null);
+    }
+
+    public function test_the_panel_is_not_fetched_for_a_store_the_conversation_was_not_offered(): void
+    {
+        [$owner] = $this->connectedTenant();
+
+        $response = $this->actingAs($owner)->getJson('/lynomia/inbox/api/conversations/7/commerce?store=999');
+
+        $response->assertOk();
+        $response->assertJsonPath('panel', null);
+        // The stray id is refused here rather than forwarded for Lynomia to refuse.
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/commerce/stores/999'));
+    }
+
+    /**
+     * WHAT THE PROJECTION KEEPS OUT. Lynomia's panel carries unlinked candidates -- "is this
+     * the same person?" -- which is an agent decision made in Lynomia's own interface. A second
+     * place to make it is a second place to get it wrong, and the wrong answer shows one
+     * customer's orders against another customer's conversation.
+     */
+    public function test_the_panel_never_forwards_unlinked_candidates(): void
+    {
+        [$owner] = $this->connectedTenant();
+        $this->fakeLynomia(['commerce_panel' => [
+            'store' => ['id' => 31, 'name' => 'Damascus Store', 'provider' => 'storesyria'],
+            'state' => 'multiple',
+            'candidates' => [
+                ['external_id' => '4', 'name' => 'Omar Haddad', 'emails' => ['omar@example.com'], 'token' => 'SIGNED'],
+                ['external_id' => '9', 'name' => 'Omar H.', 'emails' => ['omar.h@example.com'], 'token' => 'SIGNED2'],
+            ],
+        ]]);
+
+        $response = $this->actingAs($owner)->getJson('/lynomia/inbox/api/conversations/7/commerce?store=31');
+
+        $response->assertOk();
+        $response->assertJsonPath('panel.state', 'multiple');
+        $response->assertJsonPath('panel.orders', []);
+        $body = $response->getContent();
+        foreach (['candidates', 'omar.h@example.com', 'SIGNED'] as $leak) {
+            $this->assertStringNotContainsString($leak, $body, "the commerce panel disclosed {$leak}");
+        }
+    }
+
+    public function test_a_store_that_cannot_be_read_says_so_rather_than_failing_the_panel(): void
+    {
+        [$owner] = $this->connectedTenant();
+        $this->fakeLynomia(['commerce_panel' => [
+            'store' => ['id' => 31, 'name' => 'Damascus Store', 'provider' => 'storesyria'],
+            'state' => 'unavailable', 'error' => 'STORE_UNAVAILABLE',
+        ]]);
+
+        $response = $this->actingAs($owner)->getJson('/lynomia/inbox/api/conversations/7/commerce?store=31');
+
+        $response->assertOk();
+        $response->assertJsonPath('panel.state', 'unavailable');
+        $response->assertJsonPath('panel.error', 'STORE_UNAVAILABLE');
+    }
+
+    // The credential is the agent's own, so a staff member who cannot reach the inbox at all
+    // cannot reach its commerce context either -- one authorization, not two kept in step.
+    public function test_staff_without_the_module_permission_cannot_read_commerce_context(): void
+    {
+        [$owner] = $this->connectedTenant();
+        $staff = $this->staffOf($owner);
+
+        $this->actingAs($staff)->getJson('/lynomia/inbox/api/conversations/7/commerce')->assertForbidden();
     }
 
     // ================================================================ per-action permissions
