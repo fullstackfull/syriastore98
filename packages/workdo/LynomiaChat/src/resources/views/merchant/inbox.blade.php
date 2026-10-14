@@ -185,11 +185,43 @@
 
     // Every string the interface can show, translated server-side. Nothing user-supplied is in
     // here -- this is the product's own copy.
+    // Lynomia names a channel by its MODEL CLASS -- 'Channel::Whatsapp'. That is an internal
+    // identifier and must not reach a merchant, so it is mapped to the provider's own name.
+    // These are brand names and are deliberately NOT translated; an unknown channel falls back
+    // to the bare suffix rather than showing the full class path.
+    // The page's language, not the browser's: a merchant who set Arabic should not get US
+    // date formatting because their laptop is configured in English.
+    var PAGE_LOCALE = document.documentElement.getAttribute('lang') || 'en';
+
+    var CHANNEL_LABELS = {
+        'Channel::Whatsapp': 'WhatsApp', 'Channel::Email': 'Email', 'Channel::Sms': 'SMS',
+        'Channel::TwilioSms': 'Twilio', 'Channel::FacebookPage': 'Facebook',
+        'Channel::Instagram': 'Instagram', 'Channel::Telegram': 'Telegram',
+        'Channel::Line': 'LINE', 'Channel::Tiktok': 'TikTok',
+        'Channel::TwitterProfile': 'X', 'Channel::WebWidget': 'Live chat', 'Channel::Api': 'API'
+    };
+    // The same leak as the channel: 'open' is an API value, and the filter buttons above
+    // already have translated copy for exactly these four. Reuse it rather than shipping a
+    // second vocabulary, and fall back to the raw value for a status this build does not know.
+    function statusLabel(value) {
+        if (!value) { return ''; }
+        return (T.statuses && T.statuses[value]) || value;
+    }
+
+    function channelLabel(value) {
+        if (!value) { return ''; }
+        return CHANNEL_LABELS[value] || String(value).replace(/^Channel::/, '');
+    }
+
     var T = {
         failed: @json(__('Lynomia Chat could not complete that request. Please contact support.')),
         empty: @json(__('No conversations here yet.')),
         loading: @json(__('Loading…')),
         you: @json(__('You')),
+        statuses: {
+            open: @json(__('Open')), pending: @json(__('Pending')),
+            resolved: @json(__('Resolved')), snoozed: @json(__('Snoozed'))
+        },
         customer: @json(__('Customer')),
         note: @json(__('Internal note')),
         unassigned: @json(__('Unassigned')),
@@ -233,7 +265,7 @@
         if (!value) { return ''; }
         // Upstream sends unix seconds for message timestamps and ISO for conversations.
         var date = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
-        return isNaN(date.getTime()) ? '' : date.toLocaleString();
+        return isNaN(date.getTime()) ? '' : date.toLocaleString(PAGE_LOCALE);
     }
 
     // ---------------------------------------------------------------- conversation list
@@ -255,8 +287,8 @@
         row.appendChild(el('small', 'text-muted text-truncate', conversation.preview || ''));
 
         var meta = el('div', 'd-flex align-items-center gap-2 flex-wrap');
-        if (conversation.channel) { meta.appendChild(el('span', 'badge bg-light text-dark', conversation.channel)); }
-        if (conversation.status) { meta.appendChild(el('span', 'badge bg-light text-dark', conversation.status)); }
+        if (conversation.channel) { meta.appendChild(el('span', 'badge bg-light text-dark', channelLabel(conversation.channel))); }
+        if (conversation.status) { meta.appendChild(el('span', 'badge bg-light text-dark', statusLabel(conversation.status))); }
         meta.appendChild(el('small', 'text-muted ms-auto', timeLabel(conversation.last_activity_at)));
         row.appendChild(meta);
 
@@ -364,10 +396,10 @@
 
         body.appendChild(el('div', 'fw-semibold', conversation.contact.name || T.customer));
         if (conversation.channel) {
-            body.appendChild(el('div', 'small text-muted', T.channel + ': ' + conversation.channel));
+            body.appendChild(el('div', 'small text-muted', T.channel + ': ' + channelLabel(conversation.channel)));
         }
         if (conversation.status) {
-            body.appendChild(el('div', 'small text-muted', T.status + ': ' + conversation.status));
+            body.appendChild(el('div', 'small text-muted', T.status + ': ' + statusLabel(conversation.status)));
         }
 
         if (conversation.contact.id) {
