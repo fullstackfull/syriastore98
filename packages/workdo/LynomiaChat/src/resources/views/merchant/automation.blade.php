@@ -66,6 +66,9 @@
                             title="{{ __('Refresh') }}" aria-label="{{ __('Refresh') }}">
                         <i class="ti ti-refresh" aria-hidden="true"></i>
                     </button>
+                    <button type="button" class="btn btn-sm btn-light" id="lyn-studio-templates" disabled>
+                        {{ __('Start from a template') }}
+                    </button>
                     <button type="button" class="btn btn-sm btn-primary" id="lyn-studio-new" disabled>
                         <i class="ti ti-plus me-1" aria-hidden="true"></i>{{ __('New automation') }}
                     </button>
@@ -131,6 +134,28 @@
     </div>
 </div>
 
+{{-- ------------------------------------------------------------------ templates --}}
+<div class="modal fade" id="lyn-template-modal" tabindex="-1" aria-labelledby="lyn-template-title" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="lyn-template-title">{{ __('Start from a template') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ __('Close') }}"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted">
+                    {{ __('Each of these is a working automation you can edit. Nothing is sent until you publish it.') }}
+                </p>
+                <div id="lyn-template-alert" class="alert alert-danger d-none" role="alert"></div>
+                <div class="d-grid gap-2" id="lyn-template-list"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">{{ __('Close') }}</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {{-- ------------------------------------------------------------------ confirm / errors --}}
 <div class="modal fade" id="lyn-confirm-modal" tabindex="-1" aria-labelledby="lyn-confirm-title" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -165,6 +190,9 @@
     $.ajaxSetup({ headers: { 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content') } });
 
     var ENDPOINT = root.getAttribute('data-endpoint-flows');
+    // The API root, which the template flow needs for /starters and for a draft save. Derived
+    // from the flows endpoint rather than added as a second data attribute that could disagree.
+    var BASE_API = ENDPOINT.replace(/\/flows$/, '');
     // The builder's url with 0 standing in for the flow, so the PATH is Laravel's and this page
     // substitutes an id into it rather than assembling a route out of string pieces.
     var BUILDER_URL = root.getAttribute('data-builder-url');
@@ -209,6 +237,24 @@
         duplicate: @json(__('Duplicate')),
         rename: @json(__('Rename')),
         edit: @json(__('Open builder')),
+        templates: @json(__('Start from a template')),
+        use: @json(__('Use this')),
+        starterNeeds: @json(__('Needs :features')),
+        starterSteps: @json(':count steps'),
+        features: {
+            lynomia_commerce: @json(__('store automation')),
+            lynomia_flow_builder: @json(__('the Flow Builder'))
+        },
+        starters: {
+            welcome_menu: @json(__('Welcome and menu')),
+            order_status: @json(__('Order status lookup')),
+            acknowledge_and_hand_over: @json(__('Reply at once, then hand over'))
+        },
+        starterAbout: {
+            welcome_menu: @json(__('Greets the customer and offers three choices, each ending with one of your team.')),
+            order_status: @json(__('Asks for an order number, looks it up in your store, and answers with its status.')),
+            acknowledge_and_hand_over: @json(__('Tells the customer somebody is coming, then hands the conversation over.'))
+        },
         limitReached: @json(__('You have used every automation your plan includes. Delete one, or ask support to raise your limit.')),
         // The graph validator's codes, rendered here so the merchant reads their own language
         // and never a sentence Lynomia wrote. An unrecognised code falls back to the code
@@ -393,7 +439,90 @@
         // The ceiling is enforced by Lynomia, not here: this only stops a merchant filling in a
         // form that is going to be refused. A create that races past it is still refused there.
         $newButton.prop('disabled', full).attr('title', full ? T.limitReached : '');
+        // A template creates a flow, so the ceiling applies to it identically.
+        $('#lyn-studio-templates').prop('disabled', full).attr('title', full ? T.limitReached : '');
     }
+
+    // ------------------------------------------------------------------ templates
+    //
+    // A TEMPLATE IS CREATED AS AN ORDINARY FLOW AND THEN SAVED, through the same two endpoints a
+    // merchant's own flow uses -- so the graph passes the same validation on the way in and the
+    // result is a draft they can edit, not a special kind of flow with its own rules. Nothing is
+    // published: the merchant publishes it when they mean to.
+
+    var templateModal = new bootstrap.Modal(document.getElementById('lyn-template-modal'));
+    var starters = [];
+
+    function loadStarters() {
+        $.getJSON(BASE_API + '/starters')
+            .done(function (body) { starters = body.starters || []; renderStarters(); })
+            .fail(function (xhr) { $('#lyn-template-alert').text(failureOf(xhr)).removeClass('d-none'); });
+    }
+
+    function renderStarters() {
+        var $list = $('#lyn-template-list').empty();
+
+        starters.forEach(function (starter) {
+            var $row = $('<div>').addClass('d-flex flex-wrap align-items-center justify-content-between gap-2 border rounded p-2');
+            var $left = $('<div>').addClass('me-auto');
+            $left.append($('<div>').addClass('fw-semibold').text(T.starters[starter.id] || starter.id));
+            $left.append($('<div>').addClass('small text-muted').text(T.starterAbout[starter.id] || ''));
+            $left.append($('<div>').addClass('small text-muted')
+                .text(T.starterSteps.split(':count').join(starter.nodes)));
+
+            if (!starter.available) {
+                // Listed and explained, not hidden: a merchant told what a template needs learns
+                // something, and one shown a shorter list learns nothing.
+                $left.append($('<div>').addClass('small text-warning').text(
+                    T.starterNeeds.split(':features').join(
+                        (starter.missing || []).map(function (f) { return T.features[f] || f; }).join(', '))));
+            }
+
+            $row.append($left);
+
+            if (starter.available) {
+                $row.append($('<button>').attr('type', 'button').addClass('btn btn-sm btn-outline-primary')
+                    .text(T.use).on('click', function () { useStarter(starter); }));
+            }
+
+            $list.append($row);
+        });
+    }
+
+    function useStarter(starter) {
+        var $alert = $('#lyn-template-alert').addClass('d-none').text('');
+
+        send('POST', '', { name: T.starters[starter.id] || starter.id, description: T.starterAbout[starter.id] || null })
+            .done(function (body) {
+                if (!body || !body.flow) {
+                    usage = body && body.usage ? body.usage : usage;
+                    renderUsage();
+                    $alert.text(T.limitReached).removeClass('d-none');
+                    return;
+                }
+
+                // The new flow starts empty; the template's graph is the first draft save, with
+                // lock_version 0 because nobody has edited it yet.
+                $.ajax({
+                    url: BASE_API + '/flows/' + encodeURIComponent(body.flow.id) + '/draft',
+                    method: 'PUT', contentType: 'application/json', dataType: 'json',
+                    data: JSON.stringify({ graph: starter.graph, lock_version: 0 })
+                }).done(function () {
+                    window.location.href = builderUrlFor(body.flow.id);
+                }).fail(function (xhr) {
+                    // The flow exists but its graph did not land. Say so and show it in the list
+                    // rather than leaving a flow behind that the merchant cannot account for.
+                    $alert.text(failureOf(xhr)).removeClass('d-none');
+                    load();
+                });
+            })
+            .fail(function (xhr) { $alert.text(failureOf(xhr)).removeClass('d-none'); });
+    }
+
+    $('#lyn-studio-templates').on('click', function () {
+        templateModal.show();
+        if (!starters.length) { loadStarters(); }
+    });
 
     function render(flows) {
         $list.empty();

@@ -112,6 +112,7 @@
                     <i class="ti ti-layout-sidebar" aria-hidden="true"></i>
                     <span class="d-none d-sm-inline ms-1">{{ __('Panels') }}</span>
                 </button>
+                <button type="button" class="btn btn-sm btn-light" id="lynb-history">{{ __('History') }}</button>
                 <button type="button" class="btn btn-sm btn-light" id="lynb-channels">{{ __('Channels') }}</button>
                 <button type="button" class="btn btn-sm btn-light" id="lynb-test">{{ __('Test') }}</button>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="lynb-save">{{ __('Save draft') }}</button>
@@ -158,6 +159,45 @@
         <div class="border-top p-2" id="lynb-problems" hidden>
             <div class="small fw-semibold mb-1 text-danger" id="lynb-problems-title"></div>
             <div class="lynb-errors d-grid gap-1" id="lynb-problems-list"></div>
+        </div>
+    </div>
+</div>
+
+{{-- ------------------------------------------------------------------ history --}}
+<div class="modal fade" id="lynb-history-modal" tabindex="-1" aria-labelledby="lynb-history-title" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="lynb-history-title">{{ __('How this automation is running') }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ __('Close') }}"></button>
+            </div>
+            <div class="modal-body">
+                <div id="lynb-history-alert" class="alert alert-danger d-none" role="alert"></div>
+                <div class="row g-2 mb-3" id="lynb-history-counts"></div>
+                <div id="lynb-history-failures" class="mb-3"></div>
+                <h6 class="mb-2">{{ __('Recent runs') }}</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th scope="col">{{ __('Outcome') }}</th>
+                                <th scope="col">{{ __('Stopped at') }}</th>
+                                <th scope="col">{{ __('Why') }}</th>
+                                <th scope="col">{{ __('Steps') }}</th>
+                                <th scope="col">{{ __('Version') }}</th>
+                                <th scope="col">{{ __('Started') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody id="lynb-history-rows"></tbody>
+                    </table>
+                </div>
+                <p class="small text-muted mt-2 mb-0">
+                    {{ __('Runs are shown without anything a customer wrote.') }}
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">{{ __('Close') }}</button>
+            </div>
         </div>
     </div>
 </div>
@@ -271,6 +311,9 @@
     var BASE = root.getAttribute('data-endpoint-base');
     var REFERENCES_URL = root.getAttribute('data-endpoint-references');
     var STUDIO_URL = root.getAttribute('data-studio-url');
+    // The PAGE's language, not the browser's: a merchant who set Arabic should not get US date
+    // formatting because their laptop is configured in English.
+    var PAGE_LOCALE = document.documentElement.getAttribute('lang') || 'en';
 
     // Node geometry. One place, because the edge router, the hit areas and the handle positions
     // all have to agree -- three copies of 190 is how an edge ends up pointing at nothing.
@@ -319,6 +362,28 @@
         unsupportedHere: @json(__('This step cannot run on :channel.')),
         confirm: @json(__('Confirm')),
         channels: @json(__('Channels')),
+        history: @json(__('History')),
+        noRuns: @json(__('This automation has not run yet.')),
+        since: @json(__('Since :date')),
+        totalRuns: @json(__('Runs')),
+        liveRuns: @json(__('Running now')),
+        whyStopped: @json(__('Why runs stopped')),
+        statuses: {
+            active: @json(__('Running')), waiting: @json(__('Waiting for a reply')),
+            handed_off: @json(__('Handed to a person')), completed: @json(__('Finished')),
+            failed: @json(__('Stopped on a problem')), cancelled: @json(__('Cancelled'))
+        },
+        // The runner's own safety limits and refusals, in words a merchant can act on.
+        failures: {
+            step_limit: @json(__('Too many steps in one go — check for a loop.')),
+            send_limit: @json(__('Too many messages in one go.')),
+            visit_limit: @json(__('One step was reached too many times — check for a loop.')),
+            unsupported_channel: @json(__('A step cannot run on the connected channel.')),
+            no_choice: @json(__('The customer did not choose anything.')),
+            timeout: @json(__('The customer did not reply in time.')),
+            handoff_node: @json(__('The automation handed over on purpose.')),
+            disabled: @json(__('The automation was turned off while it was running.'))
+        },
         connect: @json(__('Connect')),
         disconnect: @json(__('Disconnect')),
         connected: @json(__('Running this automation')),
@@ -506,6 +571,12 @@
     function valueLabel(value) { return T.values[value] || value; }
 
     function fieldLabel(key) { return T.fields[key] || key; }
+
+    function formatDate(value) {
+        if (!value) { return ''; }
+        var parsed = new Date(value);
+        return isNaN(parsed.getTime()) ? '' : parsed.toLocaleString(PAGE_LOCALE);
+    }
 
     function errorSentence(error) {
         var sentence = ERRORS[error.code] || error.code;
@@ -1734,8 +1805,7 @@
 
     function openConflict(conflict) {
         pendingConflict = conflict;
-        $('#lynb-conflict-when').text(conflict.updated_at ? new Date(conflict.updated_at).toLocaleString(
-            document.documentElement.getAttribute('lang') || 'en') : '');
+        $('#lynb-conflict-when').text(formatDate(conflict.updated_at));
         conflictModal.show();
     }
 
@@ -1945,6 +2015,80 @@
     $('#lynb-channels').on('click', function () {
         channelsModal.show();
         loadChannels();
+    });
+
+    // ------------------------------------------------------------------ history
+    //
+    // TWO QUESTIONS, ONE SCREEN. "Is it working" is the counts; "what happened" is the list. A
+    // merchant asks them together, and answering only the second leaves them counting rows.
+    //
+    // NOTHING A CUSTOMER WROTE APPEARS HERE, which is a property of the payload rather than of
+    // this renderer -- the server sends none. The note under the table says so, because an
+    // operational screen that looks like it might be hiding messages invites somebody to go
+    // looking for them.
+
+    var historyModal = new bootstrap.Modal(document.getElementById('lynb-history-modal'));
+
+    function statusLabel(value) { return (T.statuses && T.statuses[value]) || value; }
+    function failureLabel(code) { return (T.failures && T.failures[code]) || code; }
+
+    function loadHistory() {
+        $('#lynb-history-alert').addClass('d-none').text('');
+
+        $.getJSON(url('/history'))
+            .done(renderHistory)
+            .fail(function (xhr) { $('#lynb-history-alert').text(failureOf(xhr)).removeClass('d-none'); });
+    }
+
+    function countCard(label, value, tone) {
+        return $('<div>').addClass('col-6 col-md-3')
+            .append($('<div>').addClass('border rounded p-2 text-center')
+                .append($('<div>').addClass('fs-4 fw-semibold ' + (tone || '')).text(value))
+                .append($('<div>').addClass('small text-muted').text(label)));
+    }
+
+    function renderHistory(body) {
+        var insights = body.insights || {};
+        var $counts = $('#lynb-history-counts').empty();
+
+        $counts.append(countCard(T.totalRuns, insights.total || 0));
+        $counts.append(countCard(T.liveRuns, insights.live || 0));
+        Object.keys(insights.by_status || {}).forEach(function (status) {
+            $counts.append(countCard(statusLabel(status), insights.by_status[status],
+                status === 'failed' ? 'text-danger' : ''));
+        });
+
+        var $failures = $('#lynb-history-failures').empty();
+        var codes = Object.keys(insights.by_failure || {});
+        if (codes.length) {
+            $failures.append($('<div>').addClass('small fw-semibold mb-1').text(T.whyStopped));
+            codes.forEach(function (code) {
+                $failures.append($('<div>').addClass('small')
+                    .text('• ' + failureLabel(code) + ' (' + insights.by_failure[code] + ')'));
+            });
+        }
+
+        var $rows = $('#lynb-history-rows').empty();
+        (body.sessions || []).forEach(function (session) {
+            $rows.append($('<tr>')
+                .append($('<td>').text(statusLabel(session.status)))
+                .append($('<td>').addClass('small text-muted').text(text(session.current_node_id)))
+                .append($('<td>').addClass('small')
+                    .text(session.failure_code ? failureLabel(session.failure_code)
+                                               : (session.end_reason ? failureLabel(session.end_reason) : '')))
+                .append($('<td>').text(text(session.steps_count)))
+                .append($('<td>').text(text(session.version)))
+                .append($('<td>').addClass('small text-muted').text(formatDate(session.created_at))));
+        });
+
+        if (!(body.sessions || []).length) {
+            $rows.append($('<tr>').append($('<td>').attr('colspan', 6).addClass('text-muted small').text(T.noRuns)));
+        }
+    }
+
+    $('#lynb-history').on('click', function () {
+        historyModal.show();
+        loadHistory();
     });
 
     // ------------------------------------------------------------------ test mode

@@ -377,6 +377,30 @@ trait InteractsWithLynomia
                     => Http::response([], 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/flows/\d+$#', $path)
                     => Http::response($this->lynomiaScript['flow'] ?? self::sampleFlow(), 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/flows/starters$#', $path)
+                    => Http::response(['payload' => $this->lynomiaScript['starters'] ?? [
+                        ['id' => 'welcome_menu', 'requires' => [], 'nodes' => 3, 'available' => true, 'missing' => [],
+                            'graph' => ['nodes' => [
+                                ['id' => 'start', 'type' => 'start', 'position' => ['x' => 0, 'y' => 0], 'data' => []],
+                            ], 'edges' => []]],
+                        ['id' => 'order_status', 'requires' => ['lynomia_commerce'], 'nodes' => 6,
+                            'available' => false, 'missing' => ['lynomia_commerce'],
+                            'graph' => ['nodes' => [], 'edges' => []]],
+                    ]], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/flows/\d+/insights$#', $path)
+                    => Http::response($this->lynomiaScript['insights'] ?? [
+                        'since' => '2026-01-05T00:00:00Z', 'total' => 7, 'live' => 1,
+                        'by_status' => ['completed' => 2, 'handed_off' => 1, 'failed' => 3, 'waiting' => 1],
+                        'by_failure' => ['step_limit' => 2, 'send_limit' => 1],
+                        'versions' => ['1' => 7],
+                    ], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/flows/\d+/sessions$#', $path)
+                    => Http::response(['payload' => $this->lynomiaScript['sessions'] ?? [
+                        ['id' => 1, 'status' => 'failed', 'current_node_id' => 'menu', 'steps_count' => 12,
+                            'failure_code' => 'step_limit', 'end_reason' => null, 'version' => 1,
+                            'created_at' => '2026-02-01T10:00:00Z', 'updated_at' => null, 'finished_at' => null,
+                            'wake_at' => null, 'conversation_id' => 41],
+                    ]], 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/flows/\d+/draft$#', $path) && $method === 'PUT'
                     => Http::response(array_merge(self::sampleFlow(), [
                         'state' => 'draft',

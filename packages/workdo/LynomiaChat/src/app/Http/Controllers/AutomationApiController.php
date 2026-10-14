@@ -316,6 +316,93 @@ class AutomationApiController extends Controller
         });
     }
 
+    // ------------------------------------------------------------------ templates and history
+
+    /**
+     * Starting points, with whether this workspace may use each one.
+     *
+     * THE GRAPH TRAVELS WITH THE TEMPLATE so that creating from one is create-then-save with the
+     * graph already in hand, rather than a third call to fetch it. It is projected through the
+     * same graph shaper the builder uses, so a template and a saved flow are the same shape on
+     * the way to the canvas.
+     */
+    public function starters(Request $request): JsonResponse
+    {
+        return $this->proxy($request, function (AgentApiClient $client) {
+            $payload = $client->flowStarters()['payload'] ?? [];
+
+            return ['starters' => array_values(array_map(fn (array $starter): array => [
+                'id' => (string) ($starter['id'] ?? ''),
+                'nodes' => (int) ($starter['nodes'] ?? 0),
+                'available' => (bool) ($starter['available'] ?? false),
+                // Feature names, which the browser turns into a sentence. Codes, not prose.
+                'missing' => array_values(array_filter(
+                    is_array($starter['missing'] ?? null) ? $starter['missing'] : [], 'is_string'
+                )),
+                'graph' => $this->projectGraph($starter['graph'] ?? []),
+            ], array_filter(is_array($payload) ? $payload : [], 'is_array')))];
+        });
+    }
+
+    /**
+     * How a flow is running, and the last runs behind the numbers.
+     *
+     * TWO QUESTIONS IN ONE ANSWER because a merchant asks them together: "is it working" is the
+     * counts, and "what happened" is the list. Both are already free of message content on the
+     * Lynomia side, and the projection keeps it that way rather than relying on that -- an
+     * operational screen that starts carrying what a customer wrote is a second place
+     * conversation content can be read.
+     */
+    public function history(Request $request, int $flow): JsonResponse
+    {
+        return $this->proxy($request, function (AgentApiClient $client) use ($flow) {
+            $insights = $client->flowInsights($flow);
+            $sessions = $client->flowSessions($flow)['payload'] ?? [];
+
+            return [
+                'insights' => [
+                    'since' => $insights['since'] ?? null,
+                    'total' => (int) ($insights['total'] ?? 0),
+                    'live' => (int) ($insights['live'] ?? 0),
+                    'by_status' => $this->projectCounts($insights['by_status'] ?? null),
+                    'by_failure' => $this->projectCounts($insights['by_failure'] ?? null),
+                    'versions' => $this->projectCounts($insights['versions'] ?? null),
+                ],
+                'sessions' => array_values(array_map(static fn (array $session): array => [
+                    'id' => $session['id'] ?? null,
+                    'status' => $session['status'] ?? null,
+                    'current_node_id' => $session['current_node_id'] ?? null,
+                    'steps_count' => $session['steps_count'] ?? null,
+                    // WHY IT STOPPED, which is the whole value of this screen: a merchant whose
+                    // automation hands everything to a person needs the reason, not the count.
+                    'failure_code' => $session['failure_code'] ?? null,
+                    'end_reason' => $session['end_reason'] ?? null,
+                    'version' => $session['version'] ?? null,
+                    'created_at' => $session['created_at'] ?? null,
+                    'finished_at' => $session['finished_at'] ?? null,
+                    // Deliberately no conversation id: this is an operational screen, and a link
+                    // from "a run failed" into a customer's conversation is the inbox's job and
+                    // the inbox's authorization.
+                ], array_filter(is_array($sessions) ? $sessions : [], 'is_array'))),
+            ];
+        });
+    }
+
+    /** A { key => count } map, with both halves made safe for display. */
+    private function projectCounts(mixed $counts): array
+    {
+        if (! is_array($counts)) {
+            return [];
+        }
+
+        $projected = [];
+        foreach ($counts as $key => $count) {
+            $projected[mb_substr((string) $key, 0, 64)] = (int) $count;
+        }
+
+        return $projected;
+    }
+
     // ------------------------------------------------------------------ commerce automation
 
     /**

@@ -346,6 +346,18 @@ class AgentApiClient
         return $this->http->send('post', $this->path("flows/{$flowId}/simulate"), ['inputs' => $inputs]);
     }
 
+    /** Ready-made graphs to start from, each one validated by the engine that will publish it. */
+    public function flowStarters(): array
+    {
+        return $this->http->send('get', $this->path('flows/starters'));
+    }
+
+    /** How a flow is actually running: counts by outcome, and why the failed runs stopped. */
+    public function flowInsights(int $flowId): array
+    {
+        return $this->http->send('get', $this->path("flows/{$flowId}/insights"));
+    }
+
     // ------------------------------------------------------------------ commerce automation
 
     /**

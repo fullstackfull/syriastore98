@@ -278,6 +278,11 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
                     Route::post('/flows/{flow}/simulate', [AutomationApiController::class, 'simulate'])
                         ->whereNumber('flow')->name('flows.simulate');
 
+                    // Starting points, and how a flow is actually running.
+                    Route::get('/starters', [AutomationApiController::class, 'starters'])->name('starters');
+                    Route::get('/flows/{flow}/history', [AutomationApiController::class, 'history'])
+                        ->whereNumber('flow')->name('flows.history');
+
                     // ---------------------------------------------------- commerce automation
                     //
                     // RULES ARE NOT FLOWS and are a different model upstream: a flow answers a

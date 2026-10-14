@@ -410,6 +410,79 @@ class LynomiaFlowBuilderTest extends TestCase
         }
     }
 
+    // ================================================================ templates and history
+
+    public function test_the_starter_list_carries_its_graph_and_says_what_each_one_needs(): void
+    {
+        [$owner] = $this->connectedTenant();
+
+        $response = $this->actingAs($owner)->getJson('/lynomia/automation/api/starters');
+
+        $response->assertOk();
+        $response->assertJsonPath('starters.0.id', 'welcome_menu');
+        $response->assertJsonPath('starters.0.available', true);
+        // The graph travels so creating from a template is create-then-save, not a third call,
+        // and it arrives in the same shape the builder's own graph does.
+        $response->assertJsonPath('starters.0.graph.nodes.0.type', 'start');
+        // Listed and explained rather than hidden.
+        $response->assertJsonPath('starters.1.available', false);
+        $response->assertJsonPath('starters.1.missing.0', 'lynomia_commerce');
+    }
+
+    /**
+     * "Is it working" and "what happened" are different questions a merchant asks together, so
+     * one call answers both. Neither half may carry what a customer wrote.
+     */
+    public function test_the_history_answers_both_how_it_is_running_and_what_happened(): void
+    {
+        [$owner] = $this->connectedTenant();
+
+        $response = $this->actingAs($owner)->getJson('/lynomia/automation/api/flows/42/history');
+
+        $response->assertOk();
+        $response->assertJsonPath('insights.total', 7);
+        $response->assertJsonPath('insights.live', 1);
+        $response->assertJsonPath('insights.by_status.failed', 3);
+        $response->assertJsonPath('insights.by_failure.step_limit', 2);
+        // Why a run stopped is the whole value of the screen.
+        $response->assertJsonPath('sessions.0.failure_code', 'step_limit');
+        $response->assertJsonPath('sessions.0.current_node_id', 'menu');
+    }
+
+    /**
+     * NO CUSTOMER AND NO CONVERSATION. An operational screen that carries a conversation id is a
+     * link from "a run failed" into somebody's messages, and that link belongs to the inbox,
+     * with the inbox's own authorization.
+     */
+    public function test_the_history_carries_no_conversation_and_no_customer(): void
+    {
+        [$owner] = $this->connectedTenant();
+        $this->fakeLynomia(['sessions' => [
+            ['id' => 1, 'status' => 'handed_off', 'current_node_id' => 'menu', 'steps_count' => 3,
+                'failure_code' => null, 'end_reason' => 'no_choice', 'version' => 1,
+                'created_at' => '2026-02-01T10:00:00Z', 'conversation_id' => 41,
+                'context' => ['reply' => 'my secret address']],
+        ]]);
+
+        $body = $this->actingAs($owner)->getJson('/lynomia/automation/api/flows/42/history')->getContent();
+
+        $this->assertStringNotContainsString('my secret address', $body);
+        $this->assertStringNotContainsString('conversation_id', $body);
+        $this->assertStringContainsString('no_choice', $body);
+    }
+
+    public function test_the_template_and_history_routes_carry_the_studio_stack(): void
+    {
+        foreach (['lynomia.automation.api.starters', 'lynomia.automation.api.flows.history'] as $name) {
+            $this->assertTrue(Route::has($name), "Route {$name} is missing.");
+
+            $stack = array_filter(app('router')->gatherRouteMiddleware(Route::getRoutes()->getByName($name)), 'is_string');
+
+            $this->assertTrue((bool) preg_grep('/EnsureStoreOwnsLink:existing/', $stack), $name);
+            $this->assertTrue((bool) preg_grep('/Permission:Manage Lynomia Automation/', $stack), $name);
+        }
+    }
+
     // ================================================================ the page
 
     public function test_the_builder_page_is_a_shell_that_makes_no_lynomia_call_of_its_own(): void
