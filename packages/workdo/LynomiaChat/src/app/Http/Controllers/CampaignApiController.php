@@ -9,6 +9,8 @@ use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Http\Controllers\Concerns\ProxiesToLynomia;
 use Workdo\LynomiaChat\app\Http\Middleware\EnsureStoreOwnsLink;
 use Workdo\LynomiaChat\app\Services\AgentApiClient;
+use Workdo\LynomiaChat\app\Models\LynomiaStoreAddon;
+use Workdo\LynomiaChat\app\Services\MarketingAllowanceSync;
 use Workdo\LynomiaChat\app\Services\MerchantInboxGateway;
 
 /**
@@ -114,8 +116,16 @@ class CampaignApiController extends Controller
                 'page' => $validated['page'] ?? 1,
             ], static fn ($value) => $value !== null));
 
+            $metrics = $client->campaignMetrics($campaign);
+
             return [
-                'metrics' => $client->campaignMetrics($campaign),
+                'metrics' => $metrics,
+                // THE BREAKDOWN THAT ANSWERS "WHY" (P5F). The counters say 40 of 180 were
+                // sent, which reads as a failure; this says 140 were not sent because there
+                // was no marketing consent on record, which is a different fact about a
+                // working system and the one a merchant can act on. Ordered largest first,
+                // because the reason that explains most of the gap is the one to read.
+                'skip_reasons' => $this->projectSkipReasons($metrics['skip_reasons'] ?? []),
                 'recipients' => $this->projectRecipients($recipients['payload'] ?? $recipients),
                 'per_page' => self::RECIPIENTS_PER_PAGE,
             ];
@@ -148,6 +158,49 @@ class CampaignApiController extends Controller
             $scoped = $client->previewAudience($validated['audience'], $this->ownStoreId($client, $storeId));
 
             return ['count' => (int) ($scoped['count'] ?? 0)];
+        });
+    }
+
+    /**
+     * WHAT THIS STORE MAY STILL SEND THIS PERIOD (P5G).
+     *
+     * Read from Lynomia, which is the enforcement authority: a number computed here from the
+     * plan and the add-ons would be what Store Syria BELIEVES, and the two would differ the
+     * moment an operator set an override on the Lynomia side. The merchant needs the number
+     * that will actually refuse them.
+     *
+     * The add-on ledger beside it is this side's own and explains where the allowance came
+     * from -- "2,000 included, 10,000 from a bundle that expires on the 30th" is an answer; a
+     * bare 12,000 is not.
+     */
+    public function allowance(Request $request, MarketingAllowanceSync $marketing): JsonResponse
+    {
+        $link = $request->attributes->get(EnsureStoreOwnsLink::ATTRIBUTE);
+
+        return $this->proxy($request, function (AgentApiClient $client) use ($link, $marketing) {
+            $limits = $client->entitlements()['limits'] ?? [];
+            $sends = is_array($limits['campaign_sends'] ?? null) ? $limits['campaign_sends'] : [];
+
+            return [
+                // nil limit upstream means unlimited; it is passed through as null and the
+                // page says "no limit" rather than rendering a zero.
+                'limit' => $sends['limit'] ?? null,
+                'used' => (int) ($sends['used'] ?? 0),
+                'included' => $marketing->includedSendsFor($link),
+                'addons' => LynomiaStoreAddon::forStore($link->store_id)
+                    ->current()
+                    ->with('addon')
+                    ->orderByDesc('id')
+                    ->get()
+                    ->map(fn (LynomiaStoreAddon $grant) => [
+                        'name' => $grant->addon?->name,
+                        'quantity' => $grant->quantity,
+                        'sends' => $grant->sends(),
+                        // A trial is one of these with a date here, which is why the page
+                        // does not need a separate idea of a trial.
+                        'expires_at' => optional($grant->expires_at)->toIso8601String(),
+                    ])->all(),
+            ];
         });
     }
 
@@ -250,6 +303,26 @@ class CampaignApiController extends Controller
             'read_at' => $row['read_at'] ?? null,
             'failed_at' => $row['failed_at'] ?? null,
         ], array_filter(is_array($rows) ? $rows : [], 'is_array')));
+    }
+
+    /**
+     * @return array<int, array{reason: string, count: int}>
+     *
+     * Reshaped from a map into a list so the order survives JSON: a merchant reads the
+     * biggest reason first, and an object's key order is not something to rely on.
+     */
+    private function projectSkipReasons($reasons): array
+    {
+        if (! is_array($reasons)) {
+            return [];
+        }
+
+        $rows = [];
+        foreach ($reasons as $reason => $count) {
+            $rows[] = ['reason' => (string) $reason, 'count' => (int) $count];
+        }
+
+        return $rows;
     }
 
     private function merchantMessage(LynomiaApiException $e): string

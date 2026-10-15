@@ -16,10 +16,13 @@ use Workdo\LynomiaChat\app\Http\Requests\ApproveLinkRequest;
 use Workdo\LynomiaChat\app\Models\LynomiaCommerceEvent;
 use Workdo\LynomiaChat\app\Models\LynomiaInboxEvent;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreIdentity;
+use Workdo\LynomiaChat\app\Models\LynomiaMarketingAddon;
+use Workdo\LynomiaChat\app\Models\LynomiaStoreAddon;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\AccountLinker;
 use Workdo\LynomiaChat\app\Services\CommerceCredential;
 use Workdo\LynomiaChat\app\Services\PlatformApiClient;
+use Workdo\LynomiaChat\app\Services\MarketingAllowanceSync;
 use Workdo\LynomiaChat\app\Services\SeatAllowanceSync;
 
 /**
@@ -49,7 +52,8 @@ class IntegrationController extends Controller
     public function __construct(
         private readonly PlatformApiClient $api,
         private readonly AccountLinker $linker,
-        private readonly SeatAllowanceSync $seats
+        private readonly SeatAllowanceSync $seats,
+        private readonly MarketingAllowanceSync $marketing
     ) {
     }
 
@@ -216,6 +220,148 @@ class IntegrationController extends Controller
      * lowered ceiling keeps every person they have, and simply cannot add another. Nobody is
      * removed, which is the rule a downgrade has to obey.
      */
+    /**
+     * HOW MANY MARKETING SENDS A PLAN INCLUDES (P5G).
+     *
+     * The same shape as `updateSeats`, deliberately -- an operator setting a commercial
+     * number on a plan and pushing it to every connected store on that plan is one pattern,
+     * and two spellings of it would be two places to fix the next time the push changes.
+     *
+     * `nullable` IS the product feature here too: an empty field says "this plan grants
+     * nothing", which is different from "grants zero". Zero would stop every campaign on the
+     * plan the moment it was saved.
+     */
+    public function updateMarketingAllowance(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'plan_id' => ['required', 'integer', 'exists:plans,id'],
+            'campaign_sends' => ['nullable', 'integer', 'min:0', 'max:10000000'],
+        ]);
+
+        $plan = Plan::find($validated['plan_id']);
+
+        if (! $plan) {
+            return back()->with('error', __('That plan no longer exists.'));
+        }
+
+        $sends = $validated['campaign_sends'] === null || $validated['campaign_sends'] === ''
+            ? null
+            : (int) $validated['campaign_sends'];
+
+        $before = $plan->lynomia_campaign_sends;
+        $plan->lynomia_campaign_sends = $sends;
+        $plan->save();
+
+        AuditLog::record('lynomia_plan_marketing_sends_changed', $plan, ['lynomia_campaign_sends' => $before], [
+            'lynomia_campaign_sends' => $sends,
+            'plan_id' => $plan->id,
+            'actor_id' => auth()->id(),
+        ]);
+
+        $this->resyncPlan($plan);
+
+        return back()->with('success', __('Included marketing sends updated for :plan.', ['plan' => $plan->name]));
+    }
+
+    /** A bundle an operator offers. Recorded with its price; nothing here charges it. */
+    public function storeAddon(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:120'],
+            'campaign_sends' => ['required', 'integer', 'min:1', 'max:10000000'],
+            'price_cents' => ['nullable', 'integer', 'min:0', 'max:100000000'],
+            'currency' => ['nullable', 'string', 'max:8'],
+        ]);
+
+        $addon = LynomiaMarketingAddon::create([
+            'name' => $validated['name'],
+            'campaign_sends' => (int) $validated['campaign_sends'],
+            'price_cents' => (int) ($validated['price_cents'] ?? 0),
+            'currency' => strtoupper($validated['currency'] ?? 'USD'),
+            'is_active' => true,
+        ]);
+
+        AuditLog::record('lynomia_marketing_addon_created', $addon, [], [
+            'addon_id' => $addon->id, 'campaign_sends' => $addon->campaign_sends, 'actor_id' => auth()->id(),
+        ]);
+
+        return back()->with('success', __('Add-on created.'));
+    }
+
+    /**
+     * Give a store an add-on.
+     *
+     * GRANTED BY AN OPERATOR, NOT BOUGHT BY A MERCHANT, and that is the only safe thing to
+     * ship while every payment gateway in this installation is switched off. The row records
+     * who granted it and why, so the ledger answers "where did these sends come from".
+     *
+     * `expires_at` IS WHAT MAKES A TRIAL A TRIAL. A time-boxed grant and a purchased bundle
+     * differ only in what was paid; one mechanism with one expiry rule is one thing to get
+     * right.
+     */
+    public function grantAddon(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'link_id' => ['required', 'integer', 'exists:lynomia_store_links,id'],
+            'addon_id' => ['required', 'integer', 'exists:lynomia_marketing_addons,id'],
+            'quantity' => ['required', 'integer', 'min:1', 'max:1000'],
+            'expires_at' => ['nullable', 'date', 'after:now'],
+            'note' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $link = LynomiaStoreLink::find($validated['link_id']);
+
+        if (! $link) {
+            return back()->with('error', __('That connection no longer exists.'));
+        }
+
+        $grant = LynomiaStoreAddon::create([
+            'store_id' => $link->store_id,
+            'addon_id' => $validated['addon_id'],
+            'quantity' => (int) $validated['quantity'],
+            'expires_at' => $validated['expires_at'] ?? null,
+            'granted_by' => auth()->id(),
+            'note' => $validated['note'] ?? null,
+        ]);
+
+        AuditLog::record('lynomia_marketing_addon_granted', $link, [], [
+            'store_id' => $link->store_id, 'addon_id' => $grant->addon_id,
+            'quantity' => $grant->quantity, 'expires_at' => optional($grant->expires_at)->toIso8601String(),
+            'actor_id' => auth()->id(),
+        ]);
+
+        $this->marketing->sync($link, auth()->user());
+
+        return back()->with('success', __('Add-on granted.'));
+    }
+
+    /**
+     * Push a plan's marketing allowance to every connected store on that plan.
+     *
+     * Quietly: one unreachable workspace must not block an operator's configuration change,
+     * and the scheduled sweep picks up whatever failed rather than losing it.
+     */
+    private function resyncPlan(Plan $plan): void
+    {
+        LynomiaStoreLink::query()
+            ->where('state', 'active')
+            ->whereNotNull('lynomia_account_id')
+            ->orderBy('id')
+            ->chunkById(100, function ($links) use ($plan) {
+                foreach ($links as $link) {
+                    $owner = User::find($link->owner_user_id);
+
+                    if ($owner === null || (int) $owner->plan_id !== (int) $plan->id) {
+                        continue;
+                    }
+
+                    $this->marketing->sync($link, auth()->user());
+                }
+
+                return true;
+            });
+    }
+
     public function updateSeats(Request $request): RedirectResponse
     {
         $validated = $request->validate([

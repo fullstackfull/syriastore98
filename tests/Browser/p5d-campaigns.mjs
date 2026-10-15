@@ -39,6 +39,11 @@ const AUDIENCES = { audiences: [{ id: 12, name: 'Repeat buyers', shared: true, p
 
 const RESULTS = {
   metrics: { audience: 180, status_counts: { sent: 40, delivered: 38, read: 20, failed: 2, skipped: 140 } },
+  skip_reasons: [
+    { reason: 'No marketing consent on record', count: 120 },
+    { reason: 'Customer opted out', count: 15 },
+    { reason: 'Contact is blocked', count: 5 },
+  ],
   recipients: [
     { contact_name: 'Lina Haddad', status: 'sent', reason: null },
     { contact_name: 'Omar Nasri', status: 'skipped', reason: 'No marketing consent on record' },
@@ -162,6 +167,13 @@ async function open(page) {
   const metrics = (await page.locator('#lyncp-metrics').textContent()).replace(/\s+/g, ' ');
   check('the audience size and the outcome counts are shown',
     metrics.includes('180') && metrics.includes('40') && metrics.includes('140'), metrics.trim().slice(0, 100));
+
+  // P5F: WHY, not just how many. The counters alone read as a failure.
+  const skips = (await page.locator('#lyncp-skips').textContent()).replace(/\s+/g, ' ');
+  check('the unsent are broken down by reason',
+    skips.includes('120') && skips.includes('No marketing consent on record'), skips.trim().slice(0, 120));
+  check('and the biggest reason is read first',
+    skips.indexOf('120') < skips.indexOf('15'), skips.trim().slice(0, 120));
 
   const rows = (await page.locator('#lyncp-recipients').textContent()).replace(/\s+/g, ' ');
   // THE HALF A COUNT CANNOT TELL.

@@ -286,6 +286,10 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
                         ->whereNumber('campaign')->name('destroy');
                     Route::get('/{campaign}/results', [CampaignApiController::class, 'results'])
                         ->whereNumber('campaign')->name('results');
+                    // What is left of this period's allowance, read from the side that
+                    // enforces it. No campaign id: it is the store's number, not one
+                    // campaign's.
+                    Route::get('/allowance', [CampaignApiController::class, 'allowance'])->name('allowance');
                 });
             });
 
@@ -495,6 +499,19 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
             // same door, not on the core plan form where it would have two owners.
             Route::post('/seats', [IntegrationController::class, 'updateSeats'])
                 ->name('seats.update');
+
+            // Marketing sends: what a plan includes, the add-on catalogue, and a grant to one
+            // store. Same operator-only door as the seat ceiling, because they are the same
+            // kind of decision -- a commercial allowance, not a merchant preference.
+            //
+            // AN ADD-ON IS GRANTED HERE, NOT BOUGHT BY THE MERCHANT, which is the only safe
+            // shape while every payment gateway in this installation is switched off.
+            Route::post('/marketing-allowance', [IntegrationController::class, 'updateMarketingAllowance'])
+                ->name('marketing.allowance');
+            Route::post('/marketing-addons', [IntegrationController::class, 'storeAddon'])
+                ->name('marketing.addons.store');
+            Route::post('/marketing-addons/grant', [IntegrationController::class, 'grantAddon'])
+                ->name('marketing.addons.grant');
 
             // The commerce credential. Same operator-only door as the link actions: it grants a
             // machine read access to a merchant's orders and customers, which is an operator

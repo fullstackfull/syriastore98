@@ -21,6 +21,11 @@ class Plan extends Model
         // Workdo\LynomiaChat\app\Services\SeatAllowanceSync treats null as "grant nothing"
         // rather than as zero, so an unconfigured plan locks nobody out.
         'lynomia_agent_seats',
+        // How many marketing messages this package includes per billing period. Null means
+        // the package says nothing, like the seats above, and
+        // Workdo\LynomiaChat\app\Services\MarketingAllowanceSync treats null as "grant
+        // nothing" rather than as zero -- zero would stop every campaign on the plan.
+        'lynomia_campaign_sends',
         'storage_limit',
         'enable_domain',
         'enable_subdomain',

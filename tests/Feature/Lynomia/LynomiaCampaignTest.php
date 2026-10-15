@@ -277,6 +277,41 @@ class LynomiaCampaignTest extends TestCase
         $this->assertSame('No marketing consent on record', $body['recipients'][1]['reason']);
     }
 
+    /**
+     * THE P5F QUESTION: not how many were not sent, but WHY. Ordered largest first, because
+     * the reason that explains most of the gap is the one to read, and reshaped into a list
+     * so that order survives JSON.
+     */
+    public function test_the_results_break_the_unsent_down_by_reason(): void
+    {
+        [$owner] = $this->connectedTenant();
+        $this->lynomiaScript['campaign_metrics'] = [
+            'audience' => 180, 'sent' => 40, 'skipped' => 140,
+            'skip_reasons' => [
+                'No marketing consent on record' => 120,
+                'Customer opted out' => 15,
+                'Contact is blocked' => 5,
+            ],
+        ];
+
+        $body = $this->actingAs($owner)->getJson(self::CAMPAIGNS . '/51/results')->assertOk()->json();
+
+        $this->assertSame(
+            [['reason' => 'No marketing consent on record', 'count' => 120],
+                ['reason' => 'Customer opted out', 'count' => 15],
+                ['reason' => 'Contact is blocked', 'count' => 5]],
+            $body['skip_reasons']
+        );
+    }
+
+    public function test_a_campaign_that_reached_everyone_reports_no_reasons_rather_than_a_gap(): void
+    {
+        [$owner] = $this->connectedTenant();
+        $this->lynomiaScript['campaign_metrics'] = ['audience' => 40, 'sent' => 40, 'skipped' => 0, 'skip_reasons' => []];
+
+        $this->assertSame([], $this->actingAs($owner)->getJson(self::CAMPAIGNS . '/51/results')->assertOk()->json('skip_reasons'));
+    }
+
     public function test_a_bad_status_filter_is_refused_at_the_boundary(): void
     {
         [$owner] = $this->connectedTenant();

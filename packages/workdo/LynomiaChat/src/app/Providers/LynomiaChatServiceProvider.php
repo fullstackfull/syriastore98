@@ -54,6 +54,10 @@ class LynomiaChatServiceProvider extends ServiceProvider
         $this->app->bind(SeatAllowanceSync::class, fn ($app) => new SeatAllowanceSync(
             $app->make(PlatformApiClient::class)
         ));
+        $this->app->bind(\Workdo\LynomiaChat\app\Services\MarketingAllowanceSync::class,
+            fn ($app) => new \Workdo\LynomiaChat\app\Services\MarketingAllowanceSync(
+                $app->make(PlatformApiClient::class)
+            ));
         $this->app->bind(MerchantInboxGateway::class, fn ($app) => new MerchantInboxGateway(
             $app->make(PlatformApiClient::class),
             $app->make(IdentityProvisioner::class)

@@ -108,6 +108,12 @@
             </div>
             <div class="modal-body">
                 <div id="lyncp-metrics" class="d-flex flex-wrap gap-3 mb-3 lync-num"></div>
+
+                {{-- WHY THE UNSENT WERE UNSENT. The counters above say 40 of 180; this says
+                     140 had no marketing consent on record. The first reads as a failure and
+                     sends a merchant looking for a fault; the second is a fact about a
+                     working system and tells them what to do next. --}}
+                <div id="lyncp-skips" class="mb-3"></div>
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
                         <thead>
@@ -174,6 +180,8 @@
             audience: @json(__('Audience')), sent: @json(__('Sent')), delivered: @json(__('Delivered')),
             read: @json(__('Read')), failed: @json(__('Failed')), skipped: @json(__('Not sent'))
         },
+        whyNotSent: @json(__('Why they were not sent to')),
+        allSent: @json(__('Everyone in the audience was sent to.')),
         actions: {
             edit: @json(__('Edit')), cancel: @json(__('Stop')),
             results: @json(__('Results')), destroy: @json(__('Delete'))
@@ -286,6 +294,7 @@
         $.getJSON(urlFor(RESULTS_TEMPLATE, campaign.id || campaign.display_id))
             .done(function (body) {
                 renderMetrics((body && body.metrics) || {});
+                renderSkipReasons((body && body.skip_reasons) || []);
                 renderRecipients((body && body.recipients) || []);
                 bootstrap.Modal.getOrCreateInstance(document.getElementById('lyncp-results')).show();
             })
@@ -303,6 +312,26 @@
                 .append($('<div>').addClass('fw-semibold').text(text(value)))
                 .append($('<div>').addClass('text-muted small').text(T.metrics[key])));
         });
+    }
+
+    function renderSkipReasons(reasons) {
+        var $wrap = $('#lyncp-skips').empty();
+
+        if (!reasons.length) {
+            return $wrap.append($('<p>').addClass('text-muted small mb-0').text(T.allSent));
+        }
+
+        $wrap.append($('<div>').addClass('small fw-semibold mb-1').text(T.whyNotSent));
+        var $list = $('<ul>').addClass('list-unstyled small mb-0');
+        reasons.forEach(function (row) {
+            // The reason is a fixed string from the server carrying no customer data, so it
+            // is shown as it is rather than mapped -- a map here would silently drop a reason
+            // added upstream.
+            $list.append($('<li>').addClass('lync-num')
+                .append($('<span>').addClass('fw-semibold me-2').text(text(row.count)))
+                .append($('<span>').addClass('text-muted').text(text(row.reason))));
+        });
+        $wrap.append($list);
     }
 
     function renderRecipients(rows) {
