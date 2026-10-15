@@ -9,6 +9,7 @@ use Workdo\LynomiaChat\app\Models\LynomiaConsentState;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\AccountProvisioner;
 use Workdo\LynomiaChat\app\Services\EventSignature;
+use Workdo\LynomiaChat\app\Support\StoreIdentity;
 
 /**
  * THE CONSUMER HALF OF A CROSS-REPOSITORY CONTRACT TEST.
@@ -46,7 +47,7 @@ class LynomiaConsentContractTest extends TestCase
     use RefreshDatabase;
 
     /** Asserted identically in the producer repository. Changing the artifact means changing both. */
-    private const CONTRACT_SHA256 = 'e69d400bfcef51e65738b484d4c98221517f4fc1f7eaca0aa3a561c799ec5808';
+    private const CONTRACT_SHA256 = '05183533cbc234b9dc1a9e24f54a41e6f3010f17d9653018252ea4afb7bb8373';
 
     private const ARTIFACT = __DIR__ . '/lynomia/consent_changed.v1.json';
 
@@ -228,7 +229,7 @@ class LynomiaConsentContractTest extends TestCase
         $artifact = json_decode(file_get_contents(self::ARTIFACT), true);
         $payload = $artifact['samples'][$sample];
         $payload['account']['id'] = (int) $link->lynomia_account_id;
-        $payload['store']['external_store_id'] = (string) $link->store_id;
+        $payload['store']['external_store_id'] = StoreIdentity::of((int) $link->store_id);
 
         return $payload;
     }

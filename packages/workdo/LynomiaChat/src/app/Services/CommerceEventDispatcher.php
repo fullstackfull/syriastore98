@@ -9,6 +9,7 @@ use Illuminate\Support\Str;
 use Workdo\LynomiaChat\app\Models\LynomiaCommerceEvent;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Support\LinkState;
+use Workdo\LynomiaChat\app\Support\StoreIdentity;
 
 /**
  * Takes rows out of the commerce outbox and delivers them to Lynomia.
@@ -137,7 +138,7 @@ class CommerceEventDispatcher
      */
     private function externalStoreId(int $storeId): string
     {
-        return (string) config('lynomia.installation_ref') . ':' . $storeId;
+        return StoreIdentity::of($storeId);
     }
 
     private function endpoint(): string

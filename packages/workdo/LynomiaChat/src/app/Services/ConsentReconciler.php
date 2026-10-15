@@ -5,6 +5,7 @@ namespace Workdo\LynomiaChat\app\Services;
 use Workdo\LynomiaChat\app\Models\LynomiaConsentDecision;
 use Workdo\LynomiaChat\app\Models\LynomiaConsentState;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
+use Workdo\LynomiaChat\app\Support\StoreIdentity;
 
 /**
  * Making this side's picture of Lynomia's consent state true again.
@@ -47,7 +48,7 @@ class ConsentReconciler
     {
         $remote = $this->client->partnerConsents(
             (int) $link->lynomia_account_id,
-            (string) $link->store_id
+            StoreIdentity::of((int) $link->store_id)
         );
 
         $applied = 0;

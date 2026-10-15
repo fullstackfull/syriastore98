@@ -6,6 +6,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
+use Workdo\LynomiaChat\app\Support\StoreIdentity;
 
 /**
  * NATIVE AUDIENCE MANAGEMENT (P5B).
@@ -115,7 +116,7 @@ class LynomiaAudienceTest extends TestCase
         [$owner, $store] = $this->connectedTenant();
         $this->lynomiaScript['audience_fields'] = [
             'stores' => [['id' => 55, 'name' => 'Damascus', 'provider' => 'storesyria',
-                'external_store_id' => (string) $store->id]],
+                'external_store_id' => StoreIdentity::of($store->id)]],
             'currencies' => ['SYP', 'USD'],
             'unread_contacts' => 4,
         ];
@@ -139,7 +140,7 @@ class LynomiaAudienceTest extends TestCase
         [$owner, $store] = $this->connectedTenant();
         $this->lynomiaScript['audience_fields'] = [
             'stores' => [['id' => 55, 'name' => 'Damascus', 'provider' => 'storesyria',
-                'external_store_id' => (string) $store->id]],
+                'external_store_id' => StoreIdentity::of($store->id)]],
             'currencies' => [], 'unread_contacts' => 0,
         ];
         $this->lynomiaScript['audience_preview'] = ['scoped' => 40, 'all' => 180];
@@ -158,7 +159,7 @@ class LynomiaAudienceTest extends TestCase
         $this->lynomiaScript['audience_fields'] = [
             'stores' => [
                 ['id' => 99, 'name' => 'Their Shopify', 'provider' => 'shopify', 'external_store_id' => 'sh-1'],
-                ['id' => 55, 'name' => 'Damascus', 'provider' => 'storesyria', 'external_store_id' => (string) $store->id],
+                ['id' => 55, 'name' => 'Damascus', 'provider' => 'storesyria', 'external_store_id' => StoreIdentity::of($store->id)],
             ],
             'currencies' => [], 'unread_contacts' => 0,
         ];

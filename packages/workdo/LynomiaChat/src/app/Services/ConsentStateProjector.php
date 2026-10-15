@@ -5,6 +5,7 @@ namespace Workdo\LynomiaChat\app\Services;
 use Illuminate\Support\Carbon;
 use Workdo\LynomiaChat\app\Models\LynomiaConsentState;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
+use Workdo\LynomiaChat\app\Support\StoreIdentity;
 
 /**
  * Records what Lynomia says it now holds, so the merchant screen can show the truth.
@@ -97,7 +98,10 @@ class ConsentStateProjector
             return null;
         }
 
-        if ($claimedStore !== '' && $claimedStore !== (string) $link->store_id) {
+        // Compared against the QUALIFIED identifier, which is what Lynomia sends. Against
+        // the bare store id this never matched, so every inbound consent event was read as
+        // speaking for another installation and dropped.
+        if ($claimedStore !== '' && $claimedStore !== StoreIdentity::of((int) $link->store_id)) {
             return null;
         }
 

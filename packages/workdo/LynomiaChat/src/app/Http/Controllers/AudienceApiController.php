@@ -11,6 +11,7 @@ use Workdo\LynomiaChat\app\Http\Middleware\EnsureStoreOwnsLink;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\AgentApiClient;
 use Workdo\LynomiaChat\app\Services\MerchantInboxGateway;
+use Workdo\LynomiaChat\app\Support\StoreIdentity;
 
 /**
  * THE MERCHANT'S AUDIENCES, BUILT HERE AND EVALUATED THERE.
@@ -184,7 +185,7 @@ class AudienceApiController extends Controller
         $stores = is_array($fields['stores'] ?? null) ? $fields['stores'] : [];
 
         foreach ($stores as $store) {
-            if (($store['provider'] ?? null) === 'storesyria' && (string) ($store['external_store_id'] ?? '') === (string) $storeId) {
+            if (($store['provider'] ?? null) === 'storesyria' && (string) ($store['external_store_id'] ?? '') === StoreIdentity::of($storeId)) {
                 return (int) $store['id'];
             }
         }

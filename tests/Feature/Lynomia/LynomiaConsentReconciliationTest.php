@@ -10,6 +10,7 @@ use Workdo\LynomiaChat\app\Models\LynomiaConsentState;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\ConsentReconciler;
 use Workdo\LynomiaChat\app\Support\LinkState;
+use Workdo\LynomiaChat\app\Support\StoreIdentity;
 
 /**
  * THE SAFETY NET BEHIND THE CONSENT EVENT FEED.
@@ -212,7 +213,7 @@ class LynomiaConsentReconciliationTest extends TestCase
         // with a forged claim -- the shape a confused or hostile remote would produce.
         $applied = app(\Workdo\LynomiaChat\app\Services\ConsentStateProjector::class)->apply($link, [
             'origin' => 'lynomia_native',
-            'store' => ['external_store_id' => (string) ((int) $link->store_id + 1)],
+            'store' => ['external_store_id' => StoreIdentity::of((int) $link->store_id + 1)],
             'subject' => ['external_customer_id' => 'cust-77'],
             'purpose' => 'promotional', 'channel' => 'any', 'state' => 'withdrawn', 'revision' => 99,
         ]);

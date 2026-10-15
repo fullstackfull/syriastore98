@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Workdo\LynomiaChat\app\Http\Middleware\AuthenticateCommerceApi;
 use Workdo\LynomiaChat\app\Services\CommerceReader;
+use Workdo\LynomiaChat\app\Support\StoreIdentity;
 
 /**
  * Store Syria's commerce surface for the Lynomia adapter.
@@ -179,7 +180,7 @@ class CommerceApiController extends Controller
      */
     private function externalStoreId(int $storeId): string
     {
-        return (string) config('lynomia.installation_ref') . ':' . $storeId;
+        return StoreIdentity::of($storeId);
     }
 
     private function currency(): ?string

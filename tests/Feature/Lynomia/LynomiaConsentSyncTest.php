@@ -11,6 +11,7 @@ use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\ConsentDecisionDispatcher;
 use Workdo\LynomiaChat\app\Services\EventSignature;
 use Workdo\LynomiaChat\app\Services\PlatformApiClient;
+use Workdo\LynomiaChat\app\Support\StoreIdentity;
 
 /**
  * BIDIRECTIONAL CONSENT SYNCHRONISATION.
@@ -214,7 +215,7 @@ class LynomiaConsentSyncTest extends TestCase
     {
         [, , $link] = $this->connectedTenant();
         $payload = $this->consentPayload($link, ['state' => 'withdrawn', 'revision' => 10]);
-        $payload['store']['external_store_id'] = (string) ($link->store_id + 999);
+        $payload['store']['external_store_id'] = StoreIdentity::of((int) $link->store_id + 999);
 
         $this->deliverEvent($link, $payload)->assertOk();
 
@@ -249,7 +250,7 @@ class LynomiaConsentSyncTest extends TestCase
             'event' => 'consent_changed',
             'origin' => 'lynomia_native',
             'account' => ['id' => (int) $link->lynomia_account_id],
-            'store' => ['provider' => 'storesyria', 'external_store_id' => (string) $link->store_id],
+            'store' => ['provider' => 'storesyria', 'external_store_id' => StoreIdentity::of((int) $link->store_id)],
             'subject' => ['external_customer_id' => 'cust-77'],
             'purpose' => 'promotional',
             'channel' => 'any',

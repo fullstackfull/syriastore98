@@ -12,6 +12,7 @@ use Workdo\LynomiaChat\app\Services\AgentApiClient;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreAddon;
 use Workdo\LynomiaChat\app\Services\MarketingAllowanceSync;
 use Workdo\LynomiaChat\app\Services\MerchantInboxGateway;
+use Workdo\LynomiaChat\app\Support\StoreIdentity;
 
 /**
  * THE MERCHANT'S CAMPAIGNS: created here, sent there, and reported on from there.
@@ -231,7 +232,7 @@ class CampaignApiController extends Controller
     private function ownStoreId(AgentApiClient $client, int $storeId): ?int
     {
         foreach (($client->audienceFields()['stores'] ?? []) as $store) {
-            if (($store['provider'] ?? null) === 'storesyria' && (string) ($store['external_store_id'] ?? '') === (string) $storeId) {
+            if (($store['provider'] ?? null) === 'storesyria' && (string) ($store['external_store_id'] ?? '') === StoreIdentity::of($storeId)) {
                 return (int) $store['id'];
             }
         }

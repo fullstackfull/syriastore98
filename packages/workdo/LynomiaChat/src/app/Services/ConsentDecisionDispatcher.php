@@ -8,6 +8,7 @@ use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Models\LynomiaConsentDecision;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Support\LinkState;
+use Workdo\LynomiaChat\app\Support\StoreIdentity;
 
 /**
  * Tells Lynomia what a customer told this store.
@@ -85,7 +86,9 @@ class ConsentDecisionDispatcher
     {
         return [
             'provider' => 'storesyria',
-            'external_store_id' => (string) $decision->store_id,
+            // QUALIFIED, never the bare store id: Lynomia looks the store up by this exact
+            // value and a bare one matches nothing, so every decision came back 404.
+            'external_store_id' => StoreIdentity::of((int) $decision->store_id),
             'external_subject_id' => (string) $decision->external_subject_id,
             'decision_ref' => (string) $decision->decision_ref,
             'state' => (string) $decision->state,

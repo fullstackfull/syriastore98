@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Http;
 use Tests\Feature\Lynomia\InteractsWithLynomia;
 use Tests\TestCase;
 use Workdo\LynomiaChat\app\Services\AccountProvisioner;
+use Workdo\LynomiaChat\app\Support\StoreIdentity;
 
 /**
  * THE CONSUMER HALF OF THE SECOND CROSS-REPOSITORY CONTRACT.
@@ -40,7 +41,7 @@ class LynomiaAudienceFieldsContractTest extends TestCase
     use RefreshDatabase;
 
     /** Asserted identically in the producer repository. Changing the artifact means changing both. */
-    private const CONTRACT_SHA256 = '46382538cef05d7125b2bf4cd58b734d3029791e2150f5b721cb537e4d92ed8f';
+    private const CONTRACT_SHA256 = '7ca6f1905a80602f9bd297ea59ae7c92ff4fd3ca375dff3ebb898f0889a57a11';
 
     private const ARTIFACT = __DIR__ . '/lynomia/audience_fields.v1.json';
 
@@ -139,7 +140,7 @@ class LynomiaAudienceFieldsContractTest extends TestCase
     {
         $artifact = json_decode((string) file_get_contents(self::ARTIFACT), true);
         $sample = $artifact['sample'];
-        $sample['stores'][0]['external_store_id'] = (string) $storeId;
+        $sample['stores'][0]['external_store_id'] = StoreIdentity::of($storeId);
 
         return $sample;
     }

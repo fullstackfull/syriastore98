@@ -6,6 +6,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
+use Workdo\LynomiaChat\app\Support\StoreIdentity;
 
 /**
  * NATIVE CAMPAIGN MANAGEMENT (P5D).
@@ -144,7 +145,7 @@ class LynomiaCampaignTest extends TestCase
         [$owner, $store] = $this->connectedTenant();
         $this->lynomiaScript['audience_fields'] = [
             'stores' => [['id' => 55, 'name' => 'Damascus', 'provider' => 'storesyria',
-                'external_store_id' => (string) $store->id]],
+                'external_store_id' => StoreIdentity::of($store->id)]],
             'currencies' => [], 'unread_contacts' => 0,
         ];
         $this->lynomiaScript['audience_preview'] = ['scoped' => 40, 'all' => 180];
@@ -203,7 +204,7 @@ class LynomiaCampaignTest extends TestCase
         [$owner, $store] = $this->connectedTenant();
         $this->lynomiaScript['audience_fields'] = [
             'stores' => [['id' => 55, 'name' => 'Damascus', 'provider' => 'storesyria',
-                'external_store_id' => (string) $store->id]],
+                'external_store_id' => StoreIdentity::of($store->id)]],
             'currencies' => [], 'unread_contacts' => 0,
         ];
 
