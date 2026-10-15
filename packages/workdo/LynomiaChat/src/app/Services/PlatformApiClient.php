@@ -451,7 +451,21 @@ class PlatformApiClient
         return $this->send('post', "/platform/api/v1/accounts/{$accountId}/partner_consents", $decision);
     }
 
-    /** What Lynomia currently holds for one installation, for reconciliation. */
+    /**
+     * What Lynomia currently holds for one installation, for reconciliation.
+     *
+     * BOTH COLLECTIONS, and they are kept apart rather than merged. `consents` are the
+     * decisions this partner reported; `native` are the ones Lynomia recorded itself -- a
+     * shopper replying STOP on WhatsApp, an agent's record, an operator's suppression -- and
+     * those are the ones a reconciliation cannot do without, because a view containing only
+     * what we told Lynomia would converge happily with every opt-out missing.
+     *
+     * NOT MERGED because `revision` counts in a different sequence in each: a
+     * partner_consent_events id and a commerce_messaging_consents id. Ordering across them
+     * decides nothing, which is why they are projected under different origins.
+     *
+     * @return array{consents: array<int, array>, native: array<int, array>}
+     */
     public function partnerConsents(int $accountId, string $externalStoreId, string $provider = 'storesyria'): array
     {
         $body = $this->send('get', "/platform/api/v1/accounts/{$accountId}/partner_consents", [
@@ -459,7 +473,10 @@ class PlatformApiClient
             'external_store_id' => $externalStoreId,
         ]);
 
-        return is_array($body['consents'] ?? null) ? $body['consents'] : [];
+        return [
+            'consents' => is_array($body['consents'] ?? null) ? $body['consents'] : [],
+            'native' => is_array($body['native'] ?? null) ? $body['native'] : [],
+        ];
     }
 
     private function send(string $method, string $path, array $payload = [], bool $retryTransport = true): array

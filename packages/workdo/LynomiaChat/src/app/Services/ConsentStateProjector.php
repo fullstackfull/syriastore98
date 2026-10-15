@@ -16,15 +16,29 @@ use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
  * already stored is dropped. That is the same rule Lynomia applies to its own writes, which
  * is what stops the two sides disagreeing about which decision is newest.
  *
- * THE SCOPE IS THE STORE, THE SUBJECT, THE PURPOSE AND THE CHANNEL -- the same four columns
- * Lynomia's unique key uses. A decision at one store never touches another, and a marketing
- * withdrawal never silently rewrites the transactional row beside it.
+ * THE SCOPE IS THE STORE, THE SUBJECT, THE PURPOSE, THE CHANNEL AND THE ORIGIN. A decision at
+ * one store never touches another, and a marketing withdrawal never silently rewrites the
+ * transactional row beside it.
  *
- * A REVISION-LESS EVENT IS STILL APPLIED, because a native decision -- a shopper replying STOP
- * on WhatsApp -- carries the native row's id rather than a partner revision, and refusing it
- * for want of a field would mean the opt-out this whole feed exists for never lands. It is
- * ordered on the same column; the ids come from different tables but each is monotonic within
- * its own, and `origin` records which produced it.
+ * THE ORIGIN IS IN THE SCOPE BECAUSE THE TWO ORIGINS COUNT IN DIFFERENT SEQUENCES, and leaving
+ * it out was a defect. Lynomia publishes from two tables: a native decision carries
+ * `origin: lynomia_native` and a `commerce_messaging_consents` id as its revision, a partner
+ * decision carries `origin: partner` and a `partner_consent_events` id. Each is monotonic
+ * within its own table and the two are unrelated, so comparing them decides nothing -- and on
+ * one shared row a partner grant at revision 10001 overwrote a native withdrawal at revision
+ * 5, which is exactly what the ordering rule exists to prevent. Two sequences cannot be merged
+ * into one order, so they are not: each origin keeps its own row and is ordered against itself.
+ *
+ * WHICH MEANS NO SINGLE ROW IS THE ANSWER. The effective answer is the union of the negatives
+ * across origins -- LynomiaConsentState::effectiveFor -- which is the same rule Lynomia
+ * applies at its own send boundary.
+ *
+ * AN ORIGIN-LESS EVENT GETS ITS OWN KEY rather than being guessed into one of the two:
+ * guessing reopens the cross-sequence comparison, refusing would drop an opt-out, and an extra
+ * row costs nothing because its negative still counts in the union.
+ *
+ * A REVISION-LESS EVENT IS STILL APPLIED, because refusing it for want of a field would mean
+ * the opt-out this whole feed exists for never lands.
  */
 class ConsentStateProjector
 {
@@ -53,7 +67,6 @@ class ConsentStateProjector
         $attributes = [
             'state' => mb_substr((string) ($payload['state'] ?? ''), 0, 20),
             'source' => mb_substr((string) ($payload['source'] ?? ''), 0, 40) ?: null,
-            'origin' => mb_substr((string) ($payload['origin'] ?? ''), 0, 20) ?: null,
             'revision' => $revision,
             'occurred_at' => $this->timestamp($payload['occurred_at'] ?? null),
             'observed_at' => now(),
@@ -69,7 +82,7 @@ class ConsentStateProjector
     }
 
     /**
-     * The four columns that identify a scope, or null when the event does not name one. A
+     * The five columns that identify a scope, or null when the event does not name one. A
      * delivery whose store does not match the link it arrived on is dropped: the signature
      * proves who sent it, this proves which installation it may speak for.
      */
@@ -93,7 +106,14 @@ class ConsentStateProjector
             'external_subject_id' => mb_substr($subject, 0, 128),
             'purpose' => mb_substr($purpose, 0, 20),
             'channel' => mb_substr($channel, 0, 20),
+            'origin' => $this->originOf($payload),
         ];
+    }
+
+    /** Never empty: an unnamed origin is its own key, not a guess at one of the two real ones. */
+    private function originOf(array $payload): string
+    {
+        return mb_substr((string) ($payload['origin'] ?? ''), 0, 20) ?: LynomiaConsentState::ORIGIN_UNKNOWN;
     }
 
     private function timestamp($value): ?Carbon

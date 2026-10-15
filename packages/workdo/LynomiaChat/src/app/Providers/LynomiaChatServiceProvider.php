@@ -25,6 +25,7 @@ class LynomiaChatServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->register(EventServiceProvider::class);
+        $this->app->register(ViewComposer::class);
 
         // Merged rather than published, so a deployment cannot end up with a stale copy of
         // the module's own defaults in config/.
@@ -57,6 +58,10 @@ class LynomiaChatServiceProvider extends ServiceProvider
             $app->make(PlatformApiClient::class),
             $app->make(IdentityProvisioner::class)
         ));
+        $this->app->bind(\Workdo\LynomiaChat\app\Services\ConsentReconciler::class, fn ($app) => new \Workdo\LynomiaChat\app\Services\ConsentReconciler(
+            $app->make(PlatformApiClient::class),
+            $app->make(\Workdo\LynomiaChat\app\Services\ConsentStateProjector::class)
+        ));
         $this->app->bind(SsoLinkIssuer::class, fn ($app) => new SsoLinkIssuer(
             $app->make(PlatformApiClient::class),
             $app->make(IdentityProvisioner::class)
@@ -74,6 +79,7 @@ class LynomiaChatServiceProvider extends ServiceProvider
         $this->registerIngressLimiter();
         $this->registerCommands();
         $this->registerCommerceEventObserver();
+        $this->registerCheckoutConsentObserver();
         $this->skipBodyTransformsOnIngress();
     }
 
@@ -92,6 +98,8 @@ class LynomiaChatServiceProvider extends ServiceProvider
         $this->commands([
             \Workdo\LynomiaChat\app\Console\Commands\ReconcileLynomiaEvents::class,
             \Workdo\LynomiaChat\app\Console\Commands\DeliverLynomiaCommerceEvents::class,
+            \Workdo\LynomiaChat\app\Console\Commands\DeliverLynomiaConsentDecisions::class,
+            \Workdo\LynomiaChat\app\Console\Commands\ReconcileLynomiaConsents::class,
         ]);
 
         $this->app->booted(function () {
@@ -100,6 +108,15 @@ class LynomiaChatServiceProvider extends ServiceProvider
             // Every minute, because this one is the live path: an order's status changing is
             // what an agent is waiting to see, and the sweep above is the safety net behind it.
             $schedule->command('lynomia:deliver-commerce-events')->everyMinute()->withoutOverlapping();
+            // Every minute too: a consent decision the shopper just made is what decides
+            // whether the next campaign may reach them, and a decision sitting in an outbox
+            // is a decision that has not taken effect.
+            $schedule->command('lynomia:deliver-consent-decisions')->everyMinute()->withoutOverlapping();
+            // HOURLY, because this repairs rare LOSSES rather than carrying live traffic.
+            // Lynomia's webhook sender swallows a failed delivery instead of retrying it, so
+            // an opt-out that arrived while this side was deploying is gone and nothing in
+            // the push path notices. One read per connected store per hour is what notices.
+            $schedule->command('lynomia:reconcile-consents')->hourly()->withoutOverlapping();
         });
     }
 
@@ -117,6 +134,18 @@ class LynomiaChatServiceProvider extends ServiceProvider
     protected function registerCommerceEventObserver(): void
     {
         \App\Models\Order::observe(\Workdo\LynomiaChat\app\Observers\CommerceEventObserver::class);
+    }
+
+    /**
+     * The checkout marketing opt-in, captured where every order writer passes -- the same
+     * reasoning as the commerce outbox above, and for the same reason: an order is written by
+     * PaymentService, PaymentController, the admin form, two API controllers and roughly fifty
+     * gateway controllers, and `App\Events\AddAdditionalFields` reaches only about twenty of
+     * them (and in PaymentService fires before the saving transaction opens).
+     */
+    protected function registerCheckoutConsentObserver(): void
+    {
+        \App\Models\Order::observe(\Workdo\LynomiaChat\app\Observers\CheckoutConsentObserver::class);
     }
 
     /**

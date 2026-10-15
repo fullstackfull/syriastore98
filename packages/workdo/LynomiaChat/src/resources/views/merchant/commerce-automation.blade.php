@@ -46,6 +46,9 @@
      data-endpoint-rules="{{ route('lynomia.automation.api.rules') }}"
      data-endpoint-consents="{{ route('lynomia.automation.api.consents') }}"
      data-endpoint-consent-search="{{ route('lynomia.automation.api.consents.search') }}"
+     data-endpoint-store-consents="{{ route('lynomia.automation.api.store_consents') }}"
+     data-endpoint-store-consent-settings="{{ route('lynomia.automation.api.store_consents.settings') }}"
+     data-endpoint-store-consent-reconcile="{{ route('lynomia.automation.api.store_consents.reconcile') }}"
      data-can-consent="{{ $canManageConsent ? '1' : '0' }}">
 
     <ul class="nav nav-tabs mb-3" role="tablist">
@@ -139,6 +142,74 @@
                         </div>
                     </div>
                 </div>
+
+                {{--
+                    THE STORE'S OWN LEDGER, AND IT IS NOT THE SAME TABLE AS THE ONE ABOVE.
+
+                    "Recent decisions" is what the Lynomia workspace holds, proxied. This is
+                    what THIS STORE captured, whether Lynomia has been told yet, and whether it
+                    agreed -- three facts that only differ when something is wrong, which is
+                    exactly when a merchant comes looking. A grant stuck in the outbox, a grant
+                    Lynomia refused because the shopper had already withdrawn, and an opt-out
+                    that arrived on WhatsApp all look identical on a screen that shows one
+                    answer.
+                --}}
+                <div class="card mt-3">
+                    <div class="card-header d-flex flex-wrap gap-2 justify-content-between align-items-start">
+                        <div>
+                            <h5 class="mb-1">{{ __('Marketing consent at your store') }}</h5>
+                            <small class="text-muted">
+                                {{ __('What your checkout captured, and what Lynomia Chat will actually do with it.') }}
+                            </small>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-light" id="lync-store-consent-refresh">
+                            {{ __('Check with Lynomia Chat') }}
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="lync-store-consent-alert" class="alert alert-danger d-none" role="alert" aria-live="polite"></div>
+                        <div id="lync-store-consent-note" class="alert alert-info d-none" role="status" aria-live="polite"></div>
+
+                        <div class="border rounded p-3 mb-3">
+                            <div class="form-check form-switch mb-2">
+                                <input class="form-check-input" type="checkbox" role="switch" id="lync-optin-enabled">
+                                <label class="form-check-label" for="lync-optin-enabled">
+                                    {{ __('Ask for marketing consent on my checkout') }}
+                                </label>
+                            </div>
+                            <p class="text-muted small mb-2">
+                                {{ __('Adds an unticked box to your checkout. Nothing is ever ticked for the customer, and leaving it unticked never removes consent they gave elsewhere.') }}
+                            </p>
+                            <label for="lync-optin-policy" class="form-label small mb-1">{{ __('Policy version shown to the customer') }}</label>
+                            <div class="d-flex gap-2 flex-wrap">
+                                <input type="text" class="form-control form-control-sm" id="lync-optin-policy"
+                                       style="max-width: 16rem" maxlength="64" placeholder="{{ __('for example v3') }}">
+                                <button type="button" class="btn btn-sm btn-primary" id="lync-optin-save">{{ __('Save') }}</button>
+                            </div>
+                            <p class="text-muted small mb-0 mt-2">
+                                {{ __('Recorded with every consent so you can show what a customer agreed to. Changing it does not alter consent already given.') }}
+                            </p>
+                        </div>
+
+                        <p class="small text-muted mb-2" id="lync-store-consent-pending"></p>
+
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">{{ __('Customer') }}</th>
+                                        <th scope="col">{{ __('Kind') }}</th>
+                                        <th scope="col">{{ __('What they told you') }}</th>
+                                        <th scope="col">{{ __('Sync') }}</th>
+                                        <th scope="col">{{ __('What Lynomia Chat will do') }}</th>
+                                        <th scope="col">{{ __('When') }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="lync-store-consent-rows"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
             </div>
         @endif
     </div>
@@ -220,6 +291,9 @@
     var RULES = root.getAttribute('data-endpoint-rules');
     var CONSENTS = root.getAttribute('data-endpoint-consents');
     var CONSENT_SEARCH = root.getAttribute('data-endpoint-consent-search');
+    var STORE_CONSENTS = root.getAttribute('data-endpoint-store-consents');
+    var STORE_CONSENT_SETTINGS = root.getAttribute('data-endpoint-store-consent-settings');
+    var STORE_CONSENT_RECONCILE = root.getAttribute('data-endpoint-store-consent-reconcile');
     var CAN_CONSENT = root.getAttribute('data-can-consent') === '1';
     var PAGE_LOCALE = document.documentElement.getAttribute('lang') || 'en';
 
@@ -310,7 +384,27 @@
         clearSuppression: @json(__('Clear the provider block')),
         notePrompt: @json(__('Where did this decision come from?')),
         noResults: @json(__('No customers matched.')),
-        searchHint: @json(__('Type at least two characters.'))
+        searchHint: @json(__('Type at least two characters.')),
+        // The store's own ledger
+        anyChannel: @json(__('Any channel')),
+        noStoreConsents: @json(__('Your checkout has not captured any marketing consent yet.')),
+        sync: {
+            pending: @json(__('Waiting to be sent')),
+            accepted: @json(__('Accepted')),
+            refused: @json(__('Refused: they had already asked to stop')),
+            rejected: @json(__('Rejected')),
+            retired: @json(__('Not sent'))
+        },
+        remoteUnknown: @json(__('Not known yet')),
+        origins: {
+            partner: @json(__('from your store')),
+            lynomia_native: @json(__('from a Lynomia Chat channel')),
+            unknown: @json(__('source not recorded'))
+        },
+        pendingCount: @json(__(':count waiting to be sent to Lynomia Chat')),
+        nothingPending: @json(__('Everything your checkout captured has been sent.')),
+        reconciled: @json(__('Checked. :applied updated, :drifted disagreeing.')),
+        settingsSaved: @json(__('Saved.'))
     };
 
     function text(v) { return v === null || v === undefined ? '' : String(v); }
@@ -790,8 +884,115 @@
         if (event.key === 'Enter') { event.preventDefault(); searchContacts(); }
     });
 
+    // ------------------------------------------------------------------ this store's ledger
+    //
+    // Three columns a merchant cannot get anywhere else, side by side: what their checkout
+    // captured, whether Lynomia has been told, and what Lynomia will actually do. Showing
+    // only the first would promise sends that will not happen; showing only the last would
+    // hide a decision stuck in the outbox.
+
+    function storeAlert(xhr) {
+        $('#lync-store-consent-alert').text(failureOf(xhr)).removeClass('d-none');
+    }
+
+    function syncBadge(sync) {
+        var status = (sync && sync.status) || 'pending';
+        var label = T.sync[status] || status;
+        var tone = status === 'accepted' ? 'bg-success'
+            : (status === 'pending' ? 'bg-secondary' : 'bg-warning text-dark');
+
+        return $('<span>').addClass('badge ' + tone).text(label);
+    }
+
+    function remoteCell(remote) {
+        if (!remote || remote.state === 'unknown') {
+            return $('<span>').addClass('text-muted').text(T.remoteUnknown);
+        }
+
+        var willSend = remote.state === 'granted';
+        var $cell = $('<div>');
+        $cell.append($('<span>').addClass(willSend ? 'text-success' : 'text-danger')
+            .text(willSend ? T.willSend : T.willNotSend));
+        // WHERE the answer came from, because "they opted out on WhatsApp" and "we never
+        // captured anything" are different problems with different remedies.
+        if (remote.origin) {
+            $cell.append($('<span>').addClass('d-block text-muted small')
+                .text(T[remote.state] || remote.state) );
+            $cell.append($('<span>').addClass('d-block text-muted small')
+                .text(T.origins[remote.origin] || remote.origin));
+        }
+
+        return $cell;
+    }
+
+    function renderStoreConsents(body) {
+        var $rows = $('#lync-store-consent-rows').empty();
+        var decisions = (body && body.decisions) || [];
+
+        $('#lync-optin-enabled').prop('checked', !!(body.settings && body.settings.checkout_optin_enabled));
+        $('#lync-optin-policy').val((body.settings && body.settings.policy_version) || '');
+
+        var pending = (body && body.pending) || 0;
+        $('#lync-store-consent-pending').text(
+            pending > 0 ? T.pendingCount.replace(':count', pending) : T.nothingPending
+        );
+
+        if (!decisions.length) {
+            $rows.append($('<tr>').append($('<td>').attr('colspan', 6).addClass('text-muted').text(T.noStoreConsents)));
+
+            return;
+        }
+
+        decisions.forEach(function (row) {
+            $rows.append($('<tr>')
+                .append($('<td>').text(row.customer || row.subject))
+                .append($('<td>').text(T[row.purpose] || row.purpose))
+                .append($('<td>').text(
+                    (T[row.state] || row.state) + ' · ' + (row.channel === 'any' ? T.anyChannel : row.channel)
+                ))
+                .append($('<td>').append(syncBadge(row.sync)))
+                .append($('<td>').append(remoteCell(row.remote)))
+                .append($('<td>').text(when(row.captured_at))));
+        });
+    }
+
+    function loadStoreConsents() {
+        $.getJSON(STORE_CONSENTS)
+            .done(renderStoreConsents)
+            .fail(storeAlert);
+    }
+
+    $('#lync-optin-save').on('click', function () {
+        $('#lync-store-consent-alert').addClass('d-none');
+        $.ajax({
+            url: STORE_CONSENT_SETTINGS,
+            method: 'POST',
+            dataType: 'json',
+            data: {
+                checkout_optin_enabled: $('#lync-optin-enabled').is(':checked') ? 1 : 0,
+                policy_version: $.trim($('#lync-optin-policy').val())
+            }
+        }).done(function () {
+            $('#lync-store-consent-note').text(T.settingsSaved).removeClass('d-none');
+        }).fail(storeAlert);
+    });
+
+    $('#lync-store-consent-refresh').on('click', function () {
+        var $button = $(this).prop('disabled', true);
+        $('#lync-store-consent-alert').addClass('d-none');
+        $.ajax({ url: STORE_CONSENT_RECONCILE, method: 'POST', dataType: 'json' })
+            .done(function (body) {
+                $('#lync-store-consent-note')
+                    .text(T.reconciled.replace(':applied', body.applied || 0).replace(':drifted', body.drifted || 0))
+                    .removeClass('d-none');
+                loadStoreConsents();
+            })
+            .fail(storeAlert)
+            .always(function () { $button.prop('disabled', false); });
+    });
+
     loadRules();
-    if (CAN_CONSENT) { loadConsentLog(); }
+    if (CAN_CONSENT) { loadConsentLog(); loadStoreConsents(); }
 })(jQuery);
 </script>
 @endpush

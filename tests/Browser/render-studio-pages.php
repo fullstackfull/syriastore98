@@ -33,6 +33,34 @@ $targets = [
         ['workspaceName' => 'Damascus Store', 'canManageConsent' => false]],
 ];
 
+/**
+ * The field a shopper actually sees, wrapped the way a storefront wraps it.
+ *
+ * NOT RENDERED LIKE THE PAGES ABOVE, because it is not a page: it is pushed into a stack
+ * inside the merchant's own checkout form, in whichever theme they run. Served bare it has no
+ * <html> at all, so a browser check for `dir="rtl"` would be asking the fragment to do
+ * something that is the theme's job -- and would fail for the right reason, which is how this
+ * wrapper came to exist. The wrapper is the minimum a storefront provides: a document, a
+ * direction, a viewport and the same Tailwind-ish utilities the checkout page carries.
+ */
+$storefront = static function (string $locale, string $fragment): string {
+    $dir = $locale === 'ar' ? 'rtl' : 'ltr';
+
+    return <<<HTML
+    <!doctype html>
+    <html lang="{$locale}" dir="{$dir}">
+    <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Checkout</title>
+    <style>body{margin:0;font-family:system-ui,sans-serif}
+    .mt-4{margin-top:1rem}.bg-gray-50{background:#f9fafb}.border{border:1px solid #e5e7eb}
+    .rounded-lg{border-radius:.5rem}.shadow-sm{box-shadow:0 1px 2px rgba(0,0,0,.05)}
+    .p-4{padding:1rem}.flex{display:flex}.items-start{align-items:flex-start}.gap-3{gap:.75rem}
+    .mt-1{margin-top:.25rem}.block{display:block}.text-xs{font-size:.75rem}
+    .text-gray-500{color:#6b7280}.text-sm{font-size:.875rem}.cursor-pointer{cursor:pointer}</style>
+    </head><body><form method="post" action="#"><main style="padding:1rem">{$fragment}</main></form></body></html>
+    HTML;
+};
+
 $target = $argv[1] ?? sys_get_temp_dir() . '/lynomia-studio-pages';
 if (! is_dir($target)) { mkdir($target, 0777, true); }
 
@@ -44,4 +72,11 @@ foreach (['en', 'ar'] as $locale) {
         file_put_contents($out, $html);
         echo "wrote {$out} (" . strlen($html) . " bytes)\n";
     }
+
+    $optin = $storefront($locale, $app['view']->make('lynomia-chat::storefront.marketing-optin', [
+        'optinField' => \Workdo\LynomiaChat\app\Services\CheckoutConsentCapture::FIELD,
+        'optinStoreName' => 'Damascus Store',
+    ])->render());
+    file_put_contents($target . "/checkout-optin-{$locale}.html", $optin);
+    echo "wrote {$target}/checkout-optin-{$locale}.html (" . strlen($optin) . " bytes)\n";
 }

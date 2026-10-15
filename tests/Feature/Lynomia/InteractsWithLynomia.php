@@ -357,8 +357,15 @@ trait InteractsWithLynomia
                         'decision_ref' => 'echoed',
                         'revision' => $this->lynomiaScript['partner_consent_revision'] ?? 9,
                     ], 201),
+                // TWO COLLECTIONS, because the real endpoint returns two: the decisions this
+                // partner reported, and the NATIVE ones Lynomia recorded itself. A fake that
+                // answered with only the first would make every reconciliation test vacuous
+                // about the opt-out the whole feed exists for.
                 (bool) preg_match('#^/platform/api/v1/accounts/\d+/partner_consents$#', $path) && $method === 'GET'
-                    => Http::response(['consents' => $this->lynomiaScript['partner_consents'] ?? []], 200),
+                    => Http::response([
+                        'consents' => $this->lynomiaScript['partner_consents'] ?? [],
+                        'native' => $this->lynomiaScript['native_consents'] ?? [],
+                    ], 200),
 
                 (bool) preg_match('#^/platform/api/v1/accounts/\d+/entitlement_grants$#', $path)
                     => Http::response([

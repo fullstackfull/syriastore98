@@ -145,8 +145,12 @@ class LynomiaConsentContractTest extends TestCase
     }
 
     /**
-     * THE ORDERING PROPERTY, across the repository boundary. The producer assigns `revision`;
-     * this side drops anything not newer. A delayed grant must not reinstate a withdrawal.
+     * THE ORDERING PROPERTY, across the repository boundary and WITHIN ONE ORIGIN. The
+     * producer assigns `revision`; this side drops anything not newer. A delayed grant must
+     * not reinstate a withdrawal.
+     *
+     * The second delivery carries the SAME origin as the first, deliberately. Ordering is
+     * only meaningful inside one sequence -- see the next test for what happens across two.
      */
     public function test_a_delayed_grant_with_an_older_revision_cannot_reinstate_a_withdrawal(): void
     {
@@ -157,11 +161,43 @@ class LynomiaConsentContractTest extends TestCase
         // one workspace per store -- so the link is reused and only the sample is reloaded.
         $grant = $this->sampleFor($link, 'partner_grant');
         $grant['channel'] = 'any';
+        $grant['origin'] = $withdrawal['origin'];
         $grant['revision'] = (int) $withdrawal['revision'] - 1;
 
         $this->deliver($link, $grant)->assertOk();
 
         $this->assertSame('withdrawn', LynomiaConsentState::forStore($link->store_id)->sole()->state);
+    }
+
+    /**
+     * THE UNION PROPERTY, across the repository boundary and ACROSS ORIGINS.
+     *
+     * Lynomia publishes from two consent stores whose `revision` values count in unrelated
+     * sequences -- a commerce_messaging_consents id and a partner_consent_events id. Before
+     * the origin was part of this side's scope they shared a row, the partner grant's much
+     * larger revision compared as "newer", and a native withdrawal was overwritten by a
+     * grant. The two now keep separate rows and the effective answer unions the negatives,
+     * which is the rule Lynomia applies at its own send boundary.
+     *
+     * Both samples here are the producer's real output, delivered in the order that used to
+     * break: the withdrawal first, the higher-revision grant second.
+     */
+    public function test_a_partner_grant_cannot_mask_a_native_withdrawal(): void
+    {
+        [$link, $withdrawal] = $this->contractDelivery('native_withdrawal');
+        $this->deliver($link, $withdrawal)->assertOk();
+
+        $grant = $this->sampleFor($link, 'partner_grant');
+        $grant['channel'] = 'any';
+        $this->assertGreaterThan((int) $withdrawal['revision'], (int) $grant['revision'],
+            'the grant must carry the higher revision, or this test is not reproducing the defect');
+
+        $this->deliver($link, $grant)->assertOk();
+
+        $rows = LynomiaConsentState::forStore($link->store_id)->get();
+        $this->assertCount(2, $rows, 'each origin keeps its own row; one shared row is the defect');
+        $this->assertSame('withdrawn', LynomiaConsentState::effectiveFor($rows)['state']);
+        $this->assertSame('lynomia_native', LynomiaConsentState::effectiveFor($rows)['origin']);
     }
 
     // ============================================================ helpers

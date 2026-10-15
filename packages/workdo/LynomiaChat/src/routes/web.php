@@ -10,6 +10,7 @@ use Workdo\LynomiaChat\app\Http\Controllers\EventIngressController;
 use Workdo\LynomiaChat\app\Http\Middleware\GuardEventIngress;
 use Workdo\LynomiaChat\app\Http\Controllers\InboxApiController;
 use Workdo\LynomiaChat\app\Http\Controllers\InboxController;
+use Workdo\LynomiaChat\app\Http\Controllers\StoreConsentController;
 use Workdo\LynomiaChat\app\Http\Controllers\SuperAdmin\IntegrationController;
 use Workdo\LynomiaChat\app\Http\Middleware\EnsureStoreOwnsLink;
 
@@ -322,6 +323,27 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
                                 ->whereNumber('contact')->name('consents.record');
                             Route::delete('/consents/{contact}', [AutomationApiController::class, 'clearConsentSuppression'])
                                 ->whereNumber('contact')->name('consents.clear');
+
+                            // ------------------------------------------ this store's own ledger
+                            //
+                            // A SECOND CONSENT SURFACE, NOT A DUPLICATE OF THE ONE ABOVE. Those
+                            // routes proxy Lynomia's per-contact consent API -- "what does the
+                            // workspace hold about this person". These read THIS SIDE's rows:
+                            // what the store's own checkout captured, whether Lynomia has been
+                            // told, and whether it agreed. They differ exactly when something is
+                            // wrong, which is when a merchant looks.
+                            //
+                            // No store id in any path: EnsureStoreOwnsLink resolves it from the
+                            // session and has already authorized it, so there is no IDOR surface.
+                            Route::get('/store-consents', [StoreConsentController::class, 'index'])
+                                ->name('store_consents');
+                            Route::post('/store-consents/settings', [StoreConsentController::class, 'updateSettings'])
+                                ->name('store_consents.settings');
+                            // Read-only towards Lynomia -- it refreshes this side's picture and
+                            // never pushes a local decision to force agreement. See
+                            // docs/partner-consent/AUTHORITY.md on why that direction is closed.
+                            Route::post('/store-consents/reconcile', [StoreConsentController::class, 'reconcile'])
+                                ->name('store_consents.reconcile');
                         });
                 });
             });
