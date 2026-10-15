@@ -4,6 +4,31 @@ Partner consent, messaging eligibility, bidirectional synchronisation, checkout 
 throttling and safety. What was built, what was found broken while building it, and what is
 still owed.
 
+> **CORRECTION, ADDED AT P5H.** When this document was first written, four of the things it
+> records as "done" did not work on the real wire, and the tests on both sides agreed that
+> they did. They are fixed now, and the rows below are accurate as of Store Syria `b9b49501`
+> and Lynomia `3331d245` — but the original claims were wrong and are named here rather than
+> silently overwritten:
+>
+> 1. **No checkout opt-in ever reached Lynomia.** The dispatcher sent the bare Store Syria
+>    store id where Lynomia holds `{installation_ref}:{id}`, so every delivery was answered
+>    404. The projector, the reconciler and both audience-scope resolvers had the same
+>    mistake, so inbound events were dropped as belonging to another installation and
+>    reconciliation repaired nothing. One `StoreIdentity` helper now; see the Phase 5 report
+>    §5.1.
+> 2. **A partner-only grant could never produce a campaign recipient.** `audience_contacts`
+>    required a NATIVE promotional grant, which a checkout opt-in does not create.
+>    `Partners::Eligibility.filter`, written for exactly this, had zero callers.
+> 3. **Every native consent change after the first was dropped by Store Syria.** The feed
+>    published the consent row's primary key as its `revision`, and that row is updated in
+>    place, so the value never rose and the projector read each change as a late duplicate.
+> 4. **A suppressed customer link still counted as that store's customer** in the consent
+>    read API, its write API and the change feed — so a store an agent had told us was not
+>    this shopper's was still sent their opt-outs.
+>
+> Each is now covered by a test that is red without its fix, and the audience-fields contract
+> has a cross-repository artifact of its own.
+
 ---
 
 ## 1. What P5E had to deliver, and where each piece landed

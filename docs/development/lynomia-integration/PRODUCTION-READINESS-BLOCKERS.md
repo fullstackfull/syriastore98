@@ -10,9 +10,9 @@ phase that raised it, the phase that closed it if any, and **who can close it** 
 most important property of these entries is that most of them cannot be closed from inside
 these two repositories at all.
 
-Status at: **Phase 5 development-complete.** Phase 4 closed and pushed
+Status at: **Phase 5 complete, including P5H hardening.** Phase 4 closed and pushed
 (Lynomia `88630724`, Store Syria `152888c4`); Phase 5 pushed on both branches (Lynomia through
-`5b1f269e`, Store Syria through `628d5003`).
+`3331d245`, Store Syria through `b9b49501`).
 
 ---
 
@@ -31,6 +31,22 @@ contract *as this work understands it*. The contract is pinned by specs on the L
 by a scriptable fake (`tests/Feature/Lynomia/InteractsWithLynomia.php`) on the Store Syria side.
 Both were written from the same reading of the same code, which is exactly why they agree — and
 agreement between two expressions of one reading is not evidence that the reading is right.
+
+**Phase 5 stopped arguing this in the abstract.** An adversarial review at the end of it found
+FOUR features that passed every test on both sides and could not have worked against a real
+deployment, each because the fake and the code shared one mistake:
+
+| What was broken | How the fake hid it |
+|---|---|
+| Store Syria sent a bare store id where Lynomia holds `{installation_ref}:{id}` — so every checkout opt-in was rejected 404, every inbound consent event was dropped, reconciliation repaired nothing, and every store-scoped count answered account-wide | every audience and consent fixture used the bare id on both sides of itself, while the module's own commerce test asserted the prefixed form |
+| Campaign cancellation 500'd for every caller | only a model-level spec existed; nothing exercised the route |
+| A campaign was never marked as its installation's | the preview sent the field and the create did not, and no test compared them |
+| A shopper who opted in at checkout could never be a campaign recipient | the audience fixtures granted NATIVE consent, which is not what a checkout opt-in produces |
+
+Two of the four are now covered by cross-repository artifacts (`consent_changed.v1.json` and
+`audience_fields.v1.json`, byte-identical and SHA-pinned in both repositories). **The rest of
+the surface is not.** A staging run is the only thing that finds the next one, and the base
+rate this phase established is four in one phase.
 
 **What a staging run must cover,** in this order, because each step is a prerequisite for the
 next:

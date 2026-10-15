@@ -18,7 +18,7 @@ Every cross-system claim rests on either a scriptable fake or the shared contrac
 That is contract verification, not deployment verification, and **staging blocker A1 stays
 open** (`PRODUCTION-READINESS-BLOCKERS.md`).
 
-Last updated: 2026-10-15, after P5G.
+Last updated: 2026-10-15, after P5H (hardening, adversarial review and closure).
 
 ---
 
@@ -138,8 +138,29 @@ Last updated: 2026-10-15, after P5G.
 | Store Syria — `Contract` suite | 9 tests, 32 assertions, 0 failures |
 | Store Syria — browser, 5 suites | 132 checks, 0 failures |
 
+## P5H — hardening, adversarial review and closure
+
+| Capability | State | Evidence |
+|---|---|---|
+| Super Admin marketing settings | VERIFIED | plan allowance, add-on catalogue, add-on grants, per-permission reach, commerce and event health, every action audited |
+| Eight-dimension adversarial review | DONE | 52 candidates, 7 survived independent verification, all 7 fixed — see the report §7 |
+| One canonical partner store identifier | FIXED | `app/Support/StoreIdentity`; four call sites had invented a bare-id form the other side never uses |
+| Campaign cancellation reachable at all | FIXED | `CampaignPolicy#cancel?`; the endpoint 500'd for every caller before |
+| A campaign belongs to its installation | FIXED | `commerce_store_id` permitted and validated on create, sent by Store Syria |
+| A partner-only grant can produce a recipient | FIXED | `Partners::Eligibility.filter` wired into `audience_contacts`; it had zero callers |
+| A cancelled campaign stays cancelled | FIXED | `completed!` refuses under the lock, reading the row not the attribute |
+| The send quota is actually hard | FIXED | `counter.with_lock` spans read and write; 4 of 4 workers passed a ceiling of 1 before |
+| The quota is spent only on messages that go | FIXED | `SendGuard.spend` at each sender's provider boundary; per-channel spec |
+| Consent revision is monotonic | FIXED | `commerce_messaging_consents.revision`; every native change after the first was dropped before |
+| A suppressed link is not a customer | FIXED | one `linked` scope, used by all four readers |
+| Consent survives neither more nor less than its subject | FIXED | cascading foreign keys; a contact who had opted in could not be deleted before |
+| Only a shopper can tick the checkout box | FIXED | back-office requests no longer capture |
+| Marketing allowance re-synced on a schedule | FIXED | rides `lynomia:reconcile-events`, so an expired trial reduces the ceiling |
+| Second cross-repository contract artifact | ADDED | `audience_fields.v1.json`, SHA-pinned in both repositories |
+| Browser verification, 8 suites | VERIFIED | 189 checks, Arabic and English, phone width, 0 failures |
+
 ## Open blockers
 
 | Id | What | Why it is still open |
 |---|---|---|
-| A1 | deployed end-to-end verification between two non-production systems | every cross-system test uses a scriptable fake or the shared artifact; neither proves DNS, TLS, real credentials, Sidekiq delivery, clock skew between hosts, or a webhook subscription that was never created |
+| A1 | deployed end-to-end verification between two non-production systems | every cross-system test uses a scriptable fake or the shared artifacts; neither proves DNS, TLS, real credentials, Sidekiq delivery, clock skew between hosts, or a webhook subscription that was never created. **P5H is the argument for it**: four features passed every test on both sides and would have failed on first contact with a real deployment, because each side's fake agreed with its own author. |
