@@ -37,6 +37,10 @@ const CAMPAIGNS = {
   // offers. It used to send `inbox_id: 1` read from an attribute nothing set.
   inboxes: [
     { id: 9, name: 'WhatsApp', channel_type: 'Channel::Whatsapp' },
+    // A SECOND WHATSAPP NUMBER, ON A DIFFERENT WABA. A template belongs to a WABA, not to
+    // the workspace, so this is what makes "approved" an answer the form has to ask per
+    // number rather than once.
+    { id: 10, name: 'WhatsApp B', channel_type: 'Channel::Whatsapp' },
     { id: 11, name: 'SMS', channel_type: 'Channel::Sms' },
   ],
 };
@@ -49,12 +53,26 @@ const AUDIENCES = { audiences: [{ id: 12, name: 'Repeat buyers', shared: true, p
 const TEMPLATES = {
   templates: [
     { id: 31, name: 'spring_sale', language: 'en_US', category: 'MARKETING', meta_status: 'APPROVED',
-      parameter_format: 'POSITIONAL',
+      parameter_format: 'POSITIONAL', inboxes: [{ id: 9, name: 'WhatsApp' }],
       components: [{ type: 'BODY', text: 'Hello {{1}}, our sale starts {{2}}.' }] },
     { id: 32, name: 'order_shipped', language: 'en_US', category: 'UTILITY', meta_status: 'APPROVED',
-      parameter_format: 'POSITIONAL', components: [{ type: 'BODY', text: 'Your order is on its way.' }] },
+      parameter_format: 'POSITIONAL', inboxes: [{ id: 9, name: 'WhatsApp' }],
+      components: [{ type: 'BODY', text: 'Your order is on its way.' }] },
     { id: 33, name: 'not_yet', language: 'en_US', category: 'MARKETING', meta_status: 'PENDING',
-      parameter_format: 'POSITIONAL', components: [{ type: 'BODY', text: 'Draft.' }] },
+      parameter_format: 'POSITIONAL', inboxes: [{ id: 9, name: 'WhatsApp' }],
+      components: [{ type: 'BODY', text: 'Draft.' }] },
+    // APPROVED, BUT ON THE OTHER NUMBER'S WABA. The sender resolves a template in the chosen
+    // inbox's own synced list, so offering this one for a campaign bound to inbox 9 produces
+    // the B2.7 failure again one level down: no provider call, every recipient skipped
+    // TEMPLATE_NOT_AVAILABLE, and a campaign that completes having sent nothing.
+    { id: 34, name: 'other_waba_only', language: 'en_US', category: 'MARKETING', meta_status: 'APPROVED',
+      parameter_format: 'POSITIONAL', inboxes: [{ id: 10, name: 'WhatsApp B' }],
+      components: [{ type: 'BODY', text: 'Not sendable from inbox 9.' }] },
+    // APPROVED IN THE MIRROR, GONE AT META. The last refresh of its WABA no longer saw it,
+    // so the send will not find it however `approved` this row still reads.
+    { id: 35, name: 'deleted_at_meta', language: 'en_US', category: 'MARKETING', meta_status: 'APPROVED',
+      parameter_format: 'POSITIONAL', inboxes: [{ id: 9, name: 'WhatsApp' }], missing_at_meta: true,
+      components: [{ type: 'BODY', text: 'Gone.' }] },
   ],
 };
 
@@ -176,6 +194,27 @@ async function open(page) {
   check('only approved templates are offered',
     offered.some((o) => o.includes('spring_sale')) && !offered.some((o) => o.includes('not_yet')),
     offered.join(' | '));
+
+  // APPROVED IS NOT ENOUGH; IT HAS TO BE APPROVED ON THIS NUMBER. Filtering on meta_status
+  // alone offered every approved template in the workspace, including ones belonging to
+  // another number's WABA that the chosen inbox cannot send -- which lands the campaign back
+  // in the B2.7 failure it was changed to fix, with nothing on the form saying so.
+  check('a template approved only on another number is not offered',
+    !offered.some((o) => o.includes('other_waba_only')), offered.join(' | '));
+
+  check('a template Meta no longer has is not offered',
+    !offered.some((o) => o.includes('deleted_at_meta')), offered.join(' | '));
+
+  // ...and the same list follows the merchant when they change their mind about the number.
+  await page.locator('#lyncp-inbox').selectOption('10');
+  await page.waitForTimeout(50);
+  const onB = await page.locator('#lyncp-template option').allTextContents();
+  check('changing the number changes which templates are offered',
+    onB.some((o) => o.includes('other_waba_only')) && !onB.some((o) => o.includes('spring_sale')),
+    onB.join(' | '));
+
+  await page.locator('#lyncp-inbox').selectOption('9');
+  await page.waitForTimeout(50);
 
   await page.locator('#lyncp-save').click();
   await page.waitForTimeout(100);

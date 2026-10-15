@@ -182,7 +182,7 @@
         audienceRequired: @json(__('Choose an audience.')),
         inboxRequired: @json(__('Choose which channel this campaign sends from.')),
         templateRequired: @json(__('Choose an approved WhatsApp template for this campaign.')),
-        noTemplates: @json(__('No approved WhatsApp template yet. Create one on the Templates page first.')),
+        noTemplates: @json(__('No approved WhatsApp template for this number yet. Create one on the Templates page first.')),
         templateVarsRequired: @json(__('Fill in every value the template asks for.')),
         templateCategory: @json(__('Meta classifies this template as :category.')),
         noInboxes: @json(__('No WhatsApp or SMS channel is connected yet, so a campaign cannot be sent.')),
@@ -451,9 +451,28 @@
     // Only approved templates are offered. A draft, a rejected one and a paused one cannot
     // be sent, and offering them would move the refusal from this form to a campaign that
     // silently reaches no one -- which is the defect being fixed.
+    //
+    // AND APPROVED ON THE NUMBER THIS CAMPAIGN SENDS FROM, which filtering on meta_status
+    // alone did not say. A template belongs to a WABA rather than to the account, and the
+    // sender resolves it in the CHOSEN INBOX'S OWN synced list, requiring `approved` there:
+    // offering every approved template in the workspace meant a campaign bound to an inbox
+    // on WABA A could name a template approved only on WABA B, whereupon the sender found
+    // no match, made no provider call, skipped every recipient TEMPLATE_NOT_AVAILABLE and
+    // completed having sent nothing -- the exact failure this form was changed to fix,
+    // reintroduced one level down. `inboxes` is the per-template list the BFF already
+    // forwarded and this form ignored.
+    //
+    // `missing_at_meta` is excluded for the same reason: it marks a template the last
+    // refresh of its WABA no longer saw, so Meta has lost it and the send will not find it
+    // either, however `approved` the mirror still reads.
     function approvedTemplates() {
+        var inboxId = String($('#lyncp-inbox').val() || '');
+
         return state.templates.filter(function (template) {
-            return String(template.meta_status || '').toUpperCase() === 'APPROVED';
+            if (String(template.meta_status || '').toUpperCase() !== 'APPROVED') { return false; }
+            if (template.missing_at_meta) { return false; }
+
+            return (template.inboxes || []).some(function (entry) { return String(entry.id) === inboxId; });
         });
     }
 

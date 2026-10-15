@@ -145,7 +145,7 @@ own fixes).
 |---|---|---|
 | Super Admin marketing settings | VERIFIED | plan allowance, add-on catalogue, add-on grants, per-permission reach, commerce and event health, every action audited |
 | Eight-dimension adversarial review | DONE | 52 candidates, 7 survived independent verification, all 7 fixed — see the report §7 |
-| One canonical partner store identifier | FIXED | `app/Support/StoreIdentity`; four call sites had invented a bare-id form the other side never uses |
+| One canonical partner store identifier | FIXED | `app/Support/StoreIdentity`; five call sites had invented a bare-id form the other side never uses |
 | Campaign cancellation reachable at all | FIXED | `CampaignPolicy#cancel?`; the endpoint 500'd for every caller before |
 | A campaign belongs to its installation | FIXED | `commerce_store_id` permitted and validated on create, sent by Store Syria |
 | A partner-only grant can produce a recipient | FIXED | `Partners::Eligibility.filter` wired into `audience_contacts`; it had zero callers |
@@ -198,6 +198,7 @@ preceding it. All 15 are fixed. The reasoning is in
 | Capability | State | Evidence |
 |---|---|---|
 | Full Lynomia RSpec sweep on a frozen tree, at the closure head | VERIFIED | **11,242 examples, 0 failures, 70 pending** (44m47s), at `3402f299` |
+| B2.7's scoping, B2.4's third sender and two missing Vitest specs | FIXED (round 4) | the closure claims were audited against the code and three were not as closed as they read; see `PHASE-5-COMPLETION-REPORT.md` §10.4 |
 | B2.1 — a store-scoped campaign means this installation's customers, in both expressions | CLOSED | changing `subject_of?` alone would have made the audience WIDER than the send boundary; `refusal` and `filter` changed together, and the agreement population gained the two members that tell them apart |
 | B2.2 — the store identity is what Lynomia was told, not what a setting recomputes | CLOSED | persisted on first use with exactly the value the old code produced, so nothing moves on deploy |
 | B2.3 — the subject race is retryable | CLOSED | `error_code: subject_not_linked` on that 404 and only that one |
@@ -207,7 +208,7 @@ preceding it. All 15 are fixed. The reasoning is in
 | B2.7 — **a WhatsApp campaign from Store Syria carries its template** | CLOSED | an approved template, one input per BODY placeholder, refused without them, sent as `{name, language, processed_params}` and no category — the server reads that from the channel |
 | B2.8 — `excluded_counts` | CLOSED | removed rather than left unreachable |
 | B2.9 — four template lookups | CLOSED | the two in `custom/` are one; a spec asserts all four agree |
-| Consent is asked on every outbound surface, not only campaigns | FIXED (round 3) | the automation template action took the class from the RULE'S TRIGGER, so an approved MARKETING template on an order trigger went to a shopper who had withdrawn marketing; the flow Send-template node asked nothing at all |
+| Consent is asked on every **automated** outbound surface, not only campaigns | FIXED (round 3) | the automation template action took the class from the RULE'S TRIGGER, so an approved MARKETING template on an order trigger went to a shopper who had withdrawn marketing; the flow Send-template node asked nothing at all. "Every outbound surface" was this row's claim until round 4: the agent composer asks nothing either, and is open as B3.1 |
 | The billing cycle is read from the cycle, not from who wrote the row | FIXED (round 3) | `extend_trial` writes `source: 'stripe'` while leaving `current_period_end` alone, so one button reissued a comp's whole allowance; the mirror case pinned a `canceled` account to one allowance forever |
 | Registration is proved by what Lynomia returned | FIXED (round 3) | `commerce_credential_issued_at` is set before registration is possible and cleared on revoke, so it refused merchants mid-onboarding and widened campaigns after a revoke |
 | A merge republishes the decision that governs the subject | FIXED (round 3) | it published one of two tables, and nothing at all where the base already held the stronger decision — although the customer links have moved by then |

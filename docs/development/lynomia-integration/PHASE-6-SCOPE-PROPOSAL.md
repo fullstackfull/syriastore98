@@ -21,7 +21,7 @@ names has foundations, and the phase is smaller than its title suggests.
 | Capability the phase names | What exists today | Where |
 |---|---|---|
 | Store Syria Super Admin integration panel | **Substantial.** One page and nine operations: approve, revoke and restore a link; seats; marketing allowance; add-on catalogue and grants; issue and revoke the commerce credential | `SuperAdmin/IntegrationController` (`show` + 9), `routes/web.php:483-523`, `superadmin/integration.blade.php` |
-| Lynomia Super Admin | **Eight controllers**, none of them about this integration: billing plans, billing subscriptions, operations, platform support, portals, articles, categories | `custom/app/controllers/super_admin/` |
+| Lynomia Super Admin | **22 controllers.** The eight bespoke ones are not about this integration (billing plans, billing subscriptions, operations, platform support, portals, articles, categories) — but of the 14 upstream, **Platform Apps is**: routed, sidebar-linked CRUD over the `PlatformApp` whose token is this integration's whole credential, with `AccessTokens` beside it. It shows the name and the token and nothing else: not what the app is permitted, not which accounts it holds, not what it has done | `custom/app/controllers/super_admin/`, `app/controllers/super_admin/platform_apps_controller.rb`, `app/dashboards/platform_app_dashboard.rb`, `config/routes.rb:647` |
 | Installation lifecycle | **Exists**, as `commerce_stores.status` (active / disabled / needs_reauth / disconnected) and `lynomia_store_links.state`, with the credential version as the revocation mechanism | `Commerce::Store`, `LynomiaStoreLink`, `IntegrationController` |
 | Merchant account linkage | **Exists and is hardened**: provisioning, the claim-and-approve flow for an existing account, one-way SSO, both unique indexes | P1, `AccountLinker`, `AccountProvisioner`, `SsoLinkIssuer` |
 | Integration health / operational monitoring | **Partly.** `Operations::Signal` is a real subsystem with 8 sources and a Super Admin feed, and `commerce_store` and `campaign` are already among its sources. Store Syria has no equivalent and no view of Lynomia's | `custom/app/models/operations/signal.rb`, `super_admin/operations_controller.rb` |
@@ -72,10 +72,14 @@ The states exist; the transitions between them are partly manual and partly unat
 
 ### P6C — Lynomia-side integration administration
 
-Lynomia has eight Super Admin controllers and not one of them is about this integration.
+Lynomia's Super Admin already administers the `PlatformApp` itself — name, token, create and
+destroy — but nothing about what an app is permitted or holds. That existing screen is the
+place to extend, not a page to rebuild, and it makes this section smaller than it first
+looked.
 
-- A **Platform Apps / partner installations** panel: which apps exist, what they are
-  permitted, which accounts they hold, their recent activity.
+- **Extend the existing Platform Apps screen** with what it does not show: the app's
+  permissibles, the accounts it holds, and its recent activity. Creating and destroying an
+  app, and its token, are already there.
 - **Per-installation consent and campaign visibility** for an operator diagnosing a
   merchant's complaint, reusing the existing per-account screens.
 - No new authorisation model: `PlatformApp` + `platform_app_permissibles` already confines
@@ -105,6 +109,11 @@ Onboarding, support, reminders and notifications from Store Syria to its merchan
   unchanged, and the same mistake — reading the class from the sender rather than the
   template — must not be made a fourth time.
 - An **unsubscribe surface for merchants** that is not the shopper one.
+- **Close B3.1 first, or decide it deliberately.** The register's B3.1 is that an agent
+  composing a WhatsApp template is asked nothing about consent. Platform communications put
+  Store Syria's own staff on exactly that surface, messaging merchants, so the phase either
+  closes it or records a decision that an operator may override a merchant's opt-out. It
+  should not be discovered a second time.
 
 ### P6F — Governance, hardening, adversarial review and closure
 
