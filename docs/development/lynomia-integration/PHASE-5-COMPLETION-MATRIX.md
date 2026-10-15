@@ -18,7 +18,7 @@ Every cross-system claim rests on either a scriptable fake or the shared contrac
 That is contract verification, not deployment verification, and **staging blocker A1 stays
 open** (`PRODUCTION-READINESS-BLOCKERS.md`).
 
-Last updated: 2026-10-15, after P5B.
+Last updated: 2026-10-15, after P5G.
 
 ---
 
@@ -77,36 +77,53 @@ Last updated: 2026-10-15, after P5B.
 
 | Capability | State | Evidence |
 |---|---|---|
-| Native template management | NOT STARTED | |
-| Provider capability reporting | NOT STARTED | |
-| Approval status visibility | NOT STARTED | |
+| Native template management (create, edit, delete, duplicate) | VERIFIED | Store Syria `TemplateApiController`, `merchant/templates.blade.php`; 17 feature tests + 20 browser checks |
+| Submission to the provider for review | VERIFIED | `submit`, never transport-retried — a retry Meta saw starts a second review; proven by counting attempts on a failed first try |
+| Approval status visibility | VERIFIED | Meta's `meta_status`, `rejected_reason`, `rejection_info` and `quality_score` shown verbatim, **with the age of the mirror** beside them |
+| Provider capability / lifecycle rules | VERIFIED | `allowed_actions` is the server's answer, rendered not re-derived; a second copy of Meta's transition rules here would fall behind and cost a review cycle |
+| Pre-submission validation | VERIFIED | `validation_problems` shown, and the page states in words that an empty list is not a promise of approval |
+| A template deleted at the provider | VERIFIED | `missing_at_meta` called out rather than lingering as "approved" |
+| Identity fields immutable after creation | VERIFIED | name, language and category locked on an edit; browser-verified |
+| No third copy of a provider-owned status | VERIFIED | asserted: no table in this module has "template" in its name |
+| Per-person permission | VERIFIED | `Manage Lynomia Templates`; staff holding chat + audiences + automation are refused |
 
 ## P5D — campaign management
 
 | Capability | State | Evidence |
 |---|---|---|
-| Native campaign creation and editing | NOT STARTED | |
-| Scheduling | NOT STARTED | |
-| Eligibility preview | NOT STARTED | |
-| Execution controls and cancellation | NOT STARTED | enforcement point reserved at `Campaigns::SendGuard.clear_to_send` (`THROTTLE-SAFETY.md` §3) |
-| Monitoring and history | NOT STARTED | |
+| Native campaign creation and editing | VERIFIED | Store Syria `CampaignApiController`, `merchant/campaigns.blade.php`; 17 feature tests + 18 browser checks |
+| Scheduling | VERIFIED | `scheduled_at` set here; Lynomia's own sweep fires it — no second scheduler |
+| Eligibility preview | VERIFIED | the same query as the send: audience resolution + consent filter + store scope; the page states the unreachable are already excluded |
+| Cancellation | VERIFIED | Lynomia `campaign_status: cancelled` (`5b1f269e`), enforced at `Campaigns::SendGuard` step 2; 10 specs including a run in flight stopping at its **next** recipient |
+| — the gap `THROTTLE-SAFETY.md` §3 deferred | CLOSED | the state it needed did not exist; it does now and the guard reads it live |
+| Execution controls | VERIFIED | a finished campaign cannot be edited or stopped; a cancelled one keeps its reason **and** its results |
+| Cancelling keeps the record | VERIFIED | a POST, never a DELETE — the recipient snapshot is what an operator who stopped a half-sent campaign came for |
+| Monitoring and history | VERIFIED | per-campaign metrics and per-recipient outcomes, with the skip reason |
+| Per-person permission | VERIFIED | `Manage Lynomia Campaigns`, the heaviest of the four; staff holding audiences + templates are refused |
 
 ## P5F — analytics
 
 | Capability | State | Evidence |
 |---|---|---|
-| Campaign delivery analytics | NOT STARTED | upstream snapshot exists (`Campaigns::RecipientSnapshot`) |
-| Suppression and consent reporting | NOT STARTED | skip reasons already recorded per recipient |
-| Audience performance | NOT STARTED | |
+| Campaign delivery analytics | VERIFIED | audience, sent, delivered, read, failed, skipped from `Campaigns::RecipientMetrics`, rendered per campaign |
+| Per-recipient outcomes | VERIFIED | one row per addressed contact with its outcome and timestamps |
+| Suppression and consent reporting | VERIFIED | `skip_reasons` breakdown added to `RecipientMetrics`, surfaced largest-first; 2 feature tests + 2 browser checks |
+| Audience performance | VERIFIED | per audience, "40 customers of this store" against "180 across all your stores" — the gap is the performance signal |
+| Attribution beyond delivery | NOT SUPPORTED — documented | neither platform records a conversion event tied to a campaign message; claiming attribution would mean inventing the data. Recorded here rather than shown as an empty chart |
 
 ## P5G — commercial entitlements
 
 | Capability | State | Evidence |
 |---|---|---|
-| Configurable marketing plans | NOT STARTED | |
-| Hard sending quotas | NOT STARTED | must NOT route through `Campaigns::Throttle` — see `THROTTLE-SAFETY.md` §1 |
-| Metered usage | NOT STARTED | |
-| Trials and add-ons | NOT STARTED | |
+| Configurable marketing plans | IMPLEMENTED | `plans.lynomia_campaign_sends`, operator-set, null ≠ zero; 19 Store Syria feature tests |
+| Hard sending quotas | IMPLEMENTED | Lynomia `Billing::MeteredUsage`, enforced at `Campaigns::SendGuard` after eligibility and **fails closed** |
+| — kept out of `Campaigns::Throttle` | HONOURED | `THROTTLE-SAFETY.md` §1 required it; the quota lives with `Billing::ResourceLimit` and takes the same account lock |
+| Metered usage, period-anchored | IMPLEMENTED | `billing_usage_counters`, anchored to the subscription period, calendar month when there is none |
+| Usage visible to the merchant | IMPLEMENTED | read from Lynomia (the enforcing side), with this side's add-on ledger beside it |
+| Add-on catalogue | IMPLEMENTED | `lynomia_marketing_addons` + `lynomia_store_addons`, operator-granted |
+| Trials | IMPLEMENTED | a trial is an add-on with `expires_at` — one mechanism, one expiry rule |
+| Store Syria ↔ Lynomia commercial integration | IMPLEMENTED | `MarketingAllowanceSync`: included + add-ons summed here, granted as one number, composed upstream by MAX |
+| Real purchase flow | NOT BUILT — deliberate | every payment gateway in this installation is off and activating one is outside this phase's authorization; add-ons are operator-granted and `price_cents` is recorded, not charged |
 
 ---
 
