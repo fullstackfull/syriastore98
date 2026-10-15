@@ -45,6 +45,7 @@ class LynomiaStoreLink extends Model
         'commerce_credential_version',
         'commerce_credential_issued_at',
         'commerce_external_store_id',
+        'lynomia_commerce_store_id',
         'checkout_optin_enabled',
         'consent_policy_version',
         'verification_code_hash',

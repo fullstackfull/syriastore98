@@ -409,7 +409,7 @@ trait InteractsWithLynomia
                         json_decode($request->body(), true)['custom_filter'] ?? []
                     ), 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/custom_filters/\d+$#', $path) && $method === 'DELETE'
-                    => Http::response([], 204),
+                    => Http::response('', 204),
                 (bool) preg_match('#^/api/v1/accounts/\d+/custom_filters/\d+$#', $path)
                     => Http::response(array_merge(
                         ['id' => 12, 'shared' => true, 'filter_type' => 'contact'],
@@ -564,7 +564,7 @@ trait InteractsWithLynomia
                             'runs_flows' => true, 'flow' => null, 'occupied_by_other' => true],
                     ]], 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/inboxes/\d+/set_agent_bot$#', $path)
-                    => Http::response([], 200),
+                    => Http::response('', 200),
 
                 // ---------------- the references a configuration form binds its pickers to
                 (bool) preg_match('#^/api/v1/accounts/\d+/labels$#', $path)
@@ -633,6 +633,10 @@ trait InteractsWithLynomia
                     => Http::response($method === 'GET'
                         ? ['payload' => $this->lynomiaScript['webhooks'] ?? []]
                         : ['payload' => ['id' => 1]], 200),
+                // `head :ok` for a DELETE (webhooks_controller.rb:18-21) -- zero bytes, not
+                // a payload. The update path does answer with one.
+                (bool) preg_match('#^/api/v1/accounts/\d+/webhooks/\d+$#', $path) && $method === 'DELETE'
+                    => Http::response('', 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/webhooks/\d+$#', $path)
                     => Http::response(['payload' => ['id' => 1]], 200),
                 // An unscripted call is a test bug, not a 404 to shrug at: say which one.

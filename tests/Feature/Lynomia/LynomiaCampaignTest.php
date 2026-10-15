@@ -311,9 +311,8 @@ class LynomiaCampaignTest extends TestCase
     public function test_a_campaign_is_created_account_wide_when_there_is_no_commerce_installation(): void
     {
         [$owner, $store] = $this->connectedTenant();
-        LynomiaStoreLink::where('store_id', $store->id)->update(['commerce_credential_issued_at' => null]);
         $this->lynomiaScript['audience_fields'] = ['stores' => [], 'currencies' => [], 'unread_contacts' => 0];
-        $this->assertNull(LynomiaStoreLink::where('store_id', $store->id)->value('commerce_credential_issued_at'));
+        $this->assertNull(LynomiaStoreLink::where('store_id', $store->id)->value('lynomia_commerce_store_id'));
 
         $this->actingAs($owner)->postJson(self::CAMPAIGNS, [
             'title' => 'Spring sale', 'message' => 'Hello', 'inbox_id' => 7, 'audience' => [],
@@ -340,10 +339,11 @@ class LynomiaCampaignTest extends TestCase
     public function test_a_campaign_is_refused_when_a_registered_installation_is_not_available(): void
     {
         [$owner, $store] = $this->connectedTenant();
-        // Registered as a commerce installation, which is the state a merchant who has been
-        // through P3 is in -- and then absent from `counted_stores`, which is needs_reauth,
-        // disabled, or the provider switched off installation-wide.
-        LynomiaStoreLink::where('store_id', $store->id)->update(['commerce_credential_issued_at' => now()]);
+        // SEEN ONCE, which is what proves the installation exists -- recorded by `ownStoreId`
+        // the first time Lynomia returns the store. Afterwards its absence from
+        // `counted_stores` is needs_reauth, disabled, or the provider switched off
+        // installation-wide, and not "there is no installation".
+        LynomiaStoreLink::where('store_id', $store->id)->update(['lynomia_commerce_store_id' => 55]);
         $this->lynomiaScript['audience_fields'] = ['stores' => [], 'currencies' => [], 'unread_contacts' => 0];
 
         $this->actingAs($owner)->postJson(self::CAMPAIGNS, [
@@ -407,6 +407,54 @@ class LynomiaCampaignTest extends TestCase
 
             return ($body['template_params']['name'] ?? null) === 'order_shipped';
         });
+    }
+
+    /**
+     * ONBOARDING IS NOT A REVOKED INSTALLATION, and the first version of this guard could
+     * not tell them apart. It read `commerce_credential_issued_at`, which means "an
+     * operator minted a token" -- set BEFORE registration is possible, because the token is
+     * the input to it, and cleared on revoke while Lynomia still holds the installation. So
+     * it refused a merchant mid-onboarding and silently widened their campaigns after a
+     * revoke. The marker is now Lynomia's own answer, recorded when we first see it.
+     */
+    public function test_minting_a_commerce_token_does_not_by_itself_refuse_a_campaign(): void
+    {
+        [$owner, $store] = $this->connectedTenant();
+        LynomiaStoreLink::where('store_id', $store->id)->update(['commerce_credential_issued_at' => now()]);
+        $this->lynomiaScript['audience_fields'] = ['stores' => [], 'currencies' => [], 'unread_contacts' => 0];
+
+        $this->actingAs($owner)->postJson(self::CAMPAIGNS, [
+            'title' => 'Spring sale', 'message' => 'Hello', 'inbox_id' => 7, 'audience' => [],
+        ])->assertOk();
+    }
+
+    /** And the id is remembered the first time Lynomia returns it, which is what later proves it existed. */
+    public function test_the_commerce_store_id_lynomia_returns_is_remembered(): void
+    {
+        [$owner, $store] = $this->connectedTenant();
+        $this->lynomiaScript['audience_fields'] = [
+            'stores' => [['id' => 55, 'name' => 'Damascus', 'provider' => 'storesyria',
+                'external_store_id' => StoreIdentity::of($store->id)]],
+            'currencies' => [], 'unread_contacts' => 0,
+        ];
+
+        $this->actingAs($owner)->postJson(self::CAMPAIGNS, [
+            'title' => 'Spring sale', 'message' => 'Hello', 'inbox_id' => 7, 'audience' => [],
+        ])->assertOk();
+
+        $this->assertSame(55, (int) LynomiaStoreLink::where('store_id', $store->id)->value('lynomia_commerce_store_id'));
+    }
+
+    /** The preview answers the same question create does, or the merchant is shown a number then refused. */
+    public function test_the_preview_is_refused_when_the_installation_is_unavailable(): void
+    {
+        [$owner, $store] = $this->connectedTenant();
+        LynomiaStoreLink::where('store_id', $store->id)->update(['lynomia_commerce_store_id' => 55]);
+        $this->lynomiaScript['audience_fields'] = ['stores' => [], 'currencies' => [], 'unread_contacts' => 0];
+
+        $this->actingAs($owner)->postJson(self::CAMPAIGNS . '/preview', [
+            'audience' => [['type' => 'Audience', 'id' => 12]],
+        ])->assertStatus(409);
     }
 
     public function test_a_campaign_with_no_name_or_no_message_is_refused_without_calling_lynomia(): void

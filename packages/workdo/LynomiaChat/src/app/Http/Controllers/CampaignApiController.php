@@ -217,8 +217,9 @@ class CampaignApiController extends Controller
             'template_params' => ['nullable', 'array'],
         ]);
         $storeId = (int) $request->attributes->get(EnsureStoreOwnsLink::STORE_ATTRIBUTE);
+        $link = $request->attributes->get(EnsureStoreOwnsLink::ATTRIBUTE);
 
-        return $this->proxy($request, function (AgentApiClient $client) use ($validated, $storeId) {
+        return $this->proxy($request, function (AgentApiClient $client) use ($validated, $storeId, $link) {
             // THE CHANNEL TRAVELS WITH THE PREVIEW. A store-scoped audience is scoped by it:
             // a partner grant taken for WhatsApp does not authorise an SMS blast, so a
             // preview without the inbox answered as SMS for every campaign and under-counted
@@ -229,7 +230,11 @@ class CampaignApiController extends Controller
             // transactional campaign.
             $scoped = $client->previewAudience(
                 $validated['audience'],
-                $this->ownStoreId($client, $storeId),
+                // THE SAME RESOLVER AS `store()`. The bare lookup here made the preview
+                // permissive while create was strict: in the registered-but-unavailable
+                // state the page showed an ACCOUNT-WIDE count -- larger than the truth, and
+                // including other stores' customers -- and then refused the save with 409.
+                $this->scopedStoreId($client, $storeId, $link),
                 isset($validated['inbox_id']) ? (int) $validated['inbox_id'] : null,
                 $validated['template_params'] ?? null
             );
@@ -293,7 +298,16 @@ class CampaignApiController extends Controller
     {
         foreach (($client->audienceFields()['stores'] ?? []) as $store) {
             if (($store['provider'] ?? null) === 'storesyria' && (string) ($store['external_store_id'] ?? '') === StoreIdentity::of($storeId)) {
-                return (int) $store['id'];
+                $id = (int) $store['id'];
+                // REMEMBERED THE FIRST TIME WE SEE IT. `audience_fields` lists only COUNTED
+                // stores, so an installation that later goes to needs_reauth simply vanishes
+                // from it -- and "vanished" and "never existed" are the same absence unless
+                // we wrote down that we once saw it. See `scopedStoreId`.
+                LynomiaStoreLink::where('store_id', $storeId)
+                    ->whereNull('lynomia_commerce_store_id')
+                    ->update(['lynomia_commerce_store_id' => $id]);
+
+                return $id;
             }
         }
 
@@ -314,22 +328,28 @@ class CampaignApiController extends Controller
      *
      * The list searched is Lynomia's `counted_stores`, which is narrower than "connected": a
      * rejected token flips the installation to `needs_reauth` unattended, an operator can
-     * disable it, and a Super Admin can switch the provider off installation-wide. The two
-     * cases are told apart on this side rather than upstream, because this side already
-     * knows: `commerce_credential_issued_at` is set exactly when this store was registered
-     * with Lynomia as a commerce installation, and cleared when that was revoked.
+     * disable it, and a Super Admin can switch the provider off installation-wide.
      *
      * Registered but not counted is therefore an operational state, not a deployment bug, so
      * the answer is a sentence the merchant can act on. 409 is what this surface already
      * returns for "connected, but not in a state where this can be done"
      * (ProxiesToLynomia::statusFor), and KIND_CONFLICT is the one kind whose own message is
      * shown to the merchant.
+     *
+     * THE TWO ARE TOLD APART BY WHAT WE HAVE SEEN, not by what we have configured. The first
+     * version of this read `commerce_credential_issued_at`, which was wrong both ways round:
+     * that column means a Store Syria operator minted a token, which happens BEFORE
+     * registration is possible -- the token is the input to it -- and is cleared on revoke
+     * while Lynomia still holds the installation. It therefore refused a merchant during
+     * onboarding, before anything existed upstream, and silently widened their campaigns
+     * after a revoke, when something did. `lynomia_commerce_store_id` is Lynomia's own
+     * answer, recorded the first time this store appeared in `audience_fields`.
      */
     private function scopedStoreId(AgentApiClient $client, int $storeId, ?LynomiaStoreLink $link): ?int
     {
         $id = $this->ownStoreId($client, $storeId);
 
-        if ($id === null && $link?->commerce_credential_issued_at !== null) {
+        if ($id === null && $link?->fresh()?->lynomia_commerce_store_id !== null) {
             throw new LynomiaApiException(
                 LynomiaApiException::KIND_CONFLICT,
                 __('This store is not currently available for campaigns in Lynomia Chat. Reconnect it from the Lynomia Chat page and try again.')
