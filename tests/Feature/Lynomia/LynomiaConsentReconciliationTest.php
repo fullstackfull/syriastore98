@@ -77,6 +77,50 @@ class LynomiaConsentReconciliationTest extends TestCase
         ], $attributes);
     }
 
+    /**
+     * A DECISION CAN BE REMOVED, NOT JUST CHANGED, and nothing told this side when it was.
+     *
+     * `Commerce::MessagingConsents.clear_suppression` -- an operator clearing a delivery
+     * fault once the number works again -- DESTROYS the row rather than writing a new state,
+     * so the feed has nothing to publish and the pull has nothing to apply. The projection
+     * kept the suppression and the merchant's consent screen went on saying "will not be
+     * sent" about a customer Lynomia would message happily. Absence is the only signal, and
+     * the read endpoint returns the complete native list, so a scope missing from it has no
+     * decision.
+     */
+    public function test_a_native_decision_lynomia_no_longer_holds_is_removed(): void
+    {
+        $link = $this->connectedLink();
+        $this->remote([], [$this->nativeRow(['state' => 'suppressed', 'revision' => 7])]);
+        app(ConsentReconciler::class)->reconcile($link);
+        $this->assertSame(1, LynomiaConsentState::forStore($link->store_id)->where('origin', 'lynomia_native')->count());
+
+        // The operator cleared the suppression upstream; the row simply is not there any more.
+        $this->remote([], []);
+        $result = app(ConsentReconciler::class)->reconcile($link);
+
+        $this->assertSame(1, $result['pruned']);
+        $this->assertSame(0, LynomiaConsentState::forStore($link->store_id)->where('origin', 'lynomia_native')->count());
+    }
+
+    /**
+     * A PARTNER ROW IS NOT PRUNED. It is this installation's own record of what it captured,
+     * and its absence upstream means the decision has not arrived yet -- which is the
+     * outbox's to retry, not a reason to forget what the shopper told this store.
+     */
+    public function test_a_partner_decision_missing_upstream_is_kept(): void
+    {
+        $link = $this->connectedLink();
+        $this->remote([$this->partnerRow()], []);
+        app(ConsentReconciler::class)->reconcile($link);
+
+        $this->remote([], []);
+        $result = app(ConsentReconciler::class)->reconcile($link);
+
+        $this->assertSame(0, $result['pruned']);
+        $this->assertSame(1, LynomiaConsentState::forStore($link->store_id)->where('origin', 'partner')->count());
+    }
+
     public function test_it_projects_both_collections_under_their_own_origins(): void
     {
         $link = $this->connectedLink();

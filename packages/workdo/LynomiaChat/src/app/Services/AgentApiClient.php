@@ -633,6 +633,23 @@ class AgentApiClient
         ], retryTransport: false);
     }
 
+    /**
+     * Widen an existing subscription without re-registering the endpoint.
+     *
+     * NEEDED BECAUSE THE SUBSCRIPTION LIST GROWS. A store connected before `consent_changed`
+     * joined the list has a webhook at the right URL carrying the OLD events, and a
+     * create-if-missing check sees the URL, calls it done and leaves the new event
+     * unsubscribed forever. The secret is not re-sent: it is derived per store and
+     * unchanged, and resending it would rotate nothing while putting a signing key in
+     * another request body.
+     */
+    public function updateWebhookSubscriptions(int $webhookId, array $subscriptions): array
+    {
+        return $this->http->send('patch', $this->path("webhooks/{$webhookId}"), [
+            'webhook' => ['subscriptions' => $subscriptions],
+        ], retryTransport: false);
+    }
+
     public function deleteWebhook(int $webhookId): array
     {
         return $this->http->send('delete', $this->path("webhooks/{$webhookId}"));

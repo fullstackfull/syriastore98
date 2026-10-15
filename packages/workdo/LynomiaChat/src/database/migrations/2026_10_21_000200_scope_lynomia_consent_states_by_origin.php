@@ -75,8 +75,41 @@ return new class extends Migration
         });
     }
 
+    /**
+     * THE INVERSE IS THE TABLE AS IT WAS, not no table at all. This dropped it and stopped,
+     * so a single `migrate:rollback` left the schema with no `lynomia_consent_states` and
+     * the merchant's consent screen erroring until somebody rolled forward again -- a
+     * rollback that breaks the application is not a rollback.
+     *
+     * Recreated EMPTY, in the pre-migration shape: this table is a projection of what
+     * Lynomia holds, the evidence lives in the append-only `lynomia_consent_decisions`, and
+     * `lynomia:reconcile-consents` refills it from Lynomia within the hour. That is the same
+     * reasoning `up()` gives for dropping rather than backfilling.
+     */
     public function down(): void
     {
         Schema::dropIfExists('lynomia_consent_states');
+
+        Schema::create('lynomia_consent_states', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('store_id');
+            $table->string('external_subject_id', 128);
+            $table->string('purpose', 20);
+            $table->string('channel', 20);
+            $table->string('state', 20);
+            $table->string('source', 40)->nullable();
+            $table->unsignedBigInteger('revision')->nullable();
+            $table->timestamp('occurred_at')->nullable();
+            $table->timestamp('observed_at');
+            $table->timestamps();
+
+            // Without `origin`, which is the key this migration exists to widen.
+            $table->unique(
+                ['store_id', 'external_subject_id', 'purpose', 'channel'],
+                'lynomia_consent_state_scope_uniq'
+            );
+            $table->index(['store_id', 'state'], 'lynomia_consent_state_store_idx');
+            $table->index(['store_id', 'external_subject_id'], 'lynomia_consent_state_subject_idx');
+        });
     }
 };

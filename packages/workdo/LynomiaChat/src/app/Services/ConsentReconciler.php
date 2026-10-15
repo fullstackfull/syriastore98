@@ -59,7 +59,12 @@ class ConsentReconciler
             $applied += $this->projector->apply($link, $event) ? 1 : 0;
         }
 
-        return ['pulled' => $pulled, 'applied' => $applied, 'drifted' => $this->drift($link)];
+        return [
+            'pulled' => $pulled,
+            'applied' => $applied,
+            'pruned' => $this->prune($link, $remote),
+            'drifted' => $this->drift($link),
+        ];
     }
 
     /**
@@ -99,6 +104,47 @@ class ConsentReconciler
             'revision' => $row['revision'] ?? null,
             'occurred_at' => is_string($occurredAt) ? $occurredAt : null,
         ];
+    }
+
+    /**
+     * Projected NATIVE rows for scopes Lynomia no longer holds a decision about.
+     *
+     * A DECISION CAN BE REMOVED, NOT JUST CHANGED, and nothing told this side when it was.
+     * `Commerce::MessagingConsents.clear_suppression` -- an operator clearing a delivery
+     * fault once the number works again -- DESTROYS the row rather than writing a new state,
+     * so there is nothing for the event feed to publish and nothing for the pull to apply.
+     * The projection kept the suppression, and the merchant's consent screen went on saying
+     * "will not be sent" about a customer Lynomia would message perfectly happily. The
+     * screen was wrong in the direction that makes a merchant stop trying.
+     *
+     * SO ABSENCE IS THE SIGNAL, and this is the only place it can be read: the event feed
+     * carries states, and "no longer any state" is not one. The read endpoint returns the
+     * COMPLETE native list for the store in one response (it does not paginate), so a scope
+     * missing from it is a scope with no decision.
+     *
+     * NATIVE ONLY. A partner row is this installation's own record of what it captured, and
+     * its absence upstream would mean the decision never arrived -- which is the outbox's
+     * problem to retry, not a reason to forget what the shopper told this store.
+     */
+    private function prune(LynomiaStoreLink $link, array $remote): int
+    {
+        $known = [];
+        foreach ($remote['native'] ?? [] as $row) {
+            $known[] = ($row['external_subject_id'] ?? '') . '|' . ($row['purpose'] ?? '') . '|' . ($row['channel'] ?? '');
+        }
+
+        $stale = LynomiaConsentState::forStore($link->store_id)
+            ->where('origin', 'lynomia_native')
+            ->get()
+            ->reject(fn (LynomiaConsentState $row) => in_array(
+                $row->external_subject_id . '|' . $row->purpose . '|' . $row->channel,
+                $known,
+                true
+            ));
+
+        $stale->each(fn (LynomiaConsentState $row) => $row->delete());
+
+        return $stale->count();
     }
 
     /**

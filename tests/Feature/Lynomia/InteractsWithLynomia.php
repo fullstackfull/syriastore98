@@ -612,7 +612,13 @@ trait InteractsWithLynomia
                         ],
                     ], 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/webhooks$#', $path)
-                    => Http::response($method === 'GET' ? ['payload' => []] : ['payload' => ['id' => 1]], 200),
+                    // `webhooks` is scriptable so a test can stand a store up that was
+                    // connected before an event joined the subscription list.
+                    => Http::response($method === 'GET'
+                        ? ['payload' => $this->lynomiaScript['webhooks'] ?? []]
+                        : ['payload' => ['id' => 1]], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/webhooks/\d+$#', $path)
+                    => Http::response(['payload' => ['id' => 1]], 200),
                 // An unscripted call is a test bug, not a 404 to shrug at: say which one.
                 default => Http::response(['error' => "unscripted call: {$key}"], 599),
             };

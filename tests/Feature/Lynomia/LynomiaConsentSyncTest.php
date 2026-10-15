@@ -8,6 +8,7 @@ use Tests\TestCase;
 use Workdo\LynomiaChat\app\Models\LynomiaConsentDecision;
 use Workdo\LynomiaChat\app\Models\LynomiaConsentState;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
+use Workdo\LynomiaChat\app\Services\EventSubscriptionManager;
 use Workdo\LynomiaChat\app\Services\ConsentDecisionDispatcher;
 use Workdo\LynomiaChat\app\Services\EventSignature;
 use Workdo\LynomiaChat\app\Services\PlatformApiClient;
@@ -46,6 +47,52 @@ class LynomiaConsentSyncTest extends TestCase
         $link = app(\Workdo\LynomiaChat\app\Services\AccountProvisioner::class)->provision($store, $owner);
 
         return [$owner->fresh(), $store, $link->fresh()];
+    }
+
+    // ============================================================ the subscription
+
+    /**
+     * A STORE CONNECTED BEFORE AN EVENT EXISTED HAS TO BE SUBSCRIBED TO IT.
+     *
+     * `consent_changed` joined SUBSCRIPTIONS in P5E. `ensureSubscribed` matched on the URL
+     * alone and returned early the moment it found one, so every store connected before
+     * that upgrade kept a webhook carrying the OLD events and never received a consent
+     * change again -- silently, with only the hourly reconciler behind it.
+     */
+    public function test_a_webhook_registered_before_consent_events_existed_is_widened(): void
+    {
+        [$owner, , $link] = $this->connectedTenant();
+        $url = route('lynomia.events.ingress', ['store' => $link->store_id]);
+        $this->lynomiaScript['webhooks'] = [
+            ['id' => 44, 'url' => $url, 'subscriptions' => ['conversation_created', 'message_created']],
+        ];
+
+        app(EventSubscriptionManager::class)->ensureSubscribed($link, $owner);
+
+        Http::assertSent(function ($request) {
+            if (! str_contains($request->url(), '/webhooks/44') || strtoupper($request->method()) !== 'PATCH') {
+                return false;
+            }
+            $sent = json_decode($request->body(), true)['webhook']['subscriptions'] ?? [];
+
+            // Widened, not replaced: what the workspace already subscribed stays.
+            return in_array('consent_changed', $sent, true)
+                && in_array('conversation_created', $sent, true)
+                && in_array('message_created', $sent, true);
+        });
+    }
+
+    public function test_a_webhook_that_already_covers_everything_is_left_alone(): void
+    {
+        [$owner, , $link] = $this->connectedTenant();
+        $url = route('lynomia.events.ingress', ['store' => $link->store_id]);
+        $this->lynomiaScript['webhooks'] = [
+            ['id' => 44, 'url' => $url, 'subscriptions' => EventSubscriptionManager::SUBSCRIPTIONS],
+        ];
+
+        $this->assertFalse(app(EventSubscriptionManager::class)->ensureSubscribed($link, $owner));
+
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/webhooks/44'));
     }
 
     // ============================================================ Store Syria -> Lynomia

@@ -51,10 +51,18 @@ class StoreConsentController extends Controller
             ->limit(self::PAGE)
             ->get();
 
-        $remote = LynomiaConsentState::forStore($storeId)->get()
+        // BOUNDED BY THE PAGE, like the names below it. `$decisions` is limited and only a
+        // shown decision ever looks a remote state up, but this loaded EVERY projected row
+        // for the store into PHP memory first -- a merchant with a large customer base paid
+        // for their whole consent history to render twenty-five lines of it.
+        $subjects = $decisions->pluck('external_subject_id')->unique()->all();
+
+        $remote = LynomiaConsentState::forStore($storeId)
+            ->whereIn('external_subject_id', $subjects)
+            ->get()
             ->groupBy(fn (LynomiaConsentState $row) => $row->external_subject_id . '|' . $row->purpose);
 
-        $names = $this->customerNames($storeId, $decisions->pluck('external_subject_id')->all());
+        $names = $this->customerNames($storeId, $subjects);
 
         return response()->json([
             'settings' => [

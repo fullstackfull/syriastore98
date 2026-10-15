@@ -60,6 +60,12 @@ class EventSubscriptionManager
      * IDEMPOTENT BY URL. Lynomia has a unique index on (account_id, url), so re-subscribing the
      * same endpoint is refused upstream rather than duplicated; this reads first and only creates
      * what is missing, so a repeated activation is a no-op.
+     *
+     * AND IT WIDENS AN EXISTING SUBSCRIPTION, which matching on the URL alone did not. The
+     * event list GROWS -- `consent_changed` joined it in P5E -- so a store connected before
+     * that has a webhook at exactly this URL carrying the OLD events. Returning early on the
+     * URL match left every such store permanently unsubscribed from the new event, silently,
+     * with only the hourly reconciler behind it.
      */
     public function ensureSubscribed(LynomiaStoreLink $link, User $owner): bool
     {
@@ -70,9 +76,24 @@ class EventSubscriptionManager
             $existing = (array) ($client->listWebhooks()['payload'] ?? []);
 
             foreach ($existing as $webhook) {
-                if (is_array($webhook) && ($webhook['url'] ?? null) === $url) {
+                if (! is_array($webhook) || ($webhook['url'] ?? null) !== $url) {
+                    continue;
+                }
+
+                $missing = array_diff(self::SUBSCRIPTIONS, is_array($webhook['subscriptions'] ?? null) ? $webhook['subscriptions'] : []);
+
+                if ($missing === []) {
                     return false;
                 }
+
+                // Widened, never narrowed: whatever else the workspace has subscribed this
+                // endpoint to stays, because it is not this module's to remove.
+                $client->updateWebhookSubscriptions(
+                    (int) $webhook['id'],
+                    array_values(array_unique(array_merge($webhook['subscriptions'] ?? [], self::SUBSCRIPTIONS)))
+                );
+
+                return true;
             }
 
             $client->createWebhook($url, self::SUBSCRIPTIONS, EventSignature::secretFor((int) $link->store_id));

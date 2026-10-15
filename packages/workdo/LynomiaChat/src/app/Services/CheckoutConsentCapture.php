@@ -65,9 +65,27 @@ class CheckoutConsentCapture
      */
     public const CHANNEL = 'any';
 
+    /**
+     * ONLY A SHOPPER CAN TICK IT, which is what `source: 'checkout_optin'` claims.
+     *
+     * The observer behind this fires on EVERY order that is created, and an order is
+     * created by the back-office form and by the order APIs as well as by the storefront.
+     * Reading the field off any of them meant a staff member -- one without
+     * `Manage Lynomia Consent`, which is the permission that exists precisely to decide who
+     * may record a consent decision -- could mint marketing consent for a customer by
+     * including the field with an order they entered on that customer's behalf. The record
+     * would then say the shopper agreed at checkout, and nobody had.
+     *
+     * A STAFF SESSION IS THE SIGNAL. The storefront checkout is browsed by a customer or a
+     * guest, never by an authenticated back-office user; the admin form and the staff APIs
+     * are the opposite. Skipping when the `web` guard holds somebody is therefore the exact
+     * distinction, and it errs the safe way: the one case it also skips is a staff member
+     * buying from their own storefront while signed in to the admin, where recording
+     * nothing is the conservative answer.
+     */
     public function capture(Order $order, Request $request): ?LynomiaConsentDecision
     {
-        if (! config('lynomia.enabled') || ! $request->boolean(self::FIELD)) {
+        if (! config('lynomia.enabled') || ! $request->boolean(self::FIELD) || $this->staffRequest()) {
             return null;
         }
 
@@ -114,6 +132,12 @@ class CheckoutConsentCapture
             'decision_ref' => (string) Str::uuid(),
             'attempts' => 0,
         ]);
+    }
+
+    /** Whether a back-office user is signed in, which means this is not a storefront checkout. */
+    private function staffRequest(): bool
+    {
+        return auth()->guard('web')->check();
     }
 
     private function alreadyGranted(int $storeId, string $subject): bool

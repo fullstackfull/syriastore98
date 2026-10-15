@@ -46,7 +46,7 @@ class LynomiaCheckoutOptInTest extends TestCase
             'store_id' => $store->id, 'created_by' => $owner->id,
         ]);
 
-        return [$store, $link->fresh(), $customer];
+        return [$store, $link->fresh(), $customer, $owner->fresh()];
     }
 
     private function order(int $storeId, int $customerId): Order
@@ -134,6 +134,37 @@ class LynomiaCheckoutOptInTest extends TestCase
      * so a tick recorded under the order id could never be matched to them again, nor
      * honoured when they withdraw.
      */
+    /**
+     * A STAFF MEMBER CANNOT TICK IT FOR SOMEBODY. The observer fires on every order that is
+     * created, and the back-office form and the order APIs create orders too -- so reading
+     * the field off any request let a staff member, without `Manage Lynomia Consent`, mint
+     * marketing consent for a customer by including it with an order they entered on that
+     * customer's behalf. The record would then say the shopper agreed at checkout, and
+     * nobody had.
+     */
+    public function test_a_back_office_request_cannot_record_a_shopper_optin(): void
+    {
+        [$store, , $customer, $owner] = $this->optInStore();
+        $this->actingAs($owner);
+
+        $decision = $this->capture($this->order($store->id, $customer->id), [CheckoutConsentCapture::FIELD => '1']);
+
+        $this->assertNull($decision);
+        $this->assertSame(0, LynomiaConsentDecision::count());
+    }
+
+    /** And the storefront still works: a customer session is not a staff session. */
+    public function test_a_signed_in_shopper_can_still_opt_in(): void
+    {
+        [$store, , $customer] = $this->optInStore();
+        $this->actingAs($customer, 'customers');
+
+        $decision = $this->capture($this->order($store->id, $customer->id), [CheckoutConsentCapture::FIELD => '1']);
+
+        $this->assertNotNull($decision);
+        $this->assertSame('granted', $decision->state);
+    }
+
     public function test_a_guest_checkout_records_nothing(): void
     {
         [$store] = $this->optInStore();

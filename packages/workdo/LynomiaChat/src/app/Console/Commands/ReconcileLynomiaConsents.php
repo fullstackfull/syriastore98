@@ -57,7 +57,7 @@ class ReconcileLynomiaConsents extends Command
             ->orderBy('store_id')
             ->get();
 
-        $totals = ['pulled' => 0, 'applied' => 0, 'drifted' => 0, 'unreachable' => 0];
+        $totals = ['pulled' => 0, 'applied' => 0, 'pruned' => 0, 'drifted' => 0, 'unreachable' => 0];
 
         foreach ($links as $link) {
             try {
@@ -73,14 +73,16 @@ class ReconcileLynomiaConsents extends Command
 
             $totals['pulled'] += $result['pulled'];
             $totals['applied'] += $result['applied'];
+            $totals['pruned'] += $result['pruned'];
             $totals['drifted'] += $result['drifted'];
         }
 
         $this->info(sprintf(
-            'Stores %d, pulled %d, applied %d, drifted %d, unreachable %d.',
+            'Stores %d, pulled %d, applied %d, pruned %d, drifted %d, unreachable %d.',
             $links->count(),
             $totals['pulled'],
             $totals['applied'],
+            $totals['pruned'],
             $totals['drifted'],
             $totals['unreachable']
         ));
