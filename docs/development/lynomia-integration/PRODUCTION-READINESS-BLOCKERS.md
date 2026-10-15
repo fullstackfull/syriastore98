@@ -158,6 +158,18 @@ real caller and survived a verifier instructed to refute it.
 | B2.8 | Low | `Campaigns::Eligibility.excluded_counts` — the "400 of 1,000, and here is why" breakdown — has no production caller. It is written, tested and unreachable. | `custom/app/services/campaigns/eligibility.rb` | Wiring it to the preview surface or deleting it |
 | B2.9 | Low | Four copies of "find this campaign's template in the channel's synced list" now exist: `Whatsapp::TemplateProcessorService#find_template`, `Whatsapp::AuthenticationTemplateGuard#template`, `Campaigns::RenderedTemplateText#template` and `Campaigns::Eligibility#category_for`. They differ deliberately — the first requires `approved`, the others do not — but four is a drift hazard, and two of them now decide consent. | `custom/app/services/campaigns/eligibility.rb` | Consolidating, which means editing two upstream OSS files or introducing an extension point — a design decision |
 
+**A WARNING ON B2.1, because the obvious fix opens a worse hole than the one it closes.**
+`Partners::Eligibility` has two expressions of the same rule: `refusal`, asked per recipient at
+the send boundary, and `filter`, which resolves the audience. Only `refusal` calls `subject_of?`.
+Today that does not diverge, because `subject_of?` compares account ids and every audience
+contact is of the campaign's account, so it is always true. **Add a `Commerce::CustomerLink`
+check to `subject_of?` alone and the boundary starts refusing contacts the audience still
+selects** — the audience becomes WIDER than the send, which is a campaign reporting it reached
+people it refused, and is the one direction this pair exists to prevent. Any fix has to change
+both, and the agreement example in `spec/models/campaign_partner_audience_spec.rb` will not
+catch it as written: every contact in its population is of the campaign's own account, so the
+subject check is true for all of them. Add a non-customer contact to that population first.
+
 **B2.7 is the one that changes what "Phase 5 is complete" means.** Every other item above is
 a defect in something that works; B2.7 is a capability the phase claims to deliver —
 "native campaign management in Store Syria" — that cannot send a WhatsApp message at all.
