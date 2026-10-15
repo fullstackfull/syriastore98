@@ -475,7 +475,7 @@ class LynomiaPhase4SecurityTest extends TestCase
             // would stop it noticing the next one.
             ['Manage Lynomia Chat', 'Reply Lynomia Chat', 'Assign Lynomia Chat',
                 'Manage Lynomia Automation', 'Manage Lynomia Consent', 'Manage Lynomia Audiences',
-                'Manage Lynomia Templates']
+                'Manage Lynomia Templates', 'Manage Lynomia Campaigns']
         );
     }
 }

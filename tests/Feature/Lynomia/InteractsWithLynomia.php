@@ -113,7 +113,7 @@ trait InteractsWithLynomia
         // control: the staff tests entitle the tenant and withhold individual permissions.
         $this->grantLynomiaPermission($owner, [
             'Manage Lynomia Chat', 'Reply Lynomia Chat', 'Assign Lynomia Chat',
-            'Manage Lynomia Automation', 'Manage Lynomia Consent', 'Manage Lynomia Audiences', 'Manage Lynomia Templates',
+            'Manage Lynomia Automation', 'Manage Lynomia Consent', 'Manage Lynomia Audiences', 'Manage Lynomia Templates', 'Manage Lynomia Campaigns',
         ]);
     }
 
@@ -330,6 +330,30 @@ trait InteractsWithLynomia
                     => Http::response(['id' => 1, 'name' => 'Agent'], 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/conversations/\d+/update_last_seen$#', $path)
                     => Http::response([], 200),
+                // --------------------------------------------------- Phase 5D: campaigns
+                (bool) preg_match('#^/api/v1/accounts/\d+/campaigns$#', $path) && $method === 'GET'
+                    => Http::response(['payload' => $this->lynomiaScript['campaigns'] ?? []], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/campaigns$#', $path) && $method === 'POST'
+                    => Http::response(array_merge(
+                        ['id' => 51, 'display_id' => 3, 'campaign_status' => 'active'],
+                        json_decode($request->body(), true)['campaign'] ?? []
+                    ), 200),
+                (bool) preg_match('#/campaigns/\d+/cancel$#', $path)
+                    => Http::response(['id' => 51, 'display_id' => 3, 'campaign_status' => 'cancelled',
+                        'blocked_reason' => json_decode($request->body(), true)['reason'] ?? null], 200),
+                (bool) preg_match('#/campaigns/\d+/analytics/metrics$#', $path)
+                    => Http::response($this->lynomiaScript['campaign_metrics']
+                        ?? ['audience' => 180, 'status_counts' => ['sent' => 40, 'skipped' => 140]], 200),
+                (bool) preg_match('#/campaigns/\d+/analytics/contacts$#', $path)
+                    => Http::response(['payload' => $this->lynomiaScript['campaign_recipients'] ?? []], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/campaigns/\d+$#', $path) && $method === 'DELETE'
+                    => Http::response([], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/campaigns/\d+$#', $path)
+                    => Http::response(array_merge(
+                        ['id' => 51, 'display_id' => 3, 'campaign_status' => 'active'],
+                        json_decode($request->body(), true)['campaign'] ?? []
+                    ), 200),
+
                 // --------------------------------------------------- Phase 5C: templates
                 //
                 // The manager's own endpoints. `allowed_actions` and `validation_problems`

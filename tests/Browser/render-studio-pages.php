@@ -33,6 +33,7 @@ $targets = [
         ['workspaceName' => 'Damascus Store', 'canManageConsent' => false]],
     ['audiences', 'lynomia-chat::merchant.audiences', ['workspaceName' => 'Damascus Store']],
     ['templates', 'lynomia-chat::merchant.templates', ['workspaceName' => 'Damascus Store']],
+    ['campaigns', 'lynomia-chat::merchant.campaigns', ['workspaceName' => 'Damascus Store']],
 ];
 
 /**
