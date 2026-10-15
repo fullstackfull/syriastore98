@@ -354,6 +354,61 @@ class LynomiaCampaignTest extends TestCase
             && strtoupper($request->method()) === 'POST');
     }
 
+    /**
+     * A WHATSAPP CAMPAIGN CARRIES ITS TEMPLATE, OR IT REACHES NOBODY.
+     *
+     * WhatsApp does not carry free text to somebody who has not written first: the sender
+     * refuses every recipient of a campaign that names no template. This surface posted
+     * title, message, audience, schedule and inbox, so every WhatsApp campaign a merchant
+     * created here completed having sent nothing, with no error anywhere -- the BFF has
+     * always accepted and forwarded `template_params`; the form simply never sent any.
+     */
+    public function test_a_campaign_carries_the_template_the_merchant_chose(): void
+    {
+        [$owner, $store] = $this->connectedTenant();
+        $this->lynomiaScript['audience_fields'] = [
+            'stores' => [['id' => 55, 'name' => 'Damascus', 'provider' => 'storesyria',
+                'external_store_id' => StoreIdentity::of($store->id)]],
+            'currencies' => [], 'unread_contacts' => 0,
+        ];
+
+        $this->actingAs($owner)->postJson(self::CAMPAIGNS, [
+            'title' => 'Spring sale', 'message' => 'Hello', 'inbox_id' => 7,
+            'audience' => [['type' => 'Audience', 'id' => 12]],
+            'template_params' => [
+                'name' => 'spring_sale', 'language' => 'en_US',
+                'processed_params' => ['body' => ['1' => 'Lina']],
+            ],
+        ])->assertOk();
+
+        Http::assertSent(function ($request) {
+            if (! str_contains($request->url(), '/campaigns') || strtoupper($request->method()) !== 'POST') { return false; }
+            $sent = json_decode($request->body(), true)['campaign']['template_params'] ?? null;
+
+            return ($sent['name'] ?? null) === 'spring_sale'
+                && ($sent['processed_params']['body']['1'] ?? null) === 'Lina';
+        });
+    }
+
+    /** The preview asks the send's question, so the template goes with it -- its category decides the class. */
+    public function test_the_preview_carries_the_template(): void
+    {
+        [$owner] = $this->connectedTenant();
+
+        $this->actingAs($owner)->postJson(self::CAMPAIGNS . '/preview', [
+            'audience' => [['type' => 'Audience', 'id' => 12]],
+            'inbox_id' => 7,
+            'template_params' => ['name' => 'order_shipped', 'language' => 'en_US'],
+        ])->assertOk();
+
+        Http::assertSent(function ($request) {
+            if (! str_contains($request->url(), 'audience_preview')) { return false; }
+            $body = json_decode($request->body(), true);
+
+            return ($body['template_params']['name'] ?? null) === 'order_shipped';
+        });
+    }
+
     public function test_a_campaign_with_no_name_or_no_message_is_refused_without_calling_lynomia(): void
     {
         [$owner] = $this->connectedTenant();

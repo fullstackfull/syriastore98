@@ -212,6 +212,9 @@ class CampaignApiController extends Controller
             // The channel the campaign will send on. Optional, because the page previews as
             // soon as an audience is chosen and the merchant may not have picked one yet.
             'inbox_id' => ['nullable', 'integer', 'min:1'],
+            // The template the campaign will send. Optional for the same reason the inbox
+            // is -- the page previews as soon as an audience is chosen.
+            'template_params' => ['nullable', 'array'],
         ]);
         $storeId = (int) $request->attributes->get(EnsureStoreOwnsLink::STORE_ATTRIBUTE);
 
@@ -220,10 +223,15 @@ class CampaignApiController extends Controller
             // a partner grant taken for WhatsApp does not authorise an SMS blast, so a
             // preview without the inbox answered as SMS for every campaign and under-counted
             // every WhatsApp one.
+            // AND SO DOES THE TEMPLATE. Its category decides the campaign's class, and a
+            // UTILITY template is transactional -- so a preview that did not name it asked
+            // for a marketing grant the send does not require and under-counted every
+            // transactional campaign.
             $scoped = $client->previewAudience(
                 $validated['audience'],
                 $this->ownStoreId($client, $storeId),
-                isset($validated['inbox_id']) ? (int) $validated['inbox_id'] : null
+                isset($validated['inbox_id']) ? (int) $validated['inbox_id'] : null,
+                $validated['template_params'] ?? null
             );
 
             return ['count' => (int) ($scoped['count'] ?? 0)];

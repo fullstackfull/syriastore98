@@ -196,6 +196,41 @@ async function open(page) {
   await context.close();
 }
 
+// ======================================================= a workspace with no WhatsApp Cloud number
+//
+// A channel on the `default` provider (360dialog) carries no WhatsApp Business Account id,
+// so the server drops it from the WABA contexts and the picker comes back empty. That is
+// the headline symptom of the defect this page was fixed for, reappearing for a whole
+// provider class -- and the page said nothing about it: New was never disabled, the modal
+// opened on an empty list, and Save complained about a choice there was nothing to make.
+{
+  const context = await browser.newContext({ viewport: { width: 1360, height: 900 } });
+  const page = await context.newPage();
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+  await page.route('**/templates/api', (r) => r.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ ...TEMPLATES, waba_contexts: [] }),
+  }));
+  await page.route('**/templates/api/**', (r) => r.fulfill({ status: 200,
+    contentType: 'application/json', body: '{"template":{}}' }));
+  await page.goto(`${BASE}/templates-en.html`);
+  await page.waitForSelector('#lynt-list');
+
+  check('the page says why no template can be created',
+    await page.locator('#lynt-no-waba').isVisible());
+
+  const notice = (await page.locator('#lynt-no-waba').textContent()).replace(/\s+/g, ' ').trim();
+  check('and names what is actually needed',
+    notice.includes('WhatsApp Cloud'), notice.slice(0, 120));
+
+  check('New is not offered when it cannot work',
+    await page.locator('#lynt-new').isDisabled());
+
+  await context.close();
+}
+
 check('no page errors', errors.length === 0, errors.join(' | '));
 await browser.close();
 console.log(fails === 0 ? '\nALL CHECKS PASSED' : `\n${fails} CHECK(S) FAILED`);

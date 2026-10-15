@@ -43,6 +43,21 @@ const CAMPAIGNS = {
 
 const AUDIENCES = { audiences: [{ id: 12, name: 'Repeat buyers', shared: true, payload: [] }] };
 
+// THE TEMPLATES A WHATSAPP CAMPAIGN MAY SEND. Only the approved one is offerable: a draft,
+// a rejected one and a paused one cannot be sent, and offering them would move the refusal
+// from the form to a campaign that silently reaches nobody.
+const TEMPLATES = {
+  templates: [
+    { id: 31, name: 'spring_sale', language: 'en_US', category: 'MARKETING', meta_status: 'APPROVED',
+      parameter_format: 'POSITIONAL',
+      components: [{ type: 'BODY', text: 'Hello {{1}}, our sale starts {{2}}.' }] },
+    { id: 32, name: 'order_shipped', language: 'en_US', category: 'UTILITY', meta_status: 'APPROVED',
+      parameter_format: 'POSITIONAL', components: [{ type: 'BODY', text: 'Your order is on its way.' }] },
+    { id: 33, name: 'not_yet', language: 'en_US', category: 'MARKETING', meta_status: 'PENDING',
+      parameter_format: 'POSITIONAL', components: [{ type: 'BODY', text: 'Draft.' }] },
+  ],
+};
+
 const RESULTS = {
   metrics: { audience: 180, status_counts: { sent: 40, delivered: 38, read: 20, failed: 2, skipped: 140 } },
   skip_reasons: [
@@ -66,6 +81,8 @@ async function open(page) {
   page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   await page.route('**/audiences/api', (r) => r.fulfill({ status: 200,
     contentType: 'application/json', body: JSON.stringify(AUDIENCES) }));
+  await page.route('**/templates/api', (r) => r.fulfill({ status: 200,
+    contentType: 'application/json', body: JSON.stringify(TEMPLATES) }));
   await page.route('**/campaigns/api/preview', (r) => r.fulfill({ status: 200,
     contentType: 'application/json', body: JSON.stringify({ count: 40 }) }));
   await page.route('**/campaigns/api/*/results', (r) => r.fulfill({ status: 200,
@@ -148,12 +165,62 @@ async function open(page) {
 
   await page.locator('#lyncp-title').fill('Spring sale');
   await page.locator('#lyncp-message').fill('Hello there.');
+
+  // ---- THE TEMPLATE. A WhatsApp campaign without one reaches nobody: upstream's sender
+  // refuses every recipient of a campaign that names no template, so this form used to save
+  // campaigns that completed having sent nothing, with no error anywhere.
+  check('a WhatsApp channel asks for a template',
+    await page.locator('#lyncp-template-block').isVisible());
+
+  const offered = await page.locator('#lyncp-template option').allTextContents();
+  check('only approved templates are offered',
+    offered.some((o) => o.includes('spring_sale')) && !offered.some((o) => o.includes('not_yet')),
+    offered.join(' | '));
+
+  await page.locator('#lyncp-save').click();
+  await page.waitForTimeout(100);
+  check('a WhatsApp campaign with no template is refused before the request',
+    (await page.locator('#lyncp-modal-errors').textContent()).includes('template')
+    && posted.length === 0, (await page.locator('#lyncp-modal-errors').textContent()).trim());
+
+  await page.locator('#lyncp-template').selectOption('spring_sale|en_US');
+  await page.waitForTimeout(50);
+
+  // Meta's own classification, said on the form rather than left to be inferred from a count.
+  check('the template says what class Meta gave it',
+    (await page.locator('#lyncp-template-note').textContent()).includes('MARKETING'),
+    (await page.locator('#lyncp-template-note').textContent()).trim());
+
+  const vars = await page.locator('#lyncp-template-vars input[data-var]').count();
+  check('one input per placeholder in the template body', vars === 2, String(vars));
+
+  await page.locator('#lyncp-save').click();
+  await page.waitForTimeout(100);
+  check('a template with empty values is refused before the request',
+    (await page.locator('#lyncp-modal-errors').textContent()).length > 0
+    && posted.length === 0);
+
+  await page.locator('#lyncp-var-1').fill('Lina');
+  await page.locator('#lyncp-var-2').fill('Friday');
   await page.locator('#lyncp-save').click();
   await page.waitForTimeout(150);
 
   check('a complete campaign is sent with its audience', posted.length === 1
     && posted[0].title === 'Spring sale'
     && posted[0]['audience[0][type]'] === 'Audience', JSON.stringify(posted[0] || {}).slice(0, 140));
+
+  check('and with the template it will actually send',
+    posted[0] && posted[0]['template_params[name]'] === 'spring_sale'
+    && posted[0]['template_params[processed_params][body][1]'] === 'Lina'
+    && posted[0]['template_params[processed_params][body][2]'] === 'Friday',
+    JSON.stringify(posted[0] || {}).slice(0, 200));
+
+  // THE CLASS IS NOT THE SENDER'S TO DECLARE. The server reads the category from the
+  // channel's own synced list; a `category` in the body would be a field it ignores and a
+  // future reader might wire logic back to.
+  check('and without claiming the template category',
+    posted[0] && posted[0]['template_params[category]'] === undefined,
+    JSON.stringify(posted[0] || {}).slice(0, 200));
 
   // THE CHANNEL IS THE MERCHANT'S CHOICE AND IT TRAVELS. The page used to send a hardcoded
   // `inbox_id: 1`, so a campaign went to whichever inbox happened to be first in the

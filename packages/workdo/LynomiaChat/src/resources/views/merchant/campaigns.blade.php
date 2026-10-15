@@ -43,6 +43,7 @@
      data-endpoint-store="{{ route('lynomia.campaigns.api.store') }}"
      data-endpoint-preview="{{ route('lynomia.campaigns.api.preview') }}"
      data-endpoint-audiences="{{ route('lynomia.audiences.api.index') }}"
+     data-endpoint-templates="{{ route('lynomia.templates.api.index') }}"
      data-update-template="{{ route('lynomia.campaigns.api.update', ['campaign' => 0]) }}"
      data-cancel-template="{{ route('lynomia.campaigns.api.cancel', ['campaign' => 0]) }}"
      data-destroy-template="{{ route('lynomia.campaigns.api.destroy', ['campaign' => 0]) }}"
@@ -80,6 +81,18 @@
 
                 <label for="lyncp-inbox" class="form-label small">{{ __('Send from') }}</label>
                 <select class="form-select form-select-sm mb-3" id="lyncp-inbox"></select>
+
+                {{-- WHATSAPP SENDS AN APPROVED TEMPLATE, NOT FREE TEXT, so a WhatsApp campaign
+                     without one reaches nobody: the sender refuses every recipient for which
+                     the campaign names no template. Hidden for an SMS channel, which does send
+                     free text. --}}
+                <div id="lyncp-template-block" class="d-none">
+                    <label for="lyncp-template" class="form-label small">{{ __('Template') }}</label>
+                    <select class="form-select form-select-sm mb-2" id="lyncp-template"></select>
+                    <p class="text-muted small mb-3" id="lyncp-template-note"></p>
+                    {{-- One input per placeholder in the template's body. --}}
+                    <div id="lyncp-template-vars" class="mb-3"></div>
+                </div>
 
                 <label for="lyncp-audience" class="form-label small">{{ __('Audience') }}</label>
                 <select class="form-select form-select-sm mb-2" id="lyncp-audience"></select>
@@ -147,6 +160,7 @@
     var STORE = root.getAttribute('data-endpoint-store');
     var PREVIEW = root.getAttribute('data-endpoint-preview');
     var AUDIENCES = root.getAttribute('data-endpoint-audiences');
+    var TEMPLATES = root.getAttribute('data-endpoint-templates');
     var UPDATE_TEMPLATE = root.getAttribute('data-update-template');
     var CANCEL_TEMPLATE = root.getAttribute('data-cancel-template');
     var DESTROY_TEMPLATE = root.getAttribute('data-destroy-template');
@@ -167,6 +181,10 @@
         messageRequired: @json(__('Write the message.')),
         audienceRequired: @json(__('Choose an audience.')),
         inboxRequired: @json(__('Choose which channel this campaign sends from.')),
+        templateRequired: @json(__('Choose an approved WhatsApp template for this campaign.')),
+        noTemplates: @json(__('No approved WhatsApp template yet. Create one on the Templates page first.')),
+        templateVarsRequired: @json(__('Fill in every value the template asks for.')),
+        templateCategory: @json(__('Meta classifies this template as :category.')),
         noInboxes: @json(__('No WhatsApp or SMS channel is connected yet, so a campaign cannot be sent.')),
         willReach: @json(__('This will reach :count customers. Everyone who has not agreed, has opted out or cannot be messaged is already excluded.')),
         counting: @json(__('counting…')),
@@ -232,7 +250,7 @@
             + 'T' + pad(parsed.getHours()) + ':' + pad(parsed.getMinutes());
     }
 
-    var state = { campaigns: [], audiences: [], inboxes: [], editing: null };
+    var state = { campaigns: [], audiences: [], inboxes: [], templates: [], editing: null };
 
     function renderList() {
         var $list = $('#lyncp-list').empty();
@@ -388,6 +406,7 @@
         // the one case where somebody is changing it.
         $('#lyncp-schedule').val(campaign ? asLocalInput(campaign.scheduled_at) : '');
         fillInboxes(campaign);
+        fillTemplate(campaign);
         renderAudiences(campaign);
         previewAudience();
         bootstrap.Modal.getOrCreateInstance(document.getElementById('lyncp-modal')).show();
@@ -411,6 +430,146 @@
         return id ? [{ type: 'Audience', id: id }] : [];
     }
 
+    // ======================================================== WhatsApp templates
+    //
+    // A WHATSAPP CAMPAIGN WITHOUT A TEMPLATE REACHES NOBODY. WhatsApp does not carry free
+    // text to somebody who has not written first: a campaign sends an APPROVED template,
+    // and upstream's sender refuses every recipient of a campaign that names none. This
+    // form posted title, message, audience, schedule and inbox, so every WhatsApp campaign
+    // a merchant created here completed having sent nothing, with no error anywhere.
+    //
+    // Only approved templates are offered. A draft, a rejected one and a paused one cannot
+    // be sent, and offering them would move the refusal from this form to a campaign that
+    // silently reaches no one -- which is the defect being fixed.
+    function approvedTemplates() {
+        return state.templates.filter(function (template) {
+            return String(template.meta_status || '').toUpperCase() === 'APPROVED';
+        });
+    }
+
+    function chosenInboxIsWhatsapp() {
+        var id = String($('#lyncp-inbox').val() || '');
+        var inbox = state.inboxes.filter(function (entry) { return String(entry.id) === id; })[0];
+
+        return !!inbox && String(inbox.channel_type || '') === 'Channel::Whatsapp';
+    }
+
+    function templateValue(template) { return template.name + '|' + (template.language || 'en'); }
+
+    function chosenTemplate() {
+        var value = String($('#lyncp-template').val() || '');
+
+        return approvedTemplates().filter(function (t) { return templateValue(t) === value; })[0] || null;
+    }
+
+    // The placeholders Meta will substitute, read from the template's own BODY component.
+    // `@{{1}}` for a POSITIONAL template and `@{{name}}` for a NAMED one, which is the same
+    // distinction upstream's parameter converter makes.
+    function bodyPlaceholders(template) {
+        if (!template) { return []; }
+        var body = (template.components || []).filter(function (c) {
+            return String(c.type || '').toUpperCase() === 'BODY';
+        })[0];
+        var matches = String((body && body.text) || '').match(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g) || [];
+        var keys = matches.map(function (token) { return token.replace(/[{}\s]/g, ''); });
+
+        return keys.filter(function (key, index) { return keys.indexOf(key) === index; });
+    }
+
+    function renderTemplateFields() {
+        var whatsapp = chosenInboxIsWhatsapp();
+        $('#lyncp-template-block').toggleClass('d-none', !whatsapp);
+        if (!whatsapp) { return $('#lyncp-template-vars').empty(); }
+
+        var $select = $('#lyncp-template').empty();
+        var approved = approvedTemplates();
+        if (!approved.length) {
+            $select.append($('<option>').attr('value', '').text(T.noTemplates));
+        } else {
+            $select.append($('<option>').attr('value', '').text(''));
+            approved.forEach(function (template) {
+                $select.append($('<option>').attr('value', templateValue(template))
+                    .text(template.name + ' (' + (template.language || 'en') + ')'));
+            });
+        }
+
+        renderTemplateVars();
+    }
+
+    // Editing shows the template the campaign already carries, with the values it was saved
+    // with. A campaign whose template has since been un-approved selects nothing, which is
+    // the honest answer: it cannot be sent as it stands, and `templateProblem` says so on
+    // save rather than letting the merchant re-save a campaign that reaches nobody.
+    function fillTemplate(campaign) {
+        renderTemplateFields();
+        var saved = (campaign && campaign.template_params) || null;
+        if (!saved || !saved.name) { return; }
+
+        $('#lyncp-template').val(saved.name + '|' + (saved.language || 'en'));
+        renderTemplateVars();
+
+        var body = (saved.processed_params && saved.processed_params.body) || {};
+        $('#lyncp-template-vars').find('input[data-var]').each(function () {
+            $(this).val(text(body[$(this).attr('data-var')]));
+        });
+    }
+
+    function renderTemplateVars() {
+        var template = chosenTemplate();
+        var $vars = $('#lyncp-template-vars').empty();
+        // The class Meta gave it, which is what decides whether this campaign needs
+        // marketing consent -- said here rather than left for the merchant to discover from
+        // a recipient count.
+        $('#lyncp-template-note').text(
+            template ? T.templateCategory.replace(':category', text(template.category)) : ''
+        );
+        if (!template) { return; }
+
+        bodyPlaceholders(template).forEach(function (key) {
+            $vars.append(
+                $('<label>').addClass('form-label small').attr('for', 'lyncp-var-' + key).text('@{{' + key + '}}'),
+                $('<input>').addClass('form-control form-control-sm mb-2').attr({
+                    type: 'text', id: 'lyncp-var-' + key, 'data-var': key, maxlength: 1000
+                })
+            );
+        });
+    }
+
+    // The shape upstream reads: {name, language, processed_params: {body: {...}}}. The
+    // category is NOT sent -- the server takes it from the channel's own synced list,
+    // because whether a campaign is transactional decides whether it needs consent and that
+    // is not the sender's to declare.
+    function templateParams() {
+        var template = chosenTemplate();
+        if (!template) { return null; }
+
+        var body = {};
+        $('#lyncp-template-vars').find('input[data-var]').each(function () {
+            body[$(this).attr('data-var')] = $.trim($(this).val());
+        });
+
+        return {
+            name: template.name,
+            language: template.language || 'en',
+            processed_params: { body: body }
+        };
+    }
+
+    function templateProblem() {
+        if (!chosenInboxIsWhatsapp()) { return null; }
+
+        var params = templateParams();
+        if (!params) { return approvedTemplates().length ? T.templateRequired : T.noTemplates; }
+
+        var blank = Object.keys(params.processed_params.body).filter(function (key) {
+            return params.processed_params.body[key] === '';
+        });
+
+        return blank.length ? T.templateVarsRequired : null;
+    }
+
+    $('#lyncp-template').on('change', function () { renderTemplateVars(); previewAudience(); });
+
     // THE SAME QUERY THE SEND USES, so the number is the number.
     function previewAudience() {
         var audience = chosenAudience();
@@ -423,6 +582,11 @@
         var payload = { audience: audience };
         var inbox = $('#lyncp-inbox').val();
         if (inbox) { payload.inbox_id = inbox; }
+        // AND THE TEMPLATE, because its category decides whether this campaign needs a
+        // marketing grant at all: a UTILITY template is transactional and the preview
+        // under-counted it by asking for consent the send does not require.
+        var params = templateParams();
+        if (params) { payload.template_params = params; }
 
         $.ajax({ url: PREVIEW, method: 'POST', dataType: 'json', data: payload })
             .done(function (body) { $('#lyncp-preview').text(T.willReach.replace(':count', text(body.count))); })
@@ -431,7 +595,7 @@
 
     $('#lyncp-audience').on('change', previewAudience);
     // Changing the channel changes who the campaign can reach, so the number is recomputed.
-    $('#lyncp-inbox').on('change', previewAudience);
+    $('#lyncp-inbox').on('change', function () { renderTemplateFields(); previewAudience(); });
     $('#lyncp-new').on('click', function () { openEditor(null); });
 
     $('#lyncp-save').on('click', function () {
@@ -451,6 +615,14 @@
             if (!inbox) { return $('#lyncp-modal-errors').text(T.inboxRequired).removeClass('d-none'); }
             payload.inbox_id = inbox;
         }
+
+        // Refused here rather than saved as a campaign that reaches nobody. Upstream binds
+        // a campaign to its inbox at creation and will not move it, so the template belongs
+        // to the same moment.
+        var problem = templateProblem();
+        if (problem) { return $('#lyncp-modal-errors').text(problem).removeClass('d-none'); }
+        var params = templateParams();
+        if (params) { payload.template_params = params; }
 
         $.ajax({
             url: editing ? urlFor(UPDATE_TEMPLATE, editing.display_id) : STORE,
@@ -492,6 +664,12 @@
 
     function load() {
         $('#lyncp-alert').addClass('d-none');
+        $.getJSON(TEMPLATES)
+            .done(function (body) { state.templates = (body && body.templates) || []; })
+            .always(function () { loadAudiencesAndCampaigns(); });
+    }
+
+    function loadAudiencesAndCampaigns() {
         $.getJSON(AUDIENCES)
             .done(function (body) { state.audiences = (body && body.audiences) || []; })
             .always(function () {

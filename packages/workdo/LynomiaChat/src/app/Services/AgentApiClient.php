@@ -589,12 +589,20 @@ class AgentApiClient
      *   Upstream defaults to SMS when it is not given, which is what this used to do for
      *   every WhatsApp campaign.
      */
-    public function previewAudience(array $audience, ?int $commerceStoreId = null, ?int $inboxId = null): array
-    {
+    public function previewAudience(
+        array $audience,
+        ?int $commerceStoreId = null,
+        ?int $inboxId = null,
+        ?array $templateParams = null
+    ): array {
         return $this->http->send('post', $this->path('campaigns/audience_preview'), array_filter([
             'audience' => $audience,
             'commerce_store_id' => $commerceStoreId,
             'inbox_id' => $inboxId,
+            // Upstream reads only the name and language out of it, to find the template in
+            // the channel's own synced list and take ITS category -- nothing a client says
+            // about the class is used.
+            'template_params' => $templateParams,
         ], static fn ($value) => $value !== null));
     }
 

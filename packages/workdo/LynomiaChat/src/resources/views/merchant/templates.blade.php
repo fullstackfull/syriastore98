@@ -60,6 +60,12 @@
 
     <div id="lynt-alert" class="alert alert-danger d-none" role="alert" aria-live="polite"></div>
     <div id="lynt-note" class="alert alert-info d-none" role="status" aria-live="polite"></div>
+    {{-- A WhatsApp number on the 360dialog provider carries no WhatsApp Business Account id,
+         so no template can be created against it. Said plainly, rather than leaving the
+         picker empty and the New button looking as though it should work. --}}
+    <div id="lynt-no-waba" class="alert alert-warning d-none" role="status">
+        {{ __('Template management needs a WhatsApp Cloud number. None of this workspace\'s WhatsApp channels is connected to a WhatsApp Business Account, so templates cannot be created here.') }}
+    </div>
 
     <div id="lynt-list" class="d-grid gap-2"></div>
 </div>
@@ -351,6 +357,27 @@
     // Name, language and category are Meta's idea of a template's IDENTITY and cannot change
     // after creation. Disabled rather than hidden, so an editing merchant can still read what
     // they are, and the duplicate action is how you make a changed version.
+    // A WHATSAPP NUMBER THIS PAGE CANNOT MANAGE TEMPLATES FOR SAYS SO.
+    //
+    // The picker is built from the WABA contexts the server returns, and a channel on the
+    // `default` provider (360dialog) carries no `business_account_id`, so it is dropped from
+    // them and the picker comes back empty. That is the headline symptom of the defect this
+    // page was fixed for -- an empty picker and no template creatable -- reappearing for a
+    // whole provider class, and the page said nothing: New was never disabled, the modal
+    // opened on an empty list, and Save answered "Choose which WhatsApp number this template
+    // belongs to." about a list with nothing in it.
+    //
+    // Nothing here makes 360dialog work; template management through this API needs a WABA,
+    // which that provider does not expose. What it does is say so, once, where the merchant
+    // is standing.
+    function canManageTemplates() { return state.inboxes.length > 0; }
+
+    function renderPickerAvailability() {
+        var usable = canManageTemplates();
+        $('#lynt-new').prop('disabled', !usable);
+        $('#lynt-no-waba').toggleClass('d-none', usable);
+    }
+
     function renderInboxes(template) {
         var $select = $('#lynt-inbox').empty().prop('disabled', !!template);
         state.inboxes.forEach(function (inbox) {
@@ -414,6 +441,7 @@
                 ((body && body.waba_contexts) || []).forEach(function (context) {
                     (context.inboxes || []).forEach(function (inbox) { state.inboxes.push(inbox); });
                 });
+                renderPickerAvailability();
                 renderList();
             })
             .fail(alertNow);
