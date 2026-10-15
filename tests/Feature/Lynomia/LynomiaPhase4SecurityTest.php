@@ -467,8 +467,15 @@ class LynomiaPhase4SecurityTest extends TestCase
         // And it reads one list of permissions, shared with the seeder that creates them.
         $this->assertSame(
             \Workdo\LynomiaChat\app\Http\Controllers\SuperAdmin\IntegrationController::MODULE_PERMISSIONS,
+            // Raised for the two permissions Phase 5 genuinely adds. An audience decides WHO
+            // gets messaged; a template is the text Meta approves and every campaign then
+            // sends, and submitting one spends a review cycle that cannot be taken back.
+            // Updated because permissions were really added, which is the change this pin
+            // exists to make visible -- not relaxed into a count or a subset check, which
+            // would stop it noticing the next one.
             ['Manage Lynomia Chat', 'Reply Lynomia Chat', 'Assign Lynomia Chat',
-                'Manage Lynomia Automation', 'Manage Lynomia Consent']
+                'Manage Lynomia Automation', 'Manage Lynomia Consent', 'Manage Lynomia Audiences',
+                'Manage Lynomia Templates']
         );
     }
 }

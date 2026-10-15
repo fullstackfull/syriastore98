@@ -96,5 +96,50 @@ class CompanyMenuListener
             'module' => $module,
             'permission' => 'Manage Lynomia Automation',
         ]);
+
+        // Audiences sit beside the automation entries rather than under them: defining who a
+        // campaign may reach is marketing work, not automation work, and a merchant looking
+        // for "who will this go to" should not have to open the Studio to find it.
+        //
+        // The permission here hides the entry; the ROUTE enforces it. A hidden menu item is
+        // not an authorization control -- the staff member types the path.
+        $menu->add([
+            'title' => __('Audiences'),
+            'icon' => '',
+            'name' => 'lynomia-audiences',
+            'parent' => 'lynomia',
+            'order' => 50,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'lynomia.audiences',
+            'module' => $module,
+            'permission' => 'Manage Lynomia Audiences',
+        ]);
+
+        $menu->add([
+            'title' => __('Message templates'),
+            'icon' => '',
+            'name' => 'lynomia-templates',
+            'parent' => 'lynomia',
+            'order' => 60,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'lynomia.templates',
+            'module' => $module,
+            'permission' => 'Manage Lynomia Templates',
+        ]);
+
+        $menu->add([
+            'title' => __('Campaigns'),
+            'icon' => '',
+            'name' => 'lynomia-campaigns',
+            'parent' => 'lynomia',
+            'order' => 70,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'lynomia.campaigns',
+            'module' => $module,
+            'permission' => 'Manage Lynomia Campaigns',
+        ]);
     }
 }

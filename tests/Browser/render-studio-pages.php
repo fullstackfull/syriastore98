@@ -31,6 +31,8 @@ $targets = [
     // decision: the tab has to be absent, not merely disabled.
     ['commerce-noconsent', 'lynomia-chat::merchant.commerce-automation',
         ['workspaceName' => 'Damascus Store', 'canManageConsent' => false]],
+    ['audiences', 'lynomia-chat::merchant.audiences', ['workspaceName' => 'Damascus Store']],
+    ['templates', 'lynomia-chat::merchant.templates', ['workspaceName' => 'Damascus Store']],
 ];
 
 /**

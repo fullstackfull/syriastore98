@@ -18,7 +18,7 @@ Every cross-system claim rests on either a scriptable fake or the shared contrac
 That is contract verification, not deployment verification, and **staging blocker A1 stays
 open** (`PRODUCTION-READINESS-BLOCKERS.md`).
 
-Last updated: 2026-10-15, after P5E.
+Last updated: 2026-10-15, after P5B.
 
 ---
 
@@ -61,10 +61,17 @@ Last updated: 2026-10-15, after P5E.
 
 | Capability | State | Evidence |
 |---|---|---|
-| Native audience management | NOT STARTED | |
-| Store-scoped customer segmentation | NOT STARTED | |
-| Verified identity matching | NOT STARTED | |
-| Audience counts | NOT STARTED | |
+| Native audience management (create, edit, delete) | VERIFIED | Store Syria `AudienceApiController`, `AudienceController`, `merchant/audiences.blade.php`; 15 feature tests + 18 browser checks |
+| Store-scoped customer segmentation | VERIFIED | Lynomia `Audience::CommerceCondition` store predicate; 13 specs covering counts, spend, statuses, presence and completeness |
+| — the aggregates summed across every store (defect) | FIXED | the scope is threaded through the one SQL fragment every condition is expressed over |
+| Store-scoped audience counts | VERIFIED | `audience_preview` takes `commerce_store_id`; 5 request specs, including that the preview agrees with what the campaign resolves |
+| Both counts shown to the merchant | VERIFIED | "40 customers of this store" beside "180 across all your stores"; browser-verified |
+| Verified identity matching | IMPLEMENTED | pre-existing `Commerce::CustomerLink` (P3B) + `ContactIdentity`; the audience scope reads the same links, and a contact with no link at this store is not counted |
+| Condition vocabulary from the server | VERIFIED | `commerce/audience_fields` drives the fields, stores and currencies; a currency the merchant has never traded in is not offered (browser-verified) |
+| Unread-contact disclosure | VERIFIED | contacts whose orders Lynomia has not read are reported, so a small count is explainable rather than mysterious |
+| Per-person permission | VERIFIED | `Manage Lynomia Audiences`, enforced on every route; staff holding chat + automation + consent are still refused |
+| Tenant isolation | VERIFIED | no route takes a store id; a store id naming another account is refused 422 upstream rather than silently counted as zero |
+| An audience is a count, never a list | VERIFIED | no contact is rendered; browser-asserted against the rendered list |
 
 ## P5C — messaging templates
 

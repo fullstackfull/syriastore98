@@ -1,6 +1,10 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Workdo\LynomiaChat\app\Http\Controllers\AudienceApiController;
+use Workdo\LynomiaChat\app\Http\Controllers\CampaignApiController;
+use Workdo\LynomiaChat\app\Http\Controllers\CampaignController;
+use Workdo\LynomiaChat\app\Http\Controllers\AudienceController;
 use Workdo\LynomiaChat\app\Http\Controllers\AutomationApiController;
 use Workdo\LynomiaChat\app\Http\Controllers\AutomationController;
 use Workdo\LynomiaChat\app\Http\Controllers\CommunicationCenterController;
@@ -11,6 +15,8 @@ use Workdo\LynomiaChat\app\Http\Middleware\GuardEventIngress;
 use Workdo\LynomiaChat\app\Http\Controllers\InboxApiController;
 use Workdo\LynomiaChat\app\Http\Controllers\InboxController;
 use Workdo\LynomiaChat\app\Http\Controllers\StoreConsentController;
+use Workdo\LynomiaChat\app\Http\Controllers\TemplateApiController;
+use Workdo\LynomiaChat\app\Http\Controllers\TemplateController;
 use Workdo\LynomiaChat\app\Http\Controllers\SuperAdmin\IntegrationController;
 use Workdo\LynomiaChat\app\Http\Middleware\EnsureStoreOwnsLink;
 
@@ -203,6 +209,117 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
                     Route::post('/conversations/{conversation}/status', [InboxApiController::class, 'updateStatus'])
                         ->middleware(\Laratrust\Middleware\Permission::class . ':Assign Lynomia Chat')
                         ->whereNumber('conversation')->name('status');
+                });
+            });
+
+            // ------------------------------------------------------------ Audiences
+            //
+            // ITS OWN PERMISSION, BECAUSE AN AUDIENCE DECIDES WHO GETS MESSAGED. It is a
+            // narrower decision than building an automation and a different one from reading
+            // the inbox: a merchant can reasonably let a marketer define segments without
+            // letting them publish a flow, and can reasonably let support read conversations
+            // without letting them build the list a campaign sends to.
+            //
+            // THE PERMISSION IS NOT THE AUTHORIZATION, AND IS NOT CLAIMED TO BE. Lynomia
+            // treats sharing an audience as a workspace-administrator act and only the store
+            // owner holds that identity, so this layer narrows WITHIN the merchant's staff and
+            // can never widen; a staff member who gets past it is refused upstream. Both are
+            // asserted in tests, because a permission that only hides a menu entry is the
+            // mistake this module already made once.
+            Route::middleware([
+                EnsureStoreOwnsLink::class . ':existing',
+                \Laratrust\Middleware\Permission::class . ':Manage Lynomia Audiences',
+                // Keyed on the PERSON, like the Studio: the cost is per credential minted, and
+                // keying on the store would let one person's stuck poll exhaust their
+                // colleagues' budget.
+                'throttle:lynomia-studio',
+            ])->group(function () {
+                Route::get('/audiences', [AudienceController::class, 'index'])->name('audiences');
+
+                Route::prefix('audiences/api')->name('audiences.api.')->group(function () {
+                    Route::get('/', [AudienceApiController::class, 'index'])->name('index');
+                    // No audience id: the stores, currencies and gaps are the WORKSPACE's, and
+                    // the credential already decided which workspace that is.
+                    Route::get('/references', [AudienceApiController::class, 'references'])->name('references');
+                    Route::post('/', [AudienceApiController::class, 'store'])->name('store');
+                    Route::patch('/{audience}', [AudienceApiController::class, 'update'])
+                        ->whereNumber('audience')->name('update');
+                    Route::delete('/{audience}', [AudienceApiController::class, 'destroy'])
+                        ->whereNumber('audience')->name('destroy');
+                    // A count, never a list: the people in an audience are Lynomia's contacts
+                    // and this surface has no business enumerating them.
+                    Route::post('/preview', [AudienceApiController::class, 'preview'])->name('preview');
+                });
+            });
+
+            // ------------------------------------------------------------ Campaigns
+            //
+            // THE HEAVIEST PERMISSION OF THE MARKETING FOUR, and the reason it is its own.
+            // An audience says who could be reached and a template says what the words are;
+            // a campaign is the act of SENDING those words to those people, and it cannot be
+            // taken back once the first message leaves. A merchant can reasonably let a
+            // marketer draft audiences and templates while reserving the send.
+            //
+            // IT NARROWS, IT NEVER WIDENS. Upstream authorizes campaign writes with its own
+            // policy; a staff member who passes this layer is still answerable to that.
+            Route::middleware([
+                EnsureStoreOwnsLink::class . ':existing',
+                \Laratrust\Middleware\Permission::class . ':Manage Lynomia Campaigns',
+                'throttle:lynomia-studio',
+            ])->group(function () {
+                Route::get('/campaigns', [CampaignController::class, 'index'])->name('campaigns');
+
+                Route::prefix('campaigns/api')->name('campaigns.api.')->group(function () {
+                    Route::get('/', [CampaignApiController::class, 'index'])->name('index');
+                    Route::post('/', [CampaignApiController::class, 'store'])->name('store');
+                    // No campaign id: the preview answers "how many would THIS audience
+                    // reach", which is asked while a campaign is still being drafted.
+                    Route::post('/preview', [CampaignApiController::class, 'preview'])->name('preview');
+                    Route::patch('/{campaign}', [CampaignApiController::class, 'update'])
+                        ->whereNumber('campaign')->name('update');
+                    // A POST, not a DELETE: cancelling KEEPS the campaign and its recipient
+                    // snapshot, which is what an operator stopping a half-sent campaign
+                    // needs to read afterwards.
+                    Route::post('/{campaign}/cancel', [CampaignApiController::class, 'cancel'])
+                        ->whereNumber('campaign')->name('cancel');
+                    Route::delete('/{campaign}', [CampaignApiController::class, 'destroy'])
+                        ->whereNumber('campaign')->name('destroy');
+                    Route::get('/{campaign}/results', [CampaignApiController::class, 'results'])
+                        ->whereNumber('campaign')->name('results');
+                });
+            });
+
+            // ------------------------------------------------------------ Message templates
+            //
+            // ITS OWN PERMISSION. A template is the text Meta approves and every campaign and
+            // automation then sends; editing one changes what thousands of customers read,
+            // and submitting one spends a review cycle the merchant cannot take back. That is
+            // a different decision from defining an audience and from answering a
+            // conversation.
+            //
+            // IT NARROWS, IT NEVER WIDENS. Upstream requires an account ADMINISTRATOR for
+            // every template action and only the store owner holds that identity, so a staff
+            // member who passes this layer is still refused there. Both are asserted in tests.
+            Route::middleware([
+                EnsureStoreOwnsLink::class . ':existing',
+                \Laratrust\Middleware\Permission::class . ':Manage Lynomia Templates',
+                'throttle:lynomia-studio',
+            ])->group(function () {
+                Route::get('/templates', [TemplateController::class, 'index'])->name('templates');
+
+                Route::prefix('templates/api')->name('templates.api.')->group(function () {
+                    Route::get('/', [TemplateApiController::class, 'index'])->name('index');
+                    Route::post('/', [TemplateApiController::class, 'store'])->name('store');
+                    Route::patch('/{template}', [TemplateApiController::class, 'update'])
+                        ->whereNumber('template')->name('update');
+                    Route::delete('/{template}', [TemplateApiController::class, 'destroy'])
+                        ->whereNumber('template')->name('destroy');
+                    // Handing a draft to Meta. A write verb because it is irreversible: a
+                    // review cycle spent cannot be taken back.
+                    Route::post('/{template}/submit', [TemplateApiController::class, 'submit'])
+                        ->whereNumber('template')->name('submit');
+                    Route::post('/{template}/duplicate', [TemplateApiController::class, 'duplicate'])
+                        ->whereNumber('template')->name('duplicate');
                 });
             });
 

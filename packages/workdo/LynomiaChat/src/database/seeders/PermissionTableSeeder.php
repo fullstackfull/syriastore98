@@ -22,6 +22,9 @@ use Workdo\LynomiaChat\app\Http\Controllers\SuperAdmin\IntegrationController;
  *   Assign Lynomia Chat        assign a conversation and change its status
  *   Manage Lynomia Automation  open the Automation Studio and change what it sends
  *   Manage Lynomia Consent     record what a shopper agreed to receive
+ *   Manage Lynomia Audiences   define who a campaign may be sent to
+ *   Manage Lynomia Templates   write and submit the message text Meta approves
+ *   Manage Lynomia Campaigns   send those words to those people
  *
  * The fourth is Phase 4's, and it is a separate decision from the first three rather than a
  * finer slice of them: replying is one message, written by a person who read what was asked,
@@ -32,6 +35,20 @@ use Workdo\LynomiaChat\app\Http\Controllers\SuperAdmin\IntegrationController;
  * changes what the store would send, while recording a consent decision changes whether a named
  * person may be messaged at all. A merchant can reasonably let staff build automations without
  * letting them mark a customer as having agreed to marketing.
+ *
+ * The sixth is Phase 5B's. An audience decides WHO gets messaged, which is narrower than
+ * building an automation and different from reading the inbox: a merchant can reasonably let
+ * a marketer define segments without letting them publish a flow, and can reasonably let
+ * support read conversations without letting them build the list a campaign sends to.
+ *
+ * The seventh is Phase 5C's and is the heaviest of the marketing three. A template is the
+ * text Meta approves and every campaign and automation then sends, so editing one changes
+ * what thousands of customers read -- and submitting one spends a review cycle that cannot
+ * be taken back.
+ *
+ * The eighth is the heaviest of the marketing four. An audience says who could be reached
+ * and a template says what the words are; a campaign is the act of SENDING those words to
+ * those people, and it cannot be taken back once the first message leaves.
  *
  * It narrows, it never widens. Lynomia authorizes flow management as a workspace administrator
  * and only the store owner holds that identity, so granting this to staff lets them reach the

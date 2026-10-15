@@ -425,6 +425,177 @@ class AgentApiClient
         return $this->http->send('delete', $this->path("commerce/consents/{$contactId}"), retryTransport: false);
     }
 
+    // ------------------------------------------------------------------ campaigns
+
+    /**
+     * The workspace's campaigns.
+     *
+     * NOT STORED HERE, like the audiences and the templates, and for the sharpest reason of
+     * the three: a campaign's status is the record of what was SENT. Lynomia owns the send,
+     * the recipient snapshot and the outcome of every message; a copy of "status" in this
+     * database would be a second account of whether a merchant's customers were messaged,
+     * and the two would disagree the first time a run was interrupted.
+     */
+    public function listCampaigns(): array
+    {
+        return $this->http->send('get', $this->path('campaigns'));
+    }
+
+    public function createCampaign(array $campaign): array
+    {
+        return $this->http->send('post', $this->path('campaigns'), ['campaign' => $campaign], retryTransport: false);
+    }
+
+    public function updateCampaign(int $displayId, array $campaign): array
+    {
+        return $this->http->send('patch', $this->path("campaigns/{$displayId}"), ['campaign' => $campaign], retryTransport: false);
+    }
+
+    /**
+     * Stop a campaign that is running or due to run.
+     *
+     * A POST, NOT A DELETE, and the difference matters: deleting removes the recipient
+     * snapshot -- the record of who WAS reached before it stopped -- which is precisely what
+     * an operator cancelling a half-sent campaign needs to read afterwards.
+     *
+     * Not transport-retried. A retry is harmless upstream (cancelling twice is a no-op) but
+     * a cancellation that appears twice in the audit trail is a worse record than one extra
+     * round trip.
+     */
+    public function cancelCampaign(int $displayId, ?string $reason = null): array
+    {
+        return $this->http->send('post', $this->path("campaigns/{$displayId}/cancel"),
+            array_filter(['reason' => $reason], static fn ($value) => $value !== null), retryTransport: false);
+    }
+
+    public function deleteCampaign(int $displayId): array
+    {
+        return $this->http->send('delete', $this->path("campaigns/{$displayId}"), retryTransport: false);
+    }
+
+    /** What one campaign actually did, per outcome. */
+    public function campaignMetrics(int $campaignId): array
+    {
+        return $this->http->send('get', $this->path("campaigns/{$campaignId}/analytics/metrics"));
+    }
+
+    /** Who it reached, and who it did not, with the reason. A page at a time. */
+    public function campaignRecipients(int $campaignId, array $filters = []): array
+    {
+        return $this->http->send('get', $this->path("campaigns/{$campaignId}/analytics/contacts"), $filters);
+    }
+
+    // ------------------------------------------------------------------ message templates
+
+    /**
+     * The WhatsApp templates this workspace manages.
+     *
+     * NOT STORED HERE, FOR A HARDER REASON THAN THE AUDIENCES. A template's real state lives
+     * at META: approved, rejected, paused, flagged, with a quality score that moves on its
+     * own. Lynomia mirrors it and knows when the mirror was last refreshed; a third copy in
+     * this database would be the stalest of the three and would be the one a merchant read
+     * before sending a campaign on a template Meta had already paused.
+     */
+    public function listMessageTemplates(): array
+    {
+        return $this->http->send('get', $this->path('whatsapp/message_templates'));
+    }
+
+    public function createMessageTemplate(array $attributes): array
+    {
+        return $this->http->send('post', $this->path('whatsapp/message_templates'), $attributes, retryTransport: false);
+    }
+
+    public function updateMessageTemplate(int $templateId, array $attributes): array
+    {
+        return $this->http->send('patch', $this->path("whatsapp/message_templates/{$templateId}"), $attributes, retryTransport: false);
+    }
+
+    public function deleteMessageTemplate(int $templateId): array
+    {
+        return $this->http->send('delete', $this->path("whatsapp/message_templates/{$templateId}"), retryTransport: false);
+    }
+
+    /**
+     * Hand a draft to Meta for review.
+     *
+     * NOT TRANSPORT-RETRIED, and this is the one where it matters most: a retry that Meta saw
+     * the first time starts a SECOND review of the same template, and a merchant waiting on a
+     * verdict now has two. Lynomia's own submission guard catches most of that; not retrying
+     * is the half this side owns.
+     */
+    public function submitMessageTemplate(int $templateId): array
+    {
+        return $this->http->send('post', $this->path("whatsapp/message_templates/{$templateId}/submit"), retryTransport: false);
+    }
+
+    public function duplicateMessageTemplate(int $templateId): array
+    {
+        return $this->http->send('post', $this->path("whatsapp/message_templates/{$templateId}/duplicate"), retryTransport: false);
+    }
+
+    // ------------------------------------------------------------------ audiences
+
+    /**
+     * The workspace's saved contact filters -- its audiences.
+     *
+     * READ AND WRITTEN THROUGH LYNOMIA, never kept here. An audience is a QUERY, evaluated by
+     * Lynomia against its own contacts and its own commerce summaries at the moment a campaign
+     * sends; a copy of the conditions in this database would be a second definition that the
+     * sender does not read, and the first time the two disagreed the merchant would be shown
+     * one audience and send to another.
+     */
+    public function listAudiences(): array
+    {
+        return $this->http->send('get', $this->path('custom_filters'), ['filter_type' => 'contact']);
+    }
+
+    public function createAudience(string $name, array $query): array
+    {
+        return $this->http->send('post', $this->path('custom_filters'), [
+            'custom_filter' => ['name' => $name, 'filter_type' => 'contact', 'shared' => true, 'query' => $query],
+        ], retryTransport: false);
+    }
+
+    public function updateAudience(int $audienceId, array $attributes): array
+    {
+        return $this->http->send('patch', $this->path("custom_filters/{$audienceId}"), [
+            'custom_filter' => $attributes,
+        ], retryTransport: false);
+    }
+
+    /**
+     * Upstream refuses to delete an audience a campaign or an automation rule still uses, and
+     * says which -- so this reports that refusal rather than pre-checking it here, where the
+     * answer could be stale by the time the delete lands.
+     */
+    public function deleteAudience(int $audienceId): array
+    {
+        return $this->http->send('delete', $this->path("custom_filters/{$audienceId}"), retryTransport: false);
+    }
+
+    /**
+     * How many contacts an audience selects RIGHT NOW, counted on Lynomia's side.
+     *
+     * `commerce_store_id` narrows the commerce aggregates to this installation's links, which
+     * is what a campaign for this store will do when it sends. Without it the count answers
+     * "orders anywhere" while the send answers "orders with us", and the merchant is shown a
+     * number their campaign cannot reach.
+     */
+    public function previewAudience(array $audience, ?int $commerceStoreId = null): array
+    {
+        return $this->http->send('post', $this->path('campaigns/audience_preview'), array_filter([
+            'audience' => $audience,
+            'commerce_store_id' => $commerceStoreId,
+        ], static fn ($value) => $value !== null));
+    }
+
+    /** What the commerce conditions can be built from: the stores, the currencies, the gaps. */
+    public function audienceFields(): array
+    {
+        return $this->http->send('get', $this->path('commerce/audience_fields'));
+    }
+
     /** Find a shopper by name, email or phone, to look at or change their consent. */
     public function searchContacts(string $query): array
     {

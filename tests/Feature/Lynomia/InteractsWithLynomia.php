@@ -113,7 +113,7 @@ trait InteractsWithLynomia
         // control: the staff tests entitle the tenant and withhold individual permissions.
         $this->grantLynomiaPermission($owner, [
             'Manage Lynomia Chat', 'Reply Lynomia Chat', 'Assign Lynomia Chat',
-            'Manage Lynomia Automation', 'Manage Lynomia Consent',
+            'Manage Lynomia Automation', 'Manage Lynomia Consent', 'Manage Lynomia Audiences', 'Manage Lynomia Templates',
         ]);
     }
 
@@ -330,6 +330,71 @@ trait InteractsWithLynomia
                     => Http::response(['id' => 1, 'name' => 'Agent'], 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/conversations/\d+/update_last_seen$#', $path)
                     => Http::response([], 200),
+                // --------------------------------------------------- Phase 5C: templates
+                //
+                // The manager's own endpoints. `allowed_actions` and `validation_problems`
+                // are scripted, because what the page may OFFER is the server's answer and a
+                // stub that always returned the same set would make the "renders only what
+                // the server allows" test vacuous.
+                (bool) preg_match('#^/api/v1/accounts/\d+/whatsapp/message_templates$#', $path) && $method === 'GET'
+                    => Http::response([
+                        'payload' => $this->lynomiaScript['templates'] ?? [],
+                        'waba_contexts' => $this->lynomiaScript['waba_contexts'] ?? [],
+                    ], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/whatsapp/message_templates$#', $path) && $method === 'POST'
+                    => Http::response(array_merge(
+                        ['id' => 31, 'state' => 'draft', 'allowed_actions' => ['edit', 'submit', 'destroy'],
+                            'validation_problems' => []],
+                        json_decode($request->body(), true) ?? []
+                    ), 201),
+                (bool) preg_match('#/whatsapp/message_templates/\d+/submit$#', $path)
+                    => Http::response(['id' => 31, 'state' => 'submitting', 'allowed_actions' => [],
+                        'validation_problems' => []], 200),
+                (bool) preg_match('#/whatsapp/message_templates/\d+/duplicate$#', $path)
+                    => Http::response(['id' => 32, 'state' => 'draft', 'name' => 'copy',
+                        'allowed_actions' => ['edit', 'submit', 'destroy'], 'validation_problems' => []], 201),
+                (bool) preg_match('#/whatsapp/message_templates/\d+$#', $path) && $method === 'DELETE'
+                    => Http::response([], 200),
+                (bool) preg_match('#/whatsapp/message_templates/\d+$#', $path)
+                    => Http::response(array_merge(
+                        ['id' => 31, 'state' => 'draft', 'allowed_actions' => ['edit', 'submit', 'destroy'],
+                            'validation_problems' => []],
+                        json_decode($request->body(), true) ?? []
+                    ), 200),
+
+                // --------------------------------------------------- Phase 5B: audiences
+                //
+                // The saved contact filters a merchant's audiences are. Scripted rather than
+                // fixed, because the list is what the page renders and a test that could not
+                // vary it would only ever prove the empty case.
+                (bool) preg_match('#^/api/v1/accounts/\d+/custom_filters$#', $path) && $method === 'GET'
+                    => Http::response(['payload' => $this->lynomiaScript['audiences'] ?? []], 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/custom_filters$#', $path) && $method === 'POST'
+                    => Http::response(array_merge(
+                        ['id' => 12, 'shared' => true, 'filter_type' => 'contact'],
+                        json_decode($request->body(), true)['custom_filter'] ?? []
+                    ), 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/custom_filters/\d+$#', $path) && $method === 'DELETE'
+                    => Http::response([], 204),
+                (bool) preg_match('#^/api/v1/accounts/\d+/custom_filters/\d+$#', $path)
+                    => Http::response(array_merge(
+                        ['id' => 12, 'shared' => true, 'filter_type' => 'contact'],
+                        json_decode($request->body(), true)['custom_filter'] ?? []
+                    ), 200),
+                (bool) preg_match('#^/api/v1/accounts/\d+/commerce/audience_fields$#', $path)
+                    => Http::response($this->lynomiaScript['audience_fields']
+                        ?? ['stores' => [], 'currencies' => [], 'unread_contacts' => 0], 200),
+                // TWO ANSWERS FROM ONE STUB, told apart by whether the request names a store:
+                // the scoped count and the account-wide one are the two numbers the page
+                // shows side by side, and a stub that answered the same for both would make
+                // the store-scope test vacuous.
+                (bool) preg_match('#^/api/v1/accounts/\d+/campaigns/audience_preview$#', $path)
+                    => Http::response([
+                        'count' => (json_decode($request->body(), true)['commerce_store_id'] ?? null) !== null
+                            ? ($this->lynomiaScript['audience_preview']['scoped'] ?? 0)
+                            : ($this->lynomiaScript['audience_preview']['all'] ?? 0),
+                    ], 200),
+
                 (bool) preg_match('#^/api/v1/accounts/\d+/agents$#', $path)
                     => Http::response([['id' => 1, 'name' => 'Agent', 'email' => 'agent@example.test']], 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/contacts/\d+$#', $path)

@@ -65,6 +65,9 @@ class IntegrationController extends Controller
         'Assign Lynomia Chat',
         'Manage Lynomia Automation',
         'Manage Lynomia Consent',
+        'Manage Lynomia Audiences',
+        'Manage Lynomia Templates',
+        'Manage Lynomia Campaigns',
     ];
 
     public function show(): View
