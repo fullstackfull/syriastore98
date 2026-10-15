@@ -58,7 +58,11 @@ class AudienceApiController extends Controller
     public function index(Request $request): JsonResponse
     {
         return $this->proxy($request, function (AgentApiClient $client) {
-            $payload = $client->listAudiences()['payload'] ?? $client->listAudiences();
+            // ONE CALL. `$client->listAudiences()['payload'] ?? $client->listAudiences()`
+            // evaluates the right-hand side whenever the response has no `payload` key, so
+            // every load of this page made the same upstream request twice.
+            $body = $client->listAudiences();
+            $payload = $body['payload'] ?? $body;
 
             return ['audiences' => $this->project(is_array($payload) ? $payload : [])];
         });

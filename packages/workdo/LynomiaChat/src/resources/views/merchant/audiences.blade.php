@@ -83,6 +83,12 @@
                 <input type="text" class="form-control form-control-sm mb-3" id="lyna-name" maxlength="100"
                        placeholder="{{ __('for example Repeat buyers') }}">
 
+                <label for="lyna-match" class="form-label small">{{ __('A customer is in this audience when') }}</label>
+                <select class="form-select form-select-sm mb-3" id="lyna-match">
+                    <option value="and">{{ __('every condition is true') }}</option>
+                    <option value="or">{{ __('any condition is true') }}</option>
+                </select>
+
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <label class="form-label small mb-0">{{ __('Conditions') }}</label>
                     <small class="text-muted">{{ __('A customer must match all of them.') }}</small>
@@ -267,6 +273,11 @@
         state.draft = audience ? JSON.parse(JSON.stringify(audience.payload || [])) : [];
         $('#lyna-modal-errors').addClass('d-none').text('');
         $('#lyna-name').val(audience ? audience.name : '');
+        // READ FROM THE AUDIENCE, not assumed. The payload carried `query_operator: 'and'`
+        // unconditionally, so editing an audience built with OR anywhere else -- the Lynomia
+        // dashboard, the API -- rewrote it to AND and silently narrowed who it selects. The
+        // operator belongs to the audience, so it is shown and sent back as it was found.
+        $('#lyna-match').val(operatorOf(audience));
         $('#lyna-modal-title').text(audience ? @json(__('Edit audience')) : @json(__('New audience')));
         $('#lyna-unread').text(
             state.references.unread_contacts > 0
@@ -357,6 +368,19 @@
 
     $('#lyna-new').on('click', function () { openEditor(null); });
 
+    // One operator for the whole audience, which is what the control offers and what the
+    // conditions upstream are read with. Taken from the first condition that states one: a
+    // payload is a list and every entry carries the same value.
+    function operatorOf(audience) {
+        var conditions = (audience && audience.payload) || [];
+        for (var i = 0; i < conditions.length; i++) {
+            var value = String(conditions[i].query_operator || '').toLowerCase();
+            if (value === 'or' || value === 'and') { return value; }
+        }
+
+        return 'and';
+    }
+
     $('#lyna-save').on('click', function () {
         var name = $.trim($('#lyna-name').val());
         if (!name) { return $('#lyna-modal-errors').text(T.nameRequired).removeClass('d-none'); }
@@ -369,12 +393,13 @@
         });
         if (incomplete) { return $('#lyna-modal-errors').text(T.valueRequired).removeClass('d-none'); }
 
+        var chosen = $('#lyna-match').val() === 'or' ? 'or' : 'and';
         var payload = state.draft.map(function (condition) {
             return {
                 attribute_key: condition.attribute_key,
                 filter_operator: condition.filter_operator,
                 values: condition.values || [],
-                query_operator: 'and'
+                query_operator: chosen
             };
         });
 

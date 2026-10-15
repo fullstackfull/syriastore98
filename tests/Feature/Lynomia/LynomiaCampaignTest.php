@@ -193,6 +193,41 @@ class LynomiaCampaignTest extends TestCase
     }
 
     /**
+     * THE CHANNEL A CAMPAIGN SENDS FROM, which the page had no way to offer.
+     *
+     * Upstream binds a campaign to an inbox at creation and validates the campaign type
+     * against that inbox's channel. The page read a `data-inbox` attribute nothing ever set
+     * and fell back to `inbox_id: 1`, so every campaign went to whichever inbox happened to
+     * be first in the workspace -- or was refused outright when that id was not a campaign
+     * channel. The list has to come from the server, and only the channels that have a
+     * one-off sender belong in it.
+     */
+    public function test_the_channels_a_campaign_can_be_sent_from_reach_the_page(): void
+    {
+        [$owner] = $this->connectedTenant();
+        $this->lynomiaScript['campaigns'] = [];
+
+        $body = $this->actingAs($owner)->getJson(self::CAMPAIGNS)->assertOk()->json();
+
+        $this->assertSame(
+            [['id' => 9, 'name' => 'WhatsApp', 'channel_type' => 'Channel::Whatsapp']],
+            $body['inboxes']
+        );
+    }
+
+    /** An inbox payload carries a phone number and a provider config; neither may be passed on. */
+    public function test_the_inbox_list_carries_no_phone_number_or_provider_config(): void
+    {
+        [$owner] = $this->connectedTenant();
+        $this->lynomiaScript['campaigns'] = [];
+
+        $body = $this->actingAs($owner)->getJson(self::CAMPAIGNS)->assertOk()->json();
+
+        $this->assertStringNotContainsString('963900000000', json_encode($body));
+        $this->assertStringNotContainsString('INBOX-SECRET-MUST-NOT-LEAK', json_encode($body));
+    }
+
+    /**
      * THE FIELD THAT MAKES THE SEND MATCH THE PREVIEW. Upstream reads `commerce_store_id` to
      * narrow the audience's commerce aggregates to this installation's customers AND to
      * consult this store's checkout opt-ins at the send boundary. The preview sent it and

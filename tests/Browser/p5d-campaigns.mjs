@@ -33,6 +33,12 @@ const CAMPAIGNS = {
     { id: 54, display_id: 6, title: 'Done', message: 'Hi', campaign_status: 'completed',
       scheduled_at: null, audience: [], blocked_reason: null },
   ],
+  // The channels a campaign may be sent from, which the server now supplies and the page
+  // offers. It used to send `inbox_id: 1` read from an attribute nothing set.
+  inboxes: [
+    { id: 9, name: 'WhatsApp', channel_type: 'Channel::Whatsapp' },
+    { id: 11, name: 'SMS', channel_type: 'Channel::Sms' },
+  ],
 };
 
 const AUDIENCES = { audiences: [{ id: 12, name: 'Repeat buyers', shared: true, payload: [] }] };
@@ -148,6 +154,12 @@ async function open(page) {
   check('a complete campaign is sent with its audience', posted.length === 1
     && posted[0].title === 'Spring sale'
     && posted[0]['audience[0][type]'] === 'Audience', JSON.stringify(posted[0] || {}).slice(0, 140));
+
+  // THE CHANNEL IS THE MERCHANT'S CHOICE AND IT TRAVELS. The page used to send a hardcoded
+  // `inbox_id: 1`, so a campaign went to whichever inbox happened to be first in the
+  // workspace -- or was refused, because id 1 need not be a campaign channel at all.
+  check('the chosen channel is what is sent', String(posted[0] && posted[0].inbox_id) === '9',
+    String(posted[0] && posted[0].inbox_id));
 
   await context.close();
 }

@@ -56,9 +56,36 @@ class TemplateApiController extends Controller
                 // Which WABA each inbox belongs to and when its mirror was last refreshed.
                 // Rendered as "last checked N minutes ago", because a status with no age is a
                 // status a merchant cannot weigh.
-                'waba_contexts' => is_array($body['waba_contexts'] ?? null) ? $body['waba_contexts'] : [],
+                //
+                // READ FROM `meta.whatsapp_business_accounts`, which is where upstream puts
+                // it. This read a top-level `waba_contexts` key that upstream has never
+                // sent, so the list was ALWAYS empty -- and the list is what fills the
+                // "WhatsApp number" picker, so the picker was always empty and no template
+                // could be created from this page at all.
+                'waba_contexts' => $this->wabaContexts($body),
             ];
         });
+    }
+
+    /**
+     * One entry per WhatsApp Business Account this workspace has connected: the inboxes on
+     * it, and when its templates were last read from Meta.
+     *
+     * A LIST, not a map keyed by WABA id. Upstream sends a list and the page iterated an
+     * object; normalising here rather than in Blade keeps the shape question in one place
+     * and leaves the page with something it can simply loop over.
+     *
+     * @return array<int, array{id: string, inboxes: array<int, mixed>, last_synced_at: int|null}>
+     */
+    private function wabaContexts(array $body): array
+    {
+        $rows = $body['meta']['whatsapp_business_accounts'] ?? null;
+
+        return array_values(array_map(static fn (array $row): array => [
+            'id' => (string) ($row['id'] ?? ''),
+            'inboxes' => is_array($row['inboxes'] ?? null) ? $row['inboxes'] : [],
+            'last_synced_at' => isset($row['last_synced_at']) ? (int) $row['last_synced_at'] : null,
+        ], array_filter(is_array($rows) ? $rows : [], 'is_array')));
     }
 
     public function store(Request $request): JsonResponse

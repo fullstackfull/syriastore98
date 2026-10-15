@@ -43,17 +43,54 @@ class CampaignApiController extends Controller
 
     private const RECIPIENTS_PER_PAGE = 25;
 
+    /** The channels that have a one-off campaign sender upstream. */
+    private const CAMPAIGN_CHANNELS = ['Channel::Whatsapp', 'Channel::Sms', 'Channel::TwilioSms'];
+
     public function __construct(private readonly MerchantInboxGateway $gateway)
     {
     }
 
+    /**
+     * The campaigns, and the channels one may be sent from.
+     *
+     * THE INBOX LIST IS NOT DECORATION. A campaign is bound to an inbox at creation and
+     * upstream validates the campaign type against that inbox's channel, so the merchant
+     * has to choose one -- and the page had no way to offer the choice. It sent
+     * `inbox_id: 1` on every create, read from a `data-inbox` attribute that nothing ever
+     * set, so a campaign either went to whichever inbox happened to be first in the
+     * workspace or was refused outright.
+     */
     public function index(Request $request): JsonResponse
     {
         return $this->proxy($request, function (AgentApiClient $client) {
             $body = $client->listCampaigns();
 
-            return ['campaigns' => $this->project($body['payload'] ?? $body)];
+            return [
+                'campaigns' => $this->project($body['payload'] ?? $body),
+                'inboxes' => $this->sendableInboxes($client),
+            ];
         });
+    }
+
+    /**
+     * The workspace's inboxes a one-off campaign can be sent from, which is the three
+     * channels that have a campaign sender: WhatsApp, SMS and Twilio SMS. Filtered here
+     * rather than in the page, because which channels can carry a campaign is a fact about
+     * the platform and not about this screen.
+     *
+     * @return array<int, array{id: int, name: string, channel_type: string}>
+     */
+    private function sendableInboxes(AgentApiClient $client): array
+    {
+        $rows = $client->listInboxes();
+        $rows = is_array($rows['payload'] ?? null) ? $rows['payload'] : (is_array($rows) ? $rows : []);
+
+        return array_values(array_map(static fn (array $row): array => [
+            'id' => (int) ($row['id'] ?? 0),
+            'name' => (string) ($row['name'] ?? ''),
+            'channel_type' => (string) ($row['channel_type'] ?? ''),
+        ], array_filter($rows, static fn ($row): bool => is_array($row)
+            && in_array($row['channel_type'] ?? '', self::CAMPAIGN_CHANNELS, true))));
     }
 
     /**
@@ -309,17 +346,24 @@ class CampaignApiController extends Controller
     /** One row per addressed contact: what happened, and -- when nothing did -- why not. */
     private function projectRecipients($rows): array
     {
-        return array_values(array_map(static fn (array $row): array => [
-            'contact_name' => (string) ($row['contact_name'] ?? ''),
-            'status' => $row['status'] ?? null,
-            // The skip reason, which is the half a delivery count cannot tell. Upstream
-            // keeps these as fixed strings carrying no contact data, so they are safe to show.
-            'reason' => $row['error_message'] ?? null,
-            'sent_at' => $row['sent_at'] ?? null,
-            'delivered_at' => $row['delivered_at'] ?? null,
-            'read_at' => $row['read_at'] ?? null,
-            'failed_at' => $row['failed_at'] ?? null,
-        ], array_filter(is_array($rows) ? $rows : [], 'is_array')));
+        return array_values(array_map(static function (array $row): array {
+            // NESTED, because that is where upstream puts it: the row carries
+            // `contact: {id, name, phone_number}`. Read as a top-level `contact_name` it was
+            // always blank, so the results table listed a column of empty names beside the
+            // outcomes they belonged to.
+            $contact = is_array($row['contact'] ?? null) ? $row['contact'] : [];
+
+            return [
+                'contact_name' => (string) ($contact['name'] ?? ''),
+                'status' => $row['status'] ?? null,
+                // The reason, which is the half a delivery count cannot tell -- read
+                // message, then title, then code, which is the order upstream documents and
+                // the order in which any one of the three is a usable sentence. Upstream
+                // keeps these as fixed strings carrying no contact data, so they are safe
+                // to show.
+                'reason' => $row['error_message'] ?? ($row['error_title'] ?? ($row['error_code'] ?? null)),
+            ];
+        }, array_filter(is_array($rows) ? $rows : [], 'is_array')));
     }
 
     /**

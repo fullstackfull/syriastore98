@@ -78,6 +78,9 @@
                 <input type="text" class="form-control form-control-sm mb-3" id="lyncp-title" maxlength="255"
                        placeholder="{{ __('for example Spring sale') }}">
 
+                <label for="lyncp-inbox" class="form-label small">{{ __('Send from') }}</label>
+                <select class="form-select form-select-sm mb-3" id="lyncp-inbox"></select>
+
                 <label for="lyncp-audience" class="form-label small">{{ __('Audience') }}</label>
                 <select class="form-select form-select-sm mb-2" id="lyncp-audience"></select>
 
@@ -163,6 +166,8 @@
         titleRequired: @json(__('Give the campaign a name.')),
         messageRequired: @json(__('Write the message.')),
         audienceRequired: @json(__('Choose an audience.')),
+        inboxRequired: @json(__('Choose which channel this campaign sends from.')),
+        noInboxes: @json(__('No WhatsApp or SMS channel is connected yet, so a campaign cannot be sent.')),
         willReach: @json(__('This will reach :count customers. Everyone who has not agreed, has opted out or cannot be messaged is already excluded.')),
         counting: @json(__('counting…')),
         statuses: {
@@ -198,13 +203,36 @@
     function alertNow(xhr) { $('#lyncp-alert').text(failureOf(xhr)).removeClass('d-none'); }
     function noteNow(message) { $('#lyncp-note').text(message).removeClass('d-none'); }
     function urlFor(template, id) { return template.replace(/\/0(?=\/|$)/, '/' + String(id)); }
-    function when(value) {
-        if (!value) { return ''; }
-        var parsed = new Date(value);
-        return isNaN(parsed.getTime()) ? '' : parsed.toLocaleString(PAGE_LOCALE);
+    // UPSTREAM SENDS UNIX SECONDS (`json.scheduled_at resource.scheduled_at.to_i`) and the
+    // JavaScript Date constructor reads a bare number as MILLISECONDS, so every scheduled
+    // campaign was rendered as a date in January 1970. Strings are left to the parser, which
+    // is what handles an ISO timestamp from anywhere else.
+    function asDate(value) {
+        if (!value) { return null; }
+        var parsed = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
+
+        return isNaN(parsed.getTime()) ? null : parsed;
     }
 
-    var state = { campaigns: [], audiences: [], editing: null };
+    function when(value) {
+        var parsed = asDate(value);
+
+        return parsed ? parsed.toLocaleString(PAGE_LOCALE) : '';
+    }
+
+    // `datetime-local` wants `YYYY-MM-DDTHH:mm` in LOCAL time, which toISOString does not
+    // give -- it converts to UTC, so a merchant reopening a campaign would see a time
+    // shifted by their offset.
+    function asLocalInput(value) {
+        var parsed = asDate(value);
+        if (!parsed) { return ''; }
+        var pad = function (n) { return String(n).padStart(2, '0'); };
+
+        return parsed.getFullYear() + '-' + pad(parsed.getMonth() + 1) + '-' + pad(parsed.getDate())
+            + 'T' + pad(parsed.getHours()) + ':' + pad(parsed.getMinutes());
+    }
+
+    var state = { campaigns: [], audiences: [], inboxes: [], editing: null };
 
     function renderList() {
         var $list = $('#lyncp-list').empty();
@@ -354,7 +382,12 @@
         $('#lyncp-modal-title').text(campaign ? @json(__('Edit campaign')) : @json(__('New campaign')));
         $('#lyncp-title').val(campaign ? campaign.title : '');
         $('#lyncp-message').val(campaign ? campaign.message : '');
-        $('#lyncp-schedule').val('');
+        // PREFILLED WHEN EDITING, because the field is not optional-by-omission: a campaign
+        // that is already scheduled has a time, and blanking the box made the editor look
+        // like it had none and then send nothing, so "Send at" silently did not apply to
+        // the one case where somebody is changing it.
+        $('#lyncp-schedule').val(campaign ? asLocalInput(campaign.scheduled_at) : '');
+        fillInboxes(campaign);
         renderAudiences(campaign);
         previewAudience();
         bootstrap.Modal.getOrCreateInstance(document.getElementById('lyncp-modal')).show();
@@ -404,7 +437,11 @@
         var payload = { title: title, message: message, audience: audience };
         var scheduled = $('#lyncp-schedule').val();
         if (scheduled) { payload.scheduled_at = scheduled; }
-        if (!editing) { payload.inbox_id = $('#lyncp-audience').attr('data-inbox') || 1; }
+        if (!editing) {
+            var inbox = $('#lyncp-inbox').val();
+            if (!inbox) { return $('#lyncp-modal-errors').text(T.inboxRequired).removeClass('d-none'); }
+            payload.inbox_id = inbox;
+        }
 
         $.ajax({
             url: editing ? urlFor(UPDATE_TEMPLATE, editing.display_id) : STORE,
@@ -420,13 +457,45 @@
         });
     });
 
+    // THE CHANNEL A CAMPAIGN SENDS FROM. Disabled while editing, because upstream binds a
+    // campaign to its inbox at creation and refuses to move it afterwards -- the field is
+    // shown rather than hidden so an editor can still see which number it goes to.
+    function fillInboxes(campaign) {
+        var $select = $('#lyncp-inbox').empty().prop('disabled', !!campaign);
+
+        if (campaign) {
+            var current = campaign.inbox || {};
+            $select.append($('<option>').attr('value', current.id || '').text(current.name || ''));
+
+            return;
+        }
+
+        if (!state.inboxes.length) {
+            $select.append($('<option>').attr('value', '').text(T.noInboxes));
+
+            return;
+        }
+
+        state.inboxes.forEach(function (inbox) {
+            $select.append($('<option>').attr('value', inbox.id).text(inbox.name || inbox.id));
+        });
+    }
+
     function load() {
         $('#lyncp-alert').addClass('d-none');
         $.getJSON(AUDIENCES)
             .done(function (body) { state.audiences = (body && body.audiences) || []; })
             .always(function () {
                 $.getJSON(INDEX)
-                    .done(function (body) { state.campaigns = (body && body.campaigns) || []; renderList(); })
+                    .done(function (body) {
+                        state.campaigns = (body && body.campaigns) || [];
+                        // Which channel a campaign sends from is the merchant's choice and
+                        // the server's list: upstream binds a campaign to an inbox and
+                        // validates the type against it, so a guess here is a campaign that
+                        // is refused or sent from the wrong number.
+                        state.inboxes = (body && body.inboxes) || [];
+                        renderList();
+                    })
                     .fail(alertNow);
             });
     }

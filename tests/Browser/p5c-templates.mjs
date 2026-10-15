@@ -47,7 +47,10 @@ const TEMPLATES = {
       last_seen_at: 1760000000, missing_at_meta: true, inboxes: [{ id: 7, name: 'WhatsApp' }],
       allowed_actions: ['edit', 'submit', 'destroy'], validation_problems: [] },
   ],
-  waba_contexts: { '1234': { inboxes: [{ id: 7, name: 'WhatsApp' }] } },
+  // A LIST, as the server now sends it: upstream puts these under
+  // `meta.whatsapp_business_accounts` and the controller normalises that to one entry per
+  // WABA. The old map shape here matched a key the producer never sent.
+  waba_contexts: [{ id: '1234', inboxes: [{ id: 7, name: 'WhatsApp' }], last_synced_at: 1760000000 }],
 };
 
 const browser = await chromium.launch();

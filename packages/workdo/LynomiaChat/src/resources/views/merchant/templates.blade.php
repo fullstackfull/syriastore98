@@ -411,8 +411,7 @@
                 // from the server rather than guessed, because a number that is not on this
                 // WhatsApp Business Account cannot hold a template at all.
                 state.inboxes = [];
-                (body && body.waba_contexts ? Object.keys(body.waba_contexts) : []).forEach(function (key) {
-                    var context = body.waba_contexts[key] || {};
+                ((body && body.waba_contexts) || []).forEach(function (context) {
                     (context.inboxes || []).forEach(function (inbox) { state.inboxes.push(inbox); });
                 });
                 renderList();

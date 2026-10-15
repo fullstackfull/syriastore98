@@ -361,9 +361,14 @@ trait InteractsWithLynomia
                 // stub that always returned the same set would make the "renders only what
                 // the server allows" test vacuous.
                 (bool) preg_match('#^/api/v1/accounts/\d+/whatsapp/message_templates$#', $path) && $method === 'GET'
+                    // SHAPED LIKE THE REAL PRODUCER: upstream puts the WABA contexts under
+                    // `meta.whatsapp_business_accounts`, as a LIST of {id, inboxes,
+                    // last_synced_at}. This fake used to invent a top-level `waba_contexts`
+                    // map, the controller read that invented key, and both were green while
+                    // the real page's WhatsApp-number picker was permanently empty.
                     => Http::response([
                         'payload' => $this->lynomiaScript['templates'] ?? [],
-                        'waba_contexts' => $this->lynomiaScript['waba_contexts'] ?? [],
+                        'meta' => ['whatsapp_business_accounts' => $this->lynomiaScript['waba_contexts'] ?? []],
                     ], 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/whatsapp/message_templates$#', $path) && $method === 'POST'
                     => Http::response(array_merge(

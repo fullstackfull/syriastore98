@@ -51,6 +51,42 @@ class LynomiaTemplateTest extends TestCase
         ], $overrides);
     }
 
+    /**
+     * THE PICKER'S SOURCE, which nothing asserted and which was therefore always empty.
+     *
+     * A new template must name the WhatsApp number it belongs to -- a number that is not on
+     * this WhatsApp Business Account cannot hold one -- and the page fills that select from
+     * this key. The controller read a top-level `waba_contexts` that upstream has never
+     * sent (it is `meta.whatsapp_business_accounts`), so the select had no options and no
+     * template could be created from this page at all. Neither side's tests could see it:
+     * the fake emitted the invented key too.
+     */
+    public function test_the_whatsapp_numbers_a_template_can_belong_to_reach_the_page(): void
+    {
+        $owner = $this->connectedOwner();
+        $this->lynomiaScript['templates'] = [$this->approved()];
+        $this->lynomiaScript['waba_contexts'] = [
+            ['id' => '1234', 'inboxes' => [['id' => 7, 'name' => 'WhatsApp']], 'last_synced_at' => 1760000000],
+        ];
+
+        $body = $this->actingAs($owner)->getJson(self::TEMPLATES)->assertOk()->json();
+
+        $this->assertCount(1, $body['waba_contexts']);
+        $this->assertSame('1234', $body['waba_contexts'][0]['id']);
+        $this->assertSame([['id' => 7, 'name' => 'WhatsApp']], $body['waba_contexts'][0]['inboxes']);
+        $this->assertSame(1760000000, $body['waba_contexts'][0]['last_synced_at']);
+    }
+
+    public function test_a_workspace_with_no_whatsapp_number_reports_an_empty_picker_rather_than_failing(): void
+    {
+        $owner = $this->connectedOwner();
+        $this->lynomiaScript['templates'] = [];
+
+        $body = $this->actingAs($owner)->getJson(self::TEMPLATES)->assertOk()->json();
+
+        $this->assertSame([], $body['waba_contexts']);
+    }
+
     // ================================================================ the walls
 
     public function test_every_template_route_carries_the_full_stack(): void
