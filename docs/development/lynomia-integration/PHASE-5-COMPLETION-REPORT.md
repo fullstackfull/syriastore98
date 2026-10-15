@@ -211,10 +211,12 @@ kept, with the reasoning corrected, rather than discarded on a technicality.
 ## 8. Commits
 
 **Lynomia** (`claude/store-syria-lynomia-integration-1oa1tt`), Phase 5 tail:
-`3331d245`, `6054da6d`, `241f623f`, `8ee0ce70`, `597b8ce4`, `3874fa4b`, `fd5ee925`, `5b1f269e`
+`5fde4281`, `3331d245`, `6054da6d`, `241f623f`, `8ee0ce70`, `597b8ce4`, `3874fa4b`,
+`fd5ee925`, `5b1f269e`, `e11d941c`
 
 **Store Syria** (same branch):
-`b9b49501`, `ed426f45`, `9fd26f27`, `6f4b026e`, `44885342`, `628d5003`, `559ab910`
+`b9b49501`, `ed426f45`, `9fd26f27`, `6f4b026e`, `44885342`, `628d5003`, `559ab910`, plus the
+documentation commit carrying this report.
 
 ## 9. What is still open
 
