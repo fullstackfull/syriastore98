@@ -183,7 +183,14 @@ class LynomiaMarketingAllowanceTest extends TestCase
 
     /**
      * An operator granting an add-on must not get an error because Lynomia is briefly
-     * unreachable; the next sync corrects it, and the failure is logged with the store.
+     * unreachable. That is `syncQuietly`'s job and it reports the failure rather than
+     * hiding it: `sync` itself raises, because something has to, and the scheduled sweep
+     * needs to know whether a push landed.
+     *
+     * THE SWALLOW USED TO BE INSIDE `sync` AND SAID "the next sync corrects it". There was
+     * no next sync -- the three callers were all one-shot operator actions and nothing was
+     * scheduled -- so a failed push was lost for good. The sweep below is what makes the
+     * sentence true.
      */
     public function test_an_unreachable_lynomia_does_not_fail_the_grant(): void
     {
@@ -192,7 +199,27 @@ class LynomiaMarketingAllowanceTest extends TestCase
             'PUT /platform/api/v1/accounts/7001/entitlement_grants' => Http::failedConnection(),
         ];
 
-        $this->assertNull($this->sync()->sync($link, $owner));
+        $this->assertFalse($this->sync()->syncQuietly($link, $owner));
+    }
+
+    /**
+     * THE SWEEP IS WHAT MAKES AN EXPIRED TRIAL STOP COSTING MONEY, and it is not a retry
+     * mechanism bolted on: a marketing allowance changes when NOBODY DOES ANYTHING, because
+     * a trial is an add-on with a date on it. The ceiling Lynomia enforces is the last one
+     * it was told, so without a scheduled push a merchant keeps a lapsed trial's allowance
+     * indefinitely.
+     */
+    public function test_the_scheduled_sweep_pushes_the_marketing_allowance_for_every_link(): void
+    {
+        [, , $link] = $this->connected(includedSends: 1000);
+
+        $this->artisan('lynomia:reconcile-events')->assertSuccessful();
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'entitlement_grants')
+            && strtoupper($request->method()) === 'PUT'
+            && ($request['resource'] ?? null) === MarketingAllowanceSync::RESOURCE
+            && (int) ($request['limit_value'] ?? 0) === 1000);
+        $this->assertNotNull($link->fresh());
     }
 
     // ================================================================ the operator surface

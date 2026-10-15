@@ -330,7 +330,10 @@ class IntegrationController extends Controller
             'actor_id' => auth()->id(),
         ]);
 
-        $this->marketing->sync($link, auth()->user());
+        // Quietly, and the sweep behind it is what makes that safe: an unreachable workspace
+        // must not fail an operator's grant, and lynomia:reconcile-events re-pushes the
+        // allowance for every link every five minutes rather than losing it.
+        $this->marketing->syncQuietly($link, auth()->user());
 
         return back()->with('success', __('Add-on granted.'));
     }
@@ -355,7 +358,7 @@ class IntegrationController extends Controller
                         continue;
                     }
 
-                    $this->marketing->sync($link, auth()->user());
+                    $this->marketing->syncQuietly($link, auth()->user());
                 }
 
                 return true;

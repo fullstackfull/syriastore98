@@ -58,23 +58,10 @@ class MarketingAllowanceSync
 
         $allowance = $this->allowanceFor($link);
 
-        try {
-            if ($allowance === null) {
-                $this->api->withdrawEntitlementGrant((int) $accountId, self::RESOURCE);
-            } else {
-                $this->api->grantEntitlement((int) $accountId, self::RESOURCE, $allowance, $this->planRef($link));
-            }
-        } catch (LynomiaApiException $e) {
-            // NOT RE-THROWN. This runs behind an operator granting an add-on and behind a
-            // plan change; neither should fail because Lynomia is briefly unreachable, and
-            // the next sync corrects it. Logged with the store so it is findable.
-            Log::warning('[lynomia] could not sync the marketing allowance', [
-                'store_id' => $link->store_id,
-                'lynomia_account_id' => $accountId,
-                'kind' => $e->kind,
-            ]);
-
-            return null;
+        if ($allowance === null) {
+            $this->api->withdrawEntitlementGrant((int) $accountId, self::RESOURCE);
+        } else {
+            $this->api->grantEntitlement((int) $accountId, self::RESOURCE, $allowance, $this->planRef($link));
         }
 
         AuditLog::record('lynomia_marketing_allowance_synced', $link, [], [
@@ -87,6 +74,42 @@ class MarketingAllowanceSync
         ]);
 
         return $allowance;
+    }
+
+    /**
+     * The same push, reporting failure rather than raising, for the scheduled sweep.
+     *
+     * WHY THE SWEEP IS NOT OPTIONAL HERE, and why `sync` no longer swallows. This used to
+     * catch LynomiaApiException itself and say "the next sync corrects it" -- and there was
+     * no next sync. SeatAllowanceSync is re-pushed for every link every five minutes by
+     * lynomia:reconcile-events; the marketing allowance had three one-shot callers (an
+     * operator changing a plan, creating an add-on, granting one) and nothing behind them.
+     * So a push that failed while Lynomia was briefly unreachable was lost for good.
+     *
+     * AND AN EXPIRED ADD-ON IS THE SAME HOLE WITHOUT ANY FAILURE AT ALL. A trial is an
+     * add-on with a date on it, so a trial ending changes the allowance with nobody pressing
+     * anything -- and the ceiling Lynomia enforces only changes when something pushes it.
+     * Without the sweep a merchant kept their trial allowance indefinitely.
+     *
+     * Cheap and safe to repeat: the grant endpoint is an upsert, so a store already carrying
+     * the right ceiling is a no-op, and a plan and add-ons that total nothing withdraw rather
+     * than granting zero.
+     */
+    public function syncQuietly(LynomiaStoreLink $link, ?User $actor = null): bool
+    {
+        try {
+            $this->sync($link, $actor);
+
+            return true;
+        } catch (LynomiaApiException $e) {
+            Log::warning('[lynomia] could not sync the marketing allowance', [
+                'store_id' => $link->store_id,
+                'lynomia_account_id' => $link->lynomia_account_id,
+                'kind' => $e->kind,
+            ]);
+
+            return false;
+        }
     }
 
     /**

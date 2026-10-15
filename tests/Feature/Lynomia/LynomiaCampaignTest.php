@@ -191,6 +191,57 @@ class LynomiaCampaignTest extends TestCase
         });
     }
 
+    /**
+     * THE FIELD THAT MAKES THE SEND MATCH THE PREVIEW. Upstream reads `commerce_store_id` to
+     * narrow the audience's commerce aggregates to this installation's customers AND to
+     * consult this store's checkout opt-ins at the send boundary. The preview sent it and
+     * the create did not, so a merchant was shown "40 of your customers" and the campaign
+     * then resolved account-wide and asked nobody's consent record for this store.
+     */
+    public function test_a_created_campaign_is_marked_as_belonging_to_this_installation(): void
+    {
+        [$owner, $store] = $this->connectedTenant();
+        $this->lynomiaScript['audience_fields'] = [
+            'stores' => [['id' => 55, 'name' => 'Damascus', 'provider' => 'storesyria',
+                'external_store_id' => (string) $store->id]],
+            'currencies' => [], 'unread_contacts' => 0,
+        ];
+
+        $this->actingAs($owner)->postJson(self::CAMPAIGNS, [
+            'title' => 'Spring sale', 'message' => 'Hello', 'inbox_id' => 7,
+            'audience' => [['type' => 'Audience', 'id' => 12]],
+        ])->assertOk();
+
+        Http::assertSent(function ($request) {
+            if (! str_contains($request->url(), '/campaigns') || strtoupper($request->method()) !== 'POST') { return false; }
+
+            return (json_decode($request->body(), true)['campaign']['commerce_store_id'] ?? null) === 55;
+        });
+    }
+
+    /**
+     * And when this installation is not among the account's commerce stores -- it was never
+     * connected on the Lynomia side, or was disconnected -- the campaign is still created,
+     * account-wide, rather than being refused. Upstream treats a campaign with no store as
+     * every campaign that existed before this, which is the right fallback: a merchant with
+     * no commerce connection still has labels to send to.
+     */
+    public function test_a_campaign_is_created_account_wide_when_this_store_is_not_connected_upstream(): void
+    {
+        [$owner] = $this->connectedTenant();
+        $this->lynomiaScript['audience_fields'] = ['stores' => [], 'currencies' => [], 'unread_contacts' => 0];
+
+        $this->actingAs($owner)->postJson(self::CAMPAIGNS, [
+            'title' => 'Spring sale', 'message' => 'Hello', 'inbox_id' => 7, 'audience' => [],
+        ])->assertOk();
+
+        Http::assertSent(function ($request) {
+            if (! str_contains($request->url(), '/campaigns') || strtoupper($request->method()) !== 'POST') { return false; }
+
+            return ! isset(json_decode($request->body(), true)['campaign']['commerce_store_id']);
+        });
+    }
+
     public function test_a_campaign_with_no_name_or_no_message_is_refused_without_calling_lynomia(): void
     {
         [$owner] = $this->connectedTenant();

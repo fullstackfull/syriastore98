@@ -55,13 +55,29 @@ class CampaignApiController extends Controller
         });
     }
 
+    /**
+     * THE CAMPAIGN IS MARKED AS THIS INSTALLATION'S WHEN IT IS CREATED, and that one field
+     * is what makes the send behave like the preview.
+     *
+     * Upstream reads `commerce_store_id` in three places -- the audience's commerce
+     * aggregates, the partner half of the send boundary, and the preview. This surface sent
+     * it to the preview and not to the create, so a merchant was shown "40 of your
+     * customers" and the campaign then resolved account-wide against all 180 and consulted
+     * nobody's checkout opt-in. The number and the send have to be the same question.
+     *
+     * ON CREATE ONLY. Which installation a campaign belongs to decides whose consent
+     * authorises it, so it is fixed when the campaign is made rather than movable afterwards.
+     */
     public function store(Request $request): JsonResponse
     {
         $validated = $this->validateCampaign($request);
+        $storeId = (int) $request->attributes->get(EnsureStoreOwnsLink::STORE_ATTRIBUTE);
 
-        return $this->proxy($request, fn (AgentApiClient $client) => [
-            'campaign' => $this->projectOne($client->createCampaign($this->payload($validated))),
-        ]);
+        return $this->proxy($request, function (AgentApiClient $client) use ($validated, $storeId) {
+            $payload = $this->payload($validated) + array_filter(['commerce_store_id' => $this->ownStoreId($client, $storeId)]);
+
+            return ['campaign' => $this->projectOne($client->createCampaign($payload))];
+        });
     }
 
     /**

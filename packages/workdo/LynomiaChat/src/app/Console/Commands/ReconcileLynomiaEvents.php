@@ -9,6 +9,7 @@ use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Models\LynomiaInboxEvent;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\MerchantInboxGateway;
+use Workdo\LynomiaChat\app\Services\MarketingAllowanceSync;
 use Workdo\LynomiaChat\app\Services\SeatAllowanceSync;
 
 /**
@@ -47,7 +48,7 @@ class ReconcileLynomiaEvents extends Command
 
     public const RECONCILE_EVENT = 'reconciled';
 
-    public function handle(MerchantInboxGateway $gateway, SeatAllowanceSync $seats): int
+    public function handle(MerchantInboxGateway $gateway, SeatAllowanceSync $seats, MarketingAllowanceSync $marketing): int
     {
         if (! config('lynomia.enabled')) {
             $this->info('Lynomia integration is disabled; nothing to reconcile.');
@@ -60,6 +61,8 @@ class ReconcileLynomiaEvents extends Command
         $repaired = 0;
         $seatsSynced = 0;
         $seatsFailed = 0;
+        $marketingSynced = 0;
+        $marketingFailed = 0;
 
         // EVERY ACTIVE LINK, NOT A PREFIX OF THEM. This took `--limit=50` by default and
         // ordered by id, so only the fifty lowest-id stores were ever examined: the recovery
@@ -75,7 +78,7 @@ class ReconcileLynomiaEvents extends Command
             ->where('state', 'active')
             ->whereNotNull('lynomia_account_id')
             ->orderBy('id')
-            ->chunkById(100, function ($links) use ($gateway, $seats, &$examined, &$repaired, &$seatsSynced, &$seatsFailed, $limit) {
+            ->chunkById(100, function ($links) use ($gateway, $seats, $marketing, &$examined, &$repaired, &$seatsSynced, &$seatsFailed, &$marketingSynced, &$marketingFailed, $limit) {
                 foreach ($links as $link) {
                     if ($limit !== null && $examined >= $limit) {
                         return false;
@@ -96,13 +99,23 @@ class ReconcileLynomiaEvents extends Command
                     // store already carrying the right ceiling is a no-op, and a plan that
                     // includes nothing withdraws rather than granting zero.
                     $seats->syncQuietly($link) ? $seatsSynced++ : $seatsFailed++;
+
+                    // AND THE MARKETING CEILING WITH IT, for the same reason plus one more.
+                    // A seat allowance only changes when somebody changes a plan; a marketing
+                    // allowance also changes when NOBODY DOES ANYTHING -- a trial is an add-on
+                    // with an expiry date, so a trial ending reduces what the merchant may send
+                    // and nothing pushes that. Without this line a merchant kept their trial
+                    // allowance after the trial was over, because the only number Lynomia
+                    // enforces is the last one it was told.
+                    $marketing->syncQuietly($link) ? $marketingSynced++ : $marketingFailed++;
                 }
 
                 return true;
             });
 
         $this->info("examined={$examined} repaired={$repaired} pruned={$pruned} "
-            . "seats_synced={$seatsSynced} seats_failed={$seatsFailed}");
+            . "seats_synced={$seatsSynced} seats_failed={$seatsFailed} "
+            . "marketing_synced={$marketingSynced} marketing_failed={$marketingFailed}");
 
         return self::SUCCESS;
     }
