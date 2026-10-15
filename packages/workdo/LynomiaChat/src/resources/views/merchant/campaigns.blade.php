@@ -221,6 +221,16 @@
     function alertNow(xhr) { $('#lyncp-alert').text(failureOf(xhr)).removeClass('d-none'); }
     function noteNow(message) { $('#lyncp-note').text(message).removeClass('d-none'); }
     function urlFor(template, id) { return template.replace(/\/0(?=\/|$)/, '/' + String(id)); }
+
+    // THE ONE VALUE IN THIS FIELD THAT IS NOT A SENTENCE. `blocked_reason` carries an
+    // operator's own note most of the time, which is shown as written -- but the system
+    // writes the constant FEATURE_DISABLED into it when a scheduled WhatsApp campaign
+    // reaches its send time without the capability, and the merchant was shown that
+    // literally, in red. Cancelling such a campaign now keeps the reason rather than
+    // erasing it, so it is on screen more often than it used to be.
+    function blockedReason(value) {
+        return value === 'FEATURE_DISABLED' ? T.statuses.blocked : text(value);
+    }
     // UPSTREAM SENDS UNIX SECONDS (`json.scheduled_at resource.scheduled_at.to_i`) and the
     // JavaScript Date constructor reads a bare number as MILLISECONDS, so every scheduled
     // campaign was rendered as a date in January 1970. Strings are left to the parser, which
@@ -276,7 +286,7 @@
             // note goes in the same field as the capability reason, because both answer the
             // one question a merchant asks of a campaign that did nothing.
             if (campaign.blocked_reason) {
-                $card.append($('<div>').addClass('small text-danger mb-2').text(campaign.blocked_reason));
+                $card.append($('<div>').addClass('small text-danger mb-2').text(blockedReason(campaign.blocked_reason)));
             }
 
             $card.append(actionsFor(campaign));

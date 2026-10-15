@@ -457,6 +457,21 @@ class LynomiaCampaignTest extends TestCase
         ])->assertStatus(409);
     }
 
+    /** Editing was the way round the create guard: change the audience, set a time, and the sweep arms it. */
+    public function test_editing_is_refused_when_the_installation_is_unavailable(): void
+    {
+        [$owner, $store] = $this->connectedTenant();
+        LynomiaStoreLink::where('store_id', $store->id)->update(['lynomia_commerce_store_id' => 55]);
+        $this->lynomiaScript['audience_fields'] = ['stores' => [], 'currencies' => [], 'unread_contacts' => 0];
+
+        $this->actingAs($owner)->patchJson(self::CAMPAIGNS . '/3', [
+            'title' => 'Spring sale', 'message' => 'Hello', 'audience' => [], 'scheduled_at' => '2027-01-01T09:00:00Z',
+        ])->assertStatus(409);
+
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/campaigns/')
+            && strtoupper($request->method()) === 'PATCH');
+    }
+
     public function test_a_campaign_with_no_name_or_no_message_is_refused_without_calling_lynomia(): void
     {
         [$owner] = $this->connectedTenant();

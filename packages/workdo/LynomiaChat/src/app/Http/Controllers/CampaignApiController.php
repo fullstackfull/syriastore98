@@ -130,10 +130,21 @@ class CampaignApiController extends Controller
     public function update(Request $request, int $campaign): JsonResponse
     {
         $validated = $this->validateCampaign($request, identityFields: false);
+        $storeId = (int) $request->attributes->get(EnsureStoreOwnsLink::STORE_ATTRIBUTE);
+        $link = $request->attributes->get(EnsureStoreOwnsLink::ATTRIBUTE);
 
-        return $this->proxy($request, fn (AgentApiClient $client) => [
-            'campaign' => $this->projectOne($client->updateCampaign($campaign, $this->payload($validated))),
-        ]);
+        return $this->proxy($request, function (AgentApiClient $client) use ($campaign, $validated, $storeId, $link) {
+            // THE SAME AVAILABILITY CHECK AS `store()`. Creating was refused while the
+            // installation is unavailable and editing was not, so a merchant could still
+            // change a store-scoped campaign's audience and -- through `scheduled_at` --
+            // arm a send that the five-minute sweep picks up and the send boundary then
+            // refuses for every recipient. The scope itself is immutable upstream
+            // (`resolve_commerce_store` is `only: [:create]`), so this is about the state
+            // of the installation and not about moving a campaign between them.
+            $this->scopedStoreId($client, $storeId, $link);
+
+            return ['campaign' => $this->projectOne($client->updateCampaign($campaign, $this->payload($validated)))];
+        });
     }
 
     public function cancel(Request $request, int $campaign): JsonResponse
