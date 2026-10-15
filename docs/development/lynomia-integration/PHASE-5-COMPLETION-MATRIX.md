@@ -186,9 +186,38 @@ review did not.
 | The dashboard preview asks the send's question | FIXED | it sent only the audience, so every preview resolved as SMS and promotional |
 | A cancelled campaign reads as cancelled | FIXED | it read as “Scheduled” in amber, and its Results button was hidden |
 
+## P5H-CLOSURE — the residuals closed, and the third adversarial round
+
+The owner directed that B2.1–B2.9 be closed before the next integration phase opened. All
+nine are closed. Closing them produced a **third** adversarial round, run against the second
+round's fixes: **67 agents, 42 verdicts, 15 findings survived verification — every one of
+them in code written during this verification pass**, 13 in the two commits immediately
+preceding it. All 15 are fixed. The reasoning is in
+`PHASE-5-COMPLETION-REPORT.md` §10.
+
+| Capability | State | Evidence |
+|---|---|---|
+| Full Lynomia RSpec sweep on a frozen tree, at the closure head | VERIFIED | **11,242 examples, 0 failures, 70 pending** (44m47s), at `3402f299` |
+| B2.1 — a store-scoped campaign means this installation's customers, in both expressions | CLOSED | changing `subject_of?` alone would have made the audience WIDER than the send boundary; `refusal` and `filter` changed together, and the agreement population gained the two members that tell them apart |
+| B2.2 — the store identity is what Lynomia was told, not what a setting recomputes | CLOSED | persisted on first use with exactly the value the old code produced, so nothing moves on deploy |
+| B2.3 — the subject race is retryable | CLOSED | `error_code: subject_not_linked` on that 404 and only that one |
+| B2.4 — a cancelled campaign's senders stop | CLOSED | `break` in the two SMS loops, `throw`/`catch` past upstream's loop for WhatsApp, and one `UPDATE` for the remainder |
+| B2.5 — a number that cannot hold a template says so | CLOSED | told once, and New is not offered when it cannot work |
+| B2.6 — cancel exists in Lynomia's own dashboard | CLOSED | behind a confirm dialog that says what cancelling is **not** |
+| B2.7 — **a WhatsApp campaign from Store Syria carries its template** | CLOSED | an approved template, one input per BODY placeholder, refused without them, sent as `{name, language, processed_params}` and no category — the server reads that from the channel |
+| B2.8 — `excluded_counts` | CLOSED | removed rather than left unreachable |
+| B2.9 — four template lookups | CLOSED | the two in `custom/` are one; a spec asserts all four agree |
+| Consent is asked on every outbound surface, not only campaigns | FIXED (round 3) | the automation template action took the class from the RULE'S TRIGGER, so an approved MARKETING template on an order trigger went to a shopper who had withdrawn marketing; the flow Send-template node asked nothing at all |
+| The billing cycle is read from the cycle, not from who wrote the row | FIXED (round 3) | `extend_trial` writes `source: 'stripe'` while leaving `current_period_end` alone, so one button reissued a comp's whole allowance; the mirror case pinned a `canceled` account to one allowance forever |
+| Registration is proved by what Lynomia returned | FIXED (round 3) | `commerce_credential_issued_at` is set before registration is possible and cleared on revoke, so it refused merchants mid-onboarding and widened campaigns after a revoke |
+| A merge republishes the decision that governs the subject | FIXED (round 3) | it published one of two tables, and nothing at all where the base already held the stronger decision — although the customer links have moved by then |
+| The capability signal is not stranded | FIXED (round 3) | `destroy` left it open forever (`unblock!` has no caller anywhere), and the two signal writers raced |
+
 ## Open blockers
 
 | Id | What | Why it is still open |
 |---|---|---|
-| A1 | deployed end-to-end verification between two non-production systems | every cross-system test uses a scriptable fake or the shared artifacts; neither proves DNS, TLS, real credentials, Sidekiq delivery, clock skew between hosts, or a webhook subscription that was never created. **P5H is the argument for it**: four features passed every test on both sides and would have failed on first contact with a real deployment, because each side's fake agreed with its own author. **P5H-FINAL is the second argument**: the HTTP double sent `[]` where Rails sends nothing, and five delete endpoints therefore reported failure to the merchant over work that had succeeded — a shape no amount of offline testing on either side could expose, because both sides' tests used the same wrong body. |
-| B2.1–B2.8 | eight residuals the re-review confirmed and the final pass did not close, one of them a capability that does not work at all | listed in full in `PRODUCTION-READINESS-BLOCKERS.md` §B2. **B2.7**: a WhatsApp campaign created from Store Syria sends to nobody, because the campaign modal never attaches a template. |
+| A1 | deployed end-to-end verification between two non-production systems | every cross-system test uses a scriptable fake or the shared artifacts; neither proves DNS, TLS, real credentials, Sidekiq delivery, clock skew between hosts, or a webhook subscription that was never created. **P5H is the argument for it**: four features passed every test on both sides and would have failed on first contact with a real deployment, because each side's fake agreed with its own author. **P5H-FINAL is the second argument**: the HTTP double sent `[]` where Rails sends nothing, and five delete endpoints therefore reported failure to the merchant over work that had succeeded — a shape no amount of offline testing on either side could expose, because both sides' tests used the same wrong body. **P5H-CLOSURE is the third**: three rounds deep, every round found the previous round's fixes partial, and every one of those defects passed both sides' offline tests. |
+
+**B2.1–B2.9 are closed.** They are recorded in `PRODUCTION-READINESS-BLOCKERS.md` §C with
+what closed each one.

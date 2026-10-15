@@ -139,43 +139,30 @@ Written `disable_ddl_transaction!` + `algorithm: :concurrently` so it does not l
 and it ran clean against the test database. It is listed because a concurrent index build on a
 large table is the one migration in Phase 4 that deserves to be watched rather than assumed.
 
-### B2. Phase 5's own blockers
+### B2. Phase 5's own blockers — CLOSED, retained here as a pointer to §C
 
-The final verification pass (RSpec sweep + adversarial re-review of the six headline defects)
-confirmed 19 residual holes. Eleven are fixed; these are the eight that are not, recorded
-here rather than in a limitations list nobody re-reads. Every one has a traced path from a
-real caller and survived a verifier instructed to refute it.
+The final verification pass confirmed 19 residual holes and closed eleven. The owner
+directed that the remaining eight and the capability gap be closed before the next
+integration phase opened. **All nine are closed**, and each fix was proved by reverting it
+and watching the new coverage go red. They are recorded under §C as C6–C14.
 
-| # | Severity | What | Where | Closes by |
-|---|---|---|---|---|
-| B2.1 | Medium | A **transactional** store-scoped campaign reaches every contact in the account its labels select, including people who were never that installation's customer. `Partners::Eligibility.subject_of?` checks only that the contact and the store share an account and never consults `Commerce::CustomerLink`; `filter` has no subject check at all, and for a transactional purpose no grant is required on either side, so nothing narrows it. Two docblocks and the `:partner_scope_mismatch` skip reason all state the opposite. | `custom/app/services/partners/eligibility.rb:50` | Deciding whether a store-scoped campaign means "this installation's customers" or "this account's contacts, sent on this installation's behalf" — then making the code and the three statements about it agree |
-| B2.2 | Medium | The qualified store identifier is recomputed from a mutable URL on every call rather than persisted, while Lynomia **stores** the resulting string. A domain change, or one deploy target without `LYNOMIA_INSTALLATION_REF`, moves every answer at once: outbound decisions 404 and are retired, reconciliation 404s, inbound events are rejected as another installation's. Fails closed and silently on all three paths. | `packages/workdo/LynomiaChat/src/config/lynomia.php:219` | Persisting what was sent at registration on `lynomia_store_links`, and treating a mismatch as an operator-visible error rather than a 404 |
-| B2.3 | Medium | A first-time shopper's checkout opt-in can be lost on its first attempt. Lynomia answers 404 when no customer link exists for the subject yet — the ordinary race when the opt-in is dispatched before the order event that creates the link — and 404 is classed non-transient, so the decision is retired as `rejected` with no retry. The reconciler's drift count then skips the scope, so the number an operator watches stays 0. | `.../Services/ConsentDecisionDispatcher.php:130` | Treating "subject not linked yet" as retryable, distinctly from "subject does not exist" |
-| B2.4 | Medium | Cancelling a campaign stops its sends but not its job: the sender loops over the whole remaining audience refusing each recipient. A 100k campaign cancelled a minute in writes ~99k skip rows and issues ~200k queries before `completed!` is reached and refused. | `custom/app/services/custom/whatsapp/oneoff_campaign_service.rb` | An early break on `:campaign_cancelled`, which is a per-campaign fact rather than a per-recipient one |
-| B2.5 | Medium | A merchant whose WhatsApp inbox uses the `default` provider (360dialog) has no `business_account_id`, so the templates page's WABA picker is empty — the headline symptom of the template defect, for a whole provider class — and the page explains nothing: the New button is never disabled and saving yields only "Choose which WhatsApp number this template belongs to." | `.../resources/views/merchant/templates.blade.php:354` | Either supporting the provider or saying plainly that template management requires WhatsApp Cloud |
-| B2.6 | Low | There is no cancel affordance in Lynomia's own dashboard. Cancelling is reachable only from the Store Syria page or the raw API. | `app/javascript/dashboard/api/campaigns.js` | A button, once someone decides an operator should have one |
-| B2.7 | **Functional gap** | **A WhatsApp campaign created from Store Syria sends to nobody.** The BFF accepts and forwards `template_params`, but the merchant campaign modal never sends it; `Whatsapp::OneoffCampaignService` returns early for every recipient when it is blank, so the campaign completes having sent nothing. | `.../resources/views/merchant/campaigns.blade.php` | A template picker in the campaign modal — which also has to collect the template's variable values, so it is UI design rather than a correction |
-| B2.8 | Low | `Campaigns::Eligibility.excluded_counts` — the "400 of 1,000, and here is why" breakdown — has no production caller. It is written, tested and unreachable. | `custom/app/services/campaigns/eligibility.rb` | Wiring it to the preview surface or deleting it |
-| B2.9 | Low | Four copies of "find this campaign's template in the channel's synced list" now exist: `Whatsapp::TemplateProcessorService#find_template`, `Whatsapp::AuthenticationTemplateGuard#template`, `Campaigns::RenderedTemplateText#template` and `Campaigns::Eligibility#category_for`. They differ deliberately — the first requires `approved`, the others do not — but four is a drift hazard, and two of them now decide consent. | `custom/app/services/campaigns/eligibility.rb` | Consolidating, which means editing two upstream OSS files or introducing an extension point — a design decision |
+Closing them produced a **third adversarial round**, run against the second round's fixes:
+67 agents, 42 verdicts, **15 findings survived verification — every one of them in code
+written during this verification pass**, 13 in the two commits immediately preceding it. All
+15 are fixed. `PHASE-5-COMPLETION-REPORT.md` §10 carries them.
 
-**A WARNING ON B2.1, because the obvious fix opens a worse hole than the one it closes.**
-`Partners::Eligibility` has two expressions of the same rule: `refusal`, asked per recipient at
-the send boundary, and `filter`, which resolves the audience. Only `refusal` calls `subject_of?`.
-Today that does not diverge, because `subject_of?` compares account ids and every audience
-contact is of the campaign's account, so it is always true. **Add a `Commerce::CustomerLink`
-check to `subject_of?` alone and the boundary starts refusing contacts the audience still
-selects** — the audience becomes WIDER than the send, which is a campaign reporting it reached
-people it refused, and is the one direction this pair exists to prevent. Any fix has to change
-both, and the agreement example in `spec/models/campaign_partner_audience_spec.rb` will not
-catch it as written: every contact in its population is of the campaign's own account, so the
-subject check is true for all of them. Add a non-customer contact to that population first.
-
-**B2.7 is the one that changes what "Phase 5 is complete" means.** Every other item above is
-a defect in something that works; B2.7 is a capability the phase claims to deliver —
-"native campaign management in Store Syria" — that cannot send a WhatsApp message at all.
-The lifecycle around it does work from that surface: create, schedule, list, preview, edit,
-cancel and read results all function, and a campaign on a non-WhatsApp inbox needs no
-template. WhatsApp is the channel this integration exists for, so that is not much comfort.
+**The warning recorded here about B2.1 was real, and is kept because it is the reason the
+fix is shaped as it is.** `Partners::Eligibility` has two expressions of the same rule:
+`refusal`, asked per recipient at the send boundary, and `filter`, which resolves the
+audience. Only `refusal` called `subject_of?`. Adding a `Commerce::CustomerLink` check to
+`subject_of?` alone would have made the boundary refuse contacts the audience still
+selected — **the audience WIDER than the send**, a campaign reporting it reached people it
+refused, which is worse than the over-inclusion B2.1 described and is the one direction that
+pair exists to prevent. Both expressions were changed together, and the agreement example in
+`spec/models/campaign_partner_audience_spec.rb` would not have caught a divergence as it was
+written: every contact in its population was of the campaign's own account, so the subject
+check was true for all of them. Two non-customer members were added to that population
+first.
 
 ---
 
@@ -188,6 +175,15 @@ template. WhatsApp is the channel this integration exists for, so that is not mu
 | C3 | No CI enforcement that the accepted-failure set had not grown | Phase 2 | Phase 2 (`.github/scripts/assert-known-test-outcomes.php`, which refuses to run unless **both** `--log-junit` and `--log-teamcity` are supplied, so dropping one CI flag cannot silently disable half the control) |
 | C4 | Phase 4's broad Lynomia regression sweep had not been seen green | Phase 4 | Phase 4 — 6,937 examples, 0 failures, 46 pending, all 46 the single `Chatwoot.encryption_configured?` MFA guard |
 | C5 | The browser harness rendered to one directory while the server served another, so a run could silently verify a stale build — and did | Phase 4 | Phase 4 (`tests/Browser/run.sh` renders, serves and runs from one derived root) |
+| C6 | **B2.1** — a transactional store-scoped campaign reached every contact in the account its labels selected, including people who were never that installation's customer | Phase 5 | Phase 5 closure — the subject check enforced in **both** `refusal` and `filter`, excluding a contact linked to another of the account's stores and not to this one. Not "has a link to this store": a chat-only contact has no link anywhere, and a Store Syria merchant can create nothing but store-scoped campaigns, so that reading would have put their own contacts out of reach. The agreement population in `spec/models/campaign_partner_audience_spec.rb` gained the two members that tell the two expressions apart |
+| C7 | **B2.2** — the qualified store identifier recomputed from a mutable URL on every call, while Lynomia persisted the resulting string | Phase 5 | Phase 5 closure — `lynomia_store_links.commerce_external_store_id`, written on first use with exactly the value the old code produced, so deploying over existing links moves nothing. A deliberate change now requires updating Lynomia's own row, which is the conversation the column forces instead of a silent outage |
+| C8 | **B2.3** — a first-time shopper's checkout opt-in retired as `rejected` on the ordinary subject race | Phase 5 | Phase 5 closure — Lynomia sends `error_code: subject_not_linked` on that 404 and only that one; Store Syria classes it transient, so the opt-in defers and lands when the order event creates the link |
+| C9 | **B2.4** — cancelling a campaign stopped its sends but drained its whole remaining audience | Phase 5 | Phase 5 closure — the senders stop (`break` in the two SMS loops, `throw`/`catch` past upstream's loop for WhatsApp) and one `UPDATE` records the remainder, which a row left `queued` would otherwise report as a run still in progress |
+| C10 | **B2.5** — a 360dialog number offered template creation that could not work, and explained nothing | Phase 5 | Phase 5 closure — the page says so, once, and New is not offered when it cannot work |
+| C11 | **B2.6** — no cancel affordance in Lynomia's own dashboard | Phase 5 | Phase 5 closure — a cancel control behind a confirm dialog that says what cancelling is **not** |
+| C12 | **B2.7, the capability gap** — a WhatsApp campaign created from Store Syria sent to nobody, because the modal never attached a template | Phase 5 | Phase 5 closure — the modal asks for an approved template, renders one input per placeholder in its BODY, refuses to save without them, and sends `{name, language, processed_params}` but no category, because the server reads that from the channel's synced list |
+| C13 | **B2.8** — `excluded_counts` written, tested and unreachable | Phase 5 | Phase 5 closure — removed rather than left unreachable |
+| C14 | **B2.9** — four copies of "find this campaign's template in the channel's synced list", two of which decide consent | Phase 5 | Phase 5 closure — the two in `custom/` are one, and `spec/services/whatsapp/channel_templates_spec.rb` asserts all four select the same row for the same inputs |
 
 ---
 

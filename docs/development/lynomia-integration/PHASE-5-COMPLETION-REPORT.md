@@ -8,15 +8,16 @@ while building it, what was tested and what is still owed. Per-capability detail
 `PHASE-5-COMPLETION-MATRIX.md`, `PHASE-5E-CLOSURE.md` and
 `../../../../lynomiachat/docs/partner-consent/THROTTLE-SAFETY.md`; this does not restate them.
 
-**Assessment: CONDITIONAL GO, with one capability gap named in §9.2.** Every approved
-capability is implemented and tested offline, and the merchant surfaces are
-browser-verified. The condition is blocker **A1**, unchanged and unclosable from inside
-these two repositories: nothing here has ever run against a deployed Lynomia. Phase 5
-narrowed A1 twice — the consent wire format and the audience-fields contract are each proven
-against a real producer artifact rather than against two mocks — but narrowing is not
-closing.
+**Assessment: CLOSED, CONDITIONAL ON A1.** Every approved capability is implemented and
+tested offline, the merchant surfaces are browser-verified in English and Arabic, and every
+residual the three adversarial rounds confirmed — B2.1 through B2.9, the capability gap
+among them — is fixed. §10 is the closure assessment and is the part of this document to
+read first. The condition is blocker **A1**, unchanged and unclosable from inside these two
+repositories: nothing here has ever run against a deployed Lynomia. Phase 5 narrowed A1
+twice — the consent wire format and the audience-fields contract are each proven against a
+real producer artifact rather than against two mocks — but narrowing is not closing.
 
-**The honest headline, in two parts.**
+**The honest headline, in three parts.**
 
 The adversarial review at the end of the build found that four features reported complete
 earlier in the phase did not work on the real wire, and would not have been caught by any
@@ -26,11 +27,15 @@ Then the **final verification pass** — the full RSpec sweep and an adversarial
 **re**-verification of the six defects that review had reported fixed — found more. The
 re-review returned **PARTIALLY_CORRECTED on all six**: every one had been corrected along
 the path its bug report described and left open along at least one other. Nineteen residual
-holes survived independent verification, four of them critical. Eleven are fixed; eight are
-listed in §9 as owed. The sweep itself found a seventh defect the review did not — a quota
-key derived from thread-local state. §5.8 is the most important part of this document, and
-§9.2 names the one capability that does not work at all: **a WhatsApp campaign created from
-Store Syria sends to nobody**, because the campaign form never attaches a template.
+holes survived independent verification, four of them critical. The sweep itself found a
+seventh defect the review did not — a quota key derived from thread-local state. §5.8 is
+that pass.
+
+Then a **third round**, run against the second round's fixes on the owner's instruction to
+close the residuals before opening the next phase. It confirmed **15 more findings, every
+one of them in code written during this verification pass**, 13 in the two commits
+immediately preceding it. All 15 are fixed. §10 carries that round and the closure
+assessment; §9 now lists **A1 alone**.
 
 ---
 
@@ -280,14 +285,22 @@ run.
 
 | Suite | Result |
 |---|---|
-| Lynomia — **full RSpec sweep**, frozen tree | **11,211 examples, 0 failures, 70 pending** (47m19s); the 70 pending are the single MFA/encryption guard, as in every sweep since Phase 4 |
+| Lynomia — **full RSpec sweep**, frozen tree, at the closure head `3402f299` | **11,242 examples, 0 failures, 70 pending** (44m47s) |
+| Lynomia — full RSpec sweep, frozen tree, at `2eaca095` | 11,242 examples, 0 failures, 70 pending (45m51s) |
 | Lynomia — quota concurrency, real threads, non-transactional, barrier-forced | 2 examples, 0 failures |
-| Store Syria — full Feature suite against the known-outcome gate | **1,884 tests, 12,515 assertions**; 8 declared failures, 17 declared skips, 0 errors, **nothing undeclared** |
+| Store Syria — full Feature suite against the known-outcome gate | **1,895 tests, 12,543 assertions**; 8 declared failures, 17 declared skips, 0 errors, **nothing undeclared** |
 | Store Syria — Unit suite | 181 tests, 1,035 assertions, 0 failures |
-| Store Syria — `--filter Lynomia` | 445 tests, 5,003 assertions, 0 failures |
+| Store Syria — `--filter Lynomia` | **457 tests, 5,033 assertions**, 0 failures |
 | Store Syria — Contract suite (two real producer artifacts, real ingress) | 14 tests, 43 assertions, 0 failures |
-| Store Syria — browser, 8 suites | **189 checks, 0 failures** |
+| Store Syria — browser, 8 suites | **200 checks, 0 failures** |
 | Lynomia — Vitest | 503 files, 5,428 tests, 0 failures |
+
+Two full sweeps are listed because the tree moved between them. They report the same example
+count because `3402f299` changes one Vue component and no Ruby, so it adds no RSpec example —
+it is covered by the Vitest row. The 70 pending in every Lynomia sweep are the single
+MFA/encryption guard, as they have been since Phase 4. The example count rose from 11,211 to
+11,242 across this pass because the closure work added regression coverage; no example was
+deleted, skipped or marked pending to reach a green sweep.
 
 The Store Syria failures and skips are the pre-existing declared set; the gate asserts the
 **set by name**, so a new failure and a fixed-but-still-declared one both break it.
@@ -310,7 +323,8 @@ are from a tree that did not move.
 
 ## 7. Adversarial review
 
-Two rounds.
+Three rounds. The first two are below. The third — run against the second round's fixes,
+which is where it found all fifteen of its confirmed findings — is in §10.2.
 
 **Round one, during the build.** Eight dimensions (tenancy, authorization, consent,
 concurrency, data correctness, failure modes, contract drift, UI and i18n), each finding fed
@@ -337,9 +351,10 @@ the bug report is a fix of unknown extent.
 
 ## 8. Commits
 
-The numbers in §6 were produced against these two heads, with both working trees clean.
+The numbers in §6 were produced against these two heads, with both working trees clean. The
+commit that adds this section and §10 is a documentation-only commit made after those runs.
 
-**Lynomia** (`claude/store-syria-lynomia-integration-1oa1tt`), head **`1d797ed9`**
+**Lynomia** (`claude/store-syria-lynomia-integration-1oa1tt`), head **`3402f299`**
 
 Phase 5 build and first-round fixes:
 `5fde4281`, `3331d245`, `6054da6d`, `241f623f`, `8ee0ce70`, `597b8ce4`, `3874fa4b`,
@@ -353,7 +368,18 @@ Final verification pass (§5.8):
 | `21aa5029` | the eleven critical and high residuals the re-review confirmed |
 | `1d797ed9` | the dashboard preview carries the channel and the template, so it asks the send's question |
 
-**Store Syria** (same branch), head **`8cd1e866`**
+Closure pass — the owner's instruction to close B2.1–B2.9 before opening Phase 6, and the
+third adversarial round it produced (§10):
+
+| Commit | What |
+|---|---|
+| `8b7fa347` | B2.1–B2.4: the installation scope enforced in **both** expressions, the subject race made retryable, and a cancelled campaign's senders stopped rather than drained |
+| `f6934c44` | B2.6, B2.8, B2.9, and the consent and quota holes the third round found — the automation template action, the flow Send-template node, and the two cycle cases `manual?` could not tell apart |
+| `2d1e8730` | the remaining third-round findings: the capability signal on destroy, the second stop control, and the change feed publishing after commit |
+| `2eaca095` | a consent merge republishes the decision that governs the subject, not only the one it changed |
+| `3402f299` | the campaign preview runs on a form seeded from a draft, and a stale in-flight answer cannot overwrite a newer one |
+
+**Store Syria** (same branch), head **`305e8e99`**
 
 Phase 5 build and first-round fixes:
 `b9b49501`, `ed426f45`, `9fd26f27`, `6f4b026e`, `44885342`, `628d5003`, `559ab910`,
@@ -365,11 +391,24 @@ Final verification pass (§5.8):
 |---|---|
 | `8cd1e866` | a campaign for a registered-but-unavailable installation is refused rather than silently widened to the account, and an empty `200` is read as success rather than as a broken body |
 
+Closure pass:
+
+| Commit | What |
+|---|---|
+| `f7f5d971` | the Phase 5 final verification report, with the numbers the runs produced |
+| `c2f0a19b` | the warning that the obvious fix for B2.1 opens a worse hole than the one it closes |
+| `e6b87274` | B2.2 and B2.3: the store identity persisted on `lynomia_store_links` rather than recomputed from a mutable URL, and `subject_not_linked` classed transient |
+| `02fd9d25` | **B2.7, the capability gap**: a WhatsApp campaign carries an approved template and this campaign's placeholder values, and a number that cannot hold a template says so |
+| `f8a3949b` | the installation is proved by what Lynomia returned, not by a local setting that is set before registration and cleared while Lynomia still holds the install |
+| `305e8e99` | editing a campaign is guarded as creating one is, and a raw `FEATURE_DISABLED` no longer reaches a merchant |
+
 Both branches are pushed. **Nothing was merged and nothing was deployed.**
 
 ## 9. What is still open
 
-**A1 is unchanged and is still the condition on this phase.**
+**A1 is unchanged and is now the only thing open.** B2.1 through B2.9 were closed in the
+closure pass; §10.1 says what closing each one involved, and the register records them under
+`PRODUCTION-READINESS-BLOCKERS.md` §C.
 
 | Id | What | Who can close it |
 |---|---|---|
@@ -387,28 +426,108 @@ because the two sides' fakes agreed with their own authors. Two cross-repository
 now close part of that gap; the rest of the surface is not covered, and a staging run is the
 only thing that finds the next one.
 
-### 9.1 Residuals the re-review confirmed and this pass did not close
+### 9.1 The residuals, and what closed each one
 
-Each survived independent verification, each has a traced path from a real caller, and none
-is fixed. They are listed so that "Phase 5 complete" is not read as "nothing is owed". The
-ids are the register's: `PRODUCTION-READINESS-BLOCKERS.md` §B2 carries the same items with
-what would close each one.
+All nine are closed. Each fix was proved by reverting it and watching the new coverage go
+red before putting it back. §10.1 carries the reasoning; this is the index.
 
-| Id | Severity | What | Where |
+| Id | Was | Closed by | Regression coverage |
 |---|---|---|---|
-| **B2.1** | medium | A **transactional** store-scoped campaign reaches every contact in the account the labels select, including people who have never been that store's customer. `Partners::Eligibility.subject_of?` checks only `contact.account_id == store.account_id` and never a `Commerce::CustomerLink`; `filter` has no subject check at all. For a transactional purpose neither side requires a grant, so nothing else narrows it. Two docblocks state the opposite, and `recipient_snapshot` labels `:partner_scope_mismatch` "Not a customer of this store". | `custom/app/services/partners/eligibility.rb:50` |
-| **B2.2** | medium | The qualified store identifier is recomputed from a mutable URL on every call rather than persisted. `installation_ref` falls back to the host of `APP_URL`; Lynomia **persists** the resulting string in `commerce_stores.external_store_id`. A domain change, or one deploy target without `LYNOMIA_INSTALLATION_REF`, moves every answer at once: outbound decisions 404 and are retired, reconciliation 404s, and inbound events are rejected as another installation's. The integration then fails closed and silently on all three paths. | `packages/workdo/LynomiaChat/src/config/lynomia.php:219` |
-| **B2.3** | medium | A first-time shopper's checkout opt-in can be lost on its first attempt. Lynomia answers 404 when no `Commerce::CustomerLink` exists for the subject yet — the ordinary race when the opt-in is dispatched before the order event that creates the link — and `LynomiaApiException` classes 404 as non-transient, so `ConsentDecisionDispatcher` retires it as `rejected` with no retry. The reconciler's drift count then skips the scope, so the operator-facing number stays 0. | `.../Services/ConsentDecisionDispatcher.php:130` |
-| **B2.4** | medium | Cancelling a campaign stops its sends but does not stop its **job**. `SendGuard` refuses each remaining recipient, and the sender loops over the whole remaining audience: a 100k-recipient WhatsApp campaign cancelled a minute in writes ~99k skip rows and issues ~200k queries before `completed!` is reached and refused. No early break. | `custom/app/services/custom/whatsapp/oneoff_campaign_service.rb` |
-| **B2.5** | medium | A merchant whose WhatsApp inbox uses the `default` provider (360dialog) has no `business_account_id` in `provider_config`, so the WABA picker on the templates page is empty — the headline symptom of defect #18, for a whole provider class — and the page offers no explanation: the New button is never disabled and saving yields only "Choose which WhatsApp number this template belongs to." | `.../resources/views/merchant/templates.blade.php:354` |
-| **B2.6** | low | There is no cancel affordance in Lynomia's own dashboard: `dashboard/api/campaigns.js` defines no `cancel`, and nothing under the campaigns routes references one. Cancelling is reachable only from the Store Syria page or the raw API. | `app/javascript/dashboard/api/campaigns.js` |
+| **B2.1** | a transactional store-scoped campaign reached contacts who were never that installation's customers | the subject check added to **both** `refusal` and `filter`, excluding a contact linked to another of the account's stores and not to this one | `spec/models/campaign_partner_audience_spec.rb`, population extended with the two members that tell the two expressions apart |
+| **B2.2** | the qualified store identifier recomputed from a mutable URL on every call | `lynomia_store_links.commerce_external_store_id`, written on first use with exactly the value the old code produced | `tests/Feature/Lynomia/LynomiaStoreIdentityTest.php` |
+| **B2.3** | a first-time shopper's opt-in retired as `rejected` on the ordinary subject race | Lynomia sends `error_code: subject_not_linked`; Store Syria classes that one 404 transient | consent dispatcher specs, both sides |
+| **B2.4** | a cancelled campaign's sender drained the whole remaining audience | the senders stop — `break` in the two SMS loops, `throw`/`catch` past upstream's loop for WhatsApp — and one `UPDATE` records the remainder | `spec/services/campaigns/cancellation_stops_the_run_spec.rb` |
+| **B2.5** | a 360dialog number offered template creation that could not work | the page says so, once, and New is not offered | browser suite `p5c-templates` |
+| **B2.6** | no cancel affordance in Lynomia's own dashboard | a cancel control behind a confirm dialog that says what cancelling is **not** | Vitest |
+| **B2.7** | **the capability gap** — a WhatsApp campaign from Store Syria sent to nobody | the campaign modal asks for an approved template, renders one input per BODY placeholder, refuses to save without them, and sends `{name, language, processed_params}` | `--filter Lynomia`, browser suite `p5d-campaigns` |
+| **B2.8** | `excluded_counts` written, tested and unreachable | removed | n/a — deletion |
+| **B2.9** | four copies of "find this campaign's template in the channel's list" | the two in `custom/` are one; a spec asserts all four select the same row for the same inputs | `spec/services/whatsapp/channel_templates_spec.rb` |
 
-### 9.2 Functional gaps found while verifying, which are feature work rather than defects
+### 9.2 What is deliberately not done
 
-| Id | What | Why it is not fixed here |
-|---|---|---|
-| **B2.7** | **A WhatsApp campaign created from Store Syria sends to nobody.** The BFF accepts and forwards `template_params`, but the merchant campaign modal never sends it — it posts title, message, audience, schedule and inbox only. `Whatsapp::OneoffCampaignService#process_contact` returns early for every recipient when `template_params` is blank, so the campaign completes having sent nothing. The merchant's own template manager page exists; the campaign form has no picker wired to it. | A picker is not the whole of it: a WhatsApp template has variables, so the form also needs to collect this campaign's `processed_params`. That is a UI design question, not a correction. |
-| **B2.8** | `Campaigns::Eligibility.excluded_counts` — the "400 of 1,000, and here is why" breakdown — has **no production caller**. It is written, tested and unreachable. | Either wire it to the preview surface or delete it; both are decisions about what the merchant should see. |
-| **B2.9** | Four copies of "find this campaign's template in the channel's synced list" now exist: `Whatsapp::TemplateProcessorService#find_template`, `Whatsapp::AuthenticationTemplateGuard#template`, `Campaigns::RenderedTemplateText#template` and `Campaigns::Eligibility#category_for`. They differ deliberately — the first requires `approved`, the others do not — but four is a drift hazard. | Consolidating means editing two upstream OSS files; the enterprise guidance prefers an extension point, which is a design decision. |
+| What | Why |
+|---|---|
+| A1 closed | it cannot be closed from inside these repositories. It needs a non-production deployment of both sides and a peer-to-peer run, which is the owner's to schedule |
+| Phase 6 started | the owner's instruction is to submit a scope for review first. Nothing of Phase 6 is built |
+| Anything merged, deployed, or switched on | the standing restrictions in `PRODUCTION-READINESS-BLOCKERS.md` §D. `.env`, `APP_KEY` and every production credential are untouched |
 
 Full register: `PRODUCTION-READINESS-BLOCKERS.md`.
+
+---
+
+## 10. Phase 5 closure
+
+**Assessment: CLOSED, CONDITIONAL ON A1.** Every approved capability is implemented and
+tested offline, the merchant surfaces are browser-verified in English and Arabic, and every
+residual the three adversarial rounds confirmed is fixed. The condition is unchanged and
+unclosable from inside these repositories: nothing here has ever run against a deployed
+Lynomia.
+
+### 10.1 What closing B2.1–B2.9 actually involved
+
+The owner approved closing the eight confirmed residuals and the capability gap before
+opening the next phase. All nine are closed, and each fix was proved by reverting it and
+watching the new coverage go red.
+
+| Id | Closed by |
+|---|---|
+| B2.1 | The installation scope is enforced in BOTH expressions — `refusal` and `filter` — excluding a contact linked to another of the account's stores and not to this one. NOT "has a link to this store": a chat-only contact has no link anywhere, and a Store Syria merchant can create nothing but store-scoped campaigns, so that reading would put their own contacts out of reach. The agreement population gained the two members that can tell the two expressions apart; as written, every contact in it belonged to the campaign's account, so the subject check was true for all of them |
+| B2.2 | `lynomia_store_links.commerce_external_store_id` holds the identifier, written on first use with exactly the value the old code produced. A deliberate change now requires updating Lynomia's own row, which is the conversation the column forces instead of a silent outage |
+| B2.3 | Lynomia sends `error_code: subject_not_linked` on that 404 and only that one; Store Syria classes it transient, so a first-time shopper's opt-in defers and lands when the order event creates the link |
+| B2.4 | The senders stop — `break` in the two SMS loops, `throw`/`catch` past upstream's loop for WhatsApp — and one UPDATE records the remainder, which a row left `queued` would otherwise report as a run still in progress |
+| B2.5 | A workspace with no WhatsApp Cloud number is told so, once, and New is not offered when it cannot work |
+| B2.6 | Cancel exists in Lynomia's own dashboard, behind a confirm dialog that says what cancelling is not |
+| B2.7 | **The capability gap is closed.** The campaign modal asks for an approved template, renders one input per placeholder in its BODY, refuses to save without them, and sends `{name, language, processed_params}` — but no category, because the server reads that from the channel's synced list |
+| B2.8 | `excluded_counts` removed rather than left unreachable |
+| B2.9 | The two lookups in `custom/` are one, and a new spec asserts all four select the same row for the same inputs |
+
+**The B2.1 warning was real.** Changing `subject_of?` alone would have made the audience
+WIDER than the send boundary — a campaign reporting it reached people it refused, which is
+worse than the over-inclusion B2.1 described. Both expressions changed together.
+
+### 10.2 The third adversarial round
+
+Run against the fixes of the second, because the second had found every fix of the first to
+be partial. 67 agents, 42 verdicts, **15 findings survived verification** — and all 15 were
+in code written during this verification pass, 13 of them in the two commits immediately
+before it.
+
+All 15 are fixed. The ones that matter most:
+
+- **Two consent bypasses the campaign fix had never been applied to.** The automation
+  template action took the message class from the RULE'S TRIGGER, so an approved MARKETING
+  template on an order trigger was transactional and went to a shopper who had withdrawn
+  marketing — a pairing an admin can make in two clicks, since `send_whatsapp_template` is
+  offered on every rule and the picker offers every approved non-AUTHENTICATION template.
+  The flow Send-template node asked nothing at all.
+- **Two quota holes in this pass's own fix.** `manual?` tests who wrote the subscription
+  row, not whether a cycle is running: `extend_trial` writes `source: 'stripe'` and
+  `status: 'trialing'` while leaving `current_period_end` alone, so one button reissued a
+  comp's whole allowance. The mirror case is a `canceled` subscription whose dead period
+  pinned an account to one allowance forever.
+- **The registration marker was wrong in both directions.**
+  `commerce_credential_issued_at` means "an operator minted a token" — set BEFORE
+  registration is possible, and cleared on revoke while Lynomia still holds the
+  installation. It refused merchants mid-onboarding and widened campaigns after a revoke.
+  It now reads what Lynomia actually returned.
+- **Three more `head :ok` stubs sent a body Rails does not**, one of which means connecting
+  a flow to a channel answered 503 in production on every attempt while the suite was green.
+- The merge published one of two consent tables, and nothing at all on the path where the
+  base already held the stronger decision — although the customer links have moved by then,
+  so the decision governing that subject at a partner had changed.
+- `destroy` stranded the capability signal forever (`unblock!` has no caller anywhere), the
+  two signal writers raced, the builder honoured `cancelled?` but not `enabled`, `update()`
+  was the way round the create guard, a raw `FEATURE_DISABLED` reached merchants, and the
+  corrected preview never ran on a seeded form.
+
+### 10.3 What three rounds say
+
+Round one found 7 of 52 candidates real. Round two found all six of round one's fixes
+PARTIALLY_CORRECTED, with 19 residuals. Round three found 15 more, every one of them in
+round two's fixes.
+
+The pattern is not that the fixes were wrong. Each was correct along the path its bug report
+described. The pattern is that **a fix verified only against the path that produced the
+report is a fix of unknown extent** — and that this codebase's two sides agree with each
+other offline in ways that say nothing about a deployment. That is the argument for A1,
+three rounds deep, and it is why this report does not claim more than offline verification.
