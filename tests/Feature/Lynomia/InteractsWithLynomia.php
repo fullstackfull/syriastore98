@@ -38,6 +38,11 @@ trait InteractsWithLynomia
         // must be set before anything resolves it.
         $this->app->forgetInstance(\Workdo\LynomiaChat\app\Services\PlatformApiClient::class);
 
+        // A DELETE ANSWERS WITH NOTHING, which is what Rails `head :ok` sends and what this
+        // double used to get wrong. `Http::response([], 200)` is the two bytes `[]`, so every
+        // delete in this suite exercised a body Lynomia never sends -- and LynomiaHttp read a
+        // zero-length body as a non-JSON one and turned a successful delete into a 503 with a
+        // red banner. The stubs for the five `head :ok` endpoints now send nothing at all.
         // NOTHING IN THESE TESTS MAY REACH THE NETWORK. Http::fake() with an ARRAY does not
         // stop a stray call: an unmatched URL is executed for real, so a test that adds a
         // new remote call and forgets to stub it dials out of the sandbox and fails with a
@@ -299,7 +304,7 @@ trait InteractsWithLynomia
                     'authorized_by_user_id' => $this->lynomiaScript['authorized_by'] ?? 4242,
                     'authorized_by_name' => 'Merchant Admin',
                 ], 201),
-                str_starts_with($key, 'DELETE /platform/api/v1/account_links/') => Http::response([], 200),
+                str_starts_with($key, 'DELETE /platform/api/v1/account_links/') => Http::response('', 200),
 
                 // --------------------------------------------------- Phase 2: the BFF's own calls
                 //
@@ -347,7 +352,7 @@ trait InteractsWithLynomia
                 (bool) preg_match('#/campaigns/\d+/analytics/contacts$#', $path)
                     => Http::response(['payload' => $this->lynomiaScript['campaign_recipients'] ?? []], 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/campaigns/\d+$#', $path) && $method === 'DELETE'
-                    => Http::response([], 200),
+                    => Http::response('', 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/campaigns/\d+$#', $path)
                     => Http::response(array_merge(
                         ['id' => 51, 'display_id' => 3, 'campaign_status' => 'active'],
@@ -383,7 +388,7 @@ trait InteractsWithLynomia
                     => Http::response(['id' => 32, 'state' => 'draft', 'name' => 'copy',
                         'allowed_actions' => ['edit', 'submit', 'destroy'], 'validation_problems' => []], 201),
                 (bool) preg_match('#/whatsapp/message_templates/\d+$#', $path) && $method === 'DELETE'
-                    => Http::response([], 200),
+                    => Http::response('', 200),
                 (bool) preg_match('#/whatsapp/message_templates/\d+$#', $path)
                     => Http::response(array_merge(
                         ['id' => 31, 'state' => 'draft', 'allowed_actions' => ['edit', 'submit', 'destroy'],
@@ -511,7 +516,7 @@ trait InteractsWithLynomia
                         'state' => 'disabled', 'published' => null, 'live_sessions' => 0,
                     ]), 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/flows/\d+$#', $path) && $method === 'DELETE'
-                    => Http::response([], 200),
+                    => Http::response('', 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/flows/\d+$#', $path)
                     => Http::response($this->lynomiaScript['flow'] ?? self::sampleFlow(), 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/flows/starters$#', $path)
@@ -587,7 +592,7 @@ trait InteractsWithLynomia
                     => Http::response(array_merge(self::sampleRule(), ['id' => 88] +
                         (json_decode($request->body(), true) ?: [])), 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/automation_rules/\d+$#', $path) && $method === 'DELETE'
-                    => Http::response([], 200),
+                    => Http::response('', 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/automation_rules/\d+$#', $path)
                     => Http::response(array_merge(self::sampleRule(), json_decode($request->body(), true) ?: []), 200),
 

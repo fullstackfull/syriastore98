@@ -109,6 +109,18 @@ class LynomiaHttp
             );
         }
 
+        // NO BODY IS NOT A BROKEN BODY. Lynomia answers several calls with `head :ok` or
+        // `head :no_content` -- deleting a template, an audience or a campaign -- and those
+        // are zero-length by design, which is what HTTP means by a successful response with
+        // no content. Treating them as non-JSON turned every one of them into a 503 and a
+        // red banner over work that had in fact succeeded: the merchant was told the delete
+        // failed and then watched the already-deleted row sit in the list until they
+        // reloaded. The test double hid it by emitting `Http::response([], 200)`, which is
+        // the two bytes `[]` rather than nothing at all.
+        if (trim((string) $response->body()) === '') {
+            return [$response->status(), []];
+        }
+
         $decoded = $response->json();
 
         if (! is_array($decoded)) {

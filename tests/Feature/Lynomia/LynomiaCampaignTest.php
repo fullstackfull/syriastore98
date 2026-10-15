@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Lynomia;
 
+use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
@@ -301,16 +302,18 @@ class LynomiaCampaignTest extends TestCase
     }
 
     /**
-     * And when this installation is not among the account's commerce stores -- it was never
-     * connected on the Lynomia side, or was disconnected -- the campaign is still created,
-     * account-wide, rather than being refused. Upstream treats a campaign with no store as
-     * every campaign that existed before this, which is the right fallback: a merchant with
-     * no commerce connection still has labels to send to.
+     * A merchant with NO commerce installation at all still has labels to send to, so their
+     * campaign is created account-wide rather than refused: upstream then treats it as every
+     * campaign that existed before store scoping, which is the right fallback. The marker is
+     * this side's own -- `commerce_credential_issued_at` is set when the store is registered
+     * with Lynomia as a commerce installation and cleared when that is revoked.
      */
-    public function test_a_campaign_is_created_account_wide_when_this_store_is_not_connected_upstream(): void
+    public function test_a_campaign_is_created_account_wide_when_there_is_no_commerce_installation(): void
     {
-        [$owner] = $this->connectedTenant();
+        [$owner, $store] = $this->connectedTenant();
+        LynomiaStoreLink::where('store_id', $store->id)->update(['commerce_credential_issued_at' => null]);
         $this->lynomiaScript['audience_fields'] = ['stores' => [], 'currencies' => [], 'unread_contacts' => 0];
+        $this->assertNull(LynomiaStoreLink::where('store_id', $store->id)->value('commerce_credential_issued_at'));
 
         $this->actingAs($owner)->postJson(self::CAMPAIGNS, [
             'title' => 'Spring sale', 'message' => 'Hello', 'inbox_id' => 7, 'audience' => [],
@@ -321,6 +324,34 @@ class LynomiaCampaignTest extends TestCase
 
             return ! isset(json_decode($request->body(), true)['campaign']['commerce_store_id']);
         });
+    }
+
+    /**
+     * AN INSTALLATION THAT EXISTS BUT IS NOT USABLE REFUSES THE CAMPAIGN; IT DOES NOT WIDEN IT.
+     *
+     * Lynomia's `counted_stores` is narrower than "connected": a rejected token flips the
+     * installation to `needs_reauth` with nobody involved, an operator can disable it, and a
+     * Super Admin can switch the provider off installation-wide. In each case the store
+     * simply vanishes from the list this reads, and the campaign used to be created
+     * ACCOUNT-WIDE with a 200: the native consent path instead of the partner one, so this
+     * store's checkout opt-ins authorised nothing and, in an account with a second connected
+     * store, the campaign addressed that store's customers. The merchant was told nothing.
+     */
+    public function test_a_campaign_is_refused_when_a_registered_installation_is_not_available(): void
+    {
+        [$owner, $store] = $this->connectedTenant();
+        // Registered as a commerce installation, which is the state a merchant who has been
+        // through P3 is in -- and then absent from `counted_stores`, which is needs_reauth,
+        // disabled, or the provider switched off installation-wide.
+        LynomiaStoreLink::where('store_id', $store->id)->update(['commerce_credential_issued_at' => now()]);
+        $this->lynomiaScript['audience_fields'] = ['stores' => [], 'currencies' => [], 'unread_contacts' => 0];
+
+        $this->actingAs($owner)->postJson(self::CAMPAIGNS, [
+            'title' => 'Spring sale', 'message' => 'Hello', 'inbox_id' => 7, 'audience' => [],
+        ])->assertStatus(409);
+
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/campaigns')
+            && strtoupper($request->method()) === 'POST');
     }
 
     public function test_a_campaign_with_no_name_or_no_message_is_refused_without_calling_lynomia(): void

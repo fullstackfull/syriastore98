@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
+use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Http\Controllers\Concerns\ProxiesToLynomia;
 use Workdo\LynomiaChat\app\Http\Middleware\EnsureStoreOwnsLink;
 use Workdo\LynomiaChat\app\Services\AgentApiClient;
@@ -111,8 +112,11 @@ class CampaignApiController extends Controller
         $validated = $this->validateCampaign($request);
         $storeId = (int) $request->attributes->get(EnsureStoreOwnsLink::STORE_ATTRIBUTE);
 
-        return $this->proxy($request, function (AgentApiClient $client) use ($validated, $storeId) {
-            $payload = $this->payload($validated) + array_filter(['commerce_store_id' => $this->ownStoreId($client, $storeId)]);
+        $link = $request->attributes->get(EnsureStoreOwnsLink::ATTRIBUTE);
+
+        return $this->proxy($request, function (AgentApiClient $client) use ($validated, $storeId, $link) {
+            $payload = $this->payload($validated)
+                + array_filter(['commerce_store_id' => $this->scopedStoreId($client, $storeId, $link)]);
 
             return ['campaign' => $this->projectOne($client->createCampaign($payload))];
         });
@@ -286,6 +290,45 @@ class CampaignApiController extends Controller
         }
 
         return null;
+    }
+
+    /**
+     * A MISSING INSTALLATION IS EITHER "THERE ISN'T ONE" OR "IT IS NOT USABLE RIGHT NOW",
+     * AND ONLY THE FIRST MAY WIDEN THE CAMPAIGN.
+     *
+     * A campaign created without `commerce_store_id` resolves ACCOUNT-WIDE upstream: the
+     * native consent path instead of the partner one, so this store's checkout opt-ins
+     * authorise nothing and, in an account with more than one connected store, the campaign
+     * addresses other stores' customers. That is the right answer for a merchant who has no
+     * commerce installation at all -- they still have labels to send to -- and the wrong one
+     * for a merchant whose installation exists and is merely unavailable. This dropped a
+     * null for both, with a 200 and a campaign that looks right either way.
+     *
+     * The list searched is Lynomia's `counted_stores`, which is narrower than "connected": a
+     * rejected token flips the installation to `needs_reauth` unattended, an operator can
+     * disable it, and a Super Admin can switch the provider off installation-wide. The two
+     * cases are told apart on this side rather than upstream, because this side already
+     * knows: `commerce_credential_issued_at` is set exactly when this store was registered
+     * with Lynomia as a commerce installation, and cleared when that was revoked.
+     *
+     * Registered but not counted is therefore an operational state, not a deployment bug, so
+     * the answer is a sentence the merchant can act on. 409 is what this surface already
+     * returns for "connected, but not in a state where this can be done"
+     * (ProxiesToLynomia::statusFor), and KIND_CONFLICT is the one kind whose own message is
+     * shown to the merchant.
+     */
+    private function scopedStoreId(AgentApiClient $client, int $storeId, ?LynomiaStoreLink $link): ?int
+    {
+        $id = $this->ownStoreId($client, $storeId);
+
+        if ($id === null && $link?->commerce_credential_issued_at !== null) {
+            throw new LynomiaApiException(
+                LynomiaApiException::KIND_CONFLICT,
+                __('This store is not currently available for campaigns in Lynomia Chat. Reconnect it from the Lynomia Chat page and try again.')
+            );
+        }
+
+        return $id;
     }
 
     /**
