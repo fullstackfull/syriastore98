@@ -27,6 +27,18 @@ class LynomiaApiException extends RuntimeException
     public const KIND_INVALID_RESPONSE = 'invalid_response';
 
     /**
+     * Lynomia has this installation but has never seen this customer.
+     *
+     * Separate from KIND_NOT_FOUND, and TRANSIENT, because it is a race rather than a
+     * mistake: a shopper's checkout opt-in is dispatched the moment they tick the box, and
+     * the customer link Lynomia resolves the subject through is created by the order event
+     * that follows. Classed with the other 404s, a first-time shopper's opt-in was retired
+     * as `rejected` on its first attempt and lost -- and the reconciler skipped the scope
+     * believing the outbox still owned it, so the operator's drift count stayed 0.
+     */
+    public const KIND_SUBJECT_NOT_LINKED = 'subject_not_linked';
+
+    /**
      * Another attempt on this store is already in flight.
      *
      * Not a failure of the integration and not something the merchant did wrong -- it is the
@@ -114,6 +126,11 @@ class LynomiaApiException extends RuntimeException
                 'Lynomia rejected the platform credential, or this app is not permitted on that account.',
                 $status
             ),
+            $status === 404 && $errorCode === 'subject_not_linked' => new self(
+                self::KIND_SUBJECT_NOT_LINKED,
+                'Lynomia has not seen this customer yet.',
+                $status
+            ),
             $status === 404 => new self(self::KIND_NOT_FOUND, 'The Lynomia resource does not exist.', $status),
             // TRANSLATED, UNLIKE THEIR NEIGHBOURS, BECAUSE THESE TWO ARE THE ONLY ONES A MERCHANT READS.
             // Every other kind below is replaced by a merchant-facing sentence in merchantMessage();
@@ -130,7 +147,10 @@ class LynomiaApiException extends RuntimeException
     /** True when retrying the same call could plausibly succeed. */
     public function isTransient(): bool
     {
-        return in_array($this->kind, [self::KIND_UNREACHABLE, self::KIND_RATE_LIMITED, self::KIND_IN_PROGRESS], true)
-            || ($this->status !== null && $this->status >= 500);
+        return in_array(
+            $this->kind,
+            [self::KIND_UNREACHABLE, self::KIND_RATE_LIMITED, self::KIND_IN_PROGRESS, self::KIND_SUBJECT_NOT_LINKED],
+            true
+        ) || ($this->status !== null && $this->status >= 500);
     }
 }

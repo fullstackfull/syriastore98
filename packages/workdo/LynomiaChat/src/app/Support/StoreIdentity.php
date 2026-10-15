@@ -2,6 +2,8 @@
 
 namespace Workdo\LynomiaChat\app\Support;
 
+use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
+
 /**
  * HOW LYNOMIA KNOWS ONE OF THIS INSTALLATION'S STORES, in one place.
  *
@@ -33,9 +35,55 @@ namespace Workdo\LynomiaChat\app\Support;
  */
 final class StoreIdentity
 {
-    /** The identifier Lynomia holds for one of this installation's stores. */
+    /**
+     * The identifier Lynomia holds for one of this installation's stores.
+     *
+     * READ BACK, NOT RECOMPUTED. This used to compose the value from
+     * `config('lynomia.installation_ref')` on every call, and that setting falls back to the
+     * host of `APP_URL`. Lynomia PERSISTS what it is told; this side did not, so a domain
+     * change or one deploy target without `LYNOMIA_INSTALLATION_REF` moved every answer at
+     * once and the integration failed closed and silently on all three paths that use it --
+     * outbound decisions 404 and were retired, reconciliation 404'd, and inbound events were
+     * rejected as another installation's. The value is now whatever was in force when this
+     * store first told Lynomia who it was, which is the only value Lynomia will match.
+     *
+     * Memoised in the CONTAINER rather than in a static, for the reason
+     * `activated_modules_for_owner()` is: a static outlives the application instance while
+     * the store ids it is keyed on do not, so a suite that rebuilds the app and restarts the
+     * auto-increment would answer one store's identity for another's.
+     */
     public static function of(int $storeId): string
     {
-        return (string) config('lynomia.installation_ref') . ':' . $storeId;
+        $key = "lynomia.store_identity.{$storeId}";
+
+        if (! app()->bound($key)) {
+            app()->scoped($key, fn () => self::resolve($storeId));
+        }
+
+        return app($key);
+    }
+
+    /**
+     * Stored if we have it; otherwise composed once and kept.
+     *
+     * The lazy write is what makes this safe to deploy over existing links, which all
+     * predate the column: the first caller after the upgrade stores exactly the value the
+     * old code would have produced, so nothing moves, and nothing can move afterwards.
+     * A store with no link row at all cannot have registered with Lynomia, so there is
+     * nothing to remember and the computed value stands.
+     */
+    private static function resolve(int $storeId): string
+    {
+        $link = LynomiaStoreLink::where('store_id', $storeId)->first();
+        $stored = (string) ($link->commerce_external_store_id ?? '');
+
+        if ($stored !== '') {
+            return $stored;
+        }
+
+        $computed = (string) config('lynomia.installation_ref') . ':' . $storeId;
+        $link?->forceFill(['commerce_external_store_id' => $computed])->save();
+
+        return $computed;
     }
 }

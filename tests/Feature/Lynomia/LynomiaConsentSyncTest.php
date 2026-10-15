@@ -176,6 +176,62 @@ class LynomiaConsentSyncTest extends TestCase
         $this->assertSame($ref, $decision->decision_ref, 'a retry must reuse the identity the receiver dedupes on');
     }
 
+    /**
+     * A FIRST-TIME SHOPPER'S OPT-IN IS A RACE, NOT A MISTAKE.
+     *
+     * Lynomia resolves the subject through its own customer link, and that link is created
+     * by the order event -- which arrives AFTER the checkout opt-in this dispatcher is
+     * carrying. Its 404 was classed with every other 404 as "this side's mistake and it
+     * will be the same mistake next time", so the decision was retired as `rejected` on its
+     * first attempt and the shopper's consent was lost. Nothing said so either: the
+     * reconciler skips a scope with nothing known remotely, believing the outbox still owns
+     * it, so the operator's drift count stayed 0.
+     *
+     * The two 404s are told apart by `error_code`, which Lynomia now sends.
+     */
+    public function test_a_subject_lynomia_has_not_linked_yet_is_retried_rather_than_retired(): void
+    {
+        [, , $link] = $this->connectedTenant();
+        // Scripted through the trait rather than a second Http::fake(), which MERGES: the
+        // tenant's own fake is consulted first and would answer 201.
+        $this->lynomiaScript['fail'] = [
+            "POST /platform/api/v1/accounts/{$link->lynomia_account_id}/partner_consents" => Http::response(
+                ['error' => 'No customer of this installation matches that subject',
+                    'error_code' => 'subject_not_linked'],
+                404
+            ),
+        ];
+
+        $decision = $this->decision($link, ['state' => 'granted']);
+        $this->dispatcher()->deliver($decision);
+
+        $decision->refresh();
+        $this->assertNull($decision->delivered_at, 'the opt-in is still owed, so it is not settled');
+        $this->assertNull($decision->remote_outcome);
+        $this->assertNotNull($decision->deliver_after);
+        $this->assertSame('kind_subject_not_linked', $decision->last_error);
+    }
+
+    /** And a 404 that is NOT the race is still permanent -- an installation this account does not have. */
+    public function test_an_unknown_installation_still_retires_the_decision(): void
+    {
+        [, , $link] = $this->connectedTenant();
+        $this->lynomiaScript['fail'] = [
+            "POST /platform/api/v1/accounts/{$link->lynomia_account_id}/partner_consents" => Http::response(
+                ['error' => 'No such installation for this account'],
+                404
+            ),
+        ];
+
+        $decision = $this->decision($link, ['state' => 'granted']);
+        $this->dispatcher()->deliver($decision);
+
+        $decision->refresh();
+        $this->assertNotNull($decision->delivered_at);
+        $this->assertSame('rejected', $decision->remote_outcome);
+        $this->assertSame('kind_not_found', $decision->last_error);
+    }
+
     public function test_a_disconnected_store_retires_the_decision_instead_of_retrying_forever(): void
     {
         [, , $link] = $this->connectedTenant();
