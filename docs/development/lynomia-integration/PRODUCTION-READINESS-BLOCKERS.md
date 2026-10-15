@@ -141,8 +141,29 @@ large table is the one migration in Phase 4 that deserves to be watched rather t
 
 ### B2. Phase 5's own blockers
 
-Added as Phase 5 proceeds. Anything Phase 5 finds that it cannot honestly close is recorded
-here rather than in a limitations list nobody re-reads.
+The final verification pass (RSpec sweep + adversarial re-review of the six headline defects)
+confirmed 19 residual holes. Eleven are fixed; these are the eight that are not, recorded
+here rather than in a limitations list nobody re-reads. Every one has a traced path from a
+real caller and survived a verifier instructed to refute it.
+
+| # | Severity | What | Where | Closes by |
+|---|---|---|---|---|
+| B2.1 | Medium | A **transactional** store-scoped campaign reaches every contact in the account its labels select, including people who were never that installation's customer. `Partners::Eligibility.subject_of?` checks only that the contact and the store share an account and never consults `Commerce::CustomerLink`; `filter` has no subject check at all, and for a transactional purpose no grant is required on either side, so nothing narrows it. Two docblocks and the `:partner_scope_mismatch` skip reason all state the opposite. | `custom/app/services/partners/eligibility.rb:50` | Deciding whether a store-scoped campaign means "this installation's customers" or "this account's contacts, sent on this installation's behalf" — then making the code and the three statements about it agree |
+| B2.2 | Medium | The qualified store identifier is recomputed from a mutable URL on every call rather than persisted, while Lynomia **stores** the resulting string. A domain change, or one deploy target without `LYNOMIA_INSTALLATION_REF`, moves every answer at once: outbound decisions 404 and are retired, reconciliation 404s, inbound events are rejected as another installation's. Fails closed and silently on all three paths. | `packages/workdo/LynomiaChat/src/config/lynomia.php:219` | Persisting what was sent at registration on `lynomia_store_links`, and treating a mismatch as an operator-visible error rather than a 404 |
+| B2.3 | Medium | A first-time shopper's checkout opt-in can be lost on its first attempt. Lynomia answers 404 when no customer link exists for the subject yet — the ordinary race when the opt-in is dispatched before the order event that creates the link — and 404 is classed non-transient, so the decision is retired as `rejected` with no retry. The reconciler's drift count then skips the scope, so the number an operator watches stays 0. | `.../Services/ConsentDecisionDispatcher.php:130` | Treating "subject not linked yet" as retryable, distinctly from "subject does not exist" |
+| B2.4 | Medium | Cancelling a campaign stops its sends but not its job: the sender loops over the whole remaining audience refusing each recipient. A 100k campaign cancelled a minute in writes ~99k skip rows and issues ~200k queries before `completed!` is reached and refused. | `custom/app/services/custom/whatsapp/oneoff_campaign_service.rb` | An early break on `:campaign_cancelled`, which is a per-campaign fact rather than a per-recipient one |
+| B2.5 | Medium | A merchant whose WhatsApp inbox uses the `default` provider (360dialog) has no `business_account_id`, so the templates page's WABA picker is empty — the headline symptom of the template defect, for a whole provider class — and the page explains nothing: the New button is never disabled and saving yields only "Choose which WhatsApp number this template belongs to." | `.../resources/views/merchant/templates.blade.php:354` | Either supporting the provider or saying plainly that template management requires WhatsApp Cloud |
+| B2.6 | Low | There is no cancel affordance in Lynomia's own dashboard. Cancelling is reachable only from the Store Syria page or the raw API. | `app/javascript/dashboard/api/campaigns.js` | A button, once someone decides an operator should have one |
+| B2.7 | **Functional gap** | **A WhatsApp campaign created from Store Syria sends to nobody.** The BFF accepts and forwards `template_params`, but the merchant campaign modal never sends it; `Whatsapp::OneoffCampaignService` returns early for every recipient when it is blank, so the campaign completes having sent nothing. | `.../resources/views/merchant/campaigns.blade.php` | A template picker in the campaign modal — which also has to collect the template's variable values, so it is UI design rather than a correction |
+| B2.8 | Low | `Campaigns::Eligibility.excluded_counts` — the "400 of 1,000, and here is why" breakdown — has no production caller. It is written, tested and unreachable. | `custom/app/services/campaigns/eligibility.rb` | Wiring it to the preview surface or deleting it |
+| B2.9 | Low | Four copies of "find this campaign's template in the channel's synced list" now exist: `Whatsapp::TemplateProcessorService#find_template`, `Whatsapp::AuthenticationTemplateGuard#template`, `Campaigns::RenderedTemplateText#template` and `Campaigns::Eligibility#category_for`. They differ deliberately — the first requires `approved`, the others do not — but four is a drift hazard, and two of them now decide consent. | `custom/app/services/campaigns/eligibility.rb` | Consolidating, which means editing two upstream OSS files or introducing an extension point — a design decision |
+
+**B2.7 is the one that changes what "Phase 5 is complete" means.** Every other item above is
+a defect in something that works; B2.7 is a capability the phase claims to deliver —
+"native campaign management in Store Syria" — that cannot send a WhatsApp message at all.
+The lifecycle around it does work from that surface: create, schedule, list, preview, edit,
+cancel and read results all function, and a campaign on a non-WhatsApp inbox needs no
+template. WhatsApp is the channel this integration exists for, so that is not much comfort.
 
 ---
 

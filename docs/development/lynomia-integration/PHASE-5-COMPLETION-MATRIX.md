@@ -18,7 +18,8 @@ Every cross-system claim rests on either a scriptable fake or the shared contrac
 That is contract verification, not deployment verification, and **staging blocker A1 stays
 open** (`PRODUCTION-READINESS-BLOCKERS.md`).
 
-Last updated: 2026-10-15, after P5H (hardening, adversarial review and closure).
+Last updated: 2026-10-15, after P5H-FINAL (the verification sweep and the re-review of P5H's
+own fixes).
 
 ---
 
@@ -159,8 +160,35 @@ Last updated: 2026-10-15, after P5H (hardening, adversarial review and closure).
 | Second cross-repository contract artifact | ADDED | `audience_fields.v1.json`, SHA-pinned in both repositories |
 | Browser verification, 8 suites | VERIFIED | 189 checks, Arabic and English, phone width, 0 failures |
 
+## P5H-FINAL — the verification pass, and the re-review of the fixes above
+
+The six defects marked FIXED above were re-verified adversarially rather than taken on
+trust. **All six came back PARTIALLY_CORRECTED**: each was corrected along the path its bug
+report described and left open along at least one other. Nineteen residual holes survived
+independent verification; eleven are fixed here, eight are open in
+`PRODUCTION-READINESS-BLOCKERS.md` §B2. The full RSpec sweep found a further defect the
+review did not.
+
+| Capability | State | Evidence |
+|---|---|---|
+| Full Lynomia RSpec sweep on a frozen tree | VERIFIED | **11,211 examples, 0 failures**, 70 pending (the MFA/encryption guard), 47m19s, at `1d797ed9` |
+| The campaign's class is the provider's, not the client's | FIXED | `purpose_for` read `template_params['category']`, which the dashboard defaulted to `UTILITY`; a MARKETING template declared UTILITY needed no marketing consent |
+| ADR-001 §3.3 step 8 takes a grant from EITHER store | FIXED | a native account-wide grant did not satisfy a store-scoped campaign; the negatives still union |
+| The usage period is keyed by data, not by the reader | FIXED | `period_start` is part of a UNIQUE index and was derived through thread-local `Time.zone` — two callers, two rows, two allowances |
+| A manual grant's expiry is not a billing cycle | FIXED | adding an expiry to a comp reissued the whole allowance in the same calendar month, repeatably |
+| The quota is spent only on messages that reach a provider | FIXED AGAIN | the earlier fix moved the spend below the consent gate but still above two OFFLINE refusals, so an unapproved template burned the whole period and sent nothing |
+| A cancelled ONGOING campaign stops | FIXED | `SendGuard` is not in the website path at all; the builder and the widget list now check |
+| Cancelling a blocked campaign keeps its reason and closes its signal | FIXED | `blocked_reason` was erased and the Operations signal stayed open forever |
+| The native consent revision survives its row | FIXED | `clear_suppression` destroys the row and the replacement published `1`; the counter is now the table's |
+| A contact merge is a consent change a partner can see | FIXED | the merge wrote the row directly, bumping nothing and publishing nothing |
+| An unavailable installation refuses a campaign, not widens it | FIXED | a `needs_reauth` store silently produced an ACCOUNT-WIDE campaign with a 200 |
+| An empty `200` is success | FIXED | five `head :ok` endpoints answered 503 to the merchant over work that had succeeded |
+| The dashboard preview asks the send's question | FIXED | it sent only the audience, so every preview resolved as SMS and promotional |
+| A cancelled campaign reads as cancelled | FIXED | it read as “Scheduled” in amber, and its Results button was hidden |
+
 ## Open blockers
 
 | Id | What | Why it is still open |
 |---|---|---|
-| A1 | deployed end-to-end verification between two non-production systems | every cross-system test uses a scriptable fake or the shared artifacts; neither proves DNS, TLS, real credentials, Sidekiq delivery, clock skew between hosts, or a webhook subscription that was never created. **P5H is the argument for it**: four features passed every test on both sides and would have failed on first contact with a real deployment, because each side's fake agreed with its own author. |
+| A1 | deployed end-to-end verification between two non-production systems | every cross-system test uses a scriptable fake or the shared artifacts; neither proves DNS, TLS, real credentials, Sidekiq delivery, clock skew between hosts, or a webhook subscription that was never created. **P5H is the argument for it**: four features passed every test on both sides and would have failed on first contact with a real deployment, because each side's fake agreed with its own author. **P5H-FINAL is the second argument**: the HTTP double sent `[]` where Rails sends nothing, and five delete endpoints therefore reported failure to the merchant over work that had succeeded — a shape no amount of offline testing on either side could expose, because both sides' tests used the same wrong body. |
+| B2.1–B2.8 | eight residuals the re-review confirmed and the final pass did not close, one of them a capability that does not work at all | listed in full in `PRODUCTION-READINESS-BLOCKERS.md` §B2. **B2.7**: a WhatsApp campaign created from Store Syria sends to nobody, because the campaign modal never attaches a template. |
