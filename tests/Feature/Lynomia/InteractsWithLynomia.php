@@ -347,6 +347,19 @@ trait InteractsWithLynomia
                 // Seats a Store Syria package includes. `effective` is what Lynomia actually
                 // enforces -- the grant composed with any plan and any operator override -- not
                 // an echo of what was granted.
+                // Partner consent. The OUTCOME is the point of the response, not the status:
+                // a test scripts `partner_consent_outcome` to make Lynomia report that it
+                // applied the decision, ignored a duplicate, or refused a grant that arrived
+                // after a withdrawal -- each of which the dispatcher must settle differently.
+                (bool) preg_match('#^/platform/api/v1/accounts/\d+/partner_consents$#', $path) && $method === 'POST'
+                    => Http::response([
+                        'outcome' => $this->lynomiaScript['partner_consent_outcome'] ?? 'applied',
+                        'decision_ref' => 'echoed',
+                        'revision' => $this->lynomiaScript['partner_consent_revision'] ?? 9,
+                    ], 201),
+                (bool) preg_match('#^/platform/api/v1/accounts/\d+/partner_consents$#', $path) && $method === 'GET'
+                    => Http::response(['consents' => $this->lynomiaScript['partner_consents'] ?? []], 200),
+
                 (bool) preg_match('#^/platform/api/v1/accounts/\d+/entitlement_grants$#', $path)
                     => Http::response([
                         'account_id' => $accountId,

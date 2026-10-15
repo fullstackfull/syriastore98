@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Log;
 use Workdo\LynomiaChat\app\Http\Middleware\GuardEventIngress;
 use Workdo\LynomiaChat\app\Models\LynomiaInboxEvent;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
+use Workdo\LynomiaChat\app\Services\ConsentStateProjector;
 use Workdo\LynomiaChat\app\Services\EventSignature;
 
 /**
@@ -73,6 +74,13 @@ class EventIngressController extends Controller
 
         $recorded = $this->record($link, $payload, $deliveryId,
             $request->header(EventSignature::TIMESTAMP_HEADER));
+
+        // PROJECTED ONLY WHEN THE RECORD WAS NEW. A duplicate delivery must not re-apply a
+        // consent change: the unique index above already decided this event has been seen, and
+        // re-projecting it would be the one thing at-least-once delivery must not cause.
+        if ($recorded && ($payload['event'] ?? null) === 'consent_changed') {
+            app(ConsentStateProjector::class)->apply($link, $payload);
+        }
 
         if (! $recorded) {
             // A duplicate is a success, not a problem: the unique index on delivery_id did its

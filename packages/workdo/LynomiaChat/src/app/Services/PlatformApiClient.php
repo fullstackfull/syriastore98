@@ -434,6 +434,34 @@ class PlatformApiClient
      *
      * @param bool $retryTransport see LynomiaHttp::send
      */
+    /**
+     * Report one consent decision a customer gave this store.
+     *
+     * OVER THE PLATFORM CREDENTIAL, not a merchant's, because consent sync is system to system:
+     * it happens when nobody is signed in, and binding it to a person would make it stop
+     * working the moment that person left the company.
+     *
+     * The response is the ANSWER, not an acknowledgement -- `outcome` says whether Lynomia
+     * applied the decision, ignored it as a duplicate, found it superseded, or refused it
+     * because the customer had already withdrawn. A caller that treats a 201 as success and
+     * discards the body loses the one fact a merchant needs.
+     */
+    public function recordPartnerConsent(int $accountId, array $decision): array
+    {
+        return $this->send('post', "/platform/api/v1/accounts/{$accountId}/partner_consents", $decision);
+    }
+
+    /** What Lynomia currently holds for one installation, for reconciliation. */
+    public function partnerConsents(int $accountId, string $externalStoreId, string $provider = 'storesyria'): array
+    {
+        $body = $this->send('get', "/platform/api/v1/accounts/{$accountId}/partner_consents", [
+            'provider' => $provider,
+            'external_store_id' => $externalStoreId,
+        ]);
+
+        return is_array($body['consents'] ?? null) ? $body['consents'] : [];
+    }
+
     private function send(string $method, string $path, array $payload = [], bool $retryTransport = true): array
     {
         $this->assertUsable();

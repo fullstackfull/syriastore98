@@ -44,6 +44,10 @@ class EventSubscriptionManager
         'conversation_status_changed',
         'message_created',
         'message_updated',
+        // A shopper replying STOP on WhatsApp is a decision made on Lynomia's channel about
+        // this store's customer. Without this subscription the merchant's consent screen
+        // shows a cheerful "subscribed" for somebody who opted out days ago.
+        'consent_changed',
     ];
 
     public function __construct(private readonly MerchantInboxGateway $gateway)
