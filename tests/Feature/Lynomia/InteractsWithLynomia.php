@@ -456,9 +456,20 @@ trait InteractsWithLynomia
                 // answered with only the first would make every reconciliation test vacuous
                 // about the opt-out the whole feed exists for.
                 (bool) preg_match('#^/platform/api/v1/accounts/\d+/partner_consents$#', $path) && $method === 'GET'
+                    // `native_complete` as the real endpoint sends it: the native list is
+                    // CAPPED, and the reconciler may only delete on absence when it is told
+                    // the list is the whole truth. Scriptable so a test can stand up the
+                    // capped case.
+                    // `native_complete` as the real endpoint sends it: the native list is
+                    // CAPPED, and the reconciler may only delete on absence when it is told
+                    // the list is the whole truth. The sentinel 'omit' leaves the key out
+                    // entirely, which is the older-Lynomia case and must be read as capped.
                     => Http::response([
                         'consents' => $this->lynomiaScript['partner_consents'] ?? [],
                         'native' => $this->lynomiaScript['native_consents'] ?? [],
+                        ...(($this->lynomiaScript['native_complete'] ?? true) === 'omit'
+                            ? []
+                            : ['native_complete' => $this->lynomiaScript['native_complete'] ?? true]),
                     ], 200),
 
                 (bool) preg_match('#^/platform/api/v1/accounts/\d+/entitlement_grants$#', $path)

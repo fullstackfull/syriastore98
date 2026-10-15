@@ -476,6 +476,15 @@ class PlatformApiClient
         return [
             'consents' => is_array($body['consents'] ?? null) ? $body['consents'] : [],
             'native' => is_array($body['native'] ?? null) ? $body['native'] : [],
+            // WHETHER THE NATIVE LIST IS THE WHOLE TRUTH. Both collections are capped
+            // upstream at 200, newest first, because this read is the safety net behind the
+            // event feed rather than a full export. ConsentReconciler deletes a projected
+            // native row that is ABSENT here -- that is how a cleared suppression, which
+            // destroys its row and publishes nothing, is learned -- so it may only do that
+            // when the list is complete. Defaulting to FALSE is the safe direction: an
+            // upstream that does not send the flag gets no pruning rather than silent
+            // deletion of everything past the cap.
+            'native_complete' => ($body['native_complete'] ?? false) === true,
         ];
     }
 

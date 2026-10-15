@@ -118,9 +118,19 @@ class ConsentReconciler
      * screen was wrong in the direction that makes a merchant stop trying.
      *
      * SO ABSENCE IS THE SIGNAL, and this is the only place it can be read: the event feed
-     * carries states, and "no longer any state" is not one. The read endpoint returns the
-     * COMPLETE native list for the store in one response (it does not paginate), so a scope
-     * missing from it is a scope with no decision.
+     * carries states, and "no longer any state" is not one.
+     *
+     * ONLY WHEN THE LIST IS COMPLETE, WHICH THE ENDPOINT NOW SAYS. The read is CAPPED at 200
+     * rows, newest first -- it is the safety net behind the event feed, not a full export.
+     * Deleting on absence from a capped list would delete every scope past the 200th, every
+     * hour, including withdrawals: the merchant's screen would quietly stop showing that an
+     * older customer had opted out. So `native_complete` is required, and a store with more
+     * decisions than the cap simply does not get this repair -- which is a gap in a
+     * convenience, not a wrong answer. (Lynomia remains the authority on whether a message
+     * may go; this table is what the MERCHANT is shown.)
+     *
+     * A RESPONSE WITHOUT THE FLAG PRUNES NOTHING, because an older Lynomia that does not
+     * send it is exactly the case where this side cannot tell the two situations apart.
      *
      * NATIVE ONLY. A partner row is this installation's own record of what it captured, and
      * its absence upstream would mean the decision never arrived -- which is the outbox's
@@ -128,6 +138,10 @@ class ConsentReconciler
      */
     private function prune(LynomiaStoreLink $link, array $remote): int
     {
+        if (($remote['native_complete'] ?? false) !== true) {
+            return 0;
+        }
+
         $known = [];
         foreach ($remote['native'] ?? [] as $row) {
             $known[] = ($row['external_subject_id'] ?? '') . '|' . ($row['purpose'] ?? '') . '|' . ($row['channel'] ?? '');

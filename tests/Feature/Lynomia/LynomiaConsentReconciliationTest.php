@@ -104,6 +104,44 @@ class LynomiaConsentReconciliationTest extends TestCase
     }
 
     /**
+     * THE PRUNE IS REFUSED WHEN THE LIST IS CAPPED, which is the difference between a repair
+     * and a data-loss bug. The read endpoint returns at most 200 native rows, newest first;
+     * deleting every projected scope absent from a capped list would quietly drop the older
+     * half of a large store's consent history -- withdrawals included -- on every hourly
+     * sweep.
+     */
+    public function test_nothing_is_pruned_when_lynomia_says_the_native_list_is_incomplete(): void
+    {
+        $link = $this->connectedLink();
+        $this->remote([], [$this->nativeRow(['state' => 'suppressed', 'revision' => 7])]);
+        app(ConsentReconciler::class)->reconcile($link);
+        $this->assertSame(1, LynomiaConsentState::forStore($link->store_id)->where('origin', 'lynomia_native')->count());
+
+        $this->remote([], []);
+        $this->lynomiaScript['native_complete'] = false;
+        $result = app(ConsentReconciler::class)->reconcile($link);
+
+        $this->assertSame(0, $result['pruned']);
+        $this->assertSame(1, LynomiaConsentState::forStore($link->store_id)->where('origin', 'lynomia_native')->count(),
+            'a capped list is not evidence that a scope has no decision');
+    }
+
+    /** An older Lynomia that does not send the flag at all is treated as capped. */
+    public function test_nothing_is_pruned_when_the_response_does_not_say(): void
+    {
+        $link = $this->connectedLink();
+        $this->remote([], [$this->nativeRow(['state' => 'suppressed', 'revision' => 7])]);
+        app(ConsentReconciler::class)->reconcile($link);
+
+        $this->remote([], []);
+        $this->lynomiaScript['native_complete'] = 'omit';
+        $result = app(ConsentReconciler::class)->reconcile($link);
+
+        $this->assertSame(0, $result['pruned']);
+        $this->assertSame(1, LynomiaConsentState::forStore($link->store_id)->where('origin', 'lynomia_native')->count());
+    }
+
+    /**
      * A PARTNER ROW IS NOT PRUNED. It is this installation's own record of what it captured,
      * and its absence upstream means the decision has not arrived yet -- which is the
      * outbox's to retry, not a reason to forget what the shopper told this store.
