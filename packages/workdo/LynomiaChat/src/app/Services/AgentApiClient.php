@@ -582,11 +582,19 @@ class AgentApiClient
      * "orders anywhere" while the send answers "orders with us", and the merchant is shown a
      * number their campaign cannot reach.
      */
-    public function previewAudience(array $audience, ?int $commerceStoreId = null): array
+    /**
+     * @param int|null $inboxId The channel the campaign will send on. A store-scoped audience
+     *   is scoped by CHANNEL -- a partner grant taken for WhatsApp does not authorise an SMS
+     *   blast -- so a preview that omits it answers a different question from the send.
+     *   Upstream defaults to SMS when it is not given, which is what this used to do for
+     *   every WhatsApp campaign.
+     */
+    public function previewAudience(array $audience, ?int $commerceStoreId = null, ?int $inboxId = null): array
     {
         return $this->http->send('post', $this->path('campaigns/audience_preview'), array_filter([
             'audience' => $audience,
             'commerce_store_id' => $commerceStoreId,
+            'inbox_id' => $inboxId,
         ], static fn ($value) => $value !== null));
     }
 

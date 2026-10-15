@@ -205,11 +205,22 @@ class CampaignApiController extends Controller
             'audience' => ['present', 'array', 'max:50'],
             'audience.*.type' => ['required', 'string', 'in:Label,Audience'],
             'audience.*.id' => ['required'],
+            // The channel the campaign will send on. Optional, because the page previews as
+            // soon as an audience is chosen and the merchant may not have picked one yet.
+            'inbox_id' => ['nullable', 'integer', 'min:1'],
         ]);
         $storeId = (int) $request->attributes->get(EnsureStoreOwnsLink::STORE_ATTRIBUTE);
 
         return $this->proxy($request, function (AgentApiClient $client) use ($validated, $storeId) {
-            $scoped = $client->previewAudience($validated['audience'], $this->ownStoreId($client, $storeId));
+            // THE CHANNEL TRAVELS WITH THE PREVIEW. A store-scoped audience is scoped by it:
+            // a partner grant taken for WhatsApp does not authorise an SMS blast, so a
+            // preview without the inbox answered as SMS for every campaign and under-counted
+            // every WhatsApp one.
+            $scoped = $client->previewAudience(
+                $validated['audience'],
+                $this->ownStoreId($client, $storeId),
+                isset($validated['inbox_id']) ? (int) $validated['inbox_id'] : null
+            );
 
             return ['count' => (int) ($scoped['count'] ?? 0)];
         });

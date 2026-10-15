@@ -417,12 +417,21 @@
         if (!audience.length) { return $('#lyncp-preview').text(''); }
 
         $('#lyncp-preview').text(T.counting);
-        $.ajax({ url: PREVIEW, method: 'POST', dataType: 'json', data: { audience: audience } })
+        // THE CHANNEL GOES WITH IT. A store-scoped audience is scoped by channel -- a
+        // partner grant taken for WhatsApp does not authorise an SMS blast -- so a preview
+        // without the inbox is answered as SMS and under-counts every WhatsApp campaign.
+        var payload = { audience: audience };
+        var inbox = $('#lyncp-inbox').val();
+        if (inbox) { payload.inbox_id = inbox; }
+
+        $.ajax({ url: PREVIEW, method: 'POST', dataType: 'json', data: payload })
             .done(function (body) { $('#lyncp-preview').text(T.willReach.replace(':count', text(body.count))); })
             .fail(function () { $('#lyncp-preview').text(''); });
     }
 
     $('#lyncp-audience').on('change', previewAudience);
+    // Changing the channel changes who the campaign can reach, so the number is recomputed.
+    $('#lyncp-inbox').on('change', previewAudience);
     $('#lyncp-new').on('click', function () { openEditor(null); });
 
     $('#lyncp-save').on('click', function () {

@@ -159,6 +159,51 @@ class LynomiaCampaignTest extends TestCase
             && ($request['commerce_store_id'] ?? null) === 55);
     }
 
+    /**
+     * THE CHANNEL IS PART OF THE PREVIEW'S QUESTION. A store-scoped audience is scoped by it
+     * -- a partner grant taken for WhatsApp does not authorise an SMS blast -- and upstream
+     * defaults to SMS when no inbox is given, so a preview without it under-counted every
+     * WhatsApp campaign and the merchant was shown a smaller number than the send reaches.
+     */
+    public function test_the_preview_carries_the_channel_the_campaign_will_send_on(): void
+    {
+        [$owner, $store] = $this->connectedTenant();
+        $this->lynomiaScript['audience_fields'] = [
+            'stores' => [['id' => 55, 'name' => 'Damascus', 'provider' => 'storesyria',
+                'external_store_id' => StoreIdentity::of($store->id)]],
+            'currencies' => [], 'unread_contacts' => 0,
+        ];
+        $this->lynomiaScript['audience_preview'] = ['scoped' => 40, 'all' => 180];
+
+        $this->actingAs($owner)->postJson(self::CAMPAIGNS . '/preview', [
+            'audience' => [['type' => 'Audience', 'id' => 12]],
+            'inbox_id' => 9,
+        ])->assertOk();
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'audience_preview')
+            && ($request['inbox_id'] ?? null) === 9
+            && ($request['commerce_store_id'] ?? null) === 55);
+    }
+
+    /** It stays optional: the page previews as soon as an audience is chosen. */
+    public function test_the_preview_works_before_a_channel_has_been_chosen(): void
+    {
+        [$owner, $store] = $this->connectedTenant();
+        $this->lynomiaScript['audience_fields'] = [
+            'stores' => [['id' => 55, 'name' => 'Damascus', 'provider' => 'storesyria',
+                'external_store_id' => StoreIdentity::of($store->id)]],
+            'currencies' => [], 'unread_contacts' => 0,
+        ];
+        $this->lynomiaScript['audience_preview'] = ['scoped' => 40, 'all' => 180];
+
+        $this->actingAs($owner)->postJson(self::CAMPAIGNS . '/preview', [
+            'audience' => [['type' => 'Audience', 'id' => 12]],
+        ])->assertOk();
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'audience_preview')
+            && ! isset($request['inbox_id']));
+    }
+
     public function test_a_malformed_audience_entry_is_refused_at_the_boundary(): void
     {
         [$owner] = $this->connectedTenant();
