@@ -5,6 +5,7 @@ namespace Workdo\LynomiaChat\app\Services;
 use App\Models\AuditLog;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
@@ -41,8 +42,10 @@ use Workdo\LynomiaChat\app\Support\StoreIdentity;
  */
 class InstallationLifecycle
 {
-    public function __construct(private readonly PlatformApiClient $api)
-    {
+    public function __construct(
+        private readonly PlatformApiClient $api,
+        private readonly PlatformNotifier $notifier
+    ) {
     }
 
     /** A hold on a relationship nobody has ended. The merchant keeps their workspace and data. */
@@ -152,15 +155,59 @@ class InstallationLifecycle
             $locked = LynomiaStoreLink::query()->lockForUpdate()->find($link->id);
             $locked->forceFill(['state' => $to, 'last_error' => Str::limit($reason, 480)])->save();
 
-            AuditLog::record($auditEvent, $locked, ['state' => $previous], [
+            $entry = AuditLog::record($auditEvent, $locked, ['state' => $previous], [
                 'state' => $to,
                 'store_id' => $locked->store_id,
                 'reason' => Str::limit($reason, 200),
                 'actor_id' => (int) $actor->id,
             ]);
 
+            $this->tellTheMerchant($locked, $to, $entry);
+
             return $locked->refresh();
         });
+    }
+
+    /**
+     * SUSPENDING AN INSTALLATION IS SOMETHING THE MERCHANT HAS TO BE TOLD.
+     *
+     * A hold they do not know about is a product that has silently stopped working, and
+     * "integration failures and re-authentication notices" is exactly what the platform
+     * workspace was authorised for. This is the automated trigger: no operator decides to
+     * send it, the transition does.
+     *
+     * KEYED ON THE AUDIT ROW, which is the cleanest identifier of the OCCASION available.
+     * A suspend, a resume and a second suspend are three genuinely different things to say
+     * and each has its own audit id; a retry of the same transition reuses one, so the
+     * notice's unique key refuses the repeat. Nothing here has to invent a counter or guess
+     * at a window.
+     *
+     * BEST EFFORT, AND DELIBERATELY SO. An operator asked to suspend an installation. If the
+     * platform workspace is unconfigured, or the merchant has no usable number, or Lynomia
+     * cannot be reached, the suspension still stands -- a hold that fails to apply because a
+     * notice could not be sent is far worse than a hold the merchant learns about later. The
+     * notice's own row records what happened either way, so it is not lost, only deferred to
+     * an operator's attention.
+     */
+    private function tellTheMerchant(LynomiaStoreLink $link, string $to, $entry): void
+    {
+        if ($to !== LinkState::SUSPENDED || $entry === null) {
+            return;
+        }
+
+        try {
+            $this->notifier->notify(
+                $link,
+                'integration_recovery',
+                (string) config('lynomia.platform_notice_templates.integration_suspended', 'integration_suspended'),
+                'installation_suspended:' . $entry->id,
+                ['1' => (string) $link->store_id]
+            );
+        } catch (\Throwable $e) {
+            Log::warning('[lynomia] the merchant could not be told about the suspension', [
+                'store_id' => $link->store_id, 'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

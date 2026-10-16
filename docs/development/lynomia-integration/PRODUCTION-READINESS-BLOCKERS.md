@@ -182,6 +182,46 @@ the round.
 
 ---
 
+### B4. There is no verified merchant phone number in Store Syria
+
+Raised by P6E, which needs one and refuses to proceed without it.
+
+| | |
+|---|---|
+| Raised | Phase 6 (P6E) |
+| Severity | Medium — it makes a delivered capability unusable for some merchants, and would be high if P6E guessed instead of refusing |
+| Closes by | A merchant-facing verification of their own number, and a repair of the two writers below |
+
+`users.mobile` is the only place a merchant's phone number lives. It is nullable, not unique,
+not indexed, and has no format rule — the web profile form and the API both accept any string
+up to 20 characters. There is no OTP, no `phone_verified` flag and no KYC for a merchant
+number anywhere in the repository; a search for every spelling of a verification flag returns
+nothing.
+
+It is also actively written with values that are not phone numbers:
+
+| Writer | What it writes |
+|---|---|
+| self-registration | `''` rather than NULL |
+| `app/Http/Controllers/StoreController.php:268` | the literal `7878787878` |
+
+**Why this is recorded rather than worked around.** A WhatsApp message to a number like that
+does not fail safely. It reaches whoever actually holds that number — a stranger — with a
+notice about a merchant's account. So `PlatformRecipients` admits only a number it can
+normalise to an international form and that is not a known placeholder, and records any
+merchant it cannot address as unreachable with the reason.
+
+**The consequence, stated plainly.** Platform communications work, and a merchant whose
+number was never recorded properly simply cannot be reached by them. Every merchant created
+through Super Admin store creation is in that set today. The Super Admin notices tab shows
+the refusals and their reasons, so the gap is visible rather than silent, but it is a gap.
+
+**What would close it.** Verification the merchant performs themselves — the number is only
+trustworthy if its holder proved it — plus correcting the two writers so the column stops
+accumulating values that were never anybody's number.
+
+---
+
 ## C. CLOSED
 
 | # | Blocker | Raised | Closed |

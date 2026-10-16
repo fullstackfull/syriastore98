@@ -255,6 +255,55 @@ class LynomiaInstallationLifecycleTest extends TestCase
         }
     }
 
+    // ===================================================== the automated notice (P6E)
+
+    /**
+     * A HOLD THE MERCHANT DOES NOT KNOW ABOUT is a product that has silently stopped
+     * working. No operator decides to send this; the transition does.
+     */
+    public function test_suspending_tells_the_merchant(): void
+    {
+        config()->set('lynomia.platform_workspace_account_id', 9001);
+        config()->set('lynomia.platform_workspace_sender_user_id', 501);
+        config()->set('lynomia.platform_workspace_inbox_id', 31);
+        [$owner, , $link] = $this->connected();
+        $owner->forceFill(['mobile' => '963900111222'])->save();
+
+        $this->lifecycle()->suspend($link, $this->operator(), 'billing hold');
+
+        $notice = \Workdo\LynomiaChat\app\Models\LynomiaPlatformNotice::query()->latest('id')->first();
+        $this->assertNotNull($notice);
+        $this->assertSame('integration_recovery', $notice->kind);
+        $this->assertTrue($notice->automated, 'no operator asked for it; the transition did');
+    }
+
+    /**
+     * BEST EFFORT. An operator asked to suspend an installation; a hold that fails to apply
+     * because a notice could not be sent is far worse than one the merchant learns later.
+     */
+    public function test_the_suspension_stands_even_when_the_merchant_cannot_be_told(): void
+    {
+        // Workspace unconfigured, and the merchant has no usable number either.
+        [$owner, , $link] = $this->connected();
+        $owner->forceFill(['mobile' => ''])->save();
+
+        $moved = $this->lifecycle()->suspend($link, $this->operator(), 'billing hold');
+
+        $this->assertSame(LinkState::SUSPENDED, $moved->state);
+    }
+
+    /** Resuming is not an occasion for this notice; only the hold is. */
+    public function test_resuming_does_not_send_one(): void
+    {
+        [, , $link] = $this->connected();
+        $this->lifecycle()->suspend($link, $this->operator(), 'hold');
+        $before = \Workdo\LynomiaChat\app\Models\LynomiaPlatformNotice::count();
+
+        $this->lifecycle()->resume($link->fresh(), $this->operator(), 'paid');
+
+        $this->assertSame($before, \Workdo\LynomiaChat\app\Models\LynomiaPlatformNotice::count());
+    }
+
     // ===================================================== retention
 
     /**

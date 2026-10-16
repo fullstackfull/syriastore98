@@ -258,4 +258,19 @@ return [
         && $platformInbox !== ''
             ? (int) $platformInbox
             : null,
+
+    /*
+     * The approved templates an automated notice uses, by occasion.
+     *
+     * NAMED HERE RATHER THAN IN THE CODE because a template name is Meta's and changes on
+     * Meta's schedule, not on a deploy's. What the code decides is WHICH OCCASION warrants a
+     * notice; which approved template carries it is an operational setting.
+     *
+     * It is still not a way round the rules: the platform workspace refuses anything Meta
+     * does not classify as UTILITY, so pointing one of these at a marketing template makes
+     * the notice fail with a reason rather than making marketing operational.
+     */
+    'platform_notice_templates' => [
+        'integration_suspended' => (string) env('LYNOMIA_NOTICE_INTEGRATION_SUSPENDED', 'integration_suspended'),
+    ],
 ];
