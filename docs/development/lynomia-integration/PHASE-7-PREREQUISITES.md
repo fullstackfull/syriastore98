@@ -272,6 +272,78 @@ a production `.env`.
 
 ---
 
+## 5a. The CI baseline on the Lynomia side, and a correction to an earlier claim
+
+### 5a.1 Lynomia's CI is much narrower than it looks
+
+Of the sixteen workflow files, **two actually run on a pull request** on this fork:
+`run_foss_spec.yml` (rubocop, security-scan, eslint, vitest, and the whole 945-file spec suite
+across 16 shards) and `lint_pr.yml`.
+
+| Workflow | Why it never runs |
+|---|---|
+| `size-limit`, `logging_percentage_check`, `frontend-fe`, `test_docker_build` | filtered to base branches `develop` / `master`, **neither of which exists on origin** |
+| `deploy_check`, `run_mfa_spec` | guarded by `github.repository == 'chatwoot/chatwoot'`, so they report "skipped" |
+
+So the Docker image and the bundle size are **ungated** on this fork. That is not a Phase 7
+blocker, but it is worth the owner knowing before a release conversation.
+
+### 5a.2 `rubocop` was failing and is now green
+
+`bundle exec rubocop --parallel` is a required job and the branch was failing it with 14
+offences across four files, while the merge-base was clean. Fixed; 3151 files inspected, no
+offences. The lesson is recorded because it will recur: linting only the files a change
+touches is not the same as the gate, and on a long-lived branch the difference accumulates.
+
+### 5a.3 `security-scan` is permanently red and therefore carries no signal
+
+The only blocking *security* job in Lynomia's CI fails at `Run bundle-audit`, and has in every
+recent run. A gate that is always red is one nobody reads — the same failure mode Store Syria's
+`composer audit` ratchet was built to avoid. An owner item, alongside §5.2(a).
+
+### 5a.4 CORRECTION — the "21 pre-existing failures" figure was wrong
+
+An earlier commit on this branch (`62747b73`) recorded a broad Lynomia sweep as **"5869
+examples, 21 failures ... all pre-existing"**. The conclusion was right and the number was not.
+
+Re-run after `rails db:test:prepare`, with nothing else touching Postgres:
+**5872 examples, 1 failure, 41 pending.** The twenty others were an artifact of **running
+several rspec processes against one shared test database** — which is how that sweep was taken,
+concurrently with other work in this container.
+
+The mechanism was reproduced deliberately rather than assumed: planting **one** committed
+`Custom::AuditLog` row and running `spec/jobs/audit_trail/retention_job_spec.rb` alone
+reproduces exactly its four failures, and they are precisely the four examples that assert
+absolute global counts; the other twelve use `include` and are residue-tolerant. The earlier
+claim that this file "fails even in isolation" was produced the same way and is withdrawn.
+
+**It cannot bite in CI**: each of the 16 shards gets a fresh Postgres,
+`use_transactional_fixtures = true` is global, no spec opts out, and no random ordering is
+configured.
+
+The one real remaining failure, `spec/listeners/reporting_event_listener_spec.rb:410`, is a
+business-hours assertion that passes 27/27 when the file is run alone — order- or
+wall-clock-dependent, not a defect.
+
+**Why this correction matters for Phase 7 specifically:** the owner is being asked to judge a
+regression baseline. A figure that overstates breakage twentyfold cannot be judged, and a
+baseline measured on a shared database is not a baseline. The standing instruction for Phase 7
+measurements is therefore: reset the test database and run one suite at a time.
+
+### 5a.5 Lynomia has no known-failure baseline at all
+
+There is no manifest, no CI allowlist, no gate script and no workflow step that reads an
+expected-outcome file. The closest artefact is prose in `docs/pre-deploy/03-readiness.md`,
+which records a point-in-time run; nothing fails if reality drifts from it.
+
+The contrast with the other side of this integration is stark. Store Syria has
+`.github/known-test-outcomes.json` enforced bidirectionally as a blocking step — an unlisted
+failure fails CI, **and** a listed entry that starts passing also fails CI, so the record
+cannot rot. **On the Lynomia side there is no automated way to tell an inherited failure from a
+new regression.** That is an owner item, and it is the reason §5a.4 could happen at all.
+
+---
+
 ## 6. What could not be verified here, and will not be before staging
 
 | | Why |

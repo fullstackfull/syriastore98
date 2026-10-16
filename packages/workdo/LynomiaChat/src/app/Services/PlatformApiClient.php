@@ -133,29 +133,6 @@ class PlatformApiClient
     }
 
     /**
-     * Redeem a link code a merchant generated INSIDE their own Lynomia account.
-     *
-     * THIS IS THE ONLY SAFE WAY TO LINK AN ACCOUNT THIS INTEGRATION DID NOT CREATE, and it is
-     * safe for one reason: the proof is minted on the Lynomia side by someone who had to
-     * authenticate there as an administrator of the account. Store Syria asserts nothing. It
-     * forwards a code the merchant pasted in, and Lynomia answers with the account and the
-     * user that code was created by -- or refuses. No email is sent, matched or guessed, and
-     * there is no input on this path that names an account directly, so there is nothing a
-     * merchant can type that points at a workspace they cannot already sign in to.
-     *
-     * The code is single-use and short-lived upstream, and is never stored here.
-     *
-     * WHAT COMES BACK IS THE WORKSPACE, AND ONLY THE WORKSPACE. Redemption used to hand this
-     * app the authorizing administrator's own identity as well, which cashed a proof about ONE
-     * account in for the ability to sign in as that person in every account they belong to.
-     * Upstream now grants the account and names the authorizer without granting them; who
-     * signs in, as whom, and with what role is decided per person afterwards by
-     * IdentityProvisioner. The two authorizer fields are recorded for the audit trail -- this
-     * app cannot act as that user and does not try.
-     *
-     * @return array{account_id:int,account_name:string,authorized_by_user_id:int,authorized_by_name:string}
-     */
-    /**
      * One account, read back by the id this installation was configured with (blocker B5).
      *
      * WHY `show` AND NOT `listAccounts`. The index deliberately REJECTS platform-owned
@@ -190,6 +167,29 @@ class PlatformApiClient
         ];
     }
 
+    /**
+     * Redeem a link code a merchant generated INSIDE their own Lynomia account.
+     *
+     * THIS IS THE ONLY SAFE WAY TO LINK AN ACCOUNT THIS INTEGRATION DID NOT CREATE, and it is
+     * safe for one reason: the proof is minted on the Lynomia side by someone who had to
+     * authenticate there as an administrator of the account. Store Syria asserts nothing. It
+     * forwards a code the merchant pasted in, and Lynomia answers with the account and the
+     * user that code was created by -- or refuses. No email is sent, matched or guessed, and
+     * there is no input on this path that names an account directly, so there is nothing a
+     * merchant can type that points at a workspace they cannot already sign in to.
+     *
+     * The code is single-use and short-lived upstream, and is never stored here.
+     *
+     * WHAT COMES BACK IS THE WORKSPACE, AND ONLY THE WORKSPACE. Redemption used to hand this
+     * app the authorizing administrator's own identity as well, which cashed a proof about ONE
+     * account in for the ability to sign in as that person in every account they belong to.
+     * Upstream now grants the account and names the authorizer without granting them; who
+     * signs in, as whom, and with what role is decided per person afterwards by
+     * IdentityProvisioner. The two authorizer fields are recorded for the audit trail -- this
+     * app cannot act as that user and does not try.
+     *
+     * @return array{account_id:int,account_name:string,authorized_by_user_id:int,authorized_by_name:string}
+     */
     public function redeemLinkCode(string $code): array
     {
         // Not retried. Redemption burns the code upstream, so a retry after a lost answer
