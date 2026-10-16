@@ -34,7 +34,75 @@ $targets = [
     ['audiences', 'lynomia-chat::merchant.audiences', ['workspaceName' => 'Damascus Store']],
     ['templates', 'lynomia-chat::merchant.templates', ['workspaceName' => 'Damascus Store']],
     ['campaigns', 'lynomia-chat::merchant.campaigns', ['workspaceName' => 'Damascus Store']],
+    // THE OPERATOR PAGE (Phase 6). The only non-merchant view here, and it is here because
+    // Phase 6 put four of its five workstreams on it: installation lifecycle controls, the
+    // far side's health, the consent-delivery panel and the merchant-notice history. Served
+    // with fixture data rather than a database, like every other target -- what is under
+    // test is the page these views ship, in both languages, not the queries behind it.
+    ['superadmin-integration', 'lynomia-chat::superadmin.integration', superAdminFixture()],
 ];
+
+/**
+ * Everything SuperAdmin\IntegrationController::show passes, as plain values.
+ *
+ * Deliberately exercising the INTERESTING states rather than an empty installation: a
+ * suspended link (so the resume, re-authenticate and decommission controls render), a
+ * revoked one (restore), a pending claim (the approval form), expired consent decisions and
+ * an indeterminate notice -- the three warning banners Phase 6 added only appear when there
+ * is something to warn about.
+ */
+function superAdminFixture(): array
+{
+    $link = static function (int $id, int $storeId, string $state, string $mode = 'provisioned') {
+        return (object) [
+            'id' => $id, 'store_id' => $storeId, 'state' => $state, 'link_mode' => $mode,
+            'lynomia_account_id' => 7000 + $id,
+        ];
+    };
+
+    $links = new Illuminate\Pagination\LengthAwarePaginator(
+        [
+            $link(1, 11, 'active'),
+            $link(2, 12, 'suspended'),
+            $link(3, 13, 'revoked'),
+            $link(4, 14, 'pending_verification', 'link_existing'),
+            $link(5, 15, 'decommissioned'),
+        ],
+        5, 25, 1, ['path' => '/super-admin/lynomia-integration']
+    );
+
+    return [
+        'integrationEnabled' => true,
+        'integrationConfigured' => true,
+        'links' => $links,
+        'pendingCount' => 1,
+        'planSeats' => collect([
+            (object) ['id' => 1, 'name' => 'Starter', 'lynomia_agent_seats' => 2],
+            (object) ['id' => 2, 'name' => 'Growth', 'lynomia_agent_seats' => 10],
+        ]),
+        'seatedStores' => collect([11 => 2, 12 => 5]),
+        'eventHealth' => ['total' => 1420, 'last_at' => '3 minutes ago', 'stores_reporting' => 4],
+        'commerceHealth' => ['enabled' => true, 'pending' => 6, 'stuck' => 2,
+            'oldest' => '2 hours ago', 'stores' => [12 => 2]],
+        'consentHealth' => ['pending' => 3, 'stuck' => 1, 'expired' => 2,
+            'oldest' => '5 days ago', 'stores' => [12 => 1]],
+        'platformComms' => [
+            'configured' => true, 'sent' => 48, 'failed' => 3, 'indeterminate' => 1,
+            'recent' => collect([
+                (object) ['created_at' => now()->subMinutes(9), 'store_id' => 12,
+                    'kind' => 'integration_recovery', 'status' => 'sent', 'failure_reason' => null],
+                (object) ['created_at' => now()->subHours(2), 'store_id' => 14,
+                    'kind' => 'onboarding', 'status' => 'failed', 'failure_reason' => 'placeholder_phone'],
+                (object) ['created_at' => now()->subHours(5), 'store_id' => 13,
+                    'kind' => 'security', 'status' => 'indeterminate', 'failure_reason' => 'kind_unavailable'],
+            ]),
+        ],
+        'automationAccess' => collect([
+            ['name' => 'lynomia automation manage', 'roles' => 2, 'platform_wide' => 1, 'stores' => 3],
+            ['name' => 'lynomia consent manage', 'roles' => 1, 'platform_wide' => 0, 'stores' => 1],
+        ]),
+    ];
+}
 
 /**
  * The field a shopper actually sees, wrapped the way a storefront wraps it.

@@ -425,8 +425,12 @@
                                                 @csrf
                                                 <button class="btn btn-sm btn-outline-secondary">{{ __('Re-authenticate') }}</button>
                                             </form>
+                                            {{-- Js::from, not @json: @json leaves the double quotes raw, so inside a
+                                                 double-quoted attribute the handler is cut off at the first one and the
+                                                 only transition with no way back submits unguarded. Found by clicking it
+                                                 in a browser; nothing server-side could have noticed. --}}
                                             <form method="POST" action="{{ route('lynomia.admin.links.decommission', $row->id) }}" class="d-flex gap-1"
-                                                  onsubmit="return confirm(@json(__('Decommissioning cannot be undone. The workspace, its conversations and its consent records are kept, but the installation stops for good.')))">
+                                                  onsubmit="return confirm({{ Js::from(__('Decommissioning cannot be undone. The workspace, its conversations and its consent records are kept, but the installation stops for good.')) }})">
                                                 @csrf
                                                 <input type="text" name="reason" class="form-control form-control-sm"
                                                        placeholder="{{ __('Why?') }}" required style="max-width:140px">
@@ -485,6 +489,17 @@
         stores: @json(__('installations')),
     };
 
+    // Lynomia's own four-state vocabulary, said in the operator's language. The STATE is
+    // Lynomia's -- a fifth one is not invented here, and an unrecognised one is printed as it
+    // arrived rather than being rounded to the nearest known word. Only the wording is ours,
+    // because an Arabic operator reading "critical" is reading an untranslated page.
+    var LABEL = {
+        healthy: @json(__('Healthy')),
+        warning: @json(__('Needs attention')),
+        critical: @json(__('Critical')),
+        unknown: @json(__('Not known')),
+    };
+
     document.querySelectorAll('.lyn-health-check').forEach(function (button) {
         button.addEventListener('click', function () {
             var cell = button.closest('.lyn-health');
@@ -523,7 +538,7 @@
         var stores = (health.installations || []).length;
 
         out.className = 'lyn-health-out small mt-1 ' + (TONE[status] || 'text-muted');
-        out.textContent = status + ' — ' + stores + ' ' + T.stores + ', '
+        out.textContent = (LABEL[status] || status) + ' — ' + stores + ' ' + T.stores + ', '
             + (open ? open + ' ' + T.issues : T.noneOpen);
     }
 })();
