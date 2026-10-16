@@ -286,20 +286,22 @@ run.
 
 | Suite | Result |
 |---|---|
-| Lynomia — **full RSpec sweep**, frozen tree, at the closure head `3402f299` | **11,242 examples, 0 failures, 70 pending** (44m47s) |
+| Lynomia — **full RSpec sweep**, frozen tree, at the final head `c0c1a06a` | **11,244 examples, 0 failures, 70 pending** (37m58s) |
+| Lynomia — full RSpec sweep, frozen tree, at `3402f299` | 11,242 examples, 0 failures, 70 pending (44m47s) |
 | Lynomia — full RSpec sweep, frozen tree, at `2eaca095` | 11,242 examples, 0 failures, 70 pending (45m51s) |
 | Lynomia — quota concurrency, real threads, non-transactional, barrier-forced | 2 examples, 0 failures |
-| Store Syria — full Feature suite against the known-outcome gate | **1,895 tests, 12,543 assertions**; 8 declared failures, 17 declared skips, 0 errors, **nothing undeclared** |
+| Store Syria — full Feature suite against the known-outcome gate | **1,896 tests, 12,545 assertions**; 8 declared failures, 17 declared skips, 0 errors, **nothing undeclared** |
 | Store Syria — Unit suite | 181 tests, 1,035 assertions, 0 failures |
 | Store Syria — `--filter Lynomia` | **457 tests, 5,033 assertions**, 0 failures |
 | Store Syria — Contract suite (two real producer artifacts, real ingress) | 14 tests, 43 assertions, 0 failures |
-| Store Syria — browser, 8 suites | **200 checks, 0 failures** |
-| Lynomia — Vitest | 503 files, 5,428 tests, 0 failures |
+| Store Syria — browser, 8 suites | **203 checks, 0 failures** |
+| Lynomia — Vitest | **504 files, 5,434 tests, 0 failures** |
 
-Two full sweeps are listed because the tree moved between them. They report the same example
-count because `3402f299` changes one Vue component and no Ruby, so it adds no RSpec example.
-It added no Vitest example either, which the audit in §10.4 caught and the correction pass fixed:
-the two behaviours it changed now have examples, and both go red without it. The 70 pending in every Lynomia sweep are the single
+Three full sweeps are listed because the tree moved twice. The middle two report the same
+example count because `3402f299` changes one Vue component and no Ruby, so it adds no RSpec
+example — and it added no Vitest example either, which the audit in §10.4 caught and
+`c0c1a06a` fixed: the two behaviours it changed now have examples, and both go red without
+it. The final sweep's +2 are the Twilio cancellation examples from the same commit. The 70 pending in every Lynomia sweep are the single
 MFA/encryption guard, as they have been since Phase 4. The example count rose from 11,211 to
 11,242 across this pass because the closure work added regression coverage; no example was
 deleted, skipped or marked pending to reach a green sweep.
@@ -356,7 +358,7 @@ the bug report is a fix of unknown extent.
 The numbers in §6 were produced against these two heads, with both working trees clean. The
 commit that adds this section and §10 is a documentation-only commit made after those runs.
 
-**Lynomia** (`claude/store-syria-lynomia-integration-1oa1tt`), head **`3402f299`**
+**Lynomia** (`claude/store-syria-lynomia-integration-1oa1tt`), head **`c0c1a06a`**
 
 Phase 5 build and first-round fixes — **26 commits, `88630724..b1f4d7b7`**. The last twelve:
 `5fde4281`, `3331d245`, `6054da6d`, `241f623f`, `8ee0ce70`, `597b8ce4`, `3874fa4b`,
@@ -384,7 +386,13 @@ third adversarial round it produced (§10):
 | `2eaca095` | a consent merge republishes the decision that governs the subject, not only the one it changed |
 | `3402f299` | the campaign preview runs on a form seeded from a draft, and a stale in-flight answer cannot overwrite a newer one |
 
-**Store Syria** (same branch), head **`305e8e99`**
+Correction pass — the fourth round, which audited the claims above rather than the code (§10.4):
+
+| Commit | What |
+|---|---|
+| `c0c1a06a` | the three gaps that round found in Lynomia: B2.4's uncovered third sender, a B2.9 agreement example that ran no lookup at all, and the two Vitest specs this report had already cited |
+
+**Store Syria** (same branch), head **`a090237a`**
 
 Phase 5 build and first-round fixes — **16 commits, `c9476304..7188a0d6`**, oldest first:
 `c9476304`, `ab610fa2`, `c984d268`, `79dcdd68`, `02a427bf`, `559ab910`, `628d5003`,
@@ -408,6 +416,13 @@ Closure pass:
 | `02fd9d25` | **B2.7, the capability gap**: a WhatsApp campaign carries an approved template and this campaign's placeholder values, and a number that cannot hold a template says so |
 | `f8a3949b` | the installation is proved by what Lynomia returned, not by a local setting that is set before registration and cleared while Lynomia still holds the install |
 | `305e8e99` | editing a campaign is guarded as creating one is, and a raw `FEATURE_DISABLED` no longer reaches a merchant |
+
+Correction pass (§10.4):
+
+| Commit | What |
+|---|---|
+| `b1d8af1c` | this report's §10, the register's §C and the Phase 6 proposal |
+| `a090237a` | **B2.7's scoping**: a campaign may only name a template the number it sends from can actually send, and the nineteen documentation claims the fourth round confirmed wrong |
 
 Both branches are pushed. **Nothing was merged and nothing was deployed.**
 

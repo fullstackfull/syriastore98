@@ -197,7 +197,7 @@ preceding it. All 15 are fixed. The reasoning is in
 
 | Capability | State | Evidence |
 |---|---|---|
-| Full Lynomia RSpec sweep on a frozen tree, at the closure head | VERIFIED | **11,242 examples, 0 failures, 70 pending** (44m47s), at `3402f299` |
+| Full Lynomia RSpec sweep on a frozen tree, at the final head | VERIFIED | **11,244 examples, 0 failures, 70 pending** (37m58s), at `c0c1a06a` |
 | B2.7's scoping, B2.4's third sender and two missing Vitest specs | FIXED (round 4) | the closure claims were audited against the code and three were not as closed as they read; see `PHASE-5-COMPLETION-REPORT.md` §10.4 |
 | B2.1 — a store-scoped campaign means this installation's customers, in both expressions | CLOSED | changing `subject_of?` alone would have made the audience WIDER than the send boundary; `refusal` and `filter` changed together, and the agreement population gained the two members that tell them apart |
 | B2.2 — the store identity is what Lynomia was told, not what a setting recomputes | CLOSED | persisted on first use with exactly the value the old code produced, so nothing moves on deploy |
