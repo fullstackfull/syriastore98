@@ -220,4 +220,23 @@ return [
         'LYNOMIA_INSTALLATION_REF',
         parse_url((string) env('APP_URL', 'localhost'), PHP_URL_HOST) ?: 'localhost'
     ),
+
+    /*
+     * STORE SYRIA'S OWN LYNOMIA WORKSPACE (P6D), from which the platform talks to its
+     * merchants about their accounts -- onboarding, a broken integration, a security notice.
+     *
+     * NOT A MERCHANT'S, and never discovered. Lynomia marks it `platform_owned` and leaves it
+     * out of the account listing this app reads, so provisioning cannot stumble on it and
+     * adopt it for a store. It is addressed deliberately, by the id recorded here, and
+     * nothing else in this module may be pointed at it.
+     *
+     * Null until an operator provisions the workspace on the Lynomia side and records its id.
+     * Null is the correct default and the correct state for an installation that has not set
+     * one up: platform communications are simply unavailable, which is better than a
+     * misconfigured id silently addressing a merchant's workspace.
+     */
+    'platform_workspace_account_id' => ($platformWorkspace = env('LYNOMIA_PLATFORM_WORKSPACE_ACCOUNT_ID')) !== null
+        && $platformWorkspace !== ''
+            ? (int) $platformWorkspace
+            : null,
 ];

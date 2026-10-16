@@ -173,6 +173,27 @@ class LynomiaIntegrationHealthTest extends TestCase
         $this->assertSame(0, $data['consentHealth']['pending']);
     }
 
+    /**
+     * P6D. THE PLATFORM WORKSPACE IS ADDRESSED, NEVER DISCOVERED.
+     *
+     * Null until an operator provisions it on the Lynomia side and records its id, and null
+     * is the right state for an installation that has not: platform communications are
+     * unavailable, which is better than a misconfigured id silently addressing a merchant's
+     * workspace. Lynomia leaves the workspace out of the account listing this module reads,
+     * so provisioning cannot stumble on it either.
+     */
+    public function test_the_platform_workspace_is_unset_until_an_operator_records_it(): void
+    {
+        $this->assertNull(config('lynomia.platform_workspace_account_id'));
+    }
+
+    public function test_a_recorded_platform_workspace_is_read_as_an_integer(): void
+    {
+        config()->set('lynomia.platform_workspace_account_id', 7777);
+
+        $this->assertSame(7777, config('lynomia.platform_workspace_account_id'));
+    }
+
     public function test_the_health_client_is_shaped_defensively(): void
     {
         $this->connectedTenant();
