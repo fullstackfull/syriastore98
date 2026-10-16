@@ -208,20 +208,31 @@ php artisan config:clear && php artisan route:clear && php artisan view:clear
 php artisan config:cache && php artisan route:cache
 ```
 
-**Twenty migrations, not two.** The branch carries all six phases. Confirm the set before the
-window:
+**Nineteen migrations, not two — and ONE IS DESTRUCTIVE ON THE WAY UP.** The branch carries
+all six phases. Confirm the set before the window:
 
 ```bash
 git diff --name-only origin/main...HEAD -- \
   packages/workdo/LynomiaChat/src/database/migrations database/migrations
 ```
 
-Every one of them is **additive on the way up** — new tables (`lynomia_store_links`,
-`lynomia_store_identities`, `lynomia_inbox_events`, `lynomia_commerce_events`, the consent
-tables, `lynomia_platform_notices`, `lynomia_contact_verifications`,
-`lynomia_platform_events`) and nullable columns on existing ones. The only `dropColumn` and
-`dropIfExists` calls are inside `down()`, which is what a reversible migration is supposed to
-look like; nothing is dropped by `migrate`.
+(Twenty paths come back; one is `database/migrations/_gate_f_pending/README.md`.)
+
+**Eighteen are additive on the way up** — new tables (`lynomia_store_links`,
+`lynomia_store_identities`, `lynomia_inbox_events`, `lynomia_commerce_events`,
+`lynomia_platform_notices`, `lynomia_contact_verifications`, `lynomia_platform_events`) and
+nullable columns on existing ones.
+
+**The nineteenth is not.** `2026_10_21_000200_scope_lynomia_consent_states_by_origin.php` calls
+`Schema::dropIfExists('lynomia_consent_states')` in `up()` and recreates it with `origin` in
+the unique key. It is recoverable by design — the table is a projection, the evidence lives in
+the append-only `lynomia_consent_decisions`, and the sweep rebuilds it — but **it is not
+additive, and an earlier version of this runbook said it was.**
+
+> **After §2.5, run `php artisan lynomia:reconcile-consents` and confirm
+> `lynomia_consent_states` refills.** On a fresh staging database it will be empty either way;
+> on one restored from a snapshot it will not be, and an empty table afterwards is expected
+> rather than alarming.
 
 One touches a **core** table rather than a module table:
 `2026_10_30_000100_add_mobile_verified_at_to_users.php` adds a nullable timestamp to `users`.
@@ -232,7 +243,26 @@ assignment can set it — only `MerchantContactVerification::confirm` writes it.
 limiters are registered by the module's provider, and a stale route cache is the one way to
 deploy a build whose ingress is not served.
 
-### 2.6 Bring up the worker and the scheduler — both, not either
+### 2.5a Activate the module, or every merchant route 403s
+
+**A fresh staging install has no `add_on_managers` row and no module permissions**, so
+`ActivatedModule()` answers nothing, `PlanModuleCheck` refuses, and every merchant surface
+returns 403 — before any of the test runbook can start. Nothing in the deploy does this for
+you.
+
+```bash
+php artisan db:seed --class="Workdo\LynomiaChat\database\seeders\LynomiaChatDatabaseSeeder" --force
+```
+
+That registers the add-on (`MarketPlaceSeederTableSeeder`) and seeds the module's permissions
+(`PermissionTableSeeder`). Then confirm a merchant can actually open the module before going
+further — a 403 here is a seeding problem, not an integration problem, and the two look
+identical from the browser.
+
+**Merchant workspaces also need a Lynomia plan carrying `lynomia_commerce`**, or test runbook
+§6 and §7 fail with a 403 raised by `Pundit` inside Lynomia rather than by Store Syria.
+
+### 2.6 Bring up the worker and the scheduler — the scheduler is the one that matters
 
 ```bash
 php artisan queue:work --tries=3            # under a process supervisor, not a terminal
@@ -241,7 +271,11 @@ php artisan queue:work --tries=3            # under a process supervisor, not a 
 
 **A deployment without the scheduler passes most of the test runbook and fails silently in
 §12.** Five module commands depend on it, including both reconciliation sweeps and the
-commerce and consent outbox drains. Verify it is actually wired, from the booted scheduler
+commerce and consent outbox drains.
+
+**The integration dispatches no queued job at all** — everything runs in the request or in one
+of those five commands. The worker is wanted for the rest of the application; if something in
+the integration is not happening, look at the scheduler. Verify it from the booted scheduler
 rather than from a config file:
 
 ```bash
@@ -295,6 +329,7 @@ Five checks. Each one has a cheap failure and an expensive one if deferred.
 | 3.1 | `curl -sS -o /dev/null -w '%{http_code}\n' https://<store-syria-staging>/` | 200 |
 | 3.2 | `curl -sS -o /dev/null -w '%{http_code}\n' https://<lynomia-staging>/api` | 200 |
 | 3.3 | `curl -sS -o /dev/null -w '%{http_code}\n' -X POST https://<store-syria-staging>/lynomia/platform-events` | **401**, not 404 and not 500. 404 means the route is not served (stale route cache, module not loaded); 500 means the guard is not first in the stack |
+| 3.3a | Confirm the Store Syria host resolves to a **public** address, and that the ingress answers in well under five seconds | Lynomia delivers webhooks through `SafeFetch` / `ssrf_filter` with a five-second timeout. **A private or VPC address is refused outright**, and a slow one is dropped — in both cases silently, because Lynomia does not retry an account webhook. The symptom is identical to a subscription that was never registered |
 | 3.4 | `php artisan schedule:list \| grep -c lynomia` | 5 |
 | 3.5 | Super Admin → Lynomia integration page renders, and the notices tab shows the three configured workspace ids | a blank or 500 page here is a deploy problem, not a feature problem |
 

@@ -28,7 +28,9 @@ None of this can be produced from inside these repositories.
 | 1.3 | Both reachable from each other over **public HTTPS with real certificates** | a tunnel or self-signed cert changes the TLS path, which is one of the unknowns A1 names. A staging run over a tunnel does not close that part of it |
 | 1.4 | NTP on both hosts | the signature window is 300 seconds and **Lynomia does not retry an account webhook** — a delivery rejected for skew is destroyed, not delayed |
 | 1.5 | A queue worker **and** a cron running `schedule:run` on Store Syria | five sweeps depend on it. Without the scheduler most of the test runbook passes and §12 fails silently |
-| 1.6 | A dedicated non-production WhatsApp number, with templates approved on it | D2. Meta quality ratings are per number and a UAT run can damage one |
+| 1.6 | **TWO** dedicated non-production WhatsApp numbers, with templates approved on each | **D2 assumed one; the integration needs two.** One belongs to the *platform workspace* (operational notices and B4 verification codes) and one to the *merchant's* workspace (the inbox, flows, campaigns). They are different Lynomia accounts and a channel belongs to exactly one. With a single number, either §5/§8/§9 or §10 cannot run |
+| 1.6a | The Store Syria staging host must be on a **public** address, answering in well under five seconds | Lynomia delivers webhooks through `SafeFetch`/`ssrf_filter` with a five-second timeout. A private or VPC address is **refused**, a slow one is dropped, and both are silent because Lynomia does not retry an account webhook |
+| 1.6b | `FRONTEND_URL` set correctly on the Lynomia host | it builds the SSO login URL. A wrong value does not error — it mints a working one-time token into a URL pointing at the wrong host |
 | 1.7 | Test-mode billing keys | D4 |
 | 1.8 | **A deployment method for Store Syria** | see §4.1 — it has none, and this is an owner decision, not a runbook gap |
 
@@ -110,7 +112,25 @@ and nobody else's. What it changes is what the consent record *is*: merchant-att
 platform-attested, while the platform permits sends on the strength of it. Informational for
 staging (synthetic merchants will not forge consent); your call before production.
 
-### 3.6 Lynomia has no known-failure baseline, and its security gate is permanently red
+### 3.6 B9 — a merchant can aim the platform's WhatsApp number, and exhaust its allowance
+
+Contact verification must be able to message a number nobody has verified — that is the
+feature. The number is checked for shape (`MerchantContact::classify`), rate-limited to ten an
+hour per person with a sixty-second cooldown, restricted to a UTILITY template and metered.
+
+Two consequences are not inherent to the feature and are worth your decision:
+
+1. It lets any entitled merchant send from **the installation's own number and quality
+   rating**, not theirs.
+2. The platform allowance is **shared**, so merchants can collectively exhaust it — and what
+   stops when they do is **operational notices to every other merchant**, the one channel for
+   telling someone their integration is broken.
+
+Options: meter verification separately from operational notices so neither can starve the
+other, or lower the per-hour budget, which costs a legitimate merchant nothing. Informational
+for staging; your call before production.
+
+### 3.7 Lynomia has no known-failure baseline, and its security gate is permanently red
 
 Store Syria asserts its outcome **set** bidirectionally as a blocking CI step. Lynomia has no
 manifest, no allowlist and no gate — so on that side there is no automated way to tell an
@@ -158,7 +178,27 @@ It matters here because you are being asked to judge a regression baseline, and 
 overstates breakage twentyfold cannot be judged. Recorded in `PHASE-7-PREREQUISITES.md` §5a.4
 with the standing rule it produced: reset the test database and run one suite at a time.
 
-### 4.4 Where the gates stand today
+### 4.4 Preparation's own first pass was wrong about six things, and they are corrected
+
+An independent second review of this preparation found six statements in these documents that
+would each have cost a staging window or falsified a result. All are corrected in place; they
+are listed because the pattern matters more than any one of them.
+
+| What the first pass said | What is true |
+|---|---|
+| "Twenty migrations, all additive on the way up" | **Nineteen** (the twentieth path is a README), and **one drops and recreates `lynomia_consent_states` in `up()`**. Recoverable — it is a projection and the sweep rebuilds it — but an operator told "additive" would not know to re-run the sweep |
+| Nothing about module activation | a fresh install has no `add_on_managers` row and no module permissions, so **every merchant route 403s** before the test runbook can start |
+| The commerce API is at `/lynomia/commerce/**` | it is `/api/lynomia/commerce/v1/**`. A firewall rule written from the old path would open the wrong one |
+| `api_and_webhooks_enabled?` must be confirmed | it returns a hard-coded `true`. Nothing to confirm |
+| "A worker and a scheduler, both — not either" | the integration dispatches **no queued job at all**. The scheduler is the one that matters, and the phrasing would misdirect diagnosis |
+| Contact verification is gated by the recipient machinery | it is not — the recipient is merchant-supplied. §3.6 |
+
+**This is the second time in this project that a second review of already-reviewed work found
+what the first pass missed** (the Phase 6 report records the first). It is a property of the
+work, and it is the argument for Phase 7 existing at all — a staging run is a third reviewer
+that cannot be talked round.
+
+### 4.5 Where the gates stand today
 
 | Gate | State |
 |---|---|
@@ -190,7 +230,7 @@ What that authorizes:
 What it does **not** do, in your own words and mine:
 
 - It does not authorize production. Phase 7 completing closes **blocker A1 and nothing else**.
-- A2, A3, A4, B1, B5's human half, B6, B7 and B8 stay open.
+- A2, A3, A4, B1, B5's human half, B6, B7, B8 and B9 stay open.
 - B4 closes as merchants verify their own numbers, not on a date.
 - None of the work done so far is an end-to-end test, and none of it closes A1.
 

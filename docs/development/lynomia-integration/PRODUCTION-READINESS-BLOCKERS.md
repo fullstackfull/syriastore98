@@ -411,6 +411,37 @@ withdrawals from the same source unconditionally — a withdrawal a merchant for
 the merchant.
 
 
+### B9. A merchant can aim the platform's WhatsApp number, and exhaust its shared allowance
+
+| | |
+|---|---|
+| Raised | Phase 7 preparation, second pass over the real-message boundary |
+| Severity | Medium. Bounded by shape, rate and category; the shared allowance is the sharp edge |
+| Closes by | An owner decision between the two options below |
+
+B4's verification flow must be able to message a number nobody has verified — that is what
+proving is. `ContactVerificationController::send` validates `max:20`;
+`MerchantContactVerification::request` then refuses anything `MerchantContact::classify` does
+not call `UNVERIFIED`, applies a 60-second cooldown, and the route carries
+`throttle:lynomia-contact-verify` at 10/hour **per person**. The template is UTILITY-only and
+the send is metered.
+
+So it is checked. What is not inherent to the feature:
+
+1. An entitled merchant can send from **the installation's own number and Meta quality
+   rating**, ten times an hour, to any well-formed number they choose.
+2. The platform allowance is **shared across all merchants**. Exhausting it stops
+   **operational notices to every other merchant** — the one channel for telling someone their
+   integration is broken.
+
+Options: meter verification separately from operational notices so neither starves the other;
+or lower the per-hour budget, which costs a legitimate merchant nothing given the cooldown.
+
+Recorded, not fixed. `PHASE-7-SECURITY-BOUNDARIES.md` §2.5 has the full trace, including a
+note that the first pass of that review mis-described this path as gated by the recipient
+machinery.
+
+
 ---
 
 ## C. CLOSED

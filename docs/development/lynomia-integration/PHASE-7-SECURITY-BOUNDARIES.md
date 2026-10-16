@@ -79,7 +79,7 @@ The Super Admin surfaces report counts, never names, and the browser harness ass
 | 4 | Flow `say` (writes the message directly) | path 1 — which is **why** the gate lives on the send service and not on `Messages::MessageBuilder`, since `Flows::Run#say` calls `conversation.messages.create!` and routes around the builder | category → consent → allowance |
 | 5 | Campaigns | `Custom::Whatsapp::OneoffCampaignService` → `Campaigns::SendGuard.clear_to_send` | guard → provider |
 | 6 | Store Syria platform notices | `PlatformRecipients` (link state, provisioning, ownership proof, store ownership, `MerchantContact`), then `PlatformWorkspaceGateway::assertPlatformOwned`, then path 1's UTILITY gate | recipient → workspace ownership → category → consent → allowance |
-| 7 | B4 contact verification code | path 6's machinery, platform credential only | as above |
+| 7 | **B4 contact verification code** | **the recipient is chosen by the merchant.** See §2.5 | classify → cooldown → per-user throttle → UTILITY → allowance |
 | 8 | **CSAT survey, WhatsApp template branch** | **nothing** | — |
 | 9 | **CSAT survey, Twilio WhatsApp branch** | **nothing** | — |
 | 10 | CSAT survey, message branch | path 1 | category → consent → allowance |
@@ -173,6 +173,47 @@ change affecting every account and every legitimate integration that reads it); 
 them as such, while continuing to honour withdrawals from the same source unconditionally — a
 withdrawal a merchant forges only costs the merchant.
 
+### 2.5 B9 — contact verification is the one path whose recipient the sender chooses
+
+**Found by an independent review of this same boundary, after the first pass of this document
+had mis-described it.** §2.1 originally listed path 7 as gated by "path 6's machinery". That
+is wrong: `PlatformRecipients` is not involved at all, because the whole point of verification
+is to message a number nobody has verified yet.
+
+What actually stands in the way, traced end to end:
+
+| | |
+|---|---|
+| `ContactVerificationController::send` | validates only `['required','string','max:20']` |
+| `MerchantContactVerification::request` | refuses unless `MerchantContact::classify` returns `UNVERIFIED` — so a placeholder, an empty value and anything that is not 8–15 digits are all refused |
+| the same method | a 60-second cooldown per merchant |
+| `throttle:lynomia-contact-verify` | 10 per hour, keyed on the **person**, not the number |
+| the platform workspace's category gate | UTILITY only |
+| `Billing::MeteredUsage` | counted against the platform allowance |
+
+So it is **not** unchecked — the earlier reviewer's "the only check is `max:20`" describes the
+controller and not the path. But the substantive point stands and is worth stating plainly:
+
+**any authenticated, entitled merchant can make the installation's own WhatsApp number send a
+message to any well-formed number they type, ten times an hour.** That is inherent to a
+verification flow — you cannot demand proof before the proving — but two consequences are not
+inherent:
+
+1. It is a low-rate number-validation and nuisance primitive **using the platform's number and
+   its Meta quality rating**, not the merchant's.
+2. The platform allowance is **shared across all merchants**, so merchants can collectively
+   exhaust it — and when they do, the thing that stops is **operational notices to every other
+   merchant**, which is the one channel the platform has for telling someone their integration
+   is broken.
+
+Neither is fixed here. Options worth the owner's consideration: meter verification sends
+separately from operational notices so the two cannot starve each other; or lower the per-hour
+budget, which costs a legitimate merchant nothing (they need one code, and they have the
+60-second cooldown besides).
+
+**For Phase 7 this is informational** — staging has synthetic merchants and a dedicated
+number — but it belongs in front of the owner before production, and it is recorded as B9.
+
 ### 2.4 Can a sweep send without a human in the loop?
 
 Yes, and by design — but only on the paths that are fully gated.
@@ -200,5 +241,24 @@ lifecycle event — each on a gated path, each with `LYNOMIA_INTEGRATION_ENABLED
 3. **B8 is informational for staging** — synthetic merchants will not forge consent — but it
    belongs in front of the owner before production, because it bears on what the consent record
    means.
-4. Neither finding blocks the deployment steps. Both belong on
+4. **B9 is informational for staging and belongs in front of the owner before production.**
+   The shared-allowance half is the part that matters: a merchant exhausting it silences
+   operational notices to everyone else.
+5. None of B7, B8 or B9 blocks the deployment steps. All three belong on
    `PHASE-7-OWNER-CHECKLIST.md` as decisions, not as tasks for this phase.
+
+---
+
+## Appendix — what the first pass of this review got wrong
+
+Recorded rather than quietly corrected, because the pattern is the point.
+
+| | |
+|---|---|
+| Path 7 was listed as gated by "path 6's machinery" | it is not. `PlatformRecipients` never sees it; the recipient is merchant-supplied. §2.5 |
+| The enumeration was taken as complete after tracing the paths that *call the gated service* | the gap was in a path that calls the provider directly, which is the same shape as B7. Two of the three findings in this document are of that shape |
+
+Both were found by a second, independent pass over the same boundary. That is now twice in
+this project that a second review of work already reviewed has found something the first pass
+missed — recorded in the Phase 6 report as well. It is a property of the work, not an
+accident, and it is the argument for Phase 7 existing at all.

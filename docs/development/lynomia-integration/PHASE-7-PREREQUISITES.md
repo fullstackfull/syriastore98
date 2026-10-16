@@ -26,7 +26,7 @@ standing the integration up from the template had no record that any of it exist
 |---|---|---|
 | `LYNOMIA_BASE_URL` | `LynomiaApiException::notConfigured`, every remote call refused | `PlatformApiClient::assertUsable()` |
 | `LYNOMIA_PLATFORM_TOKEN` | same | `PlatformApiClient::assertUsable()` |
-| `LYNOMIA_WEBHOOK_MASTER_SECRET` | `RuntimeException` on **any** signature derivation, inbound or outbound. Deliberate: an unconfigured master key must not quietly yield a predictable secret that anybody could compute, because the signature check would then still appear to pass | `EventSignature::deriveFor()` |
+| `LYNOMIA_WEBHOOK_MASTER_SECRET` | `RuntimeException` on **any** signature derivation, inbound or outbound. Deliberate: an unconfigured master key must not quietly yield a predictable secret that anybody could compute, because the signature check would then still appear to pass. **It has a third dependent the plan missed: every store-bound commerce credential is derived from it too** (`CommerceCredential`), so rotating it invalidates the commerce adapter on Lynomia's side as well as every webhook subscription. The post-Phase-7 rotation in §2.3 of the plan must re-issue both | `EventSignature::deriveFor()`, `CommerceCredential` |
 | `APP_URL` | **the dangerous one — it fails silently.** The webhook URL registered with Lynomia is built from a named route, which is built from this. A wrong value registers a subscription pointing somewhere else: Lynomia accepts it, posts into the void, and this side simply never hears anything. Nothing errors | `EventSubscriptionManager::ingressUrl()`, `route('lynomia.platform.events.ingress')` |
 
 ### 1.2 Required for platform operational notices — null until provisioned
@@ -114,17 +114,33 @@ read off the provider:
 **A deployment without the scheduler passes most of the test runbook and fails silently in
 §12.** This is the single easiest prerequisite to forget.
 
-### 2.2 A queue worker
+### 2.2 A queue worker — and what it actually does here
 
-`QUEUE_CONNECTION` in `.env.example` is `database`. Whatever the staging driver, a worker must
-be running or queued work accumulates unprocessed.
+`QUEUE_CONNECTION` in `.env.example` is `database`. **The integration itself dispatches no
+queued job**: everything it does runs either in the request or in one of the five scheduled
+commands. A worker is still wanted for the rest of the application, but "worker and scheduler,
+both — not either" overstates it for this module and would misdirect diagnosis. **If something
+in the integration is not happening, look at the scheduler, not the worker.**
 
-### 2.3 Migrations — twenty, all additive on the way up
+### 2.3 Migrations — nineteen, and **one of them is destructive on the way up**
 
-Measured `git diff --name-only origin/main...HEAD` across both migration paths. Every
-`dropColumn` / `dropIfExists` is inside a `down()`; nothing is dropped by `migrate`. One
-touches a **core** table: `2026_10_30_000100_add_mobile_verified_at_to_users.php` adds a
-nullable timestamp to `users`, deliberately **not** in `User::$fillable`, so only
+**Both counts and the "all additive" claim in the first version of this document were wrong.**
+`git diff --name-only origin/main...HEAD` across both migration paths returns twenty paths, but
+one is `database/migrations/_gate_f_pending/README.md`. **Nineteen migrations.**
+
+**`2026_10_21_000200_scope_lynomia_consent_states_by_origin.php` calls
+`Schema::dropIfExists('lynomia_consent_states')` in `up()`** and recreates the table with
+`origin` in its unique key. Eighteen are additive; this one is not.
+
+It is **recoverable by design**, and the migration's own docblock says why: the table is a
+*projection* of what Lynomia holds, the evidence lives in the append-only
+`lynomia_consent_decisions` which is untouched, and `lynomia:reconcile-consents` rebuilds it.
+But an operator told "all additive" would not know to expect an empty consent-state table
+afterwards, nor to run the sweep. **After migrating, run `php artisan lynomia:reconcile-consents`
+and confirm the table refills** before judging anything in test runbook §7.
+
+One migration touches a **core** table: `2026_10_30_000100_add_mobile_verified_at_to_users.php`
+adds a nullable timestamp to `users`, deliberately **not** in `User::$fillable`, so only
 `MerchantContactVerification::confirm` can write it.
 
 ---
@@ -145,10 +161,18 @@ creates it and therefore the authority on what a usable workspace is.
 | 3.7 | A WhatsApp channel on the **staging** number, templates synced | Lynomia Super Admin | the UTILITY/MARKETING category is read off the provider's synced list, never from anything an operator types |
 | 3.8 | Sidekiq running, webhook queue drained | deploy | `WebhookJob` is how every event leaves Lynomia |
 
-**3.9 — `api_and_webhooks_enabled?`.** `Partner::EventFan.publish` returns immediately when an
-account does not have it, so a platform workspace on a plan without that capability produces a
-feed that silently never fires. It is a plan/feature question on the Lynomia side and must be
-confirmed for the platform workspace specifically, not assumed from a merchant account.
+**3.9 — `api_and_webhooks_enabled?` is a non-issue on this fork, and the first version of this
+document was wrong to list it.** `Account#api_and_webhooks_enabled?` (`app/models/account.rb:166`)
+returns a hard-coded `true`. There is nothing to confirm and nothing an operator can disable.
+
+**3.11 — merchant workspaces need a plan carrying `lynomia_commerce`.** Several commerce
+controllers raise `Pundit::NotAuthorizedError` unless
+`Current.account.feature_enabled?('lynomia_commerce')`. Without it, test runbook §6 and §7 fail
+with 403 and the cause is a plan, not the integration.
+
+**3.12 — `Billing::PlatformWorkspace.provision!` has no caller anywhere in Lynomia.** There is
+no Super Admin page and no rake task; it must be invoked from a Rails console. Test runbook
+§10.1.1 should say so rather than implying a UI.
 
 **3.10 — thirteen Lynomia migrations.** Against `origin/lynomia-custom` (the default branch; it
 is **not** `develop`). Two matter at deploy time: `add_agent_bot_created_at_index_to_flow_sessions`
@@ -167,12 +191,35 @@ is `CREATE INDEX CONCURRENTLY` and is blocker B1 — which is why `deployment/de
 | Store Syria → Lynomia | `/api/v1/accounts/{id}/**` | the merchant inbox, conversations, messages, webhooks, templates, campaigns — everything the platform workspace does, because there is no platform messaging endpoint |
 | Lynomia → Store Syria | `POST /lynomia/events/{store}` | the per-store feed (conversations, messages, `consent_changed`) |
 | Lynomia → Store Syria | `POST /lynomia/platform-events` | the delivery-outcome feed |
-| Lynomia → Store Syria | `GET /lynomia/commerce/**` | the commerce API, with the store-bound credential |
+| Lynomia → Store Syria | `/api/lynomia/commerce/v1/**` | the commerce API, with the store-bound credential. **The first version of this document said `/lynomia/commerce/**`, which does not exist** |
 
 **The Lynomia → Store Syria direction has never been exercised by any test on either side.**
 Both ingress routes are unauthenticated by design and refuse everything unsigned, so the
 network path must genuinely work: a firewall that drops it produces exactly the symptom a
 working-but-quiet feed produces.
+
+### 4.1a The Store Syria staging host must be PUBLICLY ROUTABLE, not a private address
+
+Lynomia delivers every webhook through `SafeFetch.fetch` (`lib/safe_fetch.rb`), which is built
+on **`ssrf_filter`**, with a **five-second** open and read timeout
+(`lib/webhooks/trigger.rb:40-52`, `WEBHOOK_TIMEOUT` or 5).
+
+Two consequences that a staging setup walks straight into:
+
+- **A Store Syria staging host on a private/VPC address is refused by the SSRF filter.** Not
+  slow — refused. Lynomia swallows the failure and does not retry an account webhook, so the
+  symptom is a feed that never arrives, which is indistinguishable from a subscription that
+  was never registered.
+- **An ingress that takes longer than five seconds is dropped the same way.** The reconciliation
+  sweeps cover what they cover; nothing else does.
+
+### 4.1b `FRONTEND_URL` on the Lynomia host is a second silent failure, and it leaks a token
+
+`app/models/concerns/sso_authenticatable.rb:66` builds the SSO URL as
+`"#{ENV.fetch('FRONTEND_URL')}/app/login?email=…&sso_auth_token=…"`. A wrong value does not
+error: it mints a working one-time token **into a URL pointing at the wrong host**, and the
+merchant's browser follows it. It is the exact twin of Store Syria's `APP_URL` problem and it
+is worse, because a token travels with it. Set it explicitly on the Lynomia staging host.
 
 ### 4.2 Real certificates, not a tunnel
 
