@@ -9,6 +9,7 @@ use Workdo\LynomiaChat\app\Models\LynomiaPlatformNotice;
 use Workdo\LynomiaChat\app\Services\AccountProvisioner;
 use Workdo\LynomiaChat\app\Services\PlatformNotifier;
 use Workdo\LynomiaChat\app\Services\PlatformRecipients;
+use Workdo\LynomiaChat\app\Support\DeliveryOutcome;
 use Workdo\LynomiaChat\app\Support\LinkState;
 
 /**
@@ -411,5 +412,86 @@ class LynomiaPlatformNoticeTest extends TestCase
 
         $this->assertSame((int) $operator->id, (int) $notice->requested_by);
         $this->assertFalse($notice->automated);
+    }
+
+    // ================================================ B5: whose workspace is this, really
+
+    /**
+     * THE HOLE B5 RECORDED. `LYNOMIA_PLATFORM_WORKSPACE_ACCOUNT_ID` is a number an operator
+     * types after provisioning, and nothing on this side could tell a platform-owned
+     * workspace from a merchant's. Pointed at a merchant's account, every operational notice
+     * would go out over THAT MERCHANT'S OWN WhatsApp channel -- and Lynomia's UTILITY-only
+     * gate would not apply either, because that gate keys on the account being platform-owned.
+     */
+    public function test_a_notice_is_refused_when_the_configured_workspace_is_a_merchants(): void
+    {
+        [, , $link] = $this->connected();
+        $this->lynomiaScript['workspace_owned'] = false;
+
+        $notice = $this->notifier()
+            ->notify($link, 'integration_recovery', 'integration_broken', 'b5:merchant', [], $this->operator());
+
+        $this->assertSame(LynomiaPlatformNotice::FAILED, $notice->status);
+        $this->assertSame('kind_not_configured', $notice->failure_reason);
+        $this->assertSame(DeliveryOutcome::FAILED, $notice->delivery_outcome);
+    }
+
+    /** Nothing is handed to a provider on the way to that refusal. */
+    public function test_nothing_is_sent_when_the_workspace_is_not_ours(): void
+    {
+        [, , $link] = $this->connected();
+        $this->lynomiaScript['workspace_owned'] = false;
+
+        $this->notifier()
+            ->notify($link, 'integration_recovery', 'integration_broken', 'b5:quiet', [], $this->operator());
+
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST'
+            && str_contains($request->url(), '/conversations/'));
+    }
+
+    /**
+     * NOT TRANSIENT, so nothing retries it. A wrong number in the environment is not a
+     * condition that improves by asking again, and `indeterminate` would tell an operator
+     * a merchant might have been messaged when nobody was.
+     */
+    public function test_the_refusal_is_permanent_rather_than_indeterminate(): void
+    {
+        [, , $link] = $this->connected();
+        $this->lynomiaScript['workspace_owned'] = false;
+
+        $notice = $this->notifier()
+            ->notify($link, 'integration_recovery', 'integration_broken', 'b5:perm', [], $this->operator());
+
+        $this->assertNotSame(LynomiaPlatformNotice::INDETERMINATE, $notice->status);
+    }
+
+    /**
+     * AN ANSWER WITHOUT THE FIELD IS NOT AN ANSWER. A Lynomia predating the field says
+     * nothing about ownership, which is "could not say" and not "no" -- and both refuse,
+     * because this side cannot confirm it is sending from its own workspace either way.
+     * The deploy order is Lynomia first precisely so this does not arise.
+     */
+    public function test_a_lynomia_that_cannot_say_is_treated_as_unconfirmed_not_as_owned(): void
+    {
+        [, , $link] = $this->connected();
+        $this->lynomiaScript['workspace_owned'] = null;
+
+        $notice = $this->notifier()
+            ->notify($link, 'integration_recovery', 'integration_broken', 'b5:absent', [], $this->operator());
+
+        $this->assertSame(LynomiaPlatformNotice::FAILED, $notice->status);
+        $this->assertSame('kind_not_configured', $notice->failure_reason);
+    }
+
+    /** The ordinary case still works, and the check costs one read per gateway instance. */
+    public function test_a_platform_owned_workspace_sends_as_before(): void
+    {
+        [, , $link] = $this->connected();
+
+        $notice = $this->notifier()
+            ->notify($link, 'integration_recovery', 'integration_broken', 'b5:ok', [], $this->operator());
+
+        $this->assertSame(LynomiaPlatformNotice::SENT, $notice->status);
+        $this->assertSame(DeliveryOutcome::ACCEPTED, $notice->delivery_outcome);
     }
 }

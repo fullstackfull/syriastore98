@@ -273,6 +273,25 @@ trait InteractsWithLynomia
             return match (true) {
                 $key === 'GET /platform/api/v1/accounts' => Http::response($inventory, 200),
                 $key === 'POST /platform/api/v1/accounts' => Http::response(['id' => $accountId, 'name' => 'WS'], 200),
+                // ONE ACCOUNT, READ BACK BY ID -- how this side confirms the configured
+                // platform workspace really is platform-owned (B5). Upstream excludes
+                // platform-owned accounts from the INDEX, so `show` is the only endpoint that
+                // answers for it, and it is permissible-checked.
+                //
+                // Scriptable in three states, because all three are real:
+                //   (default)                     platform_owned: true
+                //   'workspace_owned' => false    a merchant's account -- a mistyped id
+                //   'workspace_owned' => null     a Lynomia predating the field, which is
+                //                                 "could not say", not "no"
+                (bool) preg_match('#^/platform/api/v1/accounts/\d+$#', $path) && $method === 'GET'
+                    => Http::response(array_filter([
+                        'id' => (int) basename($path),
+                        'name' => 'WS',
+                        'status' => 'active',
+                        'platform_owned' => array_key_exists('workspace_owned', $this->lynomiaScript)
+                            ? $this->lynomiaScript['workspace_owned']
+                            : true,
+                    ], static fn ($value) => $value !== null), 200),
                 // Upstream echoes the submitted custom_attributes only when it CREATES the
                 // user; for an address that already exists it returns that user untouched.
                 // `squatted_user` scripts the second case, which is what the provisioner has

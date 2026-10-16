@@ -155,6 +155,41 @@ class PlatformApiClient
      *
      * @return array{account_id:int,account_name:string,authorized_by_user_id:int,authorized_by_name:string}
      */
+    /**
+     * One account, read back by the id this installation was configured with (blocker B5).
+     *
+     * WHY `show` AND NOT `listAccounts`. The index deliberately REJECTS platform-owned
+     * accounts (Platform::Api::V1::AccountsController#index), so the one account this is for
+     * can never appear in a listing. `show` is the only endpoint that will answer for it.
+     *
+     * AND THE PERMISSIBLE CHECK IS HALF THE ANSWER. Upstream runs
+     * `validate_platform_app_permissible` on `show`, so an id belonging to another
+     * installation, or to an account this app was never granted, comes back 401 rather than
+     * with somebody else's row. That means the two ways an operator can mistype the platform
+     * workspace id -- a merchant's account of ours, or an account that is not ours at all --
+     * are both answered, one by the flag and one by the status.
+     *
+     * @return array{id:int,name:string,platform_owned:?bool,status:mixed}
+     *
+     * @throws LynomiaApiException
+     */
+    public function showAccount(int $accountId): array
+    {
+        $body = $this->send('get', "/platform/api/v1/accounts/{$accountId}");
+
+        return [
+            'id' => (int) ($body['id'] ?? 0),
+            'name' => (string) ($body['name'] ?? ''),
+            // ABSENT IS NOT FALSE AND MUST NOT READ AS IT. A Lynomia that predates the field
+            // answers without it, and the caller has to tell "it said no" from "it could not
+            // say", because only the first is a misconfiguration. `null` carries that.
+            'platform_owned' => array_key_exists('platform_owned', $body)
+                ? (bool) $body['platform_owned']
+                : null,
+            'status' => $body['status'] ?? null,
+        ];
+    }
+
     public function redeemLinkCode(string $code): array
     {
         // Not retried. Redemption burns the code upstream, so a retry after a lost answer

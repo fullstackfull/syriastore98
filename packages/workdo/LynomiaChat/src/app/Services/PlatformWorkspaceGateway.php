@@ -41,6 +41,16 @@ class PlatformWorkspaceGateway
      */
     public const DELIVERY_EVENT = 'message_delivery_status';
 
+    /**
+     * Whether the configured account has been confirmed platform-owned in THIS instance.
+     *
+     * Memoised rather than cached: a cache entry outlives the request that wrote it, and the
+     * thing being checked is an environment variable an operator can change between two
+     * requests. One extra GET per gateway instance, against the three calls `sendTemplate`
+     * already makes, is not a cost worth trading correctness for.
+     */
+    private ?bool $ownershipConfirmed = null;
+
     public function __construct(private readonly PlatformApiClient $api)
     {
     }
@@ -157,6 +167,65 @@ class PlatformWorkspaceGateway
         return true;
     }
 
+    /**
+     * REFUSE TO ACT AS A WORKSPACE THAT IS NOT OURS (blocker B5).
+     *
+     * THE HOLE THIS CLOSES. `LYNOMIA_PLATFORM_WORKSPACE_ACCOUNT_ID` is a number an operator
+     * types after provisioning, and nothing on this side could tell a platform-owned workspace
+     * from a merchant's. Pointed at a merchant's account and inbox, every surface here would
+     * send the installation's operational notices from THAT MERCHANT'S OWN WhatsApp channel --
+     * and Lynomia's UTILITY-only gate would not apply either, because that gate keys on the
+     * account being platform-owned. A wrong digit is enough.
+     *
+     * BOTH WAYS OF GETTING IT WRONG ARE ANSWERED, and by two different mechanisms:
+     *   a merchant's account of ours   `show` succeeds, because this app holds a permissible
+     *                                  on every workspace it provisioned, and answers
+     *                                  platform_owned: false. The flag catches it.
+     *   anything else                  `show` is permissible-checked upstream and answers 401.
+     *                                  The status catches it, before the flag is even read.
+     *
+     * LOUDLY, AND BEFORE ANYTHING IS SENT. A misconfigured workspace is a deployment bug, not
+     * a condition to degrade around: the throw leaves the notice `failed` with a reason an
+     * operator reads, rather than a message in front of a merchant's customers. It is
+     * KIND_NOT_CONFIGURED, which `isTransient()` excludes, so nothing retries it -- retrying
+     * cannot fix a wrong number in the environment.
+     *
+     * AND AN ANSWER WITHOUT THE FIELD IS NOT AN ANSWER. A Lynomia predating the field returns
+     * no `platform_owned`, which is "could not say", not "no". Both refuse -- the deploy order
+     * is Lynomia first precisely so this does not arise -- but the message distinguishes them,
+     * because one is a wrong id and the other is a half-finished deploy.
+     *
+     * @throws LynomiaApiException
+     */
+    private function assertPlatformOwned(int $accountId): void
+    {
+        if ($this->ownershipConfirmed === true) {
+            return;
+        }
+
+        $account = $this->api->showAccount($accountId);
+
+        if ($account['platform_owned'] === null) {
+            throw new LynomiaApiException(
+                LynomiaApiException::KIND_NOT_CONFIGURED,
+                "Lynomia did not report whether account {$accountId} is platform-owned. "
+                . 'Deploy Lynomia before Store Syria: this installation cannot confirm it is '
+                . 'sending from its own workspace.'
+            );
+        }
+
+        if ($account['platform_owned'] !== true) {
+            throw new LynomiaApiException(
+                LynomiaApiException::KIND_NOT_CONFIGURED,
+                "Lynomia account {$accountId} is not the platform-owned workspace. "
+                . 'LYNOMIA_PLATFORM_WORKSPACE_ACCOUNT_ID is pointing at a merchant workspace; '
+                . 'nothing was sent.'
+            );
+        }
+
+        $this->ownershipConfirmed = true;
+    }
+
     private function client(): AgentApiClient
     {
         if (! $this->configured()) {
@@ -167,6 +236,8 @@ class PlatformWorkspaceGateway
         }
 
         $accountId = (int) $this->accountId();
+
+        $this->assertPlatformOwned($accountId);
 
         return new AgentApiClient(
             new LynomiaHttp(
