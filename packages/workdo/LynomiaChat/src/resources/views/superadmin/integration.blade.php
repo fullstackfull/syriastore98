@@ -200,22 +200,24 @@
                         </ul>
                     </div>
                 @endif
-            </div>
-
-            {{-- -------------------------------------------------------------- consent --}}
+            {{-- ------------------------------------------------- consent, same tab --}}
             {{--
                 OUTBOUND CONSENT DECISIONS, which fail differently from commerce events.
-
                 A waiting decision is usually not a fault. The common transient is that Lynomia
                 has no customer link for the shopper yet, and nothing in an order event creates
                 one -- the link appears when the shopper first writes in, or when an agent makes
                 it. That can take weeks and the decision is correctly held, not lost.
-
                 The number to act on is the last one: decisions the dispatcher has given up on
                 after thirty days. Those are not retried again, and the merchant's own consent
                 screen shows them as "Not sent".
             --}}
-            <div class="col-12 col-xl-6">
+                <hr>
+                {{-- INSIDE THE PANE, and the reason that is worth a line: this block was a sibling
+                     of the tab-panes rather than a child of one, and Bootstrap only hides
+                     `.tab-pane:not(.show)` -- so a plain div at that level renders on ALL FIVE tabs
+                     at once. It belongs beside Event delivery and Commerce events, which are the
+                     other two things this tab reports about the feed. --}}
+                <div>
                 <h6 class="mb-2">{{ __('Consent decisions going out') }}</h6>
                 <ul class="list-unstyled small mb-0">
                     <li>{{ __('Waiting to be delivered') }}: <strong>{{ $consentHealth['pending'] }}</strong></li>
@@ -234,6 +236,9 @@
                     </div>
                 @endif
             </div>
+
+            </div>
+
 
             {{-- ------------------------------------------------------------ automation --}}
             {{--
@@ -328,13 +333,22 @@
                         &mdash; {{ __('inbox') }}
                         <strong>{{ $platformComms['inbox'] ?? __('not set') }}</strong>
                     </li>
-                    <li>{{ __('Notices sent') }}: <strong>{{ $platformComms['sent'] }}</strong></li>
+                    {{-- "Handed to Lynomia", not "sent". Lynomia answers 200 when the message row
+                         exists; its UTILITY and consent gates run afterwards in a job, and nothing
+                         reports back. Calling this "sent" would tell an operator a merchant has been
+                         told something they may not have been. --}}
+                    <li>{{ __('Handed to Lynomia') }}: <strong>{{ $platformComms['accepted'] }}</strong></li>
+                    <li>{{ __('Still in flight') }}: <strong>{{ $platformComms['in_flight'] }}</strong></li>
                     <li>{{ __('Not delivered') }}: <strong>{{ $platformComms['failed'] }}</strong></li>
                     <li>
                         {{ __('Awaiting an operator') }}:
                         <strong>{{ $platformComms['indeterminate'] }}</strong>
                     </li>
                 </ul>
+
+                <p class="text-muted small">
+                    {{ __('Lynomia accepts a notice before it sends it, and nothing reports back, so a notice it later refuses is counted here as handed over. What reached the merchant is not known on this side.') }}
+                </p>
 
                 @if ($platformComms['indeterminate'] > 0)
                     <div class="alert alert-warning" role="alert">
@@ -497,6 +511,7 @@
         noneOpen: @json(__('no open issues')),
         issues: @json(__('open issues')),
         stores: @json(__('installations')),
+        unreadable: @json(__('Lynomia answered, but not with a health report')),
     };
 
     // Lynomia's own four-state vocabulary, said in the operator's language. The STATE is
@@ -543,9 +558,19 @@
     var TONE = { healthy: 'text-success', warning: 'text-warning', critical: 'text-danger', unknown: 'text-muted' };
 
     function render(out, health) {
+        // AN ANSWER WE CANNOT READ IS NOT AN ANSWER. A 200 whose body is missing, truncated or
+        // shaped differently used to fall through every `|| 0` and `|| []` here and render as
+        // "Not known — 0 installations, no open issues" -- which an operator reads as "nothing
+        // wrong", and is exactly the fabricated health state this panel exists not to produce.
+        if (!health || typeof health !== 'object' || !Array.isArray(health.installations) || !health.signals) {
+            out.textContent = T.unreadable;
+            out.className = 'lyn-health-out small mt-1 text-danger';
+            return;
+        }
+
         var status = health.status || 'unknown';
         var open = (health.signals && health.signals.open) || 0;
-        var stores = (health.installations || []).length;
+        var stores = health.installations.length;
 
         out.className = 'lyn-health-out small mt-1 ' + (TONE[status] || 'text-muted');
         out.textContent = (LABEL[status] || status) + ' — ' + stores + ' ' + T.stores + ', '

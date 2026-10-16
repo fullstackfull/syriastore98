@@ -82,6 +82,26 @@ const controlsFor = (page, index) => page.evaluate((i) => {
   const rows = page.locator('#lynomia-accounts tbody tr');
   check('every connected installation is listed', (await rows.count()) === ROWS.length, `${await rows.count()}`);
 
+  // ONE TAB AT A TIME. Bootstrap hides `.tab-pane:not(.show)` and nothing else, so a block
+  // written as a SIBLING of the panes rather than a child of one renders on every tab at
+  // once -- which is what the consent panel was doing. Asserted on visibility rather than on
+  // presence, because presence is what a markup mistake like that leaves intact.
+  for (const [label, selector] of [
+    ['the consent panel', 'h6:text-is("Consent decisions going out")'],
+    ['the event-delivery figures', 'h6:text-is("Event delivery")'],
+    ['the merchant-notices table', '#lynomia-notices table'],
+  ]) {
+    check(`${label} is not on the Accounts tab`, !(await page.locator(selector).first().isVisible()));
+  }
+
+  await page.locator('a[href="#lynomia-seats"]').click();
+  await page.waitForTimeout(250);
+  check('the consent panel is on the tab it belongs to',
+    await page.locator('h6:text-is("Consent decisions going out")').first().isVisible());
+
+  await page.locator('a[href="#lynomia-accounts"]').click();
+  await page.waitForSelector('#lynomia-accounts tbody tr');
+
   for (const [i, row] of ROWS.entries()) {
     const forms = await controlsFor(page, i);
     const offered = CONTROLS.filter((c) => forms.some((f) => f.action.endsWith(`/${c}`)));
@@ -154,6 +174,12 @@ for (const [name, fulfil, expect] of [
     { says: 'Could not reach Lynomia', notSays: 'Healthy' }],
   ['refused', (r) => r.abort(),
     { says: 'Could not reach Lynomia', notSays: 'Healthy' }],
+  // A 200 WHOSE BODY IS NOT A HEALTH REPORT. Every `|| 0` and `|| []` in the renderer used to
+  // absorb this and print "0 installations, no open issues", which an operator reads as
+  // nothing wrong -- the fabricated health state this panel exists not to produce.
+  ['unreadable', (r) => r.fulfill({ status: 200, contentType: 'application/json',
+    body: JSON.stringify({ message: 'maintenance' }) }),
+    { says: 'not with a health report', notSays: 'no open issues' }],
 ]) {
   const context = await browser.newContext({ viewport: { width: 1500, height: 1000 } });
   const page = await context.newPage();
@@ -199,8 +225,16 @@ for (const [name, fulfil, expect] of [
   await page.waitForSelector('#lynomia-notices tbody tr');
 
   const pane = (await page.locator('#lynomia-notices').textContent()).replace(/\s+/g, ' ');
-  check('the sent, undelivered and unresolved counts are all stated',
-    pane.includes('48') && pane.includes('3') && pane.includes('1'), pane.slice(0, 120));
+  check('the handed-over, in-flight, undelivered and unresolved counts are all stated',
+    pane.includes('48') && pane.includes('2') && pane.includes('3') && pane.includes('1'),
+    pane.slice(0, 160));
+
+  // "Sent" would be a claim this side cannot make: Lynomia answers 200 when the message row
+  // exists and runs its UTILITY and consent gates afterwards, with nothing reporting back.
+  check('the tile does not claim a notice was sent',
+    pane.includes('Handed to Lynomia') && !pane.includes('Notices sent'), pane.slice(0, 120));
+  check('and the page says plainly what is not known',
+    pane.includes('What reached the merchant is not known on this side'), '');
 
   // Nothing on the Store Syria side can tell its own workspace from a merchant's, so the ids
   // in use are shown: a notices tab that did not would hide the one misconfiguration that

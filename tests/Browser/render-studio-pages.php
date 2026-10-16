@@ -88,7 +88,7 @@ function superAdminFixture(): array
             'oldest' => '5 days ago', 'stores' => [12 => 1]],
         'platformComms' => [
             'configured' => true, 'workspace' => 9001, 'inbox' => 31,
-            'sent' => 48, 'failed' => 3, 'indeterminate' => 1,
+            'accepted' => 48, 'in_flight' => 2, 'failed' => 3, 'indeterminate' => 1,
             'recent' => collect([
                 (object) ['created_at' => now()->subMinutes(9), 'store_id' => 12,
                     'kind' => 'integration_recovery', 'status' => 'sent', 'failure_reason' => null],

@@ -18,7 +18,22 @@ class LynomiaPlatformNotice extends Model
 
     public const PENDING = 'pending';
     public const SENDING = 'sending';
+
+    /**
+     * LYNOMIA ACCEPTED IT. NOT "the merchant received it", and not even "Lynomia sent it".
+     *
+     * `POST /api/v1/accounts/:id/conversations/:id/messages` answers 200 as soon as the
+     * message row exists; the WhatsApp send runs afterwards in SendReplyJob, and it is THERE
+     * that the platform workspace's UTILITY-only gate, the consent gate and the allowance
+     * meter run. So a notice Lynomia goes on to refuse is recorded here as a success, and
+     * nothing on this side ever hears otherwise -- there is no delivery callback.
+     *
+     * Every human-facing surface therefore says "handed to Lynomia", never "sent", and the
+     * gap is recorded as a limitation rather than papered over with a word that would make an
+     * operator believe a merchant has been told something they may not have been.
+     */
     public const SENT = 'sent';
+
     public const FAILED = 'failed';
 
     /**
@@ -56,6 +71,19 @@ class LynomiaPlatformNotice extends Model
     public function scopeNeedingAttention(Builder $query): Builder
     {
         return $query->whereIn('status', [self::INDETERMINATE, self::FAILED]);
+    }
+
+    /**
+     * Claimed but not yet resolved either way.
+     *
+     * `sending` is the one that matters: the request left and nothing wrote the answer, which
+     * on this path means the process died holding it. Counted on the console because a row in
+     * that state is invisible in every other tile -- it is not a success, not a failure and
+     * not an unknown answer, so before this it simply did not appear anywhere.
+     */
+    public function scopeInFlight(Builder $query): Builder
+    {
+        return $query->whereIn('status', [self::PENDING, self::SENDING]);
     }
 
     public function settled(): bool

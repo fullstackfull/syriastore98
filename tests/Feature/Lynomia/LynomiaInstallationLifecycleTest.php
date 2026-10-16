@@ -130,6 +130,44 @@ class LynomiaInstallationLifecycleTest extends TestCase
     }
 
     /**
+     * THE SAME HOLE, FOR THE OTHER KIND OF LINK, AND THE ORDER THAT CLOSES IT.
+     *
+     * A PROVISIONED link keeps its account grant deliberately, so the example above never
+     * exercised the hand-back -- and the hand-back is what broke this. For a LINKED workspace
+     * revoke() returns the grant, which releases this app's permissible on the account;
+     * Lynomia's validate_platform_app_permissible then answers the lifecycle call with 401,
+     * stopInstallation logs it at warning level, and the commerce store is left `active` with
+     * Partners::Eligibility still authorising its campaigns. Exactly the defect P6B was
+     * written to close, surviving inside P6B's own fix because of the order of two lines.
+     *
+     * Asserted on the ORDER of the recorded calls, because both of them happen either way.
+     */
+    public function test_revoking_a_linked_workspace_stops_the_installation_before_returning_the_grant(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+        $this->fakeLynomia(['account_id' => 7001]);
+        $claim = app(AccountLinker::class)->request($store, $owner, 'ABCD2345EFGH6789');
+        $link = app(AccountLinker::class)->approve($claim['link']->fresh(), $this->operator(), $claim['verification_code']);
+        $this->assertSame(LynomiaStoreLink::MODE_LINK_EXISTING, $link->link_mode);
+
+        app(AccountLinker::class)->revoke($link->fresh(), $this->operator(), 'abuse');
+
+        $calls = [];
+        foreach (Http::recorded() as [$request]) {
+            if (str_contains($request->url(), 'installation_lifecycle')) {
+                $calls[] = 'stop';
+            }
+            if (str_contains($request->url(), 'account_links') && $request->method() === 'DELETE') {
+                $calls[] = 'hand-back';
+            }
+        }
+
+        $this->assertSame(['stop', 'hand-back'], $calls,
+            'the installation must be stopped while this app still holds the permissible to do it with');
+        $this->assertSame(LinkState::REVOKED, $link->fresh()->state);
+    }
+
+    /**
      * A LINK IS STILL REVOKED WHEN LYNOMIA CANNOT BE REACHED. Best effort here, unlike the
      * lifecycle service: the operator asked to revoke a LINK, and an unreachable Lynomia must
      * not leave it un-revoked, which is the worse of the two failures.

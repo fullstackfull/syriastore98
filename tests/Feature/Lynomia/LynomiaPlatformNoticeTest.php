@@ -341,6 +341,45 @@ class LynomiaPlatformNoticeTest extends TestCase
         $this->assertSame(1, LynomiaPlatformNotice::count());
     }
 
+    // ===================================================== the automated notice
+
+    /**
+     * SUSPENDING AN ALREADY-SUSPENDED INSTALLATION TELLS THE MERCHANT NOTHING.
+     *
+     * The lifecycle deliberately accepts a transition to the state the link is already in, so
+     * a retried request is not an error -- but each call writes a fresh audit row, and the
+     * notice is keyed on that row's id. Two Suspends therefore produced two different dedupe
+     * keys, and the notifier's "say it once" guarantee, which is about one occasion, had no
+     * way to know it was being asked about the same one twice. The merchant got a second
+     * WhatsApp about a hold they had already been told about.
+     */
+    public function test_a_repeated_suspension_does_not_tell_the_merchant_twice(): void
+    {
+        [, , $link] = $this->connected();
+        $lifecycle = app(\Workdo\LynomiaChat\app\Services\InstallationLifecycle::class);
+
+        $lifecycle->suspend($link->fresh(), $this->operator(), 'unpaid');
+        $this->assertSame(1, LynomiaPlatformNotice::count(), 'the first suspension is news');
+
+        $lifecycle->suspend($link->fresh(), $this->operator(), 'unpaid, again');
+
+        $this->assertSame(1, LynomiaPlatformNotice::count(),
+            'nothing changed, so there was nothing to tell them');
+    }
+
+    /** Suspending again AFTER a resume is a different occasion, and is said. */
+    public function test_a_suspension_after_a_resume_is_a_new_occasion(): void
+    {
+        [, , $link] = $this->connected();
+        $lifecycle = app(\Workdo\LynomiaChat\app\Services\InstallationLifecycle::class);
+
+        $lifecycle->suspend($link->fresh(), $this->operator(), 'unpaid');
+        $lifecycle->resume($link->fresh(), $this->operator(), 'paid');
+        $lifecycle->suspend($link->fresh(), $this->operator(), 'unpaid again');
+
+        $this->assertSame(2, LynomiaPlatformNotice::count());
+    }
+
     // ===================================================== the resolver, directly
 
     public function test_the_resolver_never_takes_an_address_from_a_caller(): void

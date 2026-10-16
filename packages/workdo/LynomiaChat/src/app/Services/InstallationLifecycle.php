@@ -186,7 +186,16 @@ class InstallationLifecycle
         // the thing being reported as broken was the thing being waited on. Worse, a rollback
         // after the message went out would erase the record of a message the merchant has
         // already received. The notice is best effort and keeps its own row either way.
-        $this->tellTheMerchant($locked, $to, $entry);
+        // ONLY WHEN SOMETHING ACTUALLY CHANGED.
+        //
+        // `move` deliberately accepts a transition to the state the link is already in, so a
+        // retried request is not an error. But each such call writes a FRESH audit row, and
+        // the notice is keyed on that row's id -- so pressing Suspend twice on an already
+        // suspended installation produced two different dedupe keys and sent the merchant a
+        // second WhatsApp telling them about a hold they were told about already. The
+        // "say it once" guarantee is in the notifier; what defeated it was the call site
+        // asking twice about one occasion. Nothing happened, so there is nothing to say.
+        $this->tellTheMerchant($locked, $previous, $to, $entry);
 
         return $locked;
     }
@@ -199,11 +208,11 @@ class InstallationLifecycle
      * workspace was authorised for. This is the automated trigger: no operator decides to
      * send it, the transition does.
      *
-     * KEYED ON THE AUDIT ROW, which is the cleanest identifier of the OCCASION available.
-     * A suspend, a resume and a second suspend are three genuinely different things to say
-     * and each has its own audit id; a retry of the same transition reuses one, so the
-     * notice's unique key refuses the repeat. Nothing here has to invent a counter or guess
-     * at a window.
+     * KEYED ON THE AUDIT ROW, and only written when the state actually moved. A suspend, a
+     * resume and a later second suspend are three genuinely different things to say, and each
+     * has its own audit id. A repeat of a transition the link has already made writes a fresh
+     * audit row too -- so the key alone would not have stopped it, and the guard above is
+     * what does: nothing changed, so there is nothing to tell anybody.
      *
      * BEST EFFORT, AND DELIBERATELY SO. An operator asked to suspend an installation. If the
      * platform workspace is unconfigured, or the merchant has no usable number, or Lynomia
@@ -212,9 +221,9 @@ class InstallationLifecycle
      * notice's own row records what happened either way, so it is not lost, only deferred to
      * an operator's attention.
      */
-    private function tellTheMerchant(LynomiaStoreLink $link, string $to, $entry): void
+    private function tellTheMerchant(LynomiaStoreLink $link, string $previous, string $to, $entry): void
     {
-        if ($to !== LinkState::SUSPENDED || $entry === null) {
+        if ($to !== LinkState::SUSPENDED || $previous === $to || $entry === null) {
             return;
         }
 

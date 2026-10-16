@@ -210,8 +210,8 @@ class IntegrationController extends Controller
      * because that gate keys on the account being platform-owned. So the ids in use are on
      * the page: the operator who set them is the one person who can see they are wrong.
      *
-     * @return array{configured:bool, workspace:?int, inbox:?int, sent:int, failed:int,
-     *               indeterminate:int, recent:mixed}
+     * @return array{configured:bool, workspace:?int, inbox:?int, accepted:int, in_flight:int,
+     *               failed:int, indeterminate:int, recent:mixed}
      */
     private function platformComms(): array
     {
@@ -219,7 +219,13 @@ class IntegrationController extends Controller
             'configured' => app(PlatformWorkspaceGateway::class)->configured(),
             'workspace' => config('lynomia.platform_workspace_account_id'),
             'inbox' => config('lynomia.platform_workspace_inbox_id'),
-            'sent' => LynomiaPlatformNotice::query()->where('status', LynomiaPlatformNotice::SENT)->count(),
+            // "accepted", not "sent": Lynomia answers 200 when the message row exists, and its
+            // own UTILITY and consent gates run afterwards in a job. This number is how many
+            // Lynomia took, not how many reached a merchant, and the label says so.
+            'accepted' => LynomiaPlatformNotice::query()->where('status', LynomiaPlatformNotice::SENT)->count(),
+            // Claimed and unresolved. Invisible in every other tile before this: not a
+            // success, not a failure, not an unknown answer.
+            'in_flight' => LynomiaPlatformNotice::query()->inFlight()->count(),
             'failed' => LynomiaPlatformNotice::query()->where('status', LynomiaPlatformNotice::FAILED)->count(),
             'indeterminate' => LynomiaPlatformNotice::query()
                 ->where('status', LynomiaPlatformNotice::INDETERMINATE)->count(),

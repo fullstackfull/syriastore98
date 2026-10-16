@@ -472,22 +472,28 @@ class AccountLinker
         // the only way anyone can ever reach it again. Dropping that would orphan the
         // merchant's conversations beyond recovery, so a provisioned link keeps its grant and
         // the revocation is local: no SSO is issued, and the row records why.
-        if ($link->link_mode === LynomiaStoreLink::MODE_LINK_EXISTING && $link->lynomia_account_id !== null) {
-            $this->handBackGrant((int) $link->lynomia_account_id);
-        }
-
-        // AND THE COMMERCE INSTALLATION IS STOPPED, which handing back the grant does not do.
+        // THE INSTALLATION IS STOPPED FIRST, AND THE ORDER IS THE WHOLE POINT.
         //
         // Until P6B this method's only remote effect was the account grant, so a revoked
         // installation stayed `active` in `commerce_stores` and Partners::Eligibility went on
         // authorising its campaigns indefinitely -- with the operator who had just revoked it
-        // having every reason to believe they had stopped it. A provisioned link never even
-        // reached the branch above, so for those nothing crossed the boundary at all.
+        // having every reason to believe they had stopped it.
+        //
+        // P6B added this call and put it AFTER the hand-back below, which left the defect
+        // exactly where it was for a linked workspace: `revokeAccountLink` releases this app's
+        // permissible on the account, and `validate_platform_app_permissible` then answers the
+        // lifecycle call with 401. stopInstallation logs that at warning level and returns, so
+        // the store stayed active and nothing said otherwise. Stopping the installation while
+        // this app still has the authority to is the only ordering that works.
         //
         // `suspend`, not `disconnect`: revocation is reversible by restore() below, and
         // Lynomia's disconnect drops the stored credentials, which would quietly make it
         // permanent. Decommissioning is the transition that is meant to be final.
         $this->stopInstallation($link, 'suspend', $reason, $actor);
+
+        if ($link->link_mode === LynomiaStoreLink::MODE_LINK_EXISTING && $link->lynomia_account_id !== null) {
+            $this->handBackGrant((int) $link->lynomia_account_id);
+        }
 
         $link->forceFill([
             'state' => LinkState::REVOKED,
