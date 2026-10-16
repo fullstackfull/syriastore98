@@ -618,6 +618,89 @@ class AgentApiClient
         return $this->http->send('get', $this->path('contacts/search'), ['q' => $query, 'page' => 1]);
     }
 
+    // --------------------------------------------- platform notices (P6E, platform workspace)
+
+    /**
+     * Find or make the contact for one WhatsApp identity.
+     *
+     * THE IDENTITY IS THE KEY, NOT THE NAME. Upstream holds a UNIQUE index on
+     * contact_inboxes (inbox_id, source_id), so the number already is the natural key within
+     * an inbox -- searching first and creating only on a miss means a second notice to the
+     * same merchant reuses the contact rather than accumulating duplicates of a person.
+     *
+     * Only ever called in the PLATFORM workspace, where every contact is a merchant Store
+     * Syria already has a record of. It is not a way to create people in a merchant's
+     * workspace, and nothing routes it there.
+     *
+     * @return int the contact id
+     */
+    public function resolveContact(string $phone, string $name, int $inboxId): int
+    {
+        $existing = $this->searchContacts($phone);
+
+        foreach ((array) ($existing['payload'] ?? []) as $candidate) {
+            $identifier = preg_replace('/\D+/', '', (string) ($candidate['phone_number'] ?? ''));
+
+            if ($identifier === preg_replace('/\D+/', '', $phone) && isset($candidate['id'])) {
+                return (int) $candidate['id'];
+            }
+        }
+
+        $created = $this->http->send('post', $this->path('contacts'), [
+            'name' => $name,
+            'phone_number' => '+' . ltrim($phone, '+'),
+            'inbox_id' => $inboxId,
+        ]);
+
+        return (int) ($created['payload']['contact']['id'] ?? $created['id'] ?? 0);
+    }
+
+    /**
+     * The conversation a notice is delivered in.
+     *
+     * NOT IDEMPOTENT UPSTREAM unless the inbox opts into locking to a single conversation,
+     * so a caller that wants one thread per merchant has to arrange it there. The notice
+     * record's own unique key is what stops a notice being sent twice; this only decides
+     * where it lands.
+     *
+     * @return int the conversation's DISPLAY id, which is what every other endpoint takes
+     */
+    public function openConversation(int $contactId, int $inboxId, string $sourceId): int
+    {
+        $created = $this->http->send('post', $this->path('conversations'), [
+            'contact_id' => $contactId,
+            'inbox_id' => $inboxId,
+            'source_id' => $sourceId,
+        ]);
+
+        return (int) ($created['display_id'] ?? 0);
+    }
+
+    /**
+     * Send an approved template, as the dashboard composer does.
+     *
+     * WHAT IS ALLOWED IS NOT DECIDED HERE. The platform workspace refuses anything Meta does
+     * not classify as UTILITY, reading the category off the channel's own synced list, so
+     * naming a marketing template in this call does not make it operational -- it makes the
+     * message fail with a reason.
+     *
+     * @param  array<string,string>  $params  placeholder values, keyed by position
+     * @return int the message id
+     */
+    public function sendTemplateMessage(int $displayId, string $templateName, string $language, array $params): int
+    {
+        $sent = $this->http->send('post', $this->path("conversations/{$displayId}/messages"), [
+            'content' => '',
+            'template_params' => [
+                'name' => $templateName,
+                'language' => $language,
+                'processed_params' => ['body' => $params],
+            ],
+        ]);
+
+        return (int) ($sent['id'] ?? 0);
+    }
+
     // ------------------------------------------------------------------ webhooks (admin only)
 
     /**

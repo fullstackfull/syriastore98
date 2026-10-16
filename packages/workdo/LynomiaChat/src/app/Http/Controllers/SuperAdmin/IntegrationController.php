@@ -16,6 +16,7 @@ use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Http\Requests\ApproveLinkRequest;
 use Workdo\LynomiaChat\app\Models\LynomiaCommerceEvent;
 use Workdo\LynomiaChat\app\Models\LynomiaConsentDecision;
+use Workdo\LynomiaChat\app\Models\LynomiaPlatformNotice;
 use Workdo\LynomiaChat\app\Models\LynomiaInboxEvent;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreIdentity;
 use Workdo\LynomiaChat\app\Models\LynomiaMarketingAddon;
@@ -25,6 +26,7 @@ use Workdo\LynomiaChat\app\Services\AccountLinker;
 use Workdo\LynomiaChat\app\Services\InstallationLifecycle;
 use Workdo\LynomiaChat\app\Services\CommerceCredential;
 use Workdo\LynomiaChat\app\Services\PlatformApiClient;
+use Workdo\LynomiaChat\app\Services\PlatformWorkspaceGateway;
 use Workdo\LynomiaChat\app\Services\MarketingAllowanceSync;
 use Workdo\LynomiaChat\app\Services\SeatAllowanceSync;
 
@@ -109,6 +111,10 @@ class IntegrationController extends Controller
             // take weeks, so a waiting row is not itself a fault. What an operator needs to see
             // is the ones that ran out of time and were retired undelivered.
             'consentHealth' => $this->consentHealth(),
+            // Phase 6E. Operational communication to merchants, from Store Syria's own
+            // workspace. Read from this side's own table: what was sent, what was not, and
+            // what nobody knows about.
+            'platformComms' => $this->platformComms(),
             // Phase 4. Who, on this side, can build an automation or record a consent decision.
             'automationAccess' => $this->automationAccess(),
         ]);
@@ -185,6 +191,28 @@ class IntegrationController extends Controller
                 ->groupBy('store_id')
                 ->pluck('waiting', 'store_id')
                 ->all(),
+        ];
+    }
+
+    /**
+     * Operational notices to merchants: what landed, what did not, and what is unresolved.
+     *
+     * `indeterminate` IS THE NUMBER THAT MATTERS. A notice whose answer was lost may or may
+     * not have reached the merchant, and nothing on Lynomia's send path would recognise a
+     * repeat -- so it is never retried automatically and an operator decides. A count of
+     * those is the only way that decision gets made at all.
+     *
+     * @return array{configured:bool, sent:int, failed:int, indeterminate:int, recent:mixed}
+     */
+    private function platformComms(): array
+    {
+        return [
+            'configured' => app(PlatformWorkspaceGateway::class)->configured(),
+            'sent' => LynomiaPlatformNotice::query()->where('status', LynomiaPlatformNotice::SENT)->count(),
+            'failed' => LynomiaPlatformNotice::query()->where('status', LynomiaPlatformNotice::FAILED)->count(),
+            'indeterminate' => LynomiaPlatformNotice::query()
+                ->where('status', LynomiaPlatformNotice::INDETERMINATE)->count(),
+            'recent' => LynomiaPlatformNotice::query()->latest('id')->limit(25)->get(),
         ];
     }
 

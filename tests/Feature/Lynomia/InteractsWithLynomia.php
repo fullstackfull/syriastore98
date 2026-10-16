@@ -335,6 +335,11 @@ trait InteractsWithLynomia
                     => Http::response(['id' => 1, 'name' => 'Agent'], 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/conversations/\d+/update_last_seen$#', $path)
                     => Http::response([], 200),
+                // ------------------------------- Phase 6E: platform notices (account API)
+                (bool) preg_match('#^/api/v1/accounts/\\d+/contacts$#', $path) && $method === 'POST'
+                    => Http::response(['payload' => ['contact' => ['id' => 4242]]], 200),
+                (bool) preg_match('#^/api/v1/accounts/\\d+/conversations$#', $path) && $method === 'POST'
+                    => Http::response(['id' => 900, 'display_id' => 77], 200),
                 // ------------------------------------ Phase 6B: installation lifecycle
                 (bool) preg_match('#^/platform/api/v1/accounts/\\d+/installation_lifecycle$#', $path)
                     => Http::response($this->lynomiaScript['installation_lifecycle']

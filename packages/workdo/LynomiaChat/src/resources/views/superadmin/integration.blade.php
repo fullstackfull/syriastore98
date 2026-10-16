@@ -24,6 +24,9 @@
                 <a class="nav-link" data-bs-toggle="tab" href="#lynomia-automation" role="tab">{{ __('Automation') }}</a>
             </li>
             <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="tab" href="#lynomia-notices" role="tab">{{ __('Merchant notices') }}</a>
+            </li>
+            <li class="nav-item">
                 <a class="nav-link" data-bs-toggle="tab" href="#lynomia-accounts" role="tab">
                     {{ __('Merchant Accounts') }}
                     @if ($pendingCount > 0)
@@ -292,6 +295,67 @@
                         </ul>
                     </div>
                 </div>
+            </div>
+
+            {{-- --------------------------------------------------- merchant notices (P6E) --}}
+            {{--
+                OPERATIONAL COMMUNICATION TO MERCHANTS, from Store Syria's own Lynomia
+                workspace: onboarding, a broken integration, a security notice. Essential
+                notices only -- the workspace refuses anything Meta does not classify as
+                UTILITY, so there is no promotional capability here to switch on.
+
+                HISTORY FIRST, because the question an operator arrives with is almost always
+                "did this merchant get told?" rather than "tell them". The failures and the
+                reasons are shown beside the successes: the commonest reason a merchant is not
+                reachable is that Store Syria has no usable phone number for them, and that is
+                a fact worth seeing rather than an absence of rows.
+            --}}
+            <div class="tab-pane fade" id="lynomia-notices" role="tabpanel">
+                @if (! $platformComms['configured'])
+                    <div class="alert alert-secondary" role="alert">
+                        {{ __('Platform communications are not set up. An operator provisions the workspace in Lynomia and records its ids before any notice can be sent.') }}
+                    </div>
+                @endif
+
+                <ul class="list-unstyled small">
+                    <li>{{ __('Notices sent') }}: <strong>{{ $platformComms['sent'] }}</strong></li>
+                    <li>{{ __('Not delivered') }}: <strong>{{ $platformComms['failed'] }}</strong></li>
+                    <li>
+                        {{ __('Awaiting an operator') }}:
+                        <strong>{{ $platformComms['indeterminate'] }}</strong>
+                    </li>
+                </ul>
+
+                @if ($platformComms['indeterminate'] > 0)
+                    <div class="alert alert-warning" role="alert">
+                        {{ __('Some notices were sent but their answer was lost, so nobody knows whether they arrived. They are not retried automatically: a repeat would reach the merchant twice, and nothing downstream would recognise it as a repeat.') }}
+                    </div>
+                @endif
+
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>{{ __('When') }}</th>
+                            <th>{{ __('Store') }}</th>
+                            <th>{{ __('About') }}</th>
+                            <th>{{ __('Status') }}</th>
+                            <th>{{ __('Reason') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    @forelse ($platformComms['recent'] as $notice)
+                        <tr>
+                            <td>{{ $notice->created_at?->diffForHumans() }}</td>
+                            <td>#{{ $notice->store_id }}</td>
+                            <td>{{ $notice->kind }}</td>
+                            <td>{{ $notice->status }}</td>
+                            <td class="text-muted">{{ $notice->failure_reason ?? '—' }}</td>
+                        </tr>
+                    @empty
+                        <tr><td colspan="5" class="text-center text-muted">{{ __('No notice has been sent yet.') }}</td></tr>
+                    @endforelse
+                    </tbody>
+                </table>
             </div>
 
             <div class="tab-pane fade" id="lynomia-accounts" role="tabpanel">

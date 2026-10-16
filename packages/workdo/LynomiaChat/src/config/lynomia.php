@@ -239,4 +239,23 @@ return [
         && $platformWorkspace !== ''
             ? (int) $platformWorkspace
             : null,
+
+    /*
+     * The service identity Store Syria acts as inside that workspace, and the WhatsApp inbox
+     * it sends from. Both are recorded by an operator after provisioning, alongside the
+     * account id above.
+     *
+     * ALL THREE OR NOTHING. PlatformWorkspaceGateway refuses to act unless every one is set:
+     * a half-configured workspace is the state in which a notice goes somewhere nobody
+     * intended, and there is no sensible default for any of them.
+     */
+    'platform_workspace_sender_user_id' => ($platformSender = env('LYNOMIA_PLATFORM_WORKSPACE_SENDER_USER_ID')) !== null
+        && $platformSender !== ''
+            ? (int) $platformSender
+            : null,
+
+    'platform_workspace_inbox_id' => ($platformInbox = env('LYNOMIA_PLATFORM_WORKSPACE_INBOX_ID')) !== null
+        && $platformInbox !== ''
+            ? (int) $platformInbox
+            : null,
 ];
