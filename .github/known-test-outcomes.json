@@ -11,19 +11,25 @@
     "owns the fix. Adding an entry to make CI green is the one use of this file that is",
     "forbidden; if a new failure appears, it is a regression until someone proves otherwise.",
     "",
-    "MEASURED on p1f/agent5-ci against vendor/ as installed in the development container",
-    "(PHPUnit 11.5.57, PHP 8.3.6, sqlite :memory:):",
-    "  vendor/bin/phpunit --testsuite Unit     ->  107 tests, 810 assertions, 0 failures",
-    "  vendor/bin/phpunit --testsuite Feature  ->  1126 tests, 6135 assertions, 0 errors, 8 failures, 17 skipped",
-    "Note that those numbers come from a vendor/ tree that does NOT match composer.lock (148 of",
-    "239 packages differ). The required `tests` job installs from the lock, which is the whole",
-    "point of making it required -- and which is why it cannot pass until the dead",
-    "lahirulhr/laravel-payhere package is resolved. See docs/BUILD-REPRODUCIBILITY.md.",
+    "RE-MEASURED for the Phase 7 prerequisites, in the development container",
+    "(PHPUnit 11.4.4, PHP 8.3.6, sqlite :memory:), on the Lynomia integration branch:",
+    "  vendor/bin/phpunit --testsuite Unit     ->  181 tests, 1035 assertions, 0 failures",
+    "  vendor/bin/phpunit --testsuite Feature  ->  2025 tests, 0 errors, 8 failures, 17 skipped",
+    "The SET below is unchanged by that growth: the same eight failures and the same seventeen",
+    "skips, verified by set-differencing the JUnit names against this file rather than by",
+    "comparing counts. The earlier figures recorded here (107 Unit / 1126 Feature, measured on",
+    "p1f/agent5-ci) were stale prose, not a gate defect -- `minimum_testcases` is a floor of 1000",
+    "and both measurements satisfy it.",
+    "",
+    "ALSO CORRECTED: this block used to say the required `tests` job 'cannot pass until the dead",
+    "lahirulhr/laravel-payhere package is resolved'. That is no longer true. PayHere is absent",
+    "from composer.lock and the strict install from the lock succeeds, which makes the",
+    "`tests-degraded` and `lockfile-reproducibility` jobs that exist to work around it dead",
+    "weight. Recorded here; removing them is a separate housekeeping change.",
     "",
     "There is deliberately NO section for errors. The suite's zero-errors property is enforced",
     "unconditionally: an error means a test could not run at all."
   ],
-
   "require_reason_log": true,
   "_require_reason_log_note": [
     "Fail the gate if no --log-teamcity log is supplied. The skip REASONS cannot be read from",
@@ -31,7 +37,6 @@
     "half of the gate depends on a second log. Making its absence a FAILURE is what stops one",
     "dropped CI flag from disabling a control in silence."
   ],
-
   "minimum_testcases": 1000,
   "_minimum_testcases_note": [
     "A floor, not the count. Its only job is to stop the gate passing on a log from a run that",
@@ -39,7 +44,6 @@
     "The real count at the time of writing is 1126 Feature testcases. Lower this ONLY when tests",
     "are removed on purpose, and record why here."
   ],
-
   "expected_failures": {
     "Tests\\Feature\\Auth\\AuthenticationTest::test_login_screen_can_be_rendered": {
       "cause": "NEW-ADDON-SCHEMA-02: no such table: owner_menu_settings. packages/workdo/LandingPage/src/Providers/LandingPageServiceProvider.php:28 calls loadMigrationsFrom(__DIR__ . '/../database/Migrations') while the directory on disk is src/database/migrations (lowercase m). The path does not exist on a case-sensitive filesystem, so six migrations are never discovered -- one of which creates owner_menu_settings, which resources/views/layouts/guest.blade.php:96 reads on every guest screen.",
@@ -85,7 +89,6 @@
       "classification": "OPEN -- ACTIONABLE DEFECT"
     }
   },
-
   "expected_skips": {
     "Tests\\Feature\\Commerce\\FinancialSurfaceCoverageTest::test_a_cross_currency_conversion_is_blocked": {
       "blocked_on": "currency_rates",
@@ -156,7 +159,6 @@
       "note": "GATE F."
     }
   },
-
   "_gate_f_coverage_gap": [
     "SEVENTEEN SKIPS DO NOT MEAN THE SIX MONEY TABLES ARE WELL COVERED, and the record should not",
     "be read that way. Of the six, store_wallets, store_wallet_transactions, store_withdrawals,",

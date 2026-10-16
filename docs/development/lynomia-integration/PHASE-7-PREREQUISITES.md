@@ -195,11 +195,20 @@ what they cover.
 Ran every gate in `.github/workflows/ci.yml` locally against the branch, base `origin/main`
 (merge-base `0d2ca628`).
 
-**Measured at commit `e34c442a`.** Two commits landed after that measurement: `303fc54d`
-(documentation and `.env.example` only) and `250e7864` (the B5 application change). The
-known-outcome gate is being re-run against the current head; §5.1's figures move by the five
-Feature tests B5 added and by nothing else, and the figure to trust is the one in the re-run,
-recorded in the commit that follows this document.
+**Measured at `e34c442a` and RE-MEASURED after the B5 change at `250e7864`.** The second run
+is the one to trust and it moved by exactly the five tests B5 added:
+
+```
+testcases observed   : 2025  (was 2020; manifest floor 1000)
+failures observed    : 8     (manifest declares 8)
+errors observed      : 0
+skips observed       : 17    (manifest declares 17)
+GATE EXIT = 0
+```
+
+Unit: 181 tests, 1035 assertions, 0 failures. `.github/known-test-outcomes.json` carried stale
+prose quoting 107 and 1126; its `_README` now records the measured figures and notes that the
+SET -- which is what the gate asserts -- did not move.
 
 ### 5.1 The question the owner asked: no undeclared test failure
 
