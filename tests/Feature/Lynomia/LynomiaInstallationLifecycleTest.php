@@ -280,6 +280,31 @@ class LynomiaInstallationLifecycleTest extends TestCase
         $this->assertSame(LinkState::SUSPENDED, $still->state, 'and the installation stays where it was');
     }
 
+    /**
+     * AND WHEN THE RESUME FAILS FOR A REASON THAT IS NOT LYNOMIA'S ANSWER.
+     *
+     * The version bump is committed before the resume is attempted, so by the time anything
+     * can go wrong the credential Lynomia holds is already dead and the operator MUST come
+     * away with the replacement. The example above covers a refusal from Lynomia; this one
+     * covers the other source, the locked re-check in `move` refusing because the link moved
+     * underneath the caller. Both raise LynomiaApiException, which is why one catch is
+     * enough -- established here rather than assumed, because the consequence of being wrong
+     * is an operator holding an error and no credential.
+     */
+    public function test_the_credential_is_returned_when_the_link_moved_underneath_the_resume(): void
+    {
+        [, , $link] = $this->connected();
+        $this->lifecycle()->suspend($link, $this->operator(), 'credential rejected');
+        $stale = LynomiaStoreLink::findOrFail($link->id);
+        LynomiaStoreLink::whereKey($link->id)->update(['state' => LinkState::DECOMMISSIONED]);
+
+        [$still, $credential, $resumed] = $this->lifecycle()->reauthenticate($stale, $this->operator());
+
+        $this->assertFalse($resumed);
+        $this->assertNotEmpty($credential, 'the operator must still get something to paste');
+        $this->assertSame(LinkState::DECOMMISSIONED, $still->fresh()->state);
+    }
+
     /** The credential itself is never written to the audit trail -- only the fact and the version. */
     public function test_the_new_credential_is_never_audited(): void
     {

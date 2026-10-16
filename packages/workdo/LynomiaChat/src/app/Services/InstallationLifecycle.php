@@ -122,7 +122,11 @@ class InstallationLifecycle
                 'resume', 'lynomia_installation_resumed');
             $resumed = true;
         } catch (LynomiaApiException) {
-            // Expected while Lynomia still holds the credential this call just invalidated.
+            // Every way this resume is known to fail. Expected while Lynomia still holds the
+            // credential this call just invalidated -- and also when the link moved underneath
+            // the caller, because the locked re-check in `move` refuses with the same
+            // exception. The version bump above is already committed either way, so the
+            // operator must come away with the replacement credential whichever it was.
         }
 
         return [$link, CommerceCredential::issue($link), $resumed];
