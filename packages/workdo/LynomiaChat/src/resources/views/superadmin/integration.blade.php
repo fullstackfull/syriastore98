@@ -335,9 +335,38 @@
                                                 <button class="btn btn-sm btn-primary">{{ __('Approve') }}</button>
                                             </form>
                                         @elseif ($row->state === \Workdo\LynomiaChat\app\Support\LinkState::ACTIVE)
+                                            {{-- Suspend is the reversible hold; revoke withdraws the arrangement.
+                                                 Both now stop Lynomia's commerce installation, which neither did
+                                                 before P6B. Each asks why, because the next operator reads it. --}}
+                                            <form method="POST" action="{{ route('lynomia.admin.links.suspend', $row->id) }}" class="d-flex gap-1 mb-1">
+                                                @csrf
+                                                <input type="text" name="reason" class="form-control form-control-sm"
+                                                       placeholder="{{ __('Why?') }}" required style="max-width:140px">
+                                                <button class="btn btn-sm btn-outline-warning">{{ __('Suspend') }}</button>
+                                            </form>
                                             <form method="POST" action="{{ route('lynomia.admin.links.revoke', $row->id) }}">
                                                 @csrf
                                                 <button class="btn btn-sm btn-outline-danger">{{ __('Revoke') }}</button>
+                                            </form>
+                                        @elseif ($row->state === \Workdo\LynomiaChat\app\Support\LinkState::SUSPENDED)
+                                            <form method="POST" action="{{ route('lynomia.admin.links.resume', $row->id) }}" class="d-flex gap-1 mb-1">
+                                                @csrf
+                                                <input type="text" name="reason" class="form-control form-control-sm"
+                                                       placeholder="{{ __('Why?') }}" required style="max-width:140px">
+                                                <button class="btn btn-sm btn-outline-success">{{ __('Resume') }}</button>
+                                            </form>
+                                            {{-- The way out of a rejected credential: mint a replacement and bring
+                                                 the installation back, with Lynomia checking it can be reached. --}}
+                                            <form method="POST" action="{{ route('lynomia.admin.links.reauthenticate', $row->id) }}" class="mb-1">
+                                                @csrf
+                                                <button class="btn btn-sm btn-outline-secondary">{{ __('Re-authenticate') }}</button>
+                                            </form>
+                                            <form method="POST" action="{{ route('lynomia.admin.links.decommission', $row->id) }}" class="d-flex gap-1"
+                                                  onsubmit="return confirm(@json(__('Decommissioning cannot be undone. The workspace, its conversations and its consent records are kept, but the installation stops for good.')))">
+                                                @csrf
+                                                <input type="text" name="reason" class="form-control form-control-sm"
+                                                       placeholder="{{ __('Why?') }}" required style="max-width:140px">
+                                                <button class="btn btn-sm btn-outline-dark">{{ __('Decommission') }}</button>
                                             </form>
                                         @elseif ($row->state === \Workdo\LynomiaChat\app\Support\LinkState::REVOKED)
                                             {{-- Without this, revoking for a billing hold was a one way door. --}}
@@ -345,6 +374,10 @@
                                                 @csrf
                                                 <button class="btn btn-sm btn-outline-secondary">{{ __('Restore') }}</button>
                                             </form>
+                                        @elseif ($row->state === \Workdo\LynomiaChat\app\Support\LinkState::DECOMMISSIONED)
+                                            {{-- Terminal. Lynomia dropped its credentials, so there is nothing to
+                                                 bring back; the history stays reachable. --}}
+                                            <span class="text-muted">{{ __('Ended') }}</span>
                                         @else
                                             <span class="text-muted">—</span>
                                         @endif

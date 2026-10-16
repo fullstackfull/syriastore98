@@ -12,6 +12,7 @@ use Illuminate\Support\Str;
 use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Support\LinkState;
+use Workdo\LynomiaChat\app\Support\StoreIdentity;
 
 /**
  * Attaches an EXISTING Lynomia workspace to a store, on proof minted inside that workspace.
@@ -320,6 +321,11 @@ class AccountLinker
 
         $link->forceFill($attributes)->save();
 
+        // Bring the commerce installation back with it, for the same reason revoking stops
+        // it. Only for a link that still has a workspace: a claim reset to
+        // pending_verification has had its account id cleared and has nothing to resume.
+        $this->stopInstallation($link->refresh(), 'resume', 'connection restored', $actor);
+
         AuditLog::record('lynomia_link_restored', $link, ['state' => LinkState::REVOKED], [
             'state' => $link->state,
             'store_id' => $link->store_id,
@@ -470,6 +476,19 @@ class AccountLinker
             $this->handBackGrant((int) $link->lynomia_account_id);
         }
 
+        // AND THE COMMERCE INSTALLATION IS STOPPED, which handing back the grant does not do.
+        //
+        // Until P6B this method's only remote effect was the account grant, so a revoked
+        // installation stayed `active` in `commerce_stores` and Partners::Eligibility went on
+        // authorising its campaigns indefinitely -- with the operator who had just revoked it
+        // having every reason to believe they had stopped it. A provisioned link never even
+        // reached the branch above, so for those nothing crossed the boundary at all.
+        //
+        // `suspend`, not `disconnect`: revocation is reversible by restore() below, and
+        // Lynomia's disconnect drops the stored credentials, which would quietly make it
+        // permanent. Decommissioning is the transition that is meant to be final.
+        $this->stopInstallation($link, 'suspend', $reason, $actor);
+
         $link->forceFill([
             'state' => LinkState::REVOKED,
             'verification_code_hash' => null,
@@ -485,6 +504,38 @@ class AccountLinker
         ]);
 
         return $link->refresh();
+    }
+
+    /**
+     * Carry a link-state change across to Lynomia's commerce installation.
+     *
+     * BEST EFFORT, AND DELIBERATELY SO -- unlike InstallationLifecycle, which pushes first and
+     * refuses to write locally if the push fails. The difference is what the operator asked
+     * for. Here they asked to revoke or restore a LINK; the installation is a consequence, and
+     * a Lynomia that cannot be reached must not leave the link un-revoked, which would be the
+     * worse failure of the two. The disagreement it can leave behind is visible: the Super
+     * Admin page's "In Lynomia" column reads the far side's actual state, and the reconciler
+     * re-pushes on the next successful pass.
+     */
+    private function stopInstallation(LynomiaStoreLink $link, string $transition, string $reason, User $actor): void
+    {
+        if ($link->lynomia_account_id === null) {
+            return;
+        }
+
+        try {
+            $this->api->installationLifecycle(
+                (int) $link->lynomia_account_id,
+                StoreIdentity::of((int) $link->store_id),
+                $transition,
+                $reason,
+                (string) ($actor->email ?? $actor->id)
+            );
+        } catch (LynomiaApiException $e) {
+            Log::warning('[lynomia] the installation state could not be carried across', [
+                'store_id' => $link->store_id, 'transition' => $transition, 'kind' => $e->kind,
+            ]);
+        }
     }
 
     private function isUniqueViolation(QueryException $e): bool

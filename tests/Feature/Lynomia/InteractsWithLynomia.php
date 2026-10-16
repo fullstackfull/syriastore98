@@ -335,6 +335,11 @@ trait InteractsWithLynomia
                     => Http::response(['id' => 1, 'name' => 'Agent'], 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/conversations/\d+/update_last_seen$#', $path)
                     => Http::response([], 200),
+                // ------------------------------------ Phase 6B: installation lifecycle
+                (bool) preg_match('#^/platform/api/v1/accounts/\\d+/installation_lifecycle$#', $path)
+                    => Http::response($this->lynomiaScript['installation_lifecycle']
+                        ?? ['provider' => 'storesyria', 'external_store_id' => 'localhost:1',
+                            'status' => 'disabled', 'applied' => true], 200),
                 // -------------------------------------- Phase 6A: cross-boundary health
                 // The far side's view of one installation. Scripted so a test can make it
                 // critical, unreachable or quiet without reaching for a second fake.

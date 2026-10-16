@@ -494,6 +494,27 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
                 ->whereNumber('link')
                 ->name('links.restore');
 
+            // P6B. The installation lifecycle. Each one carries across to Lynomia's commerce
+            // store as well as moving the link here, which is the transition channel the two
+            // state machines never had.
+            Route::post('/links/{link}/suspend', [IntegrationController::class, 'suspend'])
+                ->whereNumber('link')
+                ->name('links.suspend');
+
+            Route::post('/links/{link}/resume', [IntegrationController::class, 'resume'])
+                ->whereNumber('link')
+                ->name('links.resume');
+
+            // Terminal, and the only transition that drops Lynomia's stored credentials.
+            Route::post('/links/{link}/decommission', [IntegrationController::class, 'decommission'])
+                ->whereNumber('link')
+                ->name('links.decommission');
+
+            // The way out of a rejected credential: mint a replacement and bring it back.
+            Route::post('/links/{link}/reauthenticate', [IntegrationController::class, 'reauthenticate'])
+                ->whereNumber('link')
+                ->name('links.reauthenticate');
+
             // WHAT LYNOMIA SEES OF THIS INSTALLATION. A separate request rather than part of
             // the page, because the page is deliberately built from local tables so that it
             // still renders when the integration is unreachable -- which is exactly when an

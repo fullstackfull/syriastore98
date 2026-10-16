@@ -100,6 +100,12 @@ class LynomiaConnectionTest extends TestCase
             // P6A. It reaches across the boundary with the platform credential, so it is
             // behind the same door as every other administrative act here.
             'lynomia.admin.links.remote_health',
+            // P6B. Each of these moves an installation on BOTH sides, so each is behind the
+            // same door as revoke.
+            'lynomia.admin.links.suspend',
+            'lynomia.admin.links.resume',
+            'lynomia.admin.links.decommission',
+            'lynomia.admin.links.reauthenticate',
         ] as $name) {
             $this->assertTrue(Route::has($name), "Route {$name} is missing.");
 
@@ -121,6 +127,10 @@ class LynomiaConnectionTest extends TestCase
             ['get', '/lynomia/open'],
             ['get', '/super-admin/lynomia-integration'],
             ['get', '/super-admin/lynomia-integration/links/1/remote-health'],
+            ['post', '/super-admin/lynomia-integration/links/1/suspend'],
+            ['post', '/super-admin/lynomia-integration/links/1/resume'],
+            ['post', '/super-admin/lynomia-integration/links/1/decommission'],
+            ['post', '/super-admin/lynomia-integration/links/1/reauthenticate'],
         ] as [$verb, $uri]) {
             $response = $this->{$verb}($uri);
 
@@ -1461,14 +1471,31 @@ class LynomiaConnectionTest extends TestCase
         $this->assertSame(LinkState::REVOKED, $link->fresh()->state);
     }
 
-    /** The state had three places branching on it and nothing anywhere writing it. */
-    public function test_there_is_no_unwritable_suspended_state(): void
+    /**
+     * NO STATE WITHOUT A WRITER -- the invariant this test has always been about.
+     *
+     * It used to assert that SUSPENDED did not exist, because at the time nothing wrote it:
+     * three places branched on a state the product could only reach by hand-editing a row.
+     * P6B gave it one, and gave DECOMMISSIONED one too, so the assertion is back to the thing
+     * it was protecting rather than the particular absence that satisfied it then.
+     *
+     * The writers are named here; that they produce these states is asserted behaviourally in
+     * LynomiaInstallationLifecycleTest.
+     */
+    public function test_every_link_state_has_something_that_writes_it(): void
     {
-        $this->assertFalse(defined(LinkState::class . '::SUSPENDED'));
         $this->assertSame(
-            [LinkState::PENDING_VERIFICATION, LinkState::ACTIVE, LinkState::REVOKED],
+            [LinkState::PENDING_VERIFICATION, LinkState::ACTIVE, LinkState::SUSPENDED,
+                LinkState::REVOKED, LinkState::DECOMMISSIONED],
             LinkState::ALL
         );
+
+        foreach (['suspend', 'resume', 'decommission', 'reauthenticate'] as $writer) {
+            $this->assertTrue(
+                method_exists(\Workdo\LynomiaChat\app\Services\InstallationLifecycle::class, $writer),
+                "InstallationLifecycle::{$writer}() is the writer for a declared state and is missing."
+            );
+        }
     }
 
     // ------------------------------- second review round: lost updates and displaced grants

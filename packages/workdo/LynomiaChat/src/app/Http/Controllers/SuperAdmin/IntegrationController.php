@@ -22,6 +22,7 @@ use Workdo\LynomiaChat\app\Models\LynomiaMarketingAddon;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreAddon;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\AccountLinker;
+use Workdo\LynomiaChat\app\Services\InstallationLifecycle;
 use Workdo\LynomiaChat\app\Services\CommerceCredential;
 use Workdo\LynomiaChat\app\Services\PlatformApiClient;
 use Workdo\LynomiaChat\app\Services\MarketingAllowanceSync;
@@ -55,7 +56,8 @@ class IntegrationController extends Controller
         private readonly PlatformApiClient $api,
         private readonly AccountLinker $linker,
         private readonly SeatAllowanceSync $seats,
-        private readonly MarketingAllowanceSync $marketing
+        private readonly MarketingAllowanceSync $marketing,
+        private readonly InstallationLifecycle $lifecycle
     ) {
     }
 
@@ -612,6 +614,98 @@ class IntegrationController extends Controller
         return back()->with('success', $restored->isActive()
             ? __('The workspace connection has been restored.')
             : __('The connection has been reset. The merchant can connect their workspace again.'));
+    }
+
+    /**
+     * P6B. A HOLD, NOT AN ENDING. The merchant keeps their workspace and their data; the
+     * installation stops acting until somebody resumes it. Distinct from revoke, which
+     * withdraws the arrangement and takes the merchant's access with it.
+     */
+    public function suspend(Request $request, int $link): RedirectResponse
+    {
+        return $this->lifecycleAction(
+            $request, $link,
+            fn ($model, $reason) => $this->lifecycle->suspend($model, auth()->user(), $reason),
+            __('The installation is suspended. It will not send anything until it is resumed.')
+        );
+    }
+
+    public function resume(Request $request, int $link): RedirectResponse
+    {
+        return $this->lifecycleAction(
+            $request, $link,
+            fn ($model, $reason) => $this->lifecycle->resume($model, auth()->user(), $reason),
+            __('The installation is active again.')
+        );
+    }
+
+    /**
+     * Ended for good. Lynomia drops its stored credentials, so unlike a revocation this
+     * cannot be undone -- which is why it asks for a reason and says so in the confirmation.
+     * The merchant's conversations and the consent evidence are kept.
+     */
+    public function decommission(Request $request, int $link): RedirectResponse
+    {
+        return $this->lifecycleAction(
+            $request, $link,
+            fn ($model, $reason) => $this->lifecycle->decommission($model, auth()->user(), $reason),
+            __('The installation has been decommissioned. Its history and consent records are kept.')
+        );
+    }
+
+    /**
+     * THE WAY OUT OF A REJECTED CREDENTIAL. Mints a replacement and asks Lynomia to bring the
+     * installation back -- and upstream's resume checks the store can actually be reached, so
+     * a credential that still does not work is reported here rather than discovered later by
+     * a campaign that sends nothing.
+     */
+    public function reauthenticate(int $link): RedirectResponse
+    {
+        $model = LynomiaStoreLink::find($link);
+
+        if (! $model) {
+            return back()->with('error', __('That connection no longer exists.'));
+        }
+
+        [, $credential, $resumed] = $this->lifecycle->reauthenticate($model, auth()->user());
+
+        // THE CREDENTIAL IS SHOWN EITHER WAY. Issuing it invalidates the one Lynomia is
+        // holding, so the resume that follows usually cannot succeed yet -- that is the normal
+        // path, not a failure. An operator left looking at an error with no credential to
+        // paste would be worse off than before they pressed the button.
+        return back()
+            ->with('success', $resumed
+                ? __('A new commerce credential was issued and the installation was brought back.')
+                : __('A new commerce credential was issued. Paste it into Lynomia, then press Resume.'))
+            ->with('lynomia_commerce_credential', $credential);
+    }
+
+    /**
+     * The three state transitions differ only in which method they call and what they say, so
+     * the reason handling, the missing-row case and the refusal are in one place rather than
+     * three.
+     */
+    private function lifecycleAction(Request $request, int $link, callable $move, string $success): RedirectResponse
+    {
+        $model = LynomiaStoreLink::find($link);
+
+        if (! $model) {
+            return back()->with('error', __('That connection no longer exists.'));
+        }
+
+        $reason = trim((string) $request->input('reason'));
+
+        if ($reason === '') {
+            return back()->with('error', __('Say why, so the next operator can read it.'));
+        }
+
+        try {
+            $move($model, $reason);
+        } catch (LynomiaApiException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return back()->with('success', $success);
     }
 
     /**

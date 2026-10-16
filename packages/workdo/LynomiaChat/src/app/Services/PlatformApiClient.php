@@ -519,6 +519,43 @@ class PlatformApiClient
         ];
     }
 
+    /**
+     * TELL LYNOMIA THAT AN INSTALLATION'S STATE CHANGED HERE.
+     *
+     * Without this the two lifecycles never spoke. Revoking a link tore down the account
+     * grant and left `commerce_stores.status` at `active`, so Lynomia's send boundary went on
+     * authorising that installation's campaigns -- indefinitely, and invisibly to the
+     * operator who had just revoked it.
+     *
+     * Transitions are the partner's vocabulary, not Lynomia's enum: `suspend`, `resume`,
+     * `disconnect`. Idempotent upstream, which matters because this is called from an
+     * operator action that may be retried.
+     *
+     * @return array{status:string, applied:bool, external_store_id:?string}
+     */
+    public function installationLifecycle(
+        int $accountId,
+        string $externalStoreId,
+        string $transition,
+        ?string $reason = null,
+        ?string $actor = null,
+        string $provider = 'storesyria'
+    ): array {
+        $body = $this->send('put', "/platform/api/v1/accounts/{$accountId}/installation_lifecycle", array_filter([
+            'provider' => $provider,
+            'external_store_id' => $externalStoreId,
+            'transition' => $transition,
+            'reason' => $reason,
+            'actor' => $actor,
+        ], fn ($value) => $value !== null));
+
+        return [
+            'status' => is_string($body['status'] ?? null) ? $body['status'] : 'unknown',
+            'applied' => ($body['applied'] ?? false) === true,
+            'external_store_id' => is_string($body['external_store_id'] ?? null) ? $body['external_store_id'] : null,
+        ];
+    }
+
     private function send(string $method, string $path, array $payload = [], bool $retryTransport = true): array
     {
         $this->assertUsable();

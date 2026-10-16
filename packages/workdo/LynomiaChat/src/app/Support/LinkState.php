@@ -26,20 +26,53 @@ final class LinkState
      * Unlinked by an operator. Terminal for the merchant -- they cannot re-open it -- but NOT
      * terminal for the row: SuperAdmin\IntegrationController::restore returns it to a usable
      * state, which is what a billing hold needs once the bill is settled.
-     *
-     * There was a SUSPENDED state here too, documented as the reversible one. Nothing ever
-     * wrote it: no service, no controller, no job. It was a state the product could reach only
-     * by hand-editing a row, and three places branched on it as though it meant something.
-     * Removed rather than given a writer, because the reversibility it promised is what
-     * restore() actually provides.
      */
     public const REVOKED = 'revoked';
+
+    /**
+     * Paused by an operator, and meant to come back.
+     *
+     * SUSPENDED was once declared here and then DELETED, because nothing wrote it: no service,
+     * no controller, no job, while three places branched on it as though it meant something.
+     * It is back because P6B gave it a writer -- suspend() and resume() on the lifecycle
+     * service -- and, more to the point, because it now MEANS something on the other side:
+     * suspending pushes Lynomia's store to `disabled`, which is what actually stops the
+     * sending. A state that only this database believed in was worth deleting; one that both
+     * systems act on is not.
+     *
+     * Distinct from REVOKED on purpose. Revoking is an operator withdrawing the arrangement
+     * and it takes the merchant's access with it; suspending is a hold on a relationship
+     * nobody has ended, so the merchant keeps their workspace and their data and the
+     * installation simply stops acting until it is resumed.
+     */
+    public const SUSPENDED = 'suspended';
+
+    /**
+     * Ended, deliberately and for good.
+     *
+     * This is the one state that drops Lynomia's stored credentials (its store moves to
+     * `disconnected`), which is why it is separate from REVOKED rather than a flag on it: a
+     * revoked link can be restored because its credentials are still there, and a
+     * decommissioned one cannot be, because they are gone. Making them one state would have
+     * meant either never dropping the credentials or never being able to restore.
+     *
+     * NOT A DELETE. The row stays, the merchant's conversations stay, and the consent
+     * evidence stays -- what a person was told and agreed to outlives the commercial
+     * arrangement that produced it, and a decommission that took it with the installation
+     * would destroy the only record that an opt-out ever happened.
+     */
+    public const DECOMMISSIONED = 'decommissioned';
 
     public const ALL = [
         self::PENDING_VERIFICATION,
         self::ACTIVE,
+        self::SUSPENDED,
         self::REVOKED,
+        self::DECOMMISSIONED,
     ];
+
+    /** States an operator can bring back. DECOMMISSIONED is absent deliberately. */
+    public const RESUMABLE = [self::SUSPENDED, self::REVOKED];
 
     /** States in which a merchant may be handed an SSO link. */
     public const SSO_ALLOWED = [self::ACTIVE];
