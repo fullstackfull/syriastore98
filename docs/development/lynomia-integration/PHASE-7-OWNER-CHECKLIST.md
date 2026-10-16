@@ -217,7 +217,7 @@ that cannot be talked round.
 
 | Gate | State |
 |---|---|
-| Store Syria known-outcome gate | **passes.** 2025 tests, 8 failures, 17 skips, 0 errors — the declared set exactly, verified by independent set-difference. All 8 reproduce on the merge-base |
+| Store Syria known-outcome gate | **passes.** 2039 tests, 8 failures, 17 skips, 0 errors — the declared set exactly, verified by independent set-difference. All 8 reproduce on the merge-base. It failed once in between, on a raw-query regression this preparation introduced and then fixed; `PHASE-7-PREREQUISITES.md` §5.1 keeps that row |
 | Store Syria `composer audit` ratchet | **fails**, 72 vs 70. §3.3 |
 | Store Syria `flag-sensitive-diff` | **fails** until a human puts `SECURITY-DIFF-REVIEW: completed` in the PR body |
 | Lynomia `rubocop` | **passes.** It was failing with 14 branch-owned offences; fixed |

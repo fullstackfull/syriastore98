@@ -242,11 +242,30 @@ what they cover.
 Ran every gate in `.github/workflows/ci.yml` locally against the branch, base `origin/main`
 (merge-base `0d2ca628`).
 
-**Measured at `e34c442a` and RE-MEASURED after the B5 change at `250e7864`.** The second run
-is the one to trust and it moved by exactly the five tests B5 added:
+**Measured three times as the branch moved, and the last is the one to trust.** Each run was
+invoked exactly as `ci.yml` does, with both `--log-junit` and `--log-teamcity`:
+
+| At | testcases | failures | skips | errors | gate |
+|---|---|---|---|---|---|
+| `e34c442a` | 2020 | 8 | 17 | 0 | **pass** |
+| `250e7864` (B5) | 2025 | 8 | 17 | 0 | **pass** |
+| `6d04c16f` (the fixture) | 2034 | **10** | 17 | 0 | **FAIL** |
+| current head | 2039 | 8 | 17 | 0 | **pass** |
+
+**The third row is the one worth keeping.** The staging fixture seeder used
+`DB::table('carts')` — a raw query-builder entry point, invisible to every Eloquent global
+scope — and `RawQueryTenancyInventoryTest` refused it: `packages` moved 45 → 46 and a `carts`
+row appeared in the per-table inventory. The call did carry `store_id`; the census is right
+not to care, because a raw site is one a later edit can drop a predicate from with nothing to
+notice. Fixed by going through the `Cart` model, **not** by adding a manifest entry, which the
+gate's own output forbids in as many words.
+
+It is recorded here rather than quietly corrected because it is the clearest evidence in this
+phase that the gate does what it claims: it caught a regression introduced by the very work
+that was measuring it.
 
 ```
-testcases observed   : 2025  (was 2020; manifest floor 1000)
+testcases observed   : 2039  (manifest floor 1000)
 failures observed    : 8     (manifest declares 8)
 errors observed      : 0
 skips observed       : 17    (manifest declares 17)
