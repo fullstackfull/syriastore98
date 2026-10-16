@@ -318,6 +318,16 @@
                 @endif
 
                 <ul class="list-unstyled small">
+                    {{-- Shown because nothing on this side can tell Store Syria's own workspace
+                         from a merchant's: pointed at a merchant's account and inbox, this would
+                         send from their WhatsApp channel. The operator who typed the ids is the
+                         one person who can see they are wrong. --}}
+                    <li>
+                        {{ __('Sent from workspace') }}:
+                        <strong>{{ $platformComms['workspace'] ?? __('not set') }}</strong>
+                        &mdash; {{ __('inbox') }}
+                        <strong>{{ $platformComms['inbox'] ?? __('not set') }}</strong>
+                    </li>
                     <li>{{ __('Notices sent') }}: <strong>{{ $platformComms['sent'] }}</strong></li>
                     <li>{{ __('Not delivered') }}: <strong>{{ $platformComms['failed'] }}</strong></li>
                     <li>

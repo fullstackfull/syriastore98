@@ -326,4 +326,37 @@ class LynomiaInstallationLifecycleTest extends TestCase
         $this->assertSame(1, \Workdo\LynomiaChat\app\Models\LynomiaConsentDecision::query()
             ->where('store_id', $link->store_id)->count());
     }
+    /**
+     * TWO OPERATORS, ONE INSTALLATION, AND THE GUARD THAT DECIDES.
+     *
+     * The eligibility check at the top of a transition runs against a row read before the
+     * push to Lynomia. Two operators acting at the same moment therefore both pass it. If the
+     * write were not guarded again under the lock, the second one would simply win -- here, a
+     * resume landing on top of a decommission, leaving this side ACTIVE on an installation
+     * whose credentials Lynomia has already dropped and which can never work again.
+     *
+     * Modelled by holding a link object whose state is what the first operator saw, while the
+     * row has already moved. That is precisely what the losing request holds in the race, and
+     * it needs no interleaving to arrange.
+     */
+    public function test_a_transition_decided_on_a_stale_read_is_refused_under_the_lock(): void
+    {
+        [$owner, , $link] = $this->connected();
+        $link->forceFill(['state' => LinkState::SUSPENDED])->save();
+        $stale = LynomiaStoreLink::findOrFail($link->id);
+
+        // The other operator gets there first.
+        LynomiaStoreLink::whereKey($link->id)->update(['state' => LinkState::DECOMMISSIONED]);
+
+        try {
+            $this->lifecycle()->resume($stale, $owner, 'bringing it back');
+            $this->fail('a resume decided on a stale read must not be applied');
+        } catch (LynomiaApiException $e) {
+            $this->assertSame(LynomiaApiException::KIND_CONFLICT, $e->kind);
+        }
+
+        $this->assertSame(LinkState::DECOMMISSIONED, LynomiaStoreLink::findOrFail($link->id)->state,
+            'the loser of the race must not be the final word');
+    }
+
 }

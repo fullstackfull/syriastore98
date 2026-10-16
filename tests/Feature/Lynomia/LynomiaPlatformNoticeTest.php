@@ -236,6 +236,111 @@ class LynomiaPlatformNoticeTest extends TestCase
         Http::assertNothingSent();
     }
 
+    // ===================================================== trying again, and not twice
+
+    /**
+     * THE EXPECTED FIRST OUTCOME FOR MOST MERCHANTS, AND IT MUST NOT BE TERMINAL.
+     *
+     * There is no verified merchant phone number on this installation, so the common case is
+     * `failed` with `no_phone_on_record`. The row for the occasion then exists, and the
+     * unique key means a later attempt finds it rather than making one -- so without
+     * reopening, fixing the number afterwards would leave that occasion permanently
+     * unsendable. Nothing was sent, so there is nothing to protect by refusing.
+     */
+    public function test_an_occasion_that_failed_before_anything_was_sent_can_be_tried_again(): void
+    {
+        [$owner, , $link] = $this->connected('');
+
+        $refused = $this->notify($link, 'onboarding:1');
+        $this->assertSame(LynomiaPlatformNotice::FAILED, $refused->status);
+        $this->assertSame('no_phone_on_record', $refused->failure_reason);
+
+        $owner->forceFill(['mobile' => '963900111222'])->save();
+        $sent = $this->notify($link, 'onboarding:1');
+
+        $this->assertSame(LynomiaPlatformNotice::SENT, $sent->status);
+        $this->assertSame('963900111222', $sent->recipient_phone);
+        $this->assertNull($sent->failure_reason);
+        $this->assertSame(1, LynomiaPlatformNotice::count(), 'the occasion keeps its one row');
+    }
+
+    /**
+     * A LOST ANSWER STAYS LOST. `indeterminate` is the one state where a message may already
+     * be in front of the merchant, so reopening it is exactly the double-send this class
+     * exists to prevent -- whatever an operator does next, it is not this.
+     */
+    public function test_an_occasion_whose_answer_was_lost_is_never_reopened(): void
+    {
+        [, , $link] = $this->connected();
+        $this->lynomiaScript['fail'] = [
+            'POST /api/v1/accounts/9001/conversations/77/messages' => Http::response(['error' => 'gateway'], 503),
+        ];
+        $this->assertSame(LynomiaPlatformNotice::INDETERMINATE, $this->notify($link, 'svc:1')->status);
+
+        $this->lynomiaScript['fail'] = [];
+        $before = count(Http::recorded());
+
+        $again = $this->notify($link, 'svc:1');
+
+        $this->assertSame(LynomiaPlatformNotice::INDETERMINATE, $again->status);
+        $this->assertCount($before, Http::recorded(), 'a lost answer must not become a second message');
+    }
+
+    /** A send already in flight is not a second occasion either. */
+    public function test_an_occasion_already_in_flight_is_not_sent_again(): void
+    {
+        [, , $link] = $this->connected();
+        $this->notify($link, 'svc:2');
+        LynomiaPlatformNotice::query()->update(['status' => LynomiaPlatformNotice::SENDING]);
+        $before = count(Http::recorded());
+
+        $again = $this->notify($link, 'svc:2');
+
+        $this->assertSame(LynomiaPlatformNotice::SENDING, $again->status);
+        $this->assertCount($before, Http::recorded());
+    }
+
+    /**
+     * THE RACE THE UNIQUE INDEX CANNOT CLOSE, AND THE UPDATE THAT DOES.
+     *
+     * Two attempts at one occasion: the loser of the index re-reads the winner's row, and if
+     * it reads before the winner has moved the status, BOTH hold a pending row and both send.
+     * The index gives one ROW per occasion; only the conditional `pending -> sending` gives
+     * one SEND per row.
+     *
+     * Reached through reflection because that interleaving cannot be arranged by calling
+     * notify() twice in a row -- by the time the second call starts, the first has already
+     * moved the row, which is the very thing under test. This calls the delivery step twice
+     * on one pending row, which is what the two racers would do.
+     */
+    public function test_two_attempts_holding_one_pending_row_produce_one_send(): void
+    {
+        [, , $link] = $this->connected();
+        $notifier = $this->notifier();
+
+        $deliver = (new \ReflectionClass($notifier))->getMethod('deliver');
+        $claim = (new \ReflectionClass($notifier))->getMethod('claim');
+
+        $recipient = ['store_id' => (int) $link->store_id, 'user_id' => 1,
+            'phone' => '963900111222', 'name' => 'Merchant'];
+        $pending = $claim->invoke($notifier, $link, 'security', 'integration_broken', 'en_US',
+            'race:1', [], $recipient, null);
+        $this->assertSame(LynomiaPlatformNotice::PENDING, $pending->status);
+
+        $before = count(Http::recorded());
+        $first = $deliver->invoke($notifier, $pending, $recipient);
+        $afterFirst = count(Http::recorded());
+
+        // The second racer still holds the row object it read while the row was pending.
+        $second = $deliver->invoke($notifier, $pending, $recipient);
+
+        $this->assertSame(LynomiaPlatformNotice::SENT, $first->status);
+        $this->assertSame(LynomiaPlatformNotice::SENT, $second->status);
+        $this->assertGreaterThan($before, $afterFirst, 'the first attempt must actually send');
+        $this->assertCount($afterFirst, Http::recorded(), 'the second attempt must send nothing');
+        $this->assertSame(1, LynomiaPlatformNotice::count());
+    }
+
     // ===================================================== the resolver, directly
 
     public function test_the_resolver_never_takes_an_address_from_a_caller(): void

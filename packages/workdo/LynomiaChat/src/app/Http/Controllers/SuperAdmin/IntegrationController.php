@@ -202,12 +202,23 @@ class IntegrationController extends Controller
      * repeat -- so it is never retried automatically and an operator decides. A count of
      * those is the only way that decision gets made at all.
      *
-     * @return array{configured:bool, sent:int, failed:int, indeterminate:int, recent:mixed}
+     * WHICH WORKSPACE, SHOWN RATHER THAN ASSUMED. The three ids are environment settings an
+     * operator types after provisioning, and nothing on this side can tell a platform-owned
+     * workspace from a merchant's -- the flag that does is Lynomia's. Pointed at a merchant's
+     * account and inbox, this would send from a merchant's own WhatsApp channel, which the
+     * authorisation forbids outright, and Lynomia's UTILITY-only gate would not apply either,
+     * because that gate keys on the account being platform-owned. So the ids in use are on
+     * the page: the operator who set them is the one person who can see they are wrong.
+     *
+     * @return array{configured:bool, workspace:?int, inbox:?int, sent:int, failed:int,
+     *               indeterminate:int, recent:mixed}
      */
     private function platformComms(): array
     {
         return [
             'configured' => app(PlatformWorkspaceGateway::class)->configured(),
+            'workspace' => config('lynomia.platform_workspace_account_id'),
+            'inbox' => config('lynomia.platform_workspace_inbox_id'),
             'sent' => LynomiaPlatformNotice::query()->where('status', LynomiaPlatformNotice::SENT)->count(),
             'failed' => LynomiaPlatformNotice::query()->where('status', LynomiaPlatformNotice::FAILED)->count(),
             'indeterminate' => LynomiaPlatformNotice::query()

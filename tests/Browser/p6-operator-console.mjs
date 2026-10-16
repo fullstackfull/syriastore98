@@ -202,6 +202,12 @@ for (const [name, fulfil, expect] of [
   check('the sent, undelivered and unresolved counts are all stated',
     pane.includes('48') && pane.includes('3') && pane.includes('1'), pane.slice(0, 120));
 
+  // Nothing on the Store Syria side can tell its own workspace from a merchant's, so the ids
+  // in use are shown: a notices tab that did not would hide the one misconfiguration that
+  // sends from a merchant's own WhatsApp channel.
+  check('the workspace and inbox the notices are sent from are named',
+    pane.includes('9001') && pane.includes('31'), pane.slice(0, 160));
+
   // A notice whose answer was lost is the one an operator has to decide about.
   check('a notice with no known outcome raises a warning rather than counting as sent',
     (await page.locator('#lynomia-notices .alert-warning').count()) === 1

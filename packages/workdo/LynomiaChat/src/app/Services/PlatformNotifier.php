@@ -18,14 +18,22 @@ use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
  * its template store and its send path. Nothing here is a second sender: this resolves who
  * may be told, records the intent, and hands the send to Lynomia.
  *
- * "ONCE" IS A DATABASE CONSTRAINT, NOT A CHECK.
+ * "ONCE" IS TWO DATABASE WRITES, NOT A CHECK.
  *
  * There is no idempotency mechanism anywhere on Lynomia's send path -- no key on message
  * create, no unique index on messages.source_id, and the campaign guard's own docblock
  * records that re-running a half-sent campaign messages people twice. So the guarantee has
- * to be made here, and under concurrency only the unique index on `dedupe_key` can make it.
- * Two operators acting on the same incident collide on the index; the loser is refused by
- * Postgres rather than by a race somebody has to get right.
+ * to be made here, and under concurrency it takes both of these:
+ *
+ *   the unique index on `dedupe_key`   one ROW per occasion. Two operators acting on the
+ *                                      same incident collide on it, and the loser is refused
+ *                                      by Postgres rather than by a race somebody has to get
+ *                                      right.
+ *   the conditional PENDING -> SENDING one SEND per row. The index alone is not enough: the
+ *                                      loser re-reads the row the winner inserted, and if it
+ *                                      reads it before the winner has moved it, BOTH hold a
+ *                                      pending row and both send. Whoever moves the status
+ *                                      owns the attempt; the other returns the row untouched.
  *
  * THE ROW IS WRITTEN BEFORE THE CALL.
  *
@@ -64,18 +72,21 @@ class PlatformNotifier
     ): LynomiaPlatformNotice {
         $this->assertKind($kind);
 
+        // Resolved before the row is written, because an unreachable merchant is a fact to
+        // record against the occasion rather than a reason to have no record of it.
         [$recipient, $refusal] = $this->recipients->resolve($link);
-
-        if ($refusal !== null) {
-            return $this->refused($link, $kind, $templateName, $dedupeKey, $refusal, $actor);
-        }
 
         $notice = $this->claim($link, $kind, $templateName, $language, $dedupeKey, $params, $recipient, $actor);
 
-        // Already said. The claim found an existing row rather than making one, so somebody
-        // -- or some earlier attempt -- has been here.
+        // Already said, or being said. The claim found an existing row rather than making
+        // one, and that row is in a state where a message may already be in front of the
+        // merchant. `claim` reopens the one state that proves nothing was sent.
         if ($notice->status !== LynomiaPlatformNotice::PENDING) {
             return $notice;
+        }
+
+        if ($refusal !== null) {
+            return $this->markRefused($notice, $refusal);
         }
 
         return $this->deliver($notice, $recipient);
@@ -102,37 +113,92 @@ class PlatformNotifier
         string $language,
         string $dedupeKey,
         array $params,
-        array $recipient,
+        ?array $recipient,
         ?User $actor
     ): LynomiaPlatformNotice {
+        $attributes = [
+            // From the link, not the recipient: an unreachable merchant has no recipient and
+            // the row still belongs to their store, which is where an operator looks for it.
+            'store_id' => (int) $link->store_id,
+            'recipient_user_id' => $recipient['user_id'] ?? null,
+            'recipient_phone' => $recipient['phone'] ?? '',
+            'kind' => $kind,
+            'template_name' => $templateName,
+            'template_language' => $language,
+            'template_params' => $params,
+            'dedupe_key' => $dedupeKey,
+            'status' => LynomiaPlatformNotice::PENDING,
+            'requested_by' => $actor?->id,
+            'automated' => $actor === null,
+        ];
+
         try {
-            return LynomiaPlatformNotice::create([
-                'store_id' => $recipient['store_id'],
-                'recipient_user_id' => $recipient['user_id'],
-                'recipient_phone' => $recipient['phone'],
-                'kind' => $kind,
-                'template_name' => $templateName,
-                'template_language' => $language,
-                'template_params' => $params,
-                'dedupe_key' => $dedupeKey,
-                'status' => LynomiaPlatformNotice::PENDING,
-                'requested_by' => $actor?->id,
-                'automated' => $actor === null,
-            ]);
+            return LynomiaPlatformNotice::create($attributes);
         } catch (QueryException $e) {
             if (! $this->isUniqueViolation($e)) {
                 throw $e;
             }
 
-            return LynomiaPlatformNotice::where('dedupe_key', $dedupeKey)->firstOrFail();
+            return $this->reopen(
+                LynomiaPlatformNotice::where('dedupe_key', $dedupeKey)->firstOrFail(),
+                $attributes
+            );
         }
+    }
+
+    /**
+     * A ROW THAT PROVES NOTHING WAS SENT MAY BE TRIED AGAIN. The others may not.
+     *
+     * `failed` is the only state where the message demonstrably never left: either the
+     * merchant could not be addressed, or Lynomia refused outright. `sent` speaks for
+     * itself, `sending` and `indeterminate` mean a message may be in front of the merchant
+     * already, and nothing downstream would recognise a repeat.
+     *
+     * This is not a nicety. There is no verified merchant phone number on this installation
+     * -- the blocker register has it -- so `failed` with `no_phone_on_record` is the EXPECTED
+     * first outcome for most merchants. Without this, fixing the number afterwards would
+     * leave the occasion permanently unsendable, because the row for it already exists.
+     *
+     * The status move is conditional for the same reason as the one in `deliver`: two
+     * attempts arriving together must not both come away holding a pending row.
+     */
+    private function reopen(LynomiaPlatformNotice $notice, array $attributes): LynomiaPlatformNotice
+    {
+        $reopened = LynomiaPlatformNotice::whereKey($notice->getKey())
+            ->where('status', LynomiaPlatformNotice::FAILED)
+            ->update(['status' => LynomiaPlatformNotice::PENDING]);
+
+        if ($reopened === 0) {
+            return $notice->refresh();
+        }
+
+        // The recipient and the parameters are re-resolved, because what failed last time is
+        // exactly what may have changed since.
+        $notice->refresh();
+        $notice->forceFill($attributes + ['failure_reason' => null])->save();
+
+        return $notice;
     }
 
     private function deliver(LynomiaPlatformNotice $notice, array $recipient): LynomiaPlatformNotice
     {
-        // Moved BEFORE the call: a crash between here and the answer leaves `sending`, which
-        // is the honest state for "we do not know", not `pending`, which would invite a retry.
-        $notice->forceFill(['status' => LynomiaPlatformNotice::SENDING])->save();
+        // THE SEND CLAIM, and the reason it is an UPDATE with a WHERE rather than a save().
+        // The unique index gives one row per occasion; it cannot give one SEND per row,
+        // because the attempt that loses the index re-reads the winner's row and can find it
+        // still `pending`. Whoever moves `pending` to `sending` owns the attempt.
+        //
+        // Moved BEFORE the call for the other reason too: a crash between here and the
+        // answer leaves `sending`, which is the honest state for "we do not know", not
+        // `pending`, which would invite a retry.
+        $claimed = LynomiaPlatformNotice::whereKey($notice->getKey())
+            ->where('status', LynomiaPlatformNotice::PENDING)
+            ->update(['status' => LynomiaPlatformNotice::SENDING]);
+
+        if ($claimed === 0) {
+            return $notice->refresh();
+        }
+
+        $notice->refresh();
 
         try {
             $messageId = $this->workspace->sendTemplate(
@@ -168,33 +234,17 @@ class PlatformNotifier
      * A merchant who cannot be reached is recorded as such rather than silently skipped: the
      * commonest reason is that Store Syria has no usable phone number for them, and that is
      * a fact an operator needs to see rather than an absence of rows.
+     *
+     * Nothing was sent, so `reopen` will let the same occasion be tried again once whatever
+     * made them unreachable is fixed.
      */
-    private function refused(
-        LynomiaStoreLink $link,
-        string $kind,
-        string $templateName,
-        string $dedupeKey,
-        string $reason,
-        ?User $actor
-    ): LynomiaPlatformNotice {
-        $notice = LynomiaPlatformNotice::firstOrNew(['dedupe_key' => $dedupeKey]);
-
-        if ($notice->exists) {
-            return $notice;
-        }
-
+    private function markRefused(LynomiaPlatformNotice $notice, string $reason): LynomiaPlatformNotice
+    {
         $notice->forceFill([
-            'store_id' => (int) $link->store_id,
-            'recipient_user_id' => null,
-            'recipient_phone' => '',
-            'kind' => $kind,
-            'template_name' => $templateName,
-            'template_language' => 'en_US',
-            'dedupe_key' => $dedupeKey,
             'status' => LynomiaPlatformNotice::FAILED,
             'failure_reason' => $reason,
-            'requested_by' => $actor?->id,
-            'automated' => $actor === null,
+            'recipient_user_id' => null,
+            'recipient_phone' => '',
         ])->save();
 
         $this->audit($notice);

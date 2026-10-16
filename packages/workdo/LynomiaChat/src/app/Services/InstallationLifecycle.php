@@ -140,9 +140,9 @@ class InstallationLifecycle
         string $transition,
         string $auditEvent
     ): LynomiaStoreLink {
-        $previous = $link->state;
-
-        if (! in_array($previous, $from, true) && $previous !== $to) {
+        // Read before the push so an operator is refused an impossible transition without
+        // Lynomia being asked for it. It is NOT the decision -- the locked re-read below is.
+        if (! in_array($link->state, $from, true) && $link->state !== $to) {
             throw new LynomiaApiException(
                 LynomiaApiException::KIND_CONFLICT,
                 __('This connection cannot be moved to that state from where it is now.')
@@ -151,8 +151,23 @@ class InstallationLifecycle
 
         $this->push($link, $transition, $reason, $actor);
 
-        return DB::transaction(function () use ($link, $actor, $reason, $previous, $to, $auditEvent) {
+        [$locked, $previous, $entry] = DB::transaction(function () use ($link, $actor, $reason, $from, $to, $auditEvent) {
             $locked = LynomiaStoreLink::query()->lockForUpdate()->find($link->id);
+            $previous = $locked->state;
+
+            // THE GUARD THAT COUNTS, because it is the one inside the lock. The check above
+            // runs against a row read before the push, so two operators acting at the same
+            // moment both pass it, both push, and the second write silently wins -- a resume
+            // landing on top of a decommission would leave this side ACTIVE on an
+            // installation whose credentials Lynomia has already dropped. Re-reading the
+            // state under the lock makes the loser a conflict instead of the final word.
+            if (! in_array($previous, $from, true) && $previous !== $to) {
+                throw new LynomiaApiException(
+                    LynomiaApiException::KIND_CONFLICT,
+                    __('This connection cannot be moved to that state from where it is now.')
+                );
+            }
+
             $locked->forceFill(['state' => $to, 'last_error' => Str::limit($reason, 480)])->save();
 
             $entry = AuditLog::record($auditEvent, $locked, ['state' => $previous], [
@@ -162,10 +177,18 @@ class InstallationLifecycle
                 'actor_id' => (int) $actor->id,
             ]);
 
-            $this->tellTheMerchant($locked, $to, $entry);
-
-            return $locked->refresh();
+            return [$locked->refresh(), $previous, $entry];
         });
+
+        // AFTER THE COMMIT, NOT INSIDE IT. Telling the merchant is three HTTP calls to
+        // Lynomia, and inside the transaction they held the link's row lock for the length of
+        // a network round trip -- blocking every other operation on that installation while
+        // the thing being reported as broken was the thing being waited on. Worse, a rollback
+        // after the message went out would erase the record of a message the merchant has
+        // already received. The notice is best effort and keeps its own row either way.
+        $this->tellTheMerchant($locked, $to, $entry);
+
+        return $locked;
     }
 
     /**
