@@ -20,6 +20,12 @@ Status at: **Phase 5 complete, including P5H hardening.** Phase 4 closed and pus
 
 ### A1. No run against a live Lynomia has ever happened
 
+> **The plan that closes this is written:** `PHASE-7-READINESS-PLAN.md`. It is proposed and
+> unexecuted, and §15.1 lists the twelve criteria whose sign-off closes A1 and nothing else.
+> One prediction this blocker made in writing — "a webhook subscription that was never created
+> upstream" — has since happened for real: the delivery feed shipped with no subscription on the
+> platform workspace, green on both sides, found by review rather than by a test (§C19).
+
 | | |
 |---|---|
 | Raised | Phase 1, restated every phase since |
