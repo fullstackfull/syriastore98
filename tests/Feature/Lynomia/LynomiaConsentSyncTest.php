@@ -246,6 +246,59 @@ class LynomiaConsentSyncTest extends TestCase
         Http::assertNothingSent();
     }
 
+    /**
+     * B3.2. The race is retried for a LONG time -- weeks -- but not for ever.
+     *
+     * Nothing in an order event creates the customer link this is waiting for: it appears when
+     * the shopper first writes in and is auto-matched, or when an agent links them by hand. A
+     * shopper who never does either left a row retried once an hour for the life of the
+     * installation, and nothing prunes this table.
+     */
+    public function test_a_decision_that_has_waited_a_month_is_retired_undelivered(): void
+    {
+        [, , $link] = $this->connectedTenant();
+        $this->lynomiaScript['fail'] = [
+            "POST /platform/api/v1/accounts/{$link->lynomia_account_id}/partner_consents" => Http::response(
+                ['error' => 'No customer of this installation matches that subject',
+                    'error_code' => 'subject_not_linked'],
+                404
+            ),
+        ];
+
+        $decision = $this->decision($link, ['state' => 'granted']);
+        $decision->forceFill(['captured_at' => now()->subDays(31), 'attempts' => 300])->save();
+
+        $this->dispatcher()->deliver($decision);
+
+        $decision->refresh();
+        $this->assertNotNull($decision->delivered_at, 'it is terminal, so the sweep stops picking it up');
+        $this->assertStringStartsWith('expired_after_30d', $decision->last_error);
+        // LEFT NULL DELIBERATELY: the merchant's consent screen maps outcomes with a default
+        // arm that reads "accepted", so any value here would tell them an opt-in took effect
+        // that never reached Lynomia. No outcome is what that screen renders as "Not sent".
+        $this->assertNull($decision->remote_outcome);
+    }
+
+    /** ...and one that has not waited that long is still held, which is the B2.3 behaviour. */
+    public function test_a_decision_inside_the_window_is_still_retried(): void
+    {
+        [, , $link] = $this->connectedTenant();
+        $this->lynomiaScript['fail'] = [
+            "POST /platform/api/v1/accounts/{$link->lynomia_account_id}/partner_consents" => Http::response(
+                ['error_code' => 'subject_not_linked'], 404
+            ),
+        ];
+
+        $decision = $this->decision($link, ['state' => 'granted']);
+        $decision->forceFill(['captured_at' => now()->subDays(29), 'attempts' => 300])->save();
+
+        $this->dispatcher()->deliver($decision);
+
+        $decision->refresh();
+        $this->assertNull($decision->delivered_at, 'still owed');
+        $this->assertSame('kind_subject_not_linked', $decision->last_error);
+    }
+
     // ============================================================ Lynomia -> Store Syria
 
     public function test_an_opt_out_on_whatsapp_lands_in_the_consent_state(): void

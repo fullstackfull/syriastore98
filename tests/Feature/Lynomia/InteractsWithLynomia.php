@@ -335,6 +335,24 @@ trait InteractsWithLynomia
                     => Http::response(['id' => 1, 'name' => 'Agent'], 200),
                 (bool) preg_match('#^/api/v1/accounts/\d+/conversations/\d+/update_last_seen$#', $path)
                     => Http::response([], 200),
+                // -------------------------------------- Phase 6A: cross-boundary health
+                // The far side's view of one installation. Scripted so a test can make it
+                // critical, unreachable or quiet without reaching for a second fake.
+                (bool) preg_match('#^/platform/api/v1/accounts/\d+/integration_health$#', $path) && $method === 'GET'
+                    => Http::response($this->lynomiaScript['integration_health'] ?? [
+                        'account' => ['id' => 7001, 'name' => 'Merchant'],
+                        'status' => 'healthy',
+                        'installations' => [[
+                            'id' => 3, 'external_store_id' => 'localhost:1', 'provider' => 'storesyria',
+                            'name' => 'Shop', 'status' => 'active',
+                            'health' => ['api_state' => 'healthy', 'webhook_state' => 'processed',
+                                'status' => 'healthy', 'consecutive_failures' => 0],
+                        ]],
+                        'signals' => ['open' => 0, 'by_source' => [], 'recent' => []],
+                        'consent' => ['decisions_held' => 4, 'blocking' => 1, 'last_event_at' => null],
+                        'messaging' => ['campaigns_by_status' => [], 'blocked' => 0, 'whatsapp_inboxes' => 1],
+                        'generated_at' => '2026-10-16T00:00:00Z',
+                    ], 200),
                 // --------------------------------------------------- Phase 5D: campaigns
                 (bool) preg_match('#^/api/v1/accounts/\d+/campaigns$#', $path) && $method === 'GET'
                     => Http::response(['payload' => $this->lynomiaScript['campaigns'] ?? []], 200),

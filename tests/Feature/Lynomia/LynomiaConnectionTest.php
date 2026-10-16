@@ -97,6 +97,9 @@ class LynomiaConnectionTest extends TestCase
             'lynomia.admin.links.approve',
             'lynomia.admin.links.revoke',
             'lynomia.admin.links.restore',
+            // P6A. It reaches across the boundary with the platform credential, so it is
+            // behind the same door as every other administrative act here.
+            'lynomia.admin.links.remote_health',
         ] as $name) {
             $this->assertTrue(Route::has($name), "Route {$name} is missing.");
 
@@ -117,6 +120,7 @@ class LynomiaConnectionTest extends TestCase
             ['post', '/lynomia/connect/link'],
             ['get', '/lynomia/open'],
             ['get', '/super-admin/lynomia-integration'],
+            ['get', '/super-admin/lynomia-integration/links/1/remote-health'],
         ] as [$verb, $uri]) {
             $response = $this->{$verb}($uri);
 

@@ -2,6 +2,7 @@
 
 namespace Workdo\LynomiaChat\app\Services;
 
+use Illuminate\Support\Facades\Log;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Str;
 use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
@@ -39,8 +40,27 @@ use Workdo\LynomiaChat\app\Support\StoreIdentity;
  */
 class ConsentDecisionDispatcher
 {
-    /** Seconds. The last value repeats; a decision is never abandoned while the store is live. */
+    /** Seconds. The last value repeats, so a decision is retried hourly until it settles or expires. */
     private const BACKOFF = [30, 120, 600, 1800, 3600];
+
+    /**
+     * How long a decision may stay undelivered before it is retired undelivered.
+     *
+     * MEASURED FROM WHEN THE SHOPPER DECIDED, not counted in attempts. Attempts conflate "how
+     * long have we waited" with "how often did we ask", and the backoff's last value repeats,
+     * so an attempt count is only a proxy for elapsed time and a bad one.
+     *
+     * THIRTY DAYS, AND NOT LESS, because of what this is usually waiting for. The common
+     * transient here is `subject_not_linked`: Lynomia has no customer link for the shopper
+     * yet, and nothing in an order event creates one -- the link appears when the shopper
+     * first writes in and is auto-matched, or when an agent links them by hand. That can
+     * legitimately be weeks. A short ceiling would throw away exactly the first-time
+     * shoppers' opt-ins that B2.3 was raised to stop losing.
+     *
+     * BUT NOT NEVER, which is what it was. A shopper who never writes in left a row retried
+     * once an hour for the life of the installation, and nothing prunes this table.
+     */
+    private const EXPIRE_AFTER_DAYS = 30;
 
     /** Outcomes Lynomia reports that are final. None of them is retried. */
     private const SETTLED = ['applied', 'duplicate', 'superseded', 'refused_withdrawal_dominant'];
@@ -140,6 +160,11 @@ class ConsentDecisionDispatcher
     private function defer(LynomiaConsentDecision $decision, string $reason): bool
     {
         $attempts = $decision->attempts + 1;
+
+        if ($this->expired($decision)) {
+            return $this->retireUndelivered($decision, $attempts, $reason);
+        }
+
         $delay = self::BACKOFF[min($attempts, count(self::BACKOFF)) - 1];
 
         $decision->forceFill([
@@ -147,6 +172,43 @@ class ConsentDecisionDispatcher
             'deliver_after' => now()->addSeconds($delay),
             'last_error' => Str::limit($reason, 191, ''),
         ])->save();
+
+        return false;
+    }
+
+    private function expired(LynomiaConsentDecision $decision): bool
+    {
+        $since = $decision->captured_at ?? $decision->created_at;
+
+        return $since !== null && $since->lt(now()->subDays(self::EXPIRE_AFTER_DAYS));
+    }
+
+    /**
+     * Terminal, and honest about it.
+     *
+     * `remote_outcome` IS LEFT NULL ON PURPOSE. The merchant-facing screen maps outcomes with
+     * a `default` arm that reads 'accepted', so inventing a value here -- 'expired',
+     * 'undeliverable' -- would tell the merchant their shopper's opt-in took effect when it
+     * never reached Lynomia. A delivered_at with no outcome is the shape that screen already
+     * renders as "Not sent", with `last_error` as the detail.
+     *
+     * The log line is the operator's first warning; the Super Admin integration page counts
+     * these rows so the warning does not depend on anyone reading logs.
+     */
+    private function retireUndelivered(LynomiaConsentDecision $decision, int $attempts, string $reason): bool
+    {
+        $decision->forceFill([
+            'attempts' => $attempts,
+            'delivered_at' => now(),
+            'last_error' => Str::limit('expired_after_' . self::EXPIRE_AFTER_DAYS . 'd_' . $reason, 191, ''),
+        ])->save();
+
+        Log::warning('[lynomia] a consent decision expired undelivered', [
+            'decision_id' => $decision->id,
+            'store_id' => $decision->store_id,
+            'attempts' => $attempts,
+            'last_error' => $reason,
+        ]);
 
         return false;
     }

@@ -199,6 +199,39 @@
                 @endif
             </div>
 
+            {{-- -------------------------------------------------------------- consent --}}
+            {{--
+                OUTBOUND CONSENT DECISIONS, which fail differently from commerce events.
+
+                A waiting decision is usually not a fault. The common transient is that Lynomia
+                has no customer link for the shopper yet, and nothing in an order event creates
+                one -- the link appears when the shopper first writes in, or when an agent makes
+                it. That can take weeks and the decision is correctly held, not lost.
+
+                The number to act on is the last one: decisions the dispatcher has given up on
+                after thirty days. Those are not retried again, and the merchant's own consent
+                screen shows them as "Not sent".
+            --}}
+            <div class="col-12 col-xl-6">
+                <h6 class="mb-2">{{ __('Consent decisions going out') }}</h6>
+                <ul class="list-unstyled small mb-0">
+                    <li>{{ __('Waiting to be delivered') }}: <strong>{{ $consentHealth['pending'] }}</strong></li>
+                    <li>
+                        {{ __('Oldest waiting') }}:
+                        <strong>{{ $consentHealth['oldest'] ?? __('none') }}</strong>
+                    </li>
+                    <li>
+                        {{ __('Given up on after 30 days') }}:
+                        <strong>{{ $consentHealth['expired'] }}</strong>
+                    </li>
+                </ul>
+                @if ($consentHealth['expired'] > 0)
+                    <div class="alert alert-warning mt-2 mb-0" role="alert">
+                        {{ __('Some shoppers\' consent decisions were never accepted by Lynomia and are no longer being retried. They are shown as not sent on the merchant\'s consent screen.') }}
+                    </div>
+                @endif
+            </div>
+
             {{-- ------------------------------------------------------------ automation --}}
             {{--
                 WHAT THIS SIDE ACTUALLY CONTROLS, and where the rest lives.
@@ -271,6 +304,8 @@
                                     <th>{{ __('Lynomia account') }}</th>
                                     <th>{{ __('Mode') }}</th>
                                     <th>{{ __('State') }}</th>
+                                    {{-- The far side's view of this installation, fetched only when asked for. --}}
+                                    <th>{{ __('In Lynomia') }}</th>
                                     <th>{{ __('Action') }}</th>
                                 </tr>
                             </thead>
@@ -281,6 +316,16 @@
                                     <td>{{ $row->lynomia_account_id ?? '—' }}</td>
                                     <td>{{ $row->link_mode }}</td>
                                     <td>{{ $row->state }}</td>
+                                    <td class="lyn-health" data-health-url="{{ $row->lynomia_account_id ? route('lynomia.admin.links.remote_health', $row->id) : '' }}">
+                                        @if ($row->lynomia_account_id)
+                                            <button type="button" class="btn btn-sm btn-outline-secondary lyn-health-check">
+                                                {{ __('Check') }}
+                                            </button>
+                                            <div class="lyn-health-out small mt-1"></div>
+                                        @else
+                                            <span class="text-muted">—</span>
+                                        @endif
+                                    </td>
                                     <td>
                                         @if ($row->state === \Workdo\LynomiaChat\app\Support\LinkState::PENDING_VERIFICATION)
                                             <form method="POST" action="{{ route('lynomia.admin.links.approve', $row->id) }}" class="d-flex gap-2">
@@ -306,7 +351,7 @@
                                     </td>
                                 </tr>
                             @empty
-                                <tr><td colspan="5" class="text-center text-muted">{{ __('No stores are connected yet.') }}</td></tr>
+                                <tr><td colspan="6" class="text-center text-muted">{{ __('No stores are connected yet.') }}</td></tr>
                             @endforelse
                             </tbody>
                         </table>
@@ -319,3 +364,71 @@
     </div>
 </div>
 @endsection
+
+@push('scripts')
+{{--
+    THE FAR SIDE'S VIEW, FETCHED WHEN AN OPERATOR ASKS FOR IT.
+
+    Everything else on this page is read from local tables so that it still renders when
+    Lynomia is unreachable -- which is exactly when an operator opens it. This one panel does
+    reach across, so it is a separate request per row: its failure is a sentence in one cell
+    rather than a page that will not load.
+
+    Blade parses {{ }} inside a script tag as well as in markup, so every literal JavaScript
+    mustache below is written @{{ -- the error otherwise is an undefined-constant 500 at
+    render time, not a JavaScript one.
+--}}
+<script>
+(function () {
+    var T = {
+        checking: @json(__('Checking…')),
+        failed: @json(__('Could not reach Lynomia')),
+        noneOpen: @json(__('no open issues')),
+        issues: @json(__('open issues')),
+        stores: @json(__('installations')),
+    };
+
+    document.querySelectorAll('.lyn-health-check').forEach(function (button) {
+        button.addEventListener('click', function () {
+            var cell = button.closest('.lyn-health');
+            var out = cell.querySelector('.lyn-health-out');
+            var url = cell.getAttribute('data-health-url');
+            if (!url) { return; }
+
+            button.disabled = true;
+            out.textContent = T.checking;
+
+            fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+                .then(function (response) { return response.json().then(function (body) { return { ok: response.ok, body: body }; }); })
+                .then(function (result) {
+                    button.disabled = false;
+                    if (!result.ok) {
+                        out.textContent = result.body && result.body.error ? result.body.error : T.failed;
+                        out.className = 'lyn-health-out small mt-1 text-danger';
+                        return;
+                    }
+                    render(out, result.body);
+                })
+                .catch(function () {
+                    button.disabled = false;
+                    out.textContent = T.failed;
+                    out.className = 'lyn-health-out small mt-1 text-danger';
+                });
+        });
+    });
+
+    // Lynomia's own four-state vocabulary, not a second one invented here.
+    var TONE = { healthy: 'text-success', warning: 'text-warning', critical: 'text-danger', unknown: 'text-muted' };
+
+    function render(out, health) {
+        var status = health.status || 'unknown';
+        var open = (health.signals && health.signals.open) || 0;
+        var stores = (health.installations || []).length;
+
+        out.className = 'lyn-health-out small mt-1 ' + (TONE[status] || 'text-muted');
+        out.textContent = status + ' — ' + stores + ' ' + T.stores + ', '
+            + (open ? open + ' ' + T.issues : T.noneOpen);
+    }
+})();
+</script>
+@endpush

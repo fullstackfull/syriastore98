@@ -494,6 +494,15 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
                 ->whereNumber('link')
                 ->name('links.restore');
 
+            // WHAT LYNOMIA SEES OF THIS INSTALLATION. A separate request rather than part of
+            // the page, because the page is deliberately built from local tables so that it
+            // still renders when the integration is unreachable -- which is exactly when an
+            // operator opens it. This is the one panel that does reach across, so it is
+            // fetched on demand and its failure is a message in one card, not a blank page.
+            Route::get('/links/{link}/remote-health', [IntegrationController::class, 'remoteHealth'])
+                ->whereNumber('link')
+                ->name('links.remote_health');
+
             // Included agent seats per plan. Same PlatformOperatorOnly group as the link
             // actions above -- a seat ceiling is a commercial control and belongs behind the
             // same door, not on the core plan form where it would have two owners.

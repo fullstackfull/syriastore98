@@ -9,11 +9,13 @@ use App\Models\Plan;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Contracts\View\View;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Http\Requests\ApproveLinkRequest;
 use Workdo\LynomiaChat\app\Models\LynomiaCommerceEvent;
+use Workdo\LynomiaChat\app\Models\LynomiaConsentDecision;
 use Workdo\LynomiaChat\app\Models\LynomiaInboxEvent;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreIdentity;
 use Workdo\LynomiaChat\app\Models\LynomiaMarketingAddon;
@@ -100,6 +102,11 @@ class IntegrationController extends Controller
             // event this side could not deliver is still sitting in the table, so its health
             // is a count rather than a timestamp.
             'commerceHealth' => $this->commerceHealth(),
+            // Phase 6 / B3.2. Consent decisions fail differently again: the common transient
+            // is the shopper not yet being a known contact in Lynomia, which can legitimately
+            // take weeks, so a waiting row is not itself a fault. What an operator needs to see
+            // is the ones that ran out of time and were retired undelivered.
+            'consentHealth' => $this->consentHealth(),
             // Phase 4. Who, on this side, can build an automation or record a consent decision.
             'automationAccess' => $this->automationAccess(),
         ]);
@@ -171,6 +178,43 @@ class IntegrationController extends Controller
             // Tried repeatedly and still failing: a backlog is ordinary for a minute, this is not.
             'stuck' => (clone $pending)->where('attempts', '>=', self::STUCK_AFTER_ATTEMPTS)->count(),
             'oldest' => (clone $pending)->oldest('id')->first()?->occurred_at?->diffForHumans(),
+            'stores' => (clone $pending)->where('attempts', '>=', self::STUCK_AFTER_ATTEMPTS)
+                ->selectRaw('store_id, count(*) as waiting')
+                ->groupBy('store_id')
+                ->pluck('waiting', 'store_id')
+                ->all(),
+        ];
+    }
+
+    /**
+     * Outbound consent decisions: what is waiting, what is stuck, and what was given up on.
+     *
+     * A DECISION RETIRED UNDELIVERED IS THE NUMBER THAT MATTERS. Until B3.2 there was no such
+     * thing -- a decision Lynomia could not accept was retried hourly for ever, so the only
+     * visible symptom was a backlog that never drained and nothing distinguished "waiting for
+     * a shopper who will write in next week" from "waiting for something that will never
+     * happen". `expired` counts the rows the dispatcher has now given up on, which is the set
+     * an operator can actually act on.
+     *
+     * Retired rows carry `delivered_at` with no `remote_outcome`, which is the same shape the
+     * merchant-facing screen already renders as "Not sent" -- they are not hidden from the
+     * merchant to make this panel look better.
+     *
+     * @return array{pending:int, stuck:int, expired:int, oldest:?string, stores:array<int,int>}
+     */
+    private function consentHealth(): array
+    {
+        $pending = LynomiaConsentDecision::query()->whereNull('delivered_at');
+
+        return [
+            'pending' => (clone $pending)->count(),
+            'stuck' => (clone $pending)->where('attempts', '>=', self::STUCK_AFTER_ATTEMPTS)->count(),
+            'expired' => LynomiaConsentDecision::query()
+                ->whereNotNull('delivered_at')
+                ->whereNull('remote_outcome')
+                ->where('last_error', 'like', 'expired_after_%')
+                ->count(),
+            'oldest' => (clone $pending)->oldest('id')->first()?->captured_at?->diffForHumans(),
             'stores' => (clone $pending)->where('attempts', '>=', self::STUCK_AFTER_ATTEMPTS)
                 ->selectRaw('store_id, count(*) as waiting')
                 ->groupBy('store_id')
@@ -568,5 +612,40 @@ class IntegrationController extends Controller
         return back()->with('success', $restored->isActive()
             ? __('The workspace connection has been restored.')
             : __('The connection has been reset. The merchant can connect their workspace again.'));
+    }
+
+    /**
+     * WHAT LYNOMIA SEES OF THIS INSTALLATION -- the half of the picture this side cannot work
+     * out for itself.
+     *
+     * Every incident in the Phase 5 register had this shape: a token rejected unattended, a
+     * store dropping out of the counted set, an outbound consent decision retired, a campaign
+     * blocked for want of a capability. In each one the fact existed on one side and the
+     * person who had to act was on the other.
+     *
+     * ON DEMAND, AND JSON. The rest of this page is built from local tables precisely so that
+     * it renders when Lynomia is unreachable, which is when an operator most wants it. Folding
+     * a remote call into `show()` would undo that. So this is its own request, its failure is
+     * one card's message rather than a blank page, and the operator chose to make it.
+     *
+     * A LINK, NOT AN ACCOUNT ID FROM THE CLIENT. The account asked about is the one recorded
+     * against this link, so an operator cannot aim the call at a workspace this installation
+     * does not hold -- and Lynomia refuses that independently anyway.
+     */
+    public function remoteHealth(int $link): JsonResponse
+    {
+        $model = LynomiaStoreLink::find($link);
+
+        if (! $model?->lynomia_account_id) {
+            return response()->json(['error' => __('That connection has no Lynomia workspace yet.')], 404);
+        }
+
+        try {
+            return response()->json($this->api->integrationHealth((int) $model->lynomia_account_id));
+        } catch (LynomiaApiException $e) {
+            // The typed message, never the provider's prose: LynomiaApiException is where that
+            // boundary is drawn for every other surface in this module.
+            return response()->json(['error' => $e->getMessage()], 502);
+        }
     }
 }

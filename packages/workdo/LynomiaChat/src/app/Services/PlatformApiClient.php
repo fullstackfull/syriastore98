@@ -488,6 +488,37 @@ class PlatformApiClient
         ];
     }
 
+    /**
+     * WHAT LYNOMIA SEES OF ONE INSTALLATION, which this side cannot work out for itself.
+     *
+     * Store Syria's own health panels are built from local tables on purpose -- a panel that
+     * needs the remote system to answer goes blank exactly when it is needed. This is the
+     * other half: the facts that only exist on the far side. A token rejected unattended, a
+     * store that has dropped out of the counted set, a campaign blocked for a missing
+     * capability -- all of them are observed there and acted on here, and until now neither
+     * operator could see the other's console.
+     *
+     * Shaped defensively. The caller renders this into an operator page, and a page that
+     * fatals because an array key moved is worse than one that shows a gap, so every branch
+     * has a default and nothing is assumed present.
+     *
+     * @return array{status:string, account:array, installations:array, signals:array, consent:array, messaging:array, generated_at:?string}
+     */
+    public function integrationHealth(int $accountId): array
+    {
+        $body = $this->send('get', "/platform/api/v1/accounts/{$accountId}/integration_health");
+
+        return [
+            'status' => is_string($body['status'] ?? null) ? $body['status'] : 'unknown',
+            'account' => is_array($body['account'] ?? null) ? $body['account'] : [],
+            'installations' => is_array($body['installations'] ?? null) ? $body['installations'] : [],
+            'signals' => is_array($body['signals'] ?? null) ? $body['signals'] : [],
+            'consent' => is_array($body['consent'] ?? null) ? $body['consent'] : [],
+            'messaging' => is_array($body['messaging'] ?? null) ? $body['messaging'] : [],
+            'generated_at' => is_string($body['generated_at'] ?? null) ? $body['generated_at'] : null,
+        ];
+    }
+
     private function send(string $method, string $path, array $payload = [], bool $retryTransport = true): array
     {
         $this->assertUsable();
