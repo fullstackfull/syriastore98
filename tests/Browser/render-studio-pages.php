@@ -89,13 +89,25 @@ function superAdminFixture(): array
         'platformComms' => [
             'configured' => true, 'workspace' => 9001, 'inbox' => 31,
             'accepted' => 48, 'in_flight' => 2, 'failed' => 3, 'indeterminate' => 1,
+            // H2. What the delivery feed has reported, and whether it is reporting at all.
+            'awaiting_outcome' => 4, 'events_today' => 37,
+            // One row per shape an operator can meet: handed over and delivered, handed over
+            // and then REFUSED by Lynomia (the case the feed exists for, and the one the
+            // status column alone cannot express), refused by this side before it ever went,
+            // and an answer that was lost.
             'recent' => collect([
                 (object) ['created_at' => now()->subMinutes(9), 'store_id' => 12,
-                    'kind' => 'integration_recovery', 'status' => 'sent', 'failure_reason' => null],
+                    'kind' => 'integration_recovery', 'status' => 'sent', 'failure_reason' => null,
+                    'delivery_outcome' => 'delivered', 'delivery_reason' => null],
+                (object) ['created_at' => now()->subMinutes(25), 'store_id' => 15,
+                    'kind' => 'service', 'status' => 'sent', 'failure_reason' => null,
+                    'delivery_outcome' => 'refused', 'delivery_reason' => 'consent_withdrawn'],
                 (object) ['created_at' => now()->subHours(2), 'store_id' => 14,
-                    'kind' => 'onboarding', 'status' => 'failed', 'failure_reason' => 'placeholder_phone'],
+                    'kind' => 'onboarding', 'status' => 'failed', 'failure_reason' => 'placeholder_phone',
+                    'delivery_outcome' => 'refused', 'delivery_reason' => 'placeholder_phone'],
                 (object) ['created_at' => now()->subHours(5), 'store_id' => 13,
-                    'kind' => 'security', 'status' => 'indeterminate', 'failure_reason' => 'kind_unavailable'],
+                    'kind' => 'security', 'status' => 'indeterminate', 'failure_reason' => 'kind_unavailable',
+                    'delivery_outcome' => 'unknown', 'delivery_reason' => null],
             ]),
         ],
         // B4. Who the platform can reach, and why not for the rest. The fixture carries one

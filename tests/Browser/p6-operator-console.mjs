@@ -233,8 +233,12 @@ for (const [name, fulfil, expect] of [
   // exists and runs its UTILITY and consent gates afterwards, with nothing reporting back.
   check('the tile does not claim a notice was sent',
     pane.includes('Handed to Lynomia') && !pane.includes('Notices sent'), pane.slice(0, 120));
-  check('and the page says plainly what is not known',
-    pane.includes('What reached the merchant is not known on this side'), '');
+  // H2. It is now known -- the delivery feed reports it -- so the page must no longer say it
+  // is not. The claim that replaced it still has to separate the two facts: Lynomia taking a
+  // notice is not a merchant receiving it.
+  check('and the page separates Lynomia taking a notice from a merchant receiving it',
+    pane.includes('is not "received by the merchant"')
+      && !pane.includes('not known on this side'), pane.slice(0, 200));
 
   // Nothing on the Store Syria side can tell its own workspace from a merchant's, so the ids
   // in use are shown: a notices tab that did not would hide the one misconfiguration that
@@ -262,15 +266,34 @@ for (const [name, fulfil, expect] of [
     !/\b9\d{8,}\b/.test(pane), pane.slice(0, 120));
 
   const rows = page.locator('#lynomia-notices tbody tr');
-  check('every recent notice is listed', (await rows.count()) === 3, `${await rows.count()}`);
+  check('every recent notice is listed', (await rows.count()) === 4, `${await rows.count()}`);
 
-  const failed = (await rows.nth(1).textContent()).replace(/\s+/g, ' ');
+  const rowText = async (n) => (await rows.nth(n).textContent()).replace(/\s+/g, ' ');
+
+  const failed = await rowText(2);
   check('an undelivered notice says so and names why',
     failed.includes('failed') && failed.includes('placeholder_phone'), failed);
 
-  const lost = (await rows.nth(2).textContent()).replace(/\s+/g, ' ');
+  const lost = await rowText(3);
   check('a notice with no answer is not shown as sent',
     lost.includes('indeterminate') && !lost.includes('sent'), lost);
+
+  // H2. THE CASE THE DELIVERY FEED EXISTS FOR, and the one `status` alone cannot express:
+  // this side handed the notice over perfectly well and Lynomia then refused to send it. The
+  // row has to show BOTH, or an operator reads a refusal as a success.
+  const refused = await rowText(1);
+  check('a notice Lynomia accepted and then refused shows the attempt and the outcome',
+    refused.includes('sent') && refused.includes('refused')
+      && refused.includes('consent_withdrawn'), refused);
+
+  check('and the delivered one is not left reading as merely accepted',
+    (await rowText(0)).includes('delivered'), await rowText(0));
+
+  // The two numbers that say whether the feed is working at all.
+  check('the panel says how many notices are still awaiting an outcome',
+    pane.includes('Awaiting an outcome from Lynomia'), pane.slice(0, 200));
+  check('and how many delivery reports actually arrived today',
+    pane.includes('Delivery reports received today'), pane.slice(0, 200));
 
   // Counts, never people: this tab reports other tenants' staff.
   await page.locator('a[href="#lynomia-automation"]').click();

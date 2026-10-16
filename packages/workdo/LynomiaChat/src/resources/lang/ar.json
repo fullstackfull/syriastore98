@@ -274,7 +274,6 @@
     "Lynomia Chat is not available yet. Please contact support.": "Lynomia Chat غير متاح بعد. يرجى التواصل مع الدعم.",
     "Lynomia Chat is temporarily unreachable. Please try again shortly.": "تعذّر الوصول إلى Lynomia Chat مؤقتاً. يرجى المحاولة بعد قليل.",
     "Lynomia Chat workspace": "مساحة عمل Lynomia Chat",
-    "Lynomia accepts a notice before it sends it, and nothing reports back, so a notice it later refuses is counted here as handed over. What reached the merchant is not known on this side.": "تقبل ليونوميا الإشعار قبل إرساله، ولا يصل أي رد، لذا يُحتسب هنا الإشعار الذي ترفضه لاحقًا على أنه مُسلَّم. وما وصل إلى التاجر غير معروف من هذا الجانب.",
     "Lynomia account": "حساب Lynomia",
     "Lynomia account ID": "معرّف حساب Lynomia",
     "Lynomia answered, but not with a health report": "ردّت ليونوميا، لكن ليس بتقرير حالة",
@@ -763,5 +762,12 @@
     "they are asked to confirm a number on their own Lynomia Chat page.": "يُطلب منهم تأكيد رقم في صفحة ليونوميا شات الخاصة بهم.",
     "unavailable": "غير متاح",
     "yes": "نعم",
-    "{1} :count event waiting|[2,*] :count events waiting": "{1} حدث واحد منتظر|[2,*] :count أحداث منتظرة"
+    "{1} :count event waiting|[2,*] :count events waiting": "{1} حدث واحد منتظر|[2,*] :count أحداث منتظرة",
+    "Awaiting an outcome from Lynomia": "في انتظار نتيجة من لينوميا",
+    "Delivery reports received today": "تقارير التسليم المستلمة اليوم",
+    "Lynomia accepts a notice before it sends it, so \"handed to Lynomia\" is not \"received by the merchant\". What became of it arrives afterwards on the delivery feed and is shown against each notice below; anything the feed never reports is asked for every fifteen minutes.": "تقبل لينوميا الإشعار قبل إرساله، لذلك فإن «سُلِّم إلى لينوميا» ليس «استلمه التاجر». وما حدث له يصل بعد ذلك عبر تدفق التسليم ويظهر أمام كل إشعار أدناه؛ وأي شيء لا يبلّغ عنه التدفق يُستعلم عنه كل خمس عشرة دقيقة.",
+    "Notices are waiting for an outcome and no delivery report has arrived today. The feed may not be registered on the platform workspace; the reconciliation sweep re-registers it and fills the gap, so check its last run before changing anything.": "هناك إشعارات تنتظر نتيجة ولم يصل أي تقرير تسليم اليوم. قد لا يكون التدفق مسجلاً على مساحة عمل المنصة؛ تقوم عملية المطابقة بإعادة تسجيله وسد الفجوة، لذا تحقق من آخر تشغيل لها قبل تغيير أي شيء.",
+    "Our attempt": "محاولتنا",
+    "Lynomia's outcome": "نتيجة لينوميا",
+    "awaiting": "في الانتظار"
 }

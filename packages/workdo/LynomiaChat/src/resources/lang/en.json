@@ -274,7 +274,6 @@
     "Lynomia Chat is not available yet. Please contact support.": "Lynomia Chat is not available yet. Please contact support.",
     "Lynomia Chat is temporarily unreachable. Please try again shortly.": "Lynomia Chat is temporarily unreachable. Please try again shortly.",
     "Lynomia Chat workspace": "Lynomia Chat workspace",
-    "Lynomia accepts a notice before it sends it, and nothing reports back, so a notice it later refuses is counted here as handed over. What reached the merchant is not known on this side.": "Lynomia accepts a notice before it sends it, and nothing reports back, so a notice it later refuses is counted here as handed over. What reached the merchant is not known on this side.",
     "Lynomia account": "Lynomia account",
     "Lynomia account ID": "Lynomia account ID",
     "Lynomia answered, but not with a health report": "Lynomia answered, but not with a health report",
@@ -763,5 +762,12 @@
     "they are asked to confirm a number on their own Lynomia Chat page.": "they are asked to confirm a number on their own Lynomia Chat page.",
     "unavailable": "unavailable",
     "yes": "yes",
-    "{1} :count event waiting|[2,*] :count events waiting": "{1} :count event waiting|[2,*] :count events waiting"
+    "{1} :count event waiting|[2,*] :count events waiting": "{1} :count event waiting|[2,*] :count events waiting",
+    "Awaiting an outcome from Lynomia": "Awaiting an outcome from Lynomia",
+    "Delivery reports received today": "Delivery reports received today",
+    "Lynomia accepts a notice before it sends it, so \"handed to Lynomia\" is not \"received by the merchant\". What became of it arrives afterwards on the delivery feed and is shown against each notice below; anything the feed never reports is asked for every fifteen minutes.": "Lynomia accepts a notice before it sends it, so \"handed to Lynomia\" is not \"received by the merchant\". What became of it arrives afterwards on the delivery feed and is shown against each notice below; anything the feed never reports is asked for every fifteen minutes.",
+    "Notices are waiting for an outcome and no delivery report has arrived today. The feed may not be registered on the platform workspace; the reconciliation sweep re-registers it and fills the gap, so check its last run before changing anything.": "Notices are waiting for an outcome and no delivery report has arrived today. The feed may not be registered on the platform workspace; the reconciliation sweep re-registers it and fills the gap, so check its last run before changing anything.",
+    "Our attempt": "Our attempt",
+    "Lynomia's outcome": "Lynomia's outcome",
+    "awaiting": "awaiting"
 }

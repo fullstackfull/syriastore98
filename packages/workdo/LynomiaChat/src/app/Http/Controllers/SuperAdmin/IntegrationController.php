@@ -16,6 +16,7 @@ use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Http\Requests\ApproveLinkRequest;
 use Workdo\LynomiaChat\app\Models\LynomiaCommerceEvent;
 use Workdo\LynomiaChat\app\Models\LynomiaConsentDecision;
+use Workdo\LynomiaChat\app\Models\LynomiaPlatformEvent;
 use Workdo\LynomiaChat\app\Models\LynomiaPlatformNotice;
 use Workdo\LynomiaChat\app\Models\LynomiaInboxEvent;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreIdentity;
@@ -266,7 +267,8 @@ class IntegrationController extends Controller
      * the page: the operator who set them is the one person who can see they are wrong.
      *
      * @return array{configured:bool, workspace:?int, inbox:?int, accepted:int, in_flight:int,
-     *               failed:int, indeterminate:int, recent:mixed}
+     *               failed:int, indeterminate:int, awaiting_outcome:int, events_today:int,
+     *               recent:mixed}
      */
     private function platformComms(): array
     {
@@ -284,6 +286,17 @@ class IntegrationController extends Controller
             'failed' => LynomiaPlatformNotice::query()->where('status', LynomiaPlatformNotice::FAILED)->count(),
             'indeterminate' => LynomiaPlatformNotice::query()
                 ->where('status', LynomiaPlatformNotice::INDETERMINATE)->count(),
+            // AWAITING AN ANSWER, AND IT IS THE NUMBER THAT SAYS THE FEED IS BROKEN. A notice
+            // Lynomia accepted and never reported on is the state this whole mechanism exists
+            // to abolish; a handful is the ordinary lag between a send and its receipt, and a
+            // growing pile means deliveries are not arriving and only the sweep is working.
+            'awaiting_outcome' => LynomiaPlatformNotice::query()->awaitingOutcome()->count(),
+            // Deliveries actually received in the last day. Counted LOCALLY rather than by
+            // asking Lynomia whether the webhook is registered: a remote call on a page render
+            // is a page that hangs when Lynomia is down, and what an operator needs to know is
+            // not "is it configured" but "is anything arriving".
+            'events_today' => LynomiaPlatformEvent::query()
+                ->where('created_at', '>=', now()->subDay())->count(),
             'recent' => LynomiaPlatformNotice::query()->latest('id')->limit(25)->get(),
         ];
     }

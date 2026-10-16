@@ -382,11 +382,29 @@
                         {{ __('Awaiting an operator') }}:
                         <strong>{{ $platformComms['indeterminate'] }}</strong>
                     </li>
+                    {{-- The two numbers that say whether the delivery feed is working. A few
+                         notices awaiting an answer is the ordinary lag between a send and its
+                         receipt; a pile of them with nothing arriving means only the sweep is
+                         running. --}}
+                    <li>
+                        {{ __('Awaiting an outcome from Lynomia') }}:
+                        <strong>{{ $platformComms['awaiting_outcome'] }}</strong>
+                    </li>
+                    <li>
+                        {{ __('Delivery reports received today') }}:
+                        <strong>{{ $platformComms['events_today'] }}</strong>
+                    </li>
                 </ul>
 
                 <p class="text-muted small">
-                    {{ __('Lynomia accepts a notice before it sends it, and nothing reports back, so a notice it later refuses is counted here as handed over. What reached the merchant is not known on this side.') }}
+                    {{ __('Lynomia accepts a notice before it sends it, so "handed to Lynomia" is not "received by the merchant". What became of it arrives afterwards on the delivery feed and is shown against each notice below; anything the feed never reports is asked for every fifteen minutes.') }}
                 </p>
+
+                @if ($platformComms['awaiting_outcome'] > 0 && $platformComms['events_today'] === 0)
+                    <div class="alert alert-warning" role="alert">
+                        {{ __('Notices are waiting for an outcome and no delivery report has arrived today. The feed may not be registered on the platform workspace; the reconciliation sweep re-registers it and fills the gap, so check its last run before changing anything.') }}
+                    </div>
+                @endif
 
                 @if ($platformComms['indeterminate'] > 0)
                     <div class="alert alert-warning" role="alert">
@@ -400,7 +418,13 @@
                             <th>{{ __('When') }}</th>
                             <th>{{ __('Store') }}</th>
                             <th>{{ __('About') }}</th>
-                            <th>{{ __('Status') }}</th>
+                            {{-- TWO COLUMNS, BECAUSE THEY ARE TWO FACTS. "Our attempt" is what
+                                 this side did -- sent, failed, or an answer lost. "Lynomia's
+                                 outcome" is what Lynomia went on to do with it, which can be a
+                                 refusal on a notice we handed over perfectly well. Collapsing
+                                 them would lose exactly the case the delivery feed exists for. --}}
+                            <th>{{ __('Our attempt') }}</th>
+                            <th>{{ __("Lynomia's outcome") }}</th>
                             <th>{{ __('Reason') }}</th>
                         </tr>
                     </thead>
@@ -411,10 +435,13 @@
                             <td>#{{ $notice->store_id }}</td>
                             <td>{{ $notice->kind }}</td>
                             <td>{{ $notice->status }}</td>
-                            <td class="text-muted">{{ $notice->failure_reason ?? '—' }}</td>
+                            <td>{{ $notice->delivery_outcome ?? __('awaiting') }}</td>
+                            <td class="text-muted">
+                                {{ $notice->delivery_reason ?? $notice->failure_reason ?? '—' }}
+                            </td>
                         </tr>
                     @empty
-                        <tr><td colspan="5" class="text-center text-muted">{{ __('No notice has been sent yet.') }}</td></tr>
+                        <tr><td colspan="6" class="text-center text-muted">{{ __('No notice has been sent yet.') }}</td></tr>
                     @endforelse
                     </tbody>
                 </table>

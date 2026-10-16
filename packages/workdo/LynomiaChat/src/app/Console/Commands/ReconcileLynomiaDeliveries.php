@@ -3,6 +3,7 @@
 namespace Workdo\LynomiaChat\app\Console\Commands;
 
 use Illuminate\Console\Command;
+use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Services\PlatformDeliveryReconciler;
 use Workdo\LynomiaChat\app\Services\PlatformWorkspaceGateway;
 
@@ -44,6 +45,22 @@ class ReconcileLynomiaDeliveries extends Command
             $this->info('Platform communications are not set up; nothing was reconciled.');
 
             return self::SUCCESS;
+        }
+
+        // SELF-HEALING, AND THE REASON IT IS HERE. Lynomia posts an account webhook only to an
+        // endpoint somebody registered for the event, and nothing in the merchant path can do
+        // that for the platform workspace -- it takes a store link and this account has none.
+        // Doing it on the same cadence as the sweep means an operator who deletes the webhook,
+        // or restores a workspace from before the feed existed, gets it back without knowing
+        // to ask: one list call on one account every quarter of an hour.
+        try {
+            if ($workspace->ensureDeliveryFeedSubscribed()) {
+                $this->info('Registered the delivery feed webhook on the platform workspace.');
+            }
+        } catch (LynomiaApiException $e) {
+            // Not fatal to the sweep. Reconciliation is precisely what covers a feed that is
+            // not arriving, so it must still run when the subscription could not be repaired.
+            $this->warn('Could not check the delivery feed subscription: ' . $e->kind);
         }
 
         $result = $reconciler->run(max(1, (int) $this->option('limit')));

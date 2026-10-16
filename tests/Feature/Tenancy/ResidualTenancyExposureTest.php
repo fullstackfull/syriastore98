@@ -423,7 +423,10 @@ class ResidualTenancyExposureTest extends TestCase
             'app/Models/Product.php:97',
             'app/Models/ProductAttribute.php:48',
             'app/Models/Tag.php:47',
-            'app/Models/User.php:155',
+            // :155 -> :160 when B4 added the `mobile_verified_at` cast above it. The SET is
+            // unchanged -- same method, same DB::table() call, five lines down -- which is what
+            // this census measures; the line is only how a site is named.
+            'app/Models/User.php:160',
 
             // ------------------------------------------------------------------------------
             // Utility::cookies(). `DB::table('settings')` filtered on `created_by`, NOT on

@@ -32,6 +32,15 @@ use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
  */
 class PlatformWorkspaceGateway
 {
+    /**
+     * Lynomia's name for the outcome feed (Delivery::StatusFeed::EVENT).
+     *
+     * ONE EVENT, not the merchant set. This workspace has no inbox a human watches, so
+     * conversation and message events would be a stream nothing reads; what the installation
+     * needs to know is what became of the notices it sent.
+     */
+    public const DELIVERY_EVENT = 'message_delivery_status';
+
     public function __construct(private readonly PlatformApiClient $api)
     {
     }
@@ -95,6 +104,57 @@ class PlatformWorkspaceGateway
     public function listMessages(int $conversationId): array
     {
         return $this->client()->listMessages($conversationId);
+    }
+
+    /**
+     * Make sure the platform workspace is telling us what becomes of its messages.
+     *
+     * WITHOUT THIS THE DELIVERY FEED HAS NO SUBSCRIBER. Lynomia only posts an account webhook
+     * to an endpoint somebody registered with the event in its subscription list, and
+     * EventSubscriptionManager registers a MERCHANT'S workspace -- it takes a store link, and
+     * the platform workspace is not a store and has no link. The ingress, the projector and
+     * the ordering rule were all complete and exercised while nothing had ever told Lynomia
+     * where to send a delivery.
+     *
+     * WIDENED, NEVER NARROWED, and matched on the URL, the same way the merchant side does:
+     * whatever else the workspace has pointed at this endpoint stays, because it is not this
+     * module's to remove.
+     *
+     * THE SECRET IS OURS, NOT LYNOMIA'S. Chosen by the receiver and derived per request from
+     * the environment master key, so there is no copy of a live signing key in a database
+     * whose APP_KEY is published.
+     *
+     * @return bool whether anything was changed
+     *
+     * @throws LynomiaApiException
+     */
+    public function ensureDeliveryFeedSubscribed(): bool
+    {
+        $client = $this->client();
+        $url = route('lynomia.platform.events.ingress');
+
+        foreach ((array) ($client->listWebhooks()['payload'] ?? []) as $webhook) {
+            if (! is_array($webhook) || ($webhook['url'] ?? null) !== $url) {
+                continue;
+            }
+
+            $subscriptions = is_array($webhook['subscriptions'] ?? null) ? $webhook['subscriptions'] : [];
+
+            if (in_array(self::DELIVERY_EVENT, $subscriptions, true)) {
+                return false;
+            }
+
+            $client->updateWebhookSubscriptions(
+                (int) $webhook['id'],
+                array_values(array_unique(array_merge($subscriptions, [self::DELIVERY_EVENT])))
+            );
+
+            return true;
+        }
+
+        $client->createWebhook($url, [self::DELIVERY_EVENT], EventSignature::platformSecret());
+
+        return true;
     }
 
     private function client(): AgentApiClient

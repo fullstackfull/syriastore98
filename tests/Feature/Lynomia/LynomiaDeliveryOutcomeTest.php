@@ -100,6 +100,71 @@ class LynomiaDeliveryOutcomeTest extends TestCase
         ], $extra);
     }
 
+    // ===================================================== the wire contract
+
+    /**
+     * THE LITERALS THAT CROSS THE GAP, WRITTEN DOWN ON THIS SIDE.
+     *
+     * There is no shared code between the two systems, so a rename in Lynomia's
+     * `Delivery::StatusFeed` is silent here: the ingress would simply stop recognising
+     * anything and every notice would fall through to the fifteen-minute sweep, which looks
+     * like a slow feed rather than a broken one. Lynomia carries the mirror of this
+     * (spec/services/delivery/status_feed_spec.rb), so a rename on either side fails against
+     * its own recorded contract even though neither can see the other.
+     *
+     * WHAT THIS DOES NOT PROVE, and the reason blocker A1 stays open: both suites run against
+     * a fake of the other system. That is agreement between two expressions of one reading of
+     * the contract, not evidence the reading is right. Only two real deployments exchanging a
+     * delivery can show that.
+     */
+    public function test_the_wire_vocabulary_is_the_one_lynomia_publishes(): void
+    {
+        $this->assertSame(
+            'message_delivery_status',
+            \Workdo\LynomiaChat\app\Services\PlatformWorkspaceGateway::DELIVERY_EVENT
+        );
+
+        // Lynomia's Delivery::StatusFeed publishes exactly these six words, and every one of
+        // them has to land somewhere other than `unknown`.
+        $this->assertSame(
+            ['queued', 'provider_accepted', 'delivered', 'read', 'failed', 'refused'],
+            array_keys(DeliveryOutcome::FROM_FEED)
+        );
+
+        foreach (array_keys(DeliveryOutcome::FROM_FEED) as $word) {
+            $this->assertNotNull(DeliveryOutcome::fromFeed($word), "{$word} is published and not understood");
+        }
+    }
+
+    /** The fields the projector reads, read off a payload shaped exactly as Lynomia sends it. */
+    public function test_every_field_the_projector_needs_is_one_lynomia_sends(): void
+    {
+        $notice = $this->notice();
+
+        // Written out rather than built by the helper: a helper that drifted with the
+        // implementation would pin nothing.
+        $this->deliver([
+            'event' => 'message_delivery_status',
+            'account' => ['id' => self::WORKSPACE],
+            'message' => ['id' => 4242, 'source_id' => 'wamid.HBg', 'conversation_id' => 77],
+            'status' => 'delivered',
+            'outcome' => 'delivered',
+            'reason_code' => null,
+            'occurred_at' => '2026-10-16T09:30:00.123456Z',
+            'occurred_at_us' => 1_792_200_600_123_456,
+        ], 'delivery-4242-1792200600123456')->assertOk();
+
+        $fresh = $notice->fresh();
+        $this->assertSame(DeliveryOutcome::DELIVERED, $fresh->delivery_outcome);
+        $this->assertSame(1_792_200_600_123_456, (int) $fresh->outcome_at_us);
+        $this->assertSame('2026-10-16 09:30:00', $fresh->delivery_outcome_at->utc()->format('Y-m-d H:i:s'));
+
+        $event = LynomiaPlatformEvent::firstOrFail();
+        $this->assertSame('message_delivery_status', $event->event);
+        $this->assertSame(self::WORKSPACE, (int) $event->lynomia_account_id);
+        $this->assertSame($notice->id, $event->notice_id);
+    }
+
     // ===================================================== authenticated
 
     public function test_a_delivery_is_applied_when_it_is_signed_with_the_platform_secret(): void
@@ -452,6 +517,88 @@ class LynomiaDeliveryOutcomeTest extends TestCase
         $this->artisan('lynomia:reconcile-deliveries')
             ->expectsOutputToContain('not set up')
             ->assertExitCode(0);
+    }
+
+    // ===================================================== and Lynomia was told where to post
+
+    /**
+     * THE DEFECT TWENTY-FIVE PASSING TESTS DID NOT CATCH. Lynomia posts an account webhook
+     * only to an endpoint somebody registered WITH THE EVENT in its subscription list, and
+     * EventSubscriptionManager registers a merchant's workspace -- it takes a store link, and
+     * the platform workspace has none. Every example above posts to the ingress directly, so
+     * the ingress, the projector and the ordering rule were all green while nothing had ever
+     * told Lynomia the endpoint existed.
+     */
+    public function test_the_sweep_registers_the_delivery_feed_on_the_platform_workspace(): void
+    {
+        $this->fakeLynomia();
+
+        $this->artisan('lynomia:reconcile-deliveries')->assertExitCode(0);
+
+        Http::assertSent(function ($request) {
+            return $request->method() === 'POST'
+                && str_contains($request->url(), '/api/v1/accounts/9001/webhooks')
+                && ($request['webhook']['subscriptions'] ?? []) === ['message_delivery_status']
+                && $request['webhook']['url'] === route('lynomia.platform.events.ingress')
+                // The receiver chooses the signing key, so there is no copy of a live secret
+                // in a database whose APP_KEY is published.
+                && $request['webhook']['secret'] === EventSignature::platformSecret();
+        });
+    }
+
+    /** Registered already, and nothing is created a second time. */
+    public function test_an_existing_subscription_is_left_alone(): void
+    {
+        $this->fakeLynomia(['webhooks' => [[
+            'id' => 5,
+            'url' => route('lynomia.platform.events.ingress'),
+            'subscriptions' => ['message_delivery_status'],
+        ]]]);
+
+        $this->artisan('lynomia:reconcile-deliveries')->assertExitCode(0);
+
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST'
+            && str_contains($request->url(), '/webhooks'));
+    }
+
+    /**
+     * A workspace registered before the feed existed is WIDENED, never replaced: whatever
+     * else it points at this endpoint for is not this module's to remove.
+     */
+    public function test_a_subscription_from_before_the_feed_is_widened_rather_than_replaced(): void
+    {
+        $this->fakeLynomia(['webhooks' => [[
+            'id' => 5,
+            'url' => route('lynomia.platform.events.ingress'),
+            'subscriptions' => ['message_created'],
+        ]]]);
+
+        $this->artisan('lynomia:reconcile-deliveries')->assertExitCode(0);
+
+        Http::assertSent(function ($request) {
+            return $request->method() === 'PATCH'
+                && str_contains($request->url(), '/webhooks/5')
+                && $request['webhook']['subscriptions'] === ['message_created', 'message_delivery_status'];
+        });
+    }
+
+    /** Reconciliation is what covers a feed that is not arriving, so it must still run. */
+    public function test_the_sweep_still_runs_when_the_subscription_cannot_be_repaired(): void
+    {
+        $notice = $this->notice();
+        $this->fakeLynomia([
+            'messages' => [[
+                'id' => 4242, 'status' => 'delivered', 'source_id' => 'wamid.HBg',
+                'created_at' => now()->subMinutes(30)->timestamp,
+            ]],
+        ]);
+        $this->lynomiaScript['fail'] = [
+            'GET /api/v1/accounts/9001/webhooks' => Http::response(['error' => 'down'], 503),
+        ];
+
+        $this->artisan('lynomia:reconcile-deliveries')->assertExitCode(0);
+
+        $this->assertSame(DeliveryOutcome::DELIVERED, $notice->fresh()->delivery_outcome);
     }
 
     /**
