@@ -168,12 +168,18 @@ this store".
 
 ---
 
-### B3. Found by auditing the Phase 5 closure claims
+### B3. Found by auditing the Phase 5 closure claims — **BOTH CLOSED in Phase 6**
 
-Neither is a Phase 5 regression. Both are pre-existing, both were found by the fourth
-adversarial round reading code rather than by any failure, and both are recorded here rather
-than fixed because the fix is a policy decision. `PHASE-5-COMPLETION-REPORT.md` §10.4 has
-the round.
+Neither was a Phase 5 regression. Both were pre-existing, both were found by the fourth
+adversarial round reading code rather than by any failure, and both were recorded here rather
+than fixed at the time because the fix was a policy decision. `PHASE-5-COMPLETION-REPORT.md`
+§10.4 has the round.
+
+The Phase 6 approval required them to be verified and, if open, remediated before platform
+communications were built on the same surface — "do not silently bypass either issue to make
+platform communications function". Both were open and both were closed first; see C15 and
+C16. The rows below are the original statements of the defects, kept because a closure is
+only readable beside what it closed.
 
 | # | Severity | What | Where | Closes by |
 |---|---|---|---|---|
@@ -222,6 +228,40 @@ accumulating values that were never anybody's number.
 
 ---
 
+### B5. Nothing verifies that the configured platform workspace is the platform-owned one
+
+Raised by the Phase 6 adversarial review.
+
+| | |
+|---|---|
+| Raised | Phase 6 (P6F review of P6D/P6E) |
+| Severity | Low likelihood, high impact — three coordinated misconfigurations are needed, and the result is forbidden outright |
+| Closes by | Lynomia reporting `platform_owned` on the account the partner addresses, and Store Syria refusing to send from a workspace that is not |
+
+Store Syria addresses its own Lynomia workspace through three environment settings: the
+account id, a sender user id and an inbox id. **Nothing on the Store Syria side can tell its
+own workspace from a merchant's.** The flag that distinguishes them, `accounts.platform_owned`,
+is Lynomia's, and it is not returned to the partner anywhere.
+
+Pointed at a merchant's account, sender and inbox, platform notices would be sent **from that
+merchant's own WhatsApp channel**, which Decision 3 of the Phase 6 approval forbids outright.
+Lynomia's UTILITY-only gate would not apply either, because `Custom::Whatsapp::SendOnWhatsappService#platform_refusal`
+keys on `conversation.account.platform_owned?` — a merchant's account is not platform-owned,
+so a MARKETING template would pass, and the send would not be metered against the platform
+allowance.
+
+**Why it is recorded rather than enforced.** It takes three settings to be wrong together,
+all typed by the operator who has just provisioned the workspace, and every Phase 6
+restriction already forbids real activation. Enforcing it across the wire means a new field
+in the platform contract and a verification handshake on a path that is not yet live, which
+is building for a case nothing can reach today.
+
+**What was done instead.** The Super Admin notices tab now names the workspace and inbox
+every notice is sent from, so the operator who typed the ids is shown what they typed. An
+invisible misconfiguration became a visible one.
+
+---
+
 ## C. CLOSED
 
 | # | Blocker | Raised | Closed |
@@ -240,6 +280,8 @@ accumulating values that were never anybody's number.
 | C12 | **B2.7, the capability gap** — a WhatsApp campaign created from Store Syria sent to nobody, because the modal never attached a template | Phase 5 | Phase 5 closure — the modal asks for an approved template, renders one input per placeholder in its BODY, refuses to save without them, and sends `{name, language, processed_params}` but no category, because the server reads that from the channel's synced list |
 | C13 | **B2.8** — `excluded_counts` written, tested and unreachable | Phase 5 | Phase 5 closure — removed rather than left unreachable |
 | C14 | **B2.9** — four copies of "find this campaign's template in the channel's synced list", two of which decide consent | Phase 5 | Phase 5 closure — the two in `custom/` are one, so three remain, and `spec/services/whatsapp/channel_templates_spec.rb` holds those three to the same row for the same inputs |
+| C15 | **B3.1** — a third outbound surface asked nothing about consent: an agent picking a WhatsApp template in the composer, or opening a new conversation with one, reached `Whatsapp::SendOnWhatsappService#send_template_message` with no eligibility call anywhere on the path | Phase 5 audit | Phase 6, before P6E (`custom/app/services/custom/whatsapp/send_on_whatsapp_service.rb`, prepended onto the OSS service, which is the chokepoint every template send actually reaches — `Messages::MessageBuilder` is not, because `Flows::Run#say` writes the message directly). The class comes from Meta's own category on the channel's synced list, never from the sender. A commerce account needs a grant for a promotional template; every other account is refused only on a decision somebody actually made, because `MessagingEligibility` refuses promotional without a grant and an account with no consent surface has no way to record one — gating those would have broken every marketing template in the product. `Commerce::ConsentListener` is registered unconditionally, so a STOP blocks in either case, which is the compliance-critical half |
+| C16 | **B3.2** — a consent decision waiting on a subject link was retried for ever: `BACKOFF`'s last element repeats, `defer()` had no attempt ceiling, and nothing pruned the table | Phase 5 audit | Phase 6 (`cc213d58`) — an attempt ceiling that moves the row to a terminal state **and** raises an operator-visible signal, which was the part that mattered: B2.3 existed because a decision disappeared quietly. The Super Admin consent panel counts the retired rows and the merchant's own consent screen shows them as not sent |
 
 ---
 
