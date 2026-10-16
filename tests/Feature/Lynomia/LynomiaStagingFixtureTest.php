@@ -175,6 +175,72 @@ class LynomiaStagingFixtureTest extends TestCase
         }
     }
 
+    /**
+     * WITHOUT A LINK THE MERCHANT IS INVISIBLE to the Super Admin contact panel, which
+     * iterates lynomia_store_links -- so the whole contact matrix this fixture exists to
+     * populate would be unreachable.
+     */
+    public function test_every_fixture_merchant_has_a_link_so_the_contact_panel_can_see_them(): void
+    {
+        $this->seedFixtures();
+
+        $merchants = \App\Models\User::where('email', 'like', 'merchant-%@lynomia-staging.invalid')->count();
+
+        $this->assertSame($merchants, \Workdo\LynomiaChat\app\Models\LynomiaStoreLink::count());
+    }
+
+    /** And no fixture link may point at an account that could really exist. */
+    public function test_no_fixture_link_points_at_a_plausible_real_account(): void
+    {
+        $this->seedFixtures();
+
+        foreach (\Workdo\LynomiaChat\app\Models\LynomiaStoreLink::pluck('lynomia_account_id') as $id) {
+            $this->assertGreaterThanOrEqual(9_900_000, (int) $id, 'a fixture link must be recognisable as one');
+        }
+    }
+
+    /** §11 reads users.plan_id and answers null without one, which makes its assertions vacuous. */
+    public function test_every_merchant_is_on_a_plan_with_a_small_deliberate_ceiling(): void
+    {
+        $this->seedFixtures();
+
+        $plans = \App\Models\User::where('email', 'like', 'merchant-%@lynomia-staging.invalid')
+            ->pluck('plan_id')->unique();
+
+        $this->assertCount(1, $plans);
+        $this->assertNotNull($plans->first());
+
+        $plan = \App\Models\Plan::find($plans->first());
+        $this->assertSame(5, (int) $plan->lynomia_campaign_sends, 'a realistic ceiling makes step 11.2 take an afternoon');
+    }
+
+    /**
+     * §6.4 IS ABOUT A TRANSITION. CommerceEventObserver's `updated` branch keys on
+     * wasChanged('payment_status'), which an order born with its status set never exercises.
+     */
+    public function test_one_order_per_store_actually_transitions_its_payment_status(): void
+    {
+        $this->seedFixtures();
+
+        $moved = Order::where('product_order_id', 'like', '%-transition')->get();
+
+        $this->assertNotEmpty($moved);
+        foreach ($moved as $order) {
+            $this->assertSame('Paid', $order->payment_status);
+        }
+    }
+
+    /** §7.2's first-time shopper must not be the shopper §7.1 already put a decision against. */
+    public function test_there_is_a_shopper_with_no_order_for_the_first_time_case(): void
+    {
+        $this->seedFixtures();
+
+        $newcomer = \App\Models\Customer::where('email', 'like', 'newcomer-%@lynomia-staging.invalid')->first();
+
+        $this->assertNotNull($newcomer);
+        $this->assertSame(0, Order::where('customer_id', $newcomer->id)->count());
+    }
+
     public function test_running_it_twice_changes_nothing(): void
     {
         $this->seedFixtures();

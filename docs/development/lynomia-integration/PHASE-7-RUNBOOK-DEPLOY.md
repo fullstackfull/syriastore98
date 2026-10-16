@@ -320,6 +320,28 @@ is not arriving — but a staging run that begins with no feed is not testing th
 
 ---
 
+## 2.9 Two seeding hazards on the Lynomia side — neither is needed, both can bite
+
+**Do not run any account seeder against a Phase 7 workspace, and do not set
+`ENABLE_ACCOUNT_SEEDING` at all.**
+
+`Seeders::AccountSeeder` is **not additive**: it calls `destroy_all` on the account's teams,
+conversations, labels, inboxes, contacts and custom roles before seeding. Pointed at a
+workspace that §4–§6 has populated, it deletes the evidence.
+
+And its guard inverts under the one action an operator takes to be careful. All three seeders
+guard with `ENV.fetch('ENABLE_ACCOUNT_SEEDING', !Rails.env.production?)`, and `ENV.fetch`
+returns a **String**: `ENABLE_ACCOUNT_SEEDING=false` fetches `"false"`, which is **truthy** in
+Ruby, so setting it to disable seeding **enables** it. Blocker B10. Leave the variable unset;
+the default is safe.
+
+Separately, Lynomia's own `db/seeds.rb` plants a contact `jane / +2320000` — a Sierra Leone
+prefix, not a reserved range (blocker B11). It will be in a fresh staging database. **Never
+send to it.** Every messaging step in the test runbook addresses either a fixture merchant on
+an unroutable ITU-999 number or the owner's named GATE 9 recipient.
+
+---
+
 ## 3. Post-deploy smoke, before the test runbook
 
 Five checks. Each one has a cheap failure and an expensive one if deferred.

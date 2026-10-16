@@ -130,7 +130,22 @@ Options: meter verification separately from operational notices so neither can s
 other, or lower the per-hour budget, which costs a legitimate merchant nothing. Informational
 for staging; your call before production.
 
-### 3.7 Lynomia has no known-failure baseline, and its security gate is permanently red
+### 3.7 B10 — a Lynomia safety guard inverts, and the seeder behind it destroys data
+
+Three Lynomia seeders guard with `ENV.fetch('ENABLE_ACCOUNT_SEEDING', !Rails.env.production?)`.
+`ENV.fetch` returns a **String**, and every non-empty String is truthy in Ruby — so
+`ENABLE_ACCOUNT_SEEDING=false`, set in production by someone trying to **disable** seeding,
+**enables** it. What then runs calls `destroy_all` on the account's teams, conversations,
+labels, inboxes, contacts and custom roles.
+
+The default is safe; the only way to reach the bug is to try to be careful, which is why
+nobody has hit it. The fix is a one-line cast at each of three sites. Not applied — upstream
+code, and you asked for B5 and a review.
+
+**Phase 7 avoids it entirely**: the runbooks say not to run any account seeder and not to set
+the variable. Your call whether to fix it before production.
+
+### 3.8 Lynomia has no known-failure baseline, and its security gate is permanently red
 
 Store Syria asserts its outcome **set** bidirectionally as a blocking CI step. Lynomia has no
 manifest, no allowlist and no gate — so on that side there is no automated way to tell an
@@ -230,7 +245,7 @@ What that authorizes:
 What it does **not** do, in your own words and mine:
 
 - It does not authorize production. Phase 7 completing closes **blocker A1 and nothing else**.
-- A2, A3, A4, B1, B5's human half, B6, B7, B8 and B9 stay open.
+- A2, A3, A4, B1, B5's human half, B6, B7, B8, B9, B10 and B11 stay open.
 - B4 closes as merchants verify their own numbers, not on a date.
 - None of the work done so far is an end-to-end test, and none of it closes A1.
 

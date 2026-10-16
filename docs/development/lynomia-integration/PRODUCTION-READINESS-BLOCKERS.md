@@ -442,6 +442,54 @@ note that the first pass of that review mis-described this path as gated by the 
 machinery.
 
 
+### B10. Lynomia's seeding guard INVERTS when an operator sets it to false, and the seeder destroys data
+
+| | |
+|---|---|
+| Raised | Phase 7 preparation, fixture survey |
+| Severity | **High, and it is upstream Chatwoot code rather than integration code** |
+| Closes by | A one-line cast at each of three sites. Not applied here |
+
+`lib/seeders/account_seeder.rb:13`, `lib/seeders/inbox_seeder.rb:13` and
+`lib/seeders/reports/report_data_seeder.rb:43` all guard with:
+
+```ruby
+raise '...' unless ENV.fetch('ENABLE_ACCOUNT_SEEDING', !Rails.env.production?)
+```
+
+`ENV.fetch` returns a **String** when the variable is set, and **every non-empty String is
+truthy in Ruby**. Measured: with `ENABLE_ACCOUNT_SEEDING=false` the fetched value is `"false"`
+and `!!value` is `true`.
+
+**So an operator who sets that variable to `false` in production in order to disable seeding
+switches it on instead.** The default path is safe — unset, it falls back to
+`!Rails.env.production?` — which is exactly why nobody has hit it: the only way to reach the
+bug is to try to be careful.
+
+What then runs is not additive. `Seeders::AccountSeeder#set_up_account` calls `destroy_all` on
+the account's **teams, conversations, labels, inboxes, contacts and custom roles** before
+seeding.
+
+The fix is one line at each site — cast the value (`ActiveModel::Type::Boolean.new.cast(...)`)
+rather than trusting truthiness. Not applied: this is upstream code, not this integration's,
+and the standing instruction for this phase was to correct B5 and review the rest.
+
+**For Phase 7 it is avoidable entirely and the runbooks say so: do not run any account seeder
+against a Phase 7 workspace, and do not set `ENABLE_ACCOUNT_SEEDING` at all.**
+
+### B11. Lynomia's own `db/seeds.rb` plants a contact with an unreserved phone number
+
+`db/seeds.rb:53` seeds `{ name: 'jane', email: 'jane@example.com', phone_number: '+2320000' }`.
+`+232` is Sierra Leone, not a reserved range. It is guarded by `unless Rails.env.production?`,
+so it is not a production risk — but it **is** the default content of a fresh staging database,
+which is where Phase 7's messaging steps run.
+
+Low severity and trivially avoidable: the Phase 7 runbooks send only to merchants the fixture
+created (unroutable ITU-999 numbers) or to the owner's named GATE 9 recipient. **Nothing should
+ever send to `jane`.** Recorded so that "it was only a seed contact" is not the explanation
+afterwards.
+
+
 ---
 
 ## C. CLOSED
