@@ -34,6 +34,13 @@ been bitten twice by verification that looked complete and was not.
 section is hard to interpret later), then take it to the owner with the evidence. Do not
 improvise a fix inside the window.
 
+**PRECONDITION ADDED BY THE SECURITY REVIEW: leave CSAT disabled on every staging inbox.**
+`PHASE-7-SECURITY-BOUNDARIES.md` §2.2 (blocker B7) establishes that the CSAT survey's WhatsApp
+*template* branch reaches the provider with **no eligibility check at all** — no consent, no
+suppression, no blocked-contact check — while the same survey sent as a *message* is fully
+gated. Until the owner decides B7, enabling CSAT would put an ungated real-message path into a
+window that is otherwise entirely gated. Leaving it off costs this phase nothing.
+
 **Three markers appear below:**
 
 | Marker | Meaning |

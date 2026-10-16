@@ -281,7 +281,19 @@ operational notices reach nobody, which is the honest state rather than a regres
 
 ---
 
-### B5. Nothing verifies that the configured platform workspace is the platform-owned one
+### B5. Nothing verifies that the configured platform workspace is the platform-owned one — **PROGRAMMATIC HALF CLOSED**
+
+> **Closed in code, Phase 7 preparation.** Lynomia now exposes `platform_owned` read-only on
+> `GET /platform/api/v1/accounts/{id}` (an endpoint the partner already holds a permissible
+> for), and `PlatformWorkspaceGateway::assertPlatformOwned` reads it back before any client is
+> built. A merchant's account answers `platform_owned: false` and is refused; any other account
+> is refused 401 by the upstream permissible check; an answer with no field at all is refused as
+> *unconfirmed* rather than treated as false. All three leave the notice `failed` with
+> `kind_not_configured`, which `isTransient()` excludes, so nothing retries it and nothing is
+> sent. Red-proofed in both repositories.
+>
+> **What remains open:** the operator still chooses which account to provision as the platform
+> workspace in the first place. `PHASE-7-RUNBOOK-TEST.md` §10.1.1 keeps the human confirmation.
 
 Raised by the Phase 6 adversarial review.
 
@@ -343,6 +355,61 @@ be deciding it rather than raising it.
 **The interim position.** The merchant-facing panel asks for "a number we can reach you on"
 and does not say it will be published, because this module does not publish it. That is
 accurate and incomplete, and the incompleteness is this blocker.
+
+### B7. The CSAT survey's template branch reaches the provider with no eligibility check
+
+| | |
+|---|---|
+| Raised | Phase 7 preparation, security-boundary review |
+| Severity | **Medium–high.** A shopper who replied STOP can receive a CSAT survey, and so can a number the provider suppressed |
+| Closes by | An owner decision, then a `custom/` prepend applying `Commerce::MessagingEligibility.refusal(contact, nil)` |
+
+`CsatSurveyService#send_whatsapp_template_survey` calls
+`inbox.channel.provider_service.send_template(...)` directly (`app/services/csat_survey_service.rb:115`).
+`should_send_csat_survey?` checks resolved / enabled / not-already-sent / label rules and
+**nothing about the recipient**. The Twilio WhatsApp branch is the same.
+
+The asymmetry is the finding: the *same* survey is fully gated when it goes out as a message —
+through `Custom::Whatsapp::SendOnWhatsappService`, which closed exactly this class of gap for
+the composer (C15) — and ungated when it goes out as a template. Which branch runs is a
+question of inbox configuration, not of policy.
+
+Realistic path: shopper replies STOP → `Commerce::ConsentListener` writes `withdrawn` → an
+agent resolves the conversation → a CSAT template is sent over WhatsApp.
+
+`MessagingEligibility.refusal(contact, nil)` is already the right rule and demands no marketing
+grant. Not applied here: CSAT is core Chatwoot behaviour for every account on this fork, not
+something this integration added, and `CsatSurveyService` carries no `prepend_mod_with`, so an
+extension point must be added to the OSS file first. **Phase 7 mitigation: leave CSAT disabled
+on every staging inbox**, which costs the phase nothing.
+
+### B8. A merchant can read their own webhook secret and forge events for their own store
+
+| | |
+|---|---|
+| Raised | Phase 7 preparation, security-boundary review |
+| Severity | Medium. **Not** a cross-tenant breach — it bears on what the consent record is evidence of |
+| Closes by | An owner decision between the two options below |
+
+`app/views/api/v1/accounts/webhooks/_webhook.json.jbuilder:6` renders `json.secret`, and a
+merchant tenant owner is provisioned into their workspace as an **administrator**
+(`IdentityProvisioner`: "Owner means administrator"). So a merchant can read the signing secret
+Store Syria derived for their store and sign a payload that `POST /lynomia/events/{their_store}`
+accepts as genuine. `ConsentStateProjector` writes whatever `state` arrives, subject only to the
+revision watermark — so a forged `consent_changed` with `state: granted` records a grant the
+shopper never gave, and promotional sends to that shopper become permitted.
+
+Isolation holds exactly as `EventSignature` documents it: each store's secret is derived
+independently, so a merchant learns their own and nobody else's. What changes is that the
+platform's consent record is **merchant-attested, not platform-attested**, while the platform
+permits sends on the strength of it.
+
+Options: stop exposing `secret` on that serializer (an OSS change affecting every account and
+every legitimate integration that reads it); or treat `origin: lynomia_native` **grants** from
+the store feed as merchant-attested and record them as such, while continuing to honour
+withdrawals from the same source unconditionally — a withdrawal a merchant forges only costs
+the merchant.
+
 
 ---
 
