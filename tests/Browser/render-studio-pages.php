@@ -98,6 +98,21 @@ function superAdminFixture(): array
                     'kind' => 'security', 'status' => 'indeterminate', 'failure_reason' => 'kind_unavailable'],
             ]),
         ],
+        // B4. Who the platform can reach, and why not for the rest. The fixture carries one
+        // of each refusal so the panel renders every row an operator can meet.
+        'merchantContacts' => [
+            'reachable' => 2,
+            'by_reason' => [
+                'no_phone_on_record' => 3,
+                'placeholder_phone' => 7,
+                'phone_not_verified' => 1,
+            ],
+            'unreachable_stores' => [
+                12 => 'placeholder_phone',
+                14 => 'no_phone_on_record',
+                15 => 'phone_not_verified',
+            ],
+        ],
         'automationAccess' => collect([
             ['name' => 'lynomia automation manage', 'roles' => 2, 'platform_wide' => 1, 'stores' => 3],
             ['name' => 'lynomia consent manage', 'roles' => 1, 'platform_wide' => 0, 'stores' => 1],

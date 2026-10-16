@@ -243,9 +243,23 @@ for (const [name, fulfil, expect] of [
     pane.includes('9001') && pane.includes('31'), pane.slice(0, 160));
 
   // A notice whose answer was lost is the one an operator has to decide about.
+  // Targeted by its own text rather than by counting warnings in the pane: the tab carries
+  // more than one warning now (B4 added the unreachable-merchants one), and a check that
+  // counts them breaks every time the page gains a second thing worth warning about.
   check('a notice with no known outcome raises a warning rather than counting as sent',
-    (await page.locator('#lynomia-notices .alert-warning').count()) === 1
-      && pane.includes('nobody knows whether they arrived'));
+    (await page.locator('#lynomia-notices .alert-warning', { hasText: 'nobody knows whether they arrived' }).count()) === 1);
+
+  // B4. Who cannot be reached at all, and why. Counts and store ids only -- a list of
+  // merchants' phone numbers on an operator page is a list of other people's personal data.
+  check('the operator is told how many merchants cannot be reached, and why',
+    pane.includes('Merchants we can reach')
+      && pane.includes('A placeholder number, not a real one')
+      && pane.includes('No number on record')
+      && pane.includes('A number nobody has confirmed'), pane.slice(0, 200));
+  check('and which stores they are',
+    pane.includes('#12') && pane.includes('#14') && pane.includes('#15'));
+  check('without putting anybody\'s number on the page',
+    !/\b9\d{8,}\b/.test(pane), pane.slice(0, 120));
 
   const rows = page.locator('#lynomia-notices tbody tr');
   check('every recent notice is listed', (await rows.count()) === 3, `${await rows.count()}`);
