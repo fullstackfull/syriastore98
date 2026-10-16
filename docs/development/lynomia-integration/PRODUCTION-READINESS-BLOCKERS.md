@@ -188,9 +188,10 @@ only readable beside what it closed.
 
 ---
 
-### B4. There is no verified merchant phone number in Store Syria
+### B4. There is no verified merchant phone number in Store Syria — **MECHANISM BUILT, POPULATION STILL UNVERIFIED**
 
-Raised by P6E, which needs one and refuses to proceed without it.
+Raised by P6E, which needs one and refuses to proceed without it. The machinery to close it
+exists now; what remains is merchants actually using it, which nothing but a merchant can do.
 
 | | |
 |---|---|
@@ -228,6 +229,52 @@ accumulating values that were never anybody's number.
 
 ---
 
+#### What post-Phase-6 hardening built, and what it did not
+
+**BOTH WRITERS ARE CORRECTED.** Super Admin store creation writes `null` instead of
+`7878787878` (`StoreController.php`), and self-registration writes `null` instead of `''`
+(`RegisteredUserController.php`) so the column has one spelling for "nothing". The seeders
+still write the literal for the installation's own accounts, which is correct — those are not
+merchants.
+
+**VERIFICATION IS MERCHANT-PERFORMED AND NOTHING ELSE SETS IT.** `users.mobile_verified_at` is
+written by exactly one method, `MerchantContactVerification::confirm`, when a merchant types
+back a six-digit code sent to the candidate number. It is not in `$fillable`, no operator
+surface writes it, and no backfill infers it. The code is hashed, expires in ten minutes,
+burns after five wrong answers and is single-use.
+
+**THE SENDER IS THE PLATFORM, NOT THE MERCHANT.** The code goes out through
+`PlatformWorkspaceGateway` — Store Syria's own Lynomia workspace, its own WhatsApp channel, an
+approved UTILITY template. The installation's existing OTP machinery (`otp_integrations`) was
+the obvious thing to reuse and is the wrong one: those rows are per store and carry the
+merchant's own credentials, so a merchant who controls the gateway can verify any number they
+like, which makes the flag worth nothing exactly where it must be worth something.
+
+**THE CLAIM DOES NOT OUTLIVE THE NUMBER.** Changing the number through the web profile editor
+or the API clears the flag, compared on digits so a reformat is not a change. Without that, a
+merchant confirms a number they hold and then quietly types another.
+
+**A PLACEHOLDER CAN NEVER READ AS VERIFIED,** whatever the flag says: the value is classified
+before the flag is consulted. The placeholder is matched as a suffix as well as whole, because
+`+91 7878787878` normalises to a perfectly well-formed twelve-digit number and an exact
+comparison admitted it.
+
+**PLATFORM COMMUNICATIONS NOW REQUIRE IT.** `PlatformRecipients` refuses an unverified number
+with `phone_not_verified`, alongside the three reasons it already had.
+
+**WHAT IS STILL OPEN, AND IT IS THE WHOLE POPULATION.** Every merchant on this installation is
+unverified today, and no mechanism can change that for them — only each merchant can. The
+Super Admin integration page now counts them by reason and lists the stores, and each
+merchant's own Lynomia Chat page asks them to confirm a number. Until they do, platform
+operational notices reach nobody, which is the honest state rather than a regression.
+
+| | |
+|---|---|
+| Still open | Yes — as a population, not as a mechanism |
+| Closes by | Merchants confirming their numbers, and a real send path (A1) for the code to travel on |
+
+---
+
 ### B5. Nothing verifies that the configured platform workspace is the platform-owned one
 
 Raised by the Phase 6 adversarial review.
@@ -259,6 +306,37 @@ is building for a case nothing can reach today.
 **What was done instead.** The Super Admin notices tab now names the workspace and inbox
 every notice is sent from, so the operator who typed the ids is shown what they typed. An
 invisible misconfiguration became a visible one.
+
+---
+
+### B6. The storefront publishes the merchant's personal mobile number
+
+Found while building B4's verification, because the two interact.
+
+| | |
+|---|---|
+| Raised | Post-Phase-6 hardening |
+| Severity | Medium — a privacy exposure that B4's fix makes more pointed, not less |
+| Closes by | A store-level support contact, separate from the owner's personal number |
+
+`resources/views/front_end/jQueryRoute.blade.php:338-341` renders `$store->user->mobile` and
+`$store->user->email` — the OWNER'S PERSONAL details — into the public storefront's Contact Us
+page, as a displayed number and a `tel:` link.
+
+**Why this is recorded now.** B4's fix asks merchants to confirm `users.mobile` so the platform
+can reach them about their account. That is the same column the storefront publishes to the
+world. A merchant who confirms their personal mobile so their integration can tell them it
+broke has also, without being told, published it.
+
+**Why it is not fixed here.** What a storefront shows its shoppers is a product decision
+affecting every merchant's public page, and the right answer is probably a store-level support
+number rather than suppressing the field — `stores` has an `email` column and no phone column
+at all, so there is nowhere for one to live yet. Changing either under a hardening task would
+be deciding it rather than raising it.
+
+**The interim position.** The merchant-facing panel asks for "a number we can reach you on"
+and does not say it will be published, because this module does not publish it. That is
+accurate and incomplete, and the incompleteness is this blocker.
 
 ---
 

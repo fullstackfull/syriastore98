@@ -159,6 +159,66 @@
             </div>
         </div>
 
+        {{-- ------------------------------------------------- how we reach you (B4) --}}
+        {{--
+            WHY A MERCHANT IS ASKED TO CONFIRM A NUMBER AT ALL, said on the page rather than
+            assumed: the things the platform sends here are about THIS integration breaking,
+            and a number nobody has confirmed is a number that belongs to whoever actually
+            holds it. Until Super Admin store creation was fixed it wrote 7878787878 for every
+            merchant it made, so most merchants on this installation are in exactly that state.
+
+            The number itself is edited where it always was, on the profile page. This panel
+            proves it. Changing it there clears the proof, which is the point.
+        --}}
+        <div class="card mt-3">
+            <div class="card-body">
+                <h6 class="mb-2">{{ __('How we reach you') }}</h6>
+
+                @if ($contact->reachable())
+                    <p class="mb-0">
+                        <span class="badge bg-success">{{ __('Confirmed') }}</span>
+                        {{ __('We can tell you if this integration stops working.') }}
+                    </p>
+                @else
+                    <p class="text-muted small">
+                        {{ __('We tell you here when your integration breaks, needs reconnecting, or something about your account needs you. We will only message a number you have confirmed is yours.') }}
+                    </p>
+
+                    <p class="mb-2">
+                        <span class="badge bg-warning">{{ __('Not confirmed') }}</span>
+                        <span class="small">{{ $contact->explanation() }}</span>
+                    </p>
+
+                    <form method="POST" action="{{ route('lynomia.contact.verify.send') }}" class="row g-2 align-items-end mb-2">
+                        @csrf
+                        <div class="col-12 col-md-5">
+                            <label class="form-label small mb-1" for="lync-contact-mobile">{{ __('Mobile number') }}</label>
+                            <input type="text" class="form-control form-control-sm" id="lync-contact-mobile"
+                                   name="mobile" required maxlength="20"
+                                   value="{{ old('mobile', $contactChallenge->candidate_phone ?? auth()->user()->mobile) }}">
+                        </div>
+                        <div class="col-auto">
+                            <button class="btn btn-sm btn-primary">{{ __('Send me a code') }}</button>
+                        </div>
+                    </form>
+
+                    @if ($contactChallenge && $contactChallenge->open())
+                        <form method="POST" action="{{ route('lynomia.contact.verify.confirm') }}" class="row g-2 align-items-end">
+                            @csrf
+                            <div class="col-12 col-md-3">
+                                <label class="form-label small mb-1" for="lync-contact-code">{{ __('The code we sent') }}</label>
+                                <input type="text" class="form-control form-control-sm" id="lync-contact-code"
+                                       name="code" required maxlength="12" autocomplete="one-time-code">
+                            </div>
+                            <div class="col-auto">
+                                <button class="btn btn-sm btn-outline-primary">{{ __('Confirm') }}</button>
+                            </div>
+                        </form>
+                    @endif
+                @endif
+            </div>
+        </div>
+
         {{-- The remaining approved sections (Unified Inbox, Customers, Connected Channels,
              Campaigns, Flows, Reports and the rest) belong to later phases. They are named
              here rather than rendered as empty shells, because a navigable section that does

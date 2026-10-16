@@ -6,6 +6,7 @@ use App\Models\Store;
 use App\Models\User;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Support\LinkState;
+use Workdo\LynomiaChat\app\Support\MerchantContact;
 
 /**
  * WHO STORE SYRIA MAY SEND AN OPERATIONAL NOTICE TO, and at what number.
@@ -21,18 +22,23 @@ use Workdo\LynomiaChat\app\Support\LinkState;
  *
  * ADDRESSING IS NOT, AND THIS CLASS REFUSES RATHER THAN GUESSES.
  *
- * There is no verified merchant phone number in Store Syria. `users.mobile` is nullable, not
- * unique, not indexed, has no format rule, and is actively seeded with values that are not
- * phone numbers: self-registration writes an empty string, and Super Admin store creation
- * hardcodes 7878787878 (StoreController.php:268). There is no OTP, no verification flag and
- * no KYC for a merchant number anywhere in the repository.
+ * `users.mobile` was nullable, unindexed and unvalidated, and is still written with values
+ * that were never anybody's number: self-registration writes an empty string, and Super Admin
+ * store creation wrote the literal 7878787878 for every merchant it created until B4 was
+ * fixed. Sending a WhatsApp message to a value like that does not fail safely -- it reaches
+ * WHOEVER HOLDS THAT NUMBER, who is a stranger, about a merchant's account.
  *
- * Sending a WhatsApp message to a number like that does not fail safely -- it reaches
- * WHOEVER HOLDS THAT NUMBER, who is a stranger, about a merchant's account. So the resolver
- * admits only a number it can normalise to an international form and that is not a known
- * placeholder, and a merchant it cannot address is reported as unreachable rather than
- * addressed approximately. The gap itself is recorded as a blocker; this is what makes it
- * safe to ship in the meantime.
+ * SO WELL-FORMED IS NOT ENOUGH, AND THAT IS THE CHANGE B4 MADE HERE. A number can be
+ * perfectly dialable and belong to somebody else -- a typo in a merchant's own profile form
+ * is a valid number for a stranger, and no amount of parsing will tell the two apart. The
+ * only thing that distinguishes them is the holder having answered a code sent to it, which
+ * is `users.mobile_verified_at` and is set by nothing but
+ * MerchantContactVerification::confirm. A merchant who has not done that is reported
+ * unreachable with `phone_not_verified`, which is a fact an operator can act on rather than a
+ * message a stranger receives.
+ *
+ * THE CLASSIFICATION ITSELF LIVES IN MerchantContact, because the Super Admin report and the
+ * verification flow ask the same question and three answers to it would be three policies.
  *
  * THE OPERATOR NEVER TYPES A NUMBER. Every recipient is resolved from the merchant's own
  * record, which is the owner's requirement that recipients be verified merchants rather than
@@ -40,16 +46,6 @@ use Workdo\LynomiaChat\app\Support\LinkState;
  */
 class PlatformRecipients
 {
-    /**
-     * Values that are in the column and are not phone numbers. Not a general-purpose filter:
-     * these are the two this installation actually writes.
-     */
-    private const PLACEHOLDERS = ['7878787878'];
-
-    /** Shortest and longest an international subscriber number can be (ITU E.164). */
-    private const MIN_DIGITS = 8;
-    private const MAX_DIGITS = 15;
-
     /**
      * States that still represent a customer worth telling about their account.
      *
@@ -98,48 +94,17 @@ class PlatformRecipients
             return [null, 'owner_missing'];
         }
 
-        [$phone, $problem] = $this->addressFor($owner);
+        $contact = MerchantContact::of($owner);
 
-        if ($problem !== null) {
-            return [null, $problem];
+        if (! $contact->reachable()) {
+            return [null, $contact->refusal()];
         }
 
         return [[
             'store_id' => (int) $link->store_id,
             'user_id' => (int) $owner->id,
-            'phone' => $phone,
+            'phone' => $contact->digits,
             'name' => (string) ($owner->name ?? 'Merchant'),
         ], null];
-    }
-
-    /**
-     * The merchant's own number, or why it cannot be used.
-     *
-     * Digits only, leading + stripped, and judged on length. A stricter rule would need a
-     * real phone library and a country to parse against; what this must prevent is sending
-     * to an empty string, a placeholder or something that is plainly not a number, and it
-     * does that without pretending to validate more than it can.
-     *
-     * @return array{0: ?string, 1: ?string}
-     */
-    private function addressFor(User $owner): array
-    {
-        $raw = trim((string) ($owner->mobile ?? ''));
-
-        if ($raw === '') {
-            return [null, 'no_phone_on_record'];
-        }
-
-        $digits = preg_replace('/\D+/', '', $raw) ?? '';
-
-        if (in_array($digits, self::PLACEHOLDERS, true)) {
-            return [null, 'placeholder_phone'];
-        }
-
-        if (strlen($digits) < self::MIN_DIGITS || strlen($digits) > self::MAX_DIGITS) {
-            return [null, 'phone_not_usable'];
-        }
-
-        return [$digits, null];
     }
 }

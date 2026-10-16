@@ -8,7 +8,9 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use Illuminate\Support\Collection;
 use Workdo\LynomiaChat\app\Http\Middleware\EnsureStoreOwnsLink;
+use Workdo\LynomiaChat\app\Models\LynomiaContactVerification;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreIdentity;
+use Workdo\LynomiaChat\app\Support\MerchantContact;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\PlatformApiClient;
 
@@ -39,6 +41,13 @@ class CommunicationCenterController extends Controller
             'integrationConfigured' => $this->api->isConfigured(),
             'verificationCode' => session('lynomia_verification_code'),
             'identities' => $this->identitiesFor($link),
+            // B4. Whether the platform can reach this merchant at all, and the challenge in
+            // flight if they are part way through proving it. Shown here rather than on the
+            // core profile page because the reason it matters is this integration: an
+            // installation that breaks is reported to a number nobody has confirmed, or to
+            // nobody.
+            'contact' => MerchantContact::of($request->user()),
+            'contactChallenge' => LynomiaContactVerification::where('user_id', $request->user()?->id)->first(),
         ]);
     }
 

@@ -29,6 +29,8 @@ use Workdo\LynomiaChat\app\Services\PlatformApiClient;
 use Workdo\LynomiaChat\app\Services\PlatformWorkspaceGateway;
 use Workdo\LynomiaChat\app\Services\MarketingAllowanceSync;
 use Workdo\LynomiaChat\app\Services\SeatAllowanceSync;
+use Workdo\LynomiaChat\app\Support\LinkState;
+use Workdo\LynomiaChat\app\Support\MerchantContact;
 
 /**
  * The dedicated "Lynomia Chat Integration" page in Store Syria Super Admin.
@@ -117,6 +119,8 @@ class IntegrationController extends Controller
             'platformComms' => $this->platformComms(),
             // Phase 4. Who, on this side, can build an automation or record a consent decision.
             'automationAccess' => $this->automationAccess(),
+            // B4. Which merchants the platform can actually reach, and why not for the rest.
+            'merchantContacts' => $this->merchantContacts(),
         ]);
     }
 
@@ -192,6 +196,57 @@ class IntegrationController extends Controller
                 ->pluck('waiting', 'store_id')
                 ->all(),
         ];
+    }
+
+    /**
+     * WHICH MERCHANTS CAN BE TOLD ANYTHING, counted by why not (B4).
+     *
+     * The register's B4 is that no merchant number on this installation was trustworthy.
+     * Fixing the writers stops the problem growing; it does nothing for the merchants already
+     * in the table, and nothing can -- only the holder of a number can prove it. So the gap
+     * is made VISIBLE instead: an operator can see how many merchants are unreachable, for
+     * which of the four reasons, and which stores they are.
+     *
+     * COUNTS FIRST, then the stores. A list of numbers would be a list of other people's
+     * personal data on a page that exists to answer "how bad is this"; the store id is what
+     * an operator acts on, and the merchant's own page is where the number lives.
+     *
+     * SCOPED TO MERCHANTS WITH A LYNOMIA LINK. An installation nobody has connected has
+     * nothing to be notified about, and counting those would make the number unreadable.
+     *
+     * @return array{reachable:int, by_reason:array<string,int>, unreachable_stores:array<int,string>}
+     */
+    private function merchantContacts(): array
+    {
+        $owners = LynomiaStoreLink::query()
+            ->whereIn('state', [LinkState::ACTIVE, LinkState::SUSPENDED])
+            ->get(['store_id', 'owner_user_id']);
+
+        $users = User::query()
+            ->whereIn('id', $owners->pluck('owner_user_id')->filter()->unique())
+            ->get(['id', 'mobile', 'mobile_verified_at'])
+            ->keyBy('id');
+
+        $reachable = 0;
+        $byReason = [];
+        $stores = [];
+
+        foreach ($owners as $row) {
+            $contact = MerchantContact::of($users->get((int) $row->owner_user_id));
+
+            if ($contact->reachable()) {
+                $reachable++;
+                continue;
+            }
+
+            $reason = (string) $contact->refusal();
+            $byReason[$reason] = ($byReason[$reason] ?? 0) + 1;
+            $stores[(int) $row->store_id] = $reason;
+        }
+
+        ksort($stores);
+
+        return ['reachable' => $reachable, 'by_reason' => $byReason, 'unreachable_stores' => $stores];
     }
 
     /**

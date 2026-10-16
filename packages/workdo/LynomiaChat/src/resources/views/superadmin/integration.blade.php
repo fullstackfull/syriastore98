@@ -322,6 +322,44 @@
                     </div>
                 @endif
 
+                {{-- WHO CAN BE TOLD ANYTHING AT ALL (B4).
+                     Fixing the writers stops the problem growing; it does nothing for the
+                     merchants already in the table, and nothing can -- only the holder of a
+                     number can prove it. So the gap is shown instead of hidden. Counts and
+                     store ids only: a list of merchants' phone numbers on an operator page is
+                     a list of other people's personal data, and the number lives on their own
+                     page where it belongs. --}}
+                <div class="card mb-3">
+                    <div class="card-body py-2">
+                        <h6 class="mb-2">{{ __('Merchants we can reach') }}</h6>
+                        <ul class="list-unstyled small mb-2">
+                            <li>
+                                {{ __('Confirmed number on record') }}:
+                                <strong>{{ $merchantContacts['reachable'] }}</strong>
+                            </li>
+                            @foreach ($merchantContacts['by_reason'] as $reason => $count)
+                                <li>{{ __('lynomia-chat::contact.' . $reason) }}: <strong>{{ $count }}</strong></li>
+                            @endforeach
+                        </ul>
+
+                        @if (! empty($merchantContacts['unreachable_stores']))
+                            <div class="alert alert-warning mb-0 py-2">
+                                <div class="small mb-1">
+                                    <strong>{{ __('These merchants cannot be sent an operational notice') }}</strong>
+                                    &mdash; {{ __('they are asked to confirm a number on their own Lynomia Chat page.') }}
+                                </div>
+                                <div class="small">
+                                    @foreach ($merchantContacts['unreachable_stores'] as $storeId => $reason)
+                                        <span class="badge bg-light text-dark me-1">
+                                            {{ __('Store') }} #{{ $storeId }} &mdash; {{ __('lynomia-chat::contact.' . $reason) }}
+                                        </span>
+                                    @endforeach
+                                </div>
+                            </div>
+                        @endif
+                    </div>
+                </div>
+
                 <ul class="list-unstyled small">
                     {{-- Shown because nothing on this side can tell Store Syria's own workspace
                          from a merchant's: pointed at a merchant's account and inbox, this would

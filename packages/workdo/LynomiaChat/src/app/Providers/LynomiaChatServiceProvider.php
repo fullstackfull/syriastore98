@@ -247,6 +247,20 @@ class LynomiaChatServiceProvider extends ServiceProvider
                 ? [Limit::perMinute(10)->by('lynomia-studio:anonymous:' . $request->ip())]
                 : [Limit::perMinute((int) config('lynomia.studio_rate_per_minute', 240))->by('lynomia-studio:user:' . $user->id)];
         });
+
+        // B4. Confirming a merchant's number makes a phone ring, so the budget is small and it
+        // is keyed on the PERSON, not the number: the service's own cooldown stops a merchant
+        // asking again for the same number every second, and this stops one session walking a
+        // list of other people's numbers a minute at a time. Both are needed -- the cooldown is
+        // per challenge and a new number replaces the challenge.
+        RateLimiter::for('lynomia-contact-verify', function (Request $request) {
+            $user = $request->user();
+
+            return is_null($user)
+                ? [Limit::perMinute(3)->by('lynomia-contact-verify:anonymous:' . $request->ip())]
+                : [Limit::perHour((int) config('lynomia.contact_verify_rate_per_hour', 10))
+                    ->by('lynomia-contact-verify:user:' . $user->id)];
+        });
     }
 
     /**

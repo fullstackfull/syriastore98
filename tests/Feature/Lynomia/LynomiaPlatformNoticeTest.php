@@ -42,10 +42,18 @@ class LynomiaPlatformNoticeTest extends TestCase
         config()->set('lynomia.platform_workspace_inbox_id', 31);
     }
 
-    private function connected(string $mobile = '963900111222'): array
+    /**
+     * A merchant who has CONFIRMED their number, because that is what B4 now requires before
+     * anything is sent to them and these examples are about what happens after that point.
+     * `$verified: false` is how a case asks for the other situation.
+     */
+    private function connected(string $mobile = '963900111222', bool $verified = true): array
     {
         [$owner, $store] = $this->entitledTenant();
-        $owner->forceFill(['mobile' => $mobile])->save();
+        $owner->forceFill([
+            'mobile' => $mobile,
+            'mobile_verified_at' => $verified && $mobile !== '' ? now() : null,
+        ])->save();
         $this->fakeLynomia(['account_id' => 7001]);
         $link = app(AccountProvisioner::class)->provision($store, $owner)->fresh();
 
@@ -255,7 +263,8 @@ class LynomiaPlatformNoticeTest extends TestCase
         $this->assertSame(LynomiaPlatformNotice::FAILED, $refused->status);
         $this->assertSame('no_phone_on_record', $refused->failure_reason);
 
-        $owner->forceFill(['mobile' => '963900111222'])->save();
+        // The merchant confirms a number, which is the only thing that makes them reachable.
+        $owner->forceFill(['mobile' => '963900111222', 'mobile_verified_at' => now()])->save();
         $sent = $this->notify($link, 'onboarding:1');
 
         $this->assertSame(LynomiaPlatformNotice::SENT, $sent->status);

@@ -8,6 +8,7 @@ use Workdo\LynomiaChat\app\Http\Controllers\AudienceController;
 use Workdo\LynomiaChat\app\Http\Controllers\AutomationApiController;
 use Workdo\LynomiaChat\app\Http\Controllers\AutomationController;
 use Workdo\LynomiaChat\app\Http\Controllers\CommunicationCenterController;
+use Workdo\LynomiaChat\app\Http\Controllers\ContactVerificationController;
 use Workdo\LynomiaChat\app\Http\Controllers\ConnectionController;
 use Workdo\LynomiaChat\app\Http\Controllers\CommerceApiController;
 use Workdo\LynomiaChat\app\Http\Controllers\EventIngressController;
@@ -150,6 +151,23 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
             Route::get('/', [CommunicationCenterController::class, 'index'])
                 ->middleware(EnsureStoreOwnsLink::class)
                 ->name('overview');
+
+            // B4. A merchant proving they hold the number the platform would reach them on.
+            //
+            // INSIDE the merchant group, so the full stack applies: session and CSRF from
+            // `web`, `auth`, the module entitlement and the Lynomia permission. Neither action
+            // takes a user id or a store id -- both act on the authenticated merchant and the
+            // store they are currently in, so there is no parameter to tamper with.
+            //
+            // Throttled on top of all that, because `send` makes somebody's phone ring: the
+            // service's own cooldown stops a merchant hammering their own number, and this
+            // stops a session hammering a succession of them.
+            Route::post('/contact/verify/send', [ContactVerificationController::class, 'send'])
+                ->middleware('throttle:lynomia-contact-verify')
+                ->name('contact.verify.send');
+            Route::post('/contact/verify/confirm', [ContactVerificationController::class, 'confirm'])
+                ->middleware('throttle:lynomia-contact-verify')
+                ->name('contact.verify.confirm');
 
             Route::post('/connect/provision', [ConnectionController::class, 'provision'])
                 ->middleware(EnsureStoreOwnsLink::class)

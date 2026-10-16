@@ -76,6 +76,11 @@ class User extends Authenticatable implements LaratrustUser, MustVerifyEmail
      */
     protected $casts = [
         'email_verified_at' => 'datetime',
+        // Set only by a merchant answering a code sent to that number, and cleared whenever the
+        // number changes. Deliberately NOT in $fillable: nothing may mass-assign a claim that
+        // somebody proved they hold a phone number.
+        // See Workdo\LynomiaChat\app\Services\MerchantContactVerification.
+        'mobile_verified_at' => 'datetime',
         'password' => 'hashed',
     ];
 

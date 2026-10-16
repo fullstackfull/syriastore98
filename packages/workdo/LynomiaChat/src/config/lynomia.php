@@ -272,5 +272,22 @@ return [
      */
     'platform_notice_templates' => [
         'integration_suspended' => (string) env('LYNOMIA_NOTICE_INTEGRATION_SUSPENDED', 'integration_suspended'),
+
+        // B4. The code a merchant answers to prove they hold the number they gave us.
+        //
+        // MUST BE AN APPROVED **UTILITY** TEMPLATE WITH ONE BODY PARAMETER. The platform
+        // workspace refuses anything Meta does not classify as UTILITY, which is the owner's
+        // Decision 2 and is not relaxed for this: Meta's own AUTHENTICATION category, which is
+        // what an OTP template would ordinarily be, is refused by that gate. Admitting it is an
+        // owner decision, not a configuration one.
+        'contact_verification' => (string) env('LYNOMIA_NOTICE_CONTACT_VERIFICATION', 'contact_verification'),
     ],
+
+    // B4. How many codes one merchant may ask for in an hour, across every number they try.
+    'contact_verify_rate_per_hour' => (int) env('LYNOMIA_CONTACT_VERIFY_RATE_PER_HOUR', 10),
+
+    // The language platform notices are sent in. One setting, because every notice goes to a
+    // merchant of this installation rather than to their shoppers, and the template has to
+    // exist in whatever is named here.
+    'platform_notice_language' => (string) env('LYNOMIA_NOTICE_LANGUAGE', 'en_US'),
 ];
