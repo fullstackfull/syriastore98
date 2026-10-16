@@ -9,6 +9,7 @@ use Workdo\LynomiaChat\app\Http\Controllers\AutomationApiController;
 use Workdo\LynomiaChat\app\Http\Controllers\AutomationController;
 use Workdo\LynomiaChat\app\Http\Controllers\CommunicationCenterController;
 use Workdo\LynomiaChat\app\Http\Controllers\ContactVerificationController;
+use Workdo\LynomiaChat\app\Http\Controllers\PlatformEventIngressController;
 use Workdo\LynomiaChat\app\Http\Controllers\ConnectionController;
 use Workdo\LynomiaChat\app\Http\Controllers\CommerceApiController;
 use Workdo\LynomiaChat\app\Http\Controllers\EventIngressController;
@@ -106,6 +107,25 @@ Route::post('/lynomia/events/{store}', [EventIngressController::class, 'store'])
     // and destroy their events.
     ->middleware(['throttle:lynomia-ingress', GuardEventIngress::class, 'throttle:lynomia-events'])
     ->name('lynomia.events.ingress');
+
+// WHAT BECAME OF THE NOTICES THIS INSTALLATION SENT ITS OWN MERCHANTS.
+//
+// A second ingress, and not the one above, because that one is keyed on a store: its secret is
+// derived from the store id and it refuses any delivery whose account is not that store's. The
+// platform workspace is the installation's own account and has no store, so there is nothing to
+// key on -- and deriving its secret from some merchant's id would be a merchant who can forge
+// the platform's deliveries.
+//
+// SAME STACK, SAME ORDER, SAME REASONS. The per-IP limit first, because it is the only one an
+// unverified caller can spend; then the guard, in its platform scope, for the size cap and the
+// HMAC; then the platform's own budget, which only a verified delivery reaches.
+Route::post('/lynomia/platform-events', [PlatformEventIngressController::class, 'store'])
+    ->middleware([
+        'throttle:lynomia-ingress',
+        GuardEventIngress::class . ':' . \Workdo\LynomiaChat\app\Services\EventSignature::PLATFORM_SCOPE,
+        'throttle:lynomia-platform-events',
+    ])
+    ->name('lynomia.platform.events.ingress');
 
 // ---------------------------------------------------------------- commerce API (Phase 3)
 //

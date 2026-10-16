@@ -9,6 +9,7 @@ use Illuminate\Support\Str;
 use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Models\LynomiaPlatformNotice;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
+use Workdo\LynomiaChat\app\Support\DeliveryOutcome;
 
 /**
  * SENDING ONE OPERATIONAL NOTICE TO ONE MERCHANT, ONCE.
@@ -175,7 +176,14 @@ class PlatformNotifier
         // The recipient and the parameters are re-resolved, because what failed last time is
         // exactly what may have changed since.
         $notice->refresh();
-        $notice->forceFill($attributes + ['failure_reason' => null])->save();
+        // The outcome goes with the failure reason: a row being tried again must not still be
+        // showing the answer the previous attempt got.
+        $notice->forceFill(array_merge($attributes, [
+            'failure_reason' => null,
+            'delivery_outcome' => null,
+            'delivery_reason' => null,
+            'delivery_outcome_at' => null,
+        ]))->save();
 
         return $notice;
     }
@@ -201,7 +209,7 @@ class PlatformNotifier
         $notice->refresh();
 
         try {
-            $messageId = $this->workspace->sendTemplate(
+            $handed = $this->workspace->sendTemplate(
                 $recipient['phone'],
                 $recipient['name'],
                 $notice->template_name,
@@ -210,8 +218,17 @@ class PlatformNotifier
             );
 
             $notice->forceFill([
+                // `SENT` here has always meant "Lynomia accepted it", never "the merchant
+                // received it" -- Lynomia answers 200 when the message row exists, and its
+                // own gates run afterwards. What it went on to do arrives through the
+                // delivery feed and lands in `delivery_outcome`, which is a separate column
+                // for exactly that reason.
                 'status' => LynomiaPlatformNotice::SENT,
-                'lynomia_message_id' => $messageId,
+                'lynomia_message_id' => $handed['message_id'],
+                // Kept so this notice can be reconciled if its delivery events are lost:
+                // Lynomia's read endpoints are addressed by conversation, not by message.
+                'lynomia_conversation_id' => $handed['conversation_id'],
+                'delivery_outcome' => DeliveryOutcome::ACCEPTED,
                 'sent_at' => now(),
             ])->save();
         } catch (LynomiaApiException $e) {
@@ -222,6 +239,11 @@ class PlatformNotifier
             $notice->forceFill([
                 'status' => $e->isTransient() ? LynomiaPlatformNotice::INDETERMINATE : LynomiaPlatformNotice::FAILED,
                 'failure_reason' => Str::limit('kind_' . $e->kind, 191, ''),
+                // A transport failure is the one case where nobody knows: the request may or
+                // may not have arrived. `unknown` says that; `failed` would claim more.
+                'delivery_outcome' => $e->isTransient()
+                    ? DeliveryOutcome::UNKNOWN
+                    : DeliveryOutcome::FAILED,
             ])->save();
         }
 
@@ -245,6 +267,19 @@ class PlatformNotifier
             'failure_reason' => $reason,
             'recipient_user_id' => null,
             'recipient_phone' => '',
+            // REFUSED BY POLICY, AND SAID SO IN THE OUTCOME COLUMN TOO.
+            //
+            // Lynomia never saw this one -- there is no verified merchant to address it to,
+            // so nothing was handed over and no delivery event can ever arrive for it. The
+            // outcome is therefore settled here or nowhere, and leaving it null would put the
+            // single most common real case (B4: a merchant whose number nobody has confirmed)
+            // in the one state the console reads as "we do not know yet".
+            //
+            // No `outcome_at_us`: that column orders the delivery feed against itself, and a
+            // notice with no message on the far side has no feed to order against.
+            'delivery_outcome' => DeliveryOutcome::REFUSED,
+            'delivery_reason' => Str::limit($reason, 64, ''),
+            'delivery_outcome_at' => now(),
         ])->save();
 
         $this->audit($notice);

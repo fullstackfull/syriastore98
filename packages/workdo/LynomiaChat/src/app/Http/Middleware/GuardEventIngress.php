@@ -37,7 +37,22 @@ class GuardEventIngress
     /** Set once the HMAC has been checked, and read by the per-store rate limiter. */
     public const VERIFIED_STORE = 'lynomia.verified_store';
 
-    public function handle(Request $request, Closure $next): Response
+    /**
+     * The same, for the feed that is not about one store: the installation's own workspace
+     * reporting what became of the notices it sent. There is no store id to record, so this
+     * is a boolean -- the scope is in the route, not in the path.
+     */
+    public const VERIFIED_PLATFORM = 'lynomia.verified_platform';
+
+    /**
+     * @param string $scope 'store' (the path carries a store id) or 'platform' (it does not).
+     *                      The size cap, the ordering of the checks and the refusal behaviour
+     *                      are identical; only the key the signature is checked against, and
+     *                      the attribute that records success, differ. One guard rather than
+     *                      two, because a second copy is a second place for the ordering of
+     *                      size-then-signature-then-throttle to drift.
+     */
+    public function handle(Request $request, Closure $next, string $scope = 'store'): Response
     {
         $declared = $request->server('CONTENT_LENGTH');
 
@@ -63,18 +78,30 @@ class GuardEventIngress
         // unauthenticated flood is bounded by the separate per-IP limit in front of this.
         $store = (int) $request->route('store');
 
-        if (! EventSignature::verify(
-            $store,
-            $request->getContent(),
-            $request->header(EventSignature::SIGNATURE_HEADER),
-            $request->header(EventSignature::TIMESTAMP_HEADER)
-        )) {
+        $verified = $scope === EventSignature::PLATFORM_SCOPE
+            ? EventSignature::verifyPlatform(
+                $request->getContent(),
+                $request->header(EventSignature::SIGNATURE_HEADER),
+                $request->header(EventSignature::TIMESTAMP_HEADER)
+            )
+            : EventSignature::verify(
+                $store,
+                $request->getContent(),
+                $request->header(EventSignature::SIGNATURE_HEADER),
+                $request->header(EventSignature::TIMESTAMP_HEADER)
+            );
+
+        if (! $verified) {
             // Deliberately uninformative TO THE CALLER: telling them whether the signature, the
             // timestamp or the store was wrong is three oracles in one response.
             return $this->refuse($request, 'bad_signature', 0, 401);
         }
 
-        $request->attributes->set(self::VERIFIED_STORE, $store);
+        if ($scope === EventSignature::PLATFORM_SCOPE) {
+            $request->attributes->set(self::VERIFIED_PLATFORM, true);
+        } else {
+            $request->attributes->set(self::VERIFIED_STORE, $store);
+        }
 
         return $next($request);
     }

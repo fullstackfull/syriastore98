@@ -283,6 +283,10 @@ return [
         'contact_verification' => (string) env('LYNOMIA_NOTICE_CONTACT_VERIFICATION', 'contact_verification'),
     ],
 
+    // Deliveries a minute on the platform feed, across the whole installation. One producer,
+    // so this is a backstop against a loop rather than a fairness budget.
+    'platform_ingress_rate_per_minute' => (int) env('LYNOMIA_PLATFORM_INGRESS_RATE_PER_MINUTE', 600),
+
     // B4. How many codes one merchant may ask for in an hour, across every number they try.
     'contact_verify_rate_per_hour' => (int) env('LYNOMIA_CONTACT_VERIFY_RATE_PER_HOUR', 10),
 

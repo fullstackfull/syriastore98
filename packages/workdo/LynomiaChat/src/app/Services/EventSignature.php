@@ -28,8 +28,29 @@ class EventSignature
     public const TIMESTAMP_HEADER = 'X-Chatwoot-Timestamp';
     public const DELIVERY_HEADER = 'X-Chatwoot-Delivery';
 
+    /**
+     * The scope of the delivery feed that is not about one merchant's store.
+     *
+     * Store Syria's own Lynomia workspace reports what became of the operational notices it
+     * sends (Delivery::StatusFeed). Those messages belong to no store, so there is no store id
+     * to derive a secret from -- and reusing a merchant's would mean a merchant who learned
+     * their own secret could forge the platform's deliveries.
+     */
+    public const PLATFORM_SCOPE = 'platform';
+
     /** The secret for one store. Derived, so there is no copy of it anywhere. */
     public static function secretFor(int $storeId): string
+    {
+        return self::deriveFor((string) $storeId);
+    }
+
+    /** The secret for the installation's own workspace feed. A scope no store id can collide with. */
+    public static function platformSecret(): string
+    {
+        return self::deriveFor(self::PLATFORM_SCOPE);
+    }
+
+    private static function deriveFor(string $scope): string
     {
         $master = (string) config('lynomia.webhook_master_secret');
 
@@ -40,7 +61,7 @@ class EventSignature
             throw new \RuntimeException('LYNOMIA_WEBHOOK_MASTER_SECRET is not configured.');
         }
 
-        return hash_hmac('sha256', "lynomia-webhook:{$storeId}", $master);
+        return hash_hmac('sha256', "lynomia-webhook:{$scope}", $master);
     }
 
     /**
@@ -51,6 +72,17 @@ class EventSignature
      */
     public static function verify(int $storeId, string $body, ?string $signature, ?string $timestamp): bool
     {
+        return self::verifyWith(self::secretFor($storeId), $body, $signature, $timestamp);
+    }
+
+    /** The same question for the platform feed, which has no store. */
+    public static function verifyPlatform(string $body, ?string $signature, ?string $timestamp): bool
+    {
+        return self::verifyWith(self::platformSecret(), $body, $signature, $timestamp);
+    }
+
+    private static function verifyWith(string $secret, string $body, ?string $signature, ?string $timestamp): bool
+    {
         if ($signature === null || $timestamp === null || ! ctype_digit($timestamp)) {
             return false;
         }
@@ -59,7 +91,7 @@ class EventSignature
             return false;
         }
 
-        $expected = 'sha256=' . hash_hmac('sha256', "{$timestamp}.{$body}", self::secretFor($storeId));
+        $expected = 'sha256=' . hash_hmac('sha256', "{$timestamp}.{$body}", $secret);
 
         return hash_equals($expected, $signature);
     }

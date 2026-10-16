@@ -49,11 +49,16 @@ class PlatformWorkspaceGateway
      * WhatsApp identity, so a second notice to the same merchant reuses it.
      *
      * @param  array<string,string>  $params
-     * @return int the Lynomia message id
+     * @return array{message_id:int, conversation_id:int} what Lynomia now holds this as
+     *
+     * THE CONVERSATION TRAVELS BACK TOO, and it is not decoration. Lynomia's delivery feed
+     * reports an outcome per message, but its READ endpoints are addressed by conversation --
+     * so a notice that keeps only the message id can never be reconciled when an event is
+     * lost, which is the one case reconciliation exists for.
      *
      * @throws LynomiaApiException
      */
-    public function sendTemplate(string $phone, string $name, string $template, string $language, array $params): int
+    public function sendTemplate(string $phone, string $name, string $template, string $language, array $params): array
     {
         $client = $this->client();
         $inboxId = (int) $this->inboxId();
@@ -70,7 +75,26 @@ class PlatformWorkspaceGateway
             throw new LynomiaApiException(LynomiaApiException::KIND_CONFLICT, __('The conversation could not be opened.'));
         }
 
-        return $client->sendTemplateMessage($displayId, $template, $language, $params);
+        return [
+            'message_id' => $client->sendTemplateMessage($displayId, $template, $language, $params),
+            'conversation_id' => $displayId,
+        ];
+    }
+
+    /**
+     * Read a conversation's messages back from the platform workspace.
+     *
+     * Reconciliation's only question: what does Lynomia now hold for the message we handed it?
+     * Here rather than in the reconciler because this class is the one that knows how to reach
+     * the workspace at all -- the token, the account id and the refusal when it is unconfigured.
+     *
+     * @return array<string,mixed>
+     *
+     * @throws LynomiaApiException
+     */
+    public function listMessages(int $conversationId): array
+    {
+        return $this->client()->listMessages($conversationId);
     }
 
     private function client(): AgentApiClient

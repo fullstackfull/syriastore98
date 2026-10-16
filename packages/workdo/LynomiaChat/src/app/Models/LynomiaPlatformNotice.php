@@ -48,14 +48,36 @@ class LynomiaPlatformNotice extends Model
     protected $fillable = [
         'store_id', 'recipient_user_id', 'recipient_phone', 'kind', 'template_name',
         'template_language', 'template_params', 'dedupe_key', 'status', 'failure_reason',
-        'lynomia_message_id', 'sent_at', 'requested_by', 'automated',
+        'lynomia_message_id', 'lynomia_conversation_id', 'sent_at', 'requested_by', 'automated',
+        // Written only by PlatformDeliveryProjector, from Lynomia's delivery feed. Separate
+        // from `status` on purpose: that records OUR attempt, these record what Lynomia went
+        // on to do with it, and collapsing the two loses "we handed it over and it was
+        // refused", which is the case the whole feed exists for.
+        'delivery_outcome', 'delivery_reason', 'delivery_outcome_at', 'outcome_at_us',
     ];
 
     protected $casts = [
         'template_params' => 'array',
         'automated' => 'boolean',
         'sent_at' => 'datetime',
+        'delivery_outcome_at' => 'datetime',
+        'outcome_at_us' => 'integer',
     ];
+
+    /**
+     * Notices whose fate is still open, and which reconciliation therefore has to chase.
+     *
+     * `sent` with no outcome is the dangerous one: Lynomia took it and nothing has reported
+     * back, which before the delivery feed was indistinguishable from success.
+     */
+    public function scopeAwaitingOutcome(Builder $query): Builder
+    {
+        return $query->where('status', self::SENT)
+            ->where(function (Builder $q) {
+                $q->whereNull('delivery_outcome')
+                    ->orWhereNotIn('delivery_outcome', \Workdo\LynomiaChat\app\Support\DeliveryOutcome::TERMINAL);
+            });
+    }
 
     /** Fails closed on an unresolvable tenant, as every other store scope in this module does. */
     public function scopeForStore(Builder $query, $storeId): Builder

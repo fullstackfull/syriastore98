@@ -104,6 +104,7 @@ class LynomiaChatServiceProvider extends ServiceProvider
             \Workdo\LynomiaChat\app\Console\Commands\DeliverLynomiaCommerceEvents::class,
             \Workdo\LynomiaChat\app\Console\Commands\DeliverLynomiaConsentDecisions::class,
             \Workdo\LynomiaChat\app\Console\Commands\ReconcileLynomiaConsents::class,
+            \Workdo\LynomiaChat\app\Console\Commands\ReconcileLynomiaDeliveries::class,
         ]);
 
         $this->app->booted(function () {
@@ -121,6 +122,13 @@ class LynomiaChatServiceProvider extends ServiceProvider
             // an opt-out that arrived while this side was deploying is gone and nothing in
             // the push path notices. One read per connected store per hour is what notices.
             $schedule->command('lynomia:reconcile-consents')->hourly()->withoutOverlapping();
+            // EVERY FIFTEEN MINUTES, which is the grace window the reconciler itself waits
+            // out before asking about a notice. A faster sweep would re-read notices it had
+            // already decided were too young, and a slower one would leave a merchant's
+            // broken-integration notice sitting at `accepted` for longer than an operator
+            // can act on. Unlike consents this reads ONE workspace, not one per merchant,
+            // so the cost does not grow with the number of stores.
+            $schedule->command('lynomia:reconcile-deliveries')->everyFifteenMinutes()->withoutOverlapping();
         });
     }
 
@@ -248,6 +256,15 @@ class LynomiaChatServiceProvider extends ServiceProvider
                 : [Limit::perMinute((int) config('lynomia.studio_rate_per_minute', 240))->by('lynomia-studio:user:' . $user->id)];
         });
 
+        // The platform delivery feed. One producer, Lynomia's own workspace webhook, so this is
+        // a backstop against a loop on the far side rather than a per-tenant fairness budget --
+        // there are no tenants to be fair between. Generous, because a burst of delivery
+        // receipts after a queue drains is ordinary and must not look like an attack.
+        RateLimiter::for('lynomia-platform-events', function (Request $request) {
+            return [Limit::perMinute((int) config('lynomia.platform_ingress_rate_per_minute', 600))
+                ->by('lynomia-platform-events')];
+        });
+
         // B4. Confirming a merchant's number makes a phone ring, so the budget is small and it
         // is keyed on the PERSON, not the number: the service's own cooldown stops a merchant
         // asking again for the same number every second, and this stops one session walking a
@@ -273,7 +290,11 @@ class LynomiaChatServiceProvider extends ServiceProvider
      */
     protected function skipBodyTransformsOnIngress(): void
     {
-        $isIngress = static fn (Request $request): bool => $request->is('lynomia/events/*');
+        // BOTH ingress doors. `lynomia/platform-events` does not match `lynomia/events/*`, so
+        // without the second pattern the platform feed got the full recursive walk of an
+        // unauthenticated body that this method exists to prevent for the other one.
+        $isIngress = static fn (Request $request): bool => $request->is('lynomia/events/*')
+            || $request->is('lynomia/platform-events');
 
         TrimStrings::skipWhen($isIngress);
         ConvertEmptyStringsToNull::skipWhen($isIngress);
