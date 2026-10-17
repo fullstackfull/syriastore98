@@ -67,6 +67,12 @@ return [
      */
     'credential_lifetime_seconds' => (int) env('LYNOMIA_CREDENTIAL_TTL_SECONDS', 3600),
 
+    // How long a recovery window stays open. One provider health check takes milliseconds, so
+    // this is deliberately short -- it is the blast radius of the only authorisation this
+    // integration grants to a link that is not active. Floored at 5s in the model, so setting it
+    // to 0 cannot disable the expiry.
+    'recovery_window_seconds' => (int) env('LYNOMIA_RECOVERY_WINDOW_SECONDS', 60),
+
     /*
      * THE MASTER KEY EVERY STORE'S WEBHOOK SECRET IS DERIVED FROM.
      *

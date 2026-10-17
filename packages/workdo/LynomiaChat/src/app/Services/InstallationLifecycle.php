@@ -153,7 +153,45 @@ class InstallationLifecycle
             );
         }
 
-        $this->push($link, $transition, $reason, $actor);
+        // THE RECOVERY WINDOW, OPENED ONLY FOR A TRANSITION BACK INTO SERVICE.
+        //
+        // Lynomia will not re-enable an installation it has not verified, and its verification is
+        // one GET of this side's commerce identity endpoint -- which the push below triggers while
+        // this link is still suspended or revoked, because the push deliberately comes first. The
+        // window is what lets that single read through; see LinkState::RECOVERY_ELIGIBLE for why
+        // each half of that deadlock is individually correct.
+        //
+        // Opened for `resume` only. A suspend or a decommission needs no verification from the
+        // other side, so neither gets one.
+        $recovery = $to === LinkState::ACTIVE && $link->openRecoveryWindow($transition, (int) $actor->id);
+
+        if ($recovery) {
+            AuditLog::record('lynomia_recovery_window_opened', $link->fresh(), [], [
+                'purpose' => $transition,
+                'actor_id' => (int) $actor->id,
+                'expires_in_seconds' => LynomiaStoreLink::recoveryWindowSeconds(),
+            ]);
+        }
+
+        try {
+            $this->push($link, $transition, $reason, $actor);
+        } finally {
+            // SHUT IN A FINALLY, so a refused push cannot leave a usable window behind. The one
+            // identity read it permits has already happened by now whether the push succeeded or
+            // not, and the expiry is a backstop rather than the mechanism.
+            if ($recovery) {
+                $fresh = $link->fresh();
+                // READ BEFORE CLOSING. `closeRecoveryWindow` nulls the column, so asking
+                // afterwards would report every window as unspent.
+                $wasSpent = $fresh?->recovery_window_consumed_at !== null;
+                $fresh?->closeRecoveryWindow();
+
+                AuditLog::record('lynomia_recovery_window_closed', $fresh, [], [
+                    'purpose' => $transition,
+                    'was_spent' => $wasSpent,
+                ]);
+            }
+        }
 
         [$locked, $previous, $entry] = DB::transaction(function () use ($link, $actor, $reason, $from, $to, $auditEvent) {
             $locked = LynomiaStoreLink::query()->lockForUpdate()->find($link->id);

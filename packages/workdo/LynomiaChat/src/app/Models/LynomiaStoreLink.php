@@ -58,6 +58,10 @@ class LynomiaStoreLink extends Model
         'provisioning_started_at',
         'provisioning_attempts',
         'ownership_proven_at',
+        'recovery_window_expires_at',
+        'recovery_window_purpose',
+        'recovery_window_opened_by',
+        'recovery_window_consumed_at',
     ];
 
     /**
@@ -92,6 +96,9 @@ class LynomiaStoreLink extends Model
         'provisioning_started_at' => 'datetime',
         'provisioning_attempts' => 'integer',
         'ownership_proven_at' => 'datetime',
+        'recovery_window_expires_at' => 'datetime',
+        'recovery_window_opened_by' => 'integer',
+        'recovery_window_consumed_at' => 'datetime',
     ];
 
     /**
@@ -165,6 +172,81 @@ class LynomiaStoreLink extends Model
         }
 
         return $this->link_mode !== self::MODE_LINK_EXISTING || $this->ownershipProven();
+    }
+
+    /**
+     * Open the one-shot window that lets Lynomia health-check this installation while it is being
+     * brought back. Returns false when this link is not in a state a recovery applies to, which
+     * the caller treats as "no window needed" rather than as an error.
+     *
+     * Everything `allowsSso()` guarantees beyond the state is still required: the link must be
+     * provisioned, and a CLAIMED workspace must still have had its ownership proven by Lynomia.
+     * An operator cannot manufacture either.
+     */
+    public function openRecoveryWindow(string $purpose, ?int $operatorId): bool
+    {
+        if (! $this->recoveryEligible()) {
+            return false;
+        }
+
+        $this->forceFill([
+            'recovery_window_expires_at' => now()->addSeconds(self::recoveryWindowSeconds()),
+            'recovery_window_purpose' => $purpose,
+            'recovery_window_opened_by' => $operatorId,
+            'recovery_window_consumed_at' => null,
+        ])->save();
+
+        return true;
+    }
+
+    /** Shut the window, whatever happened. Called in a finally, so it must be safe to repeat. */
+    public function closeRecoveryWindow(): void
+    {
+        if ($this->recovery_window_expires_at === null) {
+            return;
+        }
+
+        $this->forceFill([
+            'recovery_window_expires_at' => null,
+            'recovery_window_purpose' => null,
+            'recovery_window_opened_by' => null,
+            'recovery_window_consumed_at' => null,
+        ])->save();
+    }
+
+    /**
+     * SPEND the window for this store, if there is one to spend.
+     *
+     * ONE STATEMENT, BECAUSE TWO CALLERS MUST NOT BOTH WIN. A read-then-write would let two
+     * concurrent health checks each see an unspent window and each be allowed through; the
+     * conditional UPDATE makes the database the arbiter, and `affected === 1` is the proof that
+     * this caller is the one that spent it.
+     *
+     * @return bool whether THIS call spent it
+     */
+    public static function spendRecoveryWindow(int $storeId): bool
+    {
+        return static::query()
+            ->where('store_id', $storeId)
+            ->whereNull('recovery_window_consumed_at')
+            ->where('recovery_window_expires_at', '>', now())
+            ->update(['recovery_window_consumed_at' => now()]) === 1;
+    }
+
+    /** The states a recovery may be attempted from, plus the checks `allowsSso` makes beyond state. */
+    public function recoveryEligible(): bool
+    {
+        if (! in_array($this->state, LinkState::RECOVERY_ELIGIBLE, true) || ! $this->isProvisioned()) {
+            return false;
+        }
+
+        return $this->link_mode !== self::MODE_LINK_EXISTING || $this->ownershipProven();
+    }
+
+    /** Seconds a window stays open. Short on purpose: one health check takes milliseconds. */
+    public static function recoveryWindowSeconds(): int
+    {
+        return max(5, (int) config('lynomia.recovery_window_seconds', 60));
     }
 
     /**

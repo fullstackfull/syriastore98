@@ -77,6 +77,17 @@ final class LinkState
     /** States in which a merchant may be handed an SSO link. */
     public const SSO_ALLOWED = [self::ACTIVE];
 
+    /**
+     * States from which a recovery window may be opened at all.
+     *
+     * Identical to RESUMABLE by construction rather than by coincidence: a window exists only to
+     * let Lynomia health-check an installation an operator is bringing back, so the states it
+     * covers are exactly the states an operator can bring back. DECOMMISSIONED is absent for the
+     * same reason it is absent there -- there is nothing to return to -- and PENDING_VERIFICATION
+     * is absent because an installation that was never active is being provisioned, not recovered.
+     */
+    public const RECOVERY_ELIGIBLE = self::RESUMABLE;
+
     private function __construct()
     {
     }
