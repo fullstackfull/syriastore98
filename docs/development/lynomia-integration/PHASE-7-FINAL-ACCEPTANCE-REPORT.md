@@ -21,7 +21,7 @@ Nothing is marked complete without the evidence named beside it.
 | Milestone | State | Evidence, or why not |
 |---|---|---|
 | **CODE MERGED** | **YES** | Both default branches verified at the SHAs in §2, read from the GitHub API rather than assumed. |
-| **CODE VERIFIED** | **PARTIAL** | Cross-repository contract specs and the integration specs ran green here (§5, §13). The two full suites are reported in §5 with their exact provenance. |
+| **CODE VERIFIED** | **YES** | Store Syria's full suite reproduces the recorded baseline **exactly** (2246 tests / 14910 assertions, gate exit 0 — §13), and Lynomia's whole gate is **green on a clean GitHub runner, 20/20**, including all sixteen rspec shards and the cross-repository contract specs (§13). The three contract artifacts are byte-identical across both repositories (§5). |
 | **PRE-LAUNCH DEPLOYED** | **NO** | There is no reachable owner environment. `chat.lynomia.com` has **no DNS record at all**; no credential for either platform exists in this session; arbitrary outbound egress is policy-denied; and the repository's own runbook records that Store Syria has no deployment story. Nothing was deployed. §1. |
 | **CROSS-PLATFORM VERIFIED** | **YES, in a local two-app environment** | Both applications were booted and wired to each other, and the integration was driven through its own production code paths over real HTTP in both directions, with real signatures and real database writes. §3, §4. This is **not** the owner's installation and does not substitute for one. |
 | **PROVIDER VERIFIED** | **NO** | No WhatsApp/Meta account, number or credential exists here. No provider message was sent, attempted or simulated. §11. |
@@ -502,15 +502,32 @@ Screenshots were captured. Measured:
 **Mobile responsiveness: pass** on this surface, in both locales — no horizontal page scroll at a
 390 px viewport, which is the check that catches the common RTL layout break.
 
-**RTL layout is UNVERIFIED, and I am deliberately not calling it a defect.** Arabic text rendered
-while the document direction stayed `ltr`. The dashboard uses Tailwind's `ltr:` / `rtl:` variants
-throughout (dozens of components), and those require `dir="rtl"` on an ancestor to do anything —
-but I did not establish *where* the application is supposed to set it, and `/app/auth/signin` is an
-unauthenticated page with no user locale to key on, so LTR may well be correct there. The surface
-those variants actually serve is the **authenticated dashboard**, which this phase did not reach.
-What can be said: on the one surface measured, Arabic content renders and the layout does not
-break; whether the authenticated dashboard flips to RTL for an Arabic user is **not established
-either way**.
+#### The authenticated dashboard, in Arabic — RTL **is** applied, on an inner element
+
+The signin page being LTR turned out not to answer the question, so the question was answered
+directly: a user was created on an account with `locale: 'ar'`, and Playwright **logged in through
+the real form** and landed on the dashboard. Measured there:
+
+```
+url                /app/accounts/7/dashboard
+Arabic glyphs      true
+html[dir]          null          <- NOT on the document element
+body direction     ltr           <- nor on body
+any [dir="rtl"]    TRUE          <- but RTL IS applied, on an element inside the page
+horizontal overflow at 1280px   none
+```
+
+**So the RTL mechanism exists and fires for an Arabic-locale account** — which is what the dozens
+of Tailwind `ltr:` / `rtl:` variants need. It is scoped to a subtree rather than set on
+`<html>`.
+
+**What that leaves genuinely open, and it is a specific risk rather than a vague one:** anything
+rendered *outside* that subtree — a teleported modal, a dropdown or a toast appended to `body` —
+would not inherit the direction. I could not pin down which element carries the attribute: the
+follow-up probe timed out twice waiting for the signin form to render, because this environment
+runs Vite in dev mode and compiles assets on first paint (21–52 s per page). So **which** element
+is RTL, and whether portalled content sits inside it, is unverified. That is the check worth
+running on a real deployment with built assets.
 
 Verified statically as well:
 
@@ -568,7 +585,7 @@ performed.
 
 ---
 
-## 10. FIXED DEFECTS, AND THE ONE NEW DEFECT (§11.10)
+## 10. FIXED DEFECTS, AND THE TWO NEW FINDINGS (§11.10)
 
 ### Committed in this phase
 
@@ -640,8 +657,9 @@ what I would recommend — but it changes a deliberately-designed, documented fl
 default branch, so it belongs to the owner. **Both options are costed above and need one
 decision.**
 
-### L2 — A FRESH STORE SYRIA DEPLOYMENT CANNOT SERVE ITS LOGIN PAGE. Not a new defect; a newly
-### measured consequence of a known one.
+### L2 — A FRESH STORE SYRIA DEPLOYMENT CANNOT SERVE ITS LOGIN PAGE
+
+Not a new defect; a newly measured consequence of a known one.
 
 The defect is already known, already guarded and already in the register's orbit. What was not
 known is what it does to a running installation. Measured on the live server at
@@ -871,10 +889,21 @@ then the example, in one process                       63 examples, 0 failures
 The second is the exact shape that reddened CI — before the change it fails, after it it passes.
 The probe was a temporary file and is not committed; rubocop is clean on the edited file.
 
-**What is claimed, and what is not.** The gate has run on a real runner once, at **19/20**, with
-the one failure characterised and then fixed. A second dispatch was queued after the fix; its
-result is **not** in this report, so this report does not claim the gate is green — only that the
-single failure it produced is understood, reproduced locally in both directions, and addressed.
+#### The gate is green, on a real runner, with a before-and-after
+
+| run | commit | result |
+|---|---|---|
+| **110** | `16c6c422` (gate added) | **failure** — 19/20, the blob-leak assertion |
+| **111** | `2dce2f8f` (assertion fixed) | **success — 20/20** |
+
+Run 111 is green across **all twenty jobs**: rubocop, brakeman + blocking bundle-audit, eslint,
+vitest coverage, the **new production-build step** at its measured heap, and all sixteen rspec
+shards — `spec/contracts/` among them. So the default-branch gate this phase enabled is not merely
+enabled: it has been exercised end to end on a clean GitHub runner and passes, and the one failure
+it found on the way was diagnosed, reproduced locally in both directions, fixed, and re-verified.
+
+That is the strongest statement in this report about `CODE VERIFIED` for the Lynomia side, and it
+is the first time this fork's default-branch code has had any CI evidence at all.
 
 ### The dependency audit — the ceiling was NOT raised
 
@@ -1185,14 +1214,11 @@ It is **not ready for public launch**, for four reasons of descending size:
     "no fixed version in existence" is out of date, and the documented non-major update in
     `ci.yml:275-296` is the recommended remedy (item 10 above). Three advisories are reachable on
     the mail path, not one; `DisallowedRawHtml` is not among them.
-17. **Expect one red shard on the first push to `lynomia-custom`.** The gate this phase enabled
-    was dispatched on a real runner and came back **19/20**; the single failure is the pre-existing
-    `ActiveStorage::Blob` leak assertion in `content_seeder_spec.rb:410`, and the merge report's
-    claim that CI's sharding cannot reproduce it is **disproven** — shard 15 holds both the leaking
-    and the asserting file. It is upstream test hygiene, not integration breakage, and the robust
-    remedy is to make that assertion a **delta** (the spec's claim is "the preflight writes
-    nothing", which is a delta claim) rather than a global count that depends on every other spec
-    in the process. Small, and worth doing before the red board becomes normal.
+17. **Nothing to do here — recorded because it corrects the register.** The gate was dispatched on
+    a real runner and came back 19/20; the one failure was the pre-existing `ActiveStorage::Blob`
+    leak assertion at `content_seeder_spec.rb:410`. The merge report's claim that CI's sharding
+    cannot reproduce it is **disproven** (shard 15 holds both the leaking and the asserting file).
+    It was fixed by making the assertion a delta, and **run 111 is green 20/20**.
 18. **The production frontend build was running 1–7% from OOM in the deploy script** and had no CI
     gate at all. Both fixed here (§13), but the owner should know the deploy script's heap setting
     changed, since that is a deployment file.
@@ -1207,6 +1233,7 @@ Listed so that no reader has to infer it from silence.
 - No browser test, no screenshot, no RTL or mobile verification.
 - No provider connection and no message sent.
 - No destructive fault injection, no load test against shared infrastructure.
-- Scenarios 3, 4, 5 and 6 were not run live; areas D, E and F were not driven live.
+- Scenarios 3, 5 and 6 were not run live; areas D, E and F were not driven live. Scenario 4
+  was run and is reported in §7.
 - No security control was weakened, and the one change that would have widened an authorization
   gate was refused by this session's safety tooling and left unapplied rather than worked around.
