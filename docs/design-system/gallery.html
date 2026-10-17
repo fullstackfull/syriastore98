@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Store Syria — Design System Gallery</title>
+
+<!--
+  Reference page for the Store Syria web design system (Phase 01 / Sprint 01).
+
+  This is developer documentation, not an application route. It is deliberately
+  NOT under public/, so it adds no production surface. Open it from a checkout:
+
+      <repo>/docs/design-system/gallery.html
+
+  It loads the one real stylesheet, public/css/store-syria-ds.css, by relative
+  path — so whatever you see here is exactly what the admin gets.
+
+  The direction and theme switches at the top flip `dir` and `data-ss-theme`
+  on <html>, which is the same pair of hooks the application uses.
+-->
+<link rel="stylesheet" href="../../public/css/store-syria-ds.css">
+<style>
+    /* Page chrome for the gallery itself — not part of the design system. */
+    body { margin: 0; background: var(--ss-bg); color: var(--ss-fg);
+           font-family: var(--ss-font-sans); }
+    .wrap { max-width: 1100px; margin-inline: auto; padding: var(--ss-space-8) var(--ss-space-5) var(--ss-space-16); }
+    .gal-bar { position: sticky; inset-block-start: 0; z-index: 50;
+               display: flex; flex-wrap: wrap; align-items: center; gap: var(--ss-space-3);
+               padding: var(--ss-space-3) var(--ss-space-5);
+               background: var(--ss-surface); border-block-end: 1px solid var(--ss-border); }
+    .gal-bar strong { margin-inline-end: auto; font-size: var(--ss-text-base); }
+    section { margin-block-start: var(--ss-space-12); }
+    h2.sec { font-size: var(--ss-text-lg); font-weight: 600; margin: 0 0 var(--ss-space-1);
+             padding-block-end: var(--ss-space-2); border-block-end: 1px solid var(--ss-border); }
+    .note { font-size: var(--ss-text-sm); color: var(--ss-fg-muted); margin: 0 0 var(--ss-space-5); }
+    .demo { display: flex; flex-wrap: wrap; gap: var(--ss-space-3); align-items: flex-start; }
+    .grid2 { display: grid; gap: var(--ss-space-5); grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+    .swatches { display: grid; gap: var(--ss-space-2); grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+    .sw { border: 1px solid var(--ss-border); border-radius: var(--ss-radius-md); overflow: hidden; font-size: 11px; }
+    .sw i { display: block; height: 44px; }
+    .sw b { display: block; padding: 4px 6px; font-weight: 600; }
+    .sw code { display: block; padding: 0 6px 5px; color: var(--ss-fg-muted); }
+</style>
+</head>
+<body>
+
+<div class="gal-bar ss-scope">
+    <strong>Store Syria — Design System</strong>
+    <button class="ss-btn ss-btn--secondary ss-btn--sm" id="dirToggle" type="button">Direction: LTR</button>
+    <button class="ss-btn ss-btn--secondary ss-btn--sm" id="themeToggle" type="button">Theme: Light</button>
+</div>
+
+<div class="wrap ss-scope">
+
+    <section>
+        <h2 class="sec">Brand</h2>
+        <p class="note">
+            The ramp is derived from the merchant's own logo mark (hue&nbsp;172°), not invented.
+            <code>--ss-brand</code> is the 800 step because it is the lightest one that clears
+            4.5:1 against white for button labels; <code>--ss-focus-ring</code> is 700, the
+            lightest that clears 3:1 for non-text contrast.
+        </p>
+        <div class="swatches">
+            <div class="sw"><i style="background:var(--ss-teal-50)"></i><b>50</b><code>#f3faf9</code></div>
+            <div class="sw"><i style="background:var(--ss-teal-100)"></i><b>100</b><code>#e2f5f3</code></div>
+            <div class="sw"><i style="background:var(--ss-teal-300)"></i><b>300</b><code>#9ce5db</code></div>
+            <div class="sw"><i style="background:var(--ss-teal-500)"></i><b>500</b><code>#1ad5bc</code></div>
+            <div class="sw"><i style="background:var(--ss-teal-600)"></i><b>600</b><code>#0bb19b</code></div>
+            <div class="sw"><i style="background:var(--ss-teal-700)"></i><b>700 ring</b><code>#08917f</code></div>
+            <div class="sw"><i style="background:var(--ss-teal-800)"></i><b>800 brand</b><code>#097465</code></div>
+            <div class="sw"><i style="background:var(--ss-teal-950)"></i><b>950</b><code>#073b34</code></div>
+        </div>
+    </section>
+
+    <section>
+        <h2 class="sec">Status colours</h2>
+        <p class="note">Each pair is a tinted fill plus a text colour chosen against <em>that fill</em>, not against white.</p>
+        <div class="demo">
+            <span class="ss-badge ss-badge--success"><span class="ss-badge__dot"></span> Published</span>
+            <span class="ss-badge ss-badge--warning"><span class="ss-badge__dot"></span> Low stock</span>
+            <span class="ss-badge ss-badge--danger"><span class="ss-badge__dot"></span> Out of stock</span>
+            <span class="ss-badge ss-badge--info"><span class="ss-badge__dot"></span> Scheduled</span>
+            <span class="ss-badge"><span class="ss-badge__dot"></span> Draft</span>
+            <span class="ss-badge ss-badge--brand">12</span>
+        </div>
+    </section>
+
+    <section>
+        <h2 class="sec">Buttons</h2>
+        <p class="note">
+            Solid danger is reserved for the confirming action in a dialog. Row-level deletes use
+            the quiet variant, so a long table is not a wall of red.
+        </p>
+        <div class="demo">
+            <button class="ss-btn ss-btn--primary" type="button">Save changes</button>
+            <button class="ss-btn ss-btn--secondary" type="button">Cancel</button>
+            <button class="ss-btn ss-btn--ghost" type="button">Ghost</button>
+            <button class="ss-btn ss-btn--danger" type="button">Delete product</button>
+            <button class="ss-btn ss-btn--danger-quiet" type="button">Delete (row)</button>
+            <button class="ss-btn ss-btn--primary" type="button" disabled>Disabled</button>
+            <button class="ss-btn ss-btn--primary" type="button" aria-busy="true">Saving</button>
+        </div>
+        <div class="demo" style="margin-top:12px">
+            <button class="ss-btn ss-btn--primary ss-btn--sm" type="button">Small</button>
+            <button class="ss-btn ss-btn--primary" type="button">Medium</button>
+            <button class="ss-btn ss-btn--primary ss-btn--lg" type="button">Large</button>
+        </div>
+    </section>
+
+    <section>
+        <h2 class="sec">Form fields</h2>
+        <p class="note">
+            Inputs are 16px: anything smaller makes iOS Safari zoom the viewport on focus.
+            The invalid state keys off <code>aria-invalid</code>, so the visual and the
+            accessible state cannot drift apart.
+        </p>
+        <div class="grid2">
+            <div class="ss-field">
+                <label class="ss-label" for="f1">Product name</label>
+                <input class="ss-input" id="f1" type="text" value="Linen shirt">
+                <span class="ss-field__hint">Shown to customers on the storefront.</span>
+            </div>
+            <div class="ss-field">
+                <label class="ss-label" for="f2">SKU <span class="ss-label__required">*</span></label>
+                <input class="ss-input" id="f2" type="text" value="" aria-invalid="true" aria-describedby="f2e">
+                <span class="ss-field__error" id="f2e">SKU is required.</span>
+            </div>
+            <div class="ss-field">
+                <label class="ss-label" for="f3">Category</label>
+                <select class="ss-select" id="f3">
+                    <option>Clothing</option><option>Footwear</option>
+                </select>
+            </div>
+            <div class="ss-field">
+                <label class="ss-label" for="f4">Disabled</label>
+                <input class="ss-input" id="f4" type="text" value="Not editable" disabled>
+            </div>
+            <div class="ss-field" style="grid-column:1/-1">
+                <label class="ss-label" for="f5">Description</label>
+                <textarea class="ss-textarea" id="f5">Soft, breathable linen.</textarea>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2 class="sec">Card, toolbar and table</h2>
+        <p class="note">
+            Table cells use <code>text-align: start</code>, so the whole table mirrors under
+            <code>dir="rtl"</code> with no second stylesheet. Sortable headers are real
+            <code>&lt;button&gt;</code>s carrying <code>aria-sort</code>.
+        </p>
+        <div class="ss-card">
+            <div class="ss-card__header">
+                <h3 class="ss-card__title">Products</h3>
+                <div class="ss-page-header__actions">
+                    <button class="ss-btn ss-btn--secondary ss-btn--sm" type="button">Export</button>
+                    <button class="ss-btn ss-btn--primary ss-btn--sm" type="button">Add product</button>
+                </div>
+            </div>
+            <div class="ss-toolbar">
+                <div class="ss-toolbar__search">
+                    <svg class="ss-toolbar__search-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.6"/>
+                        <path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                    </svg>
+                    <input class="ss-input" type="search" placeholder="Search products">
+                </div>
+                <div class="ss-toolbar__filters">
+                    <select class="ss-select" style="width:auto"><option>All categories</option></select>
+                    <select class="ss-select" style="width:auto"><option>Any status</option></select>
+                </div>
+            </div>
+            <div class="ss-table-wrap">
+                <table class="ss-table ss-table--stack">
+                    <caption class="ss-visually-hidden">Products, sorted by name ascending</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col"><button class="ss-table__sort" type="button" aria-sort="ascending">Product</button></th>
+                            <th scope="col">Status</th>
+                            <th scope="col" class="ss-table__num">Stock</th>
+                            <th scope="col"><span class="ss-visually-hidden">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td data-label="Product">Linen shirt</td>
+                            <td data-label="Status"><span class="ss-badge ss-badge--success">Published</span></td>
+                            <td data-label="Stock" class="ss-table__num">128</td>
+                            <td><div class="ss-table__actions">
+                                <button class="ss-btn ss-btn--ghost ss-btn--sm ss-btn--icon" type="button"><span class="ss-visually-hidden">Edit Linen shirt</span>✎</button>
+                                <button class="ss-btn ss-btn--danger-quiet ss-btn--sm ss-btn--icon" type="button"><span class="ss-visually-hidden">Delete Linen shirt</span>🗑</button>
+                            </div></td>
+                        </tr>
+                        <tr>
+                            <td data-label="Product">Leather sandals</td>
+                            <td data-label="Status"><span class="ss-badge ss-badge--warning">Low stock</span></td>
+                            <td data-label="Stock" class="ss-table__num">4</td>
+                            <td><div class="ss-table__actions">
+                                <button class="ss-btn ss-btn--ghost ss-btn--sm ss-btn--icon" type="button"><span class="ss-visually-hidden">Edit Leather sandals</span>✎</button>
+                                <button class="ss-btn ss-btn--danger-quiet ss-btn--sm ss-btn--icon" type="button"><span class="ss-visually-hidden">Delete Leather sandals</span>🗑</button>
+                            </div></td>
+                        </tr>
+                        <tr>
+                            <td data-label="Product">Cotton scarf</td>
+                            <td data-label="Status"><span class="ss-badge">Draft</span></td>
+                            <td data-label="Stock" class="ss-table__num">0</td>
+                            <td><div class="ss-table__actions">
+                                <button class="ss-btn ss-btn--ghost ss-btn--sm ss-btn--icon" type="button"><span class="ss-visually-hidden">Edit Cotton scarf</span>✎</button>
+                                <button class="ss-btn ss-btn--danger-quiet ss-btn--sm ss-btn--icon" type="button"><span class="ss-visually-hidden">Delete Cotton scarf</span>🗑</button>
+                            </div></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2 class="sec">Empty and loading states</h2>
+        <p class="note">
+            Neither exists anywhere in the admin today: list screens show the DataTables
+            default empty row, which is also untranslated.
+        </p>
+        <div class="grid2">
+            <div class="ss-card">
+                <div class="ss-empty">
+                    <div class="ss-empty__icon" aria-hidden="true">◎</div>
+                    <h3 class="ss-empty__title">No products yet</h3>
+                    <p class="ss-empty__body">Add your first product and it will appear here for customers to buy.</p>
+                    <button class="ss-btn ss-btn--primary" type="button">Add product</button>
+                </div>
+            </div>
+            <div class="ss-card">
+                <div class="ss-card__body" aria-busy="true">
+                    <div class="ss-skeleton ss-skeleton--line" style="width:45%"></div>
+                    <div class="ss-skeleton ss-skeleton--line" style="width:85%"></div>
+                    <div class="ss-skeleton ss-skeleton--line" style="width:70%"></div>
+                    <div class="ss-skeleton ss-skeleton--line" style="width:90%"></div>
+                    <span class="ss-visually-hidden" role="status">Loading products…</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2 class="sec">Alerts</h2>
+        <div class="ss-stack">
+            <div class="ss-alert ss-alert--success" role="status">
+                <span class="ss-alert__icon" aria-hidden="true">✓</span>
+                <div class="ss-alert__content"><p class="ss-alert__title">Saved</p><p class="ss-alert__body">Your changes are live on the storefront.</p></div>
+            </div>
+            <div class="ss-alert ss-alert--warning">
+                <span class="ss-alert__icon" aria-hidden="true">!</span>
+                <div class="ss-alert__content"><p class="ss-alert__title">Low stock</p><p class="ss-alert__body">Three products are below their reorder point.</p></div>
+            </div>
+            <div class="ss-alert ss-alert--danger" role="alert">
+                <span class="ss-alert__icon" aria-hidden="true">×</span>
+                <div class="ss-alert__content"><p class="ss-alert__title">Could not save</p><p class="ss-alert__body">The SKU is already used by another product.</p></div>
+            </div>
+            <div class="ss-alert ss-alert--info">
+                <span class="ss-alert__icon" aria-hidden="true">i</span>
+                <div class="ss-alert__content"><p class="ss-alert__body">Prices are shown excluding tax.</p></div>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2 class="sec">Page header, breadcrumbs and tabs</h2>
+        <p class="note">The breadcrumb separator is a CSS chevron that rotates under RTL, so it is never read aloud and never points the wrong way.</p>
+        <nav aria-label="Breadcrumb">
+            <ol class="ss-breadcrumb">
+                <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="#">Home</a></li>
+                <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="#">Catalogue</a></li>
+                <li class="ss-breadcrumb__item" aria-current="page">Products</li>
+            </ol>
+        </nav>
+        <div class="ss-page-header" style="margin-block:16px">
+            <div class="ss-page-header__text">
+                <h3 class="ss-page-header__title">Products</h3>
+                <p class="ss-page-header__subtitle">128 products across 6 categories.</p>
+            </div>
+            <div class="ss-page-header__actions">
+                <button class="ss-btn ss-btn--secondary" type="button">Import</button>
+                <button class="ss-btn ss-btn--primary" type="button">Add product</button>
+            </div>
+        </div>
+        <div class="ss-tabs" role="tablist">
+            <button class="ss-tab" role="tab" aria-selected="true" type="button">All</button>
+            <button class="ss-tab" role="tab" aria-selected="false" type="button">Published</button>
+            <button class="ss-tab" role="tab" aria-selected="false" type="button">Draft</button>
+            <button class="ss-tab" role="tab" aria-selected="false" type="button">Archived</button>
+        </div>
+    </section>
+
+    <section>
+        <h2 class="sec">Confirmation dialog</h2>
+        <p class="note">Shown inline here. In the application this markup sits inside the host's existing modal, so the focus trap and dismissal behaviour stay the host's.</p>
+        <div class="ss-card" style="position:relative;overflow:hidden;min-height:230px;background:var(--ss-surface-sunken)">
+            <div style="position:absolute;inset:0;background:rgba(11,31,28,.45)"></div>
+            <!-- Centred with margin:auto on an inset-0 box rather than a
+                 translate(-50%): a physical translate does not flip under RTL. -->
+            <div style="position:absolute;inset:0;display:grid;place-items:center;padding:16px">
+                <div class="ss-card" role="dialog" aria-modal="true" aria-labelledby="dt" style="box-shadow:var(--ss-shadow-lg);width:min(440px,100%)">
+                    <div class="ss-dialog__header">
+                        <h3 class="ss-dialog__title" id="dt">Delete “Linen shirt”?</h3>
+                        <button class="ss-dialog__close" type="button"><span class="ss-visually-hidden">Close</span>×</button>
+                    </div>
+                    <div class="ss-dialog__body">This action cannot be undone. The product will be removed from your storefront immediately.</div>
+                    <div class="ss-dialog__footer">
+                        <button class="ss-btn ss-btn--secondary" type="button">Cancel</button>
+                        <button class="ss-btn ss-btn--danger" type="button">Delete product</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+</div>
+
+<script>
+    const html = document.documentElement;
+    const d = document.getElementById('dirToggle');
+    const t = document.getElementById('themeToggle');
+    d.addEventListener('click', () => {
+        // The application emits dir="" for LTR, never dir="ltr" — mirrored here.
+        const rtl = html.getAttribute('dir') === 'rtl';
+        html.setAttribute('dir', rtl ? '' : 'rtl');
+        html.setAttribute('lang', rtl ? 'en' : 'ar');
+        d.textContent = 'Direction: ' + (rtl ? 'LTR' : 'RTL');
+    });
+    t.addEventListener('click', () => {
+        const dark = html.getAttribute('data-ss-theme') === 'dark';
+        if (dark) html.removeAttribute('data-ss-theme');
+        else html.setAttribute('data-ss-theme', 'dark');
+        t.textContent = 'Theme: ' + (dark ? 'Light' : 'Dark');
+    });
+</script>
+</body>
+</html>
