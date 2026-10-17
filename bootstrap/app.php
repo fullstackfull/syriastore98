@@ -45,6 +45,29 @@ return Application::configure(basePath: dirname(__DIR__))
         // The guard is inert on every other route -- it returns early unless the MATCHED route is
         // that endpoint. See the class docblock for the full argument and the measured stack.
         $middleware->appendToGroup('web', \App\Http\Middleware\BulkDeleteTenantGuard::class);
+        // P01-SEC-2. Order documents -- order details, receipts, shipping labels, print labels
+        // and the invoice preview -- were readable across tenants. Nine of the thirteen guarded
+        // uris were ANONYMOUS, declared in a ['web']-only group in a module route file
+        // (AutomaticOrderPrinting :24-31, AuctionProduct :24-35, LotteryPrizes :32-58). The
+        // subtle one is AutomaticOrderPrinting:31: it re-declares the SAME uri AND the SAME
+        // controller action as the authenticated host declaration at routes/web.php:1178, so the
+        // later declaration wins the method+uri slot and `Authenticate` silently disappears from
+        // the stack while the action name stays identical -- nothing a reviewer comparing
+        // controllers would see. Measured both ways in
+        // tests/Feature/Security/OrderDocumentRouteResolutionTest.
+        //
+        // The other four uris are host routes that DO carry `Authenticate` and are live with no
+        // module enabled at all: their handlers decrypt the id and load the order with no store
+        // predicate, and three of them check no permission either. Authentication was never the
+        // whole gap.
+        //
+        // Registered HERE for the same two reasons as the guard above, and for one more: the
+        // module route files are required from $this->app->booted()
+        // (app/Providers/PackageServiceProvider.php:35), i.e. AFTER routes/web.php, so
+        // re-declaring them there would simply lose the slot again. The guard is inert unless the
+        // MATCHED route is one of thirteen named uris. See the class docblock for the rule, for
+        // why a Policy is not the vehicle, and for the two disclosed behaviour changes.
+        $middleware->appendToGroup('web', \App\Http\Middleware\OrderDocumentAccessGuard::class);
         // SEC-R1-02 / R2-07 / NEW-throttle-bypass: the RateLimiter named 'api'
         // is defined at app/Providers/RouteServiceProvider.php:27-29 but was
         // never applied to the 'api' middleware group, so it was dead code and

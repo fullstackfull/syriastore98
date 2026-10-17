@@ -101,7 +101,27 @@ open. Provision, then move. Rotating `APP_KEY` additionally needs a re-encryptio
 
 ---
 
-## S3 — Unauthenticated access to tenant-owned order documents
+## S3 — Unauthenticated access to tenant-owned order documents — **CLOSED by P01-SEC-2**
+
+> **Closed.** `App\Http\Middleware\OrderDocumentAccessGuard`, appended to the `web` group in
+> `bootstrap/app.php` — the fix shape this row predicted. The finding below is kept verbatim
+> rather than deleted, because the vendored defect it describes is still in the module and the
+> guard is what stops it being reachable.
+>
+> Two things turned out to be **worse** than this row recorded, both measured:
+>
+> 1. `:31` of the same group re-declares `shippinglabel/pdf/{id}` with the SAME controller action
+>    as the authenticated host declaration at `routes/web.php:1178`. `RouteCollection` keys on
+>    method+domain+uri, so the module's declaration *replaces* the host's and `Authenticate`
+>    silently leaves the stack while the action name stays identical. The host route was not a
+>    separate safe path; it was the same path, un-gated.
+> 2. Four **host** order-document routes (`order-view/{id}`, `orders/order_view/{id}`,
+>    `order-receipt/{id}`, and `shippinglabel/pdf/{id}` itself) are authenticated but carry no
+>    tenant predicate, and three of them check no permission either. That half is live with no
+>    module enabled at all, so the severity of this row never depended on the module.
+>
+> Nine further uris in `AuctionProduct` and `LotteryPrizes` have the identical shape and are
+> guarded too; thirteen in total. See **S11** for the pattern behind them.
 
 `packages/workdo/AutomaticOrderPrinting/src/routes/web.php:24` opens a route group whose
 middleware is `['web']` **only** — no `auth`. Inside it:
@@ -293,6 +313,50 @@ CI package.
 
 ---
 
+## S11 — `['web']`-only route groups are a pattern across the module tree, not one module's slip
+
+**S2 HIGH**, on the measurement; the *per-route* severity varies and has not been triaged.
+
+Found while closing S3, by scanning the route files rather than by reading one module:
+
+| | |
+|---|---|
+| module `web.php` files scanned | 70 |
+| modules declaring at least one `Route::middleware(['web'])->group(...)` | **42** |
+| routes declared inside those groups | **150** |
+
+Reproduce with the scanner in the P01-SEC-2 report, or by hand: `rg "Route::middleware\(\s*\[\s*'web'\s*\]\s*\)->group"
+packages/workdo/*/src/routes/web.php`.
+
+**The number is an upper bound on the exposure, not the exposure.** Many of those 150 are
+legitimately public storefront routes — a `{storeSlug}` product page belongs in a group with no
+`auth`. The scanner is line-based and does not distinguish them. What it establishes is that the
+AutomaticOrderPrinting group was **not** an isolated mistake, so no fix aimed at one module closes
+the class.
+
+Routes inside such groups that were **read** and are clearly administrative:
+
+- `AuctionProduct/src/routes/web.php:29,34` — `auction-order-view/{id}`, `auction-order-receipt/{id}`
+- `LotteryPrizes/src/routes/web.php:54,58` — `lottery-order-view/{id}`, `lottery-order-receipt/{id}`
+  (all four now guarded by P01-SEC-2)
+- `PartialPayments/src/routes/web.php:21,23,29,31` — `PUT payment-email/update/email_template/{id}`,
+  `POST partial-payment-settings`, the `partialpayments` resource, and
+  `POST payment-status-change/{id}`. **These are WRITES, not document reads**, so P01-SEC-2's
+  read-authorization guard does not address them and deliberately does not claim to. An anonymous
+  `POST payment-status-change/{id}` changing a payment's state is a different and probably worse
+  defect than the one S3 described.
+
+**Fix shape:** not thirteen more entries in a document guard. The tractable version is a route
+*census* gate — enumerate the resolved route table with every module enabled, classify each route
+as public-storefront or administrative, and fail CI on a new administrative route that carries no
+`auth`. That needs the module-loading problem solved first (no module loads in any test run
+today, which is why none of this was visible), so it is its own package.
+
+**Precondition for triage:** which modules are actually enabled on the dev server. The same
+question S1 asks. `SELECT module, is_enable FROM add_on_managers` answers both.
+
+---
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**
@@ -316,7 +380,8 @@ Keeping these apart is the point; each is independently reviewable and independe
 | Package | Rows | Gating |
 |---|---|---|
 | **P01-SEC-1** (urgent, isolated) | S1 containment | Owner must first answer whether the module is active |
-| **P01-SEC-2** | S3 + its regression test | Independent; host-side only |
+| **P01-SEC-2** | S3 + its regression test | ~~Independent; host-side only~~ **DONE** |
+| **P01-SEC-7** | S11 | Needs the module-loading problem solved first, and the owner's `add_on_managers` answer |
 | **P01-SEC-3** | S4 + the `larabug` blacklist review | Independent; no contract impact |
 | **P01-SEC-4** | S5 session half (logout, id regeneration, `same_site`) | Independent. Token expiry/abilities wait for a Flutter window |
 | **P01-F** | S6 | Already a named Phase 01 package |

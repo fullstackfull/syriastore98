@@ -54,7 +54,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
      * builder, and the surrounding query still carries its scopes, so conflating the two would
      * overstate this inventory.
      */
-    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_fifty_eight(): void
+    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_fifty_nine(): void
     {
         $perDir = [];
 
@@ -62,7 +62,37 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             $perDir[$dir] = count($this->rawEntryPoints($dir));
         }
 
-        // 113, DOWN FROM 114, AND THE DELTA IS ONE DELETED SITE.
+        // 114, UP FROM 113, AND THE DELTA IS ONE ADDED SITE -- P01-SEC-2.
+        //
+        // app/Http/Middleware/OrderDocumentAccessGuard.php, in handle()
+        //
+        //     $row = DB::table($target['table'])
+        //         ->where('id', $orderId)
+        //         ->first(['store_id', 'customer_id']);
+        //
+        // IT IS DELIBERATELY UNSCOPED, AND THAT IS THE POINT RATHER THAN AN OVERSIGHT. The
+        // statement's job is to FETCH the discriminator so the guard can compare it against the
+        // caller's tenant and refuse; a `where('store_id', getCurrentStore())` predicate here
+        // would turn "another merchant's order" into "no such order" and lose the ability to
+        // distinguish a cross-tenant request from a malformed one at all. The tenant control is
+        // the comparison in OrderDocumentAccessGuard::authorises(), two lines later, and it
+        // fails closed when either side's store is empty.
+        //
+        // It is raw rather than Eloquent for the same reason the BulkDeleteTenantGuard sites
+        // below are: one target table (`auction_product_orders`) belongs to a module class that
+        // does not exist when that module is not loaded, and `Order` carries neither the
+        // tenancy trait nor an entry in config/tenancy.php's scoped_models allowlist, so an
+        // Eloquent read would add no predicate while implying one.
+        //
+        // The PER-TABLE breakdown below is unchanged by it, correctly: it is
+        // `DB::table($target['table'])` with the table resolved at runtime, so LIMIT 2 in this
+        // class's docblock applies -- counted in this total only. It is pinned at file:line,
+        // with its classification and the comparison it depends on asserted, by
+        // tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest, and exercised end to end
+        // against the resolved route and middleware stack by
+        // tests/Feature/Security/OrderDocumentAccessTest.
+        //
+        // THE PRECEDING DELTA, PRESERVED VERBATIM: 113, DOWN FROM 114, ONE DELETED SITE.
         //
         // Commit 1bd56358 ("retire the legacy Chatwoot integration") removed
         // app/Services/ChatwootOrderNotificationService.php, and with it the ONLY raw entry
@@ -104,13 +134,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // variable binding justified, by
         // tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest, and exercised end to end by
         // tests/Feature/Tenancy/BulkDeleteAuthorizationTest.
-        $this->assertSame(['app' => 113, 'packages' => 45], $perDir,
+        $this->assertSame(['app' => 114, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
             . 'a raw query became Eloquent, which is an improvement worth recording here.');
 
-        $this->assertSame(158, array_sum($perDir));
+        $this->assertSame(159, array_sum($perDir));
     }
 
     /**

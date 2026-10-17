@@ -103,6 +103,22 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             'app/Http/Controllers/StoreFinanceController.php' => 'tenant',
             // The tenant filter itself: these three ARE the predicate.
             'app/Http/Middleware/BulkDeleteTenantGuard.php' => 'tenant',
+            // COMPARISON INPUT -- a fourth category, and the narrowest one. P01-SEC-2's
+            // OrderDocumentAccessGuard reads the order row by id with NO tenant predicate ON
+            // PURPOSE: the statement exists to FETCH `store_id` so the guard can compare it
+            // against the caller's tenant and refuse. Writing
+            // `->where('store_id', getCurrentStore())` here would collapse "another merchant's
+            // order" into "no such order" and remove the guard's ability to tell a cross-tenant
+            // request from a malformed id at all.
+            //
+            // IT IS NOT CLASSIFIED 'tenant', even though the literal string 'store_id' appears
+            // in the statement and the predicate check below would therefore have PASSED. That
+            // pass would have been an accident of the column list in `->first([...])`, not a
+            // predicate, and a category that is satisfied by an accident is the kind of control
+            // this whole inventory exists to catch. So the classification states what is
+            // actually true and the control it depends on is asserted at the bottom of this
+            // method instead.
+            'app/Http/Middleware/OrderDocumentAccessGuard.php' => 'comparison',
             // PLATFORM-GLOBAL BY DESIGN. The framework's own `migrations` bookkeeping table has
             // no store_id and must never acquire a tenant predicate -- XSS::handle() compares
             // on-disk migration filenames against it to decide whether the platform operator is
@@ -171,7 +187,7 @@ class OwnedPathRawQueryInventoryTest extends TestCase
 
         // The count is asserted too, so a site that DISAPPEARS is noticed as well as one that
         // appears -- a vanished predicate is as interesting as a new query.
-        $this->assertCount(9, $sites, "The owned-path raw query inventory changed:\n  "
+        $this->assertCount(10, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry
@@ -199,6 +215,31 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             $routes,
             'The Zid uninstall delete is no longer keyed on the webhook payload\'s store id.'
         );
+
+        // THE 'comparison' CLASSIFICATION'S ACTUAL CONTROL, asserted for the same reason the
+        // webhook's is: the category says "the predicate is a comparison two lines later", so
+        // if that comparison leaves the file the raw read becomes an unscoped cross-tenant
+        // fetch feeding a handler that renders a document. These assert the comparison and the
+        // fail-closed behaviour it depends on, not merely that the class exists.
+        $guard = (string) file_get_contents(base_path('app/Http/Middleware/OrderDocumentAccessGuard.php'));
+
+        $this->assertStringContainsString('return $storeId === (int) $currentStore;', $guard,
+            'OrderDocumentAccessGuard no longer compares the order\'s store against the '
+            . "caller's, so the raw read in its handle() is now an unscoped cross-tenant fetch "
+            . "and the 'comparison' classification above is no longer true.");
+
+        $this->assertStringContainsString('if (empty($currentStore) || $storeId === null) {', $guard,
+            'OrderDocumentAccessGuard no longer fails closed when either side has no store. An '
+            . 'order with a NULL store_id is invisible to every store_id predicate in the '
+            . 'application and must not become visible through this guard.');
+
+        $this->assertStringContainsString('getCurrentStore($user->id)', $guard,
+            'OrderDocumentAccessGuard resolves the caller\'s store without passing the user id. '
+            . 'getCurrentStore() with no argument reads the MUTABLE default guard, which can '
+            . 'hold a Customer, and would then resolve null and fail a legitimate merchant.');
+
+        $this->assertFileExists(base_path('tests/Feature/Security/OrderDocumentAccessTest.php'));
+        $this->assertFileExists(base_path('tests/Feature/Security/OrderDocumentRouteResolutionTest.php'));
     }
 
     /**
