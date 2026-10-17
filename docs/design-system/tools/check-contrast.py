@@ -113,6 +113,9 @@ THEMES = [
 
 def run(css_path):
     text = css_path.read_text(encoding='utf-8')
+    # Comments out first: prose such as "--ss-bg: a card must..." inside a
+    # comment would otherwise parse as a declaration.
+    text = re.sub(r'/\*.*?\*/', '', text, flags=re.S)
     failures = []
 
     for label, selectors in THEMES:
@@ -130,6 +133,20 @@ def run(css_path):
             if not ok:
                 failures.append((label, desc, f'{r:.2f}:1 < {minimum}'))
             print(f'{"PASS" if ok else "FAIL":7}{r:8.2f}:1{minimum:6.1f}  {fv:9} {bv:9} {desc}')
+
+    # The auto scope (prefers-color-scheme) must carry exactly the dark values.
+    # CSS cannot share one block between the two selectors, so it is a copy,
+    # and a copy drifts unless something checks it.
+    dark = scope_tokens(text, ['[data-ss-theme="dark"]'])
+    auto = scope_tokens(text, ['[data-ss-theme="auto"]'])
+    drift = sorted(k for k in set(dark) | set(auto) if dark.get(k) != auto.get(k))
+    print('\n=== AUTO SCOPE vs DARK SCOPE ===')
+    if drift:
+        for k in drift:
+            print(f'  DRIFT {k}: dark={dark.get(k)} auto={auto.get(k)}')
+            failures.append(('AUTO', k, 'differs from dark'))
+    else:
+        print(f'  identical ({len(dark)} tokens)')
 
     print()
     if failures:

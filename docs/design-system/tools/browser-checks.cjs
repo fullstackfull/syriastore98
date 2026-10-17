@@ -207,6 +207,61 @@ function contrast(a, b) {
     await page.close();
   }
 
+  // ---------------------------------------------------------------- G. host dark layout
+  // The host's dark mode is a stylesheet swap, not a class. Under it the
+  // original screen's Bootstrap card turns dark, so the redesigned one must
+  // too, or dark-mode merchants get a white card in a dark admin.
+  console.log('\nG. HOST DARK LAYOUT — the page follows the host\'s stylesheet swap');
+  {
+    const probe = async (view) => {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+      await page.goto(BASE + view + '.html');
+      const r = await page.evaluate(() => {
+        const card = document.querySelector('.ss-card') || document.querySelector('.card');
+        const label = document.querySelector('.ss-sort-item__label') || document.querySelector('.list-group-item span');
+        const cs = getComputedStyle(card);
+        return { theme: document.documentElement.getAttribute('data-ss-theme'),
+                 bg: cs.backgroundColor, fg: getComputedStyle(label).color };
+      });
+      await page.close();
+      return r;
+    };
+    const lum = c => { const v = parseRGB(c); return v ? luminance(v) : null; };
+
+    const origDark = await probe('orig-en-full-dark');
+    check(lum(origDark.bg) < 0.1, 'baseline: the ORIGINAL card is dark under the host dark layout', origDark.bg);
+
+    for (const view of ['new-en-full-dark', 'new-ar-full-dark']) {
+      const d = await probe(view);
+      check(d.theme === 'dark', `${view}: <html data-ss-theme="dark"> set from #main-style-link`, String(d.theme));
+      check(lum(d.bg) < 0.1, `${view}: card is dark`, d.bg);
+      const ratio = contrast(parseRGB(d.fg), parseRGB(d.bg));
+      check(ratio >= 4.5, `${view}: record text on the dark card >= 4.5:1`, `${ratio.toFixed(2)}:1`);
+    }
+
+    // The original's option names under the dark layout: white text on a
+    // list-group-item that style-dark.css leaves white.
+    const origRow = await (async () => {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+      await page.goto(BASE + 'orig-en-full-dark.html');
+      const r = await page.evaluate(() => {
+        const li = document.querySelector('.tab-pane.active .list-group-item');
+        return { bg: getComputedStyle(li).backgroundColor, fg: getComputedStyle(li.querySelector('span')).color };
+      });
+      await page.close();
+      return r;
+    })();
+    const origRatio = contrast(parseRGB(origRow.fg), parseRGB(origRow.bg));
+    console.log(`  option names under the dark layout:  before ${origRatio.toFixed(2)}:1 ` +
+      `(${origRow.fg} on ${origRow.bg})   after: see the 11:1 checks above`);
+    check(origRatio < 1.5, 'baseline: the ORIGINAL screen\'s option names are illegible in dark layout',
+      `${origRatio.toFixed(2)}:1 — a pre-existing defect the redesign removes`);
+
+    const light = await probe('new-en-full');
+    check(light.theme === null, 'light layout leaves data-ss-theme unset', String(light.theme));
+    check(lum(light.bg) > 0.9, 'light layout keeps a light card', light.bg);
+  }
+
   // ---------------------------------------------------------------- F. before/after
   console.log('\nF. BEFORE / AFTER — the original screen measured the same way');
   {

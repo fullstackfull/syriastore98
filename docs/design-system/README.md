@@ -13,9 +13,13 @@ Phase 01 / Sprint 01 foundation. One stylesheet, opt-in per page, additive only.
 
 ```blade
 @push('css')
-    <link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}?v=p01b-1">
+    @include('layouts.includes.store-syria-ds')
 @endpush
 ```
+
+The partial sits beside `layouts/includes/datatable-css.blade.php` and is pulled in the same way.
+It links the stylesheet with a hand-set `?v=` (bump it when the CSS changes) and makes the page
+follow the host's dark layout — see "Dark mode".
 
 `resources/views/layouts/app.blade.php:176` already renders `@stack('css')`, and it is the
 **last** stylesheet position in `<head>` — after every vendor sheet, after `assets/css/style.css`,
@@ -106,12 +110,21 @@ Arabic and Hebrew force RTL regardless of the `SITE_RTL` setting (`app.blade.php
 
 ## Dark mode
 
-Opt-in and explicit: set `data-ss-theme="dark"` on `<html>` or on any container, and only that
-subtree re-themes. `data-ss-theme="auto"` follows `prefers-color-scheme`.
+An opted-in page follows the host's dark layout automatically. The host does not mark dark mode
+with a class: its `cust_darklayout` setting swaps the stylesheet in `#main-style-link` to
+`style-dark.css` or `rtl-style-dark.css`. The opt-in partial reads that same element in `<head>`,
+before the body paints, and sets `data-ss-theme="dark"` on `<html>`. It reads the layout's own
+signal, so the two cannot disagree, and no dark card ever flashes light.
 
-This deliberately does **not** hook into the host's own `cust_darklayout` setting, which works by
-swapping four whole ~29,500-line stylesheets server-side rather than by toggling a class. Wiring
-the two together is a Phase 02 item — see the architecture doc.
+Dark surfaces are tuned to the **host's** dark page (`#22242c`), not to `--ss-bg`: a card sits a
+touch lighter than that page, or it reads as a hole. Text and borders were re-solved against them.
+
+You can also set `data-ss-theme="dark"` on any container yourself, or `"auto"` to follow
+`prefers-color-scheme`. The `auto` scope is a copy of the dark one — CSS cannot share one block
+between the two selectors — so the contrast checker fails if the two ever differ.
+
+This matters on the pilot in particular: under the dark layout, the original screen rendered its
+option names white on white (1.00:1, measured). The redesign renders them at 11.10:1.
 
 ---
 
@@ -141,23 +154,27 @@ See the gallery for every variant and state rendered live.
 
 ## Verification
 
-Both of these are executed, not asserted. Scripts live in the sprint's working directory and are
-reproducible against the committed stylesheet.
+Both of these are executed, not asserted. The scripts are committed under
+[`tools/`](tools/README.md) and reproduce these numbers against the committed stylesheet.
 
 **Contrast** — resolves `var()` chains and keeps the light and dark scopes separate, so the ratios
-are the ones a browser actually computes:
+are the ones a browser actually computes; it also fails if the `auto` scope drifts from `dark`:
 
 ```
+=== AUTO SCOPE vs DARK SCOPE ===
+  identical (35 tokens)
+
 ALL 40 PAIRS PASS (light + dark)
 ```
 
 **Browser** — Chromium 1194 via Playwright, against the real Blade-rendered markup and the real
 `public/` stylesheets: keyboard traversal, focus-ring presence and contrast, tab order, accessible
-names, horizontal overflow at 7 widths × 4 page states × both directions, RTL mirroring,
-preserved-functionality contract, and permission gating:
+names, horizontal overflow at 7 widths × 4 page states × both directions, RTL mirroring, the
+preserved-functionality contract, permission gating, the host's dark layout, and a before/after
+comparison against the pre-sprint view:
 
 ```
-49 PASSED, 0 FAILED
+59 PASSED, 0 FAILED
 ```
 
 ---

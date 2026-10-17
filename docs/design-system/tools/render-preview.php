@@ -10,14 +10,15 @@
  * stack are all absent. What it does prove is what the view's own markup and
  * the stylesheets do in a real browser.
  *
- * usage: php render-pilot.php <view.blade.php> <locale: en|ar> <state: full|empty|noperm> <out.html>
+ * usage: php render-preview.php <view.blade.php> <locale: en|ar> <state: full|empty|noperm> <out.html> [light|dark]
  */
 
 $repo = dirname(__DIR__, 3);   // <repo>/docs/design-system/tools -> <repo>
 
-[$self, $viewPath, $locale, $state, $out] = array_pad($argv, 5, null);
+[$self, $viewPath, $locale, $state, $out, $theme] = array_pad($argv, 6, null);
+$theme = $theme === 'dark' ? 'dark' : 'light';
 if (!$viewPath || !$locale || !$state || !$out) {
-    fwrite(STDERR, "usage: render-pilot.php <view> <en|ar> <full|empty|noperm> <out.html>\n");
+    fwrite(STDERR, "usage: render-preview.php <view> <en|ar> <full|empty|noperm> <out.html> [light|dark]\n");
     exit(2);
 }
 
@@ -80,8 +81,22 @@ class FormStub
 // ---------------------------------------------------------------- Blade subset
 function compile_blade($src)
 {
+    global $repo;
+
     // Comments first, so directives inside them never compile.
     $s = preg_replace('/\{\{--.*?--\}\}/s', '', $src);
+
+    // @include('a.b.c') -> resources/views/a/b/c.blade.php, inlined before the
+    // rest of the compile so the partial's own directives are handled too.
+    $s = preg_replace_callback(
+        '/@include\s*\(\s*([\'"])([A-Za-z0-9_.\-]+)\1\s*\)/',
+        function ($m) use ($repo) {
+            $f = $repo . '/resources/views/' . str_replace('.', '/', $m[2]) . '.blade.php';
+            if (!is_file($f)) { fwrite(STDERR, "missing include: {$m[2]}\n"); return ''; }
+            return preg_replace('/\{\{--.*?--\}\}/s', '', file_get_contents($f));
+        },
+        $s
+    );
 
     // @extends is handled by the stand-in layout, not here.
     $s = preg_replace('/@extends\s*\(.*?\)/s', '', $s);
@@ -146,8 +161,13 @@ unlink($tmp);
 // sits in: the same <html dir>, the same body theme class, the same stylesheet
 // branch, and the same four yields in the same order.
 $dir      = $isRtl ? 'rtl' : '';
-$mainCss  = $isRtl ? 'assets/css/style-rtl.css' : 'assets/css/style.css';
-$customCss= $isRtl ? 'css/rtl-custom.css'       : 'css/custom.css';
+// The four stylesheet branches of layouts/app.blade.php:102-118.
+if ($theme === 'dark') {
+    $mainCss = $isRtl ? 'assets/css/rtl-style-dark.css' : 'assets/css/style-dark.css';
+} else {
+    $mainCss = $isRtl ? 'assets/css/style-rtl.css' : 'assets/css/style.css';
+}
+$customCss = $isRtl ? 'css/rtl-custom.css' : 'css/custom.css';
 
 $title      = $__sections['page-title']    ?? '';
 $breadcrumb = $__sections['breadcrumb']    ?? '';
@@ -204,6 +224,6 @@ HTML;
 file_put_contents($out, $html);
 
 $n = count($missing);
-fwrite(STDERR, sprintf("rendered %s [%s/%s] -> %s (%d bytes)%s\n",
-    basename($viewPath), $locale, $state, $out, strlen($html),
+fwrite(STDERR, sprintf("rendered %s [%s/%s/%s] -> %s (%d bytes)%s\n",
+    basename($viewPath), $locale, $state, $theme, $out, strlen($html),
     $n ? "  MISSING-TRANSLATIONS={$n}: " . implode(' | ', array_slice(array_keys($missing), 0, 6)) : "  all strings translated"));
