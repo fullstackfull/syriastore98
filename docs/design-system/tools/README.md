@@ -8,7 +8,7 @@ wired into CI — Sprint 01 deliberately changed no CI configuration.
 | `check-contrast.py` | Resolves every `--ss-*` `var()` chain and computes real WCAG 2.1 ratios for 20 foreground/background pairs, in light and dark separately, and fails if the `auto` scope drifts from `dark`. | Python 3 only |
 | `render-preview.php` | Renders a Blade view outside Laravel, with a stand-in layout that mirrors `layouts/app.blade.php`'s real chrome, the real `public/` stylesheets (all four light/dark × LTR/RTL branches), `@include`d partials and the real `resources/lang/<locale>.json` strings. | PHP 8 |
 | `preview-server.php` | Router for `php -S`: serves rendered previews while asset requests fall through to `public/`. Also provides an iframe wrapper for true mobile viewports and an element-level overflow probe. | PHP 8 |
-| `browser-checks.cjs` | Keyboard traversal, focus-ring presence and contrast, tab order, accessible names, horizontal overflow at 7 widths, RTL mirroring, preserved-functionality contract, permission gating, the host's dark layout, and a before/after comparison. | Node + Playwright + Chromium |
+| `browser-checks.cjs` | Keyboard traversal, focus-ring presence and contrast (measured at steady state, after the host's colour transitions), tab order, accessible names from Chromium's accessibility tree, horizontal overflow at 7 widths, RTL mirroring, preserved-functionality contract, permission gating, the host's dark layout and its runtime toggle, and a before/after comparison. Prints the Chromium version it ran. | Node + Playwright + Chromium |
 
 ## Running them
 
@@ -46,5 +46,8 @@ harness, not the application**.
 `dir` handling, real focus and keyboard behaviour, real layout at real viewport widths.
 
 **Not covered here:** routing, authentication, tenancy, subscription entitlement, the yajra
-DataTables stack, and the controller queries behind each screen. Those need a booted Laravel
+DataTables stack, and the controller queries behind each screen.
+The page's own pushed scripts are emitted inside an inert `<template>`, so the checks can read
+what they would send, but the host's jQuery, Bootstrap and jQuery UI never run here: a drag, a
+modal opening and a delete confirmation are not exercised. Those need a booted Laravel
 application and the PHPUnit suites.

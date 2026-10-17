@@ -35,8 +35,9 @@
    this replaces going forward; it is left untouched.
 
    COLOR
-   The brand ramp is derived from the merchant's own logo (the bag/cart "S"
-   mark, hue 172°), not invented. No new brand identity is introduced here.
+   The brand ramp is built on the merchant's own logo (the bag/cart "S" mark,
+   a 168-197° teal-green gradient whose median hue is 177°): the ramp sits at
+   172°, inside that gradient. No new brand identity is introduced here.
    Every foreground/background pair used by these components is verified
    against WCAG 2.1 AA by tooling; see the acceptance report.
 
@@ -49,7 +50,7 @@
    -------------------------------------------------------------------------- */
 
 :root {
-    /* Brand — hue 172°, taken from the Store Syria logo mark (#00b8a0). */
+    /* Brand — hue 172°, inside the Store Syria logo's 168-197° gradient. */
     --ss-teal-50:  #f3faf9;
     --ss-teal-100: #e2f5f3;
     --ss-teal-200: #c6eee9;
@@ -225,12 +226,13 @@
 
 /* --------------------------------------------------------------------------
    DARK MODE
-   Opt-in and explicit. The host app already has its own `cust_darklayout`
-   setting; this does not read or fight it. A page (or the host, later) sets
-   `data-ss-theme="dark"` on <html> or on any container, and only the subtree
-   carrying the attribute re-themes. `prefers-color-scheme` is honoured too,
-   but only when the page has asked for automatic behaviour, so a merchant on
-   a dark OS never gets a surprise dark admin.
+   Driven by `data-ss-theme="dark"` on <html> or on any container; only the
+   subtree carrying it re-themes. An opted-in admin page gets it set for it:
+   layouts/includes/store-syria-ds.blade.php reads the host's own dark-layout
+   signal (the stylesheet in #main-style-link) and mirrors it, including when
+   it changes at runtime. `data-ss-theme="auto"` follows `prefers-color-scheme`
+   instead, but only where a page asks for it, so a merchant on a dark OS
+   never gets a surprise dark admin.
    -------------------------------------------------------------------------- */
 
 [data-ss-theme="dark"] {
@@ -256,7 +258,7 @@
     --ss-link:         var(--ss-teal-400);
 
     --ss-border:        #364442;
-    --ss-border-strong: #7d8a88;  /* 3.76:1 on the dark card surface */
+    --ss-border-strong: #7d8a88;  /* 3.66:1 on the dark card surface */
     --ss-border-brand:  var(--ss-teal-500);
 
     --ss-success-bg: #102a1b; --ss-success-fg: #7fd6a0;
@@ -768,8 +770,8 @@
 
 /* ---- Sortable list ----
    A reorderable list of records (the pilot screen's attribute options). The
-   drag affordance is a dedicated handle rather than the whole row, so the row
-   stays selectable and the handle stays an obvious target. */
+   whole row is the drag target, as it was before the redesign; the handle is
+   the visual cue that a row can be dragged. */
 
 .ss-sort-list { margin: 0; padding: 0; list-style: none; }
 
@@ -805,8 +807,9 @@
     overflow-wrap: anywhere;
 }
 
-/* jQuery-UI adds no class of its own on the dragged element, so the page's
-   own script toggles this one in its start/stop handlers. */
+/* jQuery UI marks the dragged row with .ui-sortable-helper; the page's own
+   start/stop handlers add this class as well, so the lifted look belongs to
+   the design system rather than to a jQuery UI class name. */
 .ss-sort-item--dragging {
     box-shadow: var(--ss-shadow-md);
     border-radius: var(--ss-radius-md);
@@ -814,7 +817,11 @@
     background: var(--ss-surface);
 }
 
-/* jQuery-UI's own placeholder, if the host ever enables one. */
+/* jQuery UI always inserts a placeholder where the row will land and hides
+   it with an inline visibility:hidden. Showing it marks the drop position —
+   a deliberate visible change from the original screen, where the gap was
+   blank. This is the stylesheet's one selector that is not an .ss-* class,
+   and it only applies inside .ss-sort-list. */
 .ss-sort-list .ui-sortable-placeholder {
     visibility: visible !important;
     background: var(--ss-brand-subtle);
@@ -868,6 +875,7 @@
     border-radius: 50%;
     background: var(--ss-brand-subtle);
     color: var(--ss-brand);
+    font-size: 24px;              /* sizes an icon-font glyph inside */
 }
 
 .ss-empty__title { margin: 0; font-size: var(--ss-text-lg); font-weight: var(--ss-weight-semibold); color: var(--ss-fg); }
@@ -999,6 +1007,26 @@
     background: none; color: var(--ss-fg-muted); cursor: pointer;
 }
 .ss-dialog__close:hover { background: var(--ss-surface-sunken); color: var(--ss-fg); }
+
+/* ---- Host override defence ----
+   The host's dark stylesheets force every paragraph grey with !important:
+       .dataTable-info, p { color: #808191 !important; }
+   (assets/css/style-dark.css:29442, rtl-style-dark.css:29398). On the dark
+   card that is 3.42:1, below the 4.5:1 body text needs, and it would override
+   any colour set below. So the text classes that may sit on a <p> restate
+   their colour with !important. A class plus !important outranks the host's
+   bare element plus !important; nothing here is stronger than it must be. */
+.ss-page-header__subtitle,
+.ss-field__hint,
+.ss-empty__body,
+.ss-dialog__body       { color: var(--ss-fg-muted) !important; }
+.ss-page-header__title,
+.ss-card__title,
+.ss-empty__title,
+.ss-label              { color: var(--ss-fg) !important; }
+.ss-field__error       { color: var(--ss-danger) !important; }
+.ss-alert__title,
+.ss-alert__body        { color: inherit !important; }
 
 /* ---- Utilities ---- */
 

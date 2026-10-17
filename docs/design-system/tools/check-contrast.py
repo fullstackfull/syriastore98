@@ -159,6 +159,7 @@ def run(css_path):
 
 
 if __name__ == '__main__':
-    p = pathlib.Path(sys.argv[1] if len(sys.argv) > 1
-                     else 'public/css/store-syria-ds.css')
+    # Default to the stylesheet beside this checkout, wherever it is run from.
+    default = pathlib.Path(__file__).resolve().parents[3] / 'public/css/store-syria-ds.css'
+    p = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else default
     sys.exit(run(p))

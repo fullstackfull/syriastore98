@@ -130,6 +130,18 @@ function compile_blade($src)
     $s = preg_replace('/@endforeach\b/', '<?php endforeach; ?>', $s);
     $s = preg_replace('/@php\s*\((.+?)\)/', '<?php $1; ?>', $s);
 
+    // @json(expr) -> a JavaScript literal, as Laravel's @json directive emits.
+    // Scanned with a paren counter, because expr is usually a nested call.
+    while (($at = strpos($s, '@json(')) !== false) {
+        $depth = 0;
+        for ($i = $at + 5; $i < strlen($s); $i++) {
+            if ($s[$i] === '(') $depth++;
+            elseif ($s[$i] === ')' && --$depth === 0) break;
+        }
+        $expr = substr($s, $at + 6, $i - $at - 6);
+        $s = substr($s, 0, $at) . '<?php echo json_encode(' . $expr . ', JSON_UNESCAPED_UNICODE); ?>' . substr($s, $i + 1);
+    }
+
     // echoes
     $s = preg_replace('/\{!!\s*(.+?)\s*!!\}/s', '<?php echo $1; ?>', $s);
     $s = preg_replace('/\{\{\s*(.+?)\s*\}\}/s', '<?php echo e_($1); ?>', $s);
@@ -174,6 +186,10 @@ $breadcrumb = $__sections['breadcrumb']    ?? '';
 $actions    = $__sections['action-button'] ?? '';
 $content    = $__sections['content']       ?? '';
 $pushedCss  = $__stacks['css']             ?? '';
+// The page's own pushed scripts, kept inert inside a <template>: the host's
+// jQuery, Bootstrap and jQuery UI are not loaded here, so running them would
+// prove nothing, but the checks can still read what they would send.
+$pushedJs   = ($__stacks['scripts'] ?? '') . ($__stacks['custom-script'] ?? '') . ($__stacks['custom-script1'] ?? '');
 
 $html = <<<HTML
 <!DOCTYPE html>
@@ -217,6 +233,7 @@ $html = <<<HTML
     {$content}
   </div>
 </div>
+<template id="ss-pushed-scripts">{$pushedJs}</template>
 </body>
 </html>
 HTML;
