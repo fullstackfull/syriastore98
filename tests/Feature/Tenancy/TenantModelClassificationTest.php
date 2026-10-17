@@ -11,7 +11,7 @@ use ReflectionClass;
 use Tests\TestCase;
 
 /**
- * THE TENANT-OWNERSHIP MAP FOR ALL 95 MODELS IN app/Models.
+ * THE TENANT-OWNERSHIP MAP FOR ALL 93 MODELS IN app/Models.
  *
  * This is the brief's item 1, turned into a durable test instead of a document that drifts. It
  * classifies every model as TENANT-OWNED or PLATFORM-GLOBAL, and the evidence is read from the
@@ -31,7 +31,7 @@ use Tests\TestCase;
  *   25 models  -- table exists and has NO `store_id` column         -> PLATFORM-GLOBAL
  *   14 models  -- NO table at all                                   -> see GATE F below
  *   --
- *   95 total, and the partition is asserted to be exhaustive.
+ *   93 total, and the partition is asserted to be exhaustive.
  *
  * TENANT-DISCRIMINATED IS NOT THE SAME AS SCOPABLE. 56 models carry the column; only 6 are
  * enforced. `config/tenancy.php` holds the allowlist and the audit behind each entry, and
@@ -163,7 +163,17 @@ class TenantModelClassificationTest extends TestCase
             . 'counted twice or not at all and the map below cannot be trusted.'
         );
 
-        $this->assertSame(95, $total, 'The model count changed. Re-run the classification and '
+        // 93, DOWN FROM 95. Commit 1bd56358 ("retire the legacy Chatwoot integration") deleted
+        // App\Models\ChatwootIntegration and App\Models\ChatwootNotificationTemplate, and
+        // nothing else in app/Models changed on this branch -- verified by diffing the directory
+        // against the merge base 0d2ca628.
+        //
+        // NEITHER DELETION WEAKENS ANYTHING. Both models were in the withoutTable partition
+        // (confirmed by dumping that set at the merge base), which is the category this suite
+        // describes as one where "enforcement cannot be proven, so it must not be claimed".
+        // Removing a model that had no table removes nothing enforceable; it shrinks the set of
+        // classes carrying an unprovable classification.
+        $this->assertSame(93, $total, 'The model count changed. Re-run the classification and '
             . 'review the new model before anything is allowlisted: ' . implode(', ', $this->eloquentModels()));
     }
 
@@ -489,10 +499,18 @@ class TenantModelClassificationTest extends TestCase
         );
     }
 
-    public function test_models_without_a_table_are_the_measured_fourteen(): void
+    public function test_models_without_a_table_are_the_measured_twelve(): void
     {
+        // 12, DOWN FROM 14, and the two that left are exactly the two models 1bd56358 deleted:
+        // App\Models\ChatwootIntegration and App\Models\ChatwootNotificationTemplate. The set
+        // was dumped at the merge base and is identical to this one plus those two.
+        //
+        // The TABLES those models named were deliberately kept by that commit (they hold the
+        // store-to-account mapping the replacement migrates from), so nothing was dropped from
+        // the database here -- only the two PHP classes went, and in this environment they had
+        // no table to be scoped against in the first place.
         $this->assertCount(
-            14,
+            12,
             $this->withoutTable,
             "The set of models with no table changed.\nMeasured now:\n  "
             . implode("\n  ", $this->withoutTable)

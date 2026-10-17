@@ -7575,6 +7575,14 @@ public function updateStoreOwnerInfo(Request $request)
                 }
                 
                 if ($request->has('owner_mobile')) {
+                    // B4. The same rule as the web profile editor: a number that changed is a
+                    // number nobody has proved. Without this an API caller could confirm one
+                    // number and then write another, and `mobile_verified_at` would say
+                    // somebody proved a number nobody has ever answered on. Called BEFORE the
+                    // write, because it compares the new value against the stored one.
+                    app(\Workdo\LynomiaChat\app\Services\MerchantContactVerification::class)
+                        ->forgetIfChanged($owner, $validated['owner_mobile'] ?? null);
+
                     $owner->mobile = $validated['owner_mobile'];
                     $updatedFields[] = 'owner_mobile';
                 }

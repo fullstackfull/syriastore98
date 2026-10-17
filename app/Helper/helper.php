@@ -1345,6 +1345,45 @@ if (!function_exists('module_is_active')) {
     }
 }
 
+if (!function_exists('activated_modules_for_owner')) {
+    /**
+     * The module names a tenant OWNER has activated, memoised for the life of the
+     * application instance.
+     *
+     * Container-scoped on purpose -- see the note at the call site in ActivatedModule().
+     * `app()->bound()` rather than a null check, because an owner with no modules resolves
+     * to [] and `[] == null` is true in PHP, so a null check would re-query on every call
+     * for exactly the owners whose answer never changes.
+     *
+     * @return array<int, string>
+     */
+    function activated_modules_for_owner(int $ownerId): array
+    {
+        $key = "lynomia.activated_modules.owner.{$ownerId}";
+
+        // scoped(), not instance(). Both memoise per owner, so neither can answer one
+        // tenant's question with another's modules -- that was the bug this helper exists to
+        // fix. They differ in how long the answer survives: an instance() binding lives as
+        // long as the application object, which in a queue worker is many jobs, so an owner
+        // whose plan lapsed mid-run would keep passing module_is_active() until the worker
+        // restarted. A scoped() binding is cleared by forgetScopedInstances(), which the
+        // queue fires between jobs, so the memo lasts exactly one unit of work. Under
+        // PHP-FPM, where a request is the unit, the two are identical.
+        //
+        // bound() guards the REGISTRATION, not the value: after a scope flush the binding is
+        // still bound while its resolved instance is gone, so app() re-runs the closure and
+        // re-reads the table. Registering again would simply be wasted work.
+        if (! app()->bound($key)) {
+            app()->scoped(
+                $key,
+                fn () => userActiveModule::where('user_id', $ownerId)->pluck('module')->toArray()
+            );
+        }
+
+        return (array) app($key);
+    }
+}
+
 if (!function_exists('ActivatedModule')) {
     function ActivatedModule($user_id = null)
     {
@@ -1368,7 +1407,30 @@ if (!function_exists('ActivatedModule')) {
             if ($user->type == 'super admin') {
                 $user_active_module = $available_modules;
             } else {
-                static $active_module = null;
+                // THE MEMO IS KEYED BY OWNER. It used to be `static $active_module = null`,
+                // keyed on nothing, so the FIRST non-empty module list resolved in a process
+                // was reused for every later principal in that process -- one tenant's
+                // entitlements answering another tenant's question.
+                //
+                // Under PHP-FPM each request is a fresh process, so it did not surface in
+                // production. It surfaces anywhere the process outlives a request: a queue
+                // worker, `artisan` running a loop, Octane, and a PHPUnit run. Measured:
+                // LynomiaConnectionTest's entitlement-denial case passes alone and fails
+                // after an entitled test, because the un-entitled merchant inherits the
+                // entitled one's list and is let through a gate that should refuse them.
+                //
+                // Keyed by the resolved owner id, the memo still saves the repeated query it
+                // was written for, and answers for the right principal.
+                //
+                // IT LIVES IN THE CONTAINER, NOT IN A FUNCTION STATIC. A `static` outlives
+                // the application instance, and the id it is keyed on is not stable across
+                // one: a test suite rebuilds the app and RefreshDatabase restarts the
+                // auto-increment, so owner id 1 in one test is a different person from owner
+                // id 1 in the next and would have read the first one's memo. The container is
+                // rebuilt exactly when the identity space is -- once per request in
+                // production, once per test here -- which is the correct lifetime.
+                $active_module = null;
+
                 if ($user->type != 'admin') {
                     $user_not_com = Cache::remember("user_{$user->created_by}", 3600, function () use ($user) {
                         return User::find($user->created_by);
@@ -1381,14 +1443,10 @@ if (!function_exists('ActivatedModule')) {
                     // regression: the same wrong variable is at the p1b/integration baseline. It
                     // was MASKED only because an earlier 500 short-circuited this path first.
                     if (!empty($user_not_com)) {
-                        if ($active_module == null) {
-                            $active_module =  userActiveModule::where('user_id', $user_not_com->id)->pluck('module')->toArray();
-                        }
+                        $active_module = activated_modules_for_owner((int) $user_not_com->id);
                     }
                 } else {
-                    if ($active_module == null) {
-                        $active_module = userActiveModule::where('user_id', $user->id)->pluck('module')->toArray();
-                    }
+                    $active_module = activated_modules_for_owner((int) $user->id);
                 }
 
                 // Find the common modules.

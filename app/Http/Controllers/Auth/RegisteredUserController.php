@@ -124,7 +124,10 @@ class RegisteredUserController extends Controller
                     'type' => 'admin',
                     //'email_verified_at' => date('Y-m-d H:i:s'),
                     'password' => Hash::make($request->password),
-                    'mobile' => '',
+                    // No number, spelled the one way this column now spells it (B4). Super Admin
+                    // store creation writes null here too; an empty string and a null that both
+                    // mean "nothing" is how a later reader comes to handle only one of them.
+                    'mobile' => null,
                     'language' => $superAdmin->default_language ?? 'en',
                     'default_language' => $superAdmin->default_language ?? 'en',
                     'created_by' => 1,
@@ -257,7 +260,10 @@ class RegisteredUserController extends Controller
                 'profile_image' => 'uploads/profile/avatar.png',
                 'type' => 'admin',
                 'password' => Hash::make($request->password),
-                'mobile' => '',
+                // No number, spelled the one way this column now spells it (B4). Super Admin
+                    // store creation writes null here too; an empty string and a null that both
+                    // mean "nothing" is how a later reader comes to handle only one of them.
+                    'mobile' => null,
                 'language' => $superAdmin->default_language ?? 'en',
                 'default_language' => $superAdmin->default_language ?? 'en',
                 'created_by' => 1,

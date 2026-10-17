@@ -150,18 +150,8 @@ $activeTab = session()->get('setting_tab') ?? 'email_setting';
 
 
 
-<li class="nav-item col-xxl-2 col-xl-3 col-md-4 col-sm-6 col-12 text-center" role="presentation">
-    <a class="nav-link btn-sm f-w-600 {{ $activeTab == 'chatwoot_setting' ? 'active' : '' }}"
-       data-url="{{ route('setting.form') }}"
-       data-tab="chatwoot_setting"
-       id="pills-chatwoot-tab"
-       data-bs-toggle="pill"
-       data-bs-target="#eco-chatwoot"
-       type="button"
-       role="tab">
-        {{ __('lynomia chat') }}
-    </a>
-</li>
+{{-- The "lynomia chat" settings tab is retired with the legacy Chatwoot integration.
+     Its replacement belongs to the Store Syria x Lynomia Chat project and is not built here. --}}
 
 
 

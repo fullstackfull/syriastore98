@@ -54,7 +54,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
      * builder, and the surrounding query still carries its scopes, so conflating the two would
      * overstate this inventory.
      */
-    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_fifty_nine(): void
+    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_fifty_eight(): void
     {
         $perDir = [];
 
@@ -62,7 +62,29 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             $perDir[$dir] = count($this->rawEntryPoints($dir));
         }
 
-        // 114, UP FROM 111, AND THE DELTA IS ACCOUNTED FOR SITE BY SITE. All three are in
+        // 113, DOWN FROM 114, AND THE DELTA IS ONE DELETED SITE.
+        //
+        // Commit 1bd56358 ("retire the legacy Chatwoot integration") removed
+        // app/Services/ChatwootOrderNotificationService.php, and with it the ONLY raw entry
+        // point this branch changes:
+        //
+        //     $rawPhone = \DB::table('order_billing_details')
+        //         ->where('order_id', $order->id)
+        //         ->value('telephone');
+        //
+        // It filtered on order_id alone. `order_billing_details` carries no store_id column at
+        // all, so nothing downstream could have scoped it either: it was a raw, unscoped read
+        // of a customer's telephone number, which is exactly the shape this census exists to
+        // count. Its removal is a reduction in exposure, and the surviving site on that table
+        // (ReportController.php:2952) joins `orders` and filters orders.store_id against
+        // getCurrentStore(), so the table's no-store_id count is now zero -- see the per-table
+        // breakdown and the discriminated-and-unscoped list below, which move for this one
+        // reason and no other.
+        //
+        // The three BulkDeleteTenantGuard sites that took this number from 111 to 114 are
+        // untouched and the reasoning for them is preserved verbatim:
+        //
+        // THE EARLIER DELTA, ACCOUNTED FOR SITE BY SITE. All three are in
         // app/Http/Middleware/BulkDeleteTenantGuard.php (:431, :454, :469) and they are not new
         // exposure -- they ARE the tenant predicate for NEW-BULKDELETE-01. The guard rewrites
         // the bulk-delete `ids` list to the subset the caller's tenant provably owns, and it
@@ -82,13 +104,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // variable binding justified, by
         // tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest, and exercised end to end by
         // tests/Feature/Tenancy/BulkDeleteAuthorizationTest.
-        $this->assertSame(['app' => 114, 'packages' => 45], $perDir,
+        $this->assertSame(['app' => 113, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
             . 'a raw query became Eloquent, which is an improvement worth recording here.');
 
-        $this->assertSame(159, array_sum($perDir));
+        $this->assertSame(158, array_sum($perDir));
     }
 
     /**
@@ -114,7 +136,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             'customers' => [5, 3],
             'migrations' => [1, 1],
             'notify_users' => [2, 1],
-            'order_billing_details' => [2, 1],
+            // [1, 0], DOWN FROM [2, 1]. Commit 1bd56358 deleted
+            // ChatwootOrderNotificationService, whose `DB::table('order_billing_details')
+            // ->where('order_id', ...)->value('telephone')` was the single unscoped statement on
+            // this table. The one that remains (ReportController.php:2952) joins `orders` and
+            // filters orders.store_id against getCurrentStore(), so the unscoped count is now
+            // zero. The ratchet this assertion guards is a count going UP; this one went down.
+            'order_billing_details' => [1, 0],
             'owner_menu_items' => [1, 1],
             'owner_menu_settings' => [1, 1],
             'owner_menus' => [1, 1],
@@ -133,10 +161,15 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         ], $actual, 'The per-table raw-query inventory changed. If a `no-store_id` count went UP, '
             . 'a raw cross-tenant query was added where no global scope can reach it.');
 
-        $this->assertSame(136, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '136 literal-table sites of the 156 entry points; the other 20 build their table name '
+        // 135, DOWN FROM 136, AND 66, DOWN FROM 67 -- the same single deletion as above, flowing
+        // through both totals. The removed statement was attributable to a literal table name
+        // (order_billing_details) AND carried no store_id predicate, so it is subtracted from
+        // each sum exactly once. The unattributable count is unchanged at 20, so the
+        // attributable-plus-unattributable figure quoted in the message below moves 156 -> 155.
+        $this->assertSame(135, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            '135 literal-table sites of the 155 entry points; the other 20 build their table name '
             . 'from a variable and so cannot be attributed (see LIMIT 2 in this class docblock).');
-        $this->assertSame(67, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        $this->assertSame(66, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**
@@ -241,19 +274,24 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             . 'call site, in files this workstream does not own.');
 
         $this->assertSame([
-            // MEASURED, not assumed from the name. `currency` and `order_billing_details` both
-            // have a migration in database/migrations and NEITHER declares `store_id`, so their
-            // unscoped statements are not tenancy findings -- which is exactly the distinction
-            // that stops this inventory inflating the exposure. `order_billing_details` is
-            // reached through the order it belongs to; `currency` is a platform rate table.
+            // MEASURED, not assumed from the name. `currency` has a migration in
+            // database/migrations and does not declare `store_id`, so its unscoped statements
+            // are not tenancy findings -- exactly the distinction that stops this inventory
+            // inflating the exposure. `currency` is a platform rate table.
+            //
+            // `order_billing_details` USED TO BE LISTED HERE and is not any more. It is not
+            // reclassified: it has simply left the population this list describes, because it
+            // no longer has ANY unscoped raw statement. Its only one was deleted with
+            // ChatwootOrderNotificationService in 1bd56358 (see the per-table breakdown above).
+            // It still has no `store_id` column, so if a new unscoped statement on it ever
+            // appears it belongs back here -- and the per-table ratchet will say so first.
             'currency',
             'migrations',              // platform
-            'order_billing_details',
             'personal_access_tokens',  // platform; tokens belong to a user, not a store
             'stores',                  // the tenant REGISTRY itself -- ownership, not scoping
             'users',                   // no store_id column at all; see the DO-NOT-SCOPE list
         ], $notDiscriminated, 'A table moved between "has store_id" and "does not". That changes '
-            . 'what the 67 unscoped statements mean, so re-read the classification above.');
+            . 'what the 66 unscoped statements mean, so re-read the classification above.');
 
         $this->assertSame([
             // `coupon_requests` is declared only by a PACKAGE module

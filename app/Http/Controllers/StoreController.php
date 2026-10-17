@@ -265,7 +265,14 @@ foreach ($defaultCurrencies as $currency) {
                 'type' => 'admin',
                 'email_verified_at' => date("Y-m-d H:i:s"),
                 'password' => Hash::make($request->password),
-                'mobile' => '7878787878',
+                // NO NUMBER, rather than a made-up one (B4). This wrote the literal
+                // 7878787878 for every merchant Super Admin created, which is not a
+                // placeholder in any meaningful sense -- it is a real, dialable number
+                // belonging to somebody, sitting in the column the platform addresses its
+                // operational notices from. A merchant with no number on record is reported
+                // as unreachable on the Super Admin integration page and is asked to confirm
+                // one; a merchant with a fabricated number looks reachable and is not.
+                'mobile' => null,
                 'register_type' => 'email',
                 'language' => $superAdmin->default_language ?? 'en',
                 'default_language' => $superAdmin->default_language ?? 'en',

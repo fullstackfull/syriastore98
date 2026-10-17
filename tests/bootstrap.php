@@ -52,6 +52,53 @@ $fail = static function (string $detail, ?string $connection, ?string $database)
     exit(1);
 };
 
+/**
+ * LAYER 0b -- THE INSTALLER MARKER, AND WHY THE SUITE NEEDS IT.
+ *
+ * Three Auth controllers guard their constructors with the Workdo installer check:
+ *
+ *     if (!file_exists(storage_path() . "/installed")) { header('location:install'); die; }
+ *
+ * (AuthenticatedSessionController:24-27, RegisteredUserController:26-30,
+ * PasswordResetLinkController:17-22.) `die` terminates the PHP process, and PHPUnit is that
+ * process. storage/ is gitignored, so on any fresh checkout -- a new clone, a CI runner, a
+ * container -- the marker is absent and the FIRST test that touches one of those controllers
+ * kills the run.
+ *
+ * It does not fail. It exits 0, prints no summary, and reports no failures. Measured on the
+ * merge commit 0d2ca628 with the marker absent:
+ *
+ *     tests/Feature/Auth        0 of 21 tests executed, exit 0
+ *     tests/Feature/Security    ~160 of 632 executed, exit 0, no summary
+ *     tests/Feature (whole)     0 executed, exit 0
+ *
+ * A CI step that runs the suite and checks the exit code sees success. With the marker
+ * present the Auth suite runs all 21 and reports 7 real failures that were invisible before.
+ *
+ * Creating the file here, rather than in a CI step, keeps the guarantee with the suite: it
+ * holds for every runner and every local checkout. It is a test-environment artifact only --
+ * storage/ is gitignored, nothing is committed, and no production behaviour changes.
+ */
+$installedMarker = __DIR__ . '/../storage/installed';
+
+if (!file_exists($installedMarker)) {
+    if (!is_dir(dirname($installedMarker))) {
+        @mkdir(dirname($installedMarker), 0775, true);
+    }
+
+    @touch($installedMarker);
+
+    if (!file_exists($installedMarker)) {
+        fwrite(STDERR, PHP_EOL . str_repeat('=', 78) . PHP_EOL);
+        fwrite(STDERR, 'CANNOT CREATE storage/installed.' . PHP_EOL);
+        fwrite(STDERR, 'Without it the Auth controllers `die` in their constructors and the' . PHP_EOL);
+        fwrite(STDERR, 'run terminates silently with exit 0, reporting success having executed' . PHP_EOL);
+        fwrite(STDERR, 'only part of the suite. Refusing to run rather than report a false pass.' . PHP_EOL);
+        fwrite(STDERR, str_repeat('=', 78) . PHP_EOL . PHP_EOL);
+        exit(1);
+    }
+}
+
 $connection = $_ENV['DB_CONNECTION'] ?? $_SERVER['DB_CONNECTION'] ?? getenv('DB_CONNECTION') ?: null;
 $database   = $_ENV['DB_DATABASE']   ?? $_SERVER['DB_DATABASE']   ?? getenv('DB_DATABASE')   ?: null;
 

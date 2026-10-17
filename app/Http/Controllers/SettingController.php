@@ -31,9 +31,6 @@ use Illuminate\Support\Facades\Http;
 use App\Models\CurrencyRate;
 use App\Services\StoreCurrencyConversionService;
 
-use App\Models\Cart;
-use App\Models\ChatwootNotificationTemplate;
-use App\Models\ChatwootIntegration;
 use App\Models\OtpIntegration;
 
 class SettingController extends Controller
@@ -1545,7 +1542,6 @@ if ($newCurrency !== 'USD' && (float) $currencyRate->rate_per_usd <= 1) {
                 'twilio_setting' => 'setting.twilio_setting',
                 'whatsapp_notify_setting' => 'setting.whatsapp_notify_setting',
                 'whatsapp_setting' => 'setting.whatsapp_setting',
-                    'chatwoot_setting' => 'setting.chatwoot',
 'otp_setting' => 'setting.otp_setting',
                 'woocom_setting' => 'setting.woocom_setting',
                 'webhook_setting' => 'setting.webhook_setting',
@@ -1692,53 +1688,6 @@ $currencyRates = CurrencyRate::where('store_id', getCurrentStore())
                 $view = view($views[$tabType], compact('emailTemplates', 'setting'));
             } 
             
-elseif ($tabType == 'chatwoot_setting') {
-
-    $storeId = getCurrentStore();
-
-    $integration = ChatwootIntegration::where(
-        'store_id',
-        $storeId
-    )->first();
-
-
-    $carts = Cart::with('UserData')
-        ->where('store_id', $storeId)
-        ->whereNotNull('customer_id')
-        ->where('customer_id', '>', 0)
-        ->orderByDesc('updated_at')
-        ->get()
-        ->groupBy('customer_id');
-
-
-    $abandonedCartSetting =
-        ChatwootNotificationTemplate::where(
-            'store_id',
-            $storeId
-        )
-        ->where(
-            'event_type',
-            'abandoned_cart'
-        )
-        ->where(
-            'is_enabled',
-            1
-        )
-        ->first();
-
-
-    $view = view(
-        $views[$tabType],
-        compact(
-            'setting',
-            'integration',
-            'carts',
-            'abandonedCartSetting'
-        )
-    );
-}
-
-
 elseif ($tabType == 'otp_setting') {
 
     $storeId = getCurrentStore();

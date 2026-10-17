@@ -567,6 +567,35 @@ class OrderFinancialService
     /**
      * توحيد أسماء حالات الدفع.
      */
+    /**
+     * Free-text `orders.payment_status` -> the six states a financial record uses.
+     *
+     * EVERY ARM BELOW IS A VALUE THIS CODEBASE REALLY WRITES TO `orders.payment_status`, and the
+     * list was measured rather than imagined. Enumerating the order-write sites gives exactly
+     * five distinct spellings, case aside: Paid/paid, success, succeeded/Succeeded, Pending,
+     * Unpaid. Values that look like they belong here and deliberately do NOT are on other
+     * tables: Approved, Rejected and Failed are `plan_orders.payment_status` (the SaaS plan
+     * rail -- BankTransferController and SSLCommerzPaymentController write PlanOrder, not
+     * Order), and 'On Hold' / 'Pending payment' belong to the PartialPayments package's own
+     * models. An order never carries any of them, so admitting them here would be guessing at
+     * a vocabulary this column does not use.
+     *
+     * 'succeeded' WAS MISSING, AND IT IS THE MOST COMMON SPELLING OF ALL. Twenty order-write
+     * sites use it -- Stripe, Mercado Pago, Skrill, Midtrans, PayTabs, PayTR, Paytm,
+     * Flutterwave, CoinGate, NMI, SenangPay, PayU, Powertranz, PayNow and MyFatoorah among them
+     * -- against four for 'success'. It fell through to `default => 'unpaid'`, so an order paid
+     * through any of those gateways was recorded with payment_status 'unpaid', paid_amount 0,
+     * remaining_amount equal to the full total and paid_at null, and the merchant's wallet was
+     * never credited for it. That is the defect this arm fixes, and nothing else changes: the
+     * other arms are untouched, so authorized, pending, failed, cancelled, partially paid and
+     * refunded transactions classify exactly as they did before.
+     *
+     * THE DEFAULT STAYS 'unpaid' ON PURPOSE. It conflates "explicitly not paid" with "I do not
+     * recognise this", and for a FINANCIAL record that is the right conservative answer: never
+     * claim money arrived on the strength of a word nobody taught this method. (The Lynomia
+     * commerce API needs the two told apart and keeps its own map for that reason; the two are
+     * held in agreement by a test rather than by hope.)
+     */
     private function normalizePaymentStatus(
         $status
     ): string {
@@ -578,6 +607,7 @@ class OrderFinancialService
 
             'paid',
             'success',
+            'succeeded',
             'completed' => 'paid',
 
             'pending',

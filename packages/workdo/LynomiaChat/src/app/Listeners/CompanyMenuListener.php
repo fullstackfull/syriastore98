@@ -1,0 +1,145 @@
+<?php
+
+namespace Workdo\LynomiaChat\app\Listeners;
+
+use App\Events\CompanyMenuEvent;
+
+/**
+ * The merchant navigation entry: "Communication & Marketing Center".
+ *
+ * App\Classes\Menu::add() renders an item only when its `module` is in ActivatedModule() AND
+ * the user holds `permission`, so the section hides itself for a plan that lacks the module
+ * and for a staff role that lacks `Manage Lynomia Chat`.
+ *
+ * THAT IS COSMETIC AND NOTHING HERE IS A CONTROL. An earlier version of this comment claimed
+ * these were "the same two checks the routes enforce server-side". The plan half was true;
+ * the permission half was not -- the routes carried no role check at all, so a staff member
+ * who could not see this menu item reached the same pages by typing the path, and
+ * /lynomia/open signed them into the merchant's workspace as its administrator. The routes
+ * now carry Laratrust's permission middleware for exactly this permission
+ * (packages/workdo/LynomiaChat/src/routes/web.php), which is what keeps them out. Hiding a
+ * link never did.
+ *
+ * ENTRIES APPEAR AS THEIR PHASES LAND. The approved navigation has sixteen sections; a menu
+ * entry that routes nowhere is worse than no entry, so Campaigns and the rest are absent rather
+ * than present and inert. Phase 2 added Inbox and Phase 4 adds Automation Studio, both of which
+ * route to working pages.
+ */
+class CompanyMenuListener
+{
+    public function handle(CompanyMenuEvent $event): void
+    {
+        $module = 'LynomiaChat';
+        $menu = $event->menu;
+
+        $menu->add([
+            'title' => __('Communication & Marketing'),
+            'icon' => 'message-circle',
+            'name' => 'lynomia',
+            'parent' => null,
+            'order' => 41,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'lynomia.overview',
+            'module' => $module,
+            'permission' => 'Manage Lynomia Chat',
+        ]);
+
+        $menu->add([
+            'title' => __('Overview'),
+            'icon' => '',
+            'name' => 'lynomia-overview',
+            'parent' => 'lynomia',
+            'order' => 10,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'lynomia.overview',
+            'module' => $module,
+            'permission' => 'Manage Lynomia Chat',
+        ]);
+
+        $menu->add([
+            'title' => __('Inbox'),
+            'icon' => '',
+            'name' => 'lynomia-inbox',
+            'parent' => 'lynomia',
+            'order' => 20,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'lynomia.inbox',
+            'module' => $module,
+            'permission' => 'Manage Lynomia Chat',
+        ]);
+
+        $menu->add([
+            'title' => __('Automation Studio'),
+            'icon' => '',
+            'name' => 'lynomia-automation',
+            'parent' => 'lynomia',
+            'order' => 30,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'lynomia.automation',
+            'module' => $module,
+            'permission' => 'Manage Lynomia Automation',
+        ]);
+
+        $menu->add([
+            'title' => __('Commerce automation'),
+            'icon' => '',
+            'name' => 'lynomia-commerce-automation',
+            'parent' => 'lynomia',
+            'order' => 40,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'lynomia.automation.commerce',
+            'module' => $module,
+            'permission' => 'Manage Lynomia Automation',
+        ]);
+
+        // Audiences sit beside the automation entries rather than under them: defining who a
+        // campaign may reach is marketing work, not automation work, and a merchant looking
+        // for "who will this go to" should not have to open the Studio to find it.
+        //
+        // The permission here hides the entry; the ROUTE enforces it. A hidden menu item is
+        // not an authorization control -- the staff member types the path.
+        $menu->add([
+            'title' => __('Audiences'),
+            'icon' => '',
+            'name' => 'lynomia-audiences',
+            'parent' => 'lynomia',
+            'order' => 50,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'lynomia.audiences',
+            'module' => $module,
+            'permission' => 'Manage Lynomia Audiences',
+        ]);
+
+        $menu->add([
+            'title' => __('Message templates'),
+            'icon' => '',
+            'name' => 'lynomia-templates',
+            'parent' => 'lynomia',
+            'order' => 60,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'lynomia.templates',
+            'module' => $module,
+            'permission' => 'Manage Lynomia Templates',
+        ]);
+
+        $menu->add([
+            'title' => __('Campaigns'),
+            'icon' => '',
+            'name' => 'lynomia-campaigns',
+            'parent' => 'lynomia',
+            'order' => 70,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'lynomia.campaigns',
+            'module' => $module,
+            'permission' => 'Manage Lynomia Campaigns',
+        ]);
+    }
+}

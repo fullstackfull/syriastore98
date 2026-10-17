@@ -3,9 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Models\{Addon, Plan, PlanCoupon, User, userActiveModule};
+use App\Models\AuditLog;
 use App\Models\PlanOrder;
 use App\Models\Utility;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use App\Facades\ModuleFacade as Module;
 use App\DataTables\PlanOrderDataTable;
 use Illuminate\Support\Facades\Artisan;
@@ -331,6 +333,26 @@ class PlanController extends Controller
 
         if($plan)
         {
+            // SERVER-SIDE TRIAL ELIGIBILITY. These three conditions existed only in the
+            // Blade template (resources/views/plans/index.blade.php:296), which decides
+            // whether the button is rendered -- it does not stop anyone requesting the
+            // route directly. Without them a merchant could re-activate a free trial of a
+            // PAID plan indefinitely, each call re-running assignPlan() and pushing
+            // plan_expire_date out again: unlimited free access to paid plans, and to every
+            // module those plans grant.
+            //
+            // `trial_plan` is the durable "has already trialled" marker: it is written here
+            // and never reset anywhere in the codebase (assignPlan() clears
+            // trial_expire_date, not trial_plan), so `!= 0` is a permanent one-trial rule,
+            // which is what the template intends.
+            if ((int) $objUser->trial_plan !== 0) {
+                return redirect()->back()->with('error', __('You have already used your free trial.'));
+            }
+
+            if ((int) $plan->trial !== 1 || empty($plan->trial_days)) {
+                return redirect()->back()->with('error', __('This plan does not offer a free trial.'));
+            }
+
             if($plan->price > 0)
             {
                 $user = User::find($objUser->id);
@@ -357,15 +379,68 @@ class PlanController extends Controller
         }
     }
 
-    public function refund(Request $request , $id , $user_id)
+    /**
+     * Mark a plan order refunded and drop its beneficiary to the free plan.
+     *
+     * Authorization is on the route (PlatformOperatorOnly, routes/web.php:525). The defects
+     * fixed here are below that line:
+     *
+     *   - IT REFUNDED THE WRONG ORDER. The route is `/refund/{id}/{user_id}` but the body
+     *     read `$request->id` -- a query/body parameter, not the route segment. With no `id`
+     *     in the query string `$request->id` is null, so `where('id', null)` matched nothing:
+     *     the order was never marked refunded while the user was still downgraded. With an
+     *     `?id=` appended, any OTHER order could be flagged instead of the one in the URL.
+     *   - The order and the user were never checked to exist, and were never checked to
+     *     belong to each other, so `/refund/<orderA>/<userB>` downgraded an unrelated user.
+     *   - `User::find()` returning null fataled on `->assignPlan(1)`.
+     *   - Not idempotent, not transactional, not audited.
+     *
+     * Plan id 1 is kept as the downgrade target because that is the existing semantic
+     * throughout this codebase; it is now verified to exist rather than assumed.
+     */
+    public function refund(Request $request, $id, $user_id)
     {
-        PlanOrder::where('id', $request->id)->update(['is_refund' => 1]);
+        $order = PlanOrder::find($id);
+
+        if (! $order) {
+            return redirect()->back()->with('error', __('Order not found.'));
+        }
+
+        // Resource validation: the order must actually belong to the user being downgraded.
+        if ((int) $order->user_id !== (int) $user_id) {
+            return redirect()->back()->with('error', __('This order does not belong to that user.'));
+        }
+
+        if ((int) $order->is_refund === 1) {
+            return redirect()->back()->with('error', __('This order has already been refunded.'));
+        }
 
         $user = User::find($user_id);
+        $freePlan = Plan::find(1);
 
-        $assignPlan = $user->assignPlan(1);
+        if (! $user || ! $freePlan) {
+            return redirect()->back()->with('error', __('Something is wrong.'));
+        }
 
-        return redirect()->back()->with('success' , __('We successfully planned a refund and assigned a free plan.'));
+        $previousPlanId = $user->plan_id;
+
+        DB::transaction(function () use ($order, $user) {
+            $order->is_refund = 1;
+            $order->save();
+
+            $user->assignPlan(1);
+        });
+
+        AuditLog::record('plan_order_refunded', $order, [
+            'is_refund' => 0,
+            'plan_id'   => $previousPlanId,
+        ], [
+            'is_refund'      => 1,
+            'plan_id'        => 1,
+            'beneficiary_id' => $user->id,
+        ]);
+
+        return redirect()->back()->with('success', __('We successfully planned a refund and assigned a free plan.'));
     }
 
 }

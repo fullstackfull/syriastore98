@@ -1,0 +1,530 @@
+# Store Syria × Lynomia Chat — Phase 2 Completion Report
+
+Native omnichannel inbox, channel exclusivity, included agent seats and secure real-time delivery.
+
+Branch (both repositories): `claude/store-syria-lynomia-integration-1oa1tt`
+
+---
+
+## 1. Executive completion summary
+
+Phase 2 is **implemented and tested, and is not production-ready** — those are different claims and
+this report keeps them apart throughout.
+
+A merchant can open **Inbox** in the Store Syria dashboard and work real Lynomia conversations:
+read a filtered, paginated list, open a thread, send a reply or an internal note, assign it, change
+its status, and see the customer alongside. Every one of those actions is served by a Store Syria
+endpoint that authenticates the person, resolves the store from their session, acts with **that
+person's own Lynomia identity** confined to **that store's workspace**, and returns a narrowed
+response. No Lynomia credential of any kind reaches the browser.
+
+Underneath it, three foundations the later phases need are in place: one channel identity can
+belong to only one Store Syria store, enforced by a partial unique index and validated at the one
+point all nine of Lynomia's inbox-creation paths pass through; a Store Syria plan can include
+Lynomia agent seats, granted without creating a Lynomia subscription so the merchant cannot be
+charged twice; and Lynomia's existing signed webhooks drive a cursor-based event stream that the
+inbox resynchronises from.
+
+**What is not done** is listed in §15 rather than buried: outbound attachments, channel
+self-service onboarding (deliberately — the rule had to land first), the Lynomia-side Super Admin
+page, automatic re-sync on a Store Syria plan change, and a `channel disconnected` event that
+Lynomia cannot currently emit.
+
+---
+
+## 2. Architecture
+
+```
+MERCHANT BROWSER  (Blade + Bootstrap 5 + jQuery; no Lynomia credential, ever)
+      │  session cookie
+      ▼
+STORE SYRIA  /lynomia/inbox/api/*          ← the BFF
+      │   EnsureStoreOwnsLink   store ownership, from the session
+      │   PlanModuleCheck       tenant entitlement
+      │   Laratrust permission  Manage / Reply / Assign  (per action)
+      │
+      ├── MerchantInboxGateway
+      │      ├── IdentityProvisioner   this person's Lynomia identity in this workspace
+      │      └── PlatformApiClient     ── platform token (env only) ──┐
+      │                                                              │
+      │      ← scoped_access_token: one person, one account, expiring┘
+      ▼
+   AgentApiClient  ──  api_access_token: <scoped> ──▶  LYNOMIA  /api/v1/accounts/{id}/*
+                                                        │  EnsureCurrentAccountHelper
+                                                        │  refuses any other account
+                                                        ▼
+                                                   conversations, messages,
+                                                   contacts, assignments
+
+LYNOMIA  ── signed webhook ──▶  STORE SYRIA  POST /lynomia/events/{store}
+  X-Chatwoot-Signature  sha256=HMAC(secret, "{ts}.{body}")   secret = HMAC(master, store)  [derived]
+  X-Chatwoot-Timestamp  freshness window
+  X-Chatwoot-Delivery   unique index → idempotency
+                                   │
+                                   ▼   ids only, never content
+                          lynomia_inbox_events  ──▶  GET /lynomia/inbox/api/events?after=<cursor>
+                                                          │
+                                                          ▼  browser re-fetches through the BFF
+```
+
+The separation that matters: the **platform token** can create workspaces and reaches every account
+this app holds — it is used for exactly one thing, asking Lynomia for a per-person credential, and
+never serves a merchant request.
+
+---
+
+## 3. Native inbox feature inventory
+
+| Area | Delivered |
+|---|---|
+| Conversation list | list, search, channel badge, contact name, last-message preview, unread count, assignee, status, last activity, status + assignment filters, pagination |
+| Thread | message history, direction, sender, timestamps, delivery status, cursor paging, reply composer, internal notes, attachments (inbound, linked) |
+| Actions | send reply, add internal note, assign/unassign, change status, mark read |
+| Customer panel | Lynomia contact, email, phone, channel, conversation status |
+| States | loading, empty, error, disconnected, permission-aware, "read-only" composer |
+| i18n / RTL | all strings translated; `dir="rtl"` and `style-rtl.css` inherited from the layout; logical utilities only (`ms-*`, `me-*`, `border-inline-*`) |
+| Accessibility | labelled controls, `role="list"`/`log`, `aria-live`, keyboard-activatable rows, visually-hidden labels |
+| Safety | every customer-controlled string written with `textContent`; attachment links `rel="noopener noreferrer"` |
+
+**Stack note, measured not assumed:** the merchant dashboard renders with Bootstrap 5 + jQuery 3.6
+from `public/assets`. No dashboard view invokes the Vite directive, and `npx vite build` **fails**
+on a clean `npm install` because `resources/js/echo.js` imports `laravel-echo` and `pusher-js`,
+neither of which is in `package.json`. Building the inbox in Tailwind/Alpine would have produced an
+unstyled page.
+
+---
+
+## 4. Server-side BFF API map
+
+| Store Syria route | Permission | Lynomia call |
+|---|---|---|
+| `GET  /lynomia/inbox` | Manage | — (shell) |
+| `GET  …/api/conversations` | Manage | `GET /api/v1/accounts/{id}/conversations` (page-based, 25) |
+| `GET  …/api/conversations/{id}/messages` | Manage | `GET …/messages` (**cursor** `before=`, cap 20) |
+| `POST …/api/conversations/{id}/reply` | **Reply** | `POST …/messages` (not retried) |
+| `POST …/api/conversations/{id}/status` | **Assign** | `POST …/toggle_status` |
+| `POST …/api/conversations/{id}/assign` | **Assign** | `POST …/assignments` |
+| `POST …/api/conversations/{id}/read` | Manage | `POST …/update_last_seen` |
+| `GET  …/api/agents` | Manage | `GET …/agents` (ids + names only, no emails) |
+| `GET  …/api/contacts/{id}` | Manage | `GET …/contacts/{id}` |
+| `GET  …/api/events` | Manage | — (local cursor) |
+| `POST /lynomia/events/{store}` | HMAC signature | — (ingress) |
+
+Three upstream contract details were read rather than assumed, and each would have been a silent
+bug: conversations are addressed by **`display_id`** (per-account and sequential, so another store's
+"7" is a valid "7"); messages paginate by **cursor**, not page; and the upstream message `create`
+has **no strong parameters at all**, so the whitelist lives in `AgentApiClient`.
+
+---
+
+## 5. Real-time event and transport map
+
+| Required event | Lynomia webhook | Covered |
+|---|---|---|
+| New incoming / outgoing message | `message_created` | yes (`message_type` distinguishes) |
+| Conversation created | `conversation_created` | yes |
+| Conversation updated | `conversation_updated` | yes |
+| Status changed | `conversation_status_changed` | yes |
+| Delivery / read update | `message_updated` | yes |
+| Assignment changed | — | **incidentally** — changes the conversation, so `conversation_updated` fires |
+| Unread changed | — | **incidentally**, same mechanism |
+| Channel disconnected / needs reauth | — | **NOT covered** — needs an additive Lynomia adapter |
+
+`Webhook::ALLOWED_WEBHOOK_EVENTS` is frozen at twelve events with no overlay seam, so widening it
+would be an OSS edit; the incidental coverage is sufficient because an event carries only ids and
+the client re-reads state.
+
+**Transport: cursor, not socket — a measured choice.** No Echo client is loadable (see §3), Reverb's
+server is in `composer.json` but `BROADCAST_CONNECTION` defaults to `null` and nothing runs the
+daemon. A socket would have shipped an inbox that silently never updates. The cursor gives up
+sub-second latency and keeps every guarantee asked for: reconnection and catch-up are the *same
+call* as an ordinary poll (so the recovery path is exercised constantly, not only after a failure),
+duplicates and out-of-order delivery are harmless, and an unreachable server degrades the inbox to
+what it was a moment ago.
+
+---
+
+## 6. Channel-exclusivity evidence
+
+Rule: **one channel identity → one Store Syria store**, including across two stores of one merchant.
+
+- `channel_identity_claims`, partial unique index on `(platform_app_id, provider, identity)` **where
+  `state = 'active'`** — released claims stay as history without blocking the next holder.
+- Keyed on the **platform app**, so an account no integration holds is untouched. Independent
+  Lynomia customers are unaffected; this was required and is tested.
+- **Normalization per provider**: phones to E.164-ish with `00` folded, email lowercased,
+  provider-issued ids compared **exactly**. Without it the rule would be a formatting rule — five
+  spellings of one number are tested.
+- **Two enforcement points**, because one is not enough: `Channels::ExclusivityGuard` on `Inbox`
+  (the only point downstream of all **nine** inbox-creation paths — six never touch the controller)
+  and `Custom::Channelable` on the channel row (because `EDITABLE_ATTRS` makes identity mutable, so
+  a create-only rule is evadable in two steps).
+- **Reverified gaps:** `channel_facebook_pages` is unique on `(page_id, account_id)` only and
+  `channel_twitter_profiles` on `(account_id, profile_id)` only — both confirmed at this HEAD. X is
+  unreachable in this fork. Neither matters for this rule, which is about *stores*.
+- **Not claimable, correctly:** web widget and API channels mint their own identifiers, so there is
+  nothing a second store could collide with.
+- **Two states only** — `active`, `released`. The other six in the approved lifecycle have no writer
+  in Phase 2; Phase 1 had to remove `LinkState::SUSPENDED` for exactly that reason.
+- **Concurrency tested for real**: two threads, two connections, real Postgres — exactly one wins.
+
+---
+
+## 7. Agent-seat entitlement
+
+```
+effective limit = operator override
+                ?? max(Lynomia plan, integration grant)
+                ?? unlimited
+```
+
+- **MAX, not SUM.** 10 paid + 5 included = 10. Not 15 (additive stacking) and not 5 (downgrading
+  paid rights). Both directions tested.
+- **A separate layer, not the override row.** An override is documented as an operator's explicit,
+  audited decision; a machine-maintained allowance following an external plan is a different thing,
+  and writing it there would let a sync silently overwrite a human — the hazard `Billing::FeatureSync`
+  is documented as avoiding for features.
+- **No duplicate billing.** The grant gives a real, enforced ceiling **without a Lynomia
+  subscription**. Before it, an account with no subscription resolved to *unlimited*, so enforcing
+  seats and double-billing were the same switch.
+- **`limit_source`** returns `:override | :plan | :integration | :default` — the provenance asked for.
+- **No new guard.** `Billing::AgentLimit` on `AccountUser` create already covers every path including
+  the Platform API, and takes `account.lock!` inside the save's transaction. Concurrency tested with
+  real threads.
+- **No hardcoded default.** `plans.lynomia_agent_seats` starts null on every plan; null **withdraws**
+  the grant rather than granting zero, so an unconfigured plan locks nobody out.
+- **A downgrade deletes nobody.** Withdrawing changes what happens next, not who exists.
+- **The refusal now points somewhere useful**: a merchant whose seats come from Store Syria is told
+  "Ask your provider", not "Upgrade your plan" — they have no Lynomia plan to upgrade.
+
+---
+
+## 8. Permission and isolation evidence
+
+| Property | Where proven |
+|---|---|
+| Owner reads own conversations | `LynomiaInboxBffTest` |
+| Staff read but cannot reply | ditto — and the refused reply never reaches Lynomia |
+| Staff cannot assign or change status | ditto |
+| Staff without the module reach nothing | ditto |
+| Store A cannot reach store B | ditto — asserted on the account id on the wire |
+| One person, two stores, correctly scoped | ditto — both directions |
+| No Lynomia credential in any response | ditto — token, SSO param and base URL all absent |
+| Forged conversation id confined to own account | ditto |
+| Forged event cursor cannot cross stores | `LynomiaEventIngressTest` |
+| Scoped token refused on a sibling account | `scoped_access_tokens_spec.rb` (401, where the personal token still gets 200) |
+| Anonymous refused on every BFF route | `LynomiaInboxBffTest` |
+
+**Mutation-verified** (the enforcement was removed and the tests were watched to fail): per-action
+route permissions (2), per-person credential (1), access-token account scope (2), both exclusivity
+layers (3), no-stacking rule (3), replay window and per-store key derivation (3), the relocated
+channel identity guard (2), webhook secret immutability on update (1), and the seat-refusal
+wording on the invite path (1).
+
+---
+
+## 9. Store Syria Super Admin
+
+Existing page `Lynomia Chat Integration` gains an **Agent Seats** tab: included seats per plan, seats
+in use per store, and event-delivery health. It reads only from this side, so it still answers when
+Lynomia is unreachable — which is when an operator opens it.
+
+## 10. Lynomia Super Admin
+
+**Not built.** See §15.
+
+---
+
+## 11. UI / RTL / mobile validation
+
+Static and structural, not visual: RTL is inherited from `layouts/app.blade.php` (`dir="rtl"` plus
+`style-rtl.css`, forced for `ar`/`he`), and the inbox stylesheet contains **no physical
+left/right** — only logical properties. Responsive behaviour is a single `@media (max-width: 991.98px)`
+rule that stacks the three panes and hides the empty context pane. The page renders in tests
+(`assertOk` + markup assertions). **No browser screenshot was taken** — see §15.
+
+---
+
+## 12. Test results
+
+| Suite | Result |
+|---|---|
+| Store Syria — Lynomia module | **133 tests, 2 985 assertions, 0 failures** |
+| Store Syria — full suite | **1 718 tests, 11 342 assertions, 13 failures**, 17 skipped — the *identical* pre-existing set |
+| Lynomia — Phase 2 specs | scoped tokens 15, channel claims 24, entitlement grants 23, webhook secret 4 — 0 failures |
+| Lynomia — broad regression | **8 818 examples, 0 failures**, 70 pending — see §12a |
+| RuboCop (Lynomia) | clean on all changed files |
+
+The 13 Store Syria failures are the documented baseline from `f2d16cab`: 8 `owner_menu_settings`
+Auth/Profile and 5 tenancy-census — matched name for name, in the same order, on the final run.
+(The total reads 1 718 against 1 716 earlier in this phase: the two added tests are the module's
+own, written after the earlier run had already started.) Phase 2 added 46 Store Syria tests (19 ingress + 17 BFF + 10 seat allowance) and **no new failure**. Per the brief they
+are out of scope, and this report does not claim all tests pass.
+
+New tests: 17 BFF, 19 event ingress, 10 seat allowance (Store Syria) = 46; 15 scoped token, 24
+channel claim, 23 entitlement grant, 4 webhook-secret boundary (Lynomia) = 66 — **112 new
+examples**. The last five were added by the §12a fixes and did not exist when Phase 2 was first
+declared done.
+
+---
+
+## 12a. The broad Lynomia regression — two regressions and one undelivered claim
+
+**This run was not a formality.** It failed, and the failure led to three real problems in Phase 2,
+all three mine. The suite itself found exactly one of them; the other two were found by the sweep
+that the first one prompted — which is the more useful fact, because a defect that hides from
+8 813 examples is a reason to go looking by hand rather than to run more examples. Two of the
+three are regressions — Phase 2 removed or weakened a control that already worked. The third is a different
+and milder thing, and the distinction is kept rather than flattened: a feature this report claimed
+in §7 that did not actually reach the path a merchant takes. Nothing that worked before got worse;
+something this phase promised was only two-thirds delivered.
+
+`spec/requests spec/controllers spec/models spec/services spec/lib` — **8 813 examples**, run for the
+first time in this engagement at the end of Phase 2. Result: **2 failures**, both in
+`spec/requests/audit_capture_spec.rb` (B-17, B-18 — channel configuration), and both the same
+defect. Defects 2 and 3 below produced **no failing example at all** and were found by reading.
+
+### Defect 1 — the channel audit trail was deleted
+
+#### What broke
+
+`custom/app/models/custom/channelable.rb` **already existed**. It is a plain module prepended into
+the `Channelable` concern, filling in the empty `create_audit_log_entry` hook that
+`app/models/concerns/channelable.rb:10` declares, and what it implements is the **channel
+configuration audit trail** — the control that records a credential rotation by the *names* of the
+keys that moved and never by their values.
+
+Phase 2B **overwrote that entire file** with the channel-exclusivity validation: 31 insertions,
+80 deletions. The audit emitter ceased to exist.
+
+#### Why it was silent
+
+The PATCH still returned **200**. Nothing raised, nothing logged, no Phase 2 spec failed. The only
+symptom anywhere was two red examples in a suite that Phase 2 had no reason to run. A compliance
+control was removed and the product reported success.
+
+#### The fix
+
+1. `custom/app/models/custom/channelable.rb` **restored byte-for-byte** from `3cd137e5` (verified
+   with `diff` against `git show`), so the audit behaviour is exactly what it was — not a
+   reimplementation.
+2. The validation moved to a new file, `custom/app/models/channels/identity_guard.rb`
+   (`Channels::IdentityGuard`). A guard and an audit log are different concerns and no longer
+   share a file.
+3. Injected explicitly in `config/initializers/billing.rb`, beside `Channels::ExclusivityGuard`,
+   over the channel classes derived from `Channels::Identity::IDENTITY_ATTRIBUTES` — so both halves
+   of the exclusivity rule are declared in one readable list.
+
+There is an MRO reason this matters beyond tidiness: a **plain** module prepended into a Concern
+lands *ahead* of it, but an `ActiveSupport::Concern` prepended into another Concern is registered as
+a dependency and gets *included*, which can land it *behind*. Keeping the audit module plain
+preserves the override; the guard, which only needs `validate`, is free to be a Concern.
+
+#### Verified after the fix
+
+- `audit_capture_spec.rb` + `channel_claims_spec.rb`: **47 examples, 0 failures**.
+- Runtime ancestor check on all twelve channel classes: `Custom::Channelable` present on **12/12**
+  (audit restored); `Channels::IdentityGuard` present on **10/10** claimable channels and correctly
+  **absent** from `Channel::WebWidget` and `Channel::Api`, which mint their own identifiers.
+- `Inbox` still carries both `Billing::InboxLimit` and `Channels::ExclusivityGuard`.
+- **Mutation-verified**: disabling the new injection fails 2 channel-claim examples, so it is
+  load-bearing rather than decorative.
+- **Full suite re-run after all three fixes: 8 818 examples, 0 failures, 70 pending.** Run against
+  a clean tree at `79f3cc3b`. The count is 8 813 + the 5 examples the fixes added, which is the
+  arithmetic one wants to see: nothing was skipped to get to green. Two earlier re-runs were
+  started and deliberately **discarded** rather than reported, because application code was edited
+  while they were in flight and a suite that loads code at boot cannot be trusted across that.
+
+### What this says about the rest of Phase 2
+
+Every Phase 2 spec passed while this defect was live, so Phase 2's own tests could not have caught
+it. A sweep of the other eleven modified Lynomia files, and of the Store Syria module, was run
+specifically for the same signature — a modification that removes pre-existing behaviour.
+**The sweep found two more defects of the same family, and both are now fixed.** Neither was in
+the brief's scope; both were holes Phase 2 itself opened in controls it never looked at.
+
+**Store Syria** — clean. `PlatformApiClient` is the only module file with a large deletion (−68)
+and all **nine** pre-existing public methods survive; the deletion was transport extraction into
+`LynomiaHttp`. Remaining files delete one to four lines each, all accounted for.
+
+**Lynomia** — six reviewers over the twelve modified files plus a dedicated method-resolution
+sweep. `users_controller`, `ensure_current_account_helper` and the access-token change (including
+the new `where(account_id: nil)` scope on the pre-existing `has_one :access_token`) came back
+clean. The MRO sweep checked all **33** files under `custom/app/models/custom/` and confirmed the
+invariant holds everywhere — plain modules at every `prepend_mod_with` site, Concerns at every
+`include_mod_with` site, no inversion — and confirmed the restored `Custom::Channelable` is
+byte-identical and still winning its ancestor chain. Two findings survived:
+
+### Defect 2 — the webhook signing secret was mutable through the API
+
+Permitting `:secret` (§12a's sibling change, commit `ec96b43b`) is the right feature: it is what
+lets a receiver *derive* a key instead of storing one. It was permitted on **every action**, and
+two controls are written against "this column cannot move once the row exists":
+
+- `custom/app/models/custom/audit/webhook.rb` audits `only:` five configuration columns and
+  excludes the secret so the trail can never contain one. `audited` slices the change set to those
+  columns, so an update touching **only** the secret produces an empty slice and therefore **no
+  audit row at all** — a signing key could be rotated leaving nothing behind.
+- `lib/webhooks/trigger.rb:57` signs only `if @secret.present?`; `app/models/webhook.rb` validates
+  no presence on it; `has_secure_token` fills it `before_create` and never again. A single
+  `PATCH {"secret": ""}` **permanently unsigns every future delivery** for that webhook.
+
+Fixed by permitting `:secret` on **create only** — closing both at the root rather than patching
+two symptoms. That is the *complete* closure, not merely the main one: `config/routes.rb:289`
+declares `resources :webhooks, only: [:index, :create, :update, :destroy]` with no `reset_secret`
+member (the two `reset_secret` routes in this fork belong to **agent bots**), so once `update`
+cannot carry the field there is no remaining path from the API to that column. It costs the integration nothing: Store Syria sets the key at creation and never
+updates it. Rotation is create-then-delete, which leaves an audit trail and a signed row
+throughout. A blank secret at *create* is still safe, because a blank string makes `secret?` false
+and `has_secure_token` generates one.
+
+### Not a regression, but an undelivered claim — the seat refusal never reached the path a merchant takes
+
+§7 claims an integration-funded merchant is told to *ask their provider* rather than to upgrade a
+Lynomia plan they do not have. Three sites build that message; `ec96b43b` updated two. The third,
+`Billing::AccessGuard#ensure_agent_limit`, is the pre-flight on `agents#create` — it runs *before*
+the `AccountUser` validation that holds the lock, so it is what answers a merchant inviting a
+colleague from the dashboard. It passed no source and so always said "Upgrade your plan". The
+feature existed only on the path the UI reaches second. The spec that covered it asserted against
+the validator rather than the request, which is why it passed.
+
+Fixed by passing `limit_source` through, and the new test drives `POST /agents` as a real request.
+
+To be precise about severity: nothing regressed here. Before Phase 2 there was no provider wording
+at all, so no merchant saw worse copy than they used to. This is listed because §7 asserted the
+behaviour and the assertion was not true on the path that matters — and because the spec that
+"covered" it asserted against the validator instead of the request, which is the more useful
+lesson.
+
+### Verification of both
+
+The sweep that found these ran **12 agents over 6 review targets plus adversarial verification**,
+with 0 agent errors. It returns `confirmed: []`, and that needs reading correctly: every candidate
+was **already fixed before the verification phase ran**, so each verifier reported "does not
+reproduce against the current working tree" while explicitly affirming the mechanism — the last
+one's words were *"the reviewer's mechanism was correct."* The refutations are a timing artifact,
+not a contradiction. What settles it is the mutation test, which does not depend on reading.
+
+Five new examples. **Mutation-verified**: reverting either fix fails exactly the example that pins
+it. `entitlement_grants` 23, `webhook_controller` 18, `audit_capture` + `channel_claims` 47 — all
+0 failures. RuboCop clean.
+
+One assertion of mine was **wrong and was corrected**: I asserted the webhook index does not
+disclose the secret. It does — pre-existing upstream behaviour, not introduced here. That is now a
+pinned test rather than a deleted one, because it is precisely *why* a per-receiver derived key is
+necessary rather than tidy: an administrator can read the key their own deliveries are signed
+with, so a single shared key would hand every administrator the means to forge deliveries for
+every other account. Per-store derivation confines that to their own store, where the only
+achievable effect is making their own browser re-poll — events carry ids, never content.
+
+Also reverted: Phase 2 had accidentally committed a `package-lock.json` upgrade (lockfileVersion
+1 → 3, 182 added entries) with **no `package.json` change** — an artifact of probing `npx vite
+build` while measuring the frontend stack. It is restored to its pre-Phase-2 state.
+
+---
+
+## 13. Cross-repository commit list
+
+**lynomiachat** — `claude/store-syria-lynomia-integration-1oa1tt`
+
+| Commit | Scope |
+|---|---|
+| `64dddd55` | account-scoped, expiring access tokens; `scoped_access_token` endpoint |
+| `8892bd1c` | channel identity claims; exclusivity at the Inbox + channel chokepoints |
+| `ec96b43b` | integration entitlement grants; receiver-chosen webhook secret |
+| `db98c096` | **fix** — restore the channel audit trail `8892bd1c` overwrote (§12a defect 1) |
+| `79f3cc3b` | **fix** — webhook secret create-only; seat refusal wording on the invite path (§12a defects 2–3) |
+
+**syriastore98** — `claude/store-syria-lynomia-integration-1oa1tt`
+
+| Commit | Scope |
+|---|---|
+| `c56fc1a0` | BFF + native inbox |
+| `f20fdb6e` | channel-claim consumer |
+| `a9bcd51d` | included seats + event ingress/delivery |
+| `3b19e148` | Agent Seats admin tab |
+| `cefd8205` | this report; revert an accidental `package-lock.json` upgrade |
+
+---
+
+## 14. Deployment prerequisites
+
+1. `LYNOMIA_WEBHOOK_MASTER_SECRET` — **required**; unset is a hard failure by design.
+2. `LYNOMIA_CREDENTIAL_CACHE_STORE` — leave as `array` unless a **non-file** store exists. The
+   default costs one extra Lynomia call per request and writes no credential to disk.
+3. Five Phase 2 migrations — Store Syria: `..._000200_add_lynomia_agent_seats_to_plans`,
+   `..._000300_create_lynomia_inbox_events_table`; Lynomia:
+   `20261014090000_add_account_scope_and_expiry_to_access_tokens`,
+   `20261014100000_create_channel_identity_claims`,
+   `20261014110000_create_platform_app_entitlement_grants`.
+4. `LYNOMIA_INTEGRATION_ENABLED=true` and a non-production platform token.
+5. The Lynomia ingress must be able to reach the Store Syria URL.
+6. Set `lynomia_agent_seats` on each plan — null grants nothing.
+7. If `LYNOMIA_WEBHOOK_MASTER_SECRET` or `APP_URL` ever changes after a store is subscribed,
+   the registered Lynomia webhook must be deleted and re-created — see §15.
+
+---
+
+## 15. Known blockers and gaps
+
+| Item | Status |
+|---|---|
+| **APP_KEY published and unrotated** | Unresolved, accepted. Drove every "derive, never store" decision. |
+| Outbound attachments | Not implemented; inbound render and link. |
+| Channel self-service onboarding | Deliberately not exposed — the rule landed first, as required. |
+| Lynomia Super Admin page | Not built. |
+| Re-sync on Store Syria plan change | Syncs at activation only; a plan change needs a hook. |
+| `channel disconnected` event | Lynomia cannot emit it. |
+| ActionCable | No connection-level auth (`pubsub_token`, origin checks disabled) — Store Syria does not proxy it. |
+| `vite build` broken | Pre-existing; irrelevant to merchant pages, blocks any future Vite asset. |
+| Browser/visual validation | Not performed. |
+| Ingress rate limiting | Not added. |
+| Webhook re-subscription | `EnsureSubscribed` matches an existing webhook **by URL only**. Rotating `LYNOMIA_WEBHOOK_MASTER_SECRET`, or changing `APP_URL`, leaves the registered webhook signing with the old secret (deliveries then fail verification) or pointing at the old URL. Both need an operator re-subscribe, which since §12a defect 2 means **delete then create** — the secret is immutable once the row exists, and `AgentApiClient` exposes exactly those two calls and no update. Neither is a security defect, and neither is automated. |
+
+---
+
+## 16. Rollback
+
+Both repositories are on a feature branch, unmerged and undeployed.
+
+- **Code:** `git revert` the commits in §13, or abandon the branch. No shared branch is touched.
+- **Data:** all five migrations are additive. `access_tokens.account_id/expires_at` and
+  `plans.lynomia_agent_seats` are nullable with null = previous behaviour; the three new tables are
+  droppable without touching existing data.
+- **Runtime kill switches, no deploy required:** `LYNOMIA_INTEGRATION_ENABLED=false` stops every
+  remote call; deleting `PlatformAppEntitlementGrant` rows restores previous ceilings; deleting
+  `ChannelIdentityClaim` rows makes the exclusivity guard inert.
+- **Nothing to un-charge:** no Lynomia subscription is created and no payment surface is touched.
+
+---
+
+## 17. Recommendation — **CONDITIONAL GO**
+
+Conditional on, and only on:
+
+1. **APP_KEY rotation** before any production credential exists. Every design decision here routes
+   around a published key; that is mitigation, not a fix.
+2. **A browser pass** on the inbox in Arabic and at mobile width. Structurally correct is not the
+   same as verified.
+3. **An operator decision on seat counts per plan**, since null grants nothing.
+4. **Rate limiting on the ingress** before it is publicly reachable.
+5. **The broad Lynomia suite (`spec/requests spec/controllers spec/models spec/services spec/lib`,
+   8 813 examples) must be a release gate for this integration.** Phase 2 removed a compliance
+   control — the channel-configuration audit trail — and *every Phase 2 spec still passed*. The
+   targeted suites a feature brings with it cannot see what the feature deleted. See §12a.
+
+Not conditional on the 13 pre-existing Store Syria failures or on the gaps in §15, which are scoped
+work rather than defects in what was built.
+
+**Implementation is complete for Phase 2's stated scope. Production readiness is not claimed.**
+Phase 3 is not started.
+
+One caveat on confidence, stated plainly. A defect that silently removed an audit control shipped
+in `8892bd1c` and survived every Phase 2 test; two more problems were then found by reading, with
+no failing example anywhere. All three are fixed, mutation-verified, and the full Lynomia suite is
+**8 818 / 0 failures** (§12a). What that number does *not* establish is the absence of a fourth of
+the same kind — the first defect proves this suite can be green while a control is missing, and
+two of the three were invisible to it. The residual risk is therefore lower than it was and not
+zero, and the honest mitigation is the §17 condition: the broad suite as a CI gate, plus a human
+reading of the Phase 2 diff for *removals* specifically, which is a different question from
+whether the new code works.

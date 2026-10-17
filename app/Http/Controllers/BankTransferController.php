@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use App\Models\AuditLog;
 use App\Models\Plan;
 use App\Models\User;
 use App\Models\PlanOrder;
@@ -116,37 +118,98 @@ class BankTransferController extends Controller
         return view('order.show', compact('order', 'admin_payment_setting'));
     }
 
+    /**
+     * Approve a bank-transfer plan order and grant the plan it paid for.
+     *
+     * Authorization is on the route (PlatformOperatorOnly, routes/web.php), which is why
+     * there is no check here. What was missing was everything downstream of it:
+     *
+     *   - NOT IDEMPOTENT. The handler re-granted the plan on every call regardless of the
+     *     order's current status, and assignPlan() resets plan_expire_date to now()+period
+     *     (User.php). A double-submit, a browser retry or a refresh therefore extended a
+     *     subscriber's term for free, as many times as the button was pressed. The status
+     *     guard below is the fix; it is the one behaviour change in this method.
+     *   - A deleted user or a deleted plan fataled on `$user->assignPlan(...)` /
+     *     `$plann->duration` instead of reporting the broken reference.
+     *   - The status write and the plan grant were two uncommitted statements, so a failure
+     *     between them left an order marked Approved with no plan granted.
+     *   - Nothing was audited, on the one surface that converts money into entitlement.
+     */
     public function orderapprove($id)
     {
         $order = PlanOrder::find($id);
-        if ($order)
-        {
-            $order = PlanOrder::find($id);
-            $user  = User::find($order->user_id);
-            $plann = Plan::find($order->plan_id);
-            $order->payment_status = 'Approved';
-            $order->save();
-            $assignPlan = $user->assignPlan($order->plan_id, $plann->duration);
 
-            return redirect()->back()->with('success', __('Order Successfully Approved'));
-        }
-        else
-        {
+        if (! $order) {
             return redirect()->back()->with('error', __('Something is wrong'));
         }
+
+        if ($order->payment_status === 'Approved') {
+            return redirect()->back()->with('error', __('This order has already been approved.'));
+        }
+
+        $user = User::find($order->user_id);
+        $plan = Plan::find($order->plan_id);
+
+        if (! $user || ! $plan) {
+            return redirect()->back()->with('error', __('Something is wrong'));
+        }
+
+        $previousStatus = $order->payment_status;
+
+        DB::transaction(function () use ($order, $user, $plan) {
+            $order->payment_status = 'Approved';
+            $order->save();
+
+            $user->assignPlan($order->plan_id, $plan->duration);
+        });
+
+        AuditLog::record('plan_order_approved', $order, [
+            'payment_status' => $previousStatus,
+        ], [
+            'payment_status' => 'Approved',
+            'plan_id'        => $order->plan_id,
+            'beneficiary_id' => $user->id,
+        ]);
+
+        return redirect()->back()->with('success', __('Order Successfully Approved'));
     }
 
+    /**
+     * Reject a bank-transfer plan order.
+     *
+     * Rejecting an ALREADY-APPROVED order is refused. The old handler allowed it, and it
+     * only rewrote `payment_status`: the plan granted at approval stayed on the user, so the
+     * result was a rejected order and a live subscription. Reversing a granted plan is the
+     * refund path (PlanController::refund), which revokes entitlement as well.
+     */
     public function orderreject($id)
     {
         $order = PlanOrder::find($id);
-        if ($order)
-        {
-            $order->payment_status = 'Rejected';
-            $order->save();
-            return redirect()->back()->with('success', __('Order Successfully Rejected'));
-        } else {
+
+        if (! $order) {
             return redirect()->back()->with('error', __('Something is wrong'));
         }
+
+        if ($order->payment_status === 'Approved') {
+            return redirect()->back()->with('error', __('An approved order cannot be rejected. Use the refund flow instead.'));
+        }
+
+        if ($order->payment_status === 'Rejected') {
+            return redirect()->back()->with('error', __('This order has already been rejected.'));
+        }
+
+        $previousStatus = $order->payment_status;
+
+        $order->payment_status = 'Rejected';
+        $order->save();
+
+        AuditLog::record('plan_order_rejected', $order, [
+            'payment_status' => $previousStatus,
+        ], [
+            'payment_status' => 'Rejected',
+        ]);
+
+        return redirect()->back()->with('success', __('Order Successfully Rejected'));
     }
 
     public function destroy(PlanOrder $order)

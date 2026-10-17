@@ -223,80 +223,41 @@ class OwnedPathRawQueryInventoryTest extends TestCase
 
         return $statement;
     }
-
     /**
-     * THE CHATWOOT ABANDONED-CART RE-CHECK ITEM, established rather than asserted.
+     * THE CHATWOOT ABANDONED-CART ITEM IS CLOSED BY REMOVAL, not by a gate.
      *
-     * The ANONYMOUS exposure is closed: both declarations now sit inside
-     * `Route::middleware(['auth','xss','setlocate','verified'])` at routes/web.php:325-363, and
-     * tests/Feature/Security/AnonymousSettingsRoutesTest drives all five of those routes
-     * anonymously. That is re-asserted here from the live route table rather than from the file,
-     * so a group brace moving (which has broken newsletter signup in this project once already)
-     * is caught.
+     * This method used to pin two things: that both /chatwoot/abandoned-carts routes carried
+     * `auth` + `EmailIsVerified`, and that the service resolved the customer with a store_id
+     * predicate. Both are moot -- the routes, the controller and the service were deleted when
+     * the legacy Chatwoot integration was retired.
      *
-     * The CROSS-TENANT question is separate and is answered at the service layer:
-     * AbandonedCartController::send passes `getCurrentStore()` plus a caller-supplied customer
-     * id to ChatwootAbandonedCartNotificationService::send, which resolves the customer as
-     * `Customer::where('id', $customerId)->where('store_id', $storeId)->first()` and throws
-     * 'Customer not found.' otherwise -- BEFORE any outbound call. So a foreign customer id
-     * cannot produce a message.
+     * What replaces them is the stronger assertion: the surface is ABSENT. A deleted route
+     * cannot be reachable anonymously and cannot leak across tenants. LegacyChatwootRemovedTest
+     * owns the full retirement inventory; this keeps the tenancy-side claim honest in the file
+     * that made it, so a reader of the raw-query inventory is not left believing a gate is
+     * still being enforced somewhere.
      *
-     * THAT HALF IS ASSERTED AS A SOURCE PROPERTY, NOT AS BEHAVIOUR, AND THE REASON IS A
-     * LIMITATION, NOT A PREFERENCE: the service's first two checks read
-     * `chatwoot_notification_templates` and `chatwoot_integrations`, and NO MIGRATION ANYWHERE
-     * CREATES EITHER TABLE -- verified across database/ and all 69 packages/. They are in the
-     * same undeclared-table family as GATE F. An end-to-end test would therefore fail at the
-     * template lookup and never reach the ownership predicate, which would be a green test
-     * proving nothing. app/Services/** is also explicitly outside this cycle's scope, so the
-     * predicate is pinned here and the behavioural proof is recorded as blocked.
+     * The two tables are deliberately NOT asserted absent. They are retained in production as
+     * the store -> account_id/inbox_id mapping the replacement integration migrates from; see
+     * database/migrations/_gate_f_pending/README.md. Asserting on them here would couple this
+     * test to a data-retention decision that is not its business.
      */
-    public function test_the_chatwoot_abandoned_cart_routes_are_gated_and_tenant_filtered(): void
+    public function test_the_chatwoot_abandoned_cart_surface_is_retired(): void
     {
         foreach (['chatwoot.abandoned-carts', 'chatwoot.abandoned-carts.send'] as $name) {
-            $route = Route::getRoutes()->getByName($name);
-
-            $this->assertNotNull($route, "Route {$name} has disappeared.");
-
-            $stack = app('router')->gatherRouteMiddleware($route);
-
-            $this->assertContains(
-                \Illuminate\Auth\Middleware\Authenticate::class,
-                $stack,
-                "{$name} is reachable anonymously again. Before it was grouped, POST "
-                . '/chatwoot/abandoned-carts/send answered 302 FROM THE CONTROLLER, i.e. it ran '
-                . 'the loop over caller-supplied customer_ids and drove outbound WhatsApp '
-                . 'traffic with no credential at all.'
+            $this->assertFalse(
+                Route::has($name),
+                "Route {$name} is back. The legacy Chatwoot integration was retired; if a "
+                . 'replacement is being built it belongs to the Store Syria x Lynomia project '
+                . 'and must not reuse these names or this controller.'
             );
-            $this->assertContains(\App\Http\Middleware\EmailIsVerified::class, $stack);
         }
 
-        $service = (string) file_get_contents(
-            base_path('app/Services/ChatwootAbandonedCartNotificationService.php')
-        );
-
-        $this->assertStringContainsString("Customer::where('id', \$customerId)", $service);
-        $this->assertStringContainsString("->where('store_id', \$storeId)", $service);
-        $this->assertStringContainsString("'Customer not found.'", $service);
-
-        $controller = (string) file_get_contents(
-            base_path('app/Http/Controllers/newsyria/AbandonedCartController.php')
-        );
-
-        // The controller must keep passing ITS OWN store, never one from the request. If this
-        // ever becomes `$request->store_id`, the service's predicate is satisfied by the
-        // attacker and the ownership test evaporates.
-        $this->assertStringContainsString('$storeId = getCurrentStore();', $controller);
-        $this->assertStringNotContainsString('$request->store_id', $controller);
-
-        // And the behavioural half is BLOCKED, by name, so the dependency stays visible.
-        foreach (['chatwoot_notification_templates', 'chatwoot_integrations'] as $table) {
-            $this->assertFalse(
-                \Illuminate\Support\Facades\Schema::hasTable($table),
-                "`{$table}` now exists. The end-to-end cross-tenant test for "
-                . 'chatwoot.abandoned-carts.send is no longer blocked and should be written: '
-                . 'two stores, two customers, and an assertion that a foreign customer id '
-                . 'produces no outbound call.'
-            );
+        foreach ([
+            'app/Http/Controllers/newsyria/AbandonedCartController.php',
+            'app/Services/ChatwootAbandonedCartNotificationService.php',
+        ] as $path) {
+            $this->assertFileDoesNotExist(base_path($path), "{$path} is back.");
         }
     }
 }

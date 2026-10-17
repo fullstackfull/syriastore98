@@ -81,7 +81,18 @@ class AddonMigrationRegistrationTest extends TestCase
         'Subscribe', 'Wizzchat',
     ];
 
-    private const EXPECTED_CALL_COUNT = 69;
+    /**
+     * 70 since LynomiaChat was added (Store Syria x Lynomia Chat, phase 1).
+     *
+     * Raised because a module was genuinely added, which is the update this tripwire's own
+     * failure message sanctions -- NOT by relaxing the scanner's pattern, which the message
+     * forbids and which would blind every classification below. LynomiaChat registers
+     * loadMigrationsFrom(__DIR__ . '/../../database/migrations') in the same __DIR__-relative
+     * shape as the other 69, ships one real migration at that real path, and so appears in
+     * neither EXPECTED_STRANDED nor EXPECTED_PATHLESS_AND_EMPTY. Verified: this count was the
+     * only assertion in this file that moved.
+     */
+    private const EXPECTED_CALL_COUNT = 70;
 
     private function repoRoot(): string
     {

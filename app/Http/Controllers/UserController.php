@@ -20,6 +20,8 @@ use App\DataTables\UserDataTable;
 use App\Models\AuditLog;
 use App\Http\Requests\UpdateUserRequest;
 use App\Policies\RolePolicy;
+use Workdo\LynomiaChat\app\Services\MerchantContactVerification;
+
 
 
 class UserController extends Controller
@@ -389,6 +391,15 @@ AuditLog::record('user_deleted', $user, [
         }
         $user->name   = $request->name;
         $user->email        = $request->email;
+
+        // A NUMBER THAT CHANGED IS A NUMBER NOBODY HAS PROVED (B4). The field still accepts
+        // whatever is typed, exactly as it always has; what must not survive the edit is the
+        // claim attached to the old value. Without this a merchant confirms a number they
+        // hold and then quietly types another, and `mobile_verified_at` says somebody proved
+        // a number nobody has ever answered on. Called BEFORE the write, because it compares
+        // the new value against the stored one.
+        app(MerchantContactVerification::class)->forgetIfChanged($user, $request->mobile);
+
         $user->mobile        = $request->mobile;
 
         $user->save();

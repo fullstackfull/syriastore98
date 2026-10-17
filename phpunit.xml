@@ -11,6 +11,16 @@
         <testsuite name="Feature">
             <directory>tests/Feature</directory>
         </testsuite>
+        <!--
+            Cross-repository contract tests. Separate from Feature because they assert an
+            agreement with ANOTHER codebase rather than this one's behaviour: they replay a
+            committed artifact of Lynomia's real producer output through this side's real
+            ingress. A failure here means the two repositories have drifted apart, which is a
+            different thing to investigate than a bug in either.
+        -->
+        <testsuite name="Contract">
+            <directory>tests/Contract</directory>
+        </testsuite>
     </testsuites>
     <source>
         <include>

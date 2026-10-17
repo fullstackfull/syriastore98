@@ -240,10 +240,14 @@
                                     </div>
                                 </div>
                             @endif
+
+                            {{-- INSIDE THE FORM COLUMN. This sat between the two columns of
+                                 the `lg:flex-row` row above, so on a desktop it rendered as a
+                                 third column wedged between the checkout form and the order
+                                 summary rather than as a field in the form it belongs to. --}}
+                            @include('front_end.hooks.checkout_form')
                         </div>
                     </div>
-
-                    @include('front_end.hooks.checkout_form')
 
                     {!! Form::hidden('coupon_code', null, ['id' => 'coupon_code']) !!}
                     {!! Form::hidden('sub_total', null, ['id' => 'sub_total_checkout_page']) !!}
