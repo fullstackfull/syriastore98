@@ -45,3 +45,8 @@ composer.phar
 # business in version control and shows up as an untracked file after any test run.
 .phpunit.result.cache
 .phpunit.cache
+
+# Python bytecode from the .claude skill scripts. Regenerated whenever a skill script
+# runs and specific to the interpreter version, so it is noise in a diff.
+__pycache__/
+*.pyc
