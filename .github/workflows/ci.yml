@@ -398,13 +398,26 @@ jobs:
           AUDIT_CEILING: '58'
         run: |
           set -o pipefail
-          composer audit --locked --format=plain > audit.txt 2>&1 || true
+          composer audit --locked --format=plain > audit.txt 2>&1 && rc=0 || rc=$?
           found=$(sed -n 's/^Found \([0-9]\{1,\}\) security vulnerability advisor.*/\1/p' audit.txt | head -1)
           if [ -z "$found" ]; then
             if grep -qi 'no security vulnerability advisories' audit.txt; then
               found=0
+            elif grep -qiE 'could not resolve host|could not connect|curl error|timed out|timeout|temporary failure in name resolution|network is unreachable|50[0-9] (bad gateway|service unavailable|gateway time)|ssl certificate problem|could not authenticate|failed to open stream' audit.txt; then
+              # A NETWORK FAILURE IS NOT A NEW ADVISORY, and must not read as one. `composer
+              # audit` needs the advisory database; a packagist outage, a proxy hiccup or a
+              # rate limit used to surface here as "Could not parse the advisory count",
+              # which points the reader at the lock file instead of at the network.
+              # Still blocking -- a ratchet that cannot be evaluated has not been satisfied --
+              # but now with the right diagnosis attached.
+              echo "::error::Could not REACH the advisory database (composer audit exited ${rc})."
+              echo "::error::This is a TRANSPORT failure, not a new advisory: the ratchet could not"
+              echo "::error::be evaluated at all. Re-run the job. Do NOT raise AUDIT_CEILING for it."
+              cat audit.txt
+              exit 1
             else
-              echo "::error::Could not parse the advisory count from composer audit."
+              echo "::error::Could not parse the advisory count from a response that DID arrive"
+              echo "::error::(composer audit exited ${rc}). The output format may have changed."
               cat audit.txt
               exit 1
             fi
@@ -460,11 +473,18 @@ jobs:
         run: .github/scripts/guard-gate-f-containment.sh .
 
       - name: Guard - packages/workdo/ is unmodified
+        # BASE RESOLUTION NOW MATCHES `php -l` AND THE SECRET SCAN, AND DID NOT BEFORE.
+        # This step read only the pull-request base and fell straight through to HEAD~1, so a
+        # PUSH of N commits was inspected exactly ONE commit deep: a packages/workdo/ edit in
+        # commit 1 of a 3-commit push was never seen by the guard that exists to catch it.
+        # `github.event.before` is the pushed range's true base. The all-zeros check is the
+        # new-branch case, where there is no before-commit to diff against.
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
-          base="${BASE_SHA:-}"
-          if [ -z "$base" ]; then
+          base="${BASE_SHA:-$BEFORE_SHA}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
             base="$(git rev-parse HEAD~1 2>/dev/null || true)"
           fi
           .github/scripts/guard-no-workdo-changes.sh "$base" .
@@ -494,6 +514,52 @@ jobs:
           done <<< "$changed"
           exit "$rc"
 
+      - name: php -l on EVERY tracked PHP file
+        # ADDED IN P01-A', AND IT IS AN ADDITION RATHER THAN A REPLACEMENT. The step above is
+        # deliberately diff-scoped so a pre-existing issue in an untouched file cannot block
+        # unrelated work, and that reasoning still holds -- it is the fast, precise signal.
+        # What it cannot see is a file the diff does not list: a bad merge resolution, a
+        # rename that left a broken copy behind, or a module file nobody edited this cycle.
+        #
+        # SAFE TO MAKE BLOCKING BECAUSE IT WAS MEASURED FIRST, not assumed: at
+        # 26b0014e all 3,413 tracked PHP files outside vendor/ parse -- measured with this
+        # step's own file list, not a narrower one. So it starts from a clean baseline and can
+        # only go red on something newly broken.
+        #
+        # `laravel/pint` was the other candidate here and was REJECTED ON MEASUREMENT, not on
+        # principle: run against three files written fresh for this branch in the surrounding
+        # style, the default `laravel` preset reports concat_space, single_quote,
+        # not_operator, unary_operator and binary_operator_spaces on all three. The preset
+        # disagrees with this codebase's established style, so adding it blocking would redden
+        # immediately and adding it report-only produces noise nobody acts on. It needs either
+        # a pint.json that codifies the existing style or an authorised reformatting package --
+        # an owner decision, recorded in the sprint report rather than guessed at here.
+        #
+        # PARALLELISED ON PURPOSE. Serially this is ~3,400 PHP process spawns and it turned the
+        # `static` job from roughly fifteen seconds into eight-plus minutes, which defeats the
+        # point of the job that exists to give the FAST signal. `xargs -P4 -n64` keeps the same
+        # file list and the same verdict; only the wall clock changes. xargs exits non-zero if
+        # any invocation did, which is the whole result we need.
+        run: |
+          set -uo pipefail
+          git ls-files '*.php' | grep -v '^vendor/' > /tmp/php-files.txt
+          count=$(wc -l < /tmp/php-files.txt)
+          echo "linting ${count} tracked PHP files"
+          # A run that linted almost nothing would pass vacuously, the same failure mode the
+          # GATE F guard's own non-vacuity floor exists for.
+          if [ "$count" -lt 2000 ]; then
+            echo "::error::Only ${count} PHP files were listed (expected >2000). The file list is"
+            echo "::error::wrong, so this guard would pass without checking anything. Refusing."
+            exit 1
+          fi
+          # -n1 for the report pass so the failing FILE is named, not just the batch.
+          if ! xargs -P4 -n64 -a /tmp/php-files.txt php -l > /dev/null 2>&1; then
+            echo "::error::A tracked PHP file does not parse. Re-running serially to name it:"
+            xargs -n1 -a /tmp/php-files.txt php -l 2>&1 | grep -v '^No syntax errors' || true
+            exit 1
+          fi
+          echo "all ${count} files parse"
+
       - name: Cross-repo API contract - the shipped Flutter app must not be broken
         # The Flutter admin app pins its endpoint paths as constants compiled into a
         # binary already on merchants' phones. A server-side route rename silently
@@ -519,6 +585,49 @@ jobs:
         # here. AdminApiSurfaceTest now PINS the manifest's contents, so the file
         # cannot drift from reality again without a test failing.
         run: php tests/Support/ApiContract/bin/check-auth-coverage.php
+
+      - name: Security-sensitive diff - review checklist
+        # MOVED HERE FROM `regression-gate`, AND THE MOVE IS THE POINT. That job is
+        # pull_request-only, so this checklist -- the only thing standing between a change to
+        # config/, routes/, Middleware/, Policies/, Permission, Role, Billing, Token or Secret
+        # and `main` -- ran NOWHERE on a direct push. Every commit in this repository's history
+        # but one arrived by direct push. The step needs nothing but git and bash, so it belongs
+        # in the job that runs on every event.
+        #
+        # ON A PULL REQUEST: unchanged and BLOCKING. The acknowledgement must be in the body.
+        # ON A PUSH: there is no pull request body, so the acknowledgement is looked for in the
+        # pushed commit messages, and a miss is REPORTED (a ::warning:: plus a run-summary
+        # entry) rather than enforced. That makes the bypass VISIBLE, which is what was missing;
+        # it does not make it reviewed. Enforcing it on `main` means requiring pull requests,
+        # which is branch protection -- a repository setting this file cannot assert.
+        #
+        # Deliberately NOT gated on a repository variable. `if: vars.ALLOW_COMPOSER_INSTALL`
+        # is how every PHPUnit suite here was silently disabled once already, and
+        # RequiredGateWiringTest now fails any condition that mentions `vars.`.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+          # VIA THE ENVIRONMENT, NEVER INTERPOLATED INTO THE SCRIPT. ${{ }} substitution
+          # happens before the shell sees the line, so a pull request body is
+          # attacker-controlled text pasted into a command -- a body carrying a quote and a
+          # semicolon would execute.
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          base="${BASE_SHA:-$BEFORE_SHA}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
+          fi
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            printf '%s' "$PR_BODY" > /tmp/sensitive-ack.txt
+            mode=enforce
+          else
+            git log --format=%B "${base}..HEAD" > /tmp/sensitive-ack.txt 2>/dev/null \
+              || : > /tmp/sensitive-ack.txt
+            mode=report
+          fi
+          .github/scripts/flag-sensitive-diff.sh "$base" /tmp/sensitive-ack.txt "$mode"
 
   # ---------------------------------------------------------------------------
   # Secret scanning. Two layers: a dependency-free screen over the diff that always
@@ -1212,6 +1321,16 @@ jobs:
         # is a regression by definition, and there is no manifest section for it.
         run: vendor/bin/phpunit --testsuite Unit --testdox
 
+      - name: Contract suite -- BLOCKING
+        # ADDED IN P01-A'. The cross-repository contract suite ran in the strict `tests` job
+        # only. This job exists to be the one that still reaches PHPUnit when the strict
+        # install cannot complete -- and in exactly that situation Lynomia contract drift
+        # between the two repositories was UNGATED. That is the gap commit 59a3848a closed
+        # for `tests` and left open here. Three artefacts are SHA-pinned on both sides, so a
+        # drift means the two codebases silently disagree about the wire format. Blocking,
+        # no tolerance, same suite as the strict job.
+        run: vendor/bin/phpunit --testsuite Contract --testdox
+
       - name: Feature suite -- BLOCKING on the known-outcome SET
         # THE REAL FEATURE SUITE. `--testsuite Feature` is the whole tests/Feature directory:
         # Security/, Tenancy/, Commerce/, Auth/, Platform/ and ProfileTest. Nothing here
@@ -1510,16 +1629,11 @@ jobs:
             --base-ref="${{ steps.base.outputs.sha }}" \
             --official-exit="${{ steps.official.outputs.exit }}"
 
-      - name: Require the human checklist on a security-sensitive diff
-        env:
-          # VIA THE ENVIRONMENT, NEVER INTERPOLATED INTO THE SCRIPT. ${{ }} substitution happens
-          # before the shell sees the line, so a pull request body is attacker-controlled text
-          # pasted into a command -- a body containing a quote and a semicolon executes.
-          PR_BODY: ${{ github.event.pull_request.body }}
-          BASE_SHA: ${{ steps.base.outputs.sha }}
-        run: |
-          printf '%s' "$PR_BODY" > /tmp/pr-body.txt
-          .github/scripts/flag-sensitive-diff.sh "$BASE_SHA" /tmp/pr-body.txt
+      # THE SECURITY-SENSITIVE DIFF CHECKLIST USED TO BE THE NEXT STEP IN THIS JOB.
+      # It moved to the `static` job in P01-A', because this job is pull_request-only and the
+      # checklist therefore never ran on a direct push to main. It is not duplicated here: one
+      # implementation, in the job that runs on every event, enforcing on a pull request and
+      # reporting on a push. Nothing about this job's merge-base comparison changed.
 
       - uses: actions/upload-artifact@v4
         if: always()

@@ -455,4 +455,190 @@ final class RequiredGateWiringTest extends TestCase
             "The strict job must install from the committed lock, unaltered."
         );
     }
+
+    // -----------------------------------------------------------------------------------------
+    // P01-A' -- THE GATES THAT RAN ONLY ON A PULL REQUEST.
+    //
+    // REQUIRED_TEST_JOBS deliberately does NOT gain `regression-gate`: that job is conditional
+    // by design and `test_the_job_is_not_conditional` would fail it. What follows asserts the
+    // narrower, true properties instead -- that the controls which were trapped inside that
+    // conditional job now run on every event, and that the job itself has not quietly been
+    // deleted or widened.
+    // -----------------------------------------------------------------------------------------
+
+    /**
+     * Steps whose name matches, across every job.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function stepsMatching(string $pattern, bool $unconditionalJobsOnly = false): array
+    {
+        $found = [];
+
+        foreach (($this->workflow()['jobs'] ?? []) as $jobName => $job) {
+            $job = (array) $job;
+
+            if ($unconditionalJobsOnly && isset($job['if'])) {
+                continue;
+            }
+
+            foreach (($job['steps'] ?? []) as $step) {
+                $step = (array) $step;
+
+                if (isset($step['name']) && preg_match($pattern, (string) $step['name']) === 1) {
+                    $found[$jobName . '::' . $step['name']] = $step;
+                }
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * THE SINGLE LARGEST HOLE PHASE 00B FOUND. `flag-sensitive-diff.sh` is the only control
+     * standing between a change to config/, routes/, Middleware/, Policies/, Permission, Role,
+     * Billing, Token or Secret and `main`, and it lived in exactly one place: the last-but-one
+     * step of `regression-gate`, which is `if: github.event_name == 'pull_request'`. Exactly one
+     * pull request has ever been opened against this repository, so in practice the checklist
+     * had never run.
+     *
+     * This asserts the property, not the location: SOME unconditional job must carry it.
+     */
+    public function test_the_security_sensitive_diff_checklist_runs_on_every_event(): void
+    {
+        $anywhere = $this->stepsMatching('/sensitive[- ]diff/i');
+
+        $this->assertNotSame(
+            [],
+            $anywhere,
+            'No step references a security-sensitive diff any more. If the checklist was '
+            . 'deliberately retired, that is an owner decision and this test should be deleted '
+            . 'in the same commit that states it -- not left passing over a removed control.'
+        );
+
+        $unconditional = $this->stepsMatching('/sensitive[- ]diff/i', true);
+
+        $this->assertNotSame(
+            [],
+            $unconditional,
+            "The checklist exists only inside a CONDITIONAL job, so a direct push to main is "
+            . "never asked the questions. It needs nothing but git and bash, so it belongs in a "
+            . "job with no `if:`. Found only in: " . implode(', ', array_keys($anywhere))
+        );
+
+        foreach ($unconditional as $where => $step) {
+            $this->assertArrayNotHasKey(
+                'if',
+                $step,
+                "{$where} sits in an unconditional job but is itself conditional, which puts the "
+                . 'control back behind an event test one level down.'
+            );
+        }
+    }
+
+    /**
+     * A PUSH HAS NO PULL REQUEST BODY, so the step must say which mode it wants rather than let
+     * the script guess. `enforce` blocks on a pull request; `report` makes a push-time bypass
+     * loudly visible. An unknown mode is a usage error in the script, never a silent downgrade.
+     */
+    public function test_the_checklist_step_chooses_its_mode_explicitly(): void
+    {
+        $steps = $this->stepsMatching('/sensitive[- ]diff/i', true);
+        $this->assertNotSame([], $steps);
+
+        foreach ($steps as $where => $step) {
+            $run = (string) ($step['run'] ?? '');
+
+            $this->assertStringContainsString('flag-sensitive-diff.sh', $run, "{$where}");
+            $this->assertStringContainsString(
+                'enforce',
+                $run,
+                "{$where} never asks for enforcement, so the gate cannot block on a pull request."
+            );
+            $this->assertStringContainsString(
+                'report',
+                $run,
+                "{$where} has no push-time reporting mode, so a push is either blocked or silent."
+            );
+            $this->assertStringContainsString(
+                'pull_request',
+                $run,
+                "{$where} does not distinguish the pull-request event, so it cannot enforce on "
+                . 'the one event where an acknowledgement can actually be given.'
+            );
+        }
+    }
+
+    /**
+     * THE GUARD THAT SAW ONE COMMIT OF A PUSH. This step read only the pull-request base and
+     * fell straight through to HEAD~1, while its siblings (`php -l`, the secret scan) already
+     * consulted `github.event.before`. A packages/workdo/ edit in commit 1 of a 3-commit push
+     * was therefore never inspected by the guard whose entire job is to catch it.
+     */
+    public function test_the_workdo_guard_sees_the_whole_pushed_range(): void
+    {
+        $steps = $this->stepsMatching('/packages\/workdo\/ is unmodified/i');
+
+        $this->assertNotSame(
+            [],
+            $steps,
+            'The vendored-module guard step is gone. packages/workdo/ is commercial upstream '
+            . 'code; an in-place edit is reverted by the next upstream update and leaves no '
+            . 'patch record.'
+        );
+
+        foreach ($steps as $where => $step) {
+            $env = implode("\n", array_map('strval', (array) ($step['env'] ?? [])));
+            $run = (string) ($step['run'] ?? '');
+
+            $this->assertStringContainsString(
+                'github.event.before',
+                $env,
+                "{$where} does not take `github.event.before`, so on a push it can only fall "
+                . 'back to HEAD~1 and inspect the last commit of the range.'
+            );
+            $this->assertStringContainsString(
+                'BEFORE_SHA',
+                $run,
+                "{$where} receives the push base but never reads it."
+            );
+        }
+    }
+
+    /**
+     * THE CONTRACT SUITE MUST RUN IN WHICHEVER JOB REACHES PHPUNIT. Three cross-repository
+     * artefacts are SHA-pinned on both sides; a drift means Store Syria and Lynomia silently
+     * disagree about the wire format. It ran in the strict job only, so in exactly the situation
+     * `tests-degraded` exists for -- the strict install failing -- contract drift was ungated.
+     */
+    #[DataProvider('requiredTestJobs')]
+    public function test_the_job_runs_the_cross_repository_contract_suite(string $jobName): void
+    {
+        $this->assertStringContainsString(
+            '--testsuite Contract',
+            $this->runScripts($jobName),
+            "'{$jobName}' does not run the Contract suite. If this job is the only one that "
+            . 'reaches PHPUnit, Lynomia contract drift between the two repositories goes '
+            . 'unnoticed.'
+        );
+    }
+
+    /**
+     * The merge-base comparison genuinely needs a pull request -- it resolves
+     * `origin/${{ github.base_ref }}` -- so this job staying conditional is correct. Asserted so
+     * that deleting it, or widening it to push where it cannot work, is a deliberate act.
+     */
+    public function test_the_regression_gate_job_is_still_present_and_pull_request_scoped(): void
+    {
+        $job = $this->job('regression-gate');
+
+        $this->assertArrayHasKey(
+            'if',
+            $job,
+            'regression-gate is no longer conditional. It resolves the merge base from '
+            . '`origin/${{ github.base_ref }}`, which only a pull_request event supplies, so on '
+            . 'a push it would fail resolving a base rather than compare anything.'
+        );
+        $this->assertStringContainsString('pull_request', (string) $job['if']);
+    }
 }
