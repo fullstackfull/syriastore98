@@ -10,6 +10,7 @@ use Illuminate\Support\Collection;
 use Workdo\LynomiaChat\app\Http\Middleware\EnsureStoreOwnsLink;
 use Workdo\LynomiaChat\app\Models\LynomiaContactVerification;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreIdentity;
+use Workdo\LynomiaChat\app\Support\CommerceState;
 use Workdo\LynomiaChat\app\Support\MerchantContact;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\PlatformApiClient;
@@ -41,6 +42,12 @@ class CommunicationCenterController extends Controller
             'integrationConfigured' => $this->api->isConfigured(),
             'verificationCode' => session('lynomia_verification_code'),
             'identities' => $this->identitiesFor($link),
+            // WHERE THE STORE'S COMMERCE CONNECTION HAS GOT TO, derived from the row rather than
+            // from whatever the last redirect flashed. A merchant reloading the page after a
+            // failed attempt, or coming back a day later, reads the same truth either way --
+            // and a half-finished setup can never render as a success, because the state and
+            // the buttons both come from the same derivation. See CommerceState.
+            'commerceState' => CommerceState::of($link),
             // B4. Whether the platform can reach this merchant at all, and the challenge in
             // flight if they are part way through proving it. Shown here rather than on the
             // core profile page because the reason it matters is this integration: an

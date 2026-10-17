@@ -12,6 +12,7 @@ use Workdo\LynomiaChat\app\Http\Controllers\ContactVerificationController;
 use Workdo\LynomiaChat\app\Http\Controllers\PlatformEventIngressController;
 use Workdo\LynomiaChat\app\Http\Controllers\ConnectionController;
 use Workdo\LynomiaChat\app\Http\Controllers\CommerceApiController;
+use Workdo\LynomiaChat\app\Http\Controllers\CommerceConnectionController;
 use Workdo\LynomiaChat\app\Http\Controllers\EventIngressController;
 use Workdo\LynomiaChat\app\Http\Middleware\GuardEventIngress;
 use Workdo\LynomiaChat\app\Http\Controllers\InboxApiController;
@@ -196,6 +197,33 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
             Route::post('/connect/link', [ConnectionController::class, 'requestLink'])
                 ->middleware(EnsureStoreOwnsLink::class)
                 ->name('connect.link');
+
+            // ------------------------------------------------- commerce activation
+            //
+            // FINISHING THE JOB, WITHOUT A TOKEN CHANGING HANDS. Connecting a workspace and
+            // connecting the store's ORDERS are two different things on two different
+            // systems, and until now only the first was something a merchant could do for
+            // themselves: the second needed an operator to mint a commerce credential and a
+            // human to paste it into Lynomia. These two routes are the merchant's half of
+            // that, and they accept nothing -- no store id, no account id, no token -- for
+            // the same reason the connect routes above accept nothing.
+            //
+            // `existing` because there is nothing to connect commerce TO without a link, and
+            // the middleware refusing is better than the controller discovering it.
+            Route::post('/commerce/connect', [CommerceConnectionController::class, 'connect'])
+                ->middleware(EnsureStoreOwnsLink::class . ':existing')
+                ->name('commerce.connect');
+
+            Route::post('/commerce/verify', [CommerceConnectionController::class, 'verify'])
+                ->middleware(EnsureStoreOwnsLink::class . ':existing')
+                ->name('commerce.verify');
+
+            // POST rather than DELETE, like every other state-changing merchant action in this
+            // module, so one Blade form with @csrf is all it takes and no route needs a method
+            // spoof field to work.
+            Route::post('/commerce/disconnect', [CommerceConnectionController::class, 'disconnect'])
+                ->middleware(EnsureStoreOwnsLink::class . ':existing')
+                ->name('commerce.disconnect');
 
             // `existing` makes the middleware refuse before the controller runs when the
             // store has no link at all, so "open my workspace" can never reach the SSO

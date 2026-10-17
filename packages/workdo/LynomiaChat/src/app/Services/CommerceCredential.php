@@ -2,6 +2,7 @@
 
 namespace Workdo\LynomiaChat\app\Services;
 
+use Illuminate\Support\Facades\DB;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 
 /**
@@ -38,7 +39,12 @@ use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
  * REVOCATION IS THE VERSION. A credential cannot be deleted because it was never stored, so it
  * is invalidated instead: bumping lynomia_store_links.commerce_credential_version changes the
  * hmac input and every token minted before that moment stops verifying, immediately and without
- * a deploy. Issuing a new credential bumps it, so issuing twice revokes the first.
+ * a deploy. Minting a new credential bumps it, so minting twice revokes the first.
+ *
+ * MINTING AND DERIVING ARE TWO METHODS, AND THE DIFFERENCE MATTERS. `mint()` rotates: it bumps
+ * the version and returns the new token. `issue()` only DERIVES at whatever version is current
+ * and changes nothing, which is what lets the automatic activation re-send a store's existing
+ * credential instead of rotating a working installation in order to verify it.
  *
  * PURPOSE SEPARATION. The prefix 'lynomia-commerce:' is inside the hmac input, so this token
  * cannot be replayed against the webhook ingress (whose secrets derive from
@@ -55,7 +61,12 @@ class CommerceCredential
     private const PURPOSE = 'lynomia-commerce';
 
     /**
-     * Mint the credential for a store. Shown to an operator once and never persisted.
+     * Derive the credential for a store AT ITS CURRENT VERSION. Does not rotate.
+     *
+     * This is the read: it is what the commerce middleware verifies against, what an installation
+     * recovery re-presents, and what the automatic activation re-sends when the store already has
+     * a working credential. Calling it twice returns the same string, which is the whole reason
+     * activation does not have to rotate to re-install (see CommerceActivator).
      */
     public static function issue(LynomiaStoreLink $link): string
     {
@@ -63,6 +74,67 @@ class CommerceCredential
         $version = (int) $link->commerce_credential_version;
 
         return self::PREFIX . $storeId . '_' . $version . '_' . self::signature($storeId, $version);
+    }
+
+    /**
+     * ROTATE AND DERIVE, OR DO NEITHER.
+     *
+     * THE DEFECT THIS EXISTS TO MAKE IMPOSSIBLE. Issuance used to be two unrelated statements in
+     * a controller: bump the version and save, then derive. Deriving can fail -- `signature()`
+     * refuses outright when LYNOMIA_WEBHOOK_MASTER_SECRET is unset, which is exactly what a real
+     * issuance hit, with an HTTP 500 to show for it. By then the version had been committed, so
+     * every credential minted before that instant had been REVOKED by an operation that reported
+     * failure. The store's working integration was taken down by a button that said it had not
+     * done anything.
+     *
+     * Two things prevent it now and they are independent on purpose:
+     *
+     *   the secret is asserted BEFORE anything is written, so the known failure mode never gets
+     *   as far as the bump; and
+     *
+     *   the bump and the derivation share one transaction, so any OTHER failure -- a database
+     *   error, a future validation, something nobody has thought of -- rolls the version back and
+     *   leaves the previous credential working.
+     *
+     * AND IT IS THE ONLY WRITER OF THE VERSION ON THE ISSUING SIDE, which is the other half of
+     * the fix. The operator path and the automatic activation path both mint here, so they cannot
+     * drift into bumping the same column by different rules. Revocation stays where it is: it
+     * derives nothing, so it was never able to fail this way.
+     */
+    public static function mint(LynomiaStoreLink $link): string
+    {
+        self::assertConfigured();
+
+        return DB::transaction(function () use ($link): string {
+            $link->forceFill([
+                'commerce_credential_version' => (int) $link->commerce_credential_version + 1,
+                'commerce_credential_issued_at' => now(),
+            ])->save();
+
+            // Derived INSIDE the transaction and from the in-memory row the save just wrote, so a
+            // throw here takes the bump with it rather than leaving a version nothing can produce
+            // a token for.
+            return self::issue($link);
+        });
+    }
+
+    /**
+     * Whether a credential could be derived at all right now.
+     *
+     * Read by the merchant-facing activation before it offers the button, so a misconfigured
+     * installation says "not available yet" instead of failing mid-flow -- and asserted again by
+     * mint(), because a UI gate is never the only thing standing between a caller and a key.
+     */
+    public static function isConfigured(): bool
+    {
+        return (string) config('lynomia.webhook_master_secret') !== '';
+    }
+
+    private static function assertConfigured(): void
+    {
+        if (! self::isConfigured()) {
+            throw new \RuntimeException('LYNOMIA_WEBHOOK_MASTER_SECRET is not configured.');
+        }
     }
 
     /**
@@ -107,14 +179,12 @@ class CommerceCredential
 
     private static function signature(int $storeId, int $version): string
     {
-        $master = (string) config('lynomia.webhook_master_secret');
+        // The same refusal EventSignature makes, for the same reason: an unconfigured master key
+        // must not quietly produce a predictable credential that anybody could compute. Kept here
+        // as well as in mint() because this is also the VERIFY path, which does not go through
+        // mint at all.
+        self::assertConfigured();
 
-        if ($master === '') {
-            // The same refusal EventSignature makes, for the same reason: an unconfigured master
-            // key must not quietly produce a predictable credential that anybody could compute.
-            throw new \RuntimeException('LYNOMIA_WEBHOOK_MASTER_SECRET is not configured.');
-        }
-
-        return hash_hmac('sha256', self::PURPOSE . ':' . $storeId . ':' . $version, $master);
+        return hash_hmac('sha256', self::PURPOSE . ':' . $storeId . ':' . $version, (string) config('lynomia.webhook_master_secret'));
     }
 }

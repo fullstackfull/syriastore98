@@ -12,6 +12,7 @@ use Workdo\LynomiaChat\app\Http\Requests\LinkExistingAccountRequest;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\AccountLinker;
 use Workdo\LynomiaChat\app\Services\AccountProvisioner;
+use Workdo\LynomiaChat\app\Services\CommerceActivator;
 use Workdo\LynomiaChat\app\Services\SsoLinkIssuer;
 
 /**
@@ -27,11 +28,25 @@ class ConnectionController extends Controller
     public function __construct(
         private readonly AccountProvisioner $provisioner,
         private readonly AccountLinker $linker,
-        private readonly SsoLinkIssuer $sso
+        private readonly SsoLinkIssuer $sso,
+        private readonly CommerceActivator $commerce
     ) {
     }
 
-    /** Create a brand-new Lynomia workspace for the current store. */
+    /**
+     * Create a brand-new Lynomia workspace for the current store, and connect its store data.
+     *
+     * ONE CLICK, BOTH HALVES -- which is the whole point of the change that added the second
+     * one. A workspace with no commerce installation is a chat inbox with no orders in it, and
+     * leaving the merchant to find a second button was the manual step this flow is supposed to
+     * not have.
+     *
+     * THE SECOND HALF IS BEST EFFORT, AND THE MESSAGE SAYS WHICH HALF HAPPENED. A commerce
+     * failure must not fail a workspace that now exists -- sending the merchant back to "retry"
+     * something already done is how a resumable operation gets re-run -- but it must not be
+     * reported as success either. The two outcomes get two different sentences, and the page
+     * below renders the commerce state from the row rather than from this message.
+     */
     public function provision(Request $request): RedirectResponse
     {
         $storeId = (int) $request->attributes->get(EnsureStoreOwnsLink::STORE_ATTRIBUTE);
@@ -42,12 +57,21 @@ class ConnectionController extends Controller
         }
 
         try {
-            $this->provisioner->provision($store, $request->user());
+            $link = $this->provisioner->provision($store, $request->user());
         } catch (LynomiaApiException $e) {
             return back()->with('error', $this->merchantMessage($e));
         }
 
-        return back()->with('success', __('Your Lynomia Chat workspace is ready.'));
+        try {
+            $this->commerce->activate($link, $request->user());
+        } catch (LynomiaApiException) {
+            // Non-capturing: the reason is already on the row (CommerceActivator::recordFailure)
+            // and the page renders it with a retry beside it, so there is nothing to read out of
+            // the exception here that the merchant is not about to be shown anyway.
+            return back()->with('success', __('Your Lynomia Chat workspace is ready. Connecting your store data did not finish -- you can finish it below.'));
+        }
+
+        return back()->with('success', __('Your Lynomia Chat workspace is ready and your store data is connected.'));
     }
 
     /**

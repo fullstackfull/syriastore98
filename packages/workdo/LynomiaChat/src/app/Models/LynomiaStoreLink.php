@@ -46,6 +46,11 @@ class LynomiaStoreLink extends Model
         'commerce_credential_issued_at',
         'commerce_external_store_id',
         'lynomia_commerce_store_id',
+        'commerce_remote_status',
+        'commerce_installed_at',
+        'commerce_verified_at',
+        'commerce_last_error',
+        'commerce_attempts',
         'checkout_optin_enabled',
         'consent_policy_version',
         'verification_code_hash',
@@ -71,12 +76,25 @@ class LynomiaStoreLink extends Model
      * sweep concludes there is nothing to recover and stays blind indefinitely. Clearing it on
      * any account change is the only safe default, and it lives here rather than in the three
      * services that assign the column so no future writer can forget.
+     *
+     * AND SO DOES A COMMERCE INSTALLATION, for the same reason and with a worse failure. The
+     * commerce columns are Lynomia's answers ABOUT ONE WORKSPACE: `lynomia_commerce_store_id` is
+     * a row id in it, `commerce_remote_status` is that row's status. Carried across a re-point
+     * they describe an installation the new workspace does not have -- and because
+     * CommerceState reads "installation id present, no error" as CONNECTED, the merchant would be
+     * shown a connected store, offered no action to fix it, and have no orders in their inbox.
+     * Cleared here beside the watermark so the two cannot be forgotten independently.
      */
     protected static function booted(): void
     {
         static::saving(function (self $link) {
             if ($link->exists && $link->isDirty('lynomia_account_id')) {
                 $link->events_reconciled_at = null;
+                $link->lynomia_commerce_store_id = null;
+                $link->commerce_remote_status = null;
+                $link->commerce_installed_at = null;
+                $link->commerce_verified_at = null;
+                $link->commerce_last_error = null;
             }
         });
     }
@@ -92,6 +110,11 @@ class LynomiaStoreLink extends Model
         'events_reconciled_at' => 'datetime',
         'commerce_credential_version' => 'integer',
         'commerce_credential_issued_at' => 'datetime',
+        'lynomia_commerce_store_id' => 'integer',
+        'commerce_installed_at' => 'datetime',
+        'commerce_verified_at' => 'datetime',
+        'commerce_activation_started_at' => 'datetime',
+        'commerce_attempts' => 'integer',
         'checkout_optin_enabled' => 'boolean',
         'provisioning_started_at' => 'datetime',
         'provisioning_attempts' => 'integer',

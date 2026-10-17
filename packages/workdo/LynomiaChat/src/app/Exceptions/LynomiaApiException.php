@@ -104,10 +104,33 @@ class LynomiaApiException extends RuntimeException
             );
         }
 
+        // THE COMMERCE INSTALLATION REFUSALS, FOR THE SAME REASON AS THE TWO ABOVE: each one has
+        // a different thing the merchant (or their operator) should do next, and "Lynomia
+        // rejected the request as invalid" sends every one of them to support. The codes are
+        // matched, never rendered -- the sentence is written here, in the reader's language, and
+        // survives any rewording on the Lynomia side.
+        if ($status === 409 && $errorCode === 'installation_claimed_elsewhere') {
+            return new self(
+                self::KIND_CONFLICT,
+                __('Your store data is already connected to a different Lynomia Chat workspace. Please contact support.'),
+                $status
+            );
+        }
+
         if ($status === 422 && $errorCode !== null) {
             $message = match ($errorCode) {
                 'wrong_platform_app' => __('That connection code was created for a different integration. Generate one for Store Syria in Lynomia and try again.'),
                 'invalid_code' => __('That connection code is not valid, has already been used, or has expired. Please generate a new one in Lynomia.'),
+                // The merchant's Lynomia plan does not sell the commerce module. A real
+                // entitlement question, not a fault, and the only one on this list they resolve
+                // by upgrading rather than by retrying.
+                'commerce_disabled' => __('Your Lynomia Chat plan does not include store data yet. Please contact support to enable it.'),
+                // Store Syria's provider is switched off installation-wide in Lynomia, or the
+                // credential no longer resolves to this store. Both are configuration on one
+                // side or the other and neither is anything a merchant can act on.
+                'provider_disabled', 'auth_invalid', 'platform_owned_account' =>
+                    __('Store data could not be connected for this store. Please contact support.'),
+                'store_limit_reached' => __('Your Lynomia Chat plan has no room for another connected store. Please contact support.'),
                 default => null,
             };
 
