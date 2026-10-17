@@ -38,6 +38,38 @@ by a scriptable fake (`tests/Feature/Lynomia/InteractsWithLynomia.php`) on the S
 Both were written from the same reading of the same code, which is exactly why they agree — and
 agreement between two expressions of one reading is not evidence that the reading is right.
 
+> **PHASE 7 RETIRED THE RISK THIS PARAGRAPH DESCRIBES, AND A1 STAYS OPEN ANYWAY.** The two
+> claims need separating, because conflating them is how this blocker would get closed on
+> evidence that does not close it.
+>
+> **What was actually run.** Both real applications were booted together in one container —
+> Laravel 11 on PHP 8.3 against PostgreSQL, Rails 7.2 against PostgreSQL with pgvector — and
+> driven against *each other* over real HTTP, with no fake on either side of the wire. That run
+> covered provisioning, SSO, platform-API authorization, the bidirectional commerce handshake,
+> four signed commerce events verified and processed, replay de-duplication, tenant isolation
+> and suspend propagation. It is also what found **L1** and **L2** (§C22, §C23), neither of which
+> any suite in either repository had ever caught — which is the clearest possible demonstration
+> that the paragraph above was right about fakes agreeing with each other.
+>
+> So the *contract* half of A1 is no longer an unknown: the two readings were checked against
+> each other's real code rather than against two expressions of one reading.
+>
+> **Why A1 is still open.** It closes by "a staging deployment of both sides, by the owner", and
+> that has not happened — no owner environment is reachable from here at all. Re-verified on
+> 2026-10-17: `chat.lynomia.com`, `lynomia.com`, `www.lynomia.com`, `storesyria.com`,
+> `store-syria.com` and `syriastore98.com` have **no DNS record** of any kind, `~/.ssh` is empty,
+> no deployment credential exists in this environment and arbitrary egress is policy-denied. The
+> hostname in `packages/workdo/LynomiaChat/src/config/lynomia.php` is a configured default, not
+> evidence of a deployed installation.
+>
+> **What remains unproven, and is what A1 now means.** Everything that is a property of a
+> deployment rather than of the contract: DNS and TLS termination, reverse-proxy header and body
+> handling, queue workers running under supervision rather than in a foreground process, a real
+> WhatsApp provider account (prohibited from being connected under the standing restrictions),
+> real data volumes, and both applications surviving a restart with persisted state. Severity is
+> accordingly reduced from "the single largest unknown" to **bounded and
+> deployment-environment-specific** — but not to zero, and not closed.
+
 **Phase 5 stopped arguing this in the abstract.** An adversarial review at the end of it found
 FOUR features that passed every test on both sides and could not have worked against a real
 deployment, each because the fake and the code shared one mistake:
@@ -442,13 +474,13 @@ note that the first pass of that review mis-described this path as gated by the 
 machinery.
 
 
-### B10. Lynomia's seeding guard INVERTS when an operator sets it to false, and the seeder destroys data
+### B10. Lynomia's seeding guard INVERTS when an operator sets it to false, and the seeder destroys data — **CLOSED in Phase 7**
 
 | | |
 |---|---|
 | Raised | Phase 7 preparation, fixture survey |
 | Severity | **High, and it is upstream Chatwoot code rather than integration code** |
-| Closes by | A one-line cast at each of three sites. Not applied here |
+| Closed | Phase 7 — **applied**, at all three sites. The guard no longer trusts the raw string: each calls `Custom::SeedingPermission.allowed?`, which casts the value, and raises `Custom::SeedingPermission.refusal` otherwise. Verified in the Lynomia tree at `lib/seeders/account_seeder.rb:15`, `lib/seeders/inbox_seeder.rb` and `lib/seeders/reports/report_data_seeder.rb`. The entry is kept here rather than moved to §C because §C indexes Store Syria's register and this fix lives in the Lynomia repository |
 
 `lib/seeders/account_seeder.rb:13`, `lib/seeders/inbox_seeder.rb:13` and
 `lib/seeders/reports/report_data_seeder.rb:43` all guard with:
@@ -517,6 +549,8 @@ afterwards.
 | C19 | **The feed had no subscriber.** `EventSubscriptionManager` registers a *merchant's* workspace — it takes a store link, and the platform workspace has none. The ingress, the projector and the ordering rule were complete, tested and green while nothing had ever told Lynomia the endpoint existed, so in a real deployment every notice would have fallen through to the sweep. Found by adversarial review, not by a test: all 25 examples posted to the ingress directly | Post-Phase-6 hardening | Post-Phase-6 — `PlatformWorkspaceGateway::ensureDeliveryFeedSubscribed`, called from the reconciliation sweep so it self-heals on the same cadence, widening an existing subscription rather than replacing it |
 | C20 | **A successful provider submission reported nothing.** `Whatsapp::SendOnWhatsappService` writes `update!(source_id:)` and leaves `status` at the `sent` the column defaulted to on INSERT, so on status alone the provider accepting a message is invisible and the partner's first news would be a delivery receipt that may be hours away or never come — leaving the notice reading as merely accepted, the exact ambiguity the feed exists to remove | Post-Phase-6 hardening | Post-Phase-6 — the hook fires on `status` **or** `source_id`, so `provider_accepted` is a real feed event rather than something only reconciliation could derive |
 | C21 | **A notice refused by this side's own eligibility policy carried no outcome at all.** With B4 in force, "no verified number" is the expected first outcome for most merchants, so the single most common real case sat in the one state the console reads as "we do not know yet" | Post-Phase-6 hardening | Post-Phase-6 — `PlatformNotifier::markRefused` records `refused` with its reason, and `reopen` clears it so a row being tried again is not still showing the previous attempt's answer |
+| C22 | **L1 — suspension was a one-way door.** A resume asked Lynomia to re-enable the installation; Lynomia will not re-enable one it has not health-checked, and its health check is a single GET of this side's commerce IDENTITY endpoint. This side pushes the lifecycle transition to Lynomia *before* writing it locally — deliberately, so it can never claim ACTIVE while Lynomia is still refusing to send — so the check arrived while the link was still `suspended`, `AuthenticateCommerceApi` refused it 403, Lynomia answered `resume_failed` (409) and the unguarded push threw. Every rule was right; together they deadlocked, and recovery required editing the row by hand. Neither suite caught it because each drives a fake of the other side | Phase 7 live findings | Phase 7 — a **recovery window**, not a wider gate. `LinkState::SSO_ALLOWED` is untouched and no data route gained anything. An authorised lifecycle recovery opens a single-use, seconds-long, purpose-stamped grant good for ONE read of the identity route, shut again in a `finally` and audited at open, spend and close. It authorises nothing by itself: the request must still carry that store's current commerce credential. 16 examples in `tests/Feature/Lynomia/LynomiaRecoveryWindowTest.php` assert the mechanism *and* its narrowness separately — data endpoints stay 403 with a window open, a window is good for exactly one read, two spends cannot both succeed, one store cannot spend another's, an expired or closed window authorises nothing, DECOMMISSIONED and PENDING cannot open one, a suspend opens none, a refused push still shuts it, a superseded credential is still 401, and a decommission landing inside an open window cannot be resurrected by the in-flight resume |
+| C23 | **L2 — six migrations were stranded in silence, and /login answered 500.** `LandingPageServiceProvider.php:28` calls `loadMigrationsFrom(__DIR__ . '/../database/Migrations')` — capital M — while the directory on disk is `src/database/migrations`. `loadMigrationsFrom()` does not check that the path exists: it appends the string to the migrator's list, so a wrong path contributes no migrations and **no warning**. The mis-case resolves on a developer's case-insensitive macOS or Windows checkout and resolves to nothing on Linux, which is every server this ships to. One of the six creates `owner_menu_settings`, which `resources/views/layouts/guest.blade.php:96` reads on every guest screen, so a Linux install came up with `/login` and `/register` both 500 on `no such table` — nobody could sign in, which put every page behind auth out of reach | Phase 7 live findings | Phase 7 — fixed in the **host**, not the module: `app/Providers/PackageServiceProvider.php` now registers each addon's real on-disk `src/database/migrations` from the loader, so a module whose own provider declares a path that does not exist can no longer strand its schema. `packages/workdo/` is vendored commercial code that `guard-no-workdo-changes.sh` refuses to let a pull request modify — an in-place edit is reverted by the next upstream update and leaves no patch record — and that guard's own guidance is that such a fix belongs in the host. The six guest-screen tests were measured passing and their entries **deleted** from `.github/known-test-outcomes.json`, which that gate requires: it asserts the set in both directions, so a listed failure that starts passing fails CI until the record is corrected. The module's mis-cased literal is deliberately left in place and still pinned by `tests/Unit/Packages/AddonMigrationRegistrationTest.php`, so an upstream release that fixes it reddens that ratchet |
 
 
 ---
