@@ -132,6 +132,46 @@ class LynomiaIntegrationHealthTest extends TestCase
     }
 
     /**
+     * A LIVE WORKSPACE WITH NO COMMERCE STORE IS NOT A FAILURE, AND THE PAYLOAD SAYS SO.
+     *
+     * This is the exact shape account 135 returns in production: the workspace exists
+     * (account present), integration_health reports status "unknown" with zero installations
+     * and no open signals. The three connections are distinct -- the workspace link is Active,
+     * but no Store Syria commerce store has been added inside Lynomia yet, so there is nothing
+     * for health to be "healthy" or "critical" about.
+     *
+     * The controller passes the far side's body through faithfully: it does NOT invent a
+     * "healthy", and it does NOT dress the empty installations up as a fault. The Super Admin
+     * panel reads exactly this -- account present, installations [] -- and renders "Commerce not
+     * connected" rather than the old misleading "Not known — 0 installations". Asserted on the
+     * contract the panel consumes, since the rendering itself is browser-side.
+     */
+    public function test_a_connected_workspace_with_no_commerce_store_reports_zero_installations(): void
+    {
+        [, , $link] = $this->connectedTenant();
+        $this->lynomiaScript['integration_health'] = [
+            'account' => ['id' => $link->lynomia_account_id, 'name' => 'Merchant'],
+            'status' => 'unknown',
+            'installations' => [],
+            'signals' => ['open' => 0, 'by_source' => [], 'recent' => []],
+        ];
+
+        $this->actingAs($this->operator());
+
+        $response = $this->controller()->remoteHealth($link->id);
+        $body = json_decode($response->getContent(), true);
+
+        $this->assertSame(200, $response->getStatusCode());
+        // The workspace is present on the far side...
+        $this->assertSame((int) $link->lynomia_account_id, $body['account']['id']);
+        // ...but no commerce store is installed, which the UI reads as "Commerce not connected".
+        $this->assertSame([], $body['installations']);
+        $this->assertSame(0, $body['signals']['open']);
+        // Never fabricated into a healthy state.
+        $this->assertNotSame('healthy', $body['status']);
+    }
+
+    /**
      * THE PAGE IS BUILT WITHOUT REACHING ACROSS, which is the property the whole design rests
      * on: an operator opens it because something is wrong, so a page that needs the far side
      * to answer goes blank exactly when it is needed. Asserted on the view's DATA rather than

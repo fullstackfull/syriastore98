@@ -769,5 +769,22 @@
     "Notices are waiting for an outcome and no delivery report has arrived today. The feed may not be registered on the platform workspace; the reconciliation sweep re-registers it and fills the gap, so check its last run before changing anything.": "هناك إشعارات تنتظر نتيجة ولم يصل أي تقرير تسليم اليوم. قد لا يكون التدفق مسجلاً على مساحة عمل المنصة؛ تقوم عملية المطابقة بإعادة تسجيله وسد الفجوة، لذا تحقق من آخر تشغيل لها قبل تغيير أي شيء.",
     "Our attempt": "محاولتنا",
     "Lynomia's outcome": "نتيجة لينوميا",
-    "awaiting": "في الانتظار"
+    "awaiting": "في الانتظار",
+    "Issued :when": "صدر :when",
+    "Rotating issues a new token and immediately stops the current one. Any Lynomia store using the old token will disconnect until you paste the new one. Continue?": "تدوير المفتاح يُصدر مفتاحاً جديداً ويوقف المفتاح الحالي فوراً. أي متجر في Lynomia يستخدم المفتاح القديم سينقطع حتى تلصق المفتاح الجديد. هل تريد المتابعة؟",
+    "Rotate Token": "تدوير المفتاح",
+    "Revoking stops the current token immediately. The connected Lynomia store will stop syncing until you issue and paste a new one. Continue?": "إبطال المفتاح يوقف المفتاح الحالي فوراً. سيتوقف متجر Lynomia المرتبط عن المزامنة حتى تُصدر مفتاحاً جديداً وتلصقه. هل تريد المتابعة؟",
+    "Revoke Token": "إبطال المفتاح",
+    "Issue Commerce Token": "إصدار مفتاح التجارة",
+    "Connect the workspace before issuing a commerce token.": "اربط مساحة العمل قبل إصدار مفتاح التجارة.",
+    "Active": "فعّال",
+    "Revoked": "مُبطَل",
+    "Not issued": "لم يُصدر",
+    "Copy your commerce token now": "انسخ مفتاح التجارة الآن",
+    "This token is shown once and cannot be retrieved again. If you lose it, issue a new one — which will stop this one from working.": "يظهر هذا المفتاح مرة واحدة ولا يمكن استرجاعه مجدداً. إذا فقدته، أصدر مفتاحاً جديداً — مما سيوقف هذا المفتاح عن العمل.",
+    "Commerce token": "مفتاح التجارة",
+    "Copy Token": "نسخ المفتاح",
+    "Copied.": "تم النسخ.",
+    "connected store(s)": "متجر/متاجر مرتبطة",
+    "Commerce not connected": "التجارة غير مرتبطة"
 }
