@@ -578,6 +578,32 @@ So making these tables exist did not reveal a cross-tenant read surface; it remo
 migrations and an HTTP 500 on `/login`. If a store-scoped raw statement on any of them ever appears,
 the per-table ratchet sees it first.
 
+### 6.10 Eight Lynomia specs cannot pass without public DNS — **portability finding, not a defect**
+
+Found while root-causing the Lynomia regression run (§7.1), and worth recording because it will hit
+any developer on a restricted network, not just this container.
+
+`spec/services/website_branding_service_spec.rb` stubs HTTP with WebMock
+(`stub_request(:get, 'https://example.com')`), which intercepts at the HTTP-library level. But
+`WebsiteBrandingService` fetches through `SafeFetch::Fetcher`, whose `perform_request` calls
+`SsrfFilter.public_send(...)` — and **`ssrf_filter` performs its own DNS resolution before
+connecting**, because that is precisely its purpose: resolve the hostname, check the address is not
+private, then connect to the address directly. A DNS lookup is not an HTTP request, so **WebMock
+cannot intercept it.**
+
+Where `example.com` does not resolve, `ssrf_filter` raises `SsrfFilter::UnresolvedHostname`, the
+service returns `nil`, and all eight examples fail dereferencing `nil`. Measured here:
+`getent hosts example.com` returns nothing, and the failure message names
+`lib/safe_fetch/fetcher.rb:49`.
+
+**It is not a defect and not a regression.** CI run 111 was green on all 20 jobs including all
+sixteen rspec shards, so these examples pass on a runner with ordinary DNS. The product code is
+behaving correctly — refusing to fetch a host it cannot resolve is the safe answer.
+
+**Worth fixing anyway, cheaply**, if offline-capable specs are wanted: stub at the `SafeFetch` or
+`SsrfFilter` seam rather than at the HTTP layer, or use a hostname the suite resolves itself. Not
+done here — it is outside this directive's scope and touches a spec this remediation does not own.
+
 ---
 
 ## 7. Full test results
@@ -605,6 +631,31 @@ RSpec on Ruby 3.4.4 against PostgreSQL 16 with pgvector for Lynomia.
    (`route('landing_page', $store->slug)`). Needs a null-store guard there and at `:369`.
    `AddonMigrationStrandingTest::test_the_profile_page_failure_is_not_this_bug` exists to prove this
    is independent of L2, and still passes.
+
+**And the Store Syria figures are not contaminated by this container's configuration** — asked
+because the Lynomia run turned out to be (§7.1), so the same question had to be put to this side
+rather than assumed away.
+
+Three independent mechanisms insulate it, and the third was measured rather than reasoned about:
+
+1. `phpunit.xml` sets `DB_CONNECTION=sqlite` and `DB_DATABASE=:memory:` with **`force="true"`**,
+   which overrides any `.env` value.
+2. `tests/bootstrap.php` asserts both and is **fatal** on anything else, and CI has a hard guard
+   duplicated in each job that runs the suite — because `RefreshDatabase` runs `migrate:fresh`,
+   which drops every table in whatever database the suite resolves.
+3. The integration flags are **not** forced by `phpunit.xml`, and this container's `.env` does set
+   `LYNOMIA_INTEGRATION_ENABLED` and `LYNOMIA_COMMERCE_EVENTS_ENABLED` — so this was a real risk,
+   not a theoretical one. It does not materialise: `APP_ENV=testing` makes Laravel load
+   **`.env.testing`**, a tracked repository file that sets no `LYNOMIA_*` or `COMMERCE_*` key at
+   all, so both flags fall to their `config/lynomia.php` defaults of `false`. Probed from inside a
+   booted test rather than inferred from the loader's documented behaviour:
+
+   ```
+   lynomia.enabled=false   commerce_events=false   base_url=empty   DB=sqlite/:memory:
+   ```
+
+   Which is exactly what CI sees, CI having no `.env` at all. The probe was a temporary file and is
+   not committed.
 
 **The known-outcome gate passes.** The blocking CI check was run locally against the real JUnit and
 TeamCity logs:
