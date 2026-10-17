@@ -225,7 +225,7 @@ chrome accent**, not by a second visual language:
 | 2 | Sidebar zones, grouping, workspace chip | 1 |
 | 3 | Side-panel surface + record editing layout | — |
 | 4 | Toast restyle (host-wide, `show_toastr`) | — |
-| 5 | Dark-mode bridge: host `cust_darklayout` → `data-ss-theme` | — |
+| 5 | Host-wide dark tokens: an opted-in page already follows `cust_darklayout` (Sprint 01's opt-in partial); the host chrome itself still uses four swapped stylesheets | — |
 | 6 | Notifications inbox | **→ Claude A** (schema + endpoint) |
 | 7 | Global search | **→ Claude A** (scoped, permission-filtered endpoint) |
 | 8 | Super Admin pass | 2, 3 |

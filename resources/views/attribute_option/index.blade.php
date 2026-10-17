@@ -17,10 +17,7 @@
 @section('page-title', __('Attribute-Option'))
 
 @push('css')
-    {{-- Versioned by hand rather than with time(): the host's own sheets are
-         cache-busted on every request, which re-downloads 84 KB per page load.
-         Bump this string when the file changes. --}}
-    <link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}?v=p01b-1">
+    @include('layouts.includes.store-syria-ds')
 @endpush
 
 @section('action-button')

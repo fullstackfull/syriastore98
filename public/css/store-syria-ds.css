@@ -234,14 +234,17 @@
    -------------------------------------------------------------------------- */
 
 [data-ss-theme="dark"] {
-    --ss-bg:            var(--ss-grey-950);
-    --ss-surface:       #13201e;
-    --ss-surface-sunken: #0e1a18;
-    --ss-surface-hover: #1a2726;
+    /* Surfaces are tuned to the HOST's dark page (#22242c, assets/css/style-dark.css)
+       rather than to --ss-bg: a card must sit above that page, a touch lighter, or it
+       reads as a hole. Text, subtle text and borders were re-solved against them. */
+    --ss-bg:            #1b2523;
+    --ss-surface:       #263331;
+    --ss-surface-sunken: #1f2a28;
+    --ss-surface-hover: #2d3b39;
 
     --ss-fg:        #e8eded;
     --ss-fg-muted:  #a7b2b1;
-    --ss-fg-subtle: #8a9593;
+    --ss-fg-subtle: #95a09e;
     --ss-fg-onfill: var(--ss-grey-950);
 
     --ss-brand:        var(--ss-teal-500);
@@ -252,8 +255,8 @@
     --ss-on-brand:     #04231f;
     --ss-link:         var(--ss-teal-400);
 
-    --ss-border:        #2b3734;
-    --ss-border-strong: #6d7a78;  /* 3.76:1 on the dark card surface */
+    --ss-border:        #364442;
+    --ss-border-strong: #7d8a88;  /* 3.76:1 on the dark card surface */
     --ss-border-brand:  var(--ss-teal-500);
 
     --ss-success-bg: #102a1b; --ss-success-fg: #7fd6a0;
@@ -274,13 +277,13 @@
 
 @media (prefers-color-scheme: dark) {
     [data-ss-theme="auto"] {
-        --ss-bg: var(--ss-grey-950);
-        --ss-surface: #13201e;
-        --ss-surface-sunken: #0e1a18;
-        --ss-surface-hover: #1a2726;
+        --ss-bg: #1b2523;
+        --ss-surface: #263331;
+        --ss-surface-sunken: #1f2a28;
+        --ss-surface-hover: #2d3b39;
         --ss-fg: #e8eded;
         --ss-fg-muted: #a7b2b1;
-        --ss-fg-subtle: #8a9593;
+        --ss-fg-subtle: #95a09e;
         --ss-fg-onfill: var(--ss-grey-950);
         --ss-brand: var(--ss-teal-500);
         --ss-brand-hover: var(--ss-teal-400);
@@ -289,8 +292,8 @@
         --ss-brand-accent: var(--ss-teal-400);
         --ss-on-brand: #04231f;
         --ss-link: var(--ss-teal-400);
-        --ss-border: #2b3734;
-        --ss-border-strong: #6d7a78;
+        --ss-border: #364442;
+        --ss-border-strong: #7d8a88;
         --ss-border-brand: var(--ss-teal-500);
         --ss-success-bg: #102a1b; --ss-success-fg: #7fd6a0;
         --ss-warning-bg: #2c2109; --ss-warning-fg: #f0c674;
@@ -300,6 +303,10 @@
         --ss-danger: #f3a9a4;
         --ss-on-danger: #3b0d0a;
         --ss-focus-ring: var(--ss-teal-400);
+        --ss-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.45);
+        --ss-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.35);
+        --ss-shadow-md: 0 2px 4px rgba(0, 0, 0, 0.45), 0 6px 16px rgba(0, 0, 0, 0.40);
+        --ss-shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.50), 0 16px 32px rgba(0, 0, 0, 0.45);
     }
 }
 
