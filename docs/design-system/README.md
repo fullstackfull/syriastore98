@@ -56,8 +56,9 @@ Three layers. Components only ever read layer 2.
 
 ### Colour
 
-The brand ramp is derived from the merchant's **own logo mark** (hue 172°, sampled from
-`uploads/2/*logoStore.svg`). No new brand identity was invented, and no logo was replaced.
+The brand ramp is built on the merchant's **own logo mark** (`uploads/2/*logoStore.svg`, a
+168-197° teal-green gradient with a median hue of 177°): the ramp sits at hue 172°, inside that
+gradient. No new brand identity was invented, and no logo was replaced.
 
 Two steps are pinned by contrast rather than by taste:
 
@@ -114,7 +115,13 @@ An opted-in page follows the host's dark layout automatically. The host does not
 with a class: its `cust_darklayout` setting swaps the stylesheet in `#main-style-link` to
 `style-dark.css` or `rtl-style-dark.css`. The opt-in partial reads that same element in `<head>`,
 before the body paints, and sets `data-ss-theme="dark"` on `<html>`. It reads the layout's own
-signal, so the two cannot disagree, and no dark card ever flashes light.
+signal, so the two cannot disagree, and no dark card ever flashes light. It also follows the
+brand-settings page, which swaps that stylesheet live when the dark-layout switch is toggled, and
+it never removes a `data-ss-theme` a page set for itself.
+
+The host's dark stylesheets also force every `<p>` to `#808191` with `!important`. On a dark card
+that is 3.42:1, so the system's secondary-text classes restate their colour with `!important`
+(see "Host override defence" in the stylesheet); they measure 6.03:1.
 
 Dark surfaces are tuned to the **host's** dark page (`#22242c`), not to `--ss-bg`: a card sits a
 touch lighter than that page, or it reads as a hole. Text and borders were re-solved against them.
@@ -167,14 +174,15 @@ are the ones a browser actually computes; it also fails if the `auto` scope drif
 ALL 40 PAIRS PASS (light + dark)
 ```
 
-**Browser** — Chromium 1194 via Playwright, against the real Blade-rendered markup and the real
-`public/` stylesheets: keyboard traversal, focus-ring presence and contrast, tab order, accessible
-names, horizontal overflow at 7 widths × 4 page states × both directions, RTL mirroring, the
-preserved-functionality contract, permission gating, the host's dark layout, and a before/after
-comparison against the pre-sprint view:
+**Browser** — Chromium 141 (Playwright's browser revision 1194), against the real
+Blade-rendered markup and the real `public/` stylesheets: keyboard traversal, focus-ring presence
+and contrast, tab order, accessible names read from Chromium's accessibility tree, 28 overflow
+checks (7 widths × English and Arabic × with and without records), RTL mirroring, the
+preserved-functionality contract, permission gating, the host's dark layout including its forced
+paragraph colour and its runtime toggle, and a before/after comparison against the pre-sprint view:
 
 ```
-61 PASSED, 0 FAILED
+66 PASSED, 0 FAILED
 ```
 
 ---

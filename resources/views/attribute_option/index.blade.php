@@ -3,11 +3,12 @@
 {{--
     Pilot screen for the Store Syria web design system (Phase 01 / Sprint 01).
 
-    Everything this screen could do before, it still does: the same four
-    permission gates, the same ajax-popup create/edit contract, the same DELETE
-    form, and the same jQuery-UI sortable contract (a `.sortable` list of
-    `li[data-id]`, posted to the `attribute-option` route). Only presentation
-    and markup semantics changed.
+    Everything this screen could do before, it still does: the same three
+    permission gates (Create, Edit and Delete Attributes Option), the same
+    ajax-popup create/edit contract, the same DELETE form, and the same
+    jQuery-UI sortable contract (a `.sortable` list of `li[data-id]`, posted to
+    the `attribute-option` route). Only presentation and markup semantics
+    changed.
 
     The design system is pulled in per-page through @push('css'), which
     layouts/app.blade.php renders at :176. No shared layout file is touched, so
@@ -76,14 +77,15 @@
                             <div class="ss-empty__icon" aria-hidden="true">
                                 {{-- ti-list-check, not ti-list-details: the bundled
                                      tabler-icons.min.css does not ship the latter. --}}
-                                <i class="ti ti-list-check" style="font-size:24px"></i>
+                                <i class="ti ti-list-check"></i>
                             </div>
                             <h3 class="ss-empty__title">{{ __('No options yet') }}</h3>
                             <p class="ss-empty__body">
-                                {{ __('Options are the values a customer picks from, such as Small, Medium and Large. Add the first one to get started.') }}
+                                {{ __('Options are the values a customer picks from, such as Small, Medium and Large.') }}
                             </p>
                             @if ($attribute)
                                 @permission('Create Attributes Option')
+                                    <p class="ss-empty__body">{{ __('Add the first one to get started.') }}</p>
                                     <a href="#" class="ss-btn ss-btn--primary add_attribute" data-ajax-popup="true"
                                         data-size="md" data-title="{{ __('Add Attribute Option') }}"
                                         data-url="{{ route('product-attribute-option.create', $attribute->id) }}">
@@ -187,13 +189,17 @@
                         type: 'POST',
                         success: function (data) {
                             $('#loader').fadeOut();
-                            $status.text("{{ __('Order saved.') }}");
+                            $status.text(@json(__('Order saved.')));
                         },
-                        error: function (data) {
-                            data = data.responseJSON;
+                        error: function (xhr) {
+                            // responseJSON is undefined on a network failure or
+                            // an HTML error page; the original read .error off
+                            // it unguarded and threw.
+                            var json = xhr.responseJSON || {};
+                            var message = json.error || @json(__('Order could not be saved.'));
                             $('#loader').fadeOut();
-                            $status.text("{{ __('Order could not be saved.') }}");
-                            show_toastr('Error', data.error, 'error')
+                            $status.text(message);
+                            show_toastr('Error', message, 'error');
                         }
                     })
                 }

@@ -34,6 +34,7 @@ function contrast(a, b) {
 
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.SS_CHROMIUM || '/opt/pw-browsers/chromium' });
+  console.log(`Chromium ${browser.version()} via Playwright`);
 
   // ---------------------------------------------------------------- A. keyboard
   console.log('\nA. KEYBOARD TRAVERSAL AND FOCUS INDICATOR  (new-en-full, 1280x900)');
@@ -67,8 +68,8 @@ function contrast(a, b) {
     }
 
     console.log(`  (${stops.length} focus stops reached by Tab)`);
-    check(stops.length >= 10, 'every interactive control is reachable by Tab',
-      `${stops.length} stops: 1 add button + 5 rows x 2 actions = 11 expected`);
+    check(stops.length === 13, 'every interactive control is reachable by Tab',
+      `${stops.length} stops: 2 host breadcrumb links + 1 add button + 5 rows x 2 actions`);
 
     // Split DS-owned controls from the host's page-header chrome (the "Home"
     // and parent-entity breadcrumb links, emitted by layouts/app.blade.php).
@@ -80,7 +81,7 @@ function contrast(a, b) {
     const ringed = owned.filter(s => s.matchesFocusVisible &&
       s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) >= 2);
     check(ringed.length === owned.length,
-      'every DS-owned control shows a >=2px focus ring (WCAG 2.4.11/2.4.13)',
+      'every DS-owned control shows a >=2px focus ring (WCAG 2.4.7; size per 2.4.13)',
       `${ringed.length}/${owned.length} ss-* controls`);
 
     // Tab order within the DS-owned content must follow visual order.
@@ -192,7 +193,9 @@ function contrast(a, b) {
   }
 
   // ---------------------------------------------------------------- E. permissions
-  console.log('\nE. PERMISSION GATING — a view-only merchant sees no write actions');
+  console.log('\nE. PERMISSION GATING — a view-only merchant gets no create, edit or delete control');
+  console.log('  NOTE (pre-existing, unchanged): drag-to-reorder still works for a view-only merchant; '
+    + 'the reorder endpoint checks no permission. Reported to Backend, not changed here.');
   {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     await page.goto(BASE + 'new-en-noperm.html');
@@ -260,6 +263,41 @@ function contrast(a, b) {
     const light = await probe('new-en-full');
     check(light.theme === null, 'light layout leaves data-ss-theme unset', String(light.theme));
     check(lum(light.bg) > 0.9, 'light layout keeps a light card', light.bg);
+
+    // The host's dark sheets force every <p> to #808191 !important; the
+    // system's secondary text sits on <p> elements and must still clear 4.5:1.
+    for (const [view, sel] of [['new-en-full-dark', '.ss-page-header__subtitle'],
+                               ['new-en-full-dark', '.ss-card__footer .ss-field__hint'],
+                               ['new-en-empty-dark', '.ss-empty__body']]) {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+      await page.goto(BASE + view + '.html');
+      const t = await page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        return { fg: getComputedStyle(el).color, bg: getComputedStyle(el.closest('.ss-card')).backgroundColor };
+      }, sel);
+      await page.close();
+      const r = contrast(parseRGB(t.fg), parseRGB(t.bg));
+      check(r >= 4.5, `${view}: ${sel} survives the host's forced <p> colour`, `${t.fg} on ${t.bg} = ${r.toFixed(2)}:1`);
+    }
+
+    // The brand-settings page swaps #main-style-link at runtime.
+    {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+      await page.goto(BASE + 'new-en-full.html');
+      const setHref = h => page.evaluate(h => document.getElementById('main-style-link').setAttribute('href', h), h);
+      const theme = () => page.evaluate(() => document.documentElement.getAttribute('data-ss-theme'));
+      await setHref('/assets/css/style-dark.css'); await page.waitForTimeout(50);
+      const toDark = await theme();
+      await setHref('/assets/css/style.css'); await page.waitForTimeout(50);
+      const toLight = await theme();
+      await page.evaluate(() => document.documentElement.setAttribute('data-ss-theme', 'dark'));
+      await setHref('/assets/css/style-rtl.css'); await page.waitForTimeout(50);
+      const pageOwned = await theme();
+      await page.close();
+      check(toDark === 'dark' && toLight === null, 'follows the host dark toggle at runtime, both ways',
+        `dark=${toDark} light=${toLight}`);
+      check(pageOwned === 'dark', 'never removes a data-ss-theme the page set itself', String(pageOwned));
+    }
   }
 
   // ---------------------------------------------------------------- F. before/after
@@ -288,6 +326,16 @@ function contrast(a, b) {
           window.__rest[i] = { bg: c.backgroundColor, border: c.borderTopColor, outline: c.outlineStyle };
         });
       });
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send('DOM.enable');
+      await cdp.send('Accessibility.enable');
+      const axName = async () => {
+        const { result } = await cdp.send('Runtime.evaluate', { expression: 'document.activeElement' });
+        const { node } = await cdp.send('DOM.describeNode', { objectId: result.objectId });
+        const ax = await cdp.send('Accessibility.getPartialAXTree', { backendNodeId: node.backendNodeId, fetchRelatives: false });
+        const n = ax.nodes.find(x => !x.ignored) || ax.nodes[0];
+        return (n && n.name && n.name.value) || '';
+      };
       const stops = [];
       for (let i = 0; i < 16; i++) {
         await page.keyboard.press('Tab');
@@ -313,16 +361,20 @@ function contrast(a, b) {
           if (c.outlineStyle !== 'none' && parseFloat(c.outlineWidth) >= 1) {
             kind = 'outline'; r = ratio(over(rgba(c.outlineColor), surface), surface);
           } else if (c.backgroundColor !== rest.bg) {
-            kind = 'fill'; r = ratio(fill, surface);
+            // Lower of: against what surrounds it, and against its own resting fill.
+            kind = 'fill'; r = Math.min(ratio(fill, surface), ratio(fill, over(rgba(rest.bg), surface)));
           } else if (c.borderTopColor !== rest.border) {
             kind = 'border'; r = ratio(over(rgba(c.borderTopColor), fill), fill);
           }
           const box = el.getBoundingClientRect();
-          return { name: (el.innerText || el.getAttribute('title') || '').trim(), kind, ratio: r,
+          const row = el.closest('li[data-id]');
+          const term = row ? ((row.querySelector('.ss-sort-item__label') || row.querySelector('h6 span') || {}).innerText || '').trim() : '';
+          return { name: (el.innerText || el.getAttribute('title') || '').trim(), term, kind, ratio: r,
                    look: c.backgroundColor + ' ' + c.color, x: Math.round(box.x), y: Math.round(box.y) };
         });
         if (!s) break;
         if (stops.some(t => t.x === s.x && t.y === s.y)) break;
+        s.ax = await axName();
         stops.push(s);
       }
       await page.close();
@@ -355,17 +407,23 @@ function contrast(a, b) {
     check(bSame && !aSame, 'a focused Delete no longer looks identical to a focused Edit',
       `before identical=${bSame}, after identical=${aSame}`);
 
-    // Row action names must disambiguate which record they act on.
-    const ambiguous = s => s.name === 'Edit' || s.name === 'Delete';
-    const bAmb = before.stops.filter(ambiguous).length;
-    const aAmb = after.stops.filter(ambiguous).length;
-    console.log(`  ambiguous "Edit"/"Delete" names:  before ${bAmb}   after ${aAmb}`);
-    check(aAmb < bAmb, 'row actions name the record they act on', `${bAmb} -> ${aAmb}`);
+    // What a screen reader announces: the accessible name from Chromium's
+    // accessibility tree, not innerText or title.
+    const show = n => [...n].map(ch => ch.codePointAt(0) >= 0xE000 && ch.codePointAt(0) <= 0xF8FF
+      ? `U+${ch.codePointAt(0).toString(16).toUpperCase()}` : ch).join('') || '(empty)';
+    const rowNamed = m => m.stops.filter(s => s.term).filter(s => s.ax.includes(s.term)).length;
+    const rows = m => m.stops.filter(s => s.term).length;
+    const add = m => m.stops.find(s => /^Add/.test(s.name)) || { ax: '' };
+    console.log(`  accessible name, first row's Edit:  before "${show(before.stops.find(s => s.term).ax)}"   after "${show(after.stops.find(s => s.term).ax)}"`);
+    console.log(`  accessible name, add button:        before "${show(add(before).ax)}"   after "${show(add(after).ax)}"`);
+    check(rowNamed(before) === 0 && rowNamed(after) === rows(after) && rows(after) === 10,
+      'every row action\'s accessible name says which record it acts on',
+      `before ${rowNamed(before)}/${rows(before)}, after ${rowNamed(after)}/${rows(after)}`);
 
     console.log(`  li[data-id] nodes:  before ${before.dom.nodes}   after ${after.dom.nodes}  (5 records)`);
     check(after.dom.nodes === 5 && before.dom.nodes === 25,
       'the nested duplicate @foreach is fixed (N^2 -> N)', `${before.dom.nodes} -> ${after.dom.nodes}`);
-    console.log(`  rendered HTML bytes:  before ${before.dom.html}   after ${after.dom.html}`);
+    console.log(`  DOM size (outerHTML characters):  before ${before.dom.html}   after ${after.dom.html}`);
   }
 
   await browser.close();
