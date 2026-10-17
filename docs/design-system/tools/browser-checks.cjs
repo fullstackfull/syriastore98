@@ -265,28 +265,66 @@ function contrast(a, b) {
   // ---------------------------------------------------------------- F. before/after
   console.log('\nF. BEFORE / AFTER — the original screen measured the same way');
   {
+    // A focus indicator is measured at rest-vs-focus, in steady state: the host
+    // animates button colours over 0.15s, so a style read straight after Tab
+    // still shows the resting colour. Whatever changes (outline, fill, border)
+    // is the indicator, and it is scored against what it must stand out from:
+    // an outline or a fill against the surface behind the control, a border
+    // against the control's own fill. WCAG 1.4.11 asks for 3:1.
     const measure = async (view) => {
       const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
       await page.goto(BASE + view + '.html');
+      await page.waitForTimeout(400);
+      // Size first: the probe below adds a data attribute to every control.
+      const dom = await page.evaluate(() => ({
+        nodes: document.querySelectorAll('li[data-id]').length,
+        html: document.documentElement.outerHTML.length,
+      }));
+      await page.evaluate(() => {
+        window.__rest = {};
+        document.querySelectorAll('a[href], button').forEach((el, i) => {
+          el.dataset.probe = i;
+          const c = getComputedStyle(el);
+          window.__rest[i] = { bg: c.backgroundColor, border: c.borderTopColor, outline: c.outlineStyle };
+        });
+      });
       const stops = [];
       for (let i = 0; i < 16; i++) {
         await page.keyboard.press('Tab');
+        await page.waitForTimeout(450);
         const s = await page.evaluate(() => {
           const el = document.activeElement;
-          if (!el || el === document.body) return null;
-          const cs = getComputedStyle(el), r = el.getBoundingClientRect();
-          return { ring: cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) >= 2,
-                   name: (el.innerText || el.getAttribute('title') || '').trim(),
-                   x: Math.round(r.x), y: Math.round(r.y) };
+          if (!el || el === document.body || el.dataset.probe === undefined) return null;
+          const rgba = str => { const m = str.match(/rgba?\(([^)]+)\)/); if (!m) return null;
+            const v = m[1].split(',').map(Number); return [v[0], v[1], v[2], v.length > 3 ? v[3] : 1]; };
+          const lin = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+          const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+          const over = (fg, bg) => fg[3] >= 1 ? fg : [0, 1, 2].map(k => fg[k] * fg[3] + bg[k] * (1 - fg[3])).concat(1);
+          const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+          let surface = [255, 255, 255, 1];
+          for (let n = el.parentElement; n; n = n.parentElement) {
+            const b = rgba(getComputedStyle(n).backgroundColor);
+            if (b && b[3] > 0) { surface = b; break; }
+          }
+          const rest = window.__rest[el.dataset.probe];
+          const c = getComputedStyle(el);
+          const fill = over(rgba(c.backgroundColor), surface);
+          let kind = 'none', r = 1;
+          if (c.outlineStyle !== 'none' && parseFloat(c.outlineWidth) >= 1) {
+            kind = 'outline'; r = ratio(over(rgba(c.outlineColor), surface), surface);
+          } else if (c.backgroundColor !== rest.bg) {
+            kind = 'fill'; r = ratio(fill, surface);
+          } else if (c.borderTopColor !== rest.border) {
+            kind = 'border'; r = ratio(over(rgba(c.borderTopColor), fill), fill);
+          }
+          const box = el.getBoundingClientRect();
+          return { name: (el.innerText || el.getAttribute('title') || '').trim(), kind, ratio: r,
+                   look: c.backgroundColor + ' ' + c.color, x: Math.round(box.x), y: Math.round(box.y) };
         });
         if (!s) break;
         if (stops.some(t => t.x === s.x && t.y === s.y)) break;
         stops.push(s);
       }
-      const dom = await page.evaluate(() => ({
-        nodes: document.querySelectorAll('li[data-id]').length,
-        html: document.documentElement.outerHTML.length,
-      }));
       await page.close();
       return { stops, dom };
     };
@@ -294,10 +332,28 @@ function contrast(a, b) {
     const before = await measure('orig-en-full');
     const after = await measure('new-en-full');
 
-    const bRing = before.stops.filter(s => s.ring).length;
-    const aRing = after.stops.filter(s => s.ring).length;
-    console.log(`  focus rings:  before ${bRing}/${before.stops.length}   after ${aRing}/${after.stops.length}`);
-    check(aRing > bRing, 'the redesign adds focus indicators where there were none', `${bRing} -> ${aRing}`);
+    for (const [label, m] of [['before', before], ['after', after]]) {
+      const changed = m.stops.filter(s => s.kind !== 'none').length;
+      const ok = m.stops.filter(s => s.kind !== 'none' && s.ratio >= 3).length;
+      const kinds = [...new Set(m.stops.filter(s => s.kind !== 'none').map(s => `${s.kind} ${s.ratio.toFixed(2)}:1`))];
+      console.log(`  ${label.padEnd(6)} focus changes something on ${changed}/${m.stops.length}; ` +
+                  `reaches 3:1 on ${ok}/${m.stops.length}  [${kinds.join(', ')}]`);
+    }
+    const bOk = before.stops.filter(s => s.kind !== 'none' && s.ratio >= 3).length;
+    const aOk = after.stops.filter(s => s.kind !== 'none' && s.ratio >= 3).length;
+    check(aOk === 11 && aOk > bOk,
+      'every redesign control gets a focus indicator at >= 3:1 (WCAG 1.4.11)', `${bOk} -> ${aOk} of 13`);
+
+    const bAdd = before.stops.find(s => /^Add/.test(s.name));
+    check(!!bAdd && bAdd.ratio < 1.5,
+      'baseline: the ORIGINAL primary action shows no perceptible focus change',
+      bAdd ? `${bAdd.kind} ${bAdd.ratio.toFixed(2)}:1` : 'not found');
+
+    const look = (m, re) => (m.stops.find(s => re.test(s.name)) || {}).look;
+    const bSame = look(before, /^Edit/) === look(before, /^Delete/);
+    const aSame = look(after, /^Edit/) === look(after, /^Delete/);
+    check(bSame && !aSame, 'a focused Delete no longer looks identical to a focused Edit',
+      `before identical=${bSame}, after identical=${aSame}`);
 
     // Row action names must disambiguate which record they act on.
     const ambiguous = s => s.name === 'Edit' || s.name === 'Delete';
