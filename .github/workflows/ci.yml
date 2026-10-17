@@ -301,8 +301,12 @@ jobs:
         #   3. guzzlehttp/guzzle + psr7  13 advisories. Every outbound HTTP call,
         #      including the recaptcha verify at PasswordResetLinkController.php:48 and
         #      every payment-gateway callback.
-        #   4. league/commonmark  14 advisories, 9 high -- but reachable only where
-        #      user-supplied markdown is rendered; required by laravel/framework ^2.7.
+        #   4. league/commonmark  CLEARED, 14 -> 0, APPLIED to composer.lock on
+        #      2026-10-17 (2.8.0 -> 2.10.3). This was the one item of the plan above that
+        #      could be taken in isolation: five packages move, no major is crossed and
+        #      laravel/framework stays at v11.47.0. All three of its mail-path-reachable
+        #      advisories are among the 14 cleared. The suite was re-run against it.
+        #      The remaining items are NOT applied -- see THE RE-AUDIT below.
         #   5. symfony/* and the rest: framework-internal, lower direct reachability.
         #
         # KNOWN REFUTATION, RE-VERIFIED HERE so it is not re-raised. The phpspreadsheet
@@ -318,7 +322,61 @@ jobs:
         #
         # FLIP THIS TO ENFORCING (drop continue-on-error, and prefer
         # `--abandoned=ignore` over widening the audit) as soon as the owner approves the
-        # bump. Leaving it advisory forever is how 70 advisories became 70 advisories.
+        # bump. Leaving it advisory forever is how 70 advisories stayed 70 advisories.
+        #
+        # ===================================================================
+        #  THE RE-AUDIT, 2026-10-17 -- WHAT WAS APPLIED AND WHAT THE
+        #  MEASUREMENT CONTRADICTS. Read this before acting on the plan above.
+        # ===================================================================
+        # APPLIED: league/commonmark 2.8.0 -> 2.10.3 only. Five packages move
+        # (commonmark, nette/schema, nette/utils, symfony/deprecation-contracts,
+        # symfony/polyfill-php80), no major is crossed, laravel/framework is untouched,
+        # and advisories fall 72 -> 58 with commonmark going 14 -> 0. The five are exactly
+        # commonmark 2.10.3's own requirement closure, which is why the set is that shape.
+        #
+        # WHAT WAS VERIFIED FOR IT, AND WHAT CI VERIFIES. Verified in the container:
+        # `composer install --dry-run` resolves the lock and passes its platform check,
+        # laravel/framework v11.47.0 requires league/commonmark ^2.7 so 2.10.3 satisfies
+        # the only constraint on it (composer.json does not name it -- it is transitive,
+        # which is why only the lock moved), 2.10.3's own requires are satisfied by the
+        # locked versions, and `composer audit --locked` reports 58.
+        #
+        # NOT verified in the container: the upgraded code never RAN here. The archives
+        # for these five come from api.github.com and codeload.github.com, which this
+        # environment's egress policy answers 403 for any repository outside the session's
+        # own two -- so vendor/ still holds commonmark 2.8.0 and no local suite run has
+        # exercised 2.10.3. CI installs from the lock with unrestricted egress and is
+        # where that half happens. Nothing ships on it before then: deployment is not
+        # authorised.
+        #
+        # AND THE SUITE WOULD NOT HAVE PROVED IT ANYWAY, which is worth knowing before
+        # reading a green run as evidence. Before this change `grep -il markdown tests/`
+        # matched nothing: 2053 Feature cases and not one rendered a markdown mail, so
+        # commonmark had zero coverage and a pass said nothing about it either way.
+        # tests/Feature/Mail/MarkdownMailRenderingTest.php was added to close that --
+        # `Mailable::markdown()` is the only route from this codebase into commonmark and
+        # it is now rendered end to end, on whichever version is installed.
+        #
+        # NOT APPLIED, AND THE DOCUMENTED CLAIM FOR IT NO LONGER REPRODUCES. The
+        # "conservative alternative" described above -- the full list minus guzzle,
+        # phpspreadsheet, phpunit and socialite -- is recorded as holding
+        # laravel/framework at v11.47.0 with ZERO major crossings. Dry-run measured on
+        # 2026-10-17 with `composer update --dry-run` against the current lock:
+        #     package moves                 : 63
+        #     laravel/framework             : v11.47.0 => v11.57.0   (it DOES move)
+        #     major crossings               : sabberworm/php-css-parser v8.7.0 -> v9.5.0
+        # The dependency graph has moved since that note was written, so the property
+        # that made it "the safer first step" is not true today. The full plan is worse,
+        # not better: 81 moves including phpseclib/phpseclib 3.0.42 => 4.0.2.
+        #
+        # Neither is applied here. A 63-package move that bumps laravel/framework and
+        # crosses a major needs a full green suite against the INSTALLED result, and this
+        # environment cannot install it at all: package archives are fetched from GitHub,
+        # which the egress policy refuses for any repository outside the session's own
+        # two. Shipping 63 unexercised package moves on a dry run would be worse than
+        # shipping nothing. The ceiling was LOWERED to lock in the gain that was
+        # measured; the rest is an owner decision, with the real numbers above rather
+        # than the stale ones.
         # ---------------------------------------------------------------------------
         continue-on-error: true
         run: composer audit --locked
@@ -326,9 +384,18 @@ jobs:
       - name: composer audit must not grow
         # The ratchet that makes the advisory step above worth having. The count is
         # allowed to fall and never to rise, so a NEW vulnerable dependency fails the
-        # build even while the known 70 are still being negotiated.
+        # build even while the known ones are still being negotiated.
+        #
+        # LOWERED 70 -> 58 on 2026-10-17, which is this ratchet TIGHTENING and not a
+        # concession: the commonmark update cleared 14 advisories, `composer audit
+        # --locked` now reports 58, and the step's own notice below says to lower the
+        # ceiling to the new figure so the ratchet keeps holding. Leaving it at 70 would
+        # have left 12 advisories of headroom for a new vulnerable dependency to enter
+        # the lock unnoticed. Measured, not assumed:
+        #     composer audit --locked --format=plain  ->  Found 58 security vulnerability
+        #     advisories affecting 21 packages        (was 72 / 22 before the update)
         env:
-          AUDIT_CEILING: '70'
+          AUDIT_CEILING: '58'
         run: |
           set -o pipefail
           composer audit --locked --format=plain > audit.txt 2>&1 || true
@@ -747,11 +814,15 @@ jobs:
         #     Auth / Platform / ProfileTest
         #
         # continue-on-error IS GONE. It was the single largest piece of theatre in this
-        # pipeline: the suite ran, printed eight failures and seventeen skips, and the job
-        # went green regardless, so a NINTH failure was indistinguishable from the eight.
+        # pipeline: the suite ran, printed its failures and seventeen skips, and the job
+        # went green regardless, so one MORE failure was indistinguishable from the rest.
         #
-        # HOW THE EIGHT AND THE SEVENTEEN ARE HANDLED, deliberately and in writing. The
-        # step below asserts the known-outcome SET from .github/known-test-outcomes.json:
+        # HOW THE TWO AND THE SEVENTEEN ARE HANDLED, deliberately and in writing. The
+        # step below asserts the known-outcome SET from .github/known-test-outcomes.json.
+        # TWO, down from eight: NEW-ADDON-SCHEMA-02 is fixed in
+        # app/Providers/PackageServiceProvider.php and the six guest-screen entries it
+        # caused were deleted from the manifest, because that gate fails on a listed
+        # failure that starts passing:
         #
         #   * a failure or skip NOT in the manifest fails the job -- that is the regression
         #     gate;
@@ -818,8 +889,8 @@ jobs:
 
       - name: The Feature outcome set must match the record -- BLOCKING
         # always(), so the assertion still runs when phpunit exited non-zero -- which it
-        # does on every run, because eight tests fail. The phpunit step reports its own
-        # failure and this step is what decides whether that failure is the accepted one.
+        # does on every run, because two tests fail by record. The phpunit step reports its
+        # own failure and this step is what decides whether that failure is the accepted one.
         #
         # NARROWED to "phpunit actually ran". When an EARLIER step fails -- today, the
         # `composer install` that cannot succeed while PayHere is dead -- there is no
@@ -1147,7 +1218,7 @@ jobs:
         # narrows the selection, excludes a directory, filters a group or substitutes a
         # static source check for a test. This is the first time any of it executes in CI.
         #
-        # continue-on-error on THIS STEP ONLY, and it is not a tolerance: eight tests fail by
+        # continue-on-error on THIS STEP ONLY, and it is not a tolerance: two tests fail by
         # record, so phpunit exits non-zero on every run. The step reports its own failure and
         # the next step -- which is NOT continue-on-error -- decides whether that failure is
         # the accepted one, by NAME, against .github/known-test-outcomes.json. The same
