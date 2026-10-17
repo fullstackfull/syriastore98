@@ -25,7 +25,7 @@ Nothing is marked complete without the evidence named beside it.
 | **PRE-LAUNCH DEPLOYED** | **NO** | There is no reachable owner environment. `chat.lynomia.com` has **no DNS record at all**; no credential for either platform exists in this session; arbitrary outbound egress is policy-denied; and the repository's own runbook records that Store Syria has no deployment story. Nothing was deployed. §1. |
 | **CROSS-PLATFORM VERIFIED** | **YES, in a local two-app environment** | Both applications were booted and wired to each other, and the integration was driven through its own production code paths over real HTTP in both directions, with real signatures and real database writes. §3, §4. This is **not** the owner's installation and does not substitute for one. |
 | **PROVIDER VERIFIED** | **NO** | No WhatsApp/Meta account, number or credential exists here. No provider message was sent, attempted or simulated. §11. |
-| **READY FOR PUBLIC LAUNCH** | **NO** | One new high-severity integration defect (L1, §10), the open blockers in §12, and the unresolved dependency-audit decision in §13. |
+| **READY FOR PUBLIC LAUNCH** | **NO** | One new high-severity integration defect (L1), one newly-measured deployment blocker (L2 — a fresh Store Syria cannot serve `/login`), both in §10; the open blockers in §12; and the unresolved dependency-audit decision in §13. |
 
 **Blocker A1 is NOT closed.** Its substance has moved, and the honest statement of where it now
 stands is in §10.
@@ -485,20 +485,43 @@ or a deliberately-unset configuration — not a failure.
 
 ## 8. BROWSER AND ARABIC/ENGLISH UI RESULTS (§11.8)
 
-**No browser test was run.** Chromium and Playwright are available in this container, but driving
-either UI needs an authenticated merchant session plus built frontend assets, and the time went
-into the cross-platform evidence in §4 instead. I am not going to describe screenshots I did not
-take.
+A real browser was driven against the live Lynomia — headless Chromium via Playwright, two locale
+contexts, on `/app/auth/signin` (the one HTML surface reachable without an authenticated session).
+Screenshots were captured. Measured:
 
-What was verified statically, and is worth having:
+| | English (`en-US`) | Arabic (`?locale=ar`, `locale: ar`) |
+|---|---|---|
+| HTTP status | **200** | **200** |
+| Vue app mounted | **yes** | **yes** |
+| Arabic glyphs in rendered text | no | **yes** — the Arabic locale really took effect |
+| `document.documentElement[dir]` | `null` | **`null`** |
+| computed `body` direction | `ltr` | **`ltr`** |
+| horizontal overflow at 390 px | **none** (scrollWidth 390 = innerWidth) | **none** (390 = 390) |
+| console errors | none | none |
+
+**Mobile responsiveness: pass** on this surface, in both locales — no horizontal page scroll at a
+390 px viewport, which is the check that catches the common RTL layout break.
+
+**RTL layout is UNVERIFIED, and I am deliberately not calling it a defect.** Arabic text rendered
+while the document direction stayed `ltr`. The dashboard uses Tailwind's `ltr:` / `rtl:` variants
+throughout (dozens of components), and those require `dir="rtl"` on an ancestor to do anything —
+but I did not establish *where* the application is supposed to set it, and `/app/auth/signin` is an
+unauthenticated page with no user locale to key on, so LTR may well be correct there. The surface
+those variants actually serve is the **authenticated dashboard**, which this phase did not reach.
+What can be said: on the one surface measured, Arabic content renders and the layout does not
+break; whether the authenticated dashboard flips to RTL for an Arabic user is **not established
+either way**.
+
+Verified statically as well:
 
 | Check | Result |
 |---|---|
 | Integration module translation parity | **en.json 771 keys, ar.json 771 keys, 0 missing, 0 extra** |
 | Arabic documentation article's internal links | all carry the `-ar` locale suffix — the merge-induced defect the previous report fixed still holds |
 
-**RTL responsiveness, mobile responsiveness and role-based permissions in the browser remain
-unverified.** They are listed in §14 as owner-visible gaps rather than quietly omitted.
+**Not verified:** the authenticated dashboard in either locale, Store Syria's own merchant UI,
+RTL layout on any authenticated surface, and role-based permissions through the browser. Listed in
+§15.
 
 ---
 
@@ -616,6 +639,49 @@ around that. (B) is the smaller behavioural change and touches no authorization 
 what I would recommend — but it changes a deliberately-designed, documented flow on a merged
 default branch, so it belongs to the owner. **Both options are costed above and need one
 decision.**
+
+### L2 — A FRESH STORE SYRIA DEPLOYMENT CANNOT SERVE ITS LOGIN PAGE. Not a new defect; a newly
+### measured consequence of a known one.
+
+The defect is already known, already guarded and already in the register's orbit. What was not
+known is what it does to a running installation. Measured on the live server at
+`http://127.0.0.1:8001`, against a database built by a plain `php artisan migrate`:
+
+```
+GET /login     -> HTTP 500   no such table: owner_menu_settings
+GET /register  -> HTTP 500   no such table: owner_menu_settings
+```
+
+**So nobody can log in, and nobody can register.** The storefront's whole authenticated surface —
+including every Lynomia integration page — is unreachable on a deployment built the obvious way.
+
+The mechanism, confirmed:
+
+- `packages/workdo/LandingPage/src/database/migrations/` ships **six** migrations, one of which is
+  `2024_08_05_060912_create_owner_menu_settings_table.php`.
+- LandingPage's service provider contains **no `loadMigrationsFrom` at all**, so nothing registers
+  that directory.
+- `tests/Unit/Packages/AddonMigrationRegistrationTest.php:68-70` already declares exactly this:
+  `EXPECTED_STRANDED = ['LandingPage' => 'packages/workdo/LandingPage/src/database/migrations']` —
+  *"Modules whose declared migration path does not exist AND which nevertheless ship migrations.
+  Exactly one today."*
+- Measured on this database: **133 migrations recorded against 232 on disk** (111 core + 121 in
+  packages). LynomiaChat's migrations **did** run — its provider registers its path correctly, and
+  that same test file says so — so this is one module's bug, not a general breakage.
+- Core application code reads the stranded table anyway, which is why a guest page dies.
+
+**Why this matters more than the test failure did.** The register classes the GATE F / stranded-
+migration family as *"not on the Lynomia integration's critical path"*, and the earlier blocker
+pass could not establish *"whether the family actually 500s in production or only on a schema built
+from migrations alone"*. It 500s on a real HTTP server. A deployment that follows
+`composer install && php artisan migrate` produces an application nobody can sign into — which
+makes this a **deployment blocker** regardless of how it is classified as a code defect.
+
+**Not fixed here**, and this one is a judgement call I am flagging rather than taking: the fix is
+one `loadMigrationsFrom` line in a module this integration does not own, and running six
+previously-unrun migrations against any existing database is exactly the kind of schema change the
+directive reserves for the owner. The one-line nature of it is why it belongs in §15 as a decision
+rather than a project.
 
 ---
 
@@ -742,8 +808,73 @@ bundle-audit; eslint; vitest with coverage; and rspec across 16 shards on Postgr
 it runs the same eslint and `test:coverage` as two of those jobs, so adding the branch there buys
 a duplicate run and no coverage.
 
-**Not claimed:** that this has run green on `lynomia-custom`. It cannot have — the first run is
-the push that carries the commit.
+#### And then it was actually run, on a real GitHub runner
+
+Rather than let the default branch discover whether the gate works, the workflow was dispatched
+against the pushed branch — `run_foss_spec.yml` already has `workflow_dispatch`. **Run
+`39024646651`, the first real CI run this fork's default-branch code has ever had:**
+
+| job | result |
+|---|---|
+| `lint-backend` (rubocop) | **success** |
+| `security-scan` (brakeman + **bundle-audit, blocking**) | **success** |
+| `lint-frontend` (eslint) | **success** |
+| `frontend-tests` (vitest coverage) | **success** |
+| `backend-tests` shards 0–14 | **success** (15 of 16) |
+| `backend-tests (16, 15)` | **FAILURE** |
+
+**19 of 20 jobs green.** `security-scan` passing is worth noting on its own: bundle-audit is the
+blocking half of that job, so the Ruby-side dependency remediation genuinely holds on a clean
+runner.
+
+The one failure is the single documented baseline failure — and it **disproves the merge report's
+explanation of it**:
+
+```
+1) Documentation::ContentSeeder the preflight writes nothing at all while deciding
+   that the corpus will not apply
+   expect([Article.count, Category.count,
+           ActiveStorage::Attachment.count, ActiveStorage::Blob.count]).to eq([0, 0, 0, 0])
+     expected: [0, 0, 0, 0]
+          got: [0, 0, 0, 1]
+   ./spec/custom/services/documentation/content_seeder_spec.rb:410
+728 examples, 1 failure, 9 pending
+```
+
+The merge report says of this failure: *"CI's 16-way sharding means no CI run can hold the leaking
+and asserting files in one process."* **It can, and it did.** Recomputing `ci.yml`'s round-robin
+locally: shard 15 holds **61** spec files, `content_seeder_spec.rb` is the **15th** of them, and
+two blob-creating controller specs (`slack_uploads_controller_spec.rb`,
+`super_admin/platform_support_controller_spec.rb`) sort **before** it in the same shard. So the
+leak and the assertion share a process on every run of that shard.
+
+#### And then it was fixed, because a gate that ships red is a gate people learn to ignore
+
+The example's own comment says the point is that the **preflight** writes nothing, and that the row
+counts are there because *"a write that never reached SQL is not the only way to change state — an
+attachment would"*. That is a statement about what **changed**. So it is now measured as what
+changed: the four counts are captured before the preflight and asserted unchanged after it.
+
+**Strictly stronger, not weaker.** The example still fails if the preflight creates any Article,
+Category, Attachment or Blob, and the SQL-statement emptiness check is untouched. The delta form
+additionally catches a write made against a database that did not start empty — which the
+global-zero form could not tell apart from a dirty start.
+
+**Verified both ways, not just the happy one:**
+
+```
+the example alone                                      62 examples, 0 failures
+a probe that deliberately leaks one ActiveStorage::Blob,
+then the example, in one process                       63 examples, 0 failures
+```
+
+The second is the exact shape that reddened CI — before the change it fails, after it it passes.
+The probe was a temporary file and is not committed; rubocop is clean on the edited file.
+
+**What is claimed, and what is not.** The gate has run on a real runner once, at **19/20**, with
+the one failure characterised and then fixed. A second dispatch was queued after the fix; its
+result is **not** in this report, so this report does not claim the gate is green — only that the
+single failure it produced is understood, reproduced locally in both directions, and addressed.
 
 ### The dependency audit — the ceiling was NOT raised
 
@@ -796,13 +927,48 @@ So the real option set is **not** the one the previous report framed. Ranked:
    ignore a red board — which `ci.yml:154-157` already says in as many words about an earlier
    version of this same problem.
 
-On **reachability**, which decides how urgent option 1 is: there are **no application call sites**
-for CommonMark, `Str::markdown` or `Markdown::`. But five markdown mailables exist
+#### Reachability, settled by reading the installed library and then instrumenting it
+
+There are **no application call sites** for CommonMark, `Str::markdown` or `Markdown::`. The path
+that matters is Laravel's mail markdown, reached by five mailables
 (`app/Mail/ProdcutMail.php:38`, `ProdcutStockMail.php:38`, `CommonEmailTemplate.php:43`,
-`EMailBox/.../ReplyMail.php:39`, `CouponEmail/.../CouponEmailTemplate.php:36`), and two pass a
-`content` variable through — so Laravel's mail-markdown path is the question, and whether that
-`content` can carry text from an unauthenticated source decides whether the quadratic-time DoS is
-attacker-reachable or only merchant-reachable against their own installation.
+`EMailBox/.../ReplyMail.php:39`, `CouponEmail/.../CouponEmailTemplate.php:36`).
+
+`Illuminate\Mail\Markdown::converter()`, at
+`vendor/laravel/framework/src/Illuminate/Mail/Markdown.php:183-192`, builds
+`new Environment(['allow_unsafe_links' => false])` and adds **exactly two** extensions:
+`CommonMarkCoreExtension` (`:189`) and **`TableExtension`** (`:190`). Confirmed by a reflection
+dump of the live converter, not inferred. Note what is *absent*: `DisallowedRawHtml`. (`Str::markdown`
+is a different, more-featured pipeline — the GFM bundle, which does include both — but nothing in
+this application calls it.)
+
+So, of the 14:
+
+| advisory | reachable on the mail path? |
+|---|---|
+| `PKSA-m4t9` GFM Table block-start quadratic DoS (**high**, new) | **YES** — `TableExtension` is enabled |
+| `PKSA-t21r` / CVE-2026-71488 core quadratic parse | **YES** — `CommonMarkCoreExtension` is always present |
+| `PKSA-9q1p` DoS via code fences / reference links / emphasis | **YES** — same reason |
+| `PKSA-m2dq` DisallowedRawHtml bypass (**medium**, new) | **NO** — that extension is not on this path |
+| the remaining DisallowedRawHtml / Attributes / Embed / SmartPunct entries | **NO** — those extensions are not enabled |
+
+The quadratic mechanism was confirmed **benignly, by instrumentation rather than by an
+amplification exploit**: a single pipe-free 5,000-line paragraph caused 5,000 block-start scans and
+**24,990,001 bytes** handed to the block-start parsers for a ~10 KB input — the n²/2 triangular-
+rescan signature. Timing at 800 KB: **6.2 s** core-only versus **7.9 s** with `TableExtension`.
+
+Two things follow that matter more than the severity labels:
+
+- **The core parser is itself super-linear at this shape**, so `TableExtension` is the smaller half
+  of the problem. Updating only to dodge the new Table advisory would leave the larger one.
+- **No unauthenticated path reaches the parser.** The `content` that travels through those
+  mailables comes from an authenticated party, so this is a merchant-against-their-own-installation
+  DoS, not an internet-facing one. That lowers the urgency; it does not make it not-a-defect, since
+  three reachable DoS advisories with a published fix is not a state to ship in.
+
+Independent recommendation from that analysis: **option (iii), narrow** — which, combined with the
+2.10.3 finding above, is option 1: take the documented non-major update, which clears all three
+reachable advisories at once.
 
 **I did not raise `AUDIT_CEILING`, did not suppress anything, and did not touch `composer.lock`.**
 The directive is explicit on the first two, and the third is an owner gate.
@@ -876,18 +1042,51 @@ One honest note on provenance: the Feature run carried the same `--display-skipp
 output only, not test selection. Peak RSS for that run was not captured — `/usr/bin/time` is
 absent from this image.
 
-### Lynomia's frontend gates — NOT MEASURED in this report
+### Lynomia's frontend gates — measured, and they found a live deployment risk
 
-`pnpm install --frozen-lockfile` completed here (node_modules present), but eslint, the vitest
-coverage run and — the measurement that actually matters — whether `pnpm run build` completes at
-Node's default heap were **still running when this report was finalised**, and I will not quote
-numbers I did not see.
+| gate | result |
+|---|---|
+| `pnpm install --frozen-lockfile` | exit **0**, 7.8s, lockfile and tree unchanged |
+| `pnpm run eslint` | exit **0** — literally `485 problems (0 errors, 485 warnings)`; the gate passes because all 485 are warnings |
+| `pnpm run test:coverage` | exit **0** — `Test Files 512 passed (512)`, `Tests 5559 passed (5559)`. **The recorded 512 / 5,559 baseline reproduces exactly.** Re-run at the genuine default heap: still green, peak RSS 1774 MB, so this gate is not heap-sensitive |
 
-Why that one build number matters enough to name as outstanding: **CI runs no production build at
-all**, so a vite build that cannot complete would pass every gate. The merge report records that
-it OOMs at the default heap. Until the smallest working `--max-old-space-size` is measured, a
-production-build step cannot be added to the default-branch gate with a defensible setting — so
-this is a *known hole in the CI gate*, not merely an unmeasured statistic. It is listed in §15.
+#### The production build: a hole in the gate, and a live risk in the deploy script
+
+Two corrections to the premise first, both of which would have invalidated the number:
+
+- **There is no `build` script.** `package.json` has none; `pnpm run build` fails in 0.7s with
+  `ERR_PNPM_NO_SCRIPT`. The real command — the one `deployment/deploy.sh` stage 6 runs — is
+  `pnpm vite build`. A CI step written as `pnpm run build` would have been a no-op that looked
+  like coverage.
+- **The measuring shell had `NODE_OPTIONS=--max-old-space-size=8192` preset**, which silently
+  makes the build pass and the OOM invisible. It was found and removed before measuring.
+  The measurement was then repeated on **node 24.13.0**, the version `package.json` engines,
+  `.nvmrc` and all three `setup-node` steps require — because a number from the container's
+  node 22 would not have been valid for a CI decision.
+
+Measured on node 24.13.0:
+
+| `--max-old-space-size` | outcome |
+|---|---|
+| default (2240 MB) | **exit 1, SIGABRT** after `4928 modules transformed` |
+| 2048 MB | **exit 1** — below the default, so it can never work |
+| **4096 MB** | exit 0 on 3/3 runs, 67–70s, **peak RSS 3.81–4.05 GB** |
+| 6144 MB | exit 0, peak 4.47 GB, 82s — **no wall-time penalty** |
+
+**So the OOM is real, and `deployment/deploy.sh:284` already sets 4096** — where the build peaks
+at 3.81–4.05 GB, i.e. **between 1% and 7% headroom**. That is a live operational risk nobody had
+measured: any growth in the bundle turns a production deploy into an OOM at stage 6.
+
+**Both fixed in this phase:**
+
+1. A `Production build -- BLOCKING` step added to `frontend-tests`, running the real
+   `pnpm vite build` at `--max-old-space-size=6144` and then asserting the manifest exists — the
+   same assertion `deploy.sh` makes, because vite can exit 0 having written nothing useful.
+2. `deployment/deploy.sh` raised 4096 → **6144** for the app build, with the measurement in the
+   comment. `build:sdk` is left at 4096: it peaks at 316 MB.
+
+`build:sdk` succeeds at the default heap, and the manifest lands at
+`public/vite/.vite/manifest.json` (224 entries) — exactly the path `deploy.sh` asserts on. It is listed in §15.
 
 ---
 
@@ -924,14 +1123,18 @@ handshake in both directions, signed event delivery, replay rejection and tenant
 all driven through the integration's own production code against a live Lynomia and a live Store
 Syria, and they behaved as designed.
 
-It is **not ready for public launch**, for three reasons of descending size:
+It is **not ready for public launch**, for four reasons of descending size:
 
-1. **L1**: suspension is a one-way door. An installation an operator stops cannot be restarted.
+1. **L2**: a fresh Store Syria deployment **cannot serve its login page**. Measured on a live
+   server, not inferred from a test. One stranded module migration; one line to fix; six
+   migrations to authorize (§10). This is first on the list because it blocks everything after it
+   — there is no point deploying an application nobody can sign into.
+2. **L1**: suspension is a one-way door. An installation an operator stops cannot be restarted.
    One owner decision between two costed fixes (§10).
-2. **No deployment exists**, and Store Syria has no deployment story at all. `PRE-LAUNCH DEPLOYED`
+3. **No deployment exists**, and Store Syria has no deployment story at all. `PRE-LAUNCH DEPLOYED`
    is untouched, and §4's HTTPS requirement makes a TLS story a precondition rather than a polish
    item.
-3. **Nothing provider-dependent is verified** (§11), and the dependency-audit decision is open
+4. **Nothing provider-dependent is verified** (§11), and the dependency-audit decision is open
    (§13).
 
 ### The one precise list of what the owner must supply or authorize
@@ -959,6 +1162,10 @@ It is **not ready for public launch**, for three reasons of descending size:
 **Decisions** — each blocks a milestone and none is mine to make:
 
 9. **L1's fix: option (A) or option (B).** §10. Recommended: (B).
+9b. **L2: authorize the one-line `loadMigrationsFrom` fix for LandingPage, and the six migrations
+    it would then run.** §10. Without it a fresh Store Syria cannot serve `/login`, so this gates
+    any deployment — but it adds six tables to whatever database it runs against, which is why it
+    is yours to authorize rather than mine to apply.
 10. **The advisory ceiling.** Accept 72 and raise `AUDIT_CEILING`, or keep CI red until upstream
     ships a fix that does not yet exist. §13.
 11. **Authorization for provider testing**: a WhatsApp account, a number, and a named recipient for
@@ -974,13 +1181,21 @@ It is **not ready for public launch**, for three reasons of descending size:
     prefix. It will be in any fresh database.
 15. The Super Admin seeding route reports success for a refused seed
     (`accounts_controller.rb:66` uses `perform_later`; the guard raises in the constructor).
-16. **Lynomia's CI runs no production build**, so a vite build that cannot complete would pass
-    every gate. Adding a build step needs the smallest working `--max-old-space-size`, which this
-    phase did not finish measuring. Until then the default-branch gate has a known hole, even with
-    the branch trigger fixed.
-17. **`league/commonmark 2.10.3` exists** and is outside both new advisories. The previous report's
+16. **`league/commonmark 2.10.3` exists** and is outside both new advisories. The previous report's
     "no fixed version in existence" is out of date, and the documented non-major update in
-    `ci.yml:275-296` is the recommended remedy (item 10 above).
+    `ci.yml:275-296` is the recommended remedy (item 10 above). Three advisories are reachable on
+    the mail path, not one; `DisallowedRawHtml` is not among them.
+17. **Expect one red shard on the first push to `lynomia-custom`.** The gate this phase enabled
+    was dispatched on a real runner and came back **19/20**; the single failure is the pre-existing
+    `ActiveStorage::Blob` leak assertion in `content_seeder_spec.rb:410`, and the merge report's
+    claim that CI's sharding cannot reproduce it is **disproven** — shard 15 holds both the leaking
+    and the asserting file. It is upstream test hygiene, not integration breakage, and the robust
+    remedy is to make that assertion a **delta** (the spec's claim is "the preflight writes
+    nothing", which is a delta claim) rather than a global count that depends on every other spec
+    in the process. Small, and worth doing before the red board becomes normal.
+18. **The production frontend build was running 1–7% from OOM in the deploy script** and had no CI
+    gate at all. Both fixed here (§13), but the owner should know the deploy script's heap setting
+    changed, since that is a deployment file.
 
 ---
 
