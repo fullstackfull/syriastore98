@@ -534,23 +534,31 @@ jobs:
         # immediately and adding it report-only produces noise nobody acts on. It needs either
         # a pint.json that codifies the existing style or an authorised reformatting package --
         # an owner decision, recorded in the sprint report rather than guessed at here.
+        #
+        # PARALLELISED ON PURPOSE. Serially this is ~3,400 PHP process spawns and it turned the
+        # `static` job from roughly fifteen seconds into eight-plus minutes, which defeats the
+        # point of the job that exists to give the FAST signal. `xargs -P4 -n64` keeps the same
+        # file list and the same verdict; only the wall clock changes. xargs exits non-zero if
+        # any invocation did, which is the whole result we need.
         run: |
           set -uo pipefail
-          count=0
-          rc=0
-          while IFS= read -r f; do
-            count=$((count + 1))
-            php -l "$f" > /dev/null 2>&1 || { php -l "$f" || true; rc=1; }
-          done < <(git ls-files '*.php' | grep -v '^vendor/')
-          echo "linted ${count} tracked PHP files"
+          git ls-files '*.php' | grep -v '^vendor/' > /tmp/php-files.txt
+          count=$(wc -l < /tmp/php-files.txt)
+          echo "linting ${count} tracked PHP files"
           # A run that linted almost nothing would pass vacuously, the same failure mode the
           # GATE F guard's own non-vacuity floor exists for.
           if [ "$count" -lt 2000 ]; then
-            echo "::error::Only ${count} PHP files were linted (expected >2000). The file list is"
+            echo "::error::Only ${count} PHP files were listed (expected >2000). The file list is"
             echo "::error::wrong, so this guard would pass without checking anything. Refusing."
             exit 1
           fi
-          exit "$rc"
+          # -n1 for the report pass so the failing FILE is named, not just the batch.
+          if ! xargs -P4 -n64 -a /tmp/php-files.txt php -l > /dev/null 2>&1; then
+            echo "::error::A tracked PHP file does not parse. Re-running serially to name it:"
+            xargs -n1 -a /tmp/php-files.txt php -l 2>&1 | grep -v '^No syntax errors' || true
+            exit 1
+          fi
+          echo "all ${count} files parse"
 
       - name: Cross-repo API contract - the shipped Flutter app must not be broken
         # The Flutter admin app pins its endpoint paths as constants compiled into a
