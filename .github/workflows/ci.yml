@@ -713,6 +713,27 @@ jobs:
         # -- so a green Unit suite is also the evidence that the gates are not vacuous.
         run: vendor/bin/phpunit --testsuite Unit --testdox
 
+      - name: Contract suite -- BLOCKING
+        # THE CROSS-REPOSITORY AGREEMENT, which until now was gated nowhere.
+        #
+        # phpunit.xml declares THREE suites and this pipeline ran two of them. The third,
+        # tests/Contract, is the one whose failure means the two REPOSITORIES have drifted
+        # apart rather than that this one has a bug: it replays committed artifacts of
+        # Lynomia's real producer output through this side's real ingress, and each artifact
+        # is SHA-pinned in both repositories. phpunit.xml:16-23 says exactly that, and says
+        # it is "a different thing to investigate than a bug in either".
+        #
+        # That is this integration's sharpest failure mode, and it had no gate --
+        # `grep -cE 'testsuite[= ]+Contract' .github/workflows/ci.yml` returned 0, so the
+        # three artifacts could have been edited on one side only and every job here would
+        # still have gone green.
+        #
+        # BLOCKING with no tolerance, for the same reason the Unit suite is: the Contract
+        # suite has no known failures and no known skips, so any red here is a drift or a
+        # regression by definition, and there is no manifest section for it.
+        # MEASURED on this commit: OK (26 tests, 83 assertions), exit 0.
+        run: vendor/bin/phpunit --testsuite Contract --testdox
+
       - name: Feature suite -- BLOCKING on the known-outcome SET
         # RUNS THE REAL SUITES. tests/Feature/ includes Security/, Tenancy/ and Commerce/,
         # and nothing here narrows the selection, excludes a directory or substitutes a
