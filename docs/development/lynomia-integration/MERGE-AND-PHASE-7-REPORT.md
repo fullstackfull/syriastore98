@@ -355,10 +355,39 @@ The run was thrown away and repeated without the probe. An instrument that break
 measures produces a number, not a result.
 
 **Browser verification: NOT performed in this phase.** No browser was driven. The Arabic, RTL
-and responsive verification on record is from A3 and P4C and predates this merge. The campaign
-card, the two campaign pages and the Super Admin navigation were all touched by conflict
-resolutions and are verified by lint, unit tests and the booted router — not by eye. A real
-gap, listed in §12.
+and responsive verification on record is from A3 and P4C and predates this merge.
+
+The gap is narrower than "the merged UI is unverified", and it is worth being exact about what
+each resolved surface does and does not have:
+
+| Resolved surface | Automated coverage that ran post-merge | Left to the eye |
+|---|---|---|
+| `WhatsAppCampaignsPage.vue` | `specs/WhatsAppCampaignsPage.spec.js`, which mounts the page through `CampaignList` and `CampaignCard` — passed | layout at phone width |
+| `ConfirmCancelCampaignDialog` wiring | `specs/ConfirmCancelCampaignDialog.spec.js` — passed | — |
+| `SMSCampaignsPage.vue` | no page spec; eslint and the shared component specs only | the page itself |
+| `CampaignMeta` `cancelled` branch | none — `CARD.SCHEDULE.CANCELLED` resolves in `en.json`, but no spec asserts the rendered line | the rendered line |
+| Super Admin navigation (15 resources) | the booted router, 934 routes, no duplicate name | the rendered menu |
+| **Arabic documentation links** | **verified directly — see below** | — |
+
+**The Arabic fix is verified rather than merely made.** `Documentation::ContentSeeder` carries
+a `link_problems` preflight that refuses the entire seed when an article in a non-default
+locale contains a bare slug, for exactly the reason the fix existed: the browser resolves it
+against `/docs/<slug>` and silently opens the English page. Run write-free against the real
+merged corpus through that production code path:
+
+```
+bundle exec rails runner 'Documentation::ContentSeeder::Corpus.new(
+  root: Documentation::ContentSeeder::DOCS_ROOT,
+  locales: Documentation::Library::LOCALES).problems'
+
+  corpus root : custom/db/documentation
+  locales     : ["en", "ar"]
+  problems    : 0
+```
+
+A regression here cannot ship quietly: it refuses the seed.
+
+The remaining visual gap is the three rows above with no spec, and it is listed in §12.
 
 ## 9. Cross-repository contract verification
 
@@ -427,7 +456,7 @@ external approvals."*
 | **B5 / B10** | **CLOSED** this phase | §7.1 |
 | **The composer ceiling** | **OPEN — owner decision.** The one red CI step | §7.3 |
 | **`flag-sensitive-diff` attestation** | **OPEN — not satisfied and not evaluated** | §7.4 |
-| **Browser verification of the merged campaign surfaces** | **NEW, OPEN** | §8 |
+| **Visual check of three merged surfaces** | **NEW, OPEN** | `SMSCampaignsPage`, the `CampaignMeta` cancelled line and the Super Admin menu have no rendered-output coverage. The Arabic fix, by contrast, is verified through the seeder preflight. §8 |
 | **Lynomia's default branch is never tested by its own CI** | **NEW, OPEN** | 0 push-triggered runs on `lynomia-custom`, ever. §7.5 |
 
 ## 13. Rollback and revert references
