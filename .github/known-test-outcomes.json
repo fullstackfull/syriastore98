@@ -28,7 +28,60 @@
     "weight. Recorded here; removing them is a separate housekeeping change.",
     "",
     "There is deliberately NO section for errors. The suite's zero-errors property is enforced",
-    "unconditionally: an error means a test could not run at all."
+    "unconditionally: an error means a test could not run at all.",
+    "",
+    "=========================================================================================",
+    " 2026-10-17 -- SIX ENTRIES DELETED BECAUSE THEY NOW PASS, WHICH THIS GATE REQUIRES.",
+    "=========================================================================================",
+    "NEW-ADDON-SCHEMA-02 is FIXED, so the six guest-screen entries that named it have been",
+    "removed from expected_failures. Deleting them is not rebaselining and not suppression --",
+    "it is the opposite, and it is mandatory: this gate asserts the set in BOTH directions, so",
+    "a listed entry that starts passing fails CI until the entry is deleted. Leaving them would",
+    "have been the silent lie the block above forbids.",
+    "",
+    "THE FIX. app/Providers/PackageServiceProvider.php now registers each addon's real on-disk",
+    "`src/database/migrations` directory from the loader, so a module whose own provider asks",
+    "for a path that does not exist can no longer strand its schema in silence. The six",
+    "LandingPage migrations run, `owner_menu_settings` exists, and",
+    "resources/views/layouts/guest.blade.php:96 renders. The fix is in app/ and NOT in",
+    "packages/workdo/, so guard-no-workdo-changes.sh is satisfied and no vendored commercial",
+    "file was edited -- which is what the deleted entries recorded as the blocker.",
+    "",
+    "The six deleted names, each measured passing:",
+    "  Auth\\AuthenticationTest::test_login_screen_can_be_rendered",
+    "  Auth\\EmailVerificationTest::test_email_verification_screen_can_be_rendered",
+    "  Auth\\PasswordConfirmationTest::test_confirm_password_screen_can_be_rendered",
+    "  Auth\\PasswordResetTest::test_reset_password_link_screen_can_be_rendered",
+    "  Auth\\PasswordResetTest::test_reset_password_screen_can_be_rendered",
+    "  Auth\\RegistrationTest::test_registration_screen_can_be_rendered",
+    "",
+    "THE TWO THAT REMAIN ARE NOT THIS BUG AND STILL FAIL, which is the evidence the fix was",
+    "targeted rather than broad: RegistrationTest::test_new_users_can_register (a seeder fixture",
+    "gap exposing silent role-assignment tolerance) and ProfileTest::test_profile_page_is_displayed",
+    "(a real null-store defect at app/Http/Controllers/HomeController.php:367). Both keep their",
+    "entries verbatim. tests/Feature/Platform/AddonMigrationStrandingTest::",
+    "test_the_profile_page_failure_is_not_this_bug exists to prove the second one is independent,",
+    "and it still passes.",
+    "",
+    "ONE OTHER TEST MOVED, AND IT IS NOT A FAILURE ENTRY: making the three owner_menu* tables",
+    "exist moved them out of RawQueryTenancyInventoryTest's undeclared-schema list and into its",
+    "'present, no store_id' list. That tripwire asked a reader to re-read the classification when",
+    "this happened; it was re-read, recorded in that file, and is not a tenancy finding -- the",
+    "tables are the platform owner's landing-page menus, their only raw statements are seeder",
+    "inserts, and the live read is owner-pinned Eloquent.",
+    "",
+    "MEASURED AFTER THE FIX, same container (PHPUnit 11.4.4, PHP 8.3.6, sqlite :memory:):",
+    "  vendor/bin/phpunit --testsuite Feature  ->  2053 tests, 0 errors, 2 failures, 17 skipped",
+    "The test count is up from 2025 because of the L1 recovery-window suite; the failure count is",
+    "  vendor/bin/phpunit --testsuite Unit     ->   175 tests, 981 assertions, 0 failures",
+    "",
+    "THE UNIT FIGURE IS A CORRECTION, NOT A LOSS. The block above records 181 Unit tests; the",
+    "re-measured number is 175. Nothing was removed: tests/Unit holds 147 test methods both at",
+    "HEAD and in this change (the executed count is higher because of data providers), verified",
+    "by counting method declarations in both trees. The 181 is stale prose of the same kind this",
+    "file already flags for the earlier '107 Unit / 1126 Feature' figures, and `minimum_testcases`",
+    "is a floor of 1000 that only the Feature log is judged against.",
+    "down from 8 to 2 and the skip SET is unchanged."
   ],
   "require_reason_log": true,
   "_require_reason_log_note": [
@@ -45,37 +98,6 @@
     "are removed on purpose, and record why here."
   ],
   "expected_failures": {
-    "Tests\\Feature\\Auth\\AuthenticationTest::test_login_screen_can_be_rendered": {
-      "cause": "NEW-ADDON-SCHEMA-02: no such table: owner_menu_settings. packages/workdo/LandingPage/src/Providers/LandingPageServiceProvider.php:28 calls loadMigrationsFrom(__DIR__ . '/../database/Migrations') while the directory on disk is src/database/migrations (lowercase m). The path does not exist on a case-sensitive filesystem, so six migrations are never discovered -- one of which creates owner_menu_settings, which resources/views/layouts/guest.blade.php:96 reads on every guest screen.",
-      "owner": "OWNER DECISION. The file is inside packages/workdo/, which .github/scripts/guard-no-workdo-changes.sh refuses to let a pull request modify: an in-place edit to a vendored commercial module is reverted by the next upstream update and leaves no patch record.",
-      "proof_it_is_this_and_not_something_else": "tests/Feature/Platform/AddonMigrationStrandingTest.php registers the real on-disk path for its own tests only and shows this screen rendering 200. tests/Unit/Packages/AddonMigrationRegistrationTest.php pins the mis-cased literal and the six stranded tables.",
-      "classification": "BLOCKED -- EXTERNAL EVIDENCE REQUIRED"
-    },
-    "Tests\\Feature\\Auth\\EmailVerificationTest::test_email_verification_screen_can_be_rendered": {
-      "cause": "NEW-ADDON-SCHEMA-02, identical to the login screen: no such table: owner_menu_settings via resources/views/layouts/guest.blade.php:96.",
-      "owner": "OWNER DECISION -- packages/workdo/ is guarded.",
-      "classification": "BLOCKED -- EXTERNAL EVIDENCE REQUIRED"
-    },
-    "Tests\\Feature\\Auth\\PasswordConfirmationTest::test_confirm_password_screen_can_be_rendered": {
-      "cause": "NEW-ADDON-SCHEMA-02: no such table: owner_menu_settings via resources/views/layouts/guest.blade.php:96.",
-      "owner": "OWNER DECISION -- packages/workdo/ is guarded.",
-      "classification": "BLOCKED -- EXTERNAL EVIDENCE REQUIRED"
-    },
-    "Tests\\Feature\\Auth\\PasswordResetTest::test_reset_password_link_screen_can_be_rendered": {
-      "cause": "NEW-ADDON-SCHEMA-02: no such table: owner_menu_settings via resources/views/layouts/guest.blade.php:96.",
-      "owner": "OWNER DECISION -- packages/workdo/ is guarded.",
-      "classification": "BLOCKED -- EXTERNAL EVIDENCE REQUIRED"
-    },
-    "Tests\\Feature\\Auth\\PasswordResetTest::test_reset_password_screen_can_be_rendered": {
-      "cause": "NEW-ADDON-SCHEMA-02: no such table: owner_menu_settings via resources/views/layouts/guest.blade.php:96.",
-      "owner": "OWNER DECISION -- packages/workdo/ is guarded.",
-      "classification": "BLOCKED -- EXTERNAL EVIDENCE REQUIRED"
-    },
-    "Tests\\Feature\\Auth\\RegistrationTest::test_registration_screen_can_be_rendered": {
-      "cause": "NEW-ADDON-SCHEMA-02: no such table: owner_menu_settings via resources/views/layouts/guest.blade.php:96.",
-      "owner": "OWNER DECISION -- packages/workdo/ is guarded.",
-      "classification": "BLOCKED -- EXTERNAL EVIDENCE REQUIRED"
-    },
     "Tests\\Feature\\Auth\\RegistrationTest::test_new_users_can_register": {
       "cause": "A FIXTURE GAP THAT EXPOSES A LATENT ROBUSTNESS DEFECT -- not the casing bug, and not what an earlier version of this entry claimed. CORRECTED AFTER MEASUREMENT: there is no addRole call at RegisteredUserController.php:249 (that line is a comment), the two real call sites are :179 and :310, and BOTH are null-guarded by `if ($role_r)`. Nothing dies: POST /register returns 302 and the request completes. Measured on a fresh test database, `roles` holds 0 rows and Role::where('name','admin')->first() is NULL, because RefreshDatabase runs migrations and not seeders. So the guard works exactly as written and the role assignment is SILENTLY SKIPPED: the user, the store and the login are committed and the merchant ends up with no role and no error. The test asserts the role, which is the property that matters. In production the admin role IS seeded, so this is latent rather than live -- but the silent tolerance is the real finding: a missing admin role provisions a merchant with no role and reports success.",
       "owner": "app/ -- NOT owned by the CI workstream. Needs a null guard plus a decision about what to do when the role is absent (the half-provisioned row should not survive).",

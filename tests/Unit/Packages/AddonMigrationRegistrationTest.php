@@ -39,31 +39,54 @@ use PHPUnit\Framework\TestCase;
  *       absent, module ships no migrations (benign)   : 18
  *       absent, migrations PRESENT on disk (DEFECT)   :  1   <- LandingPage
  *
- * THE ONE DEFECT.
+ * THE ONE DEFECT -- STILL PRESENT IN THE MODULE, NO LONGER HARMFUL IN THIS APPLICATION.
  *     packages/workdo/LandingPage/src/Providers/LandingPageServiceProvider.php:28
  *         declares  src/database/Migrations      (capital M)
  *         on disk   src/database/migrations      (6 migration files)
- *     Six tables are stranded, one of which -- owner_menu_settings -- is read by
- *     resources/views/layouts/guest.blade.php:96, which every guest screen extends. That is why
- *     six of the Feature suite's eight failures are page renders. See
- *     tests/Feature/Platform/AddonMigrationStrandingTest.php, which proves the six screens render
- *     as soon as the real path is used.
  *
- * THIS IS AN OWNER DECISION, NOT A FIX TO APPLY HERE. The file is inside packages/workdo/, which
+ * READ THIS BEFORE EDITING EXPECTED_STRANDED. The mis-cased literal above is unchanged and this
+ * ratchet still pins it, deliberately. What changed is the CONSEQUENCE: the six tables are no
+ * longer stranded, because app/Providers/PackageServiceProvider.php now registers every addon's
+ * real on-disk `src/database/migrations` directory from the loader. A module whose own provider
+ * declares a path that does not exist can therefore no longer strand its schema in silence.
+ * `owner_menu_settings` exists, resources/views/layouts/guest.blade.php:96 renders, and the six
+ * Feature-suite page-render failures that this defect caused are gone -- they were deleted from
+ * .github/known-test-outcomes.json in the same change, because that gate fails on a listed
+ * failure that starts passing.
+ *
+ * WHY THE FIX IS IN THE HOST AND NOT THE MODULE. The provider is inside packages/workdo/, which
  * .github/scripts/guard-no-workdo-changes.sh refuses to let a pull request modify: an in-place
  * edit to a vendored commercial module is reverted by the next upstream update and leaves no
- * patch record. The remedy is one character; where it is applied is the owner's call.
+ * patch record. That guard's own guidance is that such a fix belongs in the host application,
+ * which is where it went. The one-character module fix was deliberately NOT applied.
  *
- * WHEN THE OWNER FIXES IT: this test goes red, saying the defect list shrank. Remove the
- * LandingPage entry from EXPECTED_STRANDED and the test goes green again -- in the same commit,
- * so the record and the code cannot disagree.
+ * SO THE ENTRY STAYS, and this test stays green while it does. The earlier version of this
+ * docblock said "when the owner fixes it, remove the LandingPage entry" -- following that now
+ * would redden this test, because the module's declared path is still absent and the module
+ * still ships migrations, which is exactly what EXPECTED_STRANDED records. Remove the entry only
+ * when the MODULE itself changes: an upstream release that corrects the literal, or a rename of
+ * the on-disk directory. Either reddens this test first and the entry then goes in that commit.
+ *
+ * WHAT THIS RATCHET IS STILL FOR. The host loader compensates for a wrong path; it does not make
+ * one correct. A module that declares a path it does not have is still a latent defect -- it
+ * strands nothing here only because the loader looks in the conventional place, and any module
+ * that keeps migrations somewhere non-conventional would still be missed. This list is what
+ * notices if a second module acquires the same bug. See
+ * tests/Feature/Platform/AddonMigrationStrandingTest.php for the end-to-end proof that the six
+ * screens render.
  */
 class AddonMigrationRegistrationTest extends TestCase
 {
     /**
      * Modules whose declared migration path does not exist AND which nevertheless ship
-     * migrations. Exactly one today. The value is the stranded directory, relative to the repo
-     * root, so a fix that moves the directory rather than fixing the string also reddens this.
+     * migrations. Exactly one today. The value is the directory the module really keeps them in,
+     * relative to the repo root, so a fix that moves the directory rather than fixing the string
+     * also reddens this.
+     *
+     * "Stranded" names the MODULE's defect, not an outcome in this application: the host loader
+     * registers this directory anyway (see the class docblock), so these migrations do run. Do
+     * not delete this entry because the tables exist -- they exist because of the host fix, while
+     * the module's declared path is still wrong.
      */
     private const EXPECTED_STRANDED = [
         'LandingPage' => 'packages/workdo/LandingPage/src/database/migrations',

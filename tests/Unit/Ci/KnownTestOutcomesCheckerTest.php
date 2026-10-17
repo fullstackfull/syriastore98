@@ -670,13 +670,19 @@ XML);
         // entry leaving expected_failures means the underlying defect was fixed; prove that, do
         // not assume it.
         // -------------------------------------------------------------------------------------
+        // SIX ENTRIES REMOVED 2026-10-17, and the proof this list demands was produced before
+        // they went. NEW-ADDON-SCHEMA-02 is fixed in app/Providers/PackageServiceProvider.php,
+        // which registers each addon's real on-disk migration directory from the loader, so the
+        // six stranded LandingPage migrations run and `owner_menu_settings` exists. The six
+        // guest-screen tests were then measured passing -- twice, once in a targeted run and
+        // once in the full Feature suite -- and the suite's declared failures fell 8 -> 2 with
+        // the skip set unchanged. The fix is in app/, NOT in guard-protected packages/workdo/,
+        // which is what the deleted entries recorded as the blocker.
+        //
+        // The two that remain are deliberately NOT this bug and still fail: a seeder fixture gap
+        // exposing silent role-assignment tolerance, and a real null-store defect at
+        // app/Http/Controllers/HomeController.php:367.
         $expectedFailureIds = [
-            'Tests\Feature\Auth\AuthenticationTest::test_login_screen_can_be_rendered',
-            'Tests\Feature\Auth\EmailVerificationTest::test_email_verification_screen_can_be_rendered',
-            'Tests\Feature\Auth\PasswordConfirmationTest::test_confirm_password_screen_can_be_rendered',
-            'Tests\Feature\Auth\PasswordResetTest::test_reset_password_link_screen_can_be_rendered',
-            'Tests\Feature\Auth\PasswordResetTest::test_reset_password_screen_can_be_rendered',
-            'Tests\Feature\Auth\RegistrationTest::test_registration_screen_can_be_rendered',
             'Tests\Feature\Auth\RegistrationTest::test_new_users_can_register',
             'Tests\Feature\ProfileTest::test_profile_page_is_displayed',
         ];
@@ -715,10 +721,10 @@ XML);
             "The committed manifest's accepted-failure SET is not the recorded one.\n"
             . "  ADDED to the manifest    : " . implode(', ', array_diff($declaredFailures, $expectedFailureIds)) . "\n"
             . "  REMOVED from the manifest: " . implode(', ', array_diff($expectedFailureIds, $declaredFailures)) . "\n"
-            . 'The MEASURED Feature baseline is 8 failures / 0 errors / 17 skips: six of the eight '
-            . 'are NEW-ADDON-SCHEMA-02 (no such table: owner_menu_settings, a mis-cased '
-            . 'loadMigrationsFrom inside guard-protected packages/workdo/) and two are real '
-            . 'defects in app/. If an entry genuinely belongs here now, add it to BOTH this list '
+            . 'The MEASURED Feature baseline is 2 failures / 0 errors / 17 skips, down from 8: '
+            . 'the six NEW-ADDON-SCHEMA-02 page renders were fixed in '
+            . 'app/Providers/PackageServiceProvider.php and their entries deleted, leaving two '
+            . 'real defects in app/. If an entry genuinely belongs here now, add it to BOTH this list '
             . 'and the manifest in the same commit, with the file:line of its cause. If one was '
             . 'fixed, delete it from both -- and the gate will then fail if the test still fails, '
             . 'which is the point.'

@@ -94,6 +94,55 @@ class PackageServiceProvider extends ServiceProvider
                     $this->app->register($provider);
                 }
             }
+
+            $this->registerAddonMigrations($packageDir);
+        }
+    }
+
+    /**
+     * REGISTER AN ADDON'S MIGRATIONS FROM THE LOADER, because a module cannot be trusted to.
+     *
+     * THE DEFECT THIS CLOSES. Every addon registers its own migrations from its service provider
+     * with `loadMigrationsFrom(__DIR__ . '/...')`, and that method does NOT check that the path
+     * exists -- it appends the string to the migrator's list, and a path resolving to nothing
+     * contributes no migrations and no warning. So a wrong path is completely silent.
+     *
+     * LandingPage had one. Its provider asked for `src/database/Migrations`, capital M, while the
+     * directory on disk is `src/database/migrations`. That resolves on a case-INSENSITIVE
+     * filesystem -- a developer's macOS or Windows checkout -- and resolves to nothing on Linux,
+     * which is every server this ships to. Six migrations were therefore never contributed, and
+     * one of them creates `owner_menu_settings`, which `resources/views/layouts/guest.blade.php`
+     * reads on every guest screen. A Linux installation that ran
+     * `composer install && php artisan migrate` came up with /login and /register both answering
+     * HTTP 500 on `no such table: owner_menu_settings` -- measured on a live server. Nobody could
+     * sign in, which put every page behind auth out of reach.
+     *
+     * WHY THE FIX IS HERE AND NOT IN THE MODULE. `packages/workdo/` is vendored commercial code
+     * and `.github/scripts/guard-no-workdo-changes.sh` refuses to let a pull request modify it,
+     * for a reason that applies exactly to this case: an in-place edit is silently reverted by the
+     * next upstream module update and leaves no patch record. That guard's own guidance is that
+     * such a fix "almost always belongs in the host application instead", and this is the host
+     * application's addon loader -- the one place that already knows where every module lives.
+     *
+     * WHY IT IS GENERAL RATHER THAN A PATCH FOR ONE MODULE. Eighteen further modules declare a
+     * path that does not resolve either; they are harmless only because they currently ship no
+     * migrations, and any one of them gaining its first migration would strand it the same silent
+     * way. Registering the directory that actually exists makes the whole defect class
+     * unreachable instead of fixing one instance of it.
+     *
+     * SAFE TO OVERLAP. For the fifty modules whose own declaration is already correct this
+     * registers the same directory twice, which costs nothing: `Migrator::getMigrationFiles`
+     * keys the files it finds by migration name, so duplicates collapse to one entry and nothing
+     * can run twice. And it adds no migration that was not already intended to run -- every
+     * addon provider registers its migrations unconditionally today, so this changes which
+     * directories are found, never the policy about when they apply.
+     */
+    private function registerAddonMigrations(string $packageDir): void
+    {
+        $path = "{$packageDir}/src/database/migrations";
+
+        if (is_dir($path)) {
+            $this->loadMigrationsFrom($path);
         }
     }
 }

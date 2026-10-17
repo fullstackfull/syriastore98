@@ -196,8 +196,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             if (! Schema::hasTable($table)) {
                 // ABSENT IS NOT THE SAME AS "no store_id", and must not be reported as either
                 // safe or exposed. These are the undeclared-schema families: GATE F's six money
-                // tables, the Zid tables, and the LandingPage module's owner_menu* tables whose
-                // provider registers the wrong directory case (NEW-ADDON-SCHEMA-02).
+                // tables and the Zid tables.
+                //
+                // The LandingPage module's owner_menu* tables were in this set until
+                // NEW-ADDON-SCHEMA-02 was fixed in app/Providers/PackageServiceProvider.php.
+                // They are now declared and classified below, which is exactly the transition
+                // this branch's assertion message asked a reader to make.
                 $noSuchTable[] = $table;
 
                 continue;
@@ -287,6 +291,37 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // appears it belongs back here -- and the per-table ratchet will say so first.
             'currency',
             'migrations',              // platform
+            // THE LANDINGPAGE owner_menu* TABLES, MOVED HERE FROM THE UNDECLARED-SCHEMA LIST
+            // BELOW because they now EXIST. They were absent only because of
+            // NEW-ADDON-SCHEMA-02, and app/Providers/PackageServiceProvider.php now registers
+            // every addon's on-disk migrations from the loader, so the six stranded migrations
+            // run and these three tables are declared. This list is where the previous
+            // assertion message said they must land, and the classification was re-read rather
+            // than assumed:
+            //
+            // NOT A TENANCY FINDING, and measured rather than inferred from the names. These
+            // are the PLATFORM OWNER's landing-page navigation, not store data. `owner_menus`
+            // and `owner_menu_settings` discriminate on `created_by`; `owner_menu_items` hangs
+            // off `owner_menus` by a `menu_id` foreign key and carries no tenant column by
+            // design. None declares `store_id`, so no global scope was ever expected to reach
+            // them.
+            //
+            // Every unscoped raw statement on all three is an INSERT in one seeder --
+            // packages/workdo/LandingPage/src/database/seeders/OwnerMenusTableSeeder.php:35,
+            // :92 and :115 -- and a seeder is supposed to be cross-tenant, the same reasoning
+            // this file already applies to the ProductAffiliate backfill on `customers`. The
+            // one LIVE read is Eloquent and owner-pinned:
+            // resources/views/layouts/guest.blade.php:96 does
+            // `OwnerMenuSetting::where('created_by', 1)->first()` for the platform's own guest
+            // layout, of which there is one, not one per store.
+            //
+            // So making these tables exist did not make a cross-tenant read surface visible;
+            // it removed six stranded migrations and an HTTP 500 on /login. If a store-scoped
+            // raw statement on any of them ever appears, the per-table ratchet above sees it
+            // first.
+            'owner_menu_items',
+            'owner_menu_settings',
+            'owner_menus',
             'personal_access_tokens',  // platform; tokens belong to a user, not a store
             'stores',                  // the tenant REGISTRY itself -- ownership, not scoping
             'users',                   // no store_id column at all; see the DO-NOT-SCOPE list
@@ -301,9 +336,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // table is absent HERE while existing in production -- its three unscoped statements
             // are unclassified rather than cleared.
             'coupon_requests',
-            'owner_menu_items',
-            'owner_menu_settings',
-            'owner_menus',
+            // `owner_menu_items`, `owner_menu_settings` and `owner_menus` USED TO BE LISTED
+            // HERE. They are not absent any more: PackageServiceProvider registers each addon's
+            // real on-disk migration directory, which fixes NEW-ADDON-SCHEMA-02, so the six
+            // LandingPage migrations run and these three tables are declared. They are
+            // reclassified, not dropped -- see the owner_menu* note in the list above for the
+            // re-read classification and why it is not a tenancy finding.
             'store_order_financials',  // GATE F
             'zid_events',
             'zid_orders',
