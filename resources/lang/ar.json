@@ -2863,5 +2863,12 @@
     "Menu Setting updated successfully.": "تم تحديث إعدادات القائمة بنجاح",
     "Dedicated Card added successfully": "تم إضافة بطاقة مخصصة بنجاح",
     "Dedicated Card Updated successfully": "بطاقة مخصصة تم تحديثها بنجاح",
-    "Dedicated Card delete successfully": "تم حذف بطاقة مخصصة بنجاح"
+    "Dedicated Card delete successfully": "تم حذف بطاقة مخصصة بنجاح",
+    "Options": "خيارات",
+    "No options yet": "لا توجد خيارات بعد",
+    "Drag an option to change the order customers see it in.": "اسحب أي خيار لتغيير ترتيب ظهوره للعملاء.",
+    "Options are the values a customer picks from, such as Small, Medium and Large. Add the first one to get started.": "الخيارات هي القيم التي يختار منها العميل، مثل صغير ومتوسط وكبير. أضف الخيار الأول للبدء.",
+    "Drag to reorder": "اسحب لإعادة الترتيب",
+    "Order saved.": "تم حفظ الترتيب.",
+    "Order could not be saved.": "تعذّر حفظ الترتيب."
 }
