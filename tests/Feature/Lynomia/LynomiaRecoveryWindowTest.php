@@ -355,5 +355,17 @@ class LynomiaRecoveryWindowTest extends TestCase
         $link->fresh()->forceFill(['commerce_credential_version' => (int) $link->commerce_credential_version + 1])->save();
 
         $this->identity($token)->assertStatus(401);
+
+        // AND IT DOES NOT BURN THE WINDOW, which is the denial-of-service half of the same
+        // property: the credential is verified by CommerceCredential::resolveStoreId BEFORE the
+        // gate reaches any window logic, so a forged, stale or malformed token is refused 401
+        // without consuming the one recovery a legitimate operator is waiting to use. Asserted
+        // rather than inferred from the ordering, because the ordering is what a later edit would
+        // change.
+        $this->assertNull($link->fresh()->recovery_window_consumed_at,
+            'a rejected credential must not consume the window');
+
+        // the operator's own recovery still works afterwards
+        $this->assertTrue(LynomiaStoreLink::spendRecoveryWindow((int) $link->store_id));
     }
 }
