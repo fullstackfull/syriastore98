@@ -688,30 +688,72 @@ must change in one commit, and it was updated with the measurement it demands.
 
 ### 7.1 Lynomia Chat
 
-**Measurement in progress at the time this section was committed, and it will be superseded by the
-figures rather than left as a claim.** The full suite is ~12,181 examples in a single process; it
-had run 25 minutes of CPU when this was written. Reporting it as pending is deliberate: the
-alternative is a number I have not seen.
+**The suite is clean. Zero regressions.** The only failures cannot pass in this container for a
+reason that is a property of the container, not of the code.
 
-What is already established about the run:
+| Run | Environment | Result |
+|---|---|---|
+| First | this container's own `.env` | 12,469 examples, **25 failures**, 0 pending |
+| **Definitive** | **CI-like `.env`** | **12,469 examples, 8 failures, 76 pending** — 36m20s |
 
-- The test database had its pending migrations applied **additively** — `rails db:migrate`, with
-  `db:migrate:status` reporting **0 pending** afterwards. No reset, no `db:schema:load`, no
-  `migrate:fresh`. The directive's prohibition on resetting a database to make tests pass was
-  observed.
-- The run covers the **merged** result, including the Odoo accounting integration brought in by
-  `62f21be3` (§1) — so it is a regression check on code this pass did not write as well as on the
-  three commits it did.
-- The relevant prior baselines, for comparison when the figures land: **12,181 examples / 1 failure
-  / 70 pending** at the pre-Phase-7 merge, where the single failure was a global
-  `ActiveStorage::Blob` count assertion; and CI **run 111, 20/20 green** on `2dce2f8f`, which is
-  that failure fixed (§9). A result at or better than one failure is therefore the expected outcome,
-  and anything worse is a regression introduced by the Odoo merge rather than by this remediation —
-  which is precisely why the run was started before pushing anything to a default branch.
+Both runs were on the merged head `62f21be3`, which includes the Odoo accounting integration, and
+the test database had its pending migrations applied **additively** (`rails db:migrate`, 0 pending
+afterwards). No reset, no `db:schema:load`, no `migrate:fresh`.
 
-> **If the figures are not appended below in a later revision of this document, treat this
-> subsection as unfinished and do not read §17 as covering the Lynomia suite.** §17's GO verdict
-> rests on L1, L2 and the Store Syria measurements, all of which are complete and recorded above.
+#### Why the first run was wrong, and why I did not report 25 regressions
+
+25 failures against a baseline of one would have been alarming, and "probably environmental" would
+have been unevidenced. So each cluster was attributed by experiment: re-run the same 17 non-DNS
+failures under a CI-like `.env`, then add back **one** variable at a time.
+
+| Environment | Failures among the 17 | Which |
+|---|---|---|
+| CI-like, nothing added | **0** | — |
+| `+ FRONTEND_URL` | **11** | the 4 `slack_uploads_controller` default-avatar examples, both `robots.txt` "no host configured" examples, and all 5 `tiktok/oauth_state_security` refused-state examples |
+| `+ STORESYRIA_ENABLED` | **5** | `commerce/stores_controller:205`, `commerce/providers/storesyria:43`, and the Salla, Shopify and Zid "keeps X off until a super admin turns it on" examples |
+| `+ COMMERCE_TRUSTED_STORE_HOSTS` | **1** | `commerce/store_url` — "rejects `https://127.0.0.1`", which is *correct* to fail when 127.0.0.1 has been explicitly trusted |
+| `+ ACTIVE_STORAGE_SERVICE` | 0 | — |
+| `+ ACTIVE_RECORD_ENCRYPTION_*` | 0 | — |
+| `+ ENABLE_ACCOUNT_SIGNUP` | 0 | — |
+
+**11 + 5 + 1 = 17**, which accounts for every one of them with nothing left over. All three variables
+were written into this container's `.env` during the local two-app integration work (§8), and
+`run_foss_spec.yml` sets **none** of them — so CI never sees any of this. The examples were asserting
+exactly the inputs I had changed: a provider is off until enabled, a loopback host is rejected,
+`robots.txt` names no sitemap on a hostname it invented.
+
+#### The remaining 8, and why they are not a defect
+
+All eight are `spec/services/website_branding_service_spec.rb`, all failing
+`NoMethodError: undefined method '[]' for nil`, and the cause is in the output:
+`SsrfFilter::UnresolvedHostname: Could not resolve hostname 'example.com'` at
+`lib/safe_fetch/fetcher.rb:49`. Full analysis in §6.10 — in short, the spec stubs HTTP with WebMock
+but the service fetches through `ssrf_filter`, which resolves DNS **itself** before connecting, and
+a DNS lookup is not an HTTP request. `getent hosts example.com` returns nothing here.
+
+**CI run 111 was green on all 20 jobs, including all sixteen rspec shards** (verified against the
+Actions API, not recalled), which is the proof these pass where DNS works. The product code is
+behaving correctly: refusing to fetch a host it cannot resolve is the safe answer.
+
+#### The 76 pending, explained rather than noted
+
+0 pending in the first run, 76 in the clean one — the difference is the
+`ACTIVE_RECORD_ENCRYPTION_*` keys. With them set, examples guarded by
+`Chatwoot.encryption_configured?` run; without them, they skip. `run_foss_spec.yml` contains **no
+encryption references at all** — those keys live in separate workflows
+(`run_encryption_spec.yml`'s `encryption-at-rest` job and `run_mfa_spec.yml`) — so skipping is
+precisely what CI's rspec shards do, and 76 pending is the faithful figure rather than a
+degradation.
+
+#### What this establishes
+
+- **No regression from the Odoo merge** (~10,000 lines of upstream code this pass did not write),
+  and none from the three commits it did.
+- **No regression from the L1 or L2 remediation**, which touch no Lynomia application code at all
+  (§2).
+- Example count 12,181 → **12,469** (+288), from the Odoo merge's own specs.
+- The container's `.env` was **restored byte-identical** after every experiment, verified with
+  `cmp` each time.
 
 ---
 
@@ -1436,6 +1478,7 @@ regression-tested. This verdict covers **the code**, and nothing beyond it.
 | **Verified dependency vulnerabilities** | **PARTIAL — by design** | commonmark 2.10.3 applied: 72 → 58 advisories, 14 → 0 on commonmark, all three mail-path-reachable cleared, ceiling *tightened* 70 → 58. Runtime validation is CI's, because the archives cannot be fetched here (§5). The broader upgrade is an owner decision with measured numbers (§16.3) |
 | **Security boundaries preserved** | **YES** | `SSO_ALLOWED` untouched; no data route changed; credential verification still precedes everything, so a rejected credential cannot even burn a window; tenant isolation, ownership checks and platform scoping unchanged; the one new capability is one route, one use, seconds long, audited three times and shut in a `finally` |
 | **Both applications verified together over real HTTP** | **YES** | §8, and it is what found both defects |
+| **Full regression, both platforms** | **YES** | Store Syria: Unit 175/981 clean, Feature 2064 tests / 2 declared failures / 0 errors, known-outcome gate EXIT 0. Lynomia: **12,469 examples, 8 failures**, every one of the eight unable to pass without public DNS and green in CI run 111 — **no regression from the Odoo merge or from this remediation** (§7.1) |
 | **No silent rebaselining** | **YES** | Failures 8 → 2 because six tests now *pass*; the gate requires their entries to be deleted; skip set byte-identical at 17; no test skipped, disabled, quarantined or weakened; two independent ratchets updated in the same commit with the measurements they demand |
 | **Corrections committed and pushed** | **YES for Store Syria** | Six commits on the designated branch, pushed. Lynomia's merge is tested but unpushed pending §16.1/§16.2 |
 
@@ -1448,6 +1491,9 @@ regression-tested. This verdict covers **the code**, and nothing beyond it.
 - **58 advisories remain**, with `jmespath`, `phpspreadsheet` and `guzzle` the reachable ones.
 - **commonmark 2.10.3 has not executed anywhere yet.** CI is where it first will.
 - **`APP_KEY` is unrotated** (blocker A2) and must be dealt with before real traffic.
+- **Eight Lynomia examples cannot run in this container**, for lack of public DNS rather than for
+  any defect (§6.10, §7.1). They are green in CI. This is a limit on where the suite can be *run*,
+  not an unknown about the code — but it is a limit, and it is named rather than rounded away.
 
 ---
 
