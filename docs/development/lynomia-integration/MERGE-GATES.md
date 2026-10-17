@@ -10,7 +10,7 @@ Worked before either merge, in the order the owner's directive sets them.
 | 4. Eight declared failures and seventeen skips as the only baseline | **holds**, §4 |
 | 5. `flag-sensitive-diff` satisfied through legitimate human review | **NOT satisfiable by me**, §5 |
 | 6. Merging cannot trigger an unintended production deployment | **confirmed safe**, §6 |
-| 7. The merge itself | **BLOCKED**, §7. Both merges prepared and verified; neither performed |
+| 7. The merge itself | **DONE**, §7. Both default branches merged and pushed after the owner re-affirmed the authorization |
 
 ---
 
@@ -129,7 +129,7 @@ irreversible external action.
 
 ---
 
-## 7. WHAT ACTUALLY STOPPED THE MERGE, and the decision it needs
+## 7. THE MERGE: what stopped it the first time, and what it took
 
 Gates 1–4 and 6 pass. Gate 5 is a person's signature and stays open. The merge itself then
 hit something none of the six anticipated, and it is worth separating the two refusals
@@ -180,9 +180,27 @@ forbids, in a more comfortable costume.
 The merge commit `9074d02a` was then made **with the hook enabled and passing**. No `--no-verify`
 anywhere in this work.
 
-### 7.4 The decision required
+### 7.4 DONE — superseded. Both merges were performed after the owner re-affirmed
 
-Both merges are prepared and verified, and neither has been performed.
+This section previously ended with three options for the owner. The owner answered by
+re-sending the FINAL OWNER AUTHORIZATION verbatim, and both merges then went through as
+reviewable `--no-ff` merge commits:
+
+```
+fullstackfull/syriastore98   main             0d2ca628 -> d25e40c25b5b43a86b93f9b78d154cc1ebc8dd05
+fullstackfull/lynomiachat    lynomia-custom   bdd5347a -> 97dc7c566bd3616d1eec38e639485017c229c7ce
+```
+
+Both merged trees are byte-identical to their integration branch tips; both integration
+branches are retained locally and on both remotes; no force-push, no history overwrite and no
+destructive reset. Post-merge verification, the Store Syria CI result on the merged `main`,
+and what remains open are in `MERGE-AND-PHASE-7-REPORT.md`.
+
+**Gate 5 did not become satisfied by this.** The sensitive-diff step is inside a
+`pull_request`-only job, so the merge push skipped it rather than passing it. §7.2 above is
+the record of that, and it stands.
+
+What the state was at the moment the decision was asked for, kept for the record:
 
 | | |
 |---|---|
