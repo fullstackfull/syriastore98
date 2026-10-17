@@ -174,7 +174,7 @@ preserved-functionality contract, permission gating, the host's dark layout, and
 comparison against the pre-sprint view:
 
 ```
-59 PASSED, 0 FAILED
+61 PASSED, 0 FAILED
 ```
 
 ---
