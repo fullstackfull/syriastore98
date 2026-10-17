@@ -448,6 +448,8 @@
             </div>
 
             <div class="tab-pane fade" id="lynomia-accounts" role="tabpanel">
+                {{-- Shown once, on the redirect back from issuing a token. --}}
+                @include('lynomia-chat::superadmin.partials.commerce-credential-reveal')
                 <div class="card">
                     <div class="card-body table-responsive">
                         <table class="table">
@@ -459,6 +461,8 @@
                                     <th>{{ __('State') }}</th>
                                     {{-- The far side's view of this installation, fetched only when asked for. --}}
                                     <th>{{ __('In Lynomia') }}</th>
+                                    {{-- The commerce token: its status, and the issue/rotate/revoke controls. --}}
+                                    <th>{{ __('Commerce token') }}</th>
                                     <th>{{ __('Action') }}</th>
                                 </tr>
                             </thead>
@@ -478,6 +482,9 @@
                                         @else
                                             <span class="text-muted">—</span>
                                         @endif
+                                    </td>
+                                    <td class="lyn-commerce-credential-cell">
+                                        @include('lynomia-chat::superadmin.partials.commerce-credential', ['row' => $row])
                                     </td>
                                     <td>
                                         @if ($row->state === \Workdo\LynomiaChat\app\Support\LinkState::PENDING_VERIFICATION)
@@ -541,7 +548,7 @@
                                     </td>
                                 </tr>
                             @empty
-                                <tr><td colspan="6" class="text-center text-muted">{{ __('No stores are connected yet.') }}</td></tr>
+                                <tr><td colspan="7" class="text-center text-muted">{{ __('No stores are connected yet.') }}</td></tr>
                             @endforelse
                             </tbody>
                         </table>
@@ -575,8 +582,14 @@
         failed: @json(__('Could not reach Lynomia')),
         noneOpen: @json(__('no open issues')),
         issues: @json(__('open issues')),
-        stores: @json(__('installations')),
+        stores: @json(__('connected store(s)')),
         unreadable: @json(__('Lynomia answered, but not with a health report')),
+        // THE THREE CONNECTIONS ARE NOT ONE. The State column already says whether the
+        // WORKSPACE is linked; this cell reports the COMMERCE connection and its health, which
+        // are a different thing. A workspace can be live with no commerce store attached yet --
+        // that is this installation's normal state until the merchant adds Store Syria inside
+        // Lynomia's Commerce settings -- and it must read as "not connected", never as a fault.
+        commerceNotConnected: @json(__('Commerce not connected')),
     };
 
     // Lynomia's own four-state vocabulary, said in the operator's language. The STATE is
@@ -637,6 +650,25 @@
         var open = (health.signals && health.signals.open) || 0;
         var stores = health.installations.length;
 
+        // NO COMMERCE STORE ATTACHED IS NOT A FAILED ACCOUNT. integration_health reports zero
+        // installations for an account whose workspace is live but has no Store Syria commerce
+        // store yet -- exactly the state of every account before the merchant connects commerce,
+        // and the one that used to render as "Not known — 0 installations, no open issues" and
+        // read as "broken". It is now its own neutral message. A real signal is still surfaced
+        // if the far side somehow reports one, so a genuine problem is never swallowed.
+        if (stores === 0) {
+            if (open) {
+                out.className = 'lyn-health-out small mt-1 text-warning';
+                out.textContent = T.commerceNotConnected + ' — ' + open + ' ' + T.issues;
+            } else {
+                out.className = 'lyn-health-out small mt-1 text-muted';
+                out.textContent = T.commerceNotConnected;
+            }
+            return;
+        }
+
+        // Commerce is connected: report its health as Lynomia states it, never rounded up to
+        // "healthy" when the far side said otherwise.
         out.className = 'lyn-health-out small mt-1 ' + (TONE[status] || 'text-muted');
         out.textContent = (LABEL[status] || status) + ' — ' + stores + ' ' + T.stores + ', '
             + (open ? open + ' ' + T.issues : T.noneOpen);

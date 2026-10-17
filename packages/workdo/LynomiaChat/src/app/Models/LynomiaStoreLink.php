@@ -111,6 +111,15 @@ class LynomiaStoreLink extends Model
     public const MODE_PROVISION = 'provision';
     public const MODE_LINK_EXISTING = 'link_existing';
 
+    /**
+     * The three states a store's commerce credential can be in, derived -- never stored as a
+     * flag that could drift from the version. The credential itself is never persisted (see
+     * CommerceCredential), so this is the only thing the Super Admin UI has to show status from.
+     */
+    public const COMMERCE_CREDENTIAL_NOT_ISSUED = 'not_issued';
+    public const COMMERCE_CREDENTIAL_ACTIVE = 'active';
+    public const COMMERCE_CREDENTIAL_REVOKED = 'revoked';
+
     public function scopeForStore(Builder $query, int $storeId): Builder
     {
         return $query->where('store_id', $storeId);
@@ -129,6 +138,46 @@ class LynomiaStoreLink extends Model
     public function isActive(): bool
     {
         return $this->state === LinkState::ACTIVE;
+    }
+
+    /**
+     * Which of the three credential states this store is in, read from the version and the
+     * issued-at timestamp -- the same two columns issue/revoke write and nothing else.
+     *
+     *   version 0                       -> never issued (version 0 is the "nothing verifies" value)
+     *   version > 0 AND issued_at set   -> active (the last write was an issue/rotate)
+     *   version > 0 AND issued_at null  -> revoked (revoke bumps the version and clears issued_at)
+     *
+     * This mirrors exactly what IntegrationController::issueCommerceCredential and
+     * revokeCommerceCredential write, so the UI's status cannot disagree with the rotation logic.
+     */
+    public function commerceCredentialStatus(): string
+    {
+        if ((int) $this->commerce_credential_version === 0) {
+            return self::COMMERCE_CREDENTIAL_NOT_ISSUED;
+        }
+
+        return $this->commerce_credential_issued_at !== null
+            ? self::COMMERCE_CREDENTIAL_ACTIVE
+            : self::COMMERCE_CREDENTIAL_REVOKED;
+    }
+
+    /** A credential is currently usable only when the last write was an issue/rotate. */
+    public function hasActiveCommerceCredential(): bool
+    {
+        return $this->commerceCredentialStatus() === self::COMMERCE_CREDENTIAL_ACTIVE;
+    }
+
+    /**
+     * Whether an operator may mint a commerce credential for this store right now. A credential
+     * grants a machine read access to the merchant's orders and customers, so it is offered only
+     * for a link that would also allow SSO -- active, provisioned, and (for a claimed workspace)
+     * proven. This is the UI gate; issueCommerceCredential enforces the same allowsSso() check
+     * server-side, so a hidden button is never the only thing standing between a caller and a key.
+     */
+    public function canIssueCommerceCredential(): bool
+    {
+        return $this->allowsSso();
     }
 
     /**
