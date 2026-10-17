@@ -66,4 +66,10 @@ class FreshInstallAddonMigrationsTest extends TestCase
     {
         $this->get('/login')->assertStatus(200);
     }
+
+    /** The other entry point L2 took out. Both are named in the acceptance criterion. */
+    public function test_the_register_screen_renders_on_a_fresh_installation(): void
+    {
+        $this->get('/register')->assertStatus(200);
+    }
 }
