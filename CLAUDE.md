@@ -98,13 +98,27 @@ Each of these has produced a real defect. Do not assume the framework default.
 
 **Scoped models — check before asserting absence**
 
-`getGlobalScopes()` says, and it is not what the allowlist alone suggests: **`Customer`** (StoreScope
-*and* SoftDeletingScope), **`Cart`** and **`Product`** are scoped; **`Order`, `Wishlist`,
-`DeliveryAddress`, `User`, `ActivityLog`, `Testimonial`** are not. So a plain `Customer::find()` or
-`Cart::find()` **in an assertion** answers against whichever tenant happens to be resolved, not
-against the table — and an "it is gone" assertion written that way passes whether or not the fix
-works. That cost a real false reading: a cart test reported a store-B row deleted while the raw
-table still held it. Assert through `withoutGlobalScopes()`.
+**`getGlobalScopes()` is not the same question as "is it scoped".** Two checks, both needed:
+
+| Model | `StoreScope` registered | In `scoped_models` | Actually filters |
+|---|---|---|---|
+| `Customer` | yes (+ SoftDeletingScope) | yes | **yes** |
+| `Cart` | yes | yes | **yes** |
+| `Product` | yes | **no** | **NO** |
+| `Order`, `Wishlist`, `DeliveryAddress`, `User`, `ActivityLog`, `Testimonial` | no | no | no |
+
+`StoreScope::isActiveFor()` short-circuits for a model that is not in `config/tenancy.php`'s
+`scoped_models`, so **`Product` adds no predicate for any principal** — not a customer, not a
+merchant, not the operator, not an admin-context request. `Product::find($id)` reaches every
+tenant's catalogue, and the open-tenant rule does not even come into it. That produced a live
+cross-tenant stock drain (S19) that the `customer_id` sweep missed entirely, because it was looking
+at the wrong identifier.
+
+The two that *do* filter matter for **assertions**: a plain `Customer::find()` or `Cart::find()` in
+a test answers against whichever tenant happens to be resolved, not against the table, so an "it is
+gone" assertion passes whether or not the fix works. That cost a real false reading — a cart test
+reported a store-B row deleted while the raw table still held it. Assert through
+`withoutGlobalScopes()`.
 
 **Schema**
 

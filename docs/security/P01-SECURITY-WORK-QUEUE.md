@@ -818,8 +818,10 @@ and friends means "the handler has an `auth('customers')` fallback", not "the ro
   `{slug}` and carry no `ActiveTheme` middleware, so no tenant resolves, and `null_tenant => 'open'`
   means the scope adds **no predicate at all**.
 - `Order`, `Wishlist`, `DeliveryAddress`, `User`, `ActivityLog` and `Testimonial` are not in
-  `scoped_models` in any case. (Verified by enumerating `getGlobalScopes()` per model: `Customer`,
-  `Cart` and `Product` are scoped; those six are not.)
+  `scoped_models` in any case. **And `getGlobalScopes()` is not the same question:** `Product`
+  registers `StoreScope` but is not allowlisted, so `isActiveFor()` short-circuits and it filters
+  nothing for anyone. Only `Customer` (plus `SoftDeletingScope`) and `Cart` actually filter. That
+  distinction is what hid S19-A below.
 - A `where('store_id', $store->id)` built from the slug is not a tenant check — the slug is caller
   input, so it only compares the caller's own two values.
 
@@ -886,6 +888,111 @@ its target from the return value rather than from the slug.
    decision.
 5. **`add_review` has no one-review-per-product rule** where `product_rating` does. Bounding review
    volume is a product decision, not an authorization one.
+
+### Found by the adversarial review OF THIS FIX, not by the fix — closed in the same package
+
+The `tenant-authz-reviewer` pass over the finished diff found a second axis the whole
+`customer_id` enumeration had missed, plus a regression the fix itself introduced. Both are closed;
+both are recorded here because the lesson is that sweeping one identifier does not sweep a handler.
+
+**S19-A — cross-tenant product reach, and a live stock drain. CLOSED.**
+`Product::find($request->product_id)` had no store predicate in `addtocart`, `wishlist` or
+`variant_list`, and the stock-decrement loops in `place_order` and `ordersave` re-read the cart's
+product id with no predicate either.
+
+The reason nothing caught it is **stronger** than the open-tenant rule that applies elsewhere in
+this package, and the first version of the fix comments got it wrong: `Product` carries
+`StoreScope` — `getGlobalScopes()` lists it — but is **not** in `config/tenancy.php`'s
+`scoped_models` (it sits in that file's own "STILL NOT ENABLED" block). So
+`StoreScope::isActiveFor()` short-circuits and **no predicate is added for any principal**: not a
+customer, not a merchant, not the platform operator, not an admin-context request. `getGlobalScopes()`
+and "is it actually scoped" are different questions.
+
+Measured consequence: a customer of store A put store B's product into their store-A cart and
+checkout consumed **merchant B's inventory** (stock 10 → 6), with the order, the money row and the
+wallet touch landing in store A. Closing `addtocart` alone was **not** sufficient — a cart row
+reaches the checkout loop from the web storefront's own `CartController` too, and a planted row
+still drained the stock. The decrement loops needed the predicate as well. Four of the five
+predicates are isolated by removal; `variant_list`'s cannot be, because that handler discloses
+nothing until a matching `ProductVariant` exists.
+
+**S19-B — the fix broke checkout address creation. CLOSED.**
+`PaymentController::addCustomerAddress()` created the delivery address for an account made at
+checkout by building a synthetic `Request` carrying `customer_id` and calling
+`Api\ApiController::add_address()`, **discarding the return value**. That worked only because
+`add_address` had the guard-class fallback this package removed. There is no `customers` session at
+that point — `handleCustomerRegistration()` calls `createCustomer()` *before*
+`auth('customers')->login()`, and the guest path never logs in — so the call began returning 401
+and the address was silently never written. A shopper registering at checkout would have seen an
+empty address on their profile and lost shipping-method resolution.
+
+Verified by execution in both directions: the regression reproduces at HEAD, and restoring
+`add_address`'s old fallback makes it pass. Fixed in `PaymentController`, which already holds both
+`$customer` and `$store` — routing an internal write through a session-authenticated API handler
+was never the right shape. Its demotion is now scoped to that customer, which `add_address`'s
+never was.
+
+**Also closed from the same review:** a soft-deleted account could be matched by provider id in
+`register`, because `Customer::withoutGlobalScopes()` strips `SoftDeletingScope` as well as the
+tenant scope — the row was overwritten, logged in and handed a token that then 401s on every
+request, since `custom.auth` resolves the principal through `$accessToken->tokenable`, which *does*
+apply the soft-delete scope. Narrowed to `withoutGlobalScope(StoreScope::class)`.
+`user_delete`'s `Testimonial` cascade was keyed on an id space it shares with `users` and had no
+store predicate, so deleting a customer destroyed every testimonial on the platform sharing that
+integer — collateral damage rather than an authorization hole, since the id is the caller's own,
+but scoped now. And four surviving caller-supplied `user_id` reads in `place_order` (one
+`UserCoupon`, three `OrderNote`) are derived from the session, matching the sibling `ordersave`.
+Those are attribution and audit integrity, not coupon-limit evasion: `Coupon::PerUsesCouponCount()`
+resolves the user through `OrderBillingDetail.email`, not through `user_coupons.user_id`.
+
+### Measurements owed, cheap, not guesses
+
+1. **`SELECT COUNT(*) FROM customers WHERE store_id IS NULL;`** `resolveStoreCustomer()` admits a
+   NULL-`store_id` customer **in any store's slug**, and such a customer is a cross-tenant actor
+   through the several callers that also act on `$store` — `payment_sheet` reads the slug store's
+   Stripe secret, `update_user_image` bills its owner's quota, `add_address` / `change_address` /
+   `wishlist` write `store_id = $store->id`, and the cart and order rows land there. It is left
+   permissive because refusing it would lock a real shopper out of their own account and because
+   no first-party insert path produces one — `config/tenancy.php` enumerates all sixteen writers of
+   `customers` and every one sets `store_id`, so it is reachable only via legacy or imported rows.
+   If the count is zero, drop the null branch and compare the ids outright. The same branch is in
+   `change_password` and `user_delete`.
+2. **`apply_coupon` cannot be reached in the test environment at all.** Its coupon lookup emits the
+   MySQL-only `BINARY` keyword, which SQLite rejects as a syntax error, so the handler 500s before
+   any of its logic runs. This is the SQLite/MySQL divergence CLAUDE.md warns about, in a form that
+   makes a whole handler untestable rather than merely differently-behaved. Its internal
+   `cart_list($request)` call was also missing `$slug`, which all three sibling call sites pass;
+   that is fixed, but **not verified end to end** for this reason. Confirming the coupon path works
+   needs a real MySQL.
+
+### Also reported by the review, deliberately NOT changed
+
+- **`user_delete` hard-deletes orders but soft-deletes the account.** `Order::where(...)->delete()`
+  is a query-builder mass delete, so no model events fire; `Order` has no `SoftDeletes` and
+  `OrderObserver` has only `created` and `updated`. So the `store_order_financials` rows written by
+  `OrderFinancialService` are orphaned and any wallet credit is not reversed — the merchant's
+  ledger points at orders that no longer exist. Meanwhile `$customer->delete()` is soft, so the
+  email address is burned: both `unique:customers,email` and the register email-taken check match
+  the trashed row, and that shopper can never re-register with the same address in that store. The
+  asymmetry deserves a deliberate decision about retention and refunds, not a code change made in
+  an authorization package.
+- **`register` carries no throttle**, where the three forgot-password routes beside it carry
+  `throttle:auth`. An unauthenticated endpoint that both creates rows and lets a caller probe
+  provider ids should be rate-limited. One line in `routes/api.php`, but it changes a public
+  endpoint's behaviour under load and belongs with the rest of the rate-limiting work.
+- **Dead branches left by the fix**, flagged so they are not mistaken for live fallbacks:
+  `cart_list`'s `$store === null` fallback is now unreachable, and `ordersave`'s
+  `auth('customers')->check()` is now always true. Harmless; removing them is cosmetic churn in a
+  hot controller.
+- **`payment_sheet`'s `catch (Error $e)`** is unqualified inside `namespace App\Http\Controllers\Api`,
+  so it resolves to a non-existent `App\...\Error` and can never match — a Stripe failure is a 500.
+  Pre-existing.
+- **`profile_update` still forwards `$request->customer_id`** to `user_detail`, where
+  `change_address` was changed to forward the derived id. No behavioural difference, since
+  `user_detail` ignores it — but `user_detail` still *validates* `customer_id` as required, so a
+  client omitting it gets a validation payload substituted for the profile inside
+  `profile_update`'s own success envelope. Pre-existing; one line, and worth doing when that
+  handler is next touched.
 
 ### Two functional defects found while establishing test premises
 

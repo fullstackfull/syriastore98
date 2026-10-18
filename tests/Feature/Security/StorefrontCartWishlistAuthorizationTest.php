@@ -41,6 +41,41 @@ class StorefrontCartWishlistAuthorizationTest extends SecurityTestCase
 {
     use RefreshDatabase;
 
+    /** @var array<int, string> directory listing of uploads/ before this test ran */
+    private array $uploadsBefore = [];
+
+    /**
+     * update_user_image's authorized journey posts a real fake upload, and upload_theme_image()
+     * writes it into the repository's `uploads/` directory -- which, unlike `public/uploads/`, is
+     * NOT in .gitignore. The first run of this file left 27 PNGs behind and a `git add -A` swept
+     * them into a commit.
+     *
+     * Snapshot before, delete the difference after. Done here rather than at the three call sites
+     * so a fourth cannot be added without the cleanup.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $dir = base_path('uploads');
+        $this->uploadsBefore = is_dir($dir) ? (scandir($dir) ?: []) : [];
+    }
+
+    protected function tearDown(): void
+    {
+        $dir = base_path('uploads');
+        if (is_dir($dir)) {
+            foreach (array_diff(scandir($dir) ?: [], $this->uploadsBefore) as $name) {
+                $path = $dir . DIRECTORY_SEPARATOR . $name;
+                if (is_file($path)) {
+                    @unlink($path);
+                }
+            }
+        }
+
+        parent::tearDown();
+    }
+
     private function customerIn($store, string $label): Customer
     {
         return Customer::forceCreate([

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Models\User;
 use App\Models\Customer;
+use App\Scopes\StoreScope;
 use App\Traits\ApiResponser;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
@@ -80,9 +81,11 @@ class AuthController extends Controller
         //
         //   - A row created by email registration carries no provider id, so a social request can
         //     never adopt a password account.
-        //   - The predicate is the resolved store, so one tenant's registration cannot reach
-        //     another tenant's customer, and an existing row's store_id and created_by are left
-        //     alone rather than re-written.
+        //   - An existing row's store_id and created_by are left alone rather than re-written, so
+        //     an account can no longer be re-parented into the caller's chosen store. Note the
+        //     store predicate is NOT a second control: the slug is caller input and public, so an
+        //     attacker simply names the victim's store. The provider-id match is the only control
+        //     here.
         //   - An existing row's email is left alone too; it is already that account's.
         //
         // If the provider id does not match but the EMAIL already exists in this store, the
@@ -93,8 +96,12 @@ class AuthController extends Controller
         // RESIDUAL, NOT CLOSED HERE. This endpoint verifies no provider token -- `google_id` is a
         // posted string. An attacker must now know the victim's provider id rather than their
         // email address, and can never touch a password account, but a known provider id is still
-        // sufficient. Closing that needs real Google/Apple/Facebook token verification, a new
-        // outbound dependency that is not this package's to add. Recorded in the security queue.
+        // sufficient to sign in as that account AND to overwrite its first_name, last_name,
+        // mobile, device_type and firebase_token -- the last of which redirects that shopper's
+        // push notifications to the attacker's device. Closing it needs real
+        // Google/Apple/Facebook token verification, a new outbound dependency that is not this
+        // package's to add. The route also carries no throttle, where the forgot-password routes
+        // beside it carry `throttle:auth`. Both recorded in the security queue.
         //
         // COMPATIBILITY. Path, method and the success payload are unchanged. Every refusal uses
         // the error envelope this handler already returns (HTTP 200 with status 0), so no new 401
@@ -128,7 +135,13 @@ class AuthController extends Controller
                 return $this->error(['message' => __('Email or mobile required in facebook login.')], __('Email or mobile required in facebook login.'));
             }
 
-            $existing = Customer::withoutGlobalScopes()
+            // withoutGlobalScope(StoreScope) and NOT withoutGlobalScopes(): the plural form also
+            // strips SoftDeletingScope, so `$existing` could be a TRASHED customer -- the handler
+            // would overwrite its fields, never clear `deleted_at`, log it in and return a token
+            // that 401s on every later request, because custom.auth resolves the principal through
+            // $accessToken->tokenable and that DOES apply the soft-delete scope. Dropping only the
+            // tenant scope keeps a deleted account deleted.
+            $existing = Customer::withoutGlobalScope(StoreScope::class)
                 ->where('store_id', $store->id)
                 ->where($providerColumn, $providerId)
                 ->first();
@@ -136,7 +149,12 @@ class AuthController extends Controller
             if ($existing !== null) {
                 $user = $existing;
             } elseif (! empty($request->email)) {
-                $emailTaken = Customer::withoutGlobalScopes()
+                // Soft-deleted rows DO count as taken here, deliberately: `customers` has a
+                // table-wide unique index on email for the register_type=email path, and letting a
+                // social registration create a live duplicate of a trashed address would make the
+                // password-recovery lookup ambiguous.
+                $emailTaken = Customer::withoutGlobalScope(StoreScope::class)
+                    ->withTrashed()
                     ->where('store_id', $store->id)
                     ->where('email', $request->email)
                     ->exists();

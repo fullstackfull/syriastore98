@@ -306,6 +306,54 @@ class StorefrontRegistrationTakeoverTest extends SecurityTestCase
             . 'now delivers to the caller.');
     }
 
+    /**
+     * A SOFT-DELETED account must stay deleted. Found by the adversarial review of this fix, not
+     * by the fix's own tests.
+     *
+     * The lookup originally used `Customer::withoutGlobalScopes()`, whose plural form also strips
+     * SoftDeletingScope. So a trashed customer could be matched by provider id, have its fields
+     * overwritten, and be logged in with a Bearer token returned -- while `deleted_at` was never
+     * cleared. That token is dead on arrival, because `custom.auth` resolves the principal through
+     * `$accessToken->tokenable`, which DOES apply the soft-delete scope and yields null. So the
+     * caller received "Register successfully." plus a token that 401s on every later request, and
+     * a partially overwritten trashed row was left behind.
+     *
+     * Only the tenant scope is dropped now.
+     */
+    public function test_a_soft_deleted_account_is_not_resurrected_by_a_social_registration(): void
+    {
+        [, $store] = $this->makeTenant();
+
+        $this->register($store, [
+            'register_type' => 'google', 'google_id' => 'trashed-google-id',
+            'email' => 'trashed@example.test', 'first_name' => 'Original',
+        ])->assertJsonPath('status', 1);
+
+        $account = self::customers()->where('google_id', 'trashed-google-id')->first();
+        $this->assertNotNull($account);
+        $account->delete();
+        $this->assertNotNull($account->fresh()->deleted_at, 'the fixture did not soft-delete');
+
+        $response = $this->register($store, [
+            'register_type' => 'google', 'google_id' => 'trashed-google-id',
+            'email' => 'trashed@example.test', 'first_name' => 'Attacker',
+        ]);
+
+        $reread = self::customers()->withTrashed()->find($account->id);
+        $this->assertNotNull($reread->deleted_at,
+            'A social registration resurrected a soft-deleted account.');
+        $this->assertSame('Original', $reread->first_name,
+            "A soft-deleted account's identity was overwritten.");
+
+        // And no usable token for it.
+        $token = $response->json('data.token');
+        if ($token !== null) {
+            $owner = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
+            $this->assertNotSame((int) $account->id, (int) ($owner->tokenable_id ?? 0),
+                'A token was issued for a soft-deleted account.');
+        }
+    }
+
     // ===================================================================================
     // THE ID-SPACE CONFLATION IN THE RESPONSE
     // ===================================================================================

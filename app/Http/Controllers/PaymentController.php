@@ -29,6 +29,7 @@ use App\Models\OrderNote;
 use App\Models\OrderCouponDetail;
 use App\Models\UserCoupon;
 use App\Models\Customer;
+use App\Models\DeliveryAddress;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Cookie;
 use App\Events\AddAdditionalFields;
@@ -1299,23 +1300,41 @@ public function handlePaymeraTrigger00($orderId)
      */
     private function addCustomerAddress($customer, $billing, $store)
     {
-        $addressData = [
-            'store_id' => $store->id,
-            'slug' => $store->slug,
-            'customer_id' => $customer->id,
-            'default_address' => 1,
-            'first_name' => $billing['firstname'],
-            'address' => $billing['billing_address'],
-            'country' => $billing['billing_country'],
-            'state' => $billing['billing_state'],
-            'city' => $billing['billing_city'],
-            'postcode' => $billing['billing_postecode'] ?? '',
-            'title' => strtolower($billing['firstname']),
-        ];
-        
-        $request = new Request($addressData);
-        $api = new ApiController();
-        $api->add_address($request, $store->slug);
+        // WRITTEN DIRECTLY, not by calling Api\ApiController::add_address().
+        //
+        // This used to build a synthetic Request carrying 'customer_id' and hand it to that API
+        // handler, discarding the return value. It only ever worked because add_address had the
+        // guard-class fallback `$customer_id = $request->customer_id` -- the very defect P01-SEC-11
+        // closed. There is no customers session at this point in checkout:
+        // handleCustomerRegistration() calls createCustomer() BEFORE auth('customers')->login(),
+        // and the guest path never logs in at all. So once add_address required an authenticated
+        // Customer, this call returned 401, the address was never created, and the discarded
+        // return value meant nothing surfaced -- a shopper who registered at checkout got an empty
+        // address on their profile and lost shipping-method resolution.
+        //
+        // Routing an internal write through a session-authenticated API handler was never the
+        // right shape. The controller already holds both $customer and $store, so it writes the
+        // row itself and the handler stays closed.
+        $address = new DeliveryAddress();
+        $address->customer_id = $customer->id;
+        $address->full_name = $billing['firstname'] ?? null;
+        $address->title = isset($billing['firstname']) ? strtolower($billing['firstname']) : null;
+        $address->address = $billing['billing_address'] ?? null;
+        $address->country_id = $billing['billing_country'] ?? null;
+        $address->state_id = $billing['billing_state'] ?? null;
+        $address->city_id = $billing['billing_city'] ?? null;
+        $address->postcode = $billing['billing_postecode'] ?? null;
+        $address->phone = $billing['billing_user_telephone'] ?? null;
+        $address->default_address = 1;
+        $address->store_id = $store->id;
+        $address->save();
+
+        // Scoped to this customer, which is what add_address's own demotion should always have
+        // been: it keyed on `$request->customer_id` and so could demote another account's
+        // defaults.
+        DeliveryAddress::where('customer_id', $customer->id)
+            ->where('id', '!=', $address->id)
+            ->update(['default_address' => 0]);
     }
 
     /**

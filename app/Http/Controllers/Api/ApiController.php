@@ -912,7 +912,17 @@ public function saveStoreFcmToken(Request $request)
             ], $messages->first());
         }
         $final_price = 0;
-        $product = Product::find($request->product_id);
+        // THE PRODUCT MUST BE THIS STORE'S. Product carries StoreScope but is NOT in
+        // config/tenancy.php's scoped_models, so StoreScope::isActiveFor() short-circuits and NO
+        // predicate is added for ANY principal -- not a customer, not a merchant, not the
+        // operator. An unscoped find() therefore reached every tenant's catalogue.
+        //
+        // This is the ENTRY POINT for the cart -> order chain: cart_list prices whatever is in the
+        // cart and place_order/ordersave decrement its stock, neither with a store predicate. A
+        // customer of store A could put store B's product in their store-A cart and make checkout
+        // consume merchant B's inventory. Refusing it here keeps a foreign product out of the cart
+        // in the first place.
+        $product = Product::where('id', $request->product_id)->where('store_id', $store->id)->first();
         if ($product && $product->variant_product == 1) {
             if (!module_is_active('SizeGuideline')){
                 if ( empty( $request->variant_id ) || $request->variant_id == 0 ) {
@@ -1725,7 +1735,11 @@ public function saveStoreFcmToken(Request $request)
             return $this->error(['message' => __('You must be logged in to add items to your wishlist.')], __('You must be logged in to add items to your wishlist.'), 401);
         }
 
-        $Product = Product::find($request->product_id);
+        // THE PRODUCT MUST BE THIS STORE'S. Product carries StoreScope but is NOT in
+        // config/tenancy.php's scoped_models, so StoreScope::isActiveFor() short-circuits and NO
+        // predicate is added for ANY principal -- not a customer, not a merchant, not the
+        // operator. An unscoped find() therefore reached every tenant's catalogue.
+        $Product = Product::where('id', $request->product_id)->where('store_id', $store->id)->first();
         if (empty($Product)) {
             return $this->error(['message' => __('Product not found.')], __('Product not found.'));
         }
@@ -3090,8 +3104,16 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 $variant_id = $product->variant_id;
                 $qtyy = !empty($product->qty) ? $product->qty : 0;
 
-                $Product = Product::where('id', $product_id)->first();
-                $datas = Product::find($product_id);
+                // SCOPED TO THIS STORE. Closing addtocart is not enough: a cart row can reach
+                // this loop from the web storefront's own CartController, or already exist from
+                // before that gate, and this loop decrements whatever product id the cart holds.
+                // Measured: with only the entry gate in place, a planted cart row still drained
+                // another merchant's stock. Product is not in config/tenancy.php's scoped_models,
+                // so the scope adds no predicate for any principal and this has to be explicit.
+                // A foreign product now resolves to null and the stock block below is skipped,
+                // which is also what an already-deleted product did.
+                $Product = Product::where('id', $product_id)->where('store_id', $store->id)->first();
+                $datas = $Product;
 
                 if ($settings['stock_management'] == 'on') {
                     if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
@@ -3360,7 +3382,10 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
             // Coupon history
             $UserCoupon = new UserCoupon();
-            $UserCoupon->user_id = $request->user_id;
+            // Was `$request->user_id` -- caller-supplied attribution, and the sibling ordersave
+            // already derives it. Not coupon-limit evasion: Coupon::PerUsesCouponCount() resolves
+            // the user through OrderBillingDetail.email, not through this column. Audit integrity.
+            $UserCoupon->user_id = $customerId;
             $UserCoupon->coupon_id = $Coupon->id;
             $UserCoupon->amount = $coupon_data['coupon_discount_amount'];
             $UserCoupon->order_id = $order->id;
@@ -3429,7 +3454,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 if ($product_data->variant_product == 0) {
                     if ($product_data->track_stock == 1) {
                         OrderNote::order_note_data([
-                            'user_id' => !empty($request->user_id) ? $request->user_id : '0',
+                            'user_id' => $customerId,
                             'order_id' => $order->id,
                             'product_name' => !empty($product_data->name) ? $product_data->name : '',
                             'variant_product' => $product_data->variant_product,
@@ -3445,7 +3470,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                     $option = in_array('manage_stock', $variationOptions);
                     if ($option == true) {
                         OrderNote::order_note_data([
-                            'user_id' => !empty($request->user_id) ? $request->user_id : '0',
+                            'user_id' => $customerId,
                             'order_id' => !empty($order->id) ? $order->id : '',
                             'product_name' => !empty($product_data->name) ? $product_data->name : '',
                             'variant_product' => $product_data->variant_product,
@@ -3460,7 +3485,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
 
         OrderNote::order_note_data([
-            'user_id' => !empty($request->user_id) ? $request->user_id : '0',
+            'user_id' => $customerId,
             'order_id' => $order->id,
             'product_order_id' => $order->product_order_id,
             'delivery_status' => 'Pending',
@@ -3628,7 +3653,13 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                         } else {
                             $request->merge(['customer_id' => auth('customers')->user()->id, 'store_id' => $store->id, 'slug' => $slug]);
                             $api = new ApiController();
-                            $data = $api->cart_list($request);
+                            // $slug was omitted, so the nested call resolved no store. Its three
+                            // sibling call sites all pass it, and the merge above shows the intent.
+                            // NOT verified end to end: apply_coupon cannot be reached in the test
+                            // environment at all, because the coupon lookup uses the MySQL-only
+                            // `BINARY` keyword, which SQLite rejects outright -- see the note in
+                            // docs/security/P01-SECURITY-WORK-QUEUE.md S19.
+                            $data = $api->cart_list($request, $slug);
                             $response = $data->getData();
                         }
                         $produt_id = [];
@@ -4860,11 +4891,12 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
 
-        // The product must belong to the store in the path. Product carries StoreScope, but on
-        // this route no tenant resolves and `null_tenant => 'open'` adds no predicate, so an
-        // unscoped find() reached ANY tenant's product -- and AvregeRating() below then WRITES to
-        // that product row (`$Product->average_rating`), so this was a cross-tenant write, not
-        // only a cross-tenant read.
+        // The product must belong to the store in the path. Product carries StoreScope but is NOT
+        // in config/tenancy.php's scoped_models, so StoreScope::isActiveFor() short-circuits and
+        // NO predicate is added for ANY principal -- the open-tenant rule does not even come into
+        // it. An unscoped find() therefore reached any tenant's product, and AvregeRating() below
+        // then WRITES to that row (`$Product->average_rating`), so this was a cross-tenant write
+        // and not only a cross-tenant read.
         $Product = Product::where('id', $request->id)->where('store_id', $store->id)->first();
         if (empty($Product)) {
             return $this->error([
@@ -6486,9 +6518,27 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
      * a store resolved, and that store is the customer's own.
      *
      * A customer whose row carries NO store passes. `customers.store_id` is nullable and importers
-     * write that table, so such rows are real -- and refusing them would deny a genuine shopper
-     * their own data to close nothing, because every caller of this helper derives its target from
-     * the return value rather than from the slug.
+     * write that table, so such rows are plausible, and the same branch is in change_password and
+     * user_delete, so it is a consistent decision rather than an oversight here.
+     *
+     * BUT BE CLEAR WHAT IT COSTS, because an earlier version of this docblock was wrong about it.
+     * It is NOT true that every caller derives its target solely from the return value: several
+     * also act on `$store`, which came from the slug. payment_sheet reads the slug store's Stripe
+     * secret; update_user_image bills the slug store owner's quota; add_address, change_address
+     * and wishlist write `store_id = $store->id`; product_rating and add_review gate the product
+     * on the slug store; the cart and order rows land in the slug store. So a NULL-`store_id`
+     * customer is a cross-tenant actor through any of those, not merely a shopper reading their
+     * own data.
+     *
+     * It is left permissive because refusing such a row would lock a real shopper out of their own
+     * account, and because no first-party insert path produces one -- config/tenancy.php
+     * enumerates all sixteen writers of `customers` and every one sets `store_id`. It is therefore
+     * reachable only via legacy or imported rows. One query settles whether to tighten it:
+     *
+     *     SELECT COUNT(*) FROM customers WHERE store_id IS NULL;
+     *
+     * If that is zero, drop the null branch and compare the ids outright. Recorded in
+     * docs/security/P01-SECURITY-WORK-QUEUE.md S19 as a measurement owed, not a closed question.
      *
      * Returns null for anything else, including an unauthenticated caller. Fails closed.
      */
@@ -7091,7 +7141,14 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         Wishlist::where('customer_id', $customerId)->delete();
         Order::where('customer_id', $customerId)->delete();
         DeliveryAddress::where('customer_id', $customerId)->delete();
-        Testimonial::where('user_id', $customerId)->delete();
+        // Scoped to this store, unlike the three above. `testimonials.user_id` holds ids from TWO
+        // tables -- the storefront writers put a customers.id there while the admin writer puts a
+        // users.id there (see product_rating's note) -- and Testimonial carries no tenant scope.
+        // Without the predicate, deleting a customer destroys every testimonial on the platform
+        // whose user_id happens to equal that integer, including admin-authored ones in other
+        // tenants. Not attacker-steerable, since the id is the caller's own: collateral damage
+        // rather than an authorization hole, but damage all the same.
+        Testimonial::where('user_id', $customerId)->where('store_id', $store->id)->delete();
 
         $customer->tokens()->delete();
         $customer->delete();
@@ -7404,8 +7461,16 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 $variant_id = $product->variant_id;
                 $qtyy = !empty($product->qty) ? $product->qty : 0;
 
-                $Product = Product::where('id', $product_id)->first();
-                $datas = Product::find($product_id);
+                // SCOPED TO THIS STORE. Closing addtocart is not enough: a cart row can reach
+                // this loop from the web storefront's own CartController, or already exist from
+                // before that gate, and this loop decrements whatever product id the cart holds.
+                // Measured: with only the entry gate in place, a planted cart row still drained
+                // another merchant's stock. Product is not in config/tenancy.php's scoped_models,
+                // so the scope adds no predicate for any principal and this has to be explicit.
+                // A foreign product now resolves to null and the stock block below is skipped,
+                // which is also what an already-deleted product did.
+                $Product = Product::where('id', $product_id)->where('store_id', $store->id)->first();
+                $datas = $Product;
                 if ($settings['stock_management'] ?? '' == 'on') {
                     if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
                         $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();
@@ -7844,7 +7909,11 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
         $qty = $request->quantity;
         $product_id = $request->product_id;
-        $product = Product::find($product_id);
+        // THE PRODUCT MUST BE THIS STORE'S. Product carries StoreScope but is NOT in
+        // config/tenancy.php's scoped_models, so the scope short-circuits and adds no predicate
+        // for any principal. Unscoped, this returned another tenant's price, sale price, tax and
+        // stock state to any shopper who named the id.
+        $product = Product::where('id', $product_id)->where('store_id', $store->id)->first();
 
         if (!empty($product)) {
             if ($product->variant_product == 0) {
