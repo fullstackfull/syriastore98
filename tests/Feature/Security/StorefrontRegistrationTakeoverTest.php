@@ -3,7 +3,11 @@
 namespace Tests\Feature\Security;
 
 use App\Models\Customer;
+use App\Services\SocialIdentity\SocialIdentityVerifier;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Tests\Support\SocialIdentity\FakeOidcProvider;
 use Tests\Feature\Security\SecurityTestCase;
 
 /**
@@ -65,6 +69,44 @@ class StorefrontRegistrationTakeoverTest extends SecurityTestCase
     private static function customers()
     {
         return Customer::withoutGlobalScopes();
+    }
+
+    /**
+     * P01-SEC-14 UPDATED THE CONTRACT THIS FILE WAS WRITTEN AGAINST.
+     *
+     * When these tests were written, a social registration was performed by posting a bare
+     * provider id, because that is what the handler accepted -- and that acceptance was the residual
+     * this file recorded as NOT closed. Work Package A closed it: a social sign-in must now present
+     * a provider credential the server verifies.
+     *
+     * So the FIXTURES below changed and the ASSERTIONS did not. Every security assertion in this
+     * file still stands unaltered; what changed is how a legitimate social registration is
+     * performed, which is the contract change the fix deliberately made. The new behaviour has its
+     * own file, RegistrationProviderVerificationTest; these helpers only keep this file's existing
+     * assertions exercising the handler rather than bouncing off the new gate.
+     */
+    private const VERIFIED_AUDIENCE = 'legacy-suite-google-client-id';
+
+    private function configureGoogle($store): FakeOidcProvider
+    {
+        DB::table('settings')->insert([
+            'name' => 'Google_client_id', 'value' => self::VERIFIED_AUDIENCE,
+            'created_by' => $store->created_by, 'store_id' => $store->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $provider = new FakeOidcProvider();
+        Http::fake([
+            SocialIdentityVerifier::GOOGLE_JWKS_URL => Http::response($provider->jwks(), 200),
+        ]);
+
+        return $provider;
+    }
+
+    /** A google_token whose verified subject is $subject. */
+    private function googleToken(FakeOidcProvider $provider, string $subject): string
+    {
+        return $provider->token(['sub' => $subject, 'aud' => self::VERIFIED_AUDIENCE]);
     }
 
     private function register($store, array $payload)
@@ -202,10 +244,11 @@ class StorefrontRegistrationTakeoverTest extends SecurityTestCase
     public function test_a_first_time_social_registration_still_creates_an_account(): void
     {
         [, $store] = $this->makeTenant();
+        $provider = $this->configureGoogle($store);
 
         $response = $this->register($store, [
             'register_type' => 'google',
-            'google_id' => 'brand-new-google-id',
+            'google_token' => $this->googleToken($provider, 'brand-new-google-id'),
             'email' => 'fresh-b2@example.test',
             'first_name' => 'New',
         ]);
@@ -226,10 +269,11 @@ class StorefrontRegistrationTakeoverTest extends SecurityTestCase
     public function test_a_returning_social_user_resolves_to_their_own_existing_account(): void
     {
         [, $store] = $this->makeTenant();
+        $provider = $this->configureGoogle($store);
 
         $first = $this->register($store, [
             'register_type' => 'google',
-            'google_id' => 'returning-google-id',
+            'google_token' => $this->googleToken($provider, 'returning-google-id'),
             'email' => 'returning-b3@example.test',
             'first_name' => 'Returning',
         ]);
@@ -238,7 +282,7 @@ class StorefrontRegistrationTakeoverTest extends SecurityTestCase
 
         $second = $this->register($store, [
             'register_type' => 'google',
-            'google_id' => 'returning-google-id',
+            'google_token' => $this->googleToken($provider, 'returning-google-id'),
             'email' => 'returning-b3@example.test',
             'first_name' => 'Returning',
         ]);
@@ -255,8 +299,20 @@ class StorefrontRegistrationTakeoverTest extends SecurityTestCase
         [, $storeA] = $this->makeTenant();
         [, $storeB] = $this->makeTenant();
 
+        // Both stores configure the SAME audience and are served the SAME provider keys, so the
+        // identical token verifies in both. That is the strongest form of this test: the two
+        // accounts stay separate because of the store predicate on the lookup, not because the
+        // credential failed to verify in the second store.
+        $provider = $this->configureGoogle($storeA);
+        DB::table('settings')->insert([
+            'name' => 'Google_client_id', 'value' => self::VERIFIED_AUDIENCE,
+            'created_by' => $storeB->created_by, 'store_id' => $storeB->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $token = $this->googleToken($provider, 'multi-store-google-id');
+
         $this->register($storeA, [
-            'register_type' => 'google', 'google_id' => 'multi-store-google-id',
+            'register_type' => 'google', 'google_token' => $token,
             'email' => 'multi-b4@example.test', 'first_name' => 'Shopper',
         ])->assertJsonPath('status', 1);
 
@@ -264,7 +320,7 @@ class StorefrontRegistrationTakeoverTest extends SecurityTestCase
         // per-store `customers` table means; the alternative is store B silently inheriting
         // store A's account.
         $this->register($storeB, [
-            'register_type' => 'google', 'google_id' => 'multi-store-google-id',
+            'register_type' => 'google', 'google_token' => $token,
             'email' => 'multi-b4@example.test', 'first_name' => 'Shopper',
         ])->assertJsonPath('status', 1);
 
@@ -288,14 +344,16 @@ class StorefrontRegistrationTakeoverTest extends SecurityTestCase
     public function test_a_provider_id_match_cannot_rewrite_the_accounts_email(): void
     {
         [, $store] = $this->makeTenant();
+        $provider = $this->configureGoogle($store);
+        $token = $this->googleToken($provider, 'email-rewrite-google-id');
 
         $this->register($store, [
-            'register_type' => 'google', 'google_id' => 'email-rewrite-google-id',
+            'register_type' => 'google', 'google_token' => $token,
             'email' => 'real-owner@example.test', 'first_name' => 'Real',
         ])->assertJsonPath('status', 1);
 
         $this->register($store, [
-            'register_type' => 'google', 'google_id' => 'email-rewrite-google-id',
+            'register_type' => 'google', 'google_token' => $token,
             'email' => 'attacker@evil.test', 'first_name' => 'Real',
         ]);
 
@@ -324,8 +382,11 @@ class StorefrontRegistrationTakeoverTest extends SecurityTestCase
     {
         [, $store] = $this->makeTenant();
 
+        $provider = $this->configureGoogle($store);
+        $token = $this->googleToken($provider, 'trashed-google-id');
+
         $this->register($store, [
-            'register_type' => 'google', 'google_id' => 'trashed-google-id',
+            'register_type' => 'google', 'google_token' => $token,
             'email' => 'trashed@example.test', 'first_name' => 'Original',
         ])->assertJsonPath('status', 1);
 
@@ -335,7 +396,7 @@ class StorefrontRegistrationTakeoverTest extends SecurityTestCase
         $this->assertNotNull($account->fresh()->deleted_at, 'the fixture did not soft-delete');
 
         $response = $this->register($store, [
-            'register_type' => 'google', 'google_id' => 'trashed-google-id',
+            'register_type' => 'google', 'google_token' => $token,
             'email' => 'trashed@example.test', 'first_name' => 'Attacker',
         ]);
 
@@ -367,11 +428,13 @@ class StorefrontRegistrationTakeoverTest extends SecurityTestCase
     public function test_the_response_image_does_not_come_from_the_users_table(): void
     {
         [, $store] = $this->makeTenant();
+        $provider = $this->configureGoogle($store);
+        $token = $this->googleToken($provider, 'image-c1-google-id');
 
         // Step 1: create the account through the endpoint, so the id is whatever the sequence gave.
         $this->register($store, [
             'register_type' => 'google',
-            'google_id' => 'image-c1-google-id',
+            'google_token' => $token,
             'email' => 'fresh-c1@example.test',
             'first_name' => 'New',
         ])->assertJsonPath('status', 1);
@@ -416,7 +479,7 @@ class StorefrontRegistrationTakeoverTest extends SecurityTestCase
         // Step 3: the returning-user path runs the same response tail.
         $response = $this->register($store, [
             'register_type' => 'google',
-            'google_id' => 'image-c1-google-id',
+            'google_token' => $token,
             'email' => 'fresh-c1@example.test',
             'first_name' => 'New',
         ]);

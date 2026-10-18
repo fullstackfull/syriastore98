@@ -5,6 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Models\User;
 use App\Models\Customer;
 use App\Scopes\StoreScope;
+use App\Services\SocialIdentity\SocialIdentityVerificationException;
+use App\Services\SocialIdentity\SocialIdentityVerifier;
+use Illuminate\Support\Facades\Log;
 use App\Traits\ApiResponser;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
@@ -24,6 +27,16 @@ use Illuminate\Support\Facades\Cache;
 class AuthController extends Controller
 {
     use ApiResponser;
+
+    /**
+     * Resolved from the container rather than injected, because this controller has no constructor
+     * and adding one would change how every other action in it is built. The container binding is
+     * what lets a test swap in a verifier without reaching the network.
+     */
+    protected function socialIdentityVerifier(): SocialIdentityVerifier
+    {
+        return app(SocialIdentityVerifier::class);
+    }
 
     public function register(Request $request,$slug)
     {
@@ -123,17 +136,76 @@ class AuthController extends Controller
                 return $this->error(['message' => $message], $message);
             }
 
-            // The provider id is validated before the lookup, so an empty one cannot match a row
-            // whose column is also empty -- which is every row created by email registration.
-            $providerId = $request->input($providerColumn);
-            if (empty($providerId)) {
-                $message = $request->register_type . ' id is missing.';
-                return $this->error(['message' => $message], $message);
+            // ================================================================================
+            // P01-SEC-14 WORK PACKAGE A. THE PROVIDER IDENTITY IS NOW ESTABLISHED, NOT ASSERTED.
+            //
+            // This block used to read the provider id out of the request body and match an account
+            // on it. The previous package scoped that lookup to the store and stopped it adopting a
+            // password account, which reduced the attack from "know a victim's email address" to
+            // "know a victim's provider id" -- but a posted string is an assertion, never evidence,
+            // so anyone holding that id could still sign in as them and could rewrite their
+            // profile, including `firebase_token`, which redirects their push notifications.
+            //
+            // The caller must now present the provider's own credential, and the server verifies it
+            // against the provider: an RS256 ID token checked against Google's or Apple's published
+            // key set, or a Facebook token inspected through `debug_token` with this store's app
+            // access token. See App\Services\SocialIdentity\SocialIdentityVerifier -- in
+            // particular its note that the AUDIENCE check, not the signature, is the control.
+            //
+            // `$request->{$providerColumn}` is deliberately ignored from here on. It is still
+            // accepted so a client that keeps sending it is not rejected, exactly as `customer_id`
+            // is treated across the storefront API; it simply no longer decides anything. The
+            // account key is the verified subject.
+            //
+            // FAILS CLOSED. Every failure -- no token, no credential configured for this store,
+            // unreachable provider keys, bad signature, expired token, wrong audience, wrong
+            // issuer, no subject -- returns the one refusal below. The specific reason goes to the
+            // log and not to the caller, so this endpoint cannot be used to probe which providers a
+            // store has configured or whether a given token is live.
+            // ================================================================================
+            try {
+                $identity = $this->socialIdentityVerifier()->verify(
+                    $request->register_type,
+                    $request->input(SocialIdentityVerifier::TOKEN_FIELDS[$request->register_type]),
+                    $store
+                );
+            } catch (SocialIdentityVerificationException $e) {
+                Log::warning('register: social identity verification refused', [
+                    'provider' => $request->register_type,
+                    'reason' => $e->reason,
+                    'store_id' => $store->id,
+                ]);
+
+                return $this->error(
+                    ['message' => __('Could not verify your sign-in with this provider.')],
+                    __('Could not verify your sign-in with this provider.')
+                );
             }
 
-            if ($request->register_type == 'facebook' && empty($email) && empty($request->mobile)) {
-                return $this->error(['message' => __('Email or mobile required in facebook login.')], __('Email or mobile required in facebook login.'));
+            $providerId = $identity->providerId;
+
+            // THE EMAIL IS ALSO TAKEN FROM THE PROVIDER WHEN THE PROVIDER VOUCHED FOR IT.
+            //
+            // Without this, a caller presenting their OWN valid token could still post
+            // `email=victim@example.com` and have a new account created holding somebody else's
+            // address -- not a takeover, but email squatting, and it points that address's
+            // password-recovery mail at an account the victim never made. A provider-asserted
+            // address that the provider says it VERIFIED is evidence; the posted one is not.
+            //
+            // Only `email_verified === true` counts. An unverified provider email is exactly how a
+            // social sign-in becomes a way to claim a password account, so it is ignored.
+            //
+            // This cannot move an EXISTING account's address: the block further down writes `email`
+            // only when `$isNewAccount`.
+            if ($identity->emailVerified && $identity->email !== null) {
+                $email = $request->email = $identity->email;
             }
+
+            // REMOVED HERE, and recorded rather than quietly dropped: a gate that refused a
+            // facebook registration when both `$email` and `mobile` were empty. It could never
+            // fire, because `$email` had already been replaced with a synthetic
+            // `<first_name><rand>@example.com` address further up whenever the request carried no
+            // email. It tested a variable that was never empty by the time it ran.
 
             // withoutGlobalScope(StoreScope) and NOT withoutGlobalScopes(): the plural form also
             // strips SoftDeletingScope, so `$existing` could be a TRASHED customer -- the handler
@@ -202,16 +274,21 @@ class AuthController extends Controller
         } else {
             $flag = 0;
 
-            if ($request->register_type == 'google' && !empty($request->google_id) ) {
-                $user->google_id       = $request->google_id;
+            // The VERIFIED subject is written, not the posted id. $providerId was set by the
+            // verification above, so by the time control reaches here a provider id exists and has
+            // been proved -- which is why these no longer test the request at all. $flag's
+            // "provider id is missing" arm is consequently unreachable for a supported provider;
+            // it is left in place because an unsupported register_type still returns above it.
+            if ($request->register_type == 'google') {
+                $user->google_id       = $providerId;
                 $flag = 1;
             }
-            if ($request->register_type == 'apple' && !empty($request->apple_id) ) {
-                $user->apple_id        = $request->apple_id;
+            if ($request->register_type == 'apple') {
+                $user->apple_id        = $providerId;
                 $flag = 1;
             }
-            if ($request->register_type == 'facebook' && !empty($request->facebook_id) ) {
-                $user->facebook_id     = $request->facebook_id;
+            if ($request->register_type == 'facebook') {
+                $user->facebook_id     = $providerId;
                 $flag = 1;
             }
 
