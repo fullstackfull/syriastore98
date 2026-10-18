@@ -48,9 +48,16 @@ Each of these has produced a real defect. Do not assume the framework default.
   `DeliveryBoy`→`deliveryboy`. **A merchant's or driver's token passes `custom.auth` while
   `auth('customers')` stays null.** Any handler shaped
   `if (! auth('customers')->user()) { $id = $request->some_id; }` is therefore reachable by a
-  non-customer and takes the attacker-controlled branch. **Five handlers had exactly this shape**
-  — see `docs/security/P01-SECURITY-WORK-QUEUE.md` S16. Always derive the target from the
-  authenticated principal; never from request input.
+  non-customer and takes the attacker-controlled branch. This was the single most productive
+  pattern in the codebase: five handlers in S16, then **twenty-six more** in S19. Always derive the
+  target from the authenticated principal; never from request input. The storefront's shared
+  predicate is `ApiController::resolveStoreCustomer()` — reuse it rather than copying the check.
+- **A `-guest` route suffix does not mean the route is public.** `place-order-guest`,
+  `cart-check-guest`, `product-detail-guest` and the rest all carry `custom.auth`, which refuses a
+  missing bearer token before the handler runs. The suffix means "the handler has an
+  `auth('customers')` fallback" — and that fallback was the defect.
+- **A customer-token probe cannot test the trap.** A `Customer` token takes the *safe* branch, so a
+  test that only drives one proves nothing. Drive a merchant and a driver token too.
 - **Sanctum tokens never expire** (no `config/sanctum.php`) and every one carries `['*']`.
   `CheckAbilities` is imported in `routes/api.php` and never used. There is **no refresh path for
   any client**, and `Api\AuthController::login` is **unrouted** — customers have no login endpoint.
@@ -76,6 +83,28 @@ Each of these has produced a real defect. Do not assume the framework default.
   whole suite is therefore structurally blind to module routes and module code: a test that
   "passes" against a module surface may never have reached it. Enable the module through the
   production loader and add a premise test that asserts it really is active.
+
+**Model caching**
+
+- **`User` is `Cachable`** (`GeneaLabs\LaravelModelCaching\Traits\Cachable`, `app/Models/User.php:16`).
+  A raw-query write — `DB::table('users')->update(...)` — leaves Eloquent reads serving the
+  **pre-write** row, and with `CACHE_STORE=array` that stale entry lives for the rest of the test.
+  This has produced two measured false readings: a fixture that looked like it had not applied, and
+  a security test that passed against unfixed code because the handler's own `User::find()` also
+  read stale. Write through Eloquent (which flushes), or call `(new User)->flushCache()`.
+- Several handlers read the platform admin via `Cache::remember('admin_details', 3600, ...)`.
+  `Cache::forget('admin_details')` between a fixture and a request, or the request sees a `User`
+  captured before the fixture existed.
+
+**Scoped models — check before asserting absence**
+
+`getGlobalScopes()` says, and it is not what the allowlist alone suggests: **`Customer`** (StoreScope
+*and* SoftDeletingScope), **`Cart`** and **`Product`** are scoped; **`Order`, `Wishlist`,
+`DeliveryAddress`, `User`, `ActivityLog`, `Testimonial`** are not. So a plain `Customer::find()` or
+`Cart::find()` **in an assertion** answers against whichever tenant happens to be resolved, not
+against the table — and an "it is gone" assertion written that way passes whether or not the fix
+works. That cost a real false reading: a cart test reported a store-B row deleted while the raw
+table still held it. Assert through `withoutGlobalScopes()`.
 
 **Schema**
 

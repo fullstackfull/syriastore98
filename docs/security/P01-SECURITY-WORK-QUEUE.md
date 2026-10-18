@@ -779,6 +779,125 @@ pins that: if one is ever routed, the route must be refused rather than the pack
 
 ---
 
+## S19 — The storefront API's `customer_id`-from-request family — **CLOSED by P01-SEC-11**
+
+The second half of S16's root cause, worked through the whole storefront API rather than the five
+password handlers. Twenty-five handlers across `Api\ApiController` and one in `Api\AuthController`
+took their subject, their target row, or both from caller-supplied request input.
+
+### The two shapes
+
+**Shape A — the bare liveness check.**
+
+```php
+$customer = Customer::find($request->customer_id);
+if (empty($customer)) { return $this->error(..., 401); }
+// ... then every query keyed on $request->customer_id
+```
+
+`Customer::find()` answers "does this id exist", not "is this the caller". It authorised nothing.
+
+**Shape B — the guard-class trap, which reads as a guest fallback and is not one.**
+
+```php
+if (! auth('customers')->user()) { $customer_id = $request->customer_id; }
+else                             { $customer_id = auth('customers')->user()->id; }
+```
+
+`custom.auth` logs a token's owner into whichever guard matches the **tokenable class**, so a
+merchant's or a driver's token satisfies the middleware with `auth('customers')` null and takes the
+attacker-controlled branch. A customer token takes the safe one — which is why a customer-token
+probe proves nothing about Shape B, and why every regression test for it drives all three
+principal classes. There are no guests on these routes: `custom.auth` returns 401 for a missing
+bearer before the handler runs, so the `-guest` suffix on `place-order-guest`, `cart-check-guest`
+and friends means "the handler has an `auth('customers')` fallback", not "the route is public".
+
+### Why nothing underneath caught it
+
+- `StoreScope::storefrontStoreId()` reads the **`storeSlug`** route parameter. These routes use
+  `{slug}` and carry no `ActiveTheme` middleware, so no tenant resolves, and `null_tenant => 'open'`
+  means the scope adds **no predicate at all**.
+- `Order`, `Wishlist`, `DeliveryAddress`, `User`, `ActivityLog` and `Testimonial` are not in
+  `scoped_models` in any case. (Verified by enumerating `getGlobalScopes()` per model: `Customer`,
+  `Cart` and `Product` are scoped; those six are not.)
+- A `where('store_id', $store->id)` built from the slug is not a tenant check — the slug is caller
+  input, so it only compares the caller's own two values.
+
+So the handler was the only control in every case.
+
+### What was closed, by commit
+
+| Commit | Handlers | What a single request did |
+|---|---|---|
+| AUTHZ-3/4 (`c48e02d4`) | `order_status_change`, `product_return` | order-status manipulation on any order, incl. the wallet-refund cancel path |
+| AUTHZ-2 (`070986e3`) | `user_delete` | deleted a merchant or the operator, and cascaded on `customer_id` using a value from `users.id` |
+| AUTHZ-1 (`6649a969`) | `register` | **unauthenticated** adoption of any customer account by email, re-parented into the attacker's store, token returned |
+| reads (`601eec51`) | `address_list`, `wishlist_list`, `user_detail`, `order_list`, `return_order_list`, `loyality_reward` | full postal PII, email, mobile, order history, reward balances for any account |
+| addresses (`696fd3c2`) | `add_address`, `update_address`, `change_address`, `delete_address` | wrote, re-parented or deleted any delivery address — control of a shipping destination |
+| cart/wishlist (`00361f1c`) | `cart_list`, `addtocart`, `cart_qty`, `cart_check`, `wishlist`, `delivery_charge`, `variant_list`, `update_user_image` | read and wrote any cart and wishlist; deleted a cart row in **any** store; deleted a victim's avatar file and billed the replacement to their store owner's quota |
+| reviews (`0ee45754`) | `product_rating`, `add_review` | forged review attribution, consumed a victim's review allowance, and **wrote** `average_rating` onto another tenant's product |
+| orders (`bdff6490`) | `place_order` (×2 routes), `confirm_order`, `ordersave` | moved stock, cleared carts, forged orders carrying the attacker's billing identity, and the financial ledger row `OrderObserver` writes |
+| AUTHZ-22 (`424fbf1e`) | `payment_sheet` | created a Stripe PaymentIntent on another merchant's Stripe account |
+
+One shared helper, `ApiController::resolveStoreCustomer()`, replaced the copied predicate: the
+principal is a `Customer`, a store resolved, and that store is the customer's own. A customer row
+with a **NULL** `store_id` passes, because that column is nullable and importers write it, and
+refusing such rows would deny a real shopper their own data to close nothing — every caller derives
+its target from the return value rather than from the slug.
+
+### Severity notes established by running the code, not by reading it
+
+- **`place_order` was exploitable with an ordinary customer token**, unlike its siblings: it never
+  consulted the session on any branch. Its own check is load-bearing on its own — `cart_list` never
+  protected against a customer caller, because it always took its safe branch for one.
+- **`confirm_order` persists no `Order`.** It is a pricing step returning a computed summary, so its
+  exposure was the victim's basket and totals, not a forged order.
+- **`ordersave` cannot complete for anyone**: `$order_array['coupon_info']['discount_amount']`
+  (`ApiController:7608`) reads a key set only inside the coupon branch. But the 500 lands *after*
+  the stock decrement and the cart delete, so the hole was destructive rather than order-forging.
+- **`delivery_charge` and `variant_list` had nothing to leak.** The request-controlled branch set
+  `$cart = []` in the first and used the id only to gate in the second. Both were corrected for
+  consistency; neither fix is a closed hole, and their tests say so.
+
+### Still open after P01-SEC-11, and deliberately not claimed
+
+1. **`register` verifies no provider token.** `google_id` / `apple_id` / `facebook_id` are posted
+   strings. The lookup is now by provider id within the store, so an attacker must know the
+   victim's provider id rather than their email address, and can never adopt a password account —
+   but a known provider id is still sufficient to sign in as that account. Closing it needs real
+   Google/Apple/Facebook token verification, a new outbound dependency.
+2. **`payment_sheet` still takes `amount` from the request.** Binding it to a server-computed cart
+   total is the right shape but changes what the client must send, and no client in either
+   repository calls this path. Whether a mismatched intent can mark an order paid depends on
+   `PaymentVerificationService` — a separate question.
+3. **`notify_user` — hardening, not closed, and the family fix would break it.**
+   `DB::table('notify_users')->insert(['user_id' => $request->user_id, ...])` with
+   `notify_users.user_id` carrying a real **FK to `users`**
+   (`2024_03_21_084240_create_notify_users_table.php:23`). So writing an authenticated
+   `customers.id` there is a `QueryException` and a 500. What the endpoint allows today is
+   enrolling an arbitrary platform `users` row for a back-in-stock notification on a product in a
+   store of the caller's choosing: a notification row, no read, no PII. The honest reading is that
+   the shopper journey this endpoint appears to serve **cannot be recorded by it at all**, because a
+   customer id that is not also a `users.id` is rejected by its own guard. Needs a schema decision
+   (a `customer_id` column, or dropping the FK) — GATE-F work, not an authorization fix.
+4. **`testimonials.user_id` holds ids from two tables.** No FK, but `Testimonial::UserData()` is
+   `hasOne(User::class, 'id', 'user_id')` and the admin-side writer puts a `users` id in it while
+   the storefront puts a `customers` id. Pre-existing and unchanged; resolving it is a schema
+   decision.
+5. **`add_review` has no one-review-per-product rule** where `product_rating` does. Bounding review
+   volume is a product decision, not an authorization one.
+
+### Two functional defects found while establishing test premises
+
+Neither is an authorization issue; both are recorded because a test that trips over them measures a
+crash instead of a control.
+
+- `ordersave` 500s on every order placed without a coupon (above).
+- `place_order` 500s from `Utility::paymentWebhook($order)` **after** `$order->save()`, so the order
+  row exists and the caller sees a failure.
+
+---
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**
@@ -809,7 +928,7 @@ Keeping these apart is the point; each is independently reviewable and independe
 | *(owner decision, not a package)* | S12 (c) | Same decision as the storefront document button |
 | *(triage, not a package)* | S14 | Verify each row before assigning severity |
 | **P01-SEC-10** | **S15-A** | **EMERGENCY.** Anonymous platform takeover. Answer before any deployment; route can be disabled as an interim with no app release |
-| **P01-SEC-11** | S15-B rows 1-7 | One API-authorization pass, one shared ownership helper, one Flutter window |
+| **P01-SEC-11** | S15-B rows 1-7 + **S19** | ~~One API-authorization pass, one shared ownership helper, one Flutter window~~ **DONE.** 26 handlers, nine commits, one shared helper (`resolveStoreCustomer`). No new 401 on any path a shipped client calls; see S19 for the five rows left open |
 | **P01-SEC-12** | S15-B row 8 | `config/superadminaccess.php` denylist vs the finance permissions. No API impact |
 | **P01-SEC-3** | S4 + the `larabug` blacklist review | Independent; no contract impact |
 | **P01-SEC-4** | S5 session half (logout, id regeneration, `same_site`) | Independent. Token expiry/abilities wait for a Flutter window |
