@@ -23,7 +23,20 @@ name: CI
 # enforces that invariant rather than trusting it.
 
 on:
+  # `types` HAS TO BE SPELLED OUT, and `edited` is the reason. The default is
+  # [opened, synchronize, reopened], so a pull request DESCRIPTION edit triggered nothing --
+  # and the security attestation this pipeline requires lives in the description. A reviewer
+  # who worked the checklist and added the line watched the gate stay red, because re-running
+  # a job replays the original webhook payload with the pre-edit body. The only ways out were
+  # a cosmetic commit to force a `synchronize`, or merging past a red required check: one is
+  # noise in the history, the other is the bypass this gate exists to prevent.
+  #
+  # Adding `edited` means description edits now start a run. Only the attestation job runs in
+  # one -- see `security-attestation` and the `github.event.action != 'edited'` guards below --
+  # because an edit cannot change code, and a job whose verdict is about code must not be
+  # re-decided by an edit.
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main, master]
 
@@ -31,7 +44,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # The event class is part of the key, so an edit-triggered run cannot cancel the code run it
+  # is unrelated to. Without it, editing the description while the suites were running would
+  # cancel them and leave the PR with no verdict at all.
+  group: ci-${{ github.ref }}-${{ github.event_name == 'pull_request' && github.event.action == 'edited' && 'edited' || 'code' }}
   cancel-in-progress: true
 
 jobs:
@@ -44,6 +60,8 @@ jobs:
   static:
     name: Static checks (no vendor needed)
     runs-on: ubuntu-latest
+    # A description edit changes no code, so this job has nothing to re-decide.
+    if: github.event.action != 'edited'
 
     steps:
       - uses: actions/checkout@v4
@@ -527,6 +545,8 @@ jobs:
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest
+    # A description edit changes no code, so this job has nothing to re-decide.
+    if: github.event.action != 'edited'
 
     steps:
       - uses: actions/checkout@v4
@@ -625,6 +645,8 @@ jobs:
   tests:
     name: Tests (REQUIRED -- real suites, clean install from composer.lock)
     runs-on: ubuntu-latest
+    # A description edit changes no code, so this job has nothing to re-decide.
+    if: github.event.action != 'edited'
 
     env:
       # Belt and braces: REAL environment variables. Laravel's Dotenv loader is
@@ -993,6 +1015,8 @@ jobs:
   tests-degraded:
     name: Tests (REQUIRED -- real suites, PayHere excluded and NOT fixed)
     runs-on: ubuntu-latest
+    # A description edit changes no code, so this job has nothing to re-decide.
+    if: github.event.action != 'edited'
 
     env:
       DB_CONNECTION: sqlite
@@ -1308,6 +1332,8 @@ jobs:
   lockfile-reproducibility:
     name: Is the PayHere blocker still there? (report)
     runs-on: ubuntu-latest
+    # A description edit changes no code, so this job has nothing to re-decide.
+    if: github.event.action != 'edited'
 
     env:
       DB_CONNECTION: sqlite
@@ -1413,10 +1439,61 @@ jobs:
   #
   # NOTHING HERE ACCEPTS ANYTHING. Inherited failures are reported as unresolved baseline drift
   # on every run. This job should be deleted once the manifest is reconciled.
+  # ---------------------------------------------------------------------------
+  # THE HUMAN GATE, ON ITS OWN, because it is the one check a description edit can change.
+  #
+  # It used to be the last step of `regression-gate`, which made one check mean two things: a
+  # test regression and a missing signature were the same red. That was survivable until the
+  # trigger was fixed -- now that an edit starts a run, the two have to be separate, or an edit
+  # would re-decide a verdict about code. So: the regression gate answers "did this branch break
+  # anything", this job answers "has a human signed the checklist", and the two can disagree.
+  #
+  # BRANCH PROTECTION. If "Merge-base regression gate (new failures only)" is a required check,
+  # add this job's name to the required list as well -- it is where the attestation is enforced
+  # now, and the gate alone no longer covers it.
+  #
+  # Needs no PHP, no composer and no suites: a checkout, a merge base, and a string search of
+  # the body. Seconds, which is what makes running it on every edit reasonable.
+  attestation:
+    name: "Security-sensitive diff: human checklist"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Refuse to run as root
+        run: '[ "$(id -u)" != "0" ] || { echo "refusing to run as root"; exit 1; }'
+
+      # Full history: the merge base cannot be resolved from a shallow clone.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve the merge base
+        id: base
+        run: |
+          set -euo pipefail
+          BASE="$(git merge-base "origin/${{ github.base_ref }}" HEAD)"
+          echo "sha=${BASE}" >> "$GITHUB_OUTPUT"
+          echo "merge base: ${BASE}"
+
+      - name: Require the human checklist on a security-sensitive diff
+        env:
+          # VIA THE ENVIRONMENT, NEVER INTERPOLATED INTO THE SCRIPT. ${{ }} substitution happens
+          # before the shell sees the line, so a pull request body is attacker-controlled text
+          # pasted into a command -- a body containing a quote and a semicolon executes.
+          #
+          # On an `edited` event this is the CURRENT body, which is the whole point: the payload
+          # of an edit carries what the description says now.
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          printf '%s' "$PR_BODY" > /tmp/pr-body.txt
+          .github/scripts/flag-sensitive-diff.sh "$BASE_SHA" /tmp/pr-body.txt
+
   regression-gate:
     name: "Merge-base regression gate (new failures only)"
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    # As above: an edit cannot change code, and this job's verdict is about code.
+    if: github.event_name == 'pull_request' && github.event.action != 'edited'
     env:
       DB_CONNECTION: sqlite
       DB_DATABASE: ':memory:'
@@ -1509,17 +1586,6 @@ jobs:
             --json=storage/logs/regression-gate.json \
             --base-ref="${{ steps.base.outputs.sha }}" \
             --official-exit="${{ steps.official.outputs.exit }}"
-
-      - name: Require the human checklist on a security-sensitive diff
-        env:
-          # VIA THE ENVIRONMENT, NEVER INTERPOLATED INTO THE SCRIPT. ${{ }} substitution happens
-          # before the shell sees the line, so a pull request body is attacker-controlled text
-          # pasted into a command -- a body containing a quote and a semicolon executes.
-          PR_BODY: ${{ github.event.pull_request.body }}
-          BASE_SHA: ${{ steps.base.outputs.sha }}
-        run: |
-          printf '%s' "$PR_BODY" > /tmp/pr-body.txt
-          .github/scripts/flag-sensitive-diff.sh "$BASE_SHA" /tmp/pr-body.txt
 
       - uses: actions/upload-artifact@v4
         if: always()
