@@ -12,6 +12,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Http\Requests\ApproveLinkRequest;
 use Workdo\LynomiaChat\app\Models\LynomiaCommerceEvent;
@@ -617,15 +618,30 @@ class IntegrationController extends Controller
 
         $previous = (int) $model->commerce_credential_version;
 
-        $model->forceFill([
-            'commerce_credential_version' => $previous + 1,
-            'commerce_credential_issued_at' => now(),
-        ])->save();
+        // MINTED, NOT WRITTEN HERE. This used to bump the version, save, and only then derive --
+        // and deriving can fail: the master secret may be unset, which is what a real issuance
+        // hit, with a 500 to show for it and the store's previously working credential already
+        // revoked by an operation that reported failure. CommerceCredential::mint asserts the
+        // secret first and shares a transaction with the bump, so either both happen or neither
+        // does. It is also what the automatic merchant activation calls, so the two paths cannot
+        // bump the same column by different rules.
+        try {
+            $credential = CommerceCredential::mint($model);
+        } catch (\RuntimeException $e) {
+            // The one thing an operator can act on, and nothing from the exception itself: its
+            // message names an environment variable, which belongs in the log and not on a page.
+            Log::warning('[lynomia] commerce credential issuance refused', [
+                'link_id' => $model->id,
+                'store_id' => $model->store_id,
+            ]);
+
+            return back()->with('error', __('Commerce credentials are not configured for this installation. The previous credential is unchanged.'));
+        }
 
         AuditLog::record('lynomia_commerce_credential_issued', $model, [
             'commerce_credential_version' => $previous,
         ], [
-            'commerce_credential_version' => $previous + 1,
+            'commerce_credential_version' => (int) $model->commerce_credential_version,
             'store_id' => $model->store_id,
             'actor_id' => auth()->id(),
             // The credential itself is NEVER written to the audit trail. Only the fact and the
@@ -634,7 +650,7 @@ class IntegrationController extends Controller
 
         return back()
             ->with('success', __('A new commerce credential was issued. The previous one no longer works.'))
-            ->with('lynomia_commerce_credential', CommerceCredential::issue($model->fresh()));
+            ->with('lynomia_commerce_credential', $credential);
     }
 
     /**

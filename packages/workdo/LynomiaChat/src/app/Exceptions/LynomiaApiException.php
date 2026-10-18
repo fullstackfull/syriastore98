@@ -55,11 +55,20 @@ class LynomiaApiException extends RuntimeException
      *                            another workspace, and without it a merchant is told "somebody
      *                            has this number" and cannot act.
      */
+    /**
+     * @param string|null $errorCode The machine-readable reason the far side gave, carried through
+     *                               UNRENDERED. The message is already translated for a merchant to
+     *                               read, which makes it the wrong thing to store or to branch on:
+     *                               a caller that needs to RECORD why something failed needs a
+     *                               token that means the same in every language, and a row read by
+     *                               a whole tenant cannot hold one reader's sentence.
+     */
     public function __construct(
         public readonly string $kind,
         string $message,
         public readonly ?int $status = null,
-        public readonly ?string $heldBy = null
+        public readonly ?string $heldBy = null,
+        public readonly ?string $errorCode = null
     ) {
         parent::__construct($message);
     }
@@ -100,7 +109,23 @@ class LynomiaApiException extends RuntimeException
                 self::KIND_CONFLICT,
                 __('That channel is already connected to another one of your stores.'),
                 $status,
-                is_string($heldBy) && $heldBy !== '' ? $heldBy : null
+                is_string($heldBy) && $heldBy !== '' ? $heldBy : null,
+                $errorCode
+            );
+        }
+
+        // THE COMMERCE INSTALLATION REFUSALS, FOR THE SAME REASON AS THE TWO ABOVE: each one has
+        // a different thing the merchant (or their operator) should do next, and "Lynomia
+        // rejected the request as invalid" sends every one of them to support. The codes are
+        // matched, never rendered -- the sentence is written here, in the reader's language, and
+        // survives any rewording on the Lynomia side.
+        if ($status === 409 && $errorCode === 'installation_claimed_elsewhere') {
+            return new self(
+                self::KIND_CONFLICT,
+                __('Your store data is already connected to a different Lynomia Chat workspace. Please contact support.'),
+                $status,
+                null,
+                $errorCode
             );
         }
 
@@ -108,11 +133,21 @@ class LynomiaApiException extends RuntimeException
             $message = match ($errorCode) {
                 'wrong_platform_app' => __('That connection code was created for a different integration. Generate one for Store Syria in Lynomia and try again.'),
                 'invalid_code' => __('That connection code is not valid, has already been used, or has expired. Please generate a new one in Lynomia.'),
+                // The merchant's Lynomia plan does not sell the commerce module. A real
+                // entitlement question, not a fault, and the only one on this list they resolve
+                // by upgrading rather than by retrying.
+                'commerce_disabled' => __('Your Lynomia Chat plan does not include store data yet. Please contact support to enable it.'),
+                // Store Syria's provider is switched off installation-wide in Lynomia, or the
+                // credential no longer resolves to this store. Both are configuration on one
+                // side or the other and neither is anything a merchant can act on.
+                'provider_disabled', 'auth_invalid', 'platform_owned_account' =>
+                    __('Store data could not be connected for this store. Please contact support.'),
+                'store_limit_reached' => __('Your Lynomia Chat plan has no room for another connected store. Please contact support.'),
                 default => null,
             };
 
             if ($message !== null) {
-                return new self(self::KIND_CONFLICT, $message, $status);
+                return new self(self::KIND_CONFLICT, $message, $status, null, $errorCode);
             }
         }
 
@@ -137,8 +172,8 @@ class LynomiaApiException extends RuntimeException
             // KIND_CONFLICT alone passes getMessage() straight through, because most of its carriers
             // (AccountLinker, IdentityProvisioner) already build a translated sentence. These two do not,
             // so without __() an Arabic dashboard shows an English developer note.
-            $status === 409 => new self(self::KIND_CONFLICT, __('Lynomia reported a conflict.'), $status),
-            $status === 422 => new self(self::KIND_CONFLICT, __('Lynomia rejected the request as invalid.'), $status),
+            $status === 409 => new self(self::KIND_CONFLICT, __('Lynomia reported a conflict.'), $status, null, $errorCode),
+            $status === 422 => new self(self::KIND_CONFLICT, __('Lynomia rejected the request as invalid.'), $status, null, $errorCode),
             $status === 429 => new self(self::KIND_RATE_LIMITED, 'Lynomia is rate limiting this app.', $status),
             default => new self(self::KIND_REMOTE_ERROR, "Lynomia returned HTTP {$status}.", $status),
         };

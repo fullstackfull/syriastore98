@@ -193,6 +193,78 @@ class LynomiaCommerceCredentialUiTest extends TestCase
         $this->assertSame((int) $link->store_id, CommerceCredential::resolveStoreId($second));
     }
 
+    /**
+     * THE DEFECT THAT TOOK A WORKING INTEGRATION DOWN WITH A BUTTON THAT REPORTED FAILURE.
+     *
+     * Issuance was two unrelated statements: bump the version and save, then derive. Deriving
+     * refuses outright when LYNOMIA_WEBHOOK_MASTER_SECRET is unset -- which is exactly what a
+     * real issuance hit, with an HTTP 500 to show for it -- and by then the bump had been
+     * committed, so every credential minted before that instant had been REVOKED by an operation
+     * that said it had not done anything.
+     *
+     * Two properties, asserted separately because they are two independent protections: the
+     * secret is checked before anything is written, and the bump shares a transaction with the
+     * derivation so any other failure rolls it back too.
+     */
+    public function test_a_failed_issuance_does_not_revoke_the_working_credential(): void
+    {
+        $link = $this->activeLink();
+        $this->actingAs($this->operator());
+        $working = $this->controller()->issueCommerceCredential($link->id)
+            ->getSession()->get('lynomia_commerce_credential');
+        $this->assertSame((int) $link->store_id, CommerceCredential::resolveStoreId($working));
+
+        // Forgotten first, because the successful issuance above flashed it into this same
+        // session and a leftover value would make the assertion below pass for the wrong reason.
+        session()->forget('lynomia_commerce_credential');
+
+        config()->set('lynomia.webhook_master_secret', '');
+        $redirect = $this->controller()->issueCommerceCredential($link->id);
+
+        // The operator is told, in a sentence that names no environment variable.
+        $this->assertNotNull($redirect->getSession()->get('error'));
+        $this->assertNull($redirect->getSession()->get('lynomia_commerce_credential'));
+
+        // AND THE VERSION HAS NOT MOVED, which is what keeps the live token alive.
+        $this->assertSame(1, (int) $link->fresh()->commerce_credential_version);
+        $this->assertNotNull($link->fresh()->commerce_credential_issued_at);
+
+        config()->set('lynomia.webhook_master_secret', 'test-master-not-a-real-secret');
+        $this->assertSame((int) $link->store_id, CommerceCredential::resolveStoreId($working));
+    }
+
+    /** A failed issuance writes no audit row either: nothing happened, so nothing is recorded. */
+    public function test_a_failed_issuance_records_nothing(): void
+    {
+        $link = $this->activeLink();
+        $this->actingAs($this->operator());
+        config()->set('lynomia.webhook_master_secret', '');
+
+        $before = AuditLog::where('action', 'lynomia_commerce_credential_issued')->count();
+        $this->controller()->issueCommerceCredential($link->id);
+
+        $this->assertSame($before, AuditLog::where('action', 'lynomia_commerce_credential_issued')->count());
+    }
+
+    /**
+     * The operator path and the automatic merchant activation mint through the SAME writer, which
+     * is the other half of the fix: two paths bumping one column by different rules is how they
+     * drift into disagreeing about what the current version is.
+     */
+    public function test_the_operator_path_and_the_automatic_path_share_one_minter(): void
+    {
+        $link = $this->activeLink();
+        $this->actingAs($this->operator());
+
+        $fromController = $this->controller()->issueCommerceCredential($link->id)
+            ->getSession()->get('lynomia_commerce_credential');
+        $fromMinter = CommerceCredential::mint($link->fresh());
+
+        $this->assertSame(2, (int) $link->fresh()->commerce_credential_version);
+        $this->assertNull(CommerceCredential::resolveStoreId($fromController));
+        $this->assertSame((int) $link->store_id, CommerceCredential::resolveStoreId($fromMinter));
+    }
+
     public function test_revoking_stops_the_current_token_and_leaves_a_revoked_status(): void
     {
         $link = $this->activeLink();
