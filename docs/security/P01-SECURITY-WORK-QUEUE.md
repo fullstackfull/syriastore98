@@ -1656,7 +1656,7 @@ is the question to answer first.
 
 ---
 
-## S31 — The payer sets `orders.final_price` on the gateway-return paths — **web checkout CLOSED, six gateway controllers OPEN, design prepared**
+## S31 — The payer sets `orders.final_price` on the gateway-return paths — **web checkout CLOSED by P01-SEC-14 H; the gateway half CLOSED by P01-COMMERCE-SEC-01, see S32**
 
 The most serious thing any review pass found, and it was found by asking the scope question a fourth
 time. **One path is closed and measured; six are open with an identical, one-line remedy that cannot
@@ -1734,8 +1734,174 @@ four entry paths is still reachable on a gateway return, because the return hand
 cart after the entry guard has already passed. The quantity guard that the four money paths now
 carry would close it at each site; that is the same six-controller change and belongs with it.
 
-**Owner decision, in one sentence:** approve the one-line shipping fix plus the quantity guard
-across those six controllers, in an environment where each gateway return can actually be driven.
+**Owner decision, in one sentence:** ~~approve the one-line shipping fix plus the quantity guard
+across those six controllers, in an environment where each gateway return can actually be driven.~~
+**SUPERSEDED — see S32.** The premise was wrong: the six did not need a gateway to be fixed or
+tested, because their root defect was the `$request->all()` fallback, not the shipping arithmetic.
+All six are closed, plus a seventh S31 did not name. An eighth is open and needs a different fix.
+
+---
+
+## S32 — The gateway returns: what P01-COMMERCE-SEC-01 closed, and the five things it did not
+
+S31 left six gateway controllers open on the argument that the shipping fix "cannot be verified in
+this environment". **That argument was wrong, and this section records why.** The six did not need a
+gateway. Their root defect was never the shipping arithmetic — it was that each handler fell back to
+`$request->all()` when the session held nothing, so a caller who simply **omitted the session
+cookie** supplied the cart, the prices, the shipping, the coupon, the store the order is written to
+and the customer it is written for. That is testable with no credentials at all.
+
+A **seventh** handler had the same defect and S31 did not name it. An **eighth** has it and cannot
+be fixed the same way.
+
+### The trust boundary, gateway by gateway
+
+Every route below is declared in `routes/customer.php` inside a group whose only middleware is
+`[web, ActiveTheme, themelanguage]` — **no authentication, no authorization, no throttle**, and
+three of the six are `Route::any`, so they answer GET without a CSRF token.
+
+| handler | route | what it actually is | gateway verification | fixed |
+|---|---|---|---|---|
+| `KhaltiPaymnetController::getProductStatus` | `POST {slug}/order-khalti` | browser return | **yes** — `$khalti->verifyPayment()` at :597, order write nested inside `status_code == 200` | state, quantity, status |
+| `AuthorizeNetPaymnetController::getOrderPaymentStatus` | `ANY {slug}/authorizenet-status` | **the charge itself** — card number, expiry and CVV arrive in this request and the handler calls `authCaptureTransaction` | n/a; gated by its own outbound capture | state, **capture amount**, quantity, status |
+| `CinetPayController::getProductStatus` | `POST {slug}/get-payment-cinetPay` | browser return | **no** | state, quantity, status |
+| `EasebuzzController::getProductStatus` | `POST {slug}/get-payment-easebuzz` | browser return | **no** | state, quantity, status |
+| `PaiementProPaymentController::getProductStatus` | `POST {slug}/get-payment-paiementpro` | browser return | **no** | state, quantity, status |
+| `PaymentController::getProductStatus` | `ANY {slug}/get-payment-status` | browser return — the **generic** one, and PayU's real writer | per-provider, three of ~50 | state, quantity |
+| `PayUPaymentController::storeGetPayUStatus` | `ANY /store-payu-payment/status` | redirect only | — | writes no order |
+| `PaymentController::whatsapp` | `POST {slug}/whatsapp`, `{slug}/telegram` | **both** a return and an initiation | none | **NOT FIXED — see below** |
+
+Two corrections to earlier records in this file and in the commit log:
+
+- **PayU is not a seventh controller; `PaymentController::getProductStatus` is.**
+  `storeGetPayUStatus` writes no order — it redirects to `route('store.payment.status')`. That is
+  `PaymentController::getProductStatus`, which carried the same `$request->all()` fallback **65
+  lines below** its session read, past three per-provider status blocks. Commit `8a981bb0`'s message
+  asserted that handler "reads the session only"; reading only its opening lines is how that was
+  missed. It is fixed in `2c7489ff`.
+- **`PayUPaymentController::getProductStatus` carries the fallback shape and is dead code.** No
+  route declares it. Left untouched rather than deleted.
+
+### What a browser can no longer decide
+
+`app/Http/Controllers/Concerns/GuardsGatewayReturn.php` is the shared piece, mirroring the existing
+sibling `GuardsPlanActivation`. It adds no new mechanism for money: four services already owned
+these questions and **not one of the six was wired to any of them.** The package is wiring, not
+invention.
+
+| control | what it replaced |
+|---|---|
+| `storedCheckoutState()` | the `$request->all()` fallback in all seven. Reading only the stored state is sufficient rather than merely narrower: that state is the request as it stood **after** `processOrder` priced the cart, computed shipping server-side and refused a non-positive quantity, so each handler now inherits all of it |
+| `adoptStoredCheckoutState()` | the `$request->merge($requests_data)` that sat on the **authenticated arm only**, and pins `customer_id` and `method_id`, which `merge()` cannot reach when the state omits them |
+| `serverPayableAmount()` | AuthorizeNet's `$amount = (int) json_decode($input['data'])['get_amount']` — the figure charged to the card, chosen by the browser, and `(int)` charged **10** for a 10.99 basket |
+| `basketHasNonPositiveQuantity()` | nothing. Inserted before each stock loop; `processOrder`'s own check does not cover these entry points, which the gateway redirect reaches directly |
+| `gatewayReturnPaymentStatus()` | the literal `$order->payment_status = 'Paid'` in all six, now routed through the existing `PaymentVerificationService` |
+
+### Three defects the state guard did NOT close, found by testing it
+
+The stored-state guard decides *which array* a handler reads. It does not stop a handler reading
+`$request->x` instead — and the attacker here is a **real shopper with real stored state** who adds
+one field to the return they were already making. All three were measured on the live code.
+
+1. **A guest return could be claimed for another customer.** `$request->merge($requests_data)` sits
+   inside the `elseif (! empty($customer_id))` arm, so it never ran for a guest. Posting
+   `customer_id=<victim>` wrote an order **owned by the victim** on CinetPay and Easebuzz and
+   emptied the victim's basket on CinetPay, Easebuzz and Khalti. Closed in `0eee8524`.
+2. **The browser chose the shipping price, from any tenant's methods.** A state with no `method_id`
+   left the posted one standing; `ShippingMethod::find()` has no store predicate and the model is
+   **not in `config/tenancy.php`'s `scoped_models`**. A store-B `Local pickup` method at cost
+   `'-500'` put `-500.00SYP` into store A's `orders.delivery_price` — another tenant's figure,
+   negative, non-numeric, in a money column. The **payable was unaffected**: `$order->final_price`
+   never reads `$delivery_price`. Closed in `7484b290`.
+3. **`Product` is still unscoped** and `ShippingMethod` joins it. Both are reachable cross-tenant by
+   id from these routes; the fixes above remove the *caller's* ability to supply those ids, which is
+   containment, not a scope.
+
+### The five things this package did not close
+
+1. **No gateway return proves a payment.** CinetPay, Easebuzz, PaiementPro and PayU ask nobody
+   whether money moved; the order is written because the browser arrived at a URL. `'Paid'` is now
+   *derived* through `PaymentVerificationService` instead of asserted, so every unverified write is
+   logged and enforcement is a one-line change in that service — but the posture is unchanged, and
+   deliberately so: that service's own docblock records that recording gateway orders as `Pending`
+   would stop merchant wallets being credited for **51 live payment methods**. That is a business
+   decision, not an engineering one. **Owner decision.**
+2. **There is no idempotency key.** Replay is currently blocked only because the stored state is
+   single-use (`Session::forget()` after reading). A genuine duplicate server-to-server notification
+   — which none of these handlers accepts today — would need a real key.
+3. **AuthorizeNet's fix is not verified by execution.** An empty `catch (\Exception $e) {}` at
+   `:298-299` swallows the SDK setup failure and the next statement raises `Undefined variable
+   $requestNet` at `:332`, so the handler 500s before reaching its stock loop. The state guard and
+   capture-amount fix are verified; the **quantity guard is placed correctly and never ran.** The
+   empty catch is itself a live defect: any SDK throw becomes a 500 for a real shopper mid-charge.
+4. **`PaymentController::whatsapp` (`:3098`) keeps its `$request->all()` fallback at `:3103`, and
+   must.** The route has two kinds of caller: `resources/views/payment/whatsapp.blade.php:42`, a
+   genuine return with stored state, **and**
+   `resources/views/front_end/sections/payment_list.blade.php:21` plus
+   `front_end/pages/checkout.blade.php:191`, which post to it **directly from the checkout page
+   without passing through `processOrder` at all**. For those there is no server-stored state to
+   read, so the handler is an unpriced order-placement endpoint rather than a return. Requiring
+   stored state would break a live payment method. **The fix it needs is server-side pricing on
+   entry — a different change, and the next package.**
+5. **The cart-wide delete has no store predicate** —
+   `Cart::where('customer_id', $request->customer_id)->delete()`, unlike the per-line delete four
+   lines above it. A predicate was added and **reverted**: it could not be shown to change any
+   outcome, because on both principals that reach the line a tenant resolves and `Cart`'s
+   `StoreScope` already supplies one, measured both ways. It stays a residual because
+   `null_tenant => 'open'`: a principal resolving **no** tenant would get a predicate from neither
+   source.
+
+### One pre-existing crash this package had to work around
+
+All six raise `Undefined array key "out_of_stock_threshold"` and `"notification"` on a store whose
+settings table lacks them — the same defect P01-SEC-14 C3 fixed in `ordersave`, from the same raw
+`Setting::...->pluck()` with no defaults. It **500s every legitimate return** in such a store. The
+test fixture seeds both so the tests measure the trust boundary rather than the crash; the crash is
+not fixed here and belongs with the whatsapp pricing work.
+
+### Evidence
+
+`tests/Feature/Commerce/GatewayReturnTrustBoundaryTest.php` — **38 tests, 124 assertions, all
+passing.** Reaching the order writer at all needed the guest cart cookie: the guest arm reads
+`Cart::where('cookie_session_id', Cookie::get('cart'))` (`app/Models/Cart.php:198`), not the
+authenticated customer, so a seeded `cookie_session_id` row plus the encrypted `cart` cookie drives
+a genuine checkout to the write. That is what made both the defects and the positive control
+observable.
+
+Every guard was removed and re-measured:
+
+| guard removed | result |
+|---|---|
+| `storedCheckoutState` → the old fallback | **20 of 20 fail** |
+| the same, in `PaymentController` only | **5 of 5 fail** |
+| `adoptStoredCheckoutState`'s body | **3 fail** (khalti, cinetpay, easebuzz) |
+| the `method_id` pin alone | **1 fails**, printing `'-500.00SYP'` |
+| the store predicate on the cart delete | **nothing fails** — which is why it was reverted |
+
+Two tests are labelled in their own docblocks as **not** evidence for this package, because a
+removal check proved they are not:
+
+- `test_posted_money_cannot_change_the_order_total` (the brief's manipulated-positive and
+  negative-shipping cases) passes with **both** merges stripped from PaiementPro. The guest arm
+  never consults `$request` for money at all. It is a regression fence.
+- the cross-store assertion in the identity test survives because the identity pin stops the delete
+  running, not because the delete is scoped.
+
+The positive control is what stops the rest being vacuous:
+`test_a_legitimate_guest_return_still_writes_its_order` drives a genuine guest checkout through
+PaiementPro and asserts an order **is** written — `customer_id` 0, `is_guest` 1, `final_price`
+100.00 from the server, one unit of stock consumed. Without it, every refusal above could be
+satisfied by a handler that refuses everything.
+
+**What none of this proves:** that any gateway verified a payment. None of them does. A test
+claiming otherwise would be exactly the "simulated validation mistaken for real gateway
+verification" the brief warns against.
+
+### Next
+
+Item 4 above is the next package: **server-side pricing on the WhatsApp/Telegram order-placement
+entry**, which also carries the settings crash. Items 1 and 2 are owner decisions and gate nothing
+else on this list.
 
 ---
 
@@ -1772,6 +1938,8 @@ Keeping these apart is the point; each is independently reviewable and independe
 | **P01-SEC-11** | S15-B rows 1-7 + **S19** | ~~One API-authorization pass, one shared ownership helper, one Flutter window~~ **DONE.** 26 handlers, nine commits, one shared helper (`resolveStoreCustomer`). No new 401 on any path a shipped client calls; see S19 for the five rows left open |
 | **P01-SEC-14** | **S20** + **S22** + **S23** + **S25**, and the amount half of **S21** | ~~Identity and payment trust boundaries~~ **DONE.** Six commits (A, B, C, D, E, F). Provider tokens verified server-side; the amount OWED — on the card path and on COD alike — proof against a posted price, currency, coupon code, shipping price or negative quantity; `notify_user` failed closed; four coupon lookups store-scoped; the order's discount and ledger columns taken from the server. E and F are the two adversarial reviews' own findings — see S27 and S28; F closed a HIGH that bypassed E's guard through COD, and G closed S29, the `1234` password on eight vendored social-login modules that S18 had recorded as harmless. No new 401 on any path a shipped client calls. H closed S31's web half — a payer setting `orders.final_price`, the COD cash amount — and S31 carries the six gateway controllers with the same defect as a prepared design awaiting approval |
 | *(owner decision, not a package)* | **S21** calculation rows, **S24**, **S26** | Each changes money or deletes history. Answer before the next commerce package |
+| **P01-COMMERCE-SEC-01** | **S32**, and the gateway half of **S31** + **S30** | ~~Payment-return integrity and server-authoritative totals~~ **DONE.** Five commits. The `$request->all()` fallback is gone from all six gateway returns and from a seventh S31 did not name (`PaymentController::getProductStatus`, PayU's real writer); the AuthorizeNet capture amount is the server's; a non-positive quantity is refused before any stock row moves; `'Paid'` is derived rather than asserted. Testing the guard then found three more: a guest return claimable for another customer, the browser choosing the shipping price from any tenant's methods, and an unproven cart-delete predicate that was reverted rather than shipped. 38 tests, 124 assertions; every guard removed and re-measured. **Five items left open, four of them owner decisions — see S32** |
+| **P01-COMMERCE-SEC-02** *(next, recommended)* | **S32 item 4** + the settings crash | Server-side pricing on the WhatsApp/Telegram order-placement entry (`PaymentController::whatsapp`), which still takes its whole checkout from `$request->all()` because two checkout views post to it without passing through `processOrder`. Carries the `out_of_stock_threshold`/`notification` crash with it. Host-side only; no contract change |
 | **P01-SEC-12** | S15-B row 8 | `config/superadminaccess.php` denylist vs the finance permissions. No API impact |
 | **P01-SEC-3** | S4 + the `larabug` blacklist review | Independent; no contract impact |
 | **P01-SEC-4** | S5 session half (logout, id regeneration, `same_site`) | Independent. Token expiry/abilities wait for a Flutter window |
