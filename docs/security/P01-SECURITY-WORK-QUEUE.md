@@ -1230,7 +1230,14 @@ fix's. The change is a brace move.
 2. The zero-total guard added in P01-SEC-14 E (S27 item 7) refuses a coupon figure that is not
    positive or that exceeds the basket. A correct `apply_coupon` returns a positive figure below the
    basket total, so the guard admits it — but the guard is the only thing between a `"0.00"` return
-   and a free order, so **do not remove it while making this change; verify against it.**
+   and a free order, so **do not remove it while making this change; verify against it.** And bound
+   the **discount**, not just the total: the guard's window is `(0, basket]`, which a caller-chosen
+   discount base could still exploit once percentage coupons work.
+3. **`place_order` does not apply the coupon to its stored totals at all**, found while removing an
+   inert guard from it (S28 F2). It records `$order->coupon_price = $apply_coupon['amount']` while
+   `final_price` keeps the PRE-coupon `total_final_price`, so a shopper who uses a coupon there is
+   charged full price with a discount printed beside it. `ordersave` and `place_order` must end up
+   agreeing; fixing one and not the other is how the two drifted this far apart.
 
 Interaction with S25 below: with S25 in place a percentage or flat
 coupon records `coupon_price = 0`, which is the server's honest answer because the server refused the
@@ -1399,6 +1406,127 @@ recorded with why not. Every fix is isolated by a test that fails when the fix i
 
 ---
 
+## S28 — The review of the review: what a second adversarial pass over commit E found
+
+Commit E was written in response to the first review, which made it the least-reviewed code in the
+package, so it got a pass of its own. Five findings, all acted on in commit F, every one measured
+before it was fixed and isolated by a test that fails when the fix is reverted. This is the pattern
+worth keeping: **the fix commit needs reviewing too, and reviewing it found a HIGH that the first
+pass had no reason to look for.**
+
+### F1 — HIGH. The quantity guard was put on `payment_sheet` alone, so a COD order bypassed it entirely.
+
+E's own comment argued the governing reason — *"a row written before that, or by any other writer,
+would still subtract from the total"* — and then applied it to one handler. The two that write the
+order's money columns read the same cart rows and were untouched. Measured, with a basket of one
+1000.00 product plus one 50.00 product at qty −5:
+
+| handler | `product_price` | `final_price` | the cheap product's stock |
+|---|---|---|---|
+| `order-save` | **750.0** | **750.0** | 20 → **25** |
+| `place-order` | **750.0** | **750.0** | 20 → **25** |
+
+So the shopper takes 1000.00 of goods for 750.00 **and the merchant's inventory is corrupted in the
+same request**: `$remain_stock = $ProductStock->stock - $qtyy` ADDS stock when `$qtyy` is negative.
+`final_price` is the amount owed, so this is not a reporting column.
+
+**And the source was a third endpoint.** `CartController::product_cartlist` — the storefront web
+route `{storeSlug?}/product_cart` — did `$qty = $request->qty ?? 0` with no validation anywhere in
+the method, writing the row under the session customer's own id and store. E had validated the
+API's `addtocart` and not this. Closed in all four places now: the web writer refuses, and
+`ordersave`, `place_order` and `confirm_order` refuse a basket that already holds such a row.
+Nothing legitimate is refused — the storefront's own JS clamps to 1 before posting, "remove" is a
+separate endpoint with its own `quantity_type`, and the platform has no weighed or decimal quantity.
+
+### F2 — MEDIUM. E's coupon guard was INERT in `place_order`, and removing it exposed a worse finding.
+
+`$cartlist_final_price` is assigned once in `place_order` and then read only as the `sub_total`
+handed to `apply_coupon()`. Every occurrence in the method was checked; nothing reads it again. That
+handler's money columns come from different variables captured *before* the coupon block, so the
+guard changed no stored value and no response field — and a regression test for it would have
+passed with the guard reverted. It is removed, with the reasoning recorded in place, because dead
+code that looks like a control is worse than no control: the next reader would trust it.
+
+**The finding underneath:** `place_order` never applies the coupon to its stored totals at all. It
+records `$order->coupon_price = $apply_coupon['amount']` while `final_price` keeps the PRE-coupon
+`total_final_price`. So a shopper who uses a coupon through `place-order` is charged full price with
+a discount printed beside it — the mirror image of the `ordersave` defect E fixed. **Owner item,
+S21/S24**, not made here: it is an order-calculation change.
+
+### F3 — MEDIUM. `register_type` as an array still returned HTTP 500 to an anonymous caller.
+
+The same defect class E3 closed on the token field, one field over and two lines earlier.
+`register_type` is read unvalidated as an array subscript and concatenated into a message, so
+`register_type[]=google` on this unauthenticated, unthrottled route raised a TypeError that escaped
+the handler's catch. Measured:
+
+```
+HTTP 500  {"message":"Cannot access offset of type array on array","exception":"TypeError",
+           "file":"/home/user/syriastore98/app/Http/Controllers/..."}
+```
+
+The exception class and a server filesystem path, handed to the open internet. One validation rule
+(`'register_type' => 'nullable|string'`); `nullable` because an absent value must still default to
+`email`, which the test asserts.
+
+### F4 — LOW. `confirm_order`'s preview showed a total `order-save` would not honour.
+
+E skipped the coupon guard here because the handler persists nothing. But it RETURNS
+`$cartlist_final_price` as the preview's `final_price`, so an accepted coupon made the confirmation
+screen read 0.00 while `order-save` then recorded the full basket. A preview the client renders is
+still an answer that has to be right. Guarded, and the test drives the same fixture through both
+endpoints and asserts the two figures match.
+
+### F5 — MEDIUM. A posted shipping price wrote an arbitrary number into `orders.product_price`.
+
+`cart_list` reads `$shipping_price = (int)$request['shipping_final_price']` with no floor and adds
+it to `total_sub_price`, which `place_order` stores as `orders.product_price`. Measured on a 100.00
+basket through `place-order`:
+
+| posted | `orders.product_price` | `orders.final_price` |
+|---|---|---|
+| nothing | 100.0 | 100.0 |
+| `500` | **600.0** | 100.0 |
+| `-900` | **−800.0** | 100.0 |
+
+`final_price` never moved, so this is the merchant's ledger and reporting rather than what the
+shopper pays — the same class as the posted discount D1 closed on `coupon_price`, and closed the
+same way: the three order handlers now set `shipping_final_price = 0` on their internal cart read.
+Zero rather than the real figure because the real shipping is not known yet (`get_shipping_method()`
+runs after) and the order already carries it in its own column, `delivery_price`. The precedent is
+this project's own: `PaymentService.php:2277-2286` already discards a client-supplied
+`shipping_final_price` in favour of the server's and logs that it did. Neither the documented
+contract for these three endpoints nor the admin Flutter app sends the field.
+
+### What this pass confirmed CLEAN, stated so the record is not one-sided
+
+- **The two new `Cart` queries in `payment_sheet`** use `cart_list`'s predicate character for
+  character, with a session-derived `customer_id` from `resolveStoreCustomer`, so they cannot read
+  another customer's rows and cannot disagree with the amount. `carts.qty` is `integer`, verified on
+  real MySQL as well as from the migration.
+- **The idempotency key still collapses a true double-tap.** A caller can now mint a fresh key
+  without changing the amount (remove and re-add a row), but they could already do that by varying
+  `qty`, and the real rate control is `throttleApi('120,1')`. The trade against a replayed
+  already-succeeded intent is the right way round.
+- **`'qty' => 'required|integer|min:1'` breaks no client.** Nothing in either repository calls
+  `api/{slug}/add-cart`; the documented contract sends `"qty":"1"`, which the `integer` rule
+  accepts; "remove" is a different endpoint and a different value; there is no decimal quantity in
+  the platform.
+- **The coupon guard's `(float)` comparison is safe** because `SetNumber` strips thousands
+  separators, so a large basket is never `"1,234.56"` (which would have cast to `1.0`). Its baseline
+  is the pre-coupon, pre-shipping, pre-tax basket total and cannot be moved by the caller. One
+  legitimate case is refused — a coupon covering the whole basket — and that is the disclosed
+  trade-off, not an oversight.
+- **`redactSecrets` covers the live path.** Two hardening gaps remain and neither is reachable: the
+  regex matches query-string form only (nothing puts the credential in a JSON body today), and the
+  `ConnectionException` is chained as `previous` unredacted (nothing logs the chain today — the one
+  catcher logs `reason` only). `JwksProvider`'s unredacted log only ever sees Google's or Apple's
+  public JWKS URL.
+- **The untyped `$token`** has one caller and no path turns a non-string into a success; only the
+  logged reason changed.
+
+---
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**
@@ -1430,7 +1558,7 @@ Keeping these apart is the point; each is independently reviewable and independe
 | *(triage, not a package)* | S14 | Verify each row before assigning severity |
 | **P01-SEC-10** | **S15-A** | **EMERGENCY.** Anonymous platform takeover. Answer before any deployment; route can be disabled as an interim with no app release |
 | **P01-SEC-11** | S15-B rows 1-7 + **S19** | ~~One API-authorization pass, one shared ownership helper, one Flutter window~~ **DONE.** 26 handlers, nine commits, one shared helper (`resolveStoreCustomer`). No new 401 on any path a shipped client calls; see S19 for the five rows left open |
-| **P01-SEC-14** | **S20** + **S22** + **S23** + **S25**, and the amount half of **S21** | ~~Identity and payment trust boundaries~~ **DONE.** Five commits (A, B, C, D, E). Provider tokens verified server-side; the payable derived from the cart and proof against a posted coupon, shipping price or negative quantity; `notify_user` failed closed; four coupon lookups store-scoped; the order's discount taken from the server's verdict; an accepted coupon can no longer zero an order. E is the adversarial review's own findings — see S27. No new 401 on any path a shipped client calls |
+| **P01-SEC-14** | **S20** + **S22** + **S23** + **S25**, and the amount half of **S21** | ~~Identity and payment trust boundaries~~ **DONE.** Six commits (A, B, C, D, E, F). Provider tokens verified server-side; the amount OWED — on the card path and on COD alike — proof against a posted price, currency, coupon code, shipping price or negative quantity; `notify_user` failed closed; four coupon lookups store-scoped; the order's discount and ledger columns taken from the server. E and F are the two adversarial reviews' own findings — see S27 and S28; F closed a HIGH that bypassed E's guard through COD. No new 401 on any path a shipped client calls |
 | *(owner decision, not a package)* | **S21** calculation rows, **S24**, **S26** | Each changes money or deletes history. Answer before the next commerce package |
 | **P01-SEC-12** | S15-B row 8 | `config/superadminaccess.php` denylist vs the finance permissions. No API impact |
 | **P01-SEC-3** | S4 + the `larabug` blacklist review | Independent; no contract impact |

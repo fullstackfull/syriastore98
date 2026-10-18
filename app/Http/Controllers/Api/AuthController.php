@@ -54,6 +54,19 @@ class AuthController extends Controller
             'last_name' => 'nullable|string|max:255',
             'token' => 'nullable',
             'device_type' => 'nullable',
+            // P01-SEC-14 F3. `register_type` MUST be a string, and this is the same defect class
+            // E3 closed one field over. It is read unvalidated below -- as an array subscript at
+            // `$providerColumns[$request->register_type]` and concatenated into a message -- so
+            // posting `register_type[]=google` on this UNAUTHENTICATED, unthrottled route raised a
+            // TypeError that escaped the handler's own catch. Measured: HTTP 500 with
+            // `{"message":"Cannot access offset of type array on array","exception":"TypeError",
+            // "file":"/home/user/syriastore98/app/Http/Controllers/..."}` -- the exception class
+            // and a server path handed to an anonymous caller. Found by an adversarial review of
+            // commit E, which had fixed the token field and not this one.
+            //
+            // `nullable` rather than `required` because the line below defaults an absent value to
+            // 'email', which is the existing contract and must be preserved.
+            'register_type' => 'nullable|string',
         ];
 
         $email = $request->email;

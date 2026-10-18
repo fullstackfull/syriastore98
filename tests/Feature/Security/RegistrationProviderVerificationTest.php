@@ -737,6 +737,65 @@ class RegistrationProviderVerificationTest extends SecurityTestCase
     }
 
     /**
+     * `register_type` MUST BE A STRING TOO -- the same defect class as the token field, one field
+     * over, and it was still open after the commit that fixed the token.
+     *
+     * `register_type` is read unvalidated as an array subscript
+     * (`$providerColumns[$request->register_type]`) and concatenated into a message, so posting
+     * `register_type[]=google` on this unauthenticated, unthrottled route raised a TypeError that
+     * escaped the handler's catch. MEASURED before the fix:
+     *
+     *   HTTP 500  {"message":"Cannot access offset of type array on array",
+     *              "exception":"TypeError","file":"/home/user/syriastore98/app/Http/..."}
+     *
+     * -- the exception class and a server filesystem path handed to an anonymous caller. Found by
+     * an adversarial review of commit E, which had fixed `google_token` and missed this.
+     *
+     * Both legitimate values are asserted too, because a validation rule is the easiest way to
+     * break a working contract: an absent `register_type` must still default to 'email'.
+     */
+    public function test_a_non_string_register_type_does_not_crash_the_endpoint(): void
+    {
+        [, $store] = $this->makeTenant();
+        Http::preventStrayRequests();
+
+        foreach ([
+            'an array' => ['google'],
+            'a nested array' => ['a' => 'b'],
+            'a boolean' => true,
+        ] as $label => $value) {
+            $response = $this->register($store, [
+                'register_type' => $value,
+                'email' => 'rt-' . md5($label) . '@example.test',
+                'password' => 'a-real-password',
+                'mobile' => '555' . random_int(100000, 999999),
+                'first_name' => 'RegType',
+            ]);
+
+            $this->assertSame(200, $response->getStatusCode(),
+                'Posting ' . $label . ' as register_type returned HTTP '
+                . $response->getStatusCode() . ' rather than the refusal envelope.');
+            $this->assertSame(0, $response->json('status'),
+                'Posting ' . $label . ' as register_type was not refused.');
+            $this->assertStringNotContainsString('TypeError', $response->getContent(),
+                'The exception class was disclosed to an anonymous caller.');
+            $this->assertStringNotContainsString('/home/', $response->getContent(),
+                'A server filesystem path was disclosed to an anonymous caller.');
+        }
+
+        // THE CONTRACT: an absent register_type still means email, and still registers.
+        $this->register($store, [
+            'email' => 'rt-absent@example.test',
+            'password' => 'a-real-password',
+            'mobile' => '555' . random_int(100000, 999999),
+            'first_name' => 'Absent',
+        ])->assertStatus(200)->assertJsonPath('status', 1);
+
+        $this->assertNotNull(self::customers()->where('email', 'rt-absent@example.test')->first(),
+            'Omitting register_type no longer registers, so the new rule broke the contract.');
+    }
+
+    /**
      * A PROVIDER FAILURE MUST NOT WRITE THE MERCHANT'S APP SECRET TO THE LOG.
      *
      * Facebook's `debug_token` is authenticated with an app access token that is literally

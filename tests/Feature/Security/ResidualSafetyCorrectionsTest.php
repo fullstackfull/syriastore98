@@ -363,6 +363,177 @@ class ResidualSafetyCorrectionsTest extends SecurityTestCase
             . 'accepted, and 95 would mean the posted number is still being read.');
     }
     /**
+     * A POSTED SHIPPING PRICE MUST NOT REACH THE ORDER'S LEDGER COLUMNS.
+     *
+     * `cart_list` reads `$shipping_price = (int)$request['shipping_final_price']` with no floor and
+     * adds it to `total_sub_price`, which `place_order` stores as `orders.product_price`. MEASURED
+     * on a 100.00 basket through api/{slug}/place-order:
+     *
+     *   nothing posted                    product_price  100.0   final_price 100.0
+     *   shipping_final_price = 500        product_price  600.0   final_price 100.0
+     *   shipping_final_price = -900       product_price -800.0   final_price 100.0
+     *
+     * `final_price` -- the amount owed -- never moved, so this is the merchant's ledger and
+     * reporting rather than what the shopper pays. It is the same class as the posted discount D1
+     * closed on `coupon_price`, and it is closed the same way. Found by an adversarial review of
+     * commit E.
+     *
+     * The order's shipping is unaffected: it lives in its own column, `delivery_price`, from
+     * get_shipping_method()'s server computation, which runs after this read.
+     */
+    public function test_a_posted_shipping_price_cannot_reach_the_orders_ledger(): void
+    {
+        $recorded = [];
+
+        foreach ([null, 500, -900] as $shipping) {
+            [, $store, $shippingId] = $this->orderableTenant();
+            $customer = $this->customerIn($store, 'f5' . (string) $shipping);
+            $product = $this->productIn($store);
+            Cart::forceCreate([
+                'customer_id' => $customer->id, 'product_id' => $product->id, 'variant_id' => 0,
+                'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+            ]);
+
+            $payload = [
+                'customer_id' => $customer->id,
+                'billing_info' => $this->billing(),
+                'payment_type' => 'cod',
+                'delivery_id' => $shippingId,
+                'method_id' => $shippingId,
+            ];
+            if ($shipping !== null) {
+                $payload['shipping_final_price'] = $shipping;
+            }
+
+            $this->callApi($store, 'place-order', $payload,
+                $customer->createToken('t')->plainTextToken);
+
+            $order = \App\Models\Order::withoutGlobalScopes()
+                ->where('customer_id', $customer->id)->first();
+            $this->assertNotNull($order,
+                'place-order did not complete with shipping_final_price = ' . json_encode($shipping)
+                . ', so this test is measuring a crash rather than a control.');
+
+            $recorded[json_encode($shipping)] = [
+                (float) $order->product_price, (float) $order->final_price,
+            ];
+        }
+
+        $this->assertSame(
+            ['null' => [100.0, 100.0], '500' => [100.0, 100.0], '-900' => [100.0, 100.0]],
+            $recorded,
+            'A posted shipping price moved a money column of the order. Measured before the fix: '
+            . '500 wrote product_price 600.0 and -900 wrote -800.0.'
+        );
+    }
+
+    /**
+     * A NEGATIVE CART LINE MUST NOT REDUCE THE ORDER, AND MUST NOT INFLATE THE MERCHANT'S STOCK.
+     *
+     * P01-SEC-14 E put this refusal on `payment_sheet` alone, which was the wrong scope: the two
+     * handlers that write the order's money columns read the same cart rows and were untouched, so
+     * the whole control was bypassed by placing a COD order instead of paying by card. An
+     * adversarial review of that commit traced it; these are the measurements that confirmed it,
+     * taken before the fix with a basket of one 1000.00 product plus one 50.00 product at qty -5:
+     *
+     *   order-save    product_price 750.0   final_price 750.0   cheap product stock 20 -> 25
+     *   place-order   product_price 750.0   final_price 750.0   cheap product stock 20 -> 25
+     *
+     * So the shopper takes 1000.00 of goods for 750.00 and the merchant's inventory is corrupted
+     * in the same request -- `$remain_stock = $ProductStock->stock - $qtyy` with a negative `$qtyy`
+     * ADDS stock. `final_price` is the amount owed, so this is not a reporting column.
+     *
+     * Both handlers are driven, because a guard in one of them proves nothing about the other --
+     * which is exactly how the gap arose.
+     */
+    public function test_a_negative_cart_line_cannot_reduce_an_order_or_inflate_stock(): void
+    {
+        foreach (['order-save', 'place-order'] as $path) {
+            [, $store, $shippingId] = $this->orderableTenant();
+            $customer = $this->customerIn($store, 'f1' . md5($path));
+            $big = $this->productIn($store);
+            $cheap = Product::forceCreate([
+                'name' => 'f1-cheap-' . uniqid(), 'slug' => 'f1-cheap-' . uniqid(),
+                'product_stock' => 20, 'track_stock' => 1, 'variant_product' => 0,
+                'price' => 50.00, 'sale_price' => 50.00,
+                'store_id' => $store->id, 'created_by' => $store->created_by,
+            ]);
+
+            Cart::forceCreate([
+                'customer_id' => $customer->id, 'product_id' => $big->id, 'variant_id' => 0,
+                'qty' => 1, 'price' => 1000.00, 'store_id' => $store->id,
+            ]);
+            Cart::forceCreate([
+                'customer_id' => $customer->id, 'product_id' => $cheap->id, 'variant_id' => 0,
+                'qty' => -5, 'price' => -250.00, 'store_id' => $store->id,
+            ]);
+
+            $this->callApi($store, $path, [
+                'customer_id' => $customer->id,
+                'billing_info' => $this->billing(),
+                'payment_type' => 'cod',
+                'delivery_id' => $shippingId,
+                'method_id' => $shippingId,
+            ], $customer->createToken('t')->plainTextToken);
+
+            $order = \App\Models\Order::withoutGlobalScopes()
+                ->where('customer_id', $customer->id)->first();
+
+            $this->assertNull($order,
+                $path . ' recorded an order for a basket holding a negative line: product_price '
+                . ($order->product_price ?? '?') . ', final_price ' . ($order->final_price ?? '?')
+                . ' against a basket worth 1000.00.');
+
+            $this->assertSame(20, (int) Product::withoutGlobalScopes()
+                ->find($cheap->id)->product_stock,
+                $path . " moved the merchant's stock for a refused order. It goes UP, not down, "
+                . 'because the decrement subtracts a negative quantity.');
+        }
+    }
+
+    /**
+     * AND THE WRITER THAT LET THE ROW EXIST. The storefront web route took the quantity on trust.
+     *
+     * `CartController::product_cartlist` did `$qty = $request->qty ?? 0` with no validation
+     * anywhere in the method, and wrote it under the session customer's own id and this store --
+     * the rows the order writers price. Refusing in the order handlers stops the money moving;
+     * refusing here stops the row existing.
+     *
+     * The positive case is asserted first, so "the endpoint refuses everything" cannot satisfy it.
+     */
+    public function test_the_web_cart_writer_refuses_a_non_positive_quantity(): void
+    {
+        [, $store] = $this->orderableTenant();
+        $customer = $this->customerIn($store, 'f1web');
+        $product = $this->productIn($store);
+
+        $post = fn ($qty) => $this->actingAs($customer, 'customers')
+            ->postJson('/' . $store->slug . '/product_cart', [
+                'product_id' => $product->id, 'variant_id' => 0, 'qty' => $qty,
+            ]);
+
+        // THE PREMISE: a real quantity still works through this route.
+        $ok = $post(2);
+        $this->assertSame(1, (int) $ok->json('status'),
+            'A quantity of 2 was refused, so this route is broken rather than guarded: '
+            . json_encode($ok->json('message')));
+        $this->assertSame(1, Cart::withoutGlobalScopes()
+            ->where('customer_id', $customer->id)->where('qty', 2)->count(),
+            'The legitimate quantity was not written.');
+
+        foreach ([-5, 0, '-1', 1.5] as $bad) {
+            $response = $post($bad);
+
+            $this->assertSame(0, (int) $response->json('status'),
+                'The web cart writer accepted a quantity of ' . json_encode($bad) . '.');
+        }
+
+        $this->assertSame(0, Cart::withoutGlobalScopes()
+            ->where('customer_id', $customer->id)->where('qty', '<=', 0)->count(),
+            'A non-positive quantity reached the carts table.');
+    }
+
+    /**
      * AN ACCEPTED COUPON MADE THE ORDER FREE. Measured, and that is not an exaggeration.
      *
      * Driven through api/{slug}/order-save with one 100.00 product:
@@ -420,6 +591,62 @@ class ResidualSafetyCorrectionsTest extends SecurityTestCase
         $this->assertGreaterThan(0.0, (float) $order->final_price,
             'The order recorded final_price ' . $order->final_price . ', so a shopper holding a '
             . 'working coupon code owes nothing.');
+    }
+
+    /**
+     * THE CONFIRMATION PREVIEW MUST AGREE WITH WHAT ORDER-SAVE WILL RECORD.
+     *
+     * `confirm_order` persists nothing, which is why E6's guard skipped it -- but it RETURNS
+     * `$cartlist_final_price` as the preview's `final_price`, so an accepted coupon made the
+     * confirmation screen read 0.00 while order-save then recorded the full basket. The shopper was
+     * shown a total they could never place. An adversarial review of commit E pointed out that a
+     * preview the client renders is still an answer that has to be right.
+     *
+     * This test is the reason the guard is in three handlers rather than two: the same fixture is
+     * driven through confirm-order and order-save and the two figures must match.
+     */
+    public function test_the_confirmation_preview_agrees_with_what_the_order_records(): void
+    {
+        [, $store, $shippingId] = $this->orderableTenant();
+        $customer = $this->customerIn($store, 'f4');
+        $product = $this->productIn($store);
+        Cart::forceCreate([
+            'customer_id' => $customer->id, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+        ]);
+        $this->makeAcceptedCoupon($store, 'PREVIEWFIXED', $product->id);
+        $token = $customer->createToken('t')->plainTextToken;
+
+        $payload = [
+            'customer_id' => $customer->id,
+            'billing_info' => $this->billing(),
+            'payment_type' => 'cod',
+            'delivery_id' => $shippingId,
+            'method_id' => $shippingId,
+            'coupon_info' => [
+                'coupon_code' => 'PREVIEWFIXED',
+                'coupon_discount_type' => 'flat',
+                'coupon_discount_number' => '7',
+                'coupon_discount_amount' => '7',
+                'coupon_final_amount' => '93',
+            ],
+        ];
+
+        $preview = $this->callApi($store, 'confirm-order', $payload, $token);
+        $previewed = (float) $preview->json('data.final_price');
+
+        $this->assertGreaterThan(0.0, $previewed,
+            'The confirmation preview showed ' . $previewed . ' for an accepted coupon, so the '
+            . 'shopper is shown a total that order-save will not honour.');
+
+        $this->callApi($store, 'order-save', $payload, $token);
+        $order = \App\Models\Order::withoutGlobalScopes()
+            ->where('customer_id', $customer->id)->first();
+
+        $this->assertNotNull($order, 'order-save did not complete, so there is nothing to compare.');
+        $this->assertSame((float) $order->product_price, $previewed,
+            'The preview said ' . $previewed . ' and the order recorded '
+            . $order->product_price . '.');
     }
 
     /**

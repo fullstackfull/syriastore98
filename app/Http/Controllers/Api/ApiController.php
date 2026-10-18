@@ -3068,6 +3068,29 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
         if (!empty($customerId)) {
             $cart_list['customer_id']   = $customerId;
+            // P01-SEC-14 F5. THE CALLER'S `shipping_final_price` IS NOT ALLOWED INTO THE CART
+            // READ THIS ORDER IS BUILT FROM.
+            //
+            // cart_list reads `$shipping_price = (int)$request['shipping_final_price']` (:203) with
+            // no floor and adds it to `sub_total` and `total_sub_price`. MEASURED through
+            // api/{slug}/place-order on a 100.00 basket: posting `shipping_final_price = -900`
+            // wrote `orders.product_price = -800.0`, and `500` wrote `600.0`, against `100.0` when
+            // nothing was posted. `final_price` -- the amount owed -- was 100.0 throughout, so this
+            // is the merchant's ledger and reporting rather than what the shopper pays; it is the
+            // same class as the posted-discount defect D1 closed on `coupon_price`, and it is
+            // closed the same way: the figure becomes the server's.
+            //
+            // ZERO rather than the real shipping, because the real shipping is not known yet --
+            // get_shipping_method() runs AFTER this read -- and because the order already carries
+            // it in its own column, `delivery_price`, from that server computation. So
+            // `total_sub_price` here is products-plus-tax, which is exactly what it was for every
+            // request that posted nothing.
+            //
+            // The precedent is this project's own: PaymentService.php:2277-2286 already discards a
+            // client-supplied `shipping_final_price` in favour of the server's and logs that it did.
+            // Neither the documented contract for place-order, order-save or confirm-order nor the
+            // admin Flutter app sends this field -- both grepped.
+            $cart_list['shipping_final_price'] = 0;
             $request->request->add($cart_list);
             $cartlist_response = $this->cart_list($request, $slug);
             $cartlist = (array)$cartlist_response->getData()->data;
@@ -3085,6 +3108,42 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         } else {
             return $this->error(['message' => 'User not found.']);
         }
+
+        // P01-SEC-14 F1. A NON-POSITIVE LINE QUANTITY IS NOT A PAYABLE BASKET, HERE TOO.
+        //
+        // E5 put this refusal on payment_sheet only, and that was the wrong scope. Its own comment
+        // argued the governing reason -- "a row written before that, or by any other writer, would
+        // still subtract from the total" -- and then did not apply it to the handlers that write
+        // the order's money columns. An adversarial review of that commit caught it, and the
+        // measurement is unambiguous: a basket of one 1000.00 product plus one 50.00 product at
+        // qty -5, driven through order-save AND place-order, recorded product_price 750.0 and
+        // final_price 750.0, and the cheap product's stock went UP from 20 to 25. So for a COD
+        // order the shopper takes 1000.00 of goods for 750.00 and the merchant's inventory is
+        // corrupted in the same request. That is the amount OWED, not a reporting column.
+        //
+        // The source is a different endpoint: CartController::product_cartlist (the storefront web
+        // route `{storeSlug?}/product_cart`) wrote `$request->qty` with no validation at all. That
+        // is fixed there too, but this stays, because a row from any writer -- or one already in
+        // the table -- must not be priced.
+        $nonPositiveLines = Cart::where('customer_id', $customer->id)
+            ->where('store_id', $store->id)
+            ->where('qty', '<=', 0)
+            ->count();
+
+        if ($nonPositiveLines > 0) {
+            \Illuminate\Support\Facades\Log::warning('order: refused, basket holds a non-positive quantity', [
+                'handler' => __FUNCTION__,
+                'store_id' => $store->id,
+                'customer_id' => $customer->id,
+                'lines' => $nonPositiveLines,
+            ]);
+
+            return $this->error(
+                ['message' => __('Your cart contains an invalid quantity.')],
+                __('Your cart contains an invalid quantity.')
+            );
+        }
+
 
         $coupon_price = 0;
         // coupon api call
@@ -3121,18 +3180,29 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 // working: a positive figure below the basket total is still accepted.
                 //
                 // Numeric comparison, not `empty()`: that is what let "0.00" through.
-                $couponedTotal = (float) $apply_coupon['final_price'];
-
-                if ($couponedTotal > 0 && $couponedTotal <= (float) $cartlist_final_price) {
-                    $cartlist_final_price = $apply_coupon['final_price'];
-                } else {
-                    \Illuminate\Support\Facades\Log::warning('coupon: refused an implausible discounted total', [
-                        'handler' => __FUNCTION__,
-                        'store_id' => $store->id,
-                        'basket_total' => (float) $cartlist_final_price,
-                        'coupon_total' => $couponedTotal,
-                    ]);
-                }
+                // P01-SEC-14 F2. NO COUPON-TOTAL GUARD HERE, AND THAT IS DELIBERATE: THERE IS
+                // NOTHING FOR IT TO GUARD. E6 put one here on the assumption that place_order
+                // works like ordersave. It does not, and an adversarial review of that commit
+                // caught it. `$cartlist_final_price` is assigned at :3078 and then read ONLY as
+                // the `sub_total` handed to apply_coupon() just above; every occurrence in this
+                // method was checked, and nothing reads it again. This handler's money columns come
+                // from different variables, both captured BEFORE this block:
+                //
+                //     $order->product_price = $final_sub_total_price;   <- $cartlist['total_sub_price']
+                //     $order->final_price   = $final_price + $tax_price; <- $cartlist['total_final_price']
+                //
+                // So a guard on `$cartlist_final_price` changes no stored value and no response
+                // field, and a regression test for it would be vacuous -- it would pass with the
+                // guard reverted. Leaving dead code that looks like a control is worse than not
+                // having it: the next reader would trust it.
+                //
+                // AND THE REAL FINDING UNDERNEATH: place_order never applies the coupon to its
+                // stored totals at all. It records `$order->coupon_price = $apply_coupon['amount']`
+                // while `final_price` keeps the PRE-coupon `total_final_price`, so a shopper who
+                // uses a coupon here is charged full price with a discount printed beside it -- the
+                // mirror image of the ordersave defect E6 fixed. That is an order-calculation
+                // change, not an authorization one, so it is S21/S24 in
+                // docs/security/P01-SECURITY-WORK-QUEUE.md and not made here.
                 $coupon_price = $apply_coupon['amount'];
                 $order_array['coupon']['status'] = true;
             }
@@ -6252,6 +6322,29 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         if (!empty($customer_id)) {
             $cart_list['customer_id']   = $customer_id;
             $cart_list['slug']   = $slug;
+            // P01-SEC-14 F5. THE CALLER'S `shipping_final_price` IS NOT ALLOWED INTO THE CART
+            // READ THIS ORDER IS BUILT FROM.
+            //
+            // cart_list reads `$shipping_price = (int)$request['shipping_final_price']` (:203) with
+            // no floor and adds it to `sub_total` and `total_sub_price`. MEASURED through
+            // api/{slug}/place-order on a 100.00 basket: posting `shipping_final_price = -900`
+            // wrote `orders.product_price = -800.0`, and `500` wrote `600.0`, against `100.0` when
+            // nothing was posted. `final_price` -- the amount owed -- was 100.0 throughout, so this
+            // is the merchant's ledger and reporting rather than what the shopper pays; it is the
+            // same class as the posted-discount defect D1 closed on `coupon_price`, and it is
+            // closed the same way: the figure becomes the server's.
+            //
+            // ZERO rather than the real shipping, because the real shipping is not known yet --
+            // get_shipping_method() runs AFTER this read -- and because the order already carries
+            // it in its own column, `delivery_price`, from that server computation. So
+            // `total_sub_price` here is products-plus-tax, which is exactly what it was for every
+            // request that posted nothing.
+            //
+            // The precedent is this project's own: PaymentService.php:2277-2286 already discards a
+            // client-supplied `shipping_final_price` in favour of the server's and logs that it did.
+            // Neither the documented contract for place-order, order-save or confirm-order nor the
+            // admin Flutter app sends this field -- both grepped.
+            $cart_list['shipping_final_price'] = 0;
             $request->request->add($cart_list);
             $cartlist_response = $this->cart_list($request, $slug);
             $cartlist = (array)$cartlist_response->getData()->data;
@@ -6271,6 +6364,42 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         } else {
             return $this->error(['message' => __('User not found.')],  __('User not found.'));
         }
+
+        // P01-SEC-14 F1. A NON-POSITIVE LINE QUANTITY IS NOT A PAYABLE BASKET, HERE TOO.
+        //
+        // E5 put this refusal on payment_sheet only, and that was the wrong scope. Its own comment
+        // argued the governing reason -- "a row written before that, or by any other writer, would
+        // still subtract from the total" -- and then did not apply it to the handlers that write
+        // the order's money columns. An adversarial review of that commit caught it, and the
+        // measurement is unambiguous: a basket of one 1000.00 product plus one 50.00 product at
+        // qty -5, driven through order-save AND place-order, recorded product_price 750.0 and
+        // final_price 750.0, and the cheap product's stock went UP from 20 to 25. So for a COD
+        // order the shopper takes 1000.00 of goods for 750.00 and the merchant's inventory is
+        // corrupted in the same request. That is the amount OWED, not a reporting column.
+        //
+        // The source is a different endpoint: CartController::product_cartlist (the storefront web
+        // route `{storeSlug?}/product_cart`) wrote `$request->qty` with no validation at all. That
+        // is fixed there too, but this stays, because a row from any writer -- or one already in
+        // the table -- must not be priced.
+        $nonPositiveLines = Cart::where('customer_id', $customer->id)
+            ->where('store_id', $store->id)
+            ->where('qty', '<=', 0)
+            ->count();
+
+        if ($nonPositiveLines > 0) {
+            \Illuminate\Support\Facades\Log::warning('order: refused, basket holds a non-positive quantity', [
+                'handler' => __FUNCTION__,
+                'store_id' => $store->id,
+                'customer_id' => $customer->id,
+                'lines' => $nonPositiveLines,
+            ]);
+
+            return $this->error(
+                ['message' => __('Your cart contains an invalid quantity.')],
+                __('Your cart contains an invalid quantity.')
+            );
+        }
+
         if (empty($billing['firstname'])) {
             return $this->error(['message' => __('Billing first name not found.')], __('Billing first name not found.'));
         }
@@ -6337,7 +6466,26 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $order_array['coupon_info']['message'] = $apply_coupon['message'];
             $order_array['coupon_info']['status'] = false;
             if (!empty($apply_coupon['final_price'])) {
-                $cartlist_final_price = $apply_coupon['final_price'];
+                // P01-SEC-14 F4. The same guard as ordersave's, because unlike place_order this
+                // handler DOES read `$cartlist_final_price` again -- it is returned as the
+                // preview's `final_price`. Without it the confirmation screen showed 0.00 for an
+                // accepted coupon while order-save then recorded the full basket, so the shopper
+                // was shown a total they could never place. Nothing is persisted here, which is
+                // why E6 skipped it; an adversarial review pointed out that a preview the client
+                // renders is still an answer that has to be right.
+                $couponedTotal = (float) $apply_coupon['final_price'];
+
+                if ($couponedTotal > 0 && $couponedTotal <= (float) $cartlist_final_price) {
+                    $cartlist_final_price = $apply_coupon['final_price'];
+                } else {
+                    \Illuminate\Support\Facades\Log::warning('coupon: refused an implausible discounted total', [
+                        'handler' => __FUNCTION__,
+                        'store_id' => $store->id,
+                        'basket_total' => (float) $cartlist_final_price,
+                        'coupon_total' => $couponedTotal,
+                    ]);
+                }
+
                 $order_array['coupon_info']['status'] = true;
             }
         }
@@ -7635,6 +7783,29 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         if (!empty($customer_id)) {
             $cart_list['customer_id']   = $customer_id;
             $cart_list['slug']   = $slug;
+            // P01-SEC-14 F5. THE CALLER'S `shipping_final_price` IS NOT ALLOWED INTO THE CART
+            // READ THIS ORDER IS BUILT FROM.
+            //
+            // cart_list reads `$shipping_price = (int)$request['shipping_final_price']` (:203) with
+            // no floor and adds it to `sub_total` and `total_sub_price`. MEASURED through
+            // api/{slug}/place-order on a 100.00 basket: posting `shipping_final_price = -900`
+            // wrote `orders.product_price = -800.0`, and `500` wrote `600.0`, against `100.0` when
+            // nothing was posted. `final_price` -- the amount owed -- was 100.0 throughout, so this
+            // is the merchant's ledger and reporting rather than what the shopper pays; it is the
+            // same class as the posted-discount defect D1 closed on `coupon_price`, and it is
+            // closed the same way: the figure becomes the server's.
+            //
+            // ZERO rather than the real shipping, because the real shipping is not known yet --
+            // get_shipping_method() runs AFTER this read -- and because the order already carries
+            // it in its own column, `delivery_price`, from that server computation. So
+            // `total_sub_price` here is products-plus-tax, which is exactly what it was for every
+            // request that posted nothing.
+            //
+            // The precedent is this project's own: PaymentService.php:2277-2286 already discards a
+            // client-supplied `shipping_final_price` in favour of the server's and logs that it did.
+            // Neither the documented contract for place-order, order-save or confirm-order nor the
+            // admin Flutter app sends this field -- both grepped.
+            $cart_list['shipping_final_price'] = 0;
             $request->request->add($cart_list);
             $cartlist_response = $this->cart_list($request, $slug);
             $cartlist = (array)$cartlist_response->getData()->data;
@@ -7654,6 +7825,42 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         } else {
             return $this->error(['message' => __('User not found.')],  __('User not found.'));
         }
+
+        // P01-SEC-14 F1. A NON-POSITIVE LINE QUANTITY IS NOT A PAYABLE BASKET, HERE TOO.
+        //
+        // E5 put this refusal on payment_sheet only, and that was the wrong scope. Its own comment
+        // argued the governing reason -- "a row written before that, or by any other writer, would
+        // still subtract from the total" -- and then did not apply it to the handlers that write
+        // the order's money columns. An adversarial review of that commit caught it, and the
+        // measurement is unambiguous: a basket of one 1000.00 product plus one 50.00 product at
+        // qty -5, driven through order-save AND place-order, recorded product_price 750.0 and
+        // final_price 750.0, and the cheap product's stock went UP from 20 to 25. So for a COD
+        // order the shopper takes 1000.00 of goods for 750.00 and the merchant's inventory is
+        // corrupted in the same request. That is the amount OWED, not a reporting column.
+        //
+        // The source is a different endpoint: CartController::product_cartlist (the storefront web
+        // route `{storeSlug?}/product_cart`) wrote `$request->qty` with no validation at all. That
+        // is fixed there too, but this stays, because a row from any writer -- or one already in
+        // the table -- must not be priced.
+        $nonPositiveLines = Cart::where('customer_id', $customer->id)
+            ->where('store_id', $store->id)
+            ->where('qty', '<=', 0)
+            ->count();
+
+        if ($nonPositiveLines > 0) {
+            \Illuminate\Support\Facades\Log::warning('order: refused, basket holds a non-positive quantity', [
+                'handler' => __FUNCTION__,
+                'store_id' => $store->id,
+                'customer_id' => $customer->id,
+                'lines' => $nonPositiveLines,
+            ]);
+
+            return $this->error(
+                ['message' => __('Your cart contains an invalid quantity.')],
+                __('Your cart contains an invalid quantity.')
+            );
+        }
+
         if (empty($billing['firstname'])) {
             return $this->error(['message' => __('Billing first name not found.')], __('Billing first name not found.'));
         }

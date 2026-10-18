@@ -21,6 +21,7 @@ use Session;
 use Illuminate\Support\Facades\Crypt;
 use App\DataTables\AbandonCartDataTable;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class CartController extends Controller
 {
@@ -186,7 +187,38 @@ class CartController extends Controller
 
         $product_id = $request->product_id;
         $variant_id = $request->variant_id ?? 0;
+
+        // P01-SEC-14 F1. THE SOURCE OF THE NEGATIVE CART LINE, and the one writer with no
+        // validation at all. `$request->qty ?? 0` took whatever was posted to the storefront web
+        // route `{storeSlug?}/product_cart` (routes/customer.php) and wrote it to `carts.qty`
+        // under the session customer's own id and this store -- exactly the rows the API order
+        // writers price. MEASURED through those writers with a -5 row present: a basket worth
+        // 1000.00 recorded `product_price` and `final_price` of 750.0, and the discounted
+        // product's stock went UP from 20 to 25.
+        //
+        // The three order handlers and payment_sheet now refuse such a basket, but closing it
+        // where it is written is what stops the row existing. An adversarial review of
+        // P01-SEC-14 E traced this path; the API's own entry point (addtocart) was validated in
+        // that commit and this one was missed.
+        //
+        // REFUSES rather than clamps, and nothing legitimate is refused: the storefront's own JS
+        // already clamps to 1 before posting (public/assets/js/front-theme.js:275-278, and the
+        // ProductQuickView module's view does the same), "remove" is a different endpoint with a
+        // `quantity_type` of its own, and there is no weighed/decimal quantity anywhere in the
+        // platform. So a non-positive value reaching here is not a client doing its job.
         $qty = $request->qty ?? 0;
+
+        if (! is_numeric($qty) || (int) $qty < 1 || (float) $qty != (int) $qty) {
+            Log::warning('product_cart: refused a non-positive or non-integer quantity', [
+                'store_id' => $store->id ?? null,
+                'customer_id' => $customer_id,
+                'qty' => is_scalar($qty) ? (string) $qty : gettype($qty),
+            ]);
+
+            return Utility::error(['message' => __('Please choose a quantity of at least 1.')]);
+        }
+
+        $qty = (int) $qty;
         $size_data = '';
         $final_price = 0;
         $cart_count = 0;

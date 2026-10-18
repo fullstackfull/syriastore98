@@ -63,11 +63,29 @@ if (! str_contains($database, 'coupon') && ! str_contains($database, 'verify')) 
     exit(2);
 }
 
+// P01-SEC-14 F. THE SOCKET IS TRIED BEFORE TCP, because a stock Ubuntu MySQL 8 authenticates
+// `root` through the `auth_socket` plugin: a TCP connection is refused with
+// "Access denied for user 'root'@'localhost'" even though the credentials are right. This script
+// passed earlier in the session and then could not connect at all on the same host, which is
+// exactly the failure mode that makes evidence unreproducible -- so the fallback is explicit.
+// Set COUPON_MYSQL_SOCKET to override, or '' plus COUPON_MYSQL_HOST to force TCP.
+$socket = getenv('COUPON_MYSQL_SOCKET');
+
+if ($socket === false) {
+    foreach (['/var/run/mysqld/mysqld.sock', '/tmp/mysql.sock', '/var/lib/mysql/mysql.sock'] as $candidate) {
+        if (file_exists($candidate)) {
+            $socket = $candidate;
+            echo "using the unix socket at {$candidate} (set COUPON_MYSQL_SOCKET='' to force TCP)\n";
+            break;
+        }
+    }
+}
+
 $connection = [
     'driver' => 'mysql',
     'host' => getenv('COUPON_MYSQL_HOST') ?: '127.0.0.1',
     'port' => getenv('COUPON_MYSQL_PORT') ?: '3306',
-    'unix_socket' => getenv('COUPON_MYSQL_SOCKET') ?: '',
+    'unix_socket' => $socket ?: '',
     'database' => $database,
     'username' => getenv('COUPON_MYSQL_USERNAME') ?: 'root',
     'password' => getenv('COUPON_MYSQL_PASSWORD') ?: '',
