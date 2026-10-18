@@ -1005,6 +1005,273 @@ crash instead of a control.
 
 ---
 
+## S20 — The storefront registration took a provider identifier on trust — **CLOSED by P01-SEC-14 A**
+
+`POST api/{slug}/register` was the only unauthenticated row in the storefront API and, because
+`Api\AuthController::login` is **unrouted**, also the only reachable social *sign-in* path: a match
+on an existing provider id returns that customer's Bearer token.
+
+**What it accepted.** `$providerId = $request->input($providerColumn)` — a posted string, verified
+against nothing. Knowing a victim's Google `sub` was enough to be issued their token and to
+overwrite `first_name`, `last_name`, `mobile`, `device_type` and `firebase_token`, the last of which
+redirects that shopper's push notifications. P01-SEC-11 narrowed the match from email to provider id
+and stopped re-parenting, which is why a password account could no longer be adopted; it recorded
+the verification gap as explicitly not closed.
+
+**What closed it.** `app/Services/SocialIdentity/` — a verifier that proves the identity with the
+provider's own mechanism before any row is read or written:
+
+| provider | mechanism | what is checked |
+|---|---|---|
+| Google | OIDC ID token against `https://www.googleapis.com/oauth2/v3/certs` | RS256 signature by `kid`, `exp`/`nbf`/`iat`, then `iss` ∈ {`accounts.google.com`, `https://accounts.google.com`} and `aud` ∩ this store's configured client ids, then `sub` |
+| Apple | OIDC ID token against `https://appleid.apple.com/auth/keys` | same, `iss` = `https://appleid.apple.com` |
+| Facebook | `GET https://graph.facebook.com/debug_token` with the app access token | `is_valid === true`, `app_id` = this store's, `expires_at`, `user_id` |
+
+`JWT::decode()` checks the signature and the time claims but **not `iss` or `aud`** — that is the
+caller's job, and it is the single most important API fact in the change. Both are checked
+explicitly, and the refusal reason goes to the log, never to the caller.
+
+**Credentials are read store-scoped, directly.** `app/Services/SocialIdentity/ProviderCredentials.php`
+queries `Setting::withoutGlobalScopes()->where('store_id', …)->where('name', …)` rather than
+`Utility::GetValueByName()`. That is not a style preference: `GetValueByName` defaults `$store_id` to
+`getCurrentStore()`, which is **null for an unauthenticated caller** — which `register` always is —
+and with an empty store id it **drops the where clause** and plucks by `name` across the whole
+`settings` table, last row wins, then falls back to a defaults map. A default audience is not a
+credential. `Setting` is not in `config/tenancy.php`'s `scoped_models`, so no global scope rescues it.
+
+### Owner items left by S20
+
+1. **Apple sign-in is fail-closed until an audience is configured.** There are no Apple credentials
+   anywhere in the repository, and there is no safe default: an ID token's `aud` is the client id it
+   was minted for, so with nothing to compare against the only correct answer is to refuse. The
+   verifier reads a new optional setting, `apple_client_ids` (comma-separated, per store); absent →
+   refuse, without any outbound call. A store that offers Apple sign-in **must** have this row
+   written before it works again. The brief forbids inventing provider credentials or disabling a
+   provider without approval, so it refuses rather than guesses.
+2. **Google may need a second audience.** `Google_client_id` is a *web* client (it is stored with a
+   secret and a redirect URI), while a mobile app's ID token carries the **platform** client id —
+   Android and iOS each have their own. `google_api_audiences` (comma-separated, optional) is merged
+   with `Google_client_id` for exactly this. If a store's app signs in with a platform client id
+   that is not listed, it is refused.
+3. **`register` still carries no throttle** — `['APILog']` alone, where the three forgot-password
+   routes beside it carry `throttle:auth`. Carried over from S19 and unchanged: it is one line in
+   `routes/api.php` but it changes a public endpoint's behaviour under load. It now also gates an
+   outbound JWKS fetch, though the refuse-before-fetch order means an unconfigured store cannot be
+   used to generate traffic.
+4. **`Api\AuthController::login` stays unrouted, and must.** Its provider lookup is
+   `Customer::query()->where('google_id', $request->google_id)->first()` with **no store predicate
+   at all** — and with `null_tenant => 'open'` an unauthenticated caller gets no predicate from the
+   scope either, so it would reach every tenant. Routing it reintroduces a worse version of S20.
+   Pinned by a test that asserts the route does not resolve.
+
+---
+
+## S21 — The order-calculation architecture: four measured defects, and why the amount fix stops here
+
+P01-SEC-14 B made `payment_sheet` derive the payable server-side. Establishing *which* server figure
+to charge produced the measurements below, through `api/{slug}/cart-list` on one 100.00 product:
+
+| payload | `total_final_price` | `total_sub_price` |
+|---|---|---|
+| (none) | 100.00 | 100.00 |
+| `coupon_code=<a 50% coupon>` | 100.00 | 50.00 |
+| `shipping_final_price=25` | 100.00 | 125.00 |
+| **`shipping_final_price=-999`** | **100.00** | **−899.00** |
+| one 100.00 product + a 10% tax | 110.00 | 121.00 |
+
+1. **`total_sub_price` is caller-settable.** `cart_list` reads
+   `$shipping_price = (int)$request['shipping_final_price']` with no floor and adds it to
+   `total_sub_price` and `sub_total`. Charging that key would have handed the payable straight back
+   to the caller. This is why `total_final_price` is charged, and it is a stronger reason than the
+   tax argument the choice was first made on.
+2. **`total_final_price` ignores the coupon.** `$cart_final_price += $final_price` runs *before* the
+   coupon block assigns `$final_price = $coupon_apply_price`, so the discount reaches `tax_price`,
+   `coupon_price` and `total_sub_price` but never the key the charge uses. So a coupon-bearing
+   checkout through `payment_sheet` is charged the **undiscounted** total.
+3. **`total_final_price` excludes shipping**, which appears only in `sub_total` and
+   `total_sub_price`, and there only from caller input. So the merchant is not paid for delivery,
+   and there is no server-side shipping figure to use instead.
+4. **The tax is double-counted in `total_sub_price`** (110.00 → 121.00: the 10% is charged on a
+   price that already includes it), and `orders.tax_price` is written 0 on the same order.
+
+**So `payment_sheet` cannot be made both safe and commercially correct inside this package.** It is
+safe now — no caller input moves the amount, asserted six ways in
+`tests/Feature/Security/PaymentSheetAmountAuthorityTest` — and it is wrong by the coupon discount and
+by the shipping charge. Fixing that means changing where the coupon is applied in the accumulation
+and giving shipping a server-side source, which is the order-calculation change the brief says needs
+approval before implementation. **No shipped client in either repository calls `payment_sheet`** —
+grepped in both repos — so the exposure is to third-party consumers of the documented theme API.
+
+Also measured, and separate: `PaymentService.php`'s minor-unit conversion
+`(int)(number_format($a, 2) * 100)` **understates by one minor unit on 65,624 of 1,000,000 amounts
+(6.56%)** — 0.29 → 28, 0.57 → 56, 1.13 → 112. `app/Services/Payments/StripeMoney.php` rounds instead
+and is used by `payment_sheet`; the ~dozen other gateway controllers still truncate.
+
+---
+
+## S22 — `notify_users.user_id` has no storable value for a storefront shopper — `notify_user` **FAILS CLOSED**
+
+`api/{slug}/notify_user` enrolled `$request->user_id` as the subscriber of a back-in-stock
+notification, so a shopper chose whose device the push went to; the consumer reads that row and
+sends an FCM message to the matching `users` row. The obvious fix — derive the id from the
+authenticated principal — **cannot be written**: `notify_users.user_id` carries a foreign key to
+`users`, and a storefront customer is a `Customer`, so their own id is not storable there at all.
+There is no correct value this handler could write.
+
+It now gates on `resolveStoreCustomer()`, looks the product up store-scoped, logs, and refuses with
+`Stock notifications are not available.` The raw write was **deleted** rather than left after a
+`return`, because dead code reads as a live fallback — a strict reduction in raw cross-tenant
+exposure, recorded in `tests/Feature/Tenancy/RawQueryTenancyInventoryTest` (app entry points
+114 → 112; `notify_users` left the per-table inventory entirely).
+
+**Owner decision needed:** whether back-in-stock notification should point at `customers` (a new
+nullable `customer_id` column plus a consumer that can send to a customer's `firebase_token`), or
+stay a merchant-only feature. Until then the endpoint is honestly unavailable rather than quietly
+wrong. Client impact: nothing in either repository calls it — grepped.
+
+---
+
+## S23 — Coupon lookups: MySQL-only syntax, and four with no store predicate — **CLOSED by P01-SEC-14 C4/D2**
+
+**The portability half.** Eight storefront lookups used `whereRaw('BINARY \`coupon_code\` = ?')`.
+`BINARY` is MySQL-only, so SQLite rejected the whole statement and `apply_coupon` returned 500 before
+reaching any of its own logic — a money path that was structurally untestable, which is how the rest
+of this row stayed unexamined. `Coupon::findByExactCode()` narrows in SQL with `=` and then picks the
+byte-exact row in PHP, which is identical on MySQL, correct on SQLite and index-friendly on both.
+Verified against real MySQL 8.0.46 by
+`tests/Support/Security/bin/verify-coupon-code-matching-on-mysql.php`: 6 checks, 0 failures,
+collation `utf8mb4_0900_ai_ci`, and strictly faster — `EXPLAIN` gives `type=ref key=coupons_coupon_code_index`
+where the `BINARY` form gave `type=ALL key=null`.
+
+**The tenancy half.** Four of those lookups carried no `store_id` predicate, and `Coupon` has no
+`StoreScope` and is not in `config/tenancy.php`'s `scoped_models`, so nothing underneath added one.
+Measured through `api/{slug}/cart-list` before the predicate: store B's 90% coupon on a store A cart
+returned `total_coupon_price = 90` and `total_sub_price = 10.00`. The predicate was absent before
+P01-SEC-14 and the C4 conversion preserved it byte for byte, so this is a pre-existing cross-tenant
+read rather than a regression. All four are scoped now: `cart_list`'s per-item and validation
+lookups, `apply_coupon`'s echo re-resolution, and `Cart::cart_list_cookie`'s guest-cart lookup.
+
+**What it did and did not reach,** so the severity is not overstated: `total_final_price` was
+unaffected, so neither `payment_sheet`'s charge nor `ordersave`'s order total moved, and the web
+checkout prices its coupon through `apply_coupon`, whose acceptance lookup was already store-scoped.
+What moved was the **displayed** discount and the echoed `coupon_info` — a cross-tenant read of
+another merchant's coupon name, type and headline discount.
+
+### Still open
+
+- **~61 `whereRaw('BINARY \`code\` = ?')` sites remain**, all on `PlanCoupon` (`plan_coupons.code`,
+  the SaaS plan-billing coupon, not a storefront one). A further **19** sites query the same column
+  with a plain `where('code', …)`, so the platform is inconsistent about case sensitivity on its own
+  billing coupons. Not touched: it is a different table, a different tenant model and a different
+  product surface.
+- **`PaymentWallPaymentController.php:67` queries the wrong model.** It is
+  `Coupon::whereRaw('BINARY \`code\` = ?', …)->where('is_active', '1')`, but `coupons` has neither a
+  `code` column nor an `is_active` column — both are on `plan_coupons`. So every PaymentWall plan
+  purchase with a coupon raises a SQL error. One identifier (`PlanCoupon::`), but it is plan billing
+  and outside this package.
+
+---
+
+## S24 — `apply_coupon` refuses every coupon that is not `fixed product discount`
+
+Found while building a preservation test for S25, and measured rather than read.
+
+`Api/ApiController.php:3703` handles `flat` and `:3707` handles `percentage`, both computing the
+discount correctly. Then `:3716` opens `if ($coupon->coupon_type == 'fixed product discount')`, and
+the `} else {` that closes it at **`:3943`** returns
+`'The minimum spend for this coupon is …'`. **The else belongs to the type test, not to a spend
+test.** So a percentage coupon with no minimum spend is refused, with a message about a minimum
+spend it does not have. The same shape is at `:4268`.
+
+Dumped from a real request — a 10% coupon on a 100.00 cart —
+`{"message":" The minimum spend for this coupon is $0,00."}` with
+`sub_total_min='100.00' min=NULL max=NULL`, so neither bound was involved.
+
+**Blast radius:** `apply_coupon` is the coupon authority for `ordersave`, `place_order`,
+`confirm_order` and `PaymentController`'s web checkout. `coupon_type` defaults to `'percentage'`.
+When it refuses, `if (!empty($apply_coupon['final_price']))` simply does not fire, so the customer is
+**charged full price silently** after seeing a discount in the cart (the cart's own display path goes
+through `Cart::getCouponTotalAmount()`, which works).
+
+**NOT FIXED HERE, deliberately.** Repairing it makes discounts start applying on a live platform
+where they currently never do — a revenue change, and the owner's call rather than an authorization
+fix's. The change is a brace move. Interaction with S25 below: with S25 in place a percentage or flat
+coupon records `coupon_price = 0`, which is the server's honest answer because the server refused the
+coupon, but it is a change from recording whatever the client posted.
+
+---
+
+## S25 — A shopper could post their own discount onto an order — **CLOSED by P01-SEC-14 D1**
+
+`ordersave` wrote `$order->coupon_price` from `$order_array['coupon_info']['discount_amount']`, and
+that array was populated at `:7781-7802` from **`$request->coupon_info`**. No coupon was looked up,
+no code was checked against this store, and no arithmetic was re-derived: the shopper posted the
+discount and the order recorded it.
+
+**Measured:** posting
+`coupon_info: {coupon_code: 'INVENTED', coupon_discount_amount: '95', …}` with **no coupon existing
+anywhere on the platform** put `95.0` in `orders.coupon_price`. Worse, apply_coupon had already
+*refused* the coupon (S24), so the order recorded a discount the server had declined.
+
+**What it cost, and what it did not.** `$order->final_price` is computed from
+`$order_array['final_price']` = `$cartlist_final_price`, which is server-derived, so the posted
+discount did **not** reduce what the order says is payable. It corrupted the discount column the
+merchant's invoice, reports and refund arithmetic read. A financial-record integrity defect, not a
+free-goods one. (`refund_order.blade.php:15` zeroes `coupon_info.discount_amount` before using it, so
+the refund total shown there was not moved.)
+
+**The fix** takes the numbers from this method's own `apply_coupon()` verdict — already computed,
+already store-scoped, already used to reduce `$cartlist_final_price` — and leaves the **code**
+caller-supplied, because a code is a claim and `apply_coupon` is what tests it. The sibling
+`place_order` already worked this way (`$coupon_price = $apply_coupon['amount']`, `:3077`), so this
+aligns `ordersave` with it rather than inventing a policy. The display strings are rebuilt from the
+coupon row for the same reason: a posted `coupon_discount_number: 95` against a 10% coupon printed
+`-95% for all products` on the order.
+
+`Utility::GetValueByName` in that block is now passed `$store->id`; without it the currency label on
+the order came from whatever store the helper happened to resolve, which for an API request with no
+web session is not this one.
+
+**Deliberately NOT changed: `confirm_order`** has the identical second block at `:6332-6352`, also
+built from `$request->coupon_info`. It is routed (`{slug}/confirm-order`) but **persists nothing** —
+it is a preview that echoes the caller's own numbers back to them. Changing it would alter a response
+a client may render, for no integrity gain.
+
+---
+
+## S26 — Data-integrity decisions P01-SEC-14 C verified and did NOT act on
+
+The brief forbids modifying financial retention policy, deleting historical records or running live
+migrations without approval. Each row below was verified in code and left alone, with a read-only
+diagnostic written so the owner can size it from the real database:
+**`tests/Support/Security/bin/diagnose-data-integrity.php`** — `SELECT` only, no writes, verified by
+reading it and by seeding each condition and confirming it is detected.
+
+1. **`user_delete` hard-deletes orders while soft-deleting the account.**
+   `Order::where(...)->delete()` is a query-builder mass delete, so no model events fire; `Order` has
+   no `SoftDeletes` and `OrderObserver` has only `created` and `updated`. So the
+   `store_order_financials` rows `OrderFinancialService` wrote are **orphaned** and any wallet credit
+   is not reversed: the merchant's ledger points at orders that no longer exist. Meanwhile
+   `$customer->delete()` is soft, so the email address is burned — both
+   `unique:customers,email` and the register email-taken check match the trashed row, and that
+   shopper can never re-register with the same address in that store. **Owner decision about
+   retention and refunds, not a code change made in an authorization package.** The diagnostic counts
+   orphaned financial rows and trashed customers.
+2. **Customers with `store_id` NULL.** `resolveStoreCustomer()` admits them **in any store's slug**,
+   which makes such a row a cross-tenant actor through every caller that also acts on `$store`. It is
+   left permissive because refusing would lock a real shopper out of their own account, and because
+   no first-party insert path produces one — `config/tenancy.php` enumerates all sixteen writers of
+   `customers` and every one sets `store_id`, so it is reachable only through legacy or imported
+   rows. **If the count is zero, drop the null branch and compare the ids outright**; the same branch
+   is in `change_password` and `user_delete`. The diagnostic counts them and reports how many could
+   be back-filled unambiguously from their own orders.
+3. **`config/services.php` holds a live third-party secret in git.** The `zid` block carries
+   `client_secret` and `hook_pass` as literals at `:31` and `:34`. Same class as S2 (`APP_KEY`) and
+   the same remedy: rotate at the provider, move to `.env`, read through `config()`. Rotation is an
+   owner operation.
+
+---
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**
@@ -1036,6 +1303,8 @@ Keeping these apart is the point; each is independently reviewable and independe
 | *(triage, not a package)* | S14 | Verify each row before assigning severity |
 | **P01-SEC-10** | **S15-A** | **EMERGENCY.** Anonymous platform takeover. Answer before any deployment; route can be disabled as an interim with no app release |
 | **P01-SEC-11** | S15-B rows 1-7 + **S19** | ~~One API-authorization pass, one shared ownership helper, one Flutter window~~ **DONE.** 26 handlers, nine commits, one shared helper (`resolveStoreCustomer`). No new 401 on any path a shipped client calls; see S19 for the five rows left open |
+| **P01-SEC-14** | **S20** + **S22** + **S23** + **S25**, and the amount half of **S21** | ~~Identity and payment trust boundaries~~ **DONE.** Four commits (A, B, C, D). Provider tokens verified server-side; the payable derived from the cart; `notify_user` failed closed; four coupon lookups store-scoped; the order's discount taken from the server's verdict. No new 401 on any path a shipped client calls |
+| *(owner decision, not a package)* | **S21** calculation rows, **S24**, **S26** | Each changes money or deletes history. Answer before the next commerce package |
 | **P01-SEC-12** | S15-B row 8 | `config/superadminaccess.php` denylist vs the finance permissions. No API impact |
 | **P01-SEC-3** | S4 + the `larabug` blacklist review | Independent; no contract impact |
 | **P01-SEC-4** | S5 session half (logout, id regeneration, `same_site`) | Independent. Token expiry/abilities wait for a Flutter window |

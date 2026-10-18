@@ -682,4 +682,40 @@ class RegistrationProviderVerificationTest extends SecurityTestCase
             self::customers()->where('google_id', 'stable-sub')->value('email'),
             "A returning sign-in rewrote the account's email, which moves password recovery.");
     }
+
+    /**
+     * `Api\AuthController::login` MUST STAY UNROUTED, and this is what says so if someone routes it.
+     *
+     * Its provider branch is `Customer::query()->where('google_id', $request->google_id)->first()`
+     * (and the same for facebook_id / apple_id) with **no store predicate at all**. `Customer`
+     * carries StoreScope, but `config/tenancy.php` sets `null_tenant => 'open'`, so an
+     * unauthenticated caller gets no predicate from the scope either: that lookup would reach every
+     * tenant on the platform and hand back a token. It verifies no provider token, so it is a worse
+     * version of the defect this file closes, reachable the moment a route points at it.
+     *
+     * The test asserts the ROUTE, not the method, because the method is not the problem -- being
+     * reachable is. If this goes red, the author of the new route owns closing the provider branch
+     * with SocialIdentityVerifier first; see S20 item 4 in
+     * docs/security/P01-SECURITY-WORK-QUEUE.md.
+     */
+    public function test_the_unverified_login_handler_is_not_reachable(): void
+    {
+        $routed = [];
+
+        foreach (\Illuminate\Support\Facades\Route::getRoutes() as $route) {
+            $action = $route->getActionName();
+
+            if (str_contains($action, 'Api\\AuthController@login')
+                || str_contains($action, 'Api\\AuthController@Login')) {
+                $routed[] = implode('|', $route->methods()) . ' ' . $route->uri();
+            }
+        }
+
+        $this->assertSame([], $routed,
+            'Api\\AuthController::login is now routed at ' . implode(', ', $routed) . '. Its '
+            . 'provider lookup has no store predicate and verifies no token, so it signs a caller '
+            . 'in as any customer on the platform whose provider id they know. Close it with '
+            . 'App\\Services\\SocialIdentity\\SocialIdentityVerifier and a store predicate before '
+            . 'this route ships.');
+    }
 }

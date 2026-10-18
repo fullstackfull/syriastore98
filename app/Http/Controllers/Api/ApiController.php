@@ -717,9 +717,18 @@ public function saveStoreFcmToken(Request $request)
                 // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode -- the
                 // previous `BINARY` form was MySQL-only and made this whole path 500 on SQLite.
                 //
+                // P01-SEC-14 D2: and store-scoped. `Coupon` has no StoreScope and is not in
+                // config/tenancy.php's scoped_models, so nothing underneath adds the predicate and
+                // this lookup matched a code in ANY store. Measured through api/{slug}/cart-list
+                // before the predicate: store B's 90% coupon on a store A cart returned
+                // total_coupon_price = 90 and total_sub_price = 10.00. The predicate was absent
+                // before P01-SEC-14 and C4 preserved it exactly, so this is a pre-existing
+                // cross-tenant read rather than a regression -- see
+                // docs/security/P01-SECURITY-WORK-QUEUE.md S23.
                 $coupon = Coupon::findByExactCode(
                     $request['coupon_code'],
-                    fn ($query) => $query->whereDate('coupon_expiry_date', '>=', date('Y-m-d'))
+                    fn ($query) => $query->where('store_id', $store->id)
+                        ->whereDate('coupon_expiry_date', '>=', date('Y-m-d'))
                 );
                 if ($coupon) {
                     $coupon_apply_price = Cart::getCouponTotalAmount($coupon, $final_price, $cart_product_data->id, $cart_product_data->category_id);
@@ -770,7 +779,13 @@ public function saveStoreFcmToken(Request $request)
 
         if (isset($request['coupon_code'])) {
             // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
-            $coupon = Coupon::findByExactCode($request['coupon_code']);
+            // P01-SEC-14 D2: store-scoped, same reason as the per-item lookup above. This one
+            // decides the limit and expiry checks and fills `coupon_info` in the response, so an
+            // unscoped match reported another tenant's coupon name and discount to this caller.
+            $coupon = Coupon::findByExactCode(
+                $request['coupon_code'],
+                fn ($query) => $query->where('store_id', $store->id)
+            );
             if (!empty($coupon)) {
                 $coupon_count = $coupon->UsesCouponCount();
                 $couponQuery = Coupon::query();
@@ -4419,7 +4434,15 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $coupon_array['coupon_code'] =  $coupon->coupon_code ?? 'Code';
             if (isset($request->coupon_code)) {
                 // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
-                $coupon = Coupon::findByExactCode($request->coupon_code);
+                // P01-SEC-14 D2: store-scoped. This RE-resolves the coupon purely to fill the
+                // echoed `coupon_info` and `$coupon_array['id']`, after the store-scoped lookup
+                // above has already decided acceptance -- so without the predicate the response
+                // could carry another store's coupon id, name, type and headline discount while
+                // the arithmetic came from this store's row.
+                $coupon = Coupon::findByExactCode(
+                    $request->coupon_code,
+                    fn ($query) => $query->where('store_id', $store->id)
+                );
             }
             $coupon_array['coupon_info'] = [];
             $coupon_array['id'] = $coupon->id;
@@ -7578,21 +7601,43 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
         // coupon api call
         $order_array['coupon_info'] = null;
+
+        // P01-SEC-14 D1. `$verified_coupon` is this method's OWN verdict on the coupon, taken from
+        // the apply_coupon() call just below, and it is what the money column is written from ~200
+        // lines further down. Empty means "no coupon was accepted" -- the state an order with no
+        // coupon, an invalid code and another store's code must all land in.
+        //
+        // WHY IT EXISTS. apply_coupon() already ran here and already decided: its lookup is
+        // store-scoped (`->where('store_id', $store->id)`) and it recomputes the discount from the
+        // coupon ROW, and its answer was already used to reduce `$cartlist_final_price`. But the
+        // SECOND coupon block below then rebuilt `$order_array['coupon_info']` from
+        // `$request->coupon_info`, and `$order->coupon_price` was written from that -- so the
+        // shopper posted the discount and the order recorded it. Measured, not read: posting
+        // `coupon_info[coupon_discount_amount] = 95` against a coupon that does not exist put 95.0
+        // in `orders.coupon_price`. See tests/Feature/Security/ResidualSafetyCorrectionsTest::
+        // test_a_shopper_cannot_post_their_own_discount_onto_an_order.
+        //
+        // The CODE stays caller-supplied, because a code is a claim and apply_coupon() is what
+        // tests it. Only the NUMBERS move to the server's side. The sibling place_order already
+        // worked this way (`$coupon_price = $apply_coupon['amount']` at :3077), so this aligns
+        // ordersave with it rather than inventing a policy.
+        $verified_coupon = [];
         if (!empty($request->coupon_info)) {
             $coupon_data = $request->coupon_info;
             $apply_coupon = [
-                'coupon_code' => $coupon_data['coupon_code'],
+                'coupon_code' => $coupon_data['coupon_code'] ?? null,
                 'sub_total' => $cartlist_final_price
             ];
             $request->request->add($apply_coupon);
             $apply_coupon_response = $this->apply_coupon($request, $slug);
             $apply_coupon = (array)$apply_coupon_response->getData()->data;
 
-            $order_array['coupon_info']['message'] = $apply_coupon['message'];
+            $order_array['coupon_info']['message'] = $apply_coupon['message'] ?? null;
             $order_array['coupon_info']['status'] = false;
             if (!empty($apply_coupon['final_price'])) {
                 $cartlist_final_price = $apply_coupon['final_price'];
                 $order_array['coupon_info']['status'] = true;
+                $verified_coupon = $apply_coupon;
             }
         }
 
@@ -7779,27 +7824,43 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
             // add in Order Coupon Detail table start
         }
-        if (!empty($request->coupon_info)) {
-            $coupon_data = $request->coupon_info;
+        // P01-SEC-14 D1. EVERY FIGURE HERE IS THE SERVER'S. `$verified_coupon` is apply_coupon()'s
+        // own answer, set above, and empty unless THIS store's coupon was accepted; the request's
+        // `coupon_info` numbers are not read any more. The display strings are rebuilt from the
+        // coupon row for the same reason -- a posted `coupon_discount_number: 95` against a 10%
+        // coupon printed "-95% for all products" on the order. The gate is the VERDICT, not the
+        // presence of a request field, so an invalid code and another store's code both leave
+        // `coupon_info` as the null set above.
+        //
+        // `Utility::GetValueByName` is now passed `$store->id`: without it the currency label on
+        // this order came from whatever store the helper happened to resolve, which for an API
+        // request with no web session is not this one.
+        if (!empty($verified_coupon)) {
+            $verified_info = (array) ($verified_coupon['coupon_info'] ?? []);
 
-            $discount_string = '-' . $coupon_data['coupon_discount_number'];
-            $CURRENCY = Utility::GetValueByName('CURRENCY');
-            $CURRENCY_NAME = Utility::GetValueByName('CURRENCY_NAME');
-            if ($coupon_data['coupon_discount_type'] == 'flat') {
+            $discount_number = $verified_info['coupon_discount_number'] ?? 0;
+            $discount_type = $verified_info['coupon_discount_type'] ?? 'percentage';
+            $discount_amount = $verified_coupon['coupon_discount_amount']
+                ?? ($verified_info['coupon_discount_amount'] ?? 0);
+
+            $discount_string = '-' . $discount_number;
+            $CURRENCY = Utility::GetValueByName('CURRENCY', $store->id);
+            $CURRENCY_NAME = Utility::GetValueByName('CURRENCY_NAME', $store->id);
+            if ($discount_type == 'flat') {
                 $discount_string .= $CURRENCY;
             } else {
                 $discount_string .= '%';
             }
             $discount_string .= ' ' . __('for all products');
-            $discount = '-' . $coupon_data['coupon_discount_amount'];
+            $discount = '-' . $discount_amount;
             $discount_string2 = '(' . $discount . ' ' . $CURRENCY_NAME . ')';
 
-            $order_array['coupon_info']['code'] = $coupon_data['coupon_code'];
+            $order_array['coupon_info']['code'] = $verified_info['coupon_code'] ?? null;
             $order_array['coupon_info']['discount'] = $discount;
             $order_array['coupon_info']['discount_string'] = $discount_string;
             $order_array['coupon_info']['discount_string2'] = $discount_string2;
-            $order_array['coupon_info']['price'] = SetNumber($coupon_data['coupon_final_amount']);
-            $order_array['coupon_info']['discount_amount'] = SetNumber($coupon_data['coupon_discount_amount']);
+            $order_array['coupon_info']['price'] = SetNumber($verified_coupon['final_price'] ?? 0);
+            $order_array['coupon_info']['discount_amount'] = SetNumber($discount_amount);
         }
 
         $tax = Tax::find($tax_id);

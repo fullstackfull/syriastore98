@@ -3,6 +3,7 @@
 namespace Tests\Feature\Security;
 
 use App\Models\Cart;
+use App\Models\Coupon;
 use App\Models\Customer;
 use App\Models\Product;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -529,5 +530,140 @@ class PaymentSheetAmountAuthorityTest extends SecurityTestCase
         $this->assertStringNotContainsString('clientSecret', $response->getContent());
         $this->assertStringNotContainsString('card was declined', $response->getContent(),
             "The gateway's message was relayed to the caller.");
+    }
+
+    // -------------------------------------------------------------------------------------
+    //  THE COUPON, FOUND AFTER THE AMOUNT WAS CLOSED
+    //
+    //  Closing the amount made this reachable rather than creating it. payment_sheet derives the
+    //  payable from cart_list(), and cart_list reads `$request['coupon_code']` and looks the code
+    //  up with NO store predicate (Api/ApiController.php, the lookup inside the per-item loop).
+    //  The predicate was absent before P01-SEC-14 and the C4 conversion preserved it exactly --
+    //  `git show b5794336:app/Http/Controllers/Api/ApiController.php` line 717 is
+    //  `Coupon::whereRaw('BINARY `coupon_code` = ?', [...])->whereDate('coupon_expiry_date', ...)`
+    //  with no store_id -- so this is a pre-existing cross-tenant read, not a regression. What
+    //  changed is that it now moves REAL MONEY: while the amount came from `$request['price']`
+    //  there was no point discovering another store's coupon code, because the caller could just
+    //  send a smaller number.
+    //
+    //  `Coupon` has no StoreScope and is not in config/tenancy.php's scoped_models, so nothing
+    //  underneath adds the predicate. `coupons.store_id` is nullable and CouponController.php:109
+    //  is the merchant writer that sets it.
+    // -------------------------------------------------------------------------------------
+
+    /** A percentage coupon in $store. Not fillable-safe: store_id is not in $fillable. */
+    private function halfPriceCouponIn($store, string $label): Coupon
+    {
+        return Coupon::forceCreate([
+            'coupon_name' => 'half-' . $label,
+            'coupon_code' => strtoupper('HALF' . $label . bin2hex(random_bytes(3))),
+            'coupon_type' => 'percentage',
+            'discount_amount' => 50,
+            'coupon_limit' => 1000,
+            'coupon_expiry_date' => now()->addYear()->toDateString(),
+            'status' => 1,
+            'free_shipping_coupon' => 0,
+            'sale_items' => 0,
+            'store_id' => $store->id,
+        ]);
+    }
+
+    /**
+     * NO COUPON CODE, FROM ANY STORE, CAN CHANGE WHAT THIS ENDPOINT CHARGES.
+     *
+     * A coupon is the one amount-bearing input that is legitimately a STRING rather than a number,
+     * so it survives "do not read the request's price" and needs its own test. Three codes are
+     * driven: this store's own, another store's, and one that does not exist. All three must leave
+     * the amount at the cart's own total.
+     *
+     * WHAT THAT MEANS, MEASURED THROUGH api/{slug}/cart-list ON THE SAME FIXTURE:
+     *
+     *   payload                        total_final_price   total_sub_price
+     *   (none)                              100.00             100.00
+     *   coupon_code=<own 50%>               100.00              50.00
+     *   coupon_code=<store B's 90%>         100.00              10.00
+     *   shipping_final_price=25             100.00             125.00
+     *   shipping_final_price=-999           100.00            -899.00
+     *
+     * `total_final_price` is immune to both inputs; `total_sub_price` is settable by the caller to
+     * any value including a negative one. That is the measurement that settles the key choice this
+     * package made, and it is a stronger reason than the tax double-count the choice was first
+     * argued from: charging `total_sub_price` would have handed the payable straight back to the
+     * caller through `shipping_final_price`.
+     *
+     * AND THE COST, STATED RATHER THAN HIDDEN. Because `total_final_price` ignores the coupon, a
+     * coupon-bearing checkout through THIS endpoint is charged the undiscounted total, and because
+     * it excludes shipping, the merchant is not paid for delivery. Neither is fixable without the
+     * order-calculation work: the coupon discount is only in a key the caller can also move, and
+     * there is no server-side shipping figure at all. S21 in
+     * docs/security/P01-SECURITY-WORK-QUEUE.md carries both as owner items with the measurements.
+     * No shipped client in either repository calls this endpoint -- grepped, both repos -- so the
+     * exposure is to third-party theme consumers of the documented API.
+     */
+    public function test_no_coupon_code_can_change_the_amount(): void
+    {
+        [, $storeA] = $this->stripeStore('USD');
+        [, $storeB] = $this->stripeStore('USD');
+
+        $own = $this->halfPriceCouponIn($storeA, 'own');
+        $foreign = $this->halfPriceCouponIn($storeB, 'foreign');
+
+        foreach ([
+            'this store\'s own coupon' => $own->coupon_code,
+            'another store\'s coupon' => $foreign->coupon_code,
+            'a code that does not exist' => 'NOSUCHCODE',
+        ] as $label => $code) {
+            $customer = $this->customerIn($storeA, 'coupon' . md5($code));
+            $this->cartWorth($storeA, $customer, 100.00, 1);
+
+            $this->stripe = RecordingStripeHttpClient::install();
+            $this->callSheet(
+                $storeA,
+                ['coupon_code' => $code],
+                $customer->createToken('t')->plainTextToken
+            );
+
+            $create = $this->stripe->lastPaymentIntentCreate();
+            $this->assertNotNull($create,
+                'no intent was created for ' . $label . ', so nothing is being measured');
+
+            $amount = (int) $create['params']['amount'];
+            $this->assertSame(10000, $amount,
+                'With ' . $label . ' the amount was ' . $amount . ' rather than the cart\'s own '
+                . '10000, so a posted coupon code moves the payable.');
+
+            RecordingStripeHttpClient::restore();
+        }
+    }
+
+    /**
+     * A POSTED SHIPPING PRICE CANNOT CHANGE THE AMOUNT EITHER, and a negative one is the sharp
+     * case: `cart_list` reads `$shipping_price = (int)$request['shipping_final_price']`
+     * (Api/ApiController.php:203) with no floor, and feeds it into `total_sub_price` and
+     * `sub_total`. Measured on this fixture, -999 drives `total_sub_price` to -899.00.
+     *
+     * This is the test that would have failed had the package charged `total_sub_price`, and it is
+     * why it does not.
+     */
+    public function test_a_posted_shipping_price_cannot_change_the_amount(): void
+    {
+        [, $store] = $this->stripeStore('USD');
+        $customer = $this->customerIn($store, 'shipping');
+        $this->cartWorth($store, $customer, 100.00, 1);
+
+        $this->stripe = RecordingStripeHttpClient::install();
+        $this->callSheet(
+            $store,
+            ['shipping_final_price' => -999],
+            $customer->createToken('t')->plainTextToken
+        );
+
+        $create = $this->stripe->lastPaymentIntentCreate();
+        $this->assertNotNull($create, 'no intent was created, so nothing is being measured');
+
+        $amount = (int) $create['params']['amount'];
+        $this->assertSame(10000, $amount,
+            'The amount was ' . $amount . '. A negative posted shipping price moved the payable, '
+            . 'so the charged figure is derived from a key the caller can write.');
     }
 }

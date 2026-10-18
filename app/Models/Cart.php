@@ -574,9 +574,14 @@ class Cart extends Model
 
                 if (isset($data['coupon_code'])) {
                     // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
+                    // P01-SEC-14 D2: store-scoped. This is the GUEST (cookie) cart, and the
+                    // predicate was absent here too. `$store_id` rather than `$store->id` because
+                    // `Store::find($storeid)` above can return null, and a predicate on a null
+                    // store matches nothing -- which refuses the coupon rather than widening it.
                     $coupon = Coupon::findByExactCode(
                         $data['coupon_code'],
-                        fn ($query) => $query->whereDate('coupon_expiry_date', '>=', now()->toDateString())
+                        fn ($query) => $query->where('store_id', $store_id)
+                            ->whereDate('coupon_expiry_date', '>=', now()->toDateString())
                     );
                     if ($coupon) {
                         $coupon_apply_price = self::getCouponTotalAmount($coupon, $final_price, $cart_product_data->id, $cart_product_data->category_id);
