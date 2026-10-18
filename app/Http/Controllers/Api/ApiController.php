@@ -1818,11 +1818,16 @@ public function saveStoreFcmToken(Request $request)
                 'message' => $messages->first()
             ], $messages->first());
         }
-        $customer = Customer::find($request->customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: the target is the authenticated shopper, never `$request->customer_id`. See
+        // resolveStoreCustomer(). The posted id is still accepted and validated so a client that
+        // sends it is not rejected; it is simply no longer trusted. The refusal reuses the 401
+        // this branch already returned for an id that did not resolve, so no new status code
+        // appears on a path a client calls.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
-        $Wishlist = Wishlist::with('ProductData')->where('customer_id', $request->customer_id)->where('store_id', $store->id)->paginate(10);
+        $Wishlist = Wishlist::with('ProductData')->where('customer_id', $customer->id)->where('store_id', $store->id)->paginate(10);
         if (auth('customers')->user()) {
 
             $cart = Cart::where('customer_id', auth('customers')->user()->id)->where('store_id', $store->id)->count();
@@ -1854,11 +1859,20 @@ public function saveStoreFcmToken(Request $request)
                 'message' => $messages->first()
             ]);
         }
-        $customer = Customer::find($request->customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: the target is the authenticated shopper, never `$request->customer_id`. See
+        // resolveStoreCustomer(). The posted id is still accepted and validated so a client that
+        // sends it is not rejected; it is simply no longer trusted. The refusal reuses the 401
+        // this branch already returned for an id that did not resolve, so no new status code
+        // appears on a path a client calls.
+        //
+        // This read had NO tenant predicate whatsoever -- the slug was used only for the
+        // "Store not found" gate above -- so it returned up to 1000 rows of full_name, phone,
+        // address, postcode and delivery_instructions for any customer id on the platform.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
-        $DeliveryAddress = DeliveryAddress::where('customer_id', $request->customer_id)->paginate(1000);
+        $DeliveryAddress = DeliveryAddress::where('customer_id', $customer->id)->paginate(1000);
 
         if (!empty($DeliveryAddress)) {
             return $this->success($DeliveryAddress);
@@ -5344,12 +5358,26 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 'message' => $messages->first()
             ], $messages->first());
         }
-        $customer = Customer::find($request->customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: the target is the authenticated shopper, never `$request->customer_id`. See
+        // resolveStoreCustomer(). The posted id is still accepted and validated so a client that
+        // sends it is not rejected; it is simply no longer trusted. The refusal reuses the 401
+        // this branch already returned for an id that did not resolve, so no new status code
+        // appears on a path a client calls.
+        //
+        // This returned first_name, last_name, name, email, mobile and the default delivery
+        // address -- country, state, city, address, postcode -- for any customer id on the
+        // platform, with no tenant predicate on either read.
+        //
+        // profile_update() and change_address() call this method internally to build their
+        // response. Both forward the same request object, so a session-derived target makes the
+        // forwarded `customer_id` irrelevant rather than wrong, and both already refuse a
+        // non-Customer principal before they get here.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
-        $user_data = Customer::find($request->customer_id);
-        $DeliveryAddress = DeliveryAddress::where('customer_id', $request->customer_id)->where('default_address', 1)->first();
+        $user_data = $customer;
+        $DeliveryAddress = DeliveryAddress::where('customer_id', $customer->id)->where('default_address', 1)->first();
         if (!empty($user_data)) {
             $user_array['id'] = $user_data->id;
             $user_array['first_name'] = $user_data->first_name;
@@ -6274,27 +6302,18 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
         
 
-        if (!auth('customers')->user()) {
-            $rules = [
-                'customer_id' => 'required'
-            ];
-
-            $validator = \Validator::make($request->all(), $rules);
-            if ($validator->fails()) {
-                $messages = $validator->getMessageBag();
-                return $this->error([
-                    'message' => $messages->first()
-                ], $messages->first());
-            }
-            $customer_id = $request->customer_id;
-        } else {
-            $customer_id = auth('customers')->user()->id;
-        }
-
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: this was the guard-class trap verbatim. `if (! auth('customers')->user())` is
+        // not "is this caller anonymous" -- custom.auth admits a merchant's or a driver's token
+        // with auth('customers') null, so precisely those principals took the
+        // `$customer_id = $request->customer_id` branch and read any shopper's order history.
+        // A customer token took the safe branch, which is why reading the code suggests the
+        // fallback is for guests. There are no guests here: custom.auth returns 401 for a missing
+        // bearer token before the handler runs.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+        $customer_id = $customer->id;
         $orders = Order::select('id', 'order_date', 'delivery_date', 'product_order_id as product_order_id', 'order_date as date', \DB::raw('CAST(final_price AS DOUBLE) as amount'), 'delivery_id as delivery_id', 'delivered_status', 'return_status', 'reward_points as reward_points')
             ->where('customer_id', $customer_id)
             
@@ -6315,26 +6334,12 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
         
 
-        if (!auth('customers')->user()) {
-            $rules = [
-                'customer_id' => 'required'
-            ];
-
-            $validator = \Validator::make($request->all(), $rules);
-            if ($validator->fails()) {
-                $messages = $validator->getMessageBag();
-                return $this->error([
-                    'message' => $messages->first()
-                ], $messages->first());
-            }
-            $customer_id = $request->customer_id;
-        } else {
-            $customer_id = auth('customers')->user()->id;
-        }
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: the guard-class trap, same shape as order_list above.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+        $customer_id = $customer->id;
         $orders = Order::select('id', 'order_date', 'delivery_date', 'product_order_id as product_order_id', 'order_date as date', 'final_price as amount', 'delivery_id as delivery_id', 'delivered_status as delivered_status', 'reward_points as reward_points')
             ->where('customer_id', $customer_id)
             
@@ -6386,6 +6391,55 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         } else {
             return $this->success($order, __('Order detail get successfully.'));
         }
+    }
+
+    /**
+     * The one definition of "the shopper this request is for".
+     *
+     * Eleven storefront handlers read `customer_id` out of the request, passed it to
+     * `Customer::find()`, and treated a row coming back as proof of identity. It is not: it is a
+     * liveness check on an id the CALLER chose. Three facts make that fatal rather than untidy:
+     *
+     *   - `custom.auth` (App\Http\Middleware\CustomAuth) logs a token's owner into whichever of
+     *     the three guards matches its tokenable class, so a merchant's or a driver's token
+     *     satisfies the middleware with `auth('customers')` null. Any handler shaped
+     *     `if (! auth('customers')->user()) { $id = $request->customer_id; }` therefore hands the
+     *     attacker-controlled branch to exactly the principals who should not have it.
+     *   - The global tenant scope is no backstop. StoreScope reads the `storeSlug` route
+     *     parameter; these routes use `{slug}` and carry no ActiveTheme middleware, so no tenant
+     *     resolves, and `null_tenant => 'open'` (config/tenancy.php) means the scope adds no
+     *     predicate at all. DeliveryAddress, Wishlist and Order are not in `scoped_models`
+     *     anyway.
+     *   - A `where('store_id', $store->id)` built from the slug is not a tenant check. The slug is
+     *     caller input, so that predicate only compares the caller's own two values.
+     *
+     * So the handler is the only control, and this is what it checks: the principal is a Customer,
+     * a store resolved, and that store is the customer's own.
+     *
+     * A customer whose row carries NO store passes. `customers.store_id` is nullable and importers
+     * write that table, so such rows are real -- and refusing them would deny a genuine shopper
+     * their own data to close nothing, because every caller of this helper derives its target from
+     * the return value rather than from the slug.
+     *
+     * Returns null for anything else, including an unauthenticated caller. Fails closed.
+     */
+    private function resolveStoreCustomer($store): ?Customer
+    {
+        $customer = auth('customers')->user();
+
+        if (! $customer instanceof Customer) {
+            return null;
+        }
+
+        if (empty($store)) {
+            return null;
+        }
+
+        if ($customer->store_id !== null && (int) $customer->store_id !== (int) $store->id) {
+            return null;
+        }
+
+        return $customer;
     }
 
     /**
@@ -6692,10 +6746,26 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
     public function loyality_reward(Request $request, $slug = '')
     {
         $store = getStore($slug);
-        
 
-        $user_id = $request->user_id;
-        $Order = Order::select('reward_points')->where('customer_id', $user_id)->sum('reward_points');
+        // AUTHZ: `$user_id = $request->user_id` with no validation, no principal and no tenant
+        // predicate -- it summed an arbitrary customer's lifetime reward points across every store
+        // on the platform, and `$store` was resolved and never read. The correct shape is
+        // loyality_program_json() a few lines above, which derives from the session and scopes to
+        // the store; this now matches it.
+        //
+        // This branch has no 401 today, so one is introduced here. It is reachable only by a
+        // caller that is not a shopper: no client in either repository calls this path, and the
+        // storefront client that might would be holding a customer token.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
+            return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
+        }
+
+        $Order = Order::select('reward_points')
+            ->where('customer_id', $customer->id)
+            ->where('store_id', $store->id)
+            ->sum('reward_points');
+
         return $this->success(['point' => number_format($Order, 2)], __('Reward points get succssfully.'));
     }
 
