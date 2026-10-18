@@ -1846,9 +1846,29 @@ one field to the return they were already making. All three were measured on the
    "non-positive" no longer describes it. The bound is a **sanity bound, not a business rule** —
    the business rule is the merchant's own `products.maximum_quantity`, which `CartQuantityControl`
    enforces at initiation only and never here.
-5. **`Product` is still unscoped** and `ShippingMethod` joins it. Both are reachable cross-tenant by
-   id from these routes; the fixes above remove the *caller's* ability to supply those ids, which is
-   containment, not a scope.
+5. **ANOTHER MERCHANT'S STOCK COULD BE DRAINED THROUGH THIS STORE'S CART — the deepest defect in
+   this package, and the only one that needs no payment at all.** `Product` is **not** in
+   `scoped_models`, so `Product::find($id)` adds no predicate for anybody, and
+   `CartController::product_cartlist` (`POST {slug}/product_cart`, no auth) resolved its product
+   that way and wrote whatever came back into **this** store's cart.
+
+   MEASURED end to end through two real routes, with no account and no payment:
+
+   | request | result |
+   |---|---|
+   | `POST /{storeA}/product_cart` with `product_id=<a store-B product>`, `qty 7` | HTTP 200, `"added successfully"`, `carts` row `product_id=<B's>`, `store_id=<A's>` |
+   | `POST /{storeA}/get-payment-paiementpro` (an ordinary, legitimate return) | store B's `products.product_stock` **90 → 83** |
+
+   Neither the quantity guard nor anything else in this package could see it: the quantity is a
+   perfectly reasonable 7, and by the time the loop runs the row looks entirely ordinary. CinetPay,
+   Easebuzz and PaiementPro verify no payment, so the stock moves whether or not money did.
+
+   Same family as the **S19** cross-tenant stock drain, and the same lesson that section records: a
+   `customer_id` sweep cannot find it, because the attacker-controlled identifier is the **product**
+   id. Closed where the row is **written**, which is the only place one change covers every reader,
+   and refusing only a **provable** mismatch so a product with a null `store_id` is left alone.
+   `ShippingMethod` was the same shape and is closed in `0ad3f7e0`. **`Product` itself remains
+   unscoped** — these are containment at the caller, not a scope.
 
 ### The five things this package did not close
 
@@ -1916,6 +1936,7 @@ Every guard was removed and re-measured:
 | the shipping floor | **1 fails** — `own negative` |
 | the shipping store predicate | **1 fails** — `foreign positive` |
 | the quantity **ceiling** | **5 fail** — `test_an_absurd_quantity_is_refused_on_the_return` |
+| the foreign-product refusal at add-to-cart | **1 fails**, printing the attack's own `"added successfully"` response |
 
 **TWO OF THOSE REMOVAL CHECKS WENT STALE INSIDE THIS PACKAGE, and the second review caught it.**
 The checks recorded for `7484b290` and `57c8953c` were valid when they were run. `0ad3f7e0` then

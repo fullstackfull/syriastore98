@@ -1205,4 +1205,82 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
         $this->assertSame($before, self::orderCount(),
             'An order was written for a basket holding an unusable quantity.');
     }
+
+    /**
+     * ANOTHER MERCHANT'S STOCK CANNOT BE DRAINED THROUGH THIS STORE'S CART.
+     *
+     * The deepest defect this package found, and the only one that needs no payment at all.
+     *
+     * `Product` is NOT in `config/tenancy.php`'s `scoped_models`, so `StoreScope::isActiveFor()`
+     * short-circuits for it and `Product::find($id)` adds **no predicate for anybody** — not a
+     * customer, not a guest, not the operator. `CartController::product_cartlist` (the storefront
+     * add-to-cart route, `POST {slug}/product_cart`, no auth) resolved its product that way and
+     * wrote whatever came back into THIS store's cart.
+     *
+     * MEASURED end to end through these two routes alone, with no account and no payment:
+     *
+     *   POST /{storeA}/product_cart   product_id = <a store-B product>, qty 7
+     *     -> HTTP 200, "added successfully", carts row product_id=<B's>, store_id=<A's>
+     *   POST /{storeA}/get-payment-paiementpro   (an ordinary, legitimate return)
+     *     -> store B's products.product_stock 90 -> 83
+     *
+     * The gateway-return loops cannot catch this and a guard there would be the wrong place: they
+     * decrement whatever `product_id` the cart row holds, and by then the row looks entirely
+     * ordinary. Nor can the quantity guard see it — the quantity is a perfectly reasonable 7.
+     * CinetPay, Easebuzz and PaiementPro verify no payment, so the stock moves whether or not any
+     * money did.
+     *
+     * Same family as the S19 cross-tenant stock drain, and the same lesson that file records: a
+     * `customer_id` sweep cannot find it, because the attacker-controlled identifier is the
+     * PRODUCT id.
+     *
+     * THIS TEST DRIVES THE REAL ADD-TO-CART ROUTE and not a `forceCreate`, deliberately: planting
+     * the row directly would prove the loops decrement it, which was never in doubt, and would
+     * leave the only interesting question — whether a caller can get such a row written at all —
+     * untested. That question is what makes this live rather than latent.
+     */
+    public function test_another_stores_product_cannot_enter_this_stores_cart(): void
+    {
+        [, $storeA] = $this->tenant();
+        [, $storeB] = $this->tenant();
+        $mine = $this->productIn($storeA, 100.00, 50);
+        $theirs = $this->productIn($storeB, 100.00, 90);
+
+        // LEG 1: the real storefront add-to-cart route, naming another tenant's product.
+        $response = $this->post('/' . $storeA->slug . '/product_cart', [
+            'product_id' => $theirs->id,
+            'qty' => 7,
+        ]);
+
+        $this->assertSame(0, (int) DB::table('carts')
+            ->where('product_id', $theirs->id)->count(),
+            "Another store's product was written into this store's cart. Response: "
+            . substr((string) $response->getContent(), 0, 200));
+
+        // LEG 2: a legitimate return. Even if a row had been planted another way, assert the
+        // victim's stock is untouched, so this test keeps measuring the outcome and not only the
+        // refusal.
+        $sid = 'cookie-' . uniqid();
+        Cart::forceCreate([
+            'customer_id' => 0, 'product_id' => $mine->id, 'variant_id' => 0,
+            'qty' => 1, 'price' => 100.00, 'store_id' => $storeA->id,
+            'cookie_session_id' => $sid,
+        ]);
+
+        $state = $this->forgedCheckoutState($storeA, '', ['payment_type' => 'paiementpro']);
+
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state])
+            ->post('/' . $storeA->slug . '/get-payment-paiementpro',
+                ['responsecode' => 0, 'status' => 'success']);
+
+        $this->assertSame(90, (int) Product::withoutGlobalScopes()
+            ->find($theirs->id)->product_stock,
+            "Another merchant's stock moved for a checkout on this store. Before the fix this "
+            . 'read 83.');
+        $this->assertSame(49, (int) Product::withoutGlobalScopes()
+            ->find($mine->id)->product_stock,
+            "This store's own legitimate line did not consume its stock, so the assertion above "
+            . 'may be passing because the checkout did nothing at all.');
+    }
 }

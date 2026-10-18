@@ -233,6 +233,45 @@ class CartController extends Controller
             return Utility::error(['message' => __('Product not found.')]);
         }
 
+        /*
+         * P01-COMMERCE-SEC-01. THE PRODUCT MUST BELONG TO THIS STORE.
+         *
+         * `Product::find()` adds NO predicate for anybody. Product is not in
+         * config/tenancy.php's `scoped_models`, so StoreScope::isActiveFor() short-circuits for it
+         * -- not for a customer, not for a guest, not for the operator. So this route accepted ANY
+         * tenant's product id and wrote it into THIS store's cart.
+         *
+         * MEASURED end to end, through these routes alone and with no account:
+         *   POST /{storeA}/product_cart  with product_id = <a store-B product>, qty 7
+         *     -> HTTP 200, "added successfully", carts row product_id=<B's>, store_id=<A's>
+         *   POST /{storeA}/get-payment-paiementpro   (a legitimate return)
+         *     -> store B's products.product_stock 90 -> 83
+         *
+         * Two anonymous requests drain another merchant's inventory, and on CinetPay, Easebuzz and
+         * PaiementPro -- which verify no payment at all -- without paying for anything. The
+         * gateway-return loops cannot catch it: they decrement whatever product_id the cart row
+         * holds, and the row looks entirely ordinary by then.
+         *
+         * This is the same defect family as the S19 cross-tenant stock drain, and the same lesson:
+         * a `customer_id` sweep cannot find it, because the attacker-controlled identifier is the
+         * PRODUCT id. See the P01-SEC-14 F1 note above -- closing it where the row is WRITTEN is
+         * what stops the row existing, and it is the only place one change covers every reader.
+         *
+         * Only a PROVABLE mismatch is refused. A product whose own `store_id` is null is left
+         * alone: the column is nullable, and refusing those would break a storefront rather than
+         * fix one, which is a defect of its own.
+         */
+        if (!empty($product->store_id) && !empty($store->id) && (int) $product->store_id !== (int) $store->id) {
+            Log::warning('product_cart: refused a product belonging to another store', [
+                'store_id' => $store->id,
+                'product_store_id' => $product->store_id,
+                'product_id' => $product_id,
+                'customer_id' => $customer_id,
+            ]);
+
+            return Utility::error(['message' => __('Product not found.')]);
+        }
+
         if (!$customer) {
             if (!empty($variant_id) || $variant_id != 0) {
                 $ProductVariant = ProductVariant::where('id', $variant_id)
