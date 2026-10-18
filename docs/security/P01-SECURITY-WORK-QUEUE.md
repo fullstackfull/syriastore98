@@ -1780,7 +1780,10 @@ Two corrections to earlier records in this file and in the commit log:
   asserted that handler "reads the session only"; reading only its opening lines is how that was
   missed. It is fixed in `2c7489ff`.
 - **`PayUPaymentController::getProductStatus` carries the fallback shape and is dead code.** No
-  route declares it. Left untouched rather than deleted.
+  route declares it, so it is not fixed and not deleted — it gets **no** state guard and **no**
+  quantity guard. It did receive the `payment_status` derivation in `950a9830`, because that sweep
+  matched the literal `'Paid'` across all of them; on dead code that is a no-op either way. If the
+  method is ever routed it must be guarded first.
 
 ### What a browser can no longer decide
 

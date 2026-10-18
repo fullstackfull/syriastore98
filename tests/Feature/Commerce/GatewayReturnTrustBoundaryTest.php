@@ -73,7 +73,9 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
      * session only"; that was wrong, and `storefront-return` below is the entry that covers it.
      *
      * PayUPaymentController::getProductStatus also carries the fallback shape and IS dead code --
-     * no route declares it. It is left untouched rather than deleted, and recorded in the report.
+     * no route declares it -- so it gets no state guard and no quantity guard, and is neither
+     * fixed nor deleted. (Its literal 'Paid' was wired along with the rest in 950a9830; on an
+     * unrouted method that is a no-op.) If it is ever routed it must be guarded first.
      *
      * @return array<string, array{0: string, 1: string}>  label => [uri template, method]
      */
