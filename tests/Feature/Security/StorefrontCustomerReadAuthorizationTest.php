@@ -10,6 +10,7 @@ use App\Models\Product;
 use App\Models\User;
 use App\Models\Wishlist;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Security\SecurityTestCase;
 
 /**
@@ -131,7 +132,7 @@ class StorefrontCustomerReadAuthorizationTest extends SecurityTestCase
         ];
     }
 
-    /** @dataProvider shapeAEndpoints */
+    #[DataProvider('shapeAEndpoints')]
     public function test_a_merchant_token_cannot_read_a_shoppers_rows(string $path): void
     {
         [$merchant, $store] = $this->makeTenant();
@@ -147,7 +148,7 @@ class StorefrontCustomerReadAuthorizationTest extends SecurityTestCase
             "$path answered a merchant's token with success.");
     }
 
-    /** @dataProvider shapeAEndpoints */
+    #[DataProvider('shapeAEndpoints')]
     public function test_a_driver_token_cannot_read_a_shoppers_rows(string $path): void
     {
         [$merchant, $store] = $this->makeTenant();
@@ -164,7 +165,7 @@ class StorefrontCustomerReadAuthorizationTest extends SecurityTestCase
             "$path answered a driver's token with success.");
     }
 
-    /** @dataProvider shapeAEndpoints */
+    #[DataProvider('shapeAEndpoints')]
     public function test_one_shopper_cannot_read_another_by_naming_their_id(string $path): void
     {
         [, $store] = $this->makeTenant();
@@ -179,7 +180,7 @@ class StorefrontCustomerReadAuthorizationTest extends SecurityTestCase
             "One shopper read another's rows through $path by naming their id.");
     }
 
-    /** @dataProvider shapeAEndpoints */
+    #[DataProvider('shapeAEndpoints')]
     public function test_a_shopper_of_another_store_is_refused(string $path): void
     {
         [, $storeA] = $this->makeTenant();
@@ -211,7 +212,7 @@ class StorefrontCustomerReadAuthorizationTest extends SecurityTestCase
         ];
     }
 
-    /** @dataProvider shapeBEndpoints */
+    #[DataProvider('shapeBEndpoints')]
     public function test_a_merchant_token_cannot_read_a_shoppers_order_history(string $path): void
     {
         [$merchant, $store] = $this->makeTenant();
@@ -228,7 +229,7 @@ class StorefrontCustomerReadAuthorizationTest extends SecurityTestCase
         $this->assertSame(0, $response->json('status'));
     }
 
-    /** @dataProvider shapeBEndpoints */
+    #[DataProvider('shapeBEndpoints')]
     public function test_a_driver_token_cannot_read_a_shoppers_order_history(string $path): void
     {
         [$merchant, $store] = $this->makeTenant();
@@ -244,7 +245,7 @@ class StorefrontCustomerReadAuthorizationTest extends SecurityTestCase
         $this->assertSame(0, $response->json('status'));
     }
 
-    /** @dataProvider shapeBEndpoints */
+    #[DataProvider('shapeBEndpoints')]
     public function test_a_shopper_naming_another_id_still_gets_only_their_own(string $path): void
     {
         [, $store] = $this->makeTenant();

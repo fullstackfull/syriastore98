@@ -175,28 +175,23 @@ public function saveStoreFcmToken(Request $request)
 
     public function cart_list(Request $request, $slug = '')
     {
-        if (!auth('customers')->user()) {
-            $rules = [
-                'customer_id' => 'required',
-            ];
+        // AUTHZ: the guard-class trap. `if (! auth('customers')->user())` reads as a guest
+        // fallback and is not one -- custom.auth admits a merchant's or a driver's token with
+        // auth('customers') null, so precisely those principals took the request-controlled
+        // branch. There are no guests on this route: custom.auth refuses a missing bearer token
+        // before the handler runs. See resolveStoreCustomer().
+        //
+        // This one is called internally by ordersave(), place_order(), cart_check() and
+        // payment_list(), so it is the cart read those four depend on. `$store` is resolved here
+        // rather than further down because the principal check needs it; the original resolved it
+        // a few lines later and the behaviour for an unresolved store is unchanged.
+        $store = getStore($slug);
 
-            $customer_id = $request->customer_id;
-        } else {
-            $rules = [];
-            $customer_id = auth('customers')->user()->id;
-        }
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
-        $validator = \Validator::make($request->all(), $rules);
-        if ($validator->fails()) {
-            $messages = $validator->getMessageBag();
-            return $this->error([
-                'message' => $messages->first()
-            ], $messages->first());
-        }
-        $store = getStore($slug);
+        $customer_id = $customer->id;
         if ($store) {
             $store_id = $store->id;
             $slug = $store->slug;
@@ -893,27 +888,21 @@ public function saveStoreFcmToken(Request $request)
             return $this->error(['message' => __('Store not found.')], __("Store not found."));
         }
         $settings = Utility::Setting($store->id);
-        if (!auth('customers')->user()) {
-            $rules = [
-                'customer_id' => 'required',
-                'product_id' => 'required',
-                'variant_id' => 'nullable',
-                'qty' => 'required',
-            ];
-
-            $customer_id = $request->customer_id;
-        } else {
-            $rules = [
-                'product_id' => 'required',
-                'variant_id' => 'nullable',
-                'qty' => 'required',
-            ];
-            $customer_id = auth('customers')->user()->id;
-        }
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: the guard-class trap. `if (! auth('customers')->user())` reads as a guest
+        // fallback and is not one -- custom.auth admits a merchant's or a driver's token with
+        // auth('customers') null, so precisely those principals took the request-controlled
+        // branch. There are no guests on this route: custom.auth refuses a missing bearer token
+        // before the handler runs. See resolveStoreCustomer().
+        $rules = [
+            'product_id' => 'required',
+            'variant_id' => 'nullable',
+            'qty' => 'required',
+        ];
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+        $customer_id = $customer->id;
 
         $validator = \Validator::make($request->all(), $rules);
         if ($validator->fails()) {
@@ -1562,8 +1551,11 @@ public function saveStoreFcmToken(Request $request)
                 'message' => $messages->first()
             ], $messages->first());
         }
-        $customer = Customer::find($request->customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: `Customer::find($request->customer_id)` is a liveness check on an id the caller
+        // chose, not an identity check, so any token holder altered or deleted any shopper's cart
+        // row. The 'remove' branch below had a second defect of its own -- see there.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
         $final_price = 0;
@@ -1584,13 +1576,13 @@ public function saveStoreFcmToken(Request $request)
             }
         }
         $product = Product::find($request->product_id);
-        $cart = Cart::where('customer_id', $request->customer_id)
+        $cart = Cart::where('customer_id', $customer->id)
             ->where('product_id', $request->product_id)
             ->where('variant_id', $request->variant_id)
             
             ->where('store_id', $store->id)
             ->first();
-        $cart_count = Cart::where('customer_id', $request->customer_id)->where('store_id', $store->id)->count();
+        $cart_count = Cart::where('customer_id', $customer->id)->where('store_id', $store->id)->count();
         $settings = Setting::where('store_id', $store->id)->pluck('value', 'name')->toArray();
         if (empty($cart)) {
             return $this->error(['message' => __('Your cart is empty.')], __('Your cart is empty.'), 200, 0, $cart_count);
@@ -1690,16 +1682,14 @@ public function saveStoreFcmToken(Request $request)
             $cart->save();
 
             if ($request->quantity_type == 'remove') {
-                if (auth('customers')->user()) {
-                    $cart->delete();
-                    return $this->success(['message' => __('Cart Product Deleted.')], __('Cart Product Deleted.'), 200, $cart_count);
-                } else {
-                    $cart = Cart::where('product_id', $request->product_id)->where('customer_id', $request->customer_id)->where('variant_id', $request->variant_id)->first();
-                    $cart->delete();
-                    return $this->success(['message' => __('Cart Product Deleted.')], __('Cart Product Deleted.'), 200, $cart_count);
-                }
+                // The else branch here re-queried WITHOUT any store_id filter and deleted that
+                // row, so a merchant's or driver's token removed a named shopper's cart row in
+                // ANY store. `$cart` above is already this customer's row in this store, so the
+                // branch is gone: there is one row to delete and it is theirs.
+                $cart->delete();
+                return $this->success(['message' => __('Cart Product Deleted.')], __('Cart Product Deleted.'), 200, $cart_count);
             }
-            $cart_count = Cart::where('customer_id', $request->customer_id)->where('store_id', $store->id)->count();
+            $cart_count = Cart::where('customer_id', $customer->id)->where('store_id', $store->id)->count();
             return $this->success(['message' => __('Cart successfully updated.')], __('Cart successfully updated.'), 200, $cart_count);
         }
     }
@@ -1727,8 +1717,11 @@ public function saveStoreFcmToken(Request $request)
                 'message' => $messages->first()
             ], $messages->first());
         }
-        $customer = Customer::find($request->customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: `Customer::find($customer->id)` authorised nothing, so any token holder
+        // added to or cleared any shopper's wishlist and wrote an ActivityLog row attributed to
+        // them. The posted id is ignored from here on.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('You must be logged in to add items to your wishlist.')], __('You must be logged in to add items to your wishlist.'), 401);
         }
 
@@ -1738,13 +1731,13 @@ public function saveStoreFcmToken(Request $request)
         }
 
         if ($request->wishlist_type == 'add') {
-            $Wishlist = Wishlist::where('customer_id', $request->customer_id)->where('product_id', $request->product_id)->where('store_id', $store->id)->exists();
+            $Wishlist = Wishlist::where('customer_id', $customer->id)->where('product_id', $request->product_id)->where('store_id', $store->id)->exists();
             if ($Wishlist) {
                 return $this->error(['message' => __('Product already added in Wishlist.')], __('Product already added in Wishlist.'));
             }
 
             $Wishlist = new Wishlist();
-            $Wishlist->customer_id = $request->customer_id;
+            $Wishlist->customer_id = $customer->id;
             $Wishlist->product_id = $request->product_id;
             $Wishlist->variant_id = $request->variant_id ?? 0;
             $Wishlist->status = 1;
@@ -1753,7 +1746,7 @@ public function saveStoreFcmToken(Request $request)
 
             // activity log
             $ActivityLog = new ActivityLog();
-            $ActivityLog->customer_id = $request->customer_id;
+            $ActivityLog->customer_id = $customer->id;
             $ActivityLog->log_type = 'add wishlist';
             $ActivityLog->remark = json_encode(
                 ['product' => $request->product_id]
@@ -1761,7 +1754,7 @@ public function saveStoreFcmToken(Request $request)
             $ActivityLog->store_id = $store->id;
             $ActivityLog->save();
 
-            $Wishlist_count = Wishlist::where('customer_id', $request->customer_id)->where('store_id', $store->id)->count();
+            $Wishlist_count = Wishlist::where('customer_id', $customer->id)->where('store_id', $store->id)->count();
             if (auth('customers')->user()) {
 
                 $cart = Cart::where('customer_id', auth('customers')->user()->id)->where('store_id', $store->id)->count();
@@ -1775,11 +1768,11 @@ public function saveStoreFcmToken(Request $request)
             }
             return $this->success(['message' => __('Added successfully to wishlist'), 'count' => 1], __('Added successfully to wishlist'), 200, $cart);
         } elseif ($request->wishlist_type == 'remove') {
-            Wishlist::where('customer_id', $request->customer_id)->where('product_id', $request->product_id)->where('store_id', $store->id)->delete();
+            Wishlist::where('customer_id', $customer->id)->where('product_id', $request->product_id)->where('store_id', $store->id)->delete();
 
             // activity log
             $ActivityLog = new ActivityLog();
-            $ActivityLog->customer_id = $request->customer_id;
+            $ActivityLog->customer_id = $customer->id;
             $ActivityLog->log_type = 'delete wishlist';
             $ActivityLog->remark = json_encode(
                 ['product' => $request->product_id]
@@ -1787,7 +1780,7 @@ public function saveStoreFcmToken(Request $request)
             $ActivityLog->store_id = $store->id;
             $ActivityLog->save();
 
-            $Wishlist_count = Wishlist::where('customer_id', $request->customer_id)->where('store_id', $store->id)->count();
+            $Wishlist_count = Wishlist::where('customer_id', $customer->id)->where('store_id', $store->id)->count();
 
             if (auth('customers')->user()) {
                 $cart = Cart::where('customer_id', auth('customers')->user()->id)->where('store_id', $store->id)->count();
@@ -5015,17 +5008,22 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             ], $messages->first());
         }
 
-        if (!auth('customers')->user()) {
-            $customer_id = $request->customer_id ?? 0;
-            $cart = [];
-        } else {
-            $customer_id = auth('customers')->user()->id;
-            $cart = Cart::where('customer_id', $customer_id)->where('store_id', $store->id)->get();
-        }
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: the guard-class trap. `if (! auth('customers')->user())` reads as a guest
+        // fallback and is not one -- custom.auth admits a merchant's or a driver's token with
+        // auth('customers') null, so precisely those principals took the request-controlled
+        // branch. There are no guests on this route: custom.auth refuses a missing bearer token
+        // before the handler runs. See resolveStoreCustomer().
+        //
+        // The request-controlled branch set `$cart = []`, so unlike its siblings this one leaked
+        // nothing -- it computed a charge over an empty cart. It is corrected for consistency, so
+        // the next reader does not have to re-derive that this instance of the pattern happened
+        // to be harmless.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+        $customer_id = $customer->id;
+        $cart = Cart::where('customer_id', $customer_id)->where('store_id', $store->id)->get();
         $ProductVariant_array = [];
         $shipping_method = ShippingMethod::find($request->method_id);
         $price = 0;
@@ -5421,12 +5419,15 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 'message' => $messages->first()
             ], $messages->first());
         }
-        $customer = Customer::find($request->customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: liveness check only, and it then forwarded the request to cart_list() -- so this
+        // read any shopper's cart through the stock-check endpoint.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
-        // cart list api call
-        if (!empty($request->customer_id)) {
+        // cart list api call. cart_list() now derives its own target from the session, so what is
+        // forwarded here cannot steer it.
+        if (!empty($customer->id)) {
             $cartlist_response = $this->cart_list($request, $slug);
             $cartlist = $cartlist_response->getData()->data;
 
@@ -6032,15 +6033,22 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 'message' => $messages->first()
             ], $messages->first());
         }
-        $customer = Customer::find($request->customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: liveness check only, so any token holder overwrote any shopper's avatar. Three
+        // separate effects, not one: the file was DELETED from disk
+        // (File::delete on the victim's profile_image), the replacement was billed against the
+        // VICTIM's store owner's storage quota because `$store` was re-derived from the target's
+        // store_id rather than the slug, and `customers.profile_image` was rewritten.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
         $theme_image = $request->image;
-        
-        $user = Customer::find($request->customer_id);
+
+        $user = $customer;
         if (!empty($user)) {
-            $store = Store::findOrFail($user->store_id);
+            // Was Store::findOrFail($user->store_id), which 404s when the customer's store_id is
+            // null -- and that column is nullable. The slug's store is already confirmed to be
+            // this customer's by the check above, so it is the right one to bill.
             $cover_image = upload_theme_image( $theme_image, 0, $store->created_by);
             if (File::exists(base_path($user->profile_image))) {
                 File::delete(base_path($user->profile_image));
@@ -7684,26 +7692,21 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         
         $settings = Setting::where('store_id', $store->id)->pluck('value', 'name')->toArray();
 
-        if (auth('customers')->user()) {
-            $rules = [
-                'product_id' => 'required',
-                'variant' => 'required',
-                'quantity' => 'required',
-            ];
-            $customer_id         = auth('customers')->user()->id;
-        } else {
-            $rules = [
-                'customer_id' => 'required',
-                'product_id' => 'required',
-                'variant' => 'required',
-                'quantity' => 'required',
-            ];
-            $customer_id         = $request->customer_id ?? null;
-        }
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: the guard-class trap. `if (! auth('customers')->user())` reads as a guest
+        // fallback and is not one -- custom.auth admits a merchant's or a driver's token with
+        // auth('customers') null, so precisely those principals took the request-controlled
+        // branch. There are no guests on this route: custom.auth refuses a missing bearer token
+        // before the handler runs. See resolveStoreCustomer().
+        $rules = [
+            'product_id' => 'required',
+            'variant' => 'required',
+            'quantity' => 'required',
+        ];
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+        $customer_id         = $customer->id;
         $variantString = $request->variant;
         if (is_array($variantString)) {
             $variantString = implode(',', $variantString);
