@@ -9,6 +9,7 @@ use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Http\Middleware\EnsureStoreOwnsLink;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\CommerceActivator;
+use Workdo\LynomiaChat\app\Support\CommerceState;
 
 /**
  * The merchant's two commerce actions: finish the setup, and check it is still working.
@@ -71,6 +72,9 @@ class CommerceConnectionController extends Controller
             return back()->with('error', $this->merchantMessage($e));
         }
 
+        // Said unconditionally, and correctly so: the credential is revoked by the time this
+        // returns whether or not Lynomia was reachable, and that revocation is what actually stops
+        // the reads. See CommerceActivator::disconnect.
         return back()->with('success', __('Your store data is no longer shared with Lynomia Chat. You can connect it again at any time.'));
     }
 
@@ -91,11 +95,25 @@ class CommerceConnectionController extends Controller
             return back()->with('error', $this->merchantMessage($e));
         }
 
-        if ($verify && ! $result['applied']) {
-            return back()->with('success', __('Your store data is connected and working.'));
-        }
-
-        return back()->with('success', __('Your store orders and customers are now connected to Lynomia Chat.'));
+        // THE MESSAGE COMES FROM THE RESULTING STATE, NOT FROM `applied`.
+        //
+        // `applied` only says whether THIS call changed anything upstream, and the two most
+        // important outcomes both answer false: an installation already in place (nothing to do,
+        // genuinely working) and one a Lynomia operator has switched off (nothing CAN be done).
+        // Branching on it alone reported both as "connected and working" -- so a merchant whose
+        // store data was paused on the other side was told, in writing, that it was fine, while
+        // the panel two inches below correctly said Unavailable.
+        return match ($result['state']) {
+            CommerceState::CONNECTED => back()->with('success', $verify && ! $result['applied']
+                ? __('Your store data is connected and working.')
+                : __('Your store orders and customers are now connected to Lynomia Chat.')),
+            CommerceState::SUSPENDED => back()->with('error', __('Your store data connection has been paused. Please contact support.')),
+            CommerceState::NEEDS_REPAIR => back()->with('error', __('Lynomia Chat can no longer read your store data. Reconnecting fixes this.')),
+            // Anything else is a state the panel renders with its own wording and its own action,
+            // so the flash says the operation finished rather than asserting an outcome it did
+            // not produce.
+            default => back()->with('error', __('Store data could not be connected just now. You can try again.')),
+        };
     }
 
     /**

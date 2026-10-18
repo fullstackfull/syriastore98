@@ -48,6 +48,7 @@ class LynomiaStoreLink extends Model
         'lynomia_commerce_store_id',
         'commerce_remote_status',
         'commerce_installed_at',
+        'commerce_installed_version',
         'commerce_verified_at',
         'commerce_last_error',
         'commerce_attempts',
@@ -93,6 +94,7 @@ class LynomiaStoreLink extends Model
                 $link->lynomia_commerce_store_id = null;
                 $link->commerce_remote_status = null;
                 $link->commerce_installed_at = null;
+                $link->commerce_installed_version = null;
                 $link->commerce_verified_at = null;
                 $link->commerce_last_error = null;
             }
@@ -112,6 +114,7 @@ class LynomiaStoreLink extends Model
         'commerce_credential_issued_at' => 'datetime',
         'lynomia_commerce_store_id' => 'integer',
         'commerce_installed_at' => 'datetime',
+        'commerce_installed_version' => 'integer',
         'commerce_verified_at' => 'datetime',
         'commerce_activation_started_at' => 'datetime',
         'commerce_attempts' => 'integer',

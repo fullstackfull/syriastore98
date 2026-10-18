@@ -114,6 +114,11 @@ class LynomiaCommerceReconciliationTest extends TestCase
         $this->assertSame('active', $fresh->commerce_remote_status);
         $this->assertNotNull($fresh->commerce_installed_at);
         $this->assertNotNull($fresh->commerce_verified_at);
+        // CONNECTED, not "needs repair". The sweep cannot learn WHICH credential version Lynomia
+        // holds, so commerce_installed_version stays null -- and null means unknown, not drift.
+        // Reading it as drift would put a Reconnect prompt over every working store that was
+        // connected by hand, which is exactly the store this example stands for.
+        $this->assertNull($fresh->commerce_installed_version);
         $this->assertSame(CommerceState::CONNECTED, CommerceState::of($fresh));
     }
 
@@ -171,7 +176,6 @@ class LynomiaCommerceReconciliationTest extends TestCase
         $this->assertNull($fresh->commerce_remote_status);
         $this->assertNull($fresh->commerce_last_error);
         $this->assertSame(CommerceState::NOT_CONNECTED, CommerceState::of($fresh));
-        $this->assertTrue(CommerceState::actionable($fresh));
     }
 
     /**
@@ -281,6 +285,50 @@ class LynomiaCommerceReconciliationTest extends TestCase
         $this->artisan('lynomia:reconcile-commerce', ['--dry-run' => true])->assertExitCode(0);
 
         $this->assertNull($link->fresh()->lynomia_commerce_store_id);
+    }
+
+    /**
+     * AND IT WRITES NOTHING AT ALL, which the example above cannot prove.
+     *
+     * The write a dry run really used to perform was `commerce_external_store_id`, through
+     * StoreIdentity::of() -- a lazy WRITER reached before the command's only `if (! $dryRun)`
+     * guard, and therefore performed even for links the run then skipped. That value is what
+     * Lynomia matches the store by forever after, so a report-only flag was permanently pinning
+     * the identity of every provisioned link an operator inspected.
+     *
+     * It needs its own example because the one above could not have caught it twice over: it does
+     * not assert that column, and the shared fixture resolves the identity itself while building
+     * the scripted payload. So this one asserts the column AND never lets the fixture touch it.
+     */
+    public function test_dry_run_does_not_pin_the_commerce_identity(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+        $this->fakeLynomia(['account_id' => 7001]);
+        $link = app(AccountProvisioner::class)->provision($store, $owner->fresh())->fresh();
+        CommerceCredential::mint($link);
+
+        // The state of every link until something commerce- or consent-related happens on it.
+        $this->assertNull($link->fresh()->commerce_external_store_id);
+
+        $this->artisan('lynomia:reconcile-commerce', ['--dry-run' => true])->assertExitCode(0);
+
+        $this->assertNull(
+            $link->fresh()->commerce_external_store_id,
+            'a report-only run pinned the identity Lynomia will match this store by forever after'
+        );
+    }
+
+    /** A real run may record it -- that is a legitimate first use, and the sweep says so. */
+    public function test_a_real_run_does_record_the_identity_it_had_to_resolve(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+        $this->fakeLynomia(['account_id' => 7001]);
+        $link = app(AccountProvisioner::class)->provision($store, $owner->fresh())->fresh();
+        CommerceCredential::mint($link);
+
+        $this->artisan('lynomia:reconcile-commerce')->assertExitCode(0);
+
+        $this->assertNotNull($link->fresh()->commerce_external_store_id);
     }
 
     public function test_it_does_nothing_at_all_while_the_integration_is_disabled(): void

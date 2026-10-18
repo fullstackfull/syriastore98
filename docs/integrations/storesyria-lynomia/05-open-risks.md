@@ -2,6 +2,33 @@
 
 Honest, and ordered by what would bite first.
 
+## 0. What an adversarial review of this change found, and what it did not
+
+After the first commit, an 11-dimension review ran over both repositories — each dimension's
+findings then put to three independent refuters (correctness, reachability, consequence) with
+majority rule, plus a completeness critic over the result. 33 findings were raised, 23 refuted,
+**10 survived**, and the critic found 5 further gaps. All 15 were fixed in the follow-up commit:
+
+| What | Severity |
+|---|---|
+| A Super Admin credential rotation left a merchant's live installation broken while every column read healthy | major |
+| One failed *verify* flipped a live installation to "Not connected" and removed the only disconnect control | major |
+| A revoked credential hid a Lynomia suspension, offering a Connect button that could not work | major |
+| The success flash branched on `applied` alone, so a suspended installation was reported as working | major |
+| `--dry-run` permanently pinned every inspected link's commerce identity | major |
+| The new RSpec no-op example could not pass — `let(:body)` is memoized per example | blocker |
+| `provider_not_installable` was unreachable; an unknown provider answered "provider is required" | minor |
+| `commerce_last_error` stored a translated sentence, so it rendered in the wrong language for others | minor |
+| The merchant button was gated on a config check that ignores the credential's master secret | minor |
+| The dry-run test could not fail for the write the command performed | minor |
+| `CommerceState::usable()`/`actionable()` had no production caller; three assertions leaned on them | minor |
+| A shipped English string was ungrammatical | minor |
+| The architecture doc named an error code the endpoint cannot emit | minor |
+
+**What that exercise does not establish.** It is still static review: no Rails spec was executed
+and no staging run happened. A review finding nothing in a dimension is weaker evidence than a
+test passing in it. The risks below are unchanged by it.
+
 ## 1. The Rails suite was not executed
 
 **Blocked by the environment, not by the code.** `.ruby-version` pins 3.4.4;
@@ -96,3 +123,18 @@ No production call was made from this environment and none was authorised. Speci
 unverified here: that account #135's `integration_health` now reports one installation (§2.6 of
 the brief was a pre-Commerce reading), and that store #26's live row looks as described.
 `04-release-checklist.md` §7 is the read-only way to close both, after approval.
+
+## 10. Rotation drift is undetectable for a store this side never installed
+
+`commerce_installed_version` records the credential version Lynomia was last *given*, which is
+what makes "rotated here, never re-installed there" visible. It is null for any store whose
+installation this side did not perform — one connected by hand before this existed, which includes
+the one already live in production, or one the reconciliation sweep merely observed. For those, a
+null is read as **unknown rather than drift**, deliberately: claiming drift would put a Reconnect
+prompt over a working connection.
+
+The consequence is honest but real: until such a store is installed (or reconnected) through the
+automatic path once, an operator rotating its credential still breaks it silently. The first
+merchant Connect/Reconnect on it fills the column and closes the gap permanently. Pressing
+**Verify connection** on the merchant page does the same thing, which is the cheapest way to
+close it for an existing store.

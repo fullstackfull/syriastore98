@@ -64,10 +64,29 @@ class ReconcileLynomiaCommerce extends Command
                 continue;
             }
 
+            // `StoreIdentity::of()` is a lazy WRITER: the first caller for a store persists the
+            // composed identity, because that value is what Lynomia matches the store by forever
+            // after. For a real sweep that is a legitimate first use. For `--dry-run` it was a
+            // broken promise -- the flag says "change nothing" and it pinned the identity of every
+            // provisioned link it looked at, before the HTTP call and so even for links it then
+            // skipped. A dry run reads what is recorded and skips, loudly, what is not.
+            $external = $dryRun
+                ? StoreIdentity::known((int) $link->store_id)
+                : StoreIdentity::of((int) $link->store_id);
+
+            // SKIPPED, NOT TREATED AS "LYNOMIA HOLDS NOTHING". Without the continue this fell into
+            // drift() with a null installation, which reports clearing a belief -- so a dry run
+            // would have announced drift it had invented out of its own refusal to write.
+            if ($external === null) {
+                $this->warn("store {$link->store_id}: no commerce identity recorded yet -- skipped (a real run would record one)");
+
+                continue;
+            }
+
             $examined++;
 
             try {
-                $installation = $this->installationFor($api, $link);
+                $installation = $this->installationFor($api, $link, $external);
             } catch (LynomiaApiException $e) {
                 // An unreachable Lynomia is not drift. Leaving the belief alone is right: it was
                 // the last thing Lynomia actually said, and replacing it with "we could not ask"
@@ -121,9 +140,8 @@ class ReconcileLynomiaCommerce extends Command
      *
      * @return array<string,mixed>|null
      */
-    private function installationFor(PlatformApiClient $api, LynomiaStoreLink $link): ?array
+    private function installationFor(PlatformApiClient $api, LynomiaStoreLink $link, string $external): ?array
     {
-        $external = StoreIdentity::of((int) $link->store_id);
         $health = $api->integrationHealth((int) $link->lynomia_account_id);
 
         foreach ($health['installations'] as $installation) {

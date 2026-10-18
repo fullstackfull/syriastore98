@@ -23,6 +23,19 @@ use Illuminate\Support\Facades\Schema;
  * looking at a page that cannot tell those apart is told either nothing or something false.
  *
  * commerce_installed_at           Lynomia confirmed an installation exists, at this moment.
+ * commerce_installed_version      the commerce_credential_version Lynomia was last GIVEN. The one
+ *                                 column here that is not a timestamp or an error, and it exists
+ *                                 because of a failure mode the rest could not see: rotating a
+ *                                 credential invalidates the token Lynomia is holding, and before
+ *                                 merchants could self-install that was harmless -- the operator
+ *                                 who pressed Rotate was the person who then pasted the new token
+ *                                 in. Now the two can come apart, and every other column still
+ *                                 reads healthy: the version is current, issued_at is set, the
+ *                                 installation id is recorded, the far side still says `active`.
+ *                                 Comparing what we installed against what is current is the only
+ *                                 thing that can tell a working connection from one whose
+ *                                 credential was rotated out from under it, and it catches EVERY
+ *                                 rotation path rather than the one button somebody remembered.
  * commerce_remote_status          `commerce_stores.status` as Lynomia last reported it. A CACHE OF
  *                                 THE FAR SIDE'S OWN VALUE, like lynomia_commerce_store_id beside
  *                                 it -- not a state of ours. It is what tells "connected" from
@@ -49,7 +62,8 @@ return new class extends Migration
     {
         Schema::table('lynomia_store_links', function (Blueprint $table) {
             $table->timestamp('commerce_installed_at')->nullable()->after('lynomia_commerce_store_id');
-            $table->string('commerce_remote_status', 32)->nullable()->after('commerce_installed_at');
+            $table->unsignedInteger('commerce_installed_version')->nullable()->after('commerce_installed_at');
+            $table->string('commerce_remote_status', 32)->nullable()->after('commerce_installed_version');
             $table->timestamp('commerce_verified_at')->nullable()->after('commerce_remote_status');
             $table->string('commerce_last_error', 480)->nullable()->after('commerce_verified_at');
             $table->timestamp('commerce_activation_started_at')->nullable()->after('commerce_last_error');
@@ -62,6 +76,7 @@ return new class extends Migration
         Schema::table('lynomia_store_links', function (Blueprint $table) {
             $table->dropColumn([
                 'commerce_installed_at',
+                'commerce_installed_version',
                 'commerce_remote_status',
                 'commerce_verified_at',
                 'commerce_last_error',

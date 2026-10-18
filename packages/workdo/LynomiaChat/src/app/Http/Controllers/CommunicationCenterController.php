@@ -13,6 +13,7 @@ use Workdo\LynomiaChat\app\Models\LynomiaStoreIdentity;
 use Workdo\LynomiaChat\app\Support\CommerceState;
 use Workdo\LynomiaChat\app\Support\MerchantContact;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
+use Workdo\LynomiaChat\app\Services\CommerceCredential;
 use Workdo\LynomiaChat\app\Services\PlatformApiClient;
 
 /**
@@ -48,6 +49,17 @@ class CommunicationCenterController extends Controller
             // and a half-finished setup can never render as a success, because the state and
             // the buttons both come from the same derivation. See CommerceState.
             'commerceState' => CommerceState::of($link),
+            // WHY THIS IS NOT THE SAME BOOLEAN AS THE ONE ABOVE. `integrationConfigured` answers
+            // "could we talk to Lynomia at all" -- enabled, base URL, platform token. Connecting
+            // store data needs one more thing those three do not cover: the master secret the
+            // commerce credential is DERIVED from, which is a separate variable and can be absent
+            // on its own. Without this the page offered an enabled button whose press threw before
+            // the attempt was even claimed, so nothing was recorded and the merchant was told to
+            // contact support by a flash that vanished on the next click.
+            'commerceConfigured' => $this->api->isConfigured() && CommerceCredential::isConfigured(),
+            // A note shown BESIDE a working connection, never instead of it: a failed verify over
+            // a live installation is worth mentioning and is not a disconnection.
+            'commerceNote' => CommerceState::staleFailureNote($link),
             // B4. Whether the platform can reach this merchant at all, and the challenge in
             // flight if they are part way through proving it. Shown here rather than on the
             // core profile page because the reason it matters is this integration: an

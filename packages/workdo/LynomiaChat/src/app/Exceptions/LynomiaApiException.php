@@ -55,11 +55,20 @@ class LynomiaApiException extends RuntimeException
      *                            another workspace, and without it a merchant is told "somebody
      *                            has this number" and cannot act.
      */
+    /**
+     * @param string|null $errorCode The machine-readable reason the far side gave, carried through
+     *                               UNRENDERED. The message is already translated for a merchant to
+     *                               read, which makes it the wrong thing to store or to branch on:
+     *                               a caller that needs to RECORD why something failed needs a
+     *                               token that means the same in every language, and a row read by
+     *                               a whole tenant cannot hold one reader's sentence.
+     */
     public function __construct(
         public readonly string $kind,
         string $message,
         public readonly ?int $status = null,
-        public readonly ?string $heldBy = null
+        public readonly ?string $heldBy = null,
+        public readonly ?string $errorCode = null
     ) {
         parent::__construct($message);
     }
@@ -100,7 +109,8 @@ class LynomiaApiException extends RuntimeException
                 self::KIND_CONFLICT,
                 __('That channel is already connected to another one of your stores.'),
                 $status,
-                is_string($heldBy) && $heldBy !== '' ? $heldBy : null
+                is_string($heldBy) && $heldBy !== '' ? $heldBy : null,
+                $errorCode
             );
         }
 
@@ -113,7 +123,9 @@ class LynomiaApiException extends RuntimeException
             return new self(
                 self::KIND_CONFLICT,
                 __('Your store data is already connected to a different Lynomia Chat workspace. Please contact support.'),
-                $status
+                $status,
+                null,
+                $errorCode
             );
         }
 
@@ -135,7 +147,7 @@ class LynomiaApiException extends RuntimeException
             };
 
             if ($message !== null) {
-                return new self(self::KIND_CONFLICT, $message, $status);
+                return new self(self::KIND_CONFLICT, $message, $status, null, $errorCode);
             }
         }
 
@@ -160,8 +172,8 @@ class LynomiaApiException extends RuntimeException
             // KIND_CONFLICT alone passes getMessage() straight through, because most of its carriers
             // (AccountLinker, IdentityProvisioner) already build a translated sentence. These two do not,
             // so without __() an Arabic dashboard shows an English developer note.
-            $status === 409 => new self(self::KIND_CONFLICT, __('Lynomia reported a conflict.'), $status),
-            $status === 422 => new self(self::KIND_CONFLICT, __('Lynomia rejected the request as invalid.'), $status),
+            $status === 409 => new self(self::KIND_CONFLICT, __('Lynomia reported a conflict.'), $status, null, $errorCode),
+            $status === 422 => new self(self::KIND_CONFLICT, __('Lynomia rejected the request as invalid.'), $status, null, $errorCode),
             $status === 429 => new self(self::KIND_RATE_LIMITED, 'Lynomia is rate limiting this app.', $status),
             default => new self(self::KIND_REMOTE_ERROR, "Lynomia returned HTTP {$status}.", $status),
         };

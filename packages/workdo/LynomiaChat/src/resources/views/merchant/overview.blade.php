@@ -84,10 +84,20 @@
                                     <span class="badge bg-success">{{ __('Connected') }}</span>
                                     {{ __('Your orders, customers and abandoned carts are available to your team in Lynomia Chat.') }}
                                 </p>
+                                {{-- A VERIFY THAT FAILED OVER A CONNECTION THAT IS WORKING. Worth
+                                     mentioning and not a disconnection, so it is a note beside the
+                                     green badge rather than a red state replacing it -- which is
+                                     what it used to be, taking the Stop-sharing control with it. --}}
+                                @if ($commerceNote)
+                                    <p class="text-muted small mb-2">
+                                        {{ __('The last check did not get through:') }} {{ $commerceNote }}
+                                    </p>
+                                @endif
+
                                 <div class="d-flex gap-2 flex-wrap">
                                     <form method="POST" action="{{ route('lynomia.commerce.verify') }}">
                                         @csrf
-                                        <button type="submit" class="btn btn-outline-secondary btn-sm" @disabled(!$integrationConfigured)>
+                                        <button type="submit" class="btn btn-outline-secondary btn-sm" @disabled(!$commerceConfigured)>
                                             {{ __('Verify connection') }}
                                         </button>
                                     </form>
@@ -135,7 +145,7 @@
                                 </p>
                                 <form method="POST" action="{{ route('lynomia.commerce.connect') }}">
                                     @csrf
-                                    <button type="submit" class="btn btn-primary btn-sm" @disabled(!$integrationConfigured)>
+                                    <button type="submit" class="btn btn-primary btn-sm" @disabled(!$commerceConfigured)>
                                         {{ __('Reconnect store data') }}
                                     </button>
                                 </form>
@@ -144,14 +154,17 @@
                             @case($commerce::FAILED)
                                 <p class="mb-2">
                                     <span class="badge bg-danger">{{ __('Not connected') }}</span>
-                                    {{-- The reason, written for a merchant by
-                                         CommerceActivator::recordFailure. A provider response body
-                                         never reaches this column. --}}
-                                    <span class="small">{{ $link->commerce_last_error }}</span>
+                                    {{-- The column stores a locale-free REASON CODE; the sentence
+                                         is produced here, in this reader's language. It used to
+                                         store the rendered string, which meant the row carried
+                                         whichever language the failing request ran under and showed
+                                         it to everyone else in the tenant. A provider response body
+                                         never reaches either. --}}
+                                    <span class="small">{{ \Workdo\LynomiaChat\app\Support\CommerceState::reason($link) }}</span>
                                 </p>
                                 <form method="POST" action="{{ route('lynomia.commerce.connect') }}">
                                     @csrf
-                                    <button type="submit" class="btn btn-primary btn-sm" @disabled(!$integrationConfigured)>
+                                    <button type="submit" class="btn btn-primary btn-sm" @disabled(!$commerceConfigured)>
                                         {{ __('Try again') }}
                                     </button>
                                 </form>
@@ -176,7 +189,7 @@
                                 </p>
                                 <form method="POST" action="{{ route('lynomia.commerce.connect') }}">
                                     @csrf
-                                    <button type="submit" class="btn btn-primary btn-sm" @disabled(!$integrationConfigured)>
+                                    <button type="submit" class="btn btn-primary btn-sm" @disabled(!$commerceConfigured)>
                                         {{ __('Connect store data') }}
                                     </button>
                                 </form>
@@ -188,11 +201,11 @@
                                      there is nothing for the merchant to copy and nobody for them
                                      to ask. --}}
                                 <p class="text-muted small mb-2">
-                                    {{ __('Connect your store so your team can see a customer orders and deliveries while they are talking to them.') }}
+                                    {{ __("Connect your store so your team can see a customer's orders and deliveries while they are talking to them.") }}
                                 </p>
                                 <form method="POST" action="{{ route('lynomia.commerce.connect') }}">
                                     @csrf
-                                    <button type="submit" class="btn btn-primary btn-sm" @disabled(!$integrationConfigured)>
+                                    <button type="submit" class="btn btn-primary btn-sm" @disabled(!$commerceConfigured)>
                                         {{ __('Complete store data setup') }}
                                     </button>
                                 </form>

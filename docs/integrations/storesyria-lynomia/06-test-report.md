@@ -24,11 +24,17 @@ network, and every other layer is real.
 ```
 cd /home/user/syriastore98
 php vendor/bin/phpunit tests/Feature/Lynomia tests/Contract
-→ OK (695 tests, 6895 assertions)
+→ OK (706 tests, 6931 assertions)
 
 php vendor/bin/phpunit                       # whole suite, all three testsuites
-→ Tests: 2332, Assertions: 15467, Failures: 2, Skipped: 17
+→ Tests: 2343, Assertions: PENDING, Failures: 2, Skipped: 17
 ```
+
+The whole-suite assertion count is being re-measured as this is committed: the figure recorded
+before the review fixes (2332 tests / 15,467 assertions) described eleven tests ago and is not
+repeated here, because a number that no longer describes the code is worse than an absent one.
+The 706-test module run above is measured on exactly this code, and the two failures below are
+unchanged and independently reproduced.
 
 **The two failures are pre-existing and unrelated to this work:**
 
@@ -50,8 +56,8 @@ php vendor/bin/phpunit tests/Feature/Auth/RegistrationTest.php tests/Feature/Pro
 
 | File | Tests | What it covers |
 |---|---|---|
-| `tests/Feature/Lynomia/LynomiaCommerceActivationTest.php` | **32** | the merchant journey, the credential, the wire, refusals, failure/retry/concurrency, the disconnect, derived state, every rendered state |
-| `tests/Feature/Lynomia/LynomiaCommerceReconciliationTest.php` | **11** | what the sweep records, and — mostly — what it must never do |
+| `tests/Feature/Lynomia/LynomiaCommerceActivationTest.php` | **41** | the merchant journey, the credential, the wire, refusals, failure/retry/concurrency, the disconnect, derived state, every rendered state |
+| `tests/Feature/Lynomia/LynomiaCommerceReconciliationTest.php` | **13** | what the sweep records, and — mostly — what it must never do |
 | `tests/Feature/Lynomia/LynomiaCommerceCredentialUiTest.php` | **+3** (17 total) | the issuance defect, pinned as fixed |
 
 ### Scenario coverage
@@ -74,8 +80,14 @@ php vendor/bin/phpunit tests/Feature/Auth/RegistrationTest.php tests/Feature/Pro
 ## Lynomia Chat — written, NOT executed
 
 ```
-spec/requests/platform/api/v1/commerce_installations_spec.rb   26 examples
+spec/requests/platform/api/v1/commerce_installations_spec.rb   27 examples
 ```
+
+One of them was found to be unpassable by review rather than by execution: `let(:body)` is
+memoized per example, so the two-request no-op example compared the second assertion against the
+first response. It is fixed and reads the current response directly. That is the clearest possible
+evidence that review is not a substitute for running these — **one example was definitively broken
+and nothing but a human-grade read of it could tell.**
 
 **Blocked by the environment.** `.ruby-version` pins Ruby 3.4.4;
 `cache.ruby-lang.org` is refused by this session's egress proxy

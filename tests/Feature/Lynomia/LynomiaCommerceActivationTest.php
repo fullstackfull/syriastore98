@@ -351,7 +351,6 @@ class LynomiaCommerceActivationTest extends TestCase
         ])->save();
 
         $this->assertSame(CommerceState::UNAVAILABLE, CommerceState::of($link->fresh()));
-        $this->assertFalse(CommerceState::actionable($link->fresh()));
 
         $page = $this->actingAs($owner)->get('/lynomia');
 
@@ -617,6 +616,221 @@ class LynomiaCommerceActivationTest extends TestCase
         $page->assertSee(__('Connect store data'));
     }
 
+    // ============================ the ways a credential and an installation come apart
+
+    /**
+     * AN OPERATOR ROTATING A CREDENTIAL USED TO BREAK A LIVE MERCHANT SILENTLY.
+     *
+     * Before merchants could self-install, the operator who pressed Issue/Rotate WAS the person who
+     * then pasted the new token into Lynomia, so the rotation and the re-install were one act. Now
+     * they come apart -- and every column still reads healthy: the version is current, issued_at is
+     * set, the installation id is recorded, the far side still says `active`. Only comparing what
+     * Lynomia was last GIVEN against what is current can see it.
+     */
+    public function test_an_operator_rotating_the_credential_shows_as_needing_repair(): void
+    {
+        [$owner, , $link] = $this->activeLink();
+        $this->activator()->activate($link, $owner);
+        $installed = (int) $link->fresh()->commerce_installed_version;
+        $this->assertSame((int) $link->fresh()->commerce_credential_version, $installed);
+        $this->assertSame(CommerceState::CONNECTED, CommerceState::of($link->fresh()));
+
+        // Exactly what Super Admin's Issue/Rotate does now.
+        CommerceCredential::mint($link->fresh());
+
+        $this->assertSame(CommerceState::NEEDS_REPAIR, CommerceState::of($link->fresh()));
+        $page = $this->actingAs($owner)->get('/lynomia');
+        $page->assertSee(__('Lynomia Chat can no longer read your store data. Reconnecting fixes this.'));
+        $page->assertSee(__('Reconnect store data'));
+    }
+
+    /** And reconnecting repairs it, leaving the two versions in step again. */
+    public function test_reconnecting_after_an_operator_rotation_puts_the_versions_back_in_step(): void
+    {
+        [$owner, , $link] = $this->activeLink();
+        $this->activator()->activate($link, $owner);
+        CommerceCredential::mint($link->fresh());
+
+        $this->actingAs($owner)->post('/lynomia/commerce/connect');
+
+        $fresh = $link->fresh();
+        $this->assertSame((int) $fresh->commerce_credential_version, (int) $fresh->commerce_installed_version);
+        $this->assertSame(CommerceState::CONNECTED, CommerceState::of($fresh));
+    }
+
+    /**
+     * A STORE WE NEVER INSTALLED FROM HERE IS UNKNOWN, NOT BROKEN. Null means nothing has ever
+     * handed Lynomia a credential through this path -- a store connected by hand, or one the sweep
+     * merely observed -- so which version it holds cannot be known, and claiming drift would put a
+     * Reconnect prompt over a working connection.
+     */
+    public function test_an_unknown_installed_version_is_not_reported_as_drift(): void
+    {
+        [$owner, , $link] = $this->activeLink();
+        $link->forceFill([
+            'lynomia_commerce_store_id' => 41,
+            'commerce_remote_status' => 'active',
+            'commerce_installed_at' => now(),
+            'commerce_installed_version' => null,
+            'commerce_credential_version' => 3,
+            'commerce_credential_issued_at' => now(),
+        ])->save();
+
+        $this->assertSame(CommerceState::CONNECTED, CommerceState::of($link->fresh()));
+    }
+
+    /**
+     * A FAILED CHECK OVER A LIVE INSTALLATION IS A NOTE, NOT A DISCONNECTION.
+     *
+     * recordFailure deliberately clears nothing it did not learn, so a verify that times out leaves
+     * the installation id, the active credential and the far side's `active` all in place. Reading
+     * that as "Not connected" told the merchant their store data was off while Lynomia was still
+     * reading it -- and took away the one control that would have stopped it.
+     */
+    public function test_a_failed_verify_does_not_disconnect_a_working_installation(): void
+    {
+        [$owner, , $link] = $this->activeLink();
+        $this->actingAs($owner)->post('/lynomia/commerce/connect');
+        $this->assertSame(CommerceState::CONNECTED, CommerceState::of($link->fresh()));
+
+        $this->fakeLynomia([
+            'account_id' => 7001,
+            'fail' => ['PUT /platform/api/v1/accounts/7001/commerce_installation' => Http::failedConnection()],
+        ]);
+        $this->actingAs($owner)->post('/lynomia/commerce/verify');
+
+        $fresh = $link->fresh();
+        $this->assertNotNull($fresh->commerce_last_error);
+        $this->assertSame(CommerceState::CONNECTED, CommerceState::of($fresh), 'a failed check is not a disconnection');
+
+        $page = $this->actingAs($owner)->get('/lynomia');
+        $page->assertSee(__('The last check did not get through:'));
+        // The control that actually stops the sharing is still there.
+        $page->assertSee(route('lynomia.commerce.disconnect'));
+        $page->assertDontSee(__('Try again'));
+    }
+
+    /**
+     * A SUSPENDED INSTALLATION OUTRANKS A REVOKED CREDENTIAL. The two co-occur -- an operator
+     * pauses the store in Lynomia, another revokes the token here -- and reading the credential
+     * first offered a Connect button whose press cannot turn the far side back on.
+     */
+    public function test_a_lynomia_suspension_wins_over_a_revoked_credential(): void
+    {
+        [$owner, , $link] = $this->activeLink();
+        $this->activator()->activate($link, $owner);
+        $link->fresh()->forceFill([
+            'commerce_remote_status' => 'disabled',
+            'commerce_credential_version' => 9,
+            'commerce_credential_issued_at' => null,
+        ])->save();
+
+        $this->assertSame(CommerceState::SUSPENDED, CommerceState::of($link->fresh()));
+        $page = $this->actingAs($owner)->get('/lynomia');
+        $page->assertSee(__('Your store data connection has been paused. Please contact support.'));
+        $page->assertDontSee(route('lynomia.commerce.connect'));
+    }
+
+    /**
+     * THE FLASH HAS TO AGREE WITH THE PANEL. `applied` only says whether this call changed anything
+     * upstream, and a Lynomia-disabled installation answers false -- so branching on it alone told
+     * the merchant "connected and working" two inches above a panel correctly reading Unavailable.
+     */
+    public function test_a_suspended_installation_is_not_flashed_as_working(): void
+    {
+        [$owner, , $link] = $this->activeLink();
+        $this->fakeLynomia([
+            'account_id' => 7001,
+            'commerce_installation' => ['provider' => 'storesyria', 'commerce_store_id' => 3,
+                'status' => 'disabled', 'applied' => false],
+        ]);
+
+        $response = $this->actingAs($owner)->post('/lynomia/commerce/connect');
+
+        $response->assertSessionHas('error', __('Your store data connection has been paused. Please contact support.'));
+        $response->assertSessionMissing('success');
+        $this->assertSame(CommerceState::SUSPENDED, CommerceState::of($link->fresh()));
+    }
+
+    /**
+     * THE BUTTON IS DISABLED WHEN THE CREDENTIAL CANNOT BE DERIVED AT ALL.
+     *
+     * The panel used to gate on "can we reach Lynomia" -- enabled, base URL, platform token -- which
+     * does not cover the master secret the credential is derived from. That is a separate variable
+     * and can be absent on its own, so the page offered an enabled button whose press threw before
+     * the attempt was even claimed: nothing recorded, no reason on the row, and a flash that was
+     * gone on the next reload.
+     */
+    public function test_the_setup_button_is_disabled_when_the_credential_cannot_be_derived(): void
+    {
+        [$owner, , $link] = $this->activeLink();
+        config()->set('lynomia.webhook_master_secret', '');
+
+        $page = $this->actingAs($owner)->get('/lynomia');
+
+        $page->assertOk();
+        $page->assertSee(__('Complete store data setup'));
+        // Scoped to THIS button's own markup. Asserting that the page contains the word "disabled"
+        // somewhere would pass on any unrelated control and prove nothing.
+        $this->assertTrue(
+            $this->commerceButtonIsDisabled($page->getContent()),
+            'the setup button was pressable with no master secret configured'
+        );
+    }
+
+    /** And it is pressable in the ordinary case, which is what makes the example above mean something. */
+    public function test_the_setup_button_is_pressable_when_the_installation_is_configured(): void
+    {
+        [$owner] = $this->activeLink();
+
+        $page = $this->actingAs($owner)->get('/lynomia');
+
+        $this->assertFalse($this->commerceButtonIsDisabled($page->getContent()));
+    }
+
+    /** The `disabled` attribute on the one button that posts to the commerce connect route. */
+    private function commerceButtonIsDisabled(string $html): bool
+    {
+        $form = strstr($html, route('lynomia.commerce.connect'));
+        $this->assertIsString($form, 'the connect form is not on the page at all');
+
+        $button = substr($form, 0, strpos($form, '</form>') ?: strlen($form));
+
+        return str_contains($button, 'disabled');
+    }
+
+    /**
+     * THE RECORDED REASON IS A CODE, NOT A SENTENCE, so the row does not carry the language of
+     * whichever request happened to fail. Every user of a tenant reads the same row.
+     */
+    public function test_the_recorded_failure_reason_is_locale_free(): void
+    {
+        [$owner, , $link] = $this->activeLink();
+        $this->fakeLynomia([
+            'account_id' => 7001,
+            'fail' => ['PUT /platform/api/v1/accounts/7001/commerce_installation' => Http::response(
+                ['error' => 'Commerce is not enabled for that account', 'error_code' => 'commerce_disabled'],
+                422
+            )],
+        ]);
+
+        $this->actingAs($owner)->post('/lynomia/commerce/connect');
+
+        // What is stored is a token, in no language at all.
+        $this->assertSame(CommerceState::REASON_PLAN, $link->fresh()->commerce_last_error);
+
+        // And it renders as a sentence, in the reader's language, on demand.
+        app()->setLocale('en');
+        $this->assertSame(
+            __('Your Lynomia Chat plan does not include store data yet. Please contact support to enable it.'),
+            CommerceState::reason($link->fresh())
+        );
+        app()->setLocale('ar');
+        $arabic = CommerceState::reason($link->fresh());
+        $this->assertMatchesRegularExpression('/[\x{0600}-\x{06FF}]/u', $arabic);
+        app()->setLocale('en');
+    }
+
     // ================================================== derived state
 
     public function test_the_far_sides_own_status_decides_what_the_merchant_is_told(): void
@@ -646,7 +860,9 @@ class LynomiaCommerceActivationTest extends TestCase
         $this->activator()->activate($link, $owner);
         $link->fresh()->forceFill(['commerce_remote_status' => 'disabled'])->save();
 
-        $this->assertFalse(CommerceState::actionable($link->fresh()));
+        // ASSERTED ON THE PAGE, not on a helper. There used to be a CommerceState::actionable()
+        // that nothing in production consulted -- the blade hand-wrote the same rule -- so an
+        // assertion on it could stay green while the merchant was offered something else entirely.
         $page = $this->actingAs($owner)->get('/lynomia');
         $page->assertSee(__('Your store data connection has been paused. Please contact support.'));
         $page->assertDontSee(route('lynomia.commerce.connect'));

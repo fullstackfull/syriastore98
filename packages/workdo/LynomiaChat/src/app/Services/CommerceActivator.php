@@ -241,13 +241,17 @@ class CommerceActivator
     private function install(LynomiaStoreLink $link, User $actor, string $purpose): array
     {
         $externalStoreId = StoreIdentity::of((int) $link->store_id);
+        $credential = $this->credentialFor($link);
+        // READ AFTER MINTING, NOT BEFORE: credentialFor() may have rotated, and the version this
+        // records has to be the one actually on the wire.
+        $version = (int) $link->fresh()->commerce_credential_version;
 
         try {
             $result = $this->api->installCommerce(
                 (int) $link->lynomia_account_id,
                 $externalStoreId,
                 $this->baseUrl(),
-                $this->credentialFor($link),
+                $credential,
                 $this->storeName($link)
             );
         } catch (LynomiaApiException $e) {
@@ -256,7 +260,7 @@ class CommerceActivator
             throw $e;
         }
 
-        $this->recordSuccess($link, $result);
+        $this->recordSuccess($link, $result, $version);
 
         AuditLog::record('lynomia_commerce_installed', $link->fresh(), [], [
             'store_id' => $link->store_id,
@@ -312,12 +316,20 @@ class CommerceActivator
         return $name === '' ? null : Str::limit($name, 60, '');
     }
 
-    private function recordSuccess(LynomiaStoreLink $link, array $result): void
+    /**
+     * @param int $version the credential version that was actually sent
+     */
+    private function recordSuccess(LynomiaStoreLink $link, array $result, int $version): void
     {
         $link->forceFill([
             // Lynomia's own id for the installation, learned directly instead of by coincidence.
             // Only overwritten when it actually answered with one.
             'lynomia_commerce_store_id' => $result['commerce_store_id'] ?? $link->lynomia_commerce_store_id,
+            // WHAT LYNOMIA NOW HOLDS. Written here and nowhere else, because this is the only
+            // moment anything hands Lynomia a credential. A later rotation that does not come
+            // through here leaves this behind the current version, which is what makes the drift
+            // visible instead of looking like a healthy connection -- see CommerceState.
+            'commerce_installed_version' => $version,
             'commerce_remote_status' => $result['status'],
             'commerce_installed_at' => $link->commerce_installed_at ?? now(),
             'commerce_verified_at' => now(),
@@ -327,26 +339,26 @@ class CommerceActivator
     }
 
     /**
-     * THE MERCHANT-SAFE SENTENCE, NOT THE PROVIDER'S PROSE. LynomiaApiException is already the
-     * boundary where that distinction is drawn for every other surface in this module, and
-     * KIND_CONFLICT is the one kind whose own message is written for a merchant to read -- which
-     * is where the commerce refusals Lynomia defines (`commerce_disabled`, `provider_disabled`,
-     * `installation_claimed_elsewhere`, `store_limit_reached`) land after fromStatus() maps them.
-     * Anything else gets a category rather than a detail, because there is nothing in it a
-     * merchant could act on.
+     * A LOCALE-FREE REASON CODE, NOT A SENTENCE.
+     *
+     * This used to store the rendered message, and that put the FAILING REQUEST'S language in a
+     * row that every user of the tenant reads: an owner working in Arabic produced an Arabic
+     * sentence which then appeared, verbatim, between the English badge and the English button on
+     * a colleague's page -- and because the stored text was not a dictionary key, no later __()
+     * could recover it. The code is mapped to a sentence by CommerceState::reason() at render
+     * time, in the reader's language.
+     *
+     * The mapping is on the exception's own `errorCode` where it has one, because that is the
+     * machine-readable reason both sides of this integration define, and on `kind` otherwise.
      */
     private function recordFailure(LynomiaStoreLink $link, LynomiaApiException $e): void
     {
-        $reason = $e->kind === LynomiaApiException::KIND_CONFLICT
-            ? $e->getMessage()
-            : __('Store data could not be connected just now. You can try again.');
-
         // NOT INCREMENTED HERE. acquireClaim() already counted this attempt -- it has to, because
         // the counter is what makes the conditional UPDATE's affected-row count meaningful on
         // MySQL -- and counting it twice would make the ceiling an operator reads off this column
         // wrong by a factor of two.
         $link->forceFill([
-            'commerce_last_error' => Str::limit($reason, 470),
+            'commerce_last_error' => $this->reasonCode($e),
             'commerce_verified_at' => now(),
         ])->save();
 
@@ -356,6 +368,26 @@ class CommerceActivator
             'kind' => $e->kind,
             'status' => $e->status,
         ]);
+    }
+
+    /**
+     * Which recorded reason this failure is, as a token CommerceState can translate.
+     *
+     * Matched on the error code Lynomia defines where there is one -- the same strings
+     * LynomiaApiException::fromStatus maps to merchant sentences -- so the two cannot describe the
+     * same refusal differently. Anything unrecognised is a category, because there is nothing in
+     * it a merchant could act on.
+     */
+    private function reasonCode(LynomiaApiException $e): string
+    {
+        return match (true) {
+            $e->errorCode === 'commerce_disabled' => CommerceState::REASON_PLAN,
+            $e->errorCode === 'installation_claimed_elsewhere' => CommerceState::REASON_CLAIMED,
+            $e->errorCode === 'store_limit_reached' => CommerceState::REASON_STORE_LIMIT,
+            in_array($e->errorCode, ['provider_disabled', 'auth_invalid', 'platform_owned_account'], true) => CommerceState::REASON_REFUSED,
+            in_array($e->kind, [LynomiaApiException::KIND_UNREACHABLE, LynomiaApiException::KIND_RATE_LIMITED], true) => CommerceState::REASON_UNREACHABLE,
+            default => CommerceState::REASON_UNKNOWN,
+        };
     }
 
     /**

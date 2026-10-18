@@ -83,15 +83,18 @@ end state and repeating it is a no-op. There is no id for the caller to hold.
 | 2 | `platform_app_permissibles` covers this account | `401 non_permissible_resource` |
 | 3 | account is not the installation's own platform workspace | `422 platform_owned_account` |
 | 4 | `provider` is partner-installable (`storesyria` only) | `422 provider_not_installable` |
-| 5 | `commerce_token` matches `\Alsc_\d{1,19}_\d{1,19}_[0-9a-f]{64}\z` | `422 invalid_credential` |
+| 5 | `commerce_token` matches `\Alsc_\d{1,19}_\d{1,19}_[0-9a-f]{64}\z` | `422 invalid_request`, naming the field |
 | 6 | `base_url` parses (`Commerce::StoreUrl`: https, default port, no IP literal) | `422 invalid_store_url` |
 | 7 | provider enabled installation-wide (`STORESYRIA_ENABLED`) | `422 provider_disabled` |
 | 8 | account has the `lynomia_commerce` feature | `422 commerce_disabled` |
 | 9 | the store is not held by another account | `409 installation_claimed_elsewhere` |
 | 10 | the credential resolves, at Store Syria, to **this** `external_store_id` | `422 auth_invalid` |
 
-Check 5 is the same regex the merchant-facing form already validates against
-(`StoresController::CREDENTIAL_FORMATS`), reused rather than restated. Check 10 is the
+Checks 4 and 5 run at the boundary, in that order and ahead of everything else, because the
+provider decides which credential shape even applies. Check 5 reuses the same regex the
+merchant-facing form validates against (`Commerce::Providers::Storesyria::TOKEN_FORMAT`, which both
+now reference) rather than restating it, and it answers `invalid_request` naming the field — there
+is no separate `invalid_credential` code, and a client should not branch on one. Check 10 is the
 ownership proof and it is the important one: it is not a claim the caller makes, it is an
 answer Store Syria gives when Lynomia presents the credential back to it. A credential minted
 for store A cannot install store B, because `Commerce::Providers::Storesyria#health` compares
@@ -194,30 +197,53 @@ the four added here and answers one of `not_connected`, `connecting`, `connected
 disagree with the other six; the derivation cannot.
 
 ```
-workspace not allowsSso()                       → unavailable
-installation recorded, credential not active    → disconnected      (see below)
-upstream answered `disabled`                    → suspended
-upstream answered `needs_reauth`                → needs_repair
-upstream answered `disconnected`                → disconnected
-commerce_last_error set                         → failed
-lynomia_commerce_store_id set                   → connected
-activation claim held and not stale             → connecting
-otherwise                                       → not_connected
+workspace not allowsSso()                            → unavailable
+upstream answered `disabled`                         → suspended       (1)
+installed, credential not active                     → disconnected    (2)
+installed, installed_version known and behind        → needs_repair    (3)
+upstream answered `needs_reauth`                     → needs_repair
+upstream answered `disconnected`                     → disconnected
+installed                                            → connected       (4)
+commerce_last_error set                              → failed
+activation claim held and not stale                  → connecting
+otherwise                                            → not_connected
 ```
 
-The second branch is load-bearing and its position is deliberate: **an installation that cannot
-authenticate is not a connection**, whatever Lynomia's row still says. It is what an operator
-revoking in Super Admin leaves behind, and without it the merchant would be shown a green
-"Connected" over a credential that verifies nothing. Reading it as `disconnected` is both true
-and actionable — reconnecting mints a new credential and re-installs.
+Four of those positions are load-bearing, and each was wrong in an earlier draft:
+
+1. **Suspension outranks everything on this side.** A Lynomia operator switched the installation
+   off and nothing the merchant presses will turn it back on — the install endpoint deliberately
+   leaves a `disabled` store alone. Reading our own credential first offered a Connect button whose
+   press changed nothing, and the two states genuinely co-occur (one operator pauses the store
+   there, another revokes the token here).
+2. **An installation that cannot authenticate is not a connection**, whatever Lynomia's row says.
+   This is what a merchant disconnect, or an operator revoking in Super Admin, leaves behind.
+3. **A credential rotated here and never re-installed there** is the case nothing else on the row
+   can see: the version is current, `issued_at` is set, the installation id is recorded and the far
+   side still reports `active`. `commerce_installed_version` records what Lynomia was last *given*,
+   so the drift is visible — and it catches every rotation path, not the one button somebody
+   remembered to flag. **A null is unknown, not drift**: a store connected by hand, or one the
+   sweep merely observed, has no recorded version, and claiming drift there would put a Reconnect
+   prompt over a working connection.
+4. **A confirmed installation outranks a failed attempt.** A failed attempt writes only
+   `commerce_last_error`, so a merchant pressing *Verify connection* while Lynomia was briefly
+   unreachable turned a live, reading installation into "Not connected" — and took the *Stop
+   sharing store data* control away with it, telling the one person who might have wanted to stop
+   the sharing that there was nothing to stop. The error is still shown, as a note beside the
+   connection rather than instead of it.
+
+`commerce_last_error` stores a **locale-free reason code**, never a sentence: the row is read by
+every user of the tenant, and storing the rendered message put the failing request's language in
+front of everyone else. `CommerceState::reason()` renders it in the reader's language.
 
 ### 4.4 Migration
 
-One additive migration, four nullable columns and one unsigned integer default 0, no index,
+One additive migration, six nullable columns and one unsigned integer default 0, no index,
 no backfill, no data movement:
 
-`commerce_installed_at`, `commerce_verified_at`, `commerce_last_error`,
-`commerce_activation_started_at`, `commerce_attempts`.
+`commerce_installed_at`, `commerce_installed_version`, `commerce_remote_status`,
+`commerce_verified_at`, `commerce_last_error`, `commerce_activation_started_at`,
+`commerce_attempts`.
 
 Every existing row reads as `not_connected` until something observes otherwise, which is the
 honest default and is also why the rollback is a column drop with nothing to undo.
