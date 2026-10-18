@@ -208,8 +208,11 @@ work in `terminate()`. The contract checker already says this plainly:
 > 2. **Tokens never expire and carry `['*']`** — the two facts below that make a log read a
 >    permanent unscoped credential. Untouched by this package.
 
-**Fix shape (for what remains):** tokens — add `config/sanctum.php` with an expiration, and scope
-abilities at the four mint sites. Logs — decide whether 15-day retention of API bodies is wanted
+**Fix shape (for what remains):** tokens — see
+[`P01-TOKEN-EXPIRY-PROPOSAL.md`](P01-TOKEN-EXPIRY-PROPOSAL.md), which inventories **five** mint
+sites (not four), establishes that **no refresh path exists for any client** and that
+**`Api\AuthController::login` is unrouted — so customers have no login endpoint at all**, and
+stages the policy so no step can silently log out a shipped client. Logs — decide whether 15-day retention of API bodies is wanted
 at all, and rotate what is on the server now.
 
 Adjacent, same package: `config/larabug.php:99-111` filters `*name*`, `*email*`, `*credit_card*`,
@@ -641,6 +644,138 @@ racing each other.
 **Precondition:** the same `SELECT module, is_enable FROM add_on_managers` that S1 and S11 need,
 plus confirmation of which API endpoints the shipped app actually calls. `tests/Support/ApiContract`
 already holds the pinned endpoint manifest and is the right place to read that from.
+
+---
+
+## S16 — The password-change surface: one pattern, five handlers, all now closed
+
+> Found by an independent adversarial audit of the password-recovery packages, which asked the
+> owner's question — *can merchant, super-admin, customer or delivery-driver credentials cross an
+> account or tenant boundary?* — about the SURFACE rather than about the recovery handlers. The
+> recovery handlers held up. The surface around them did not.
+
+### THE PATTERN
+
+`App\Http\Middleware\CustomAuth` logs a token's owner into whichever guard matches the tokenable
+**class**: Customer → `customers`, User → `web`, DeliveryBoy → `deliveryboy`. A handler written as
+
+```php
+if (! auth('customers')->user()) { $id = $request->some_id; }   // request input
+else                             { $id = auth('customers')->user()->id; }
+$target = Customer::find($id);                                   // no store predicate
+```
+
+is reachable by a **merchant's or a driver's** token with `auth('customers')` null, and takes the
+request-supplied branch. **Five handlers had exactly this shape.** All five are closed:
+
+| | handler | wrote | closed in |
+|---|---|---|---|
+| a | `Api\ApiController::change_password` | password | previous package |
+| b | `Api\DeliveryBoyApiController::resetPassword` | driver password | previous package |
+| c | `AccountProfileController::store` | password **and e-mail** | **this package** |
+| d | `Api\AuthController::logout` | revoked any customer's sessions | **this package** |
+| e | `Api\ApiController::profile_update` | **e-mail** (a takeover primitive) | **this package** |
+
+(c) was the worst: the old-password check was guarded by `if ($request->old_password ...)`, so
+**omitting the field skipped verification entirely**, and it rewrote the address every recovery flow
+trusts. Measured against the original handler: a shopper took over any other customer **in their own
+store**. Cross-tenant did NOT reproduce — `Customer` is on `scoped_models`, so the global scope
+narrowed the lookup once a tenant resolved. The handler performed no check at all; the isolation was
+accidental, which is why the replacement does not rely on it.
+
+### THE SECOND ROOT CAUSE: `store_id` from the caller
+
+`DeliveryBoyApiController` took `store_id` from the **query string** on every credential writer, so
+its `where('store_id', ...)` compared the caller's own two values and authorised nothing. A shared
+`refuseUnlessOperatorOwns()` now gates `store()`, `update()` and `resetPassword()`, admitting the
+platform operator explicitly (`creatorId()` returns a `super admin` their own id, so an ownership
+test alone refused the operator — a divergence an independent review flagged on the first version).
+
+**`store()` and `update()` are NOT currently exploitable**, and the reason matters:
+`DeliveryBoy::$fillable` lists `commission_percentage` and `is_commission_enabled`, both handlers
+write them, and **no migration creates either column** — measured against a real fully-migrated
+MySQL 8.0.46 schema. Both answer 500 to every caller, so those holes are **latent**. A test fails
+the day the columns arrive.
+
+---
+
+## S17 — The two password brokers shared one token table
+
+> **CRITICAL, and closed in this package with no migration.**
+
+`config/auth.php:108-121` declared both brokers over `password_reset_tokens`:
+
+```php
+'users'     => ['provider' => 'users',     'table' => 'password_reset_tokens', ...]
+'customers' => ['provider' => 'customers', 'table' => 'password_reset_tokens', ...]
+```
+
+Laravel's `DatabaseTokenRepository` keys each row on `$user->getEmailForPasswordReset()` and
+`exists()` matches that value plus the token hash — nothing records which broker minted the row. So
+a token minted for a **customer** with address E was accepted verbatim by the **users** broker for
+the **User** with address E.
+
+**The chain, every link verified:**
+
+1. a merchant sets their own store's `MAIL_HOST`/`USERNAME`/`PASSWORD` (`SettingController`, route
+   `routes/web.php:778`) and the customer reset mail goes out through it
+   (`CustomerLoginController:826-837`);
+2. customer registration rejects a duplicate address **only within one store** and never consults
+   `users` (`CustomerLoginController:728-737`), so the merchant registers a customer in their own
+   store carrying the platform operator's address;
+3. `POST {storeB}/forgot-password` mints the row and mails the token **through the merchant's own
+   relay**;
+4. `POST /reset-password` (`routes/auth.php:36` → `Auth\NewPasswordController:41`) calls
+   `Password::reset()` on the **default** broker — `users` (`config/auth.php:18`) — which finds the
+   row by address alone and resets the **operator**.
+
+**Closed by `Customer::getEmailForPasswordReset()` returning `'customer:{id}'` instead of the
+address.** No schema change, no change to the reset link (which is built from `$this->email`), and
+the customer flow is unaffected because `retrieveByCredentials()` resolves the account from the
+plain address in the request while only the token *lookup* uses the key. It closes three things at
+once: the takeover, the reverse direction, and the cross-namespace DoS (`create()` deletes by the
+same key, so a customer's request used to destroy an operator's in-flight reset).
+
+**One-time cost at deploy:** customer reset links already in flight stop validating. The window is
+the brokers' 60-minute expiry.
+
+**Also closed:** the customers broker resolved its target by address with **no store predicate**, so
+`->first()` returned the lowest-id customer holding it. Measured: a reset requested through store
+B's storefront minted the token for store A's customer. Both the mint and the accept sites now pass
+`store_id` in the credentials (Laravel ANDs extra credential keys into the lookup).
+
+**Still open on this row:** `config/auth.php:122-126` points the `delivery_boys` broker at a
+`password_resets` table that **no migration creates**, so that broker would error if it were ever
+used. Nothing uses it today.
+
+---
+
+## S18 — Accounts created with a password published in this repository
+
+> **Closed in application code; four vendored packages remain, held harmless only by not being
+> routed.**
+
+The emergency removed `hello@1234` from the API recovery path. **Five more sites wrote a fixed
+literal as a live credential**, and anyone who read the source could sign in as every account
+created that way:
+
+| file:line | literal | reachable? |
+|---|---|---|
+| `PaymentController.php:1268` | `1234` | **yes** — guest checkout with "register me" |
+| `Api/DashboardController.php:5472` | `default123` | **yes** — an admin creating a customer without supplying one |
+| `ShopifyCustomerController.php:182,297` | `1234` | yes, if the integration is used |
+| `WoocomCustomerController.php:160` | `1234` | yes, if the integration is used |
+
+All five now use `Hash::make(Str::random(64))`: the account is recoverable through the reset flow
+but not signable-into with a known value. Nothing in `app/` ever attempted a login with the old
+literals (checked). A ratchet over all of `app/` — stripping comments with PHP's own tokeniser,
+because the docblocks explaining these defects quote the literals — fails on any new one.
+
+**Not fixed, deliberately:** four WorkDo social-login packages (`SignInWithBitbucket`,
+`SignInWithOutlook`, `SignInWithTwitter`, `GoogleLogin`) carry the same literal and
+`SignInWithOutlook:174` even *authenticates* with it. `packages/workdo` is vendored and under a
+modification guard. They are harmless only because their routes are not registered, and a test
+pins that: if one is ever routed, the route must be refused rather than the package patched.
 
 ---
 

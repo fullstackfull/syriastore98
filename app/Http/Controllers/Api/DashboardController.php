@@ -5467,9 +5467,18 @@ public function store(Request $request)
             'last_name' => $validated['last_name'],
             'email' => $validated['email'],
             'mobile' => $validated['mobile'] ?? null,
+            // A FIXED, PUBLIC DEFAULT IS NOT A PASSWORD. This fell back to Hash::make('default123')
+            // -- a literal committed to this repository -- whenever an administrator created a
+            // customer without supplying one, so anyone who read the source could sign in as every
+            // such account. Same defect as the 'hello@1234' the recovery emergency removed and the
+            // '1234' in PaymentController::createCustomer.
+            //
+            // A long random value leaves the account recoverable through the password-reset flow
+            // but not signable-into with a known value. Nothing attempts a login with the old
+            // literal (checked across app/).
             'password' => !empty($validated['password'])
                 ? \Hash::make($validated['password'])
-                : \Hash::make('default123'),
+                : \Hash::make(\Illuminate\Support\Str::random(64)),
             'type' => 'customer',
             'status' => $validated['status'],
             'store_id' => $storeId, 

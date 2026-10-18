@@ -548,6 +548,14 @@ public function resetPasswordWithOtp(Request $request, $storeSlug)
         'password_otp_datetime' => null,
     ])->save();
 
+    // AND THE API SESSIONS. This path rotated remember_token but left every Sanctum token alive,
+    // so a customer recovering their account on the WEB -- the only recovery route they can
+    // actually reach in a browser -- did not evict an attacker holding an API token. This project
+    // configures no Sanctum expiry, so that token never lapses on its own. The API recovery path
+    // (Api\AuthController::forgot_password_save) revokes them; this one must too, and here there
+    // is no in-flight client session to preserve, so all of them go.
+    $customer->tokens()->delete();
+
     event(new PasswordReset($customer));
 
     session()->forget([
@@ -844,9 +852,27 @@ private function normalizePhone($phone)
             $customer->storeSlug = $storeSlug; // Set the storeSlug property
             $broker = Password::broker('customers');
 
-            // This will generate a token and send a reset link to the customer's email
+            // STORE-SCOPED RESOLUTION. The existence check above is scoped to this store, but the
+            // broker then resolved the account from the e-mail ALONE: Laravel's
+            // EloquentUserProvider::retrieveByCredentials ANDs every credential key except the
+            // password ones into the query, so ['email' => ...] matched across every tenant and
+            // ->first() returned the LOWEST-ID customer holding that address.
+            //
+            // Measured before the fix: with the same address registered in store A (id 1) and
+            // store B (id 2), a reset requested through STORE B's storefront minted the token for
+            // the STORE A customer, and the subsequent reset wrote store A's password. Customer
+            // registration only rejects a duplicate address within one store and never consults
+            // other stores (:728-737), so two such rows are ordinary rather than contrived.
+            //
+            // That mattered beyond correctness: this handler mails through PER-STORE SMTP that the
+            // merchant sets themselves (:826-837), so a merchant could register a customer in
+            // their own store carrying another store's customer's address, request a reset, read
+            // the token off their own relay and take over that other tenant's customer.
+            //
+            // Passing store_id makes the broker resolve the customer this storefront's request is
+            // actually about. The reset side does the same.
             $response = $broker->sendResetLink(
-                ['email' => $request->email],
+                ['email' => $request->email, 'store_id' => $store->id],
                 function ($user, $token) use ($customer) {
                     $customer->sendPasswordResetNotification($token);
                 }
@@ -898,13 +924,22 @@ private function normalizePhone($phone)
         // Here we will attempt to reset the user's password. If it is successful we
         // will update the password on an actual user model and persist it to the
         // database. Otherwise we will parse the error and return the response.
+        // Scoped for the same reason as the mint side above -- without store_id the broker resolves
+        // the address across every tenant and resets the lowest-id customer holding it, which may
+        // not be the account this storefront's link was issued for.
         $status = Password::broker('customers')->reset(
-            $request->only('email', 'password', 'password_confirmation', 'token'),
+            $request->only('email', 'password', 'password_confirmation', 'token')
+                + ['store_id' => $store->id],
             function ($user) use ($request) {
                 $user->forceFill([
                     'password' => Hash::make($request->password),
                     'remember_token' => Str::random(60),
                 ])->save();
+
+                // The API sessions too -- same reason as the OTP path above. A link-based reset
+                // that leaves a never-expiring Sanctum token alive has not recovered the account
+                // from whoever was using it.
+                $user->tokens()->delete();
 
                 event(new PasswordReset($user));
             }

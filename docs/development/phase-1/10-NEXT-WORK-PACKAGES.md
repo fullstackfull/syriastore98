@@ -73,25 +73,111 @@ controls are now in place and are safe to carry while the flow is still inert:
 
 ---
 
-## P01-SEC-11 — One API authorization pass  ·  **second, needs a Flutter window**
+## P01-SEC-11 — The `{slug}` storefront API authorization pass  ·  **NEXT, and independently executable**
 
-The thirteen remaining reproduced escalations in `routes/api.php` handlers (S15-B rows 1–7, plus
-the `DeliveryBoyApiController` set). Seven of eight share one shape: **a credential or identity
-written on a caller-supplied row with no ownership predicate.**
+**This is the recommended next package.** It needs nothing from the owner: no migration window, no
+mobile-client release, no production access.
 
-Do it as **one pass with one shared ownership helper**, not thirteen patches.
-`Api\DashboardController::resolveChangeableOrder()` and the `resolveViewableOrder()` added for S12
-are the precedent; `CustomerPasswordResetService` is the precedent for authorization that must
-survive a compiled client.
+### Why it is next
 
-Non-negotiables carried from the password fix: paths, verbs and success envelopes preserved and
-asserted; **no denial answers 401**, because `network.dart` turns one into a forced logout;
-denials reuse each endpoint's own error envelope so "not yours" is indistinguishable from "not
-found".
+A verified sweep of all ~211 declarations in `routes/api.php` — reading each handler rather than
+the queue — found **25 routes still open**, three of them critical. The pattern is uniform and so
+is the fix, which is what makes the package tractable as one unit.
 
-**Blocked on:** an owner-approved window in which API behaviour may change, and confirmation of
-which endpoints a customer-facing client calls — `flutter-endpoints.json` covers the admin app
-only.
+**Two root causes account for all of them:**
+
+1. **`custom.auth` is authentication, not authorization.** It logs a token's owner into whichever
+   guard matches the tokenable class, so a handler written as
+   `if (! auth('customers')->user()) { $id = $request->some_id; }` is reachable by a **merchant's
+   or a driver's** token with `auth('customers')` null, and takes the request-supplied branch. Five
+   handlers of exactly this shape have now been closed (`change_password`, `logout`,
+   `profile_update`, `AccountProfileController::store`, `DeliveryBoyApiController::resetPassword`);
+   the rest of the family is below.
+2. **`store_id` arriving in request input and being used as a tenant predicate.** A predicate built
+   from a value the caller supplies compares the caller's own two values against each other and
+   authorises nothing.
+
+### Scope: the 25 open routes, by what they do
+
+**Critical — writes that reach another tenant's data or another principal's account**
+
+| | route | what it does |
+|---|---|---|
+| AUTHZ-1 | `POST api/{slug}/register` | on the non-`email` `register_type` path, finds an existing Customer by address with no store predicate, rewrites its identity and `store_id`, and mints a token for it — anonymous takeover plus a tenant move |
+| AUTHZ-2 | `POST api/{slug}/user-delete` | `User::find($request->user_id)` — the **admin** model, bare id — then deletes that id's orders, addresses, wishlists and reviews, then the row |
+| AUTHZ-3 | `POST api/{slug}/order-status-change` | sets delivery and payment status on any order platform-wide; the cancel path drives the wallet-refund observer |
+| AUTHZ-16 | `POST api/admin/deliveryboyStore` | creates a driver principal with a caller-chosen password in any store — **latent**, see the note below |
+
+**High — cross-tenant writes and PII reads**
+
+AUTHZ-4 `product-return` (marks lines returned on any order, increments stock) · AUTHZ-5
+`delete-address` · AUTHZ-6 `update-address` (re-points an address at the attacker's `customer_id`)
+· AUTHZ-7 `change-address` (writes for an arbitrary id and returns that customer's PII) · AUTHZ-8
+`update-user-image` (overwrites and `File::delete()`s another customer's file) · AUTHZ-10
+`user-detail` · AUTHZ-11 `address-list` · AUTHZ-12 `order-list` / `return-order-list` · AUTHZ-13
+`place-order` / `order-save` (places a real order for an arbitrary `customer_id`) · AUTHZ-17
+`deliveryboysIndex` (**returns drivers' bcrypt password hashes** for any store) · AUTHZ-18
+`deliveryboysUpdate` / `deliveryboysDestroy`
+
+**Medium / low**
+
+AUTHZ-14 cart and wishlist on an arbitrary id · AUTHZ-19 `deletereview` · AUTHZ-20
+`product-rating` / `add-review` · AUTHZ-22 `payment-sheet` (mints a Stripe PaymentIntent of any
+amount on the slug store's live secret key) · AUTHZ-23 `loyality-reward` · AUTHZ-24 `notify_user` ·
+AUTHZ-25 `api/admin/notification` (500s for any non-web principal)
+
+### The client-window question, resolved — this is the package boundary
+
+The queue previously held P01-SEC-11 as *"needs a Flutter window"*. That is **not true of most of
+it**, and the distinction is what makes this package independently executable:
+
+- **The shipped ADMIN app's base URL is `/api/admin`**
+  (`StoreSyria_app98/lib/utils/base_api.dart:3`), so it cannot call `api/{slug}/*` at all. Every
+  `{slug}` row above can be fixed **without touching that client** — the same argument that let
+  `deliveryboysReset-password` be fixed in place, verified there by a test that pins the journey.
+- The **storefront** client that does call `api/{slug}/*` is in neither repository. For these rows
+  that is not a blocker, because the fix is to derive the target from the authenticated principal
+  instead of from request input — and a correct client already sends its own id. A client that was
+  sending somebody else's id was exercising the defect.
+- The genuinely blocked rows are the `api/admin/*` ones the admin app does call: AUTHZ-17 and
+  AUTHZ-18. Those keep the window requirement and should be the package's last unit, or deferred.
+
+### Decomposition — each unit independently reviewable and revertable
+
+1. **The `customer_id`-from-input family** (AUTHZ-4..14, 20, 23, 24). One mechanical change
+   repeated: take the principal from `auth('customers')`, refuse a non-Customer, ignore the posted
+   id. One test per route asserting a merchant token, a driver token and another customer's token
+   are each refused, plus one pinning the owner's own journey.
+2. **The two destructive ones** (AUTHZ-2, AUTHZ-3). Separate because they need a decision about
+   what the endpoint is *for*: `user-delete` operates on the **admin** model where the only
+   plausible caller is a shopper deleting their own account.
+3. **`register`** (AUTHZ-1). Separate because fixing it decides whether social sign-in should
+   link-by-address at all; the interim is `unique:customers,email` scoped to the slug store on
+   every `register_type`.
+4. **`payment-sheet`** (AUTHZ-22). Separate because it touches money and a live Stripe key.
+5. **The admin-app rows** (AUTHZ-17, AUTHZ-18). Last, or deferred to a client window.
+
+### What it deliberately excludes
+
+- Everything needing a migration (P01-SEC-13, the `delivery_boys` missing columns, a
+  `last_used_at` index).
+- Token expiry (`docs/security/P01-TOKEN-EXPIRY-PROPOSAL.md`) — owner-gated, and stage 5 is blocked
+  on there being a customer login endpoint at all.
+- The rate-limiter architecture. Every recovery route shares one `auth` bucket keyed on
+  ip + sha256(email), which collapses to one bucket per IP wherever no email is submitted. That is a
+  design decision, not a defect to patch route by route.
+- `S1` (BackupRestore) and `S2` (APP_KEY) — both owner-gated.
+
+### A latency note that must not be lost
+
+**AUTHZ-16 and AUTHZ-18 are not currently exploitable.** `DeliveryBoy::$fillable` lists
+`commission_percentage` and `is_commission_enabled`, both handlers write them, and **no migration
+creates either column** — measured against a real fully-migrated MySQL 8.0.46 schema. So both
+endpoints answer 500 to every caller and their authorization holes are **latent**. Their gates are
+already in place (closed in this package) and
+`tests/Feature/Security/CredentialBoundaryTest::test_the_driver_table_still_lacks_the_columns_the_create_handler_writes`
+fails the day those columns arrive, so the sequencing cannot be forgotten. This is a schema gap of
+the same family as GATE F's missing tables and should join that register.
 
 ---
 

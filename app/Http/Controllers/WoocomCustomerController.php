@@ -157,7 +157,10 @@ class WoocomCustomerController extends Controller
                 $cutomer->profile_image = $uplaod['url'];
                 $cutomer->email         =$jsonData['email'];
                 $cutomer->type          ='customer';
-                $cutomer->password      = Hash::make('1234');
+                // A FIXED, PUBLIC PASSWORD IS NOT A PASSWORD -- see PaymentController::createCustomer.
+                                // An imported customer never chose one, so a long random value leaves the
+                                // account recoverable but not signable-into with a value from this repository.
+                                $cutomer->password      = Hash::make(\Illuminate\Support\Str::random(64));
                 $cutomer->register_type = 'email';
                 $cutomer->mobile        = !empty($jsonData['billing']) ? $jsonData['billing']->phone : $jsonData['shipping']->phone;
                 $cutomer->store_id      = getCurrentStore();

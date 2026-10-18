@@ -22,6 +22,48 @@ on the same two independent properties:
 `tests/Feature/Security/CustomerPasswordOtpColumnMigrationTest` asserts both properties, and also
 asserts that no provider and no registered migrator path mentions this directory.
 
+## VALIDATED AGAINST A REAL MySQL SERVER
+
+The first report could only argue the engine behaviour from the declared column type and documented
+MySQL semantics, because the container had no MySQL server. **It now does.** MySQL 8.0.46 was
+installed, an isolated instance started on its own datadir and socket, and
+`tests/Support/Security/bin/verify-sec13-migration-on-mysql.php` run against it:
+**31 checks, 0 failures**, under the stock `sql_mode`
+(`ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION`).
+
+What that measured, rather than assumed:
+
+| | measured result |
+|---|---|
+| a 60-char bcrypt hash into the `INT` column, strict mode | **ERROR 1366** — the write fails, so `sendPasswordOtp()` raises |
+| the same write, strict mode off | **warning 1366, stored as `0`** (not null) |
+| does the verify step's `empty()` guard catch that `0`? | **yes** — so the defect fails CLOSED |
+| `Hash::check()` against that `0` | **throws** `RuntimeException: This password does not use the Bcrypt algorithm` — so the `empty()` guard at `:391` is also what keeps `:413` off a 500 |
+| the table built from this repo's own `create_customers_table` migration | `password_otp` is `int`, nullable — as declared |
+| after `up()` | `varchar(255)`, nullable |
+| rows, `email`, `password` after `up()` | **unchanged**; every seeded password still verifies |
+| pre-existing `password_otp` values after `up()` | preserved as their decimal strings (`4321`, `0`, `2147483647`, `-1`, `NULL`) |
+| a 60-char hash after `up()` | stores untruncated; `Hash::check()` **matches** — the step that could never succeed on MySQL now does |
+| after `down()` | `int` again; row count unchanged; every password still verifies |
+| an in-flight hash across `down()` | **cleared to NULL**, not coerced to `0` |
+| numeric values across `down()` | preserved, including `-1` and `2147483647` |
+| `up()` run twice | harmless |
+| `up()`/`down()` with the column absent | guarded no-ops |
+
+**The full migration set also runs clean on MySQL 8.0.46** — `php artisan migrate` against an empty
+database completed with exit 0 through every migration in `database/migrations/`. So `migrate` is a
+working mechanism on this engine for this repository, which is what the owner's migration window
+would use.
+
+Re-run it yourself against any throwaway server:
+
+```
+SEC13_MYSQL_SOCKET=/path/to/mysqld.sock SEC13_MYSQL_DATABASE=sec13_verify SEC13_MYSQL_USERNAME=root SEC13_MYSQL_PASSWORD= php tests/Support/Security/bin/verify-sec13-migration-on-mysql.php
+```
+
+It creates and drops its own database and refuses to run against one whose name contains neither
+`sec13` nor `verify`.
+
 ## What the defect is
 
 `database/migrations/2023_12_15_112855_create_customers_table.php:39` declares
@@ -79,5 +121,7 @@ pre-existing numeric value preserved, a 60-character hash stored and verified af
 rollback clearing rather than coercing, and the guard making it a no-op where the column is
 absent.
 
-What those tests **cannot** establish is the MySQL failure itself — this container has the PDO
-mysql client driver and no MySQL server. Precondition 1 is how that gets confirmed.
+The MySQL behaviour itself is established by the script above, on a real server. Precondition 1
+remains, because what is still unknown is the **live** column's type: a server provisioned outside
+these migrations may already be `VARCHAR`, in which case this draft should be dropped rather than
+run.

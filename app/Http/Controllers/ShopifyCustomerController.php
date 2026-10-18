@@ -179,7 +179,10 @@ class ShopifyCustomerController extends Controller
                                 $cutomer->profile_image = $uplaod['url'];
                                 $cutomer->email         = $customer['customers'][0]['email'];
                                 $cutomer->type          = 'customer';
-                                $cutomer->password      = Hash::make('1234');
+                                // A FIXED, PUBLIC PASSWORD IS NOT A PASSWORD -- see PaymentController::createCustomer.
+                                // An imported customer never chose one, so a long random value leaves the
+                                // account recoverable but not signable-into with a value from this repository.
+                                $cutomer->password      = Hash::make(\Illuminate\Support\Str::random(64));
                                 $cutomer->register_type = 'email';
                                 $cutomer->mobile        = $customer['customers'][0]['phone'];
                                 $cutomer->store_id      = getCurrentStore();
@@ -294,7 +297,10 @@ class ShopifyCustomerController extends Controller
                                 $cutomer->profile_image = $uplaod['url'];
                                 $cutomer->email         = $customer['customers'][0]['email'];
                                 $cutomer->type          = 'customer';
-                                $cutomer->password      = Hash::make('1234');
+                                // A FIXED, PUBLIC PASSWORD IS NOT A PASSWORD -- see PaymentController::createCustomer.
+                                // An imported customer never chose one, so a long random value leaves the
+                                // account recoverable but not signable-into with a value from this repository.
+                                $cutomer->password      = Hash::make(\Illuminate\Support\Str::random(64));
                                 $cutomer->register_type = 'email';
                                 $cutomer->mobile        = $customer['customers'][0]['default_address']['phone'];
                                 $cutomer->save();

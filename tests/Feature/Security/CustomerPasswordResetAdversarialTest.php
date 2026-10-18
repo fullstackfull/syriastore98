@@ -576,6 +576,40 @@ class CustomerPasswordResetAdversarialTest extends SecurityTestCase
             'A refused-for-contention attempt destroyed the OTP.');
     }
 
+    /**
+     * SPENDING AN AUTHORISATION MUST BE SERIALISED TOO. The previous package put issueOtp() and
+     * verifyOtp() under the lock and left consume() outside it, so two concurrent requests
+     * presenting the same reset token could both spend it — one OTP step authorising two password
+     * changes, which is precisely the guarantee this service exists to provide.
+     *
+     * Tested the same way as the verify step: the lock is held and consume must then refuse.
+     */
+    public function test_spending_a_reset_token_refuses_when_it_cannot_serialise(): void
+    {
+        [$store, $customer] = $this->storeWithCustomer('d9');
+        [$resetToken] = $this->completeVerify($store, $customer);
+
+        $held = Cache::lock("pwreset:lock:{$store->id}:{$customer->id}", 30);
+        $this->assertTrue($held->get(), 'Could not take the lock the service uses.');
+
+        try {
+            $authorisation = app(CustomerPasswordResetService::class)
+                ->consumeResetToken($resetToken, (int) $store->id);
+        } finally {
+            $held->release();
+        }
+
+        $this->assertNull($authorisation,
+            'A reset token was spent while another request held the lock, so two concurrent '
+            . 'requests can both consume the same single-use authorisation.');
+
+        // And it is NOT spent, so the legitimate caller can retry.
+        $this->assertIsArray(
+            app(CustomerPasswordResetService::class)->consumeResetToken($resetToken, (int) $store->id),
+            'A refused-for-contention attempt destroyed the authorisation.'
+        );
+    }
+
     public function test_two_sequential_wrong_guesses_each_count_against_the_attempt_limit(): void
     {
         [$store, $customer] = $this->storeWithCustomer('d7');

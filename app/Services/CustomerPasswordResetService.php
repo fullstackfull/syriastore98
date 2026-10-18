@@ -101,14 +101,52 @@ class CustomerPasswordResetService
     public const SEND_WINDOW_MINUTES = 60;
 
     /**
-     * LEFT AT FOUR DELIBERATELY, and it is the one number in this file the owner should consider
-     * changing. Four digits is the shape the unreleased storefront client has always been sent,
-     * and this branch cannot test that client, so raising it here would be an unverifiable
-     * contract change made during an emergency. The caps above are what make four survivable;
-     * six would make it comfortable. Changing this constant to 6 is the whole change -- the
-     * generator takes the length as an argument and the handlers read it from here.
+     * THE DEFAULT STAYS AT FOUR, and the reason is a client this session cannot see.
+     *
+     * The caps above are what make four survivable; six would make it comfortable
+     * (25 guesses/hour against 10,000 values is ~34% over a sustained week; against 1,000,000 it
+     * is ~0.4%). The SERVER is entirely length-agnostic -- nothing validates the digit count,
+     * verification is a Hash::check against whatever string arrives, and the mail template renders
+     * `{{ $otp }}` into a percentage-width box -- and a test drives the whole flow end to end at
+     * six digits to prove it.
+     *
+     * WHAT BLOCKS THE CHANGE is the storefront client that calls
+     * api/{slug}/forgot-password-send-otp. It is in neither repository in this session, and the
+     * only contract artefact that exists for the endpoint --
+     * packages/workdo/Api/src/documentation/theme.json -- documents the request as
+     * `"otp": "1234"`. If that client's input field is four characters wide, a six-digit code is
+     * un-enterable and EVERY storefront password recovery breaks. That is a worse outcome than the
+     * brute-force margin four digits leaves, so the default does not move until someone can read
+     * that client.
+     *
+     * SO IT IS A CONFIGURATION VALUE, NOT A CODE CHANGE. Set CUSTOMER_OTP_DIGITS=6 in the
+     * environment and the next issued code is six digits; no deploy, no code review, and it
+     * reverses by removing the line. otpDigits() clamps to [MIN_OTP_DIGITS, MAX_OTP_DIGITS] so a
+     * typo cannot produce a one-digit code -- a misconfiguration must not be able to weaken this.
      */
     public const OTP_DIGITS = 4;
+
+    /** A code shorter than this is not defensible at any rate limit, so it is not permitted. */
+    public const MIN_OTP_DIGITS = 4;
+
+    /** Above this the code stops being something a person will type correctly. */
+    public const MAX_OTP_DIGITS = 8;
+
+    /**
+     * How many digits the next issued code will have: `auth.customer_password_reset.otp_digits`,
+     * clamped. A non-numeric or absent value falls back to OTP_DIGITS, so a broken config is the
+     * current behaviour rather than an outage.
+     */
+    public function otpDigits(): int
+    {
+        $configured = config('auth.customer_password_reset.otp_digits', self::OTP_DIGITS);
+
+        if (! is_numeric($configured)) {
+            return self::OTP_DIGITS;
+        }
+
+        return max(self::MIN_OTP_DIGITS, min(self::MAX_OTP_DIGITS, (int) $configured));
+    }
 
     /** How long a held lock survives a crashed request, and how long a caller waits for it. */
     private const LOCK_SECONDS = 10;
@@ -436,40 +474,66 @@ class CustomerPasswordResetService
      */
     private function consume(string $key, int $storeId): ?array
     {
-        $state = Cache::get($key);
+        // AN UNLOCKED PEEK, ONLY TO LEARN WHICH CUSTOMER'S LOCK TO TAKE. Nothing is decided here
+        // and nothing is written; every check is repeated inside the critical section below.
+        $peek = Cache::get($key);
 
-        if (! is_array($state) || ! isset($state['customer_id'], $state['store_id'], $state['generation'])) {
+        if (! is_array($peek) || ! isset($peek['customer_id'], $peek['store_id'], $peek['generation'])) {
             return null;
         }
 
-        if ((int) $state['store_id'] !== $storeId) {
+        if ((int) $peek['store_id'] !== $storeId) {
             // Deliberately NOT forgotten: a token presented to the wrong store is not spent, so a
             // misrouted legitimate request does not destroy the customer's one chance.
             return null;
         }
 
-        $customerId = (int) $state['customer_id'];
-        $generationKey = $this->generationKey($storeId, $customerId);
-        $record = Cache::get($generationKey);
+        $customerId = (int) $peek['customer_id'];
 
-        if (! is_array($record) || ($record['generation'] ?? null) !== $state['generation']) {
-            // A newer round has begun, or a sibling authorisation was already spent. Forget this
-            // one too -- it is dead and keeping it serves no one.
+        // SPENDING AN AUTHORISATION IS A READ-MODIFY-WRITE AND MUST BE SERIALISED.
+        //
+        // An independent review of the previous package found this method outside the lock while
+        // issueOtp() and verifyOtp() were inside it. Two concurrent requests presenting the same
+        // reset token both read the state, both saw the generation match, both forgot it and both
+        // returned an authorisation -- so ONE completed OTP step authorised TWO password changes
+        // and the single-use guarantee this service exists to provide did not hold under
+        // concurrency. It is the same defect the attempt counter had, in the other direction.
+        //
+        // Refuses on contention rather than proceeding unserialised, exactly as verifyOtp does.
+        return $this->withLock($storeId, $customerId, function () use ($key, $storeId, $customerId) {
+            // Re-read under the lock: the peek above may be stale by now.
+            $state = Cache::get($key);
+
+            if (! is_array($state) || ! isset($state['customer_id'], $state['store_id'], $state['generation'])) {
+                return null;
+            }
+
+            if ((int) $state['store_id'] !== $storeId || (int) $state['customer_id'] !== $customerId) {
+                return null;
+            }
+
+            $generationKey = $this->generationKey($storeId, $customerId);
+            $record = Cache::get($generationKey);
+
+            if (! is_array($record) || ($record['generation'] ?? null) !== $state['generation']) {
+                // A newer round has begun, or a sibling authorisation was already spent. Forget
+                // this one too -- it is dead and keeping it serves no one.
+                Cache::forget($key);
+
+                return null;
+            }
+
+            // RETIRE THE WHOLE GENERATION, not just this key. That is what makes one completed OTP
+            // step authorise exactly one password change.
+            Cache::forget($generationKey);
             Cache::forget($key);
 
-            return null;
-        }
-
-        // RETIRE THE WHOLE GENERATION, not just this key. That is what makes one completed OTP
-        // step authorise exactly one password change.
-        Cache::forget($generationKey);
-        Cache::forget($key);
-
-        return [
-            'customer_id' => $customerId,
-            // The session this recovery round minted, which the caller keeps when it revokes the
-            // account's other sessions -- whichever of the round's two authorisations was spent.
-            'keep_token_id' => isset($record['bearer_token_id']) ? (int) $record['bearer_token_id'] : null,
-        ];
+            return [
+                'customer_id' => $customerId,
+                // The session this recovery round minted, which the caller keeps when it revokes
+                // the account's other sessions -- whichever authorisation was spent.
+                'keep_token_id' => isset($record['bearer_token_id']) ? (int) $record['bearer_token_id'] : null,
+            ];
+        }, null);
     }
 }

@@ -19,6 +19,7 @@ use App\Models\DeliveryAddress;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
 use App\Http\Controllers\Api\ApiController;
 use App\Models\Newsletter;
 use App\Models\Order;
@@ -55,13 +56,83 @@ class AccountProfileController extends Controller
     {
     }
 
+    /**
+     * A SIGNED-IN SHOPPER EDITS THEIR OWN ACCOUNT. Nothing else.
+     *
+     * THE DEFECT THIS REPLACES was the third instance of one pattern, after
+     * Api\ApiController::change_password and Api\DeliveryBoyApiController::resetPassword, and it
+     * was the worst of the three because it took the E-MAIL as well as the password. The body was:
+     *
+     *     $customer = Customer::Where('id', $request->customer_id)->first();   // request input
+     *     if ($request->old_password && !Hash::check($request->old_password, $customer->password))
+     *         return ... error ...                                            // SKIPPED if absent
+     *     $customer->email    = $request->email;
+     *     if ($request->new_password) $customer->password = Hash::make($request->new_password);
+     *
+     * Three separate failures, each sufficient on its own:
+     *
+     *   1. THE TARGET CAME FROM THE REQUEST. `customer_id` was read straight off the body, with no
+     *      store predicate and never compared to auth('customers')->id(). The route carries
+     *      `auth:customers` (routes/customer.php:202-204) -- authentication, not authorization --
+     *      and the `customers` guard is session-only with no store binding, so a session from any
+     *      storefront satisfies it for every storefront.
+     *   2. THE OLD-PASSWORD CHECK WAS OPTIONAL. Both the rule at the top and the Hash::check were
+     *      guarded by `if ($request->old_password ...)`, so OMITTING the field skipped verification
+     *      entirely rather than failing. A rule that is only applied when the attacker supplies the
+     *      field it validates is not a rule.
+     *   3. $store WAS RESOLVED AND NEVER READ, so the handler was indifferent to which storefront
+     *      it was called through.
+     *
+     * Together: any shopper with any account could POST their own session plus
+     * `customer_id=<victim>` and take over any customer in any store -- and because it rewrote the
+     * e-mail too, the attacker then owned the address that every recovery flow trusts. The slug is
+     * optional in the route, so it could be omitted altogether.
+     *
+     * A null $customer was also an unguarded dereference, so an unknown id was a 500.
+     *
+     * COMPATIBILITY. The account form at resources/views/front_end/pages/account.blade.php:162-211
+     * posts `customer_id` as a hidden field holding the signed-in customer's OWN id, along with
+     * first_name, last_name, email, mobile and the three password fields. It still posts all of
+     * them and every legitimate submission still succeeds -- `customer_id` is simply no longer
+     * trusted. A submission that changes only the profile fields, with the password boxes left
+     * empty, still saves, which is the common case.
+     */
     public function store(Request $request)
     {
-        $store = getStore($request->route('storeSlug'));
-        $rule['first_name'] = 'required';
-        $rule['email'] = 'required';
+        // THE PRINCIPAL IS THE AUTHENTICATED SESSION, never the request body.
+        $customer = auth('customers')->user();
 
-        if ($request->old_password && $request->new_password) {
+        if (! $customer instanceof Customer) {
+            return redirect()->back()->with('error', __('Please login to continue.'));
+        }
+
+        // Defence in depth: the slug was resolved and never read. A shopper reaching this check is
+        // only ever editing their own account, so this closes no demonstrated hole -- but a
+        // handler that ignores its own tenant parameter is how the next defect gets in.
+        $store = getStore($request->route('storeSlug'));
+
+        if (! empty($store) && (int) $customer->store_id !== (int) $store->id) {
+            return redirect()->back()->with('error', __('Please login to continue.'));
+        }
+
+        $rule = [
+            'first_name' => 'required',
+            // Scoped to this customer's own store and excluding themselves, matching the rule
+            // registration already enforces (Customer\Auth\CustomerLoginController:728-737).
+            // Without it a shopper could take over another shopper's address in the same store and
+            // break both accounts' login and recovery.
+            'email' => [
+                'required',
+                'email',
+                Rule::unique('customers', 'email')
+                    ->where(fn ($query) => $query->where('store_id', $customer->store_id))
+                    ->ignore($customer->id),
+            ],
+        ];
+
+        // REQUIRED WHENEVER A NEW PASSWORD IS ASKED FOR, not merely when the caller chose to send
+        // it. This is the whole of failure 2 above.
+        if ($request->filled('new_password')) {
             $rule['old_password'] = 'required';
             $rule['new_password'] = 'required|confirmed';
         }
@@ -71,17 +142,18 @@ class AccountProfileController extends Controller
             $messages = $validator->getMessageBag();
             return redirect()->back()->with('error', $messages->first());
         }
-        $customer               = Customer::Where('id', $request->customer_id)->first();
 
-        if ($request->old_password && !Hash::check($request->old_password, $customer->password)) {
+        if ($request->filled('new_password')
+            && ! Hash::check($request->old_password, (string) $customer->password)) {
             return redirect()->back()->with('error', __("Old Password Does not match!"));
         }
+
         $customer->first_name   = $request->first_name;
         $customer->last_name    = $request->last_name;
         $customer->email        = $request->email;
         $customer->mobile       = $request->mobile;
 
-        if ($request->new_password) {
+        if ($request->filled('new_password')) {
             $customer->password = Hash::make($request->new_password);
         }
         $customer->save();
@@ -94,8 +166,24 @@ class AccountProfileController extends Controller
     {
         $store = getStore($slug);
         
+        $customer = auth('customers')->user();
+
+        if (! $customer instanceof Customer) {
+            return redirect()->back()->with('error', __('Please login to continue.'));
+        }
+
         $rule['first_name'] = 'required';
-        $rule['email'] = 'required';
+        // Same store-scoped uniqueness as store() above and as registration: without it a shopper
+        // can take over another shopper's address in their store and break both accounts' login
+        // and recovery. This handler already derived its target from the session, so that was its
+        // only gap.
+        $rule['email'] = [
+            'required',
+            'email',
+            Rule::unique('customers', 'email')
+                ->where(fn ($query) => $query->where('store_id', $customer->store_id))
+                ->ignore($customer->id),
+        ];
 
         $validator = \Validator::make($request->all(), $rule);
         if ($validator->fails()) {
@@ -103,9 +191,7 @@ class AccountProfileController extends Controller
             return redirect()->back()->with('error', $messages->first());
         }
 
-        $user_id = auth('customers')->user()->id;
-
-        $user               = Customer::Where('id', $user_id)->first();
+        $user = $customer;
         $user->first_name   = $request->first_name;
         $user->last_name    = $request->last_name;
         $user->email        = $request->email;

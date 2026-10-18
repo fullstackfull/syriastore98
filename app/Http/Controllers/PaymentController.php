@@ -1265,7 +1265,18 @@ public function handlePaymeraTrigger00($orderId)
         
         if ($isRegistered) {
             $customerData['regiester_date'] = date('Y-m-d');
-            $customerData['password'] = Hash::make('1234');
+            // A FIXED, PUBLIC PASSWORD IS NOT A PASSWORD. This wrote Hash::make('1234') -- a
+            // literal committed to this repository -- as a real, live credential, so anyone who
+            // knew the address of an account created this way could sign in as them. It is the
+            // same defect as the 'hello@1234' the password-recovery emergency removed from
+            // Api\AuthController::forgot_password_verify_otp, in a different place.
+            //
+            // The customer never chose a password here, so there is no password to set: a long
+            // random value makes the account unusable by password until the owner sets one
+            // through the recovery flow, which is the standard pattern for an
+            // account-created-on-your-behalf. Nothing in app/ ever attempted a login with the
+            // literal (checked), so no journey depended on knowing it.
+            $customerData['password'] = Hash::make(\Illuminate\Support\Str::random(64));
         }
         
         $customer = Customer::create($customerData);

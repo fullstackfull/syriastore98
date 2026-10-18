@@ -210,37 +210,46 @@ class AuthController extends Controller
         return $this->success($user_array, __('Login successfully.'));
     }
 
+    /**
+     * A SIGNED-IN SHOPPER ENDS THEIR OWN SESSIONS. Nothing else.
+     *
+     * THE FOURTH INSTANCE OF ONE PATTERN, after Api\ApiController::change_password,
+     * Api\DeliveryBoyApiController::resetPassword and AccountProfileController::store. The body
+     * was:
+     *
+     *     if (!auth('customers')->user()) { $customer_id = $request->customer_id; }
+     *     else                            { $customer_id = auth('customers')->user()->id; }
+     *     $customer = Customer::find($customer_id);        // no store predicate
+     *     $customer->tokens()->delete();
+     *
+     * `custom.auth` logs a token's owner into whichever guard matches its class, so a MERCHANT's
+     * or a DRIVER's token passed the middleware and left auth('customers') null -- taking the
+     * first branch, where `customer_id` was read straight off the request. Any such token
+     * therefore revoked any customer's sessions, in any store, by numeric id.
+     *
+     * That is a denial of service rather than a takeover, which is why it is the least severe of
+     * the four -- but it is the same defect, and a shopper repeatedly logged out of a storefront
+     * they are trying to buy from is a real cost to the merchant.
+     *
+     * The $rules juggling was also inert: the 'customer_id' => 'required' rule only existed on the
+     * branch that had already read the value.
+     */
     public function logout(Request $request,$slug='')
     {
-        if (!auth('customers')->user()) {
-            $rules = [
-                'customer_id' => 'required',
-            ];
+        $customer = auth('customers')->user();
 
-            $customer_id = $request->customer_id;
-        } else {
-            $rules = [
-
-            ];
-            $customer_id = auth('customers')->user()->id;
-        }
-        $validator = \Validator::make( $request->all(), $rules );
-        if ( $validator->fails() ) {
-            $messages = $validator->getMessageBag();
-            return $this->error( [
-                'message' => $messages->first()
-            ], $messages->first());
-        }
-
-        $customer = Customer::find($customer_id);
-        if (!empty($customer)) {
-            return $this->success([
-                'message' => __('User Logout.'),
-                'logout' => $customer->tokens()->delete()
-            ], __('User Logout'));
-        } else {
+        // A merchant, an operator or a driver holds a valid token and passes `custom.auth`, but is
+        // not a shopper and has no business ending a shopper's sessions.
+        if (! $customer instanceof Customer) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401 );
         }
+
+        // `customer_id` from the request is deliberately ignored. The only sessions this endpoint
+        // can end are the presented token's own.
+        return $this->success([
+            'message' => __('User Logout.'),
+            'logout' => $customer->tokens()->delete()
+        ], __('User Logout'));
     }
 
     public function forgot_password_send_otp(Request $request,$slug='')
@@ -271,7 +280,11 @@ class AuthController extends Controller
             ], __("You can't login because you used social login."));
         }
 
-        $OTP = Utility::generateNumericOTP(\App\Services\CustomerPasswordResetService::OTP_DIGITS);
+        // The digit count is configuration, not a literal -- see config/auth.php
+        // ('auth.customer_password_reset.otp_digits') and the service's otpDigits(), which clamps
+        // it so a misconfiguration cannot shorten the code. The default is unchanged at 4.
+        $resetService = app(\App\Services\CustomerPasswordResetService::class);
+        $OTP = Utility::generateNumericOTP($resetService->otpDigits());
 
         // THE OTP IS NO LONGER WRITTEN TO THE CUSTOMER ROW. It was stored in plaintext in
         // `customers.password_otp`, so any reader of that table held a live reset credential. It
@@ -286,7 +299,7 @@ class AuthController extends Controller
         // one CODE rather than the account: five wrong guesses, re-send, five more, for the price
         // of one extra request -- so a four-digit code was exhaustible. issueOtp() now returns
         // false when the budget is spent and the request is refused.
-        if (! app(\App\Services\CustomerPasswordResetService::class)->issueOtp($has_email, (int) $store->id, (string) $OTP)) {
+        if (! $resetService->issueOtp($has_email, (int) $store->id, (string) $OTP)) {
             return $this->error([
                 'message' => __('Too many password reset requests. Please try again later.')
             ], __('Too many password reset requests. Please try again later.'));
@@ -574,6 +587,26 @@ class AuthController extends Controller
         $has_email->tokens()
             ->when($keep !== null, fn ($query) => $query->where('id', '!=', $keep))
             ->delete();
+
+        // AND THE SESSIONS SANCTUM DOES NOT KNOW ABOUT.
+        //
+        // An independent review of the previous package found the revocation above covered only
+        // API tokens, leaving two other live credentials behind:
+        //
+        //   remember_token  the storefront login calls auth('customers')->login($customer, true)
+        //                   when "remember me" is ticked, and Laravel's remember cookie is good
+        //                   for five years by default. A reset that leaves it in place lets
+        //                   whoever had the account walk straight back in with a cookie.
+        //   the web OTP flow's session flags  'password_otp_verified' plus its customer and store
+        //                   ids are a standing re-reset authorisation held in the caller's own
+        //                   session (Customer\Auth\CustomerLoginController:419-423). They are not
+        //                   this request's session to clear -- an API caller has no web session --
+        //                   but the OTP state they were minted from IS cleared below, and the web
+        //                   flow re-checks it, so the flag cannot be spent twice.
+        //
+        // Rotating remember_token invalidates every outstanding remember cookie for this account,
+        // because Laravel compares the cookie's token against this column.
+        $has_email->forceFill(['remember_token' => \Illuminate\Support\Str::random(60)])->save();
 
         return $this->success([
             'message' => __("Password changed successfully.")

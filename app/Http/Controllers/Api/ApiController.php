@@ -5250,29 +5250,55 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
         
 
-        if (!auth('customers')->user()) {
-            $rules = [
-                'customer_id' => 'required',
-            ];
+        // THE FIFTH INSTANCE OF ONE PATTERN, and it writes the E-MAIL -- which makes it a takeover
+        // primitive rather than a privacy defect: own the address and every recovery flow follows.
+        //
+        // The body was:
+        //     if (!auth('customers')->user()) { $customer_id = $request->customer_id; }
+        //     else                            { $customer_id = auth('customers')->user()->id; }
+        //     $user = Customer::find($customer_id);        // no store predicate
+        //     if (!empty($request->email)) { $user->email = $request->email; }
+        //
+        // `custom.auth` logs a token's owner into whichever guard matches its class, so a
+        // MERCHANT's or a DRIVER's token passed the middleware with auth('customers') null and took
+        // the request-supplied branch. The siblings closed the same way are
+        // Api\ApiController::change_password, Api\DeliveryBoyApiController::resetPassword,
+        // AccountProfileController::store and Api\AuthController::logout.
+        //
+        // The $rules juggling was inert: 'customer_id' => 'required' only existed on the branch
+        // that had already read the value.
+        $customer = auth('customers')->user();
 
-            $customer_id = $request->customer_id;
-        } else {
-            $rules = [];
-            $customer_id = auth('customers')->user()->id;
-        }
-
-        $validator = \Validator::make($request->all(), $rules);
-        if ($validator->fails()) {
-            $messages = $validator->getMessageBag();
-            return $this->error([
-                'message' => $messages->first()
-            ], $messages->first());
-        }
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        if (! $customer instanceof Customer) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
-        $user = Customer::find($customer_id);
+
+        // The slug must be the customer's own store. A customer row with no store passes, since
+        // `customers.store_id` is nullable and imports write that table; this endpoint is
+        // self-scoped by the check above, so which slug was used cannot change whose row it edits.
+        if ($customer->store_id !== null && (int) $customer->store_id !== (int) $store->id) {
+            return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
+        }
+
+        // Store-scoped uniqueness, as registration and the web account form both enforce: without
+        // it a shopper can take over another shopper's address in their store and break both
+        // accounts' login and recovery.
+        if (! empty($request->email)) {
+            $taken = Customer::where('email', $request->email)
+                ->where('store_id', $customer->store_id)
+                ->where('id', '!=', $customer->id)
+                ->exists();
+
+            if ($taken) {
+                return $this->error(
+                    ['message' => __('This Email already exist, please login.')],
+                    __('This Email already exist, please login.')
+                );
+            }
+        }
+
+        // `customer_id` from the request is deliberately ignored.
+        $user = $customer;
 
         if (!empty($user)) {
             if (!empty($request->first_name)) {
