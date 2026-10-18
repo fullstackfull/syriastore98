@@ -209,7 +209,17 @@ class OrderDocumentRouteResolutionTest extends TestCase
             'automatic-print-setting' => 'addon settings, already behind auth + PlanModuleCheck',
             'automatic-print-setting-setting-form' => 'addon settings, already behind auth + PlanModuleCheck',
             'shipping-label-setting' => 'host AppSettingController, inside the authenticated admin group',
+            // Produced by the widened regex above. Both are stub resource `show()` methods that
+            // ignore their id -- see the handler census below, which verifies that claim and
+            // asserts its own exemptions are not dead.
+            'print-settings' => 'addon settings resource, stub show(), authenticated + PlanModuleCheck',
+            'automatic-print-setting' => 'addon settings, already behind auth + PlanModuleCheck',
         ];
+
+        // THE EXEMPTIONS MUST BE REACHABLE. The first version of this test carried five entries
+        // that the regex could never produce, so they looked like controls and were not. Each
+        // key below must still be produced by the scan.
+        $exemptMustAppear = ['shipping-label-setting', 'print-settings'];
 
         $files = array_merge(
             glob(base_path('routes/*.php')) ?: [],
@@ -230,8 +240,14 @@ class OrderDocumentRouteResolutionTest extends TestCase
                     continue;
                 }
 
+                // `Route::resource` is included because the repo registers document controllers
+                // that way (routes/web.php:1051, :1274), and `shipping-label` / `print-settings`
+                // because those are the repo's OWN spellings -- without them the $exempt list
+                // below was dead code that could never fire, which is what the first version of
+                // this test shipped with.
                 if (preg_match_all(
-                    '/Route::(?:get|any|match|post)\s*\(\s*[\'"]([^\'"]*(?:shippinglabel|printlabel|print-label'
+                    '/Route::(?:get|any|match|post|put|patch|delete|resource)\s*\(\s*[\'"]([^\'"]*(?:shippinglabel'
+                        . '|printlabel|print-label|shipping-label|print-settings|printing'
                         . '|order-view|order_view|order-receipt|order_receipt|invoice|packing)[^\'"]*)[\'"]/i',
                     $line,
                     $m
@@ -280,10 +296,207 @@ class OrderDocumentRouteResolutionTest extends TestCase
             . "\n\nAdd it to the guard's TARGETS, or to this test's \$exempt list with the reason "
             . 'it is already protected.'
         );
+
+        foreach ($exemptMustAppear as $uri) {
+            $this->assertArrayHasKey(
+                $uri,
+                $found,
+                "The exemption for '{$uri}' is dead: the scan no longer produces that uri, so the "
+                . 'entry is documentation pretending to be a control. Fix the regex or delete it.'
+            );
+        }
     }
 
     /**
-     * TRIPWIRE. The guard matches on verb + uri, and nine of its thirteen target uris are
+     * THE HANDLER CENSUS -- the ratchet that the uri census above could not be.
+     *
+     * WHY THIS EXISTS, AND IT IS NOT A NICE-TO-HAVE. An adversarial audit of this guard AFTER its
+     * first commit found four order-document routes it did not cover, and the uri census could
+     * not have found any of them: `{storeSlug?}/customerorder/{id}`,
+     * `{storeSlug?}/order-refund/{id}`, `refund-request/{refund_request}` and `order/{order}`
+     * contain none of the words it scans for. A census keyed on how a uri is SPELLED cannot see a
+     * document route whose spelling nobody thought of -- which is the only kind that matters.
+     *
+     * So this one is keyed on the HANDLER. A route is an order-document route if its action is a
+     * method that renders an order, whatever its uri says. Every such route must be a guard
+     * target or carry a reason here. Both censuses are kept: this one catches an unexpected uri
+     * on a known handler, the uri one catches a known-looking uri on an unexpected handler.
+     *
+     * STILL NOT A PROOF OF COMPLETENESS, and the limit is stated so nobody reads it as one: a
+     * NEW handler method name is invisible to this, exactly as a new uri word is invisible to the
+     * other. What it does guarantee is that no route can be added to an EXISTING order-document
+     * handler without someone answering for it here.
+     */
+    public function test_every_route_reaching_an_order_document_handler_is_guarded(): void
+    {
+        $reflection = new \ReflectionClass(\App\Http\Middleware\OrderDocumentAccessGuard::class);
+        $targets = array_keys($reflection->getConstant('TARGETS'));
+
+        // Methods that render an order. `show` is deliberately NOT here: it is far too common a
+        // name, so it is matched below only on a controller whose name contains "Order".
+        $documentMethods = [
+            'shippinglabel', 'printinglabel', 'invoice_preview', 'order_view', 'order_receipt',
+            'customerorder', 'order_refund', 'orderdetails', 'orderDetails', 'customerpayment',
+            'order_detail', 'orderDetail',
+        ];
+
+        // Reasoned exemptions. Each says WHY, and each reason was VERIFIED by reading the handler
+        // -- not inferred from the route's group.
+        $exempt = [
+            // THE API SURFACE. Out of scope for this package by instruction, not by judgement:
+            // these are the Flutter app's endpoints and the brief forbids changing the API
+            // contract. They are in the `api` group, so this guard could not reach them anyway
+            // without being registered there. BOTH WERE PROVEN TO LEAK CROSS-TENANT ORDER
+            // DOCUMENTS and are escalated as S12 in docs/security/P01-SECURITY-WORK-QUEUE.md.
+            'order-detail' => 'api group, DashboardController@orderDetail -- LEAKS, escalated as S12',
+            '{slug}/order-detail' => 'api group, ApiController@order_detail -- LEAKS, escalated as S12',
+
+            // ANONYMOUS BY DESIGN, and the one target this package will not decide alone.
+            // PartialPayments' payment page is reached by a customer from a payment link; gating
+            // it on a signed-in owning shopper would break paying by link. It DOES leak another
+            // tenant's order document to an anonymous caller. Owner decision, S12.
+            '{storeSlug?}/customerpayment/{id}' => 'anonymous payment-by-link flow -- LEAKS, owner decision, S12',
+
+            // STOREFRONT ORDER PAGES THAT DO SCOPE THEMSELVES. Both filter the order on the
+            // slug's store and abort(404)/redirect otherwise, so neither is cross-tenant. They
+            // are readable by anyone holding the emailed link, which is the designed flow and the
+            // same owner decision as the storefront print button.
+            '{storeSlug?}/order/{id}' => 'OrderController@orderDetails filters on store_id and abort(404)s',
+            '{storeSlug}/auction-order/{id}' => 'AuctionOrdersController@orderdetails filters on store_id and abort(404)s',
+
+            // WORKDO SCAFFOLDING STUBS. Each of these resource `show()` methods is
+            // `return view('<module>::show');` -- it ignores its id entirely and renders an empty
+            // stub. No order data is reachable through any of them. Verified by reading each one.
+            'auctionorder/{auctionorder}' => 'stub: returns view(auction-product::auctionorder.show), ignores $id',
+            'lotteryorder/{lotteryorder}' => 'stub: returns view(lottery-prizes::show), ignores $id',
+            'recentorders/{recentorders}' => 'stub: returns view(recent-orders::show), ignores $id',
+            'preorder/{preorder}' => 'stub: returns view(pre-order::show), ignores $id',
+            'preordersetting/{preordersetting}' => 'stub: returns view(pre-order::show), ignores $id',
+            'automaticorderprinting/{automaticorderprinting}' => 'stub: returns view(automatic-order-printing::show), ignores $id',
+            'print-settings/{print_settings}' => 'stub: same AutomaticOrderPrintingController@show',
+
+            // NO SUCH METHOD. Route::resource('order-note') registers a show route but
+            // App\Http\Controllers\OrderNoteController has no show() at all, so the route cannot
+            // render anything. Listed rather than silently dropped, because a future upstream
+            // addition of show() must land here as a failure.
+            'order-note/{order_note}' => 'OrderNoteController has no show() method',
+        ];
+
+        $files = array_merge(
+            glob(base_path('routes/*.php')) ?: [],
+            glob(base_path('packages/workdo/*/src/routes/*.php')) ?: [],
+            glob(base_path('packages/workdo/*/src/Routes/*.php')) ?: []
+        );
+
+        $this->assertGreaterThan(60, count($files), 'The route-file scan found too few files to be meaningful.');
+
+        $found = [];
+
+        foreach ($files as $file) {
+            $relative = str_replace(base_path() . '/', '', $file);
+
+            foreach (preg_split('/\R/', (string) file_get_contents($file)) as $lineNo => $line) {
+                if (preg_match('/^\s*(\/\/|\*|#)/', $line) === 1) {
+                    continue;
+                }
+
+                // Route::verb('uri', [Controller::class, 'method'])
+                if (preg_match_all(
+                    '/Route::(?:get|any|match|post|put|patch|delete)\s*\(\s*(?:\[[^\]]*\]\s*,\s*)?[\'"]([^\'"]*)[\'"]\s*,\s*\[\s*([A-Za-z_\\\\]+)::class\s*,\s*[\'"]([A-Za-z_]+)[\'"]/',
+                    $line,
+                    $m,
+                    PREG_SET_ORDER
+                ) !== 0) {
+                    foreach ($m as $set) {
+                        [, $uri, $controller, $method] = $set;
+                        $short = (string) (explode('\\', $controller)[count(explode('\\', $controller)) - 1] ?? '');
+
+                        if (in_array($method, $documentMethods, true)
+                            || ($method === 'show' && str_contains($short, 'Order'))) {
+                            $found[ltrim($uri, '/')] = $relative . ':' . ($lineNo + 1)
+                                . '  ' . $short . '@' . $method;
+                        }
+                    }
+                }
+
+                // Route::resource('name', OrderSomethingController::class) -- the generated show
+                // route is `name/{name_with_dashes_as_underscores}`, which is how Laravel names
+                // the parameter and is NOT what a naive singularisation would produce.
+                if (preg_match_all(
+                    '/Route::resource\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*([A-Za-z_\\\\]+)::class/',
+                    $line,
+                    $rm,
+                    PREG_SET_ORDER
+                ) !== 0) {
+                    foreach ($rm as $set) {
+                        [, $name, $controller] = $set;
+                        $parts = explode('\\', $controller);
+                        $short = (string) end($parts);
+
+                        if (! str_contains($short, 'Order')) {
+                            continue;
+                        }
+
+                        $segments = explode('/', $name);
+                        $param = str_replace('-', '_', (string) end($segments));
+                        $found[$name . '/{' . $param . '}'] = $relative . ':' . ($lineNo + 1)
+                            . '  ' . $short . '@show (resource)';
+                    }
+                }
+            }
+        }
+
+        $this->assertNotEmpty($found, 'The handler scan found nothing, so it would pass vacuously.');
+
+        // A FLOOR. 17 of the routes this finds are guard targets; if the scan ever sees fewer
+        // uris than there are targets, the patterns have stopped matching what they used to.
+        $this->assertGreaterThanOrEqual(
+            count($targets),
+            count($found),
+            "The handler scan matched fewer uris than there are guard targets:\n  "
+            . implode("\n  ", array_keys($found))
+        );
+
+        $unguarded = [];
+
+        foreach ($found as $uri => $where) {
+            if (in_array($uri, $targets, true) || array_key_exists($uri, $exempt)) {
+                continue;
+            }
+
+            $unguarded[$uri] = $where;
+        }
+
+        $this->assertSame(
+            [],
+            $unguarded,
+            "A route reaches an order-document handler but is neither a guard target nor "
+            . "explicitly exempt:\n"
+            . implode("\n", array_map(
+                fn ($where, $uri) => "  {$uri}\n      {$where}",
+                $unguarded,
+                array_keys($unguarded)
+            ))
+            . "\n\nAdd it to App\\Http\\Middleware\\OrderDocumentAccessGuard::TARGETS, or to this "
+            . "test's \$exempt list with the VERIFIED reason it is safe. Do not exempt it because "
+            . 'of the group it sits in -- read the handler.'
+        );
+
+        // Every exemption must still correspond to a route this scan finds, or it is dead code
+        // pretending to be a control -- which is exactly what the first version of the uri
+        // census shipped with.
+        foreach (array_keys($exempt) as $uri) {
+            $this->assertArrayHasKey(
+                $uri,
+                $found,
+                "The exemption for '{$uri}' is dead: no route reaching an order-document handler "
+                . 'declares that uri any more. Delete the entry, or fix the scan.'
+            );
+        }
+    }
+
+    /**
+     * TRIPWIRE. The guard matches on verb + uri, and nine of its seventeen target uris are
      * module-owned strings in code CI forbids editing. An upstream rename would silently
      * unhook the guard, so the uris are pinned here against the route table itself.
      */

@@ -9,10 +9,23 @@ use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * P01-SEC-2. ORDER DOCUMENTS -- ORDER DETAILS, RECEIPTS, SHIPPING LABELS, PRINT LABELS AND THE
- * INVOICE PREVIEW -- WERE READABLE ACROSS TENANTS. NINE OF THE THIRTEEN GUARDED URIS WERE
- * ANONYMOUS; THE OTHER THREE THAT CARRY AN ORDER ID WERE AUTHENTICATED BUT NOT TENANT-SCOPED,
- * AND THOSE THREE ARE LIVE WITH NO MODULE ENABLED AT ALL.
+ * P01-SEC-2. ORDER DOCUMENTS -- ORDER DETAILS, RECEIPTS, REFUND SCREENS, SHIPPING LABELS, PRINT
+ * LABELS AND THE INVOICE PREVIEW -- WERE READABLE ACROSS TENANTS. SEVENTEEN URIS ARE GUARDED.
+ *
+ * NINE ARE MODULE-DECLARED AND ANONYMOUS; THE REST ARE AUTHENTICATED BUT NOT TENANT-SCOPED, AND
+ * THOSE ARE LIVE WITH NO MODULE ENABLED AT ALL.
+ *
+ * WHICH NINE DEPENDS ON MODULE LOAD ORDER, so the set is named rather than counted loosely: with
+ * AutomaticOrderPrinting, AuctionProduct and LotteryPrizes all enabled, the uris resolving with
+ * no Illuminate\Auth\Middleware\Authenticate are AutomaticOrderPrinting's own three
+ * (`shippinglabel/{id?}/...`, `printlabel/{id?}/...`, `invoices/preview/...`), AuctionProduct's
+ * three (`auction/shippinglabel/pdf/{id}`, `auction-order-view/{id}`,
+ * `auction-order-receipt/{id}`) and LotteryPrizes' three (`lottery/shippinglabel/pdf/{id}`,
+ * `lottery-order-view/{id}`, `lottery-order-receipt/{id}`). `shippinglabel/pdf/{id}` is the
+ * TENTH and it is the conditional one: whether it keeps `Authenticate` depends on which
+ * declaration wins the method+uri slot, which depends on load order -- see the measurement
+ * below. Counting it as unconditionally anonymous would be wrong, and counting it as
+ * unconditionally authenticated would be worse.
  *
  * TWO INDEPENDENT LAYERS. The brief's "authentication is necessary but not sufficient" is
  * precisely the second one:
@@ -49,12 +62,12 @@ use Symfony\Component\HttpFoundation\Response;
  * `add_on_managers` row does -- which is why the pre-existing route-boundary sweep could never
  * have caught it: in CI and in the whole test suite the module is simply never loaded.
  *
- * WHY THE HANDLERS ARE NOT FIXED IN PLACE. Nine of the thirteen live under packages/workdo/,
+ * WHY THE HANDLERS ARE NOT FIXED IN PLACE. Nine of the seventeen live under packages/workdo/,
  * which .github/scripts/guard-no-workdo-changes.sh refuses to let a diff modify (LynomiaChat is
- * the one allowlisted directory), so for those there is no choice. The other four are in
- * app/Http/Controllers/OrderController.php and ARE editable; they are guarded from here anyway so
- * that ONE rule covers every document surface and cannot drift between a host copy of the check
- * and a module copy of it. Crypt is NOT an authorization control here:
+ * the one allowlisted directory), so for those there is no choice. The other eight are host code
+ * (OrderController, AccountProfileController, OrderRefundController) and ARE editable; they are
+ * guarded from here anyway so that ONE rule covers every document surface and cannot drift
+ * between a host copy of the check and a module copy of it. Crypt is NOT an authorization control here:
  * APP_KEY is published in this repository's git history and unrotated, so an encrypted id is an
  * ENCODING anyone holding a clone can mint.
  *
@@ -83,8 +96,14 @@ use Symfony\Component\HttpFoundation\Response;
  *       contains no order permission at all, so a bare isAbleTo() would 403 the operator for ever.
  *   merchant / staff on the `web` guard (resolved as auth('web'), never the mutable default)
  *       -> isAbleTo('Show Order') AND the order's store_id equals
- *       getCurrentStore(). 'Show Order' is seeded (app/Models/Utility.php:2756) and granted to the
- *       `admin` role (:2919), and is already the permission guarding the admin order screen that
+ *       getCurrentStore(). 'Show Order' is seeded (app/Models/Utility.php:2756) and granted by the
+ *       same function to the global role literally named `admin` -- the merchant/store-owner role,
+ *       matched at :2899, listed in $companyNewPermission at :2919, granted by the loop at
+ *       :3112. The OTHER seeded role, `super admin`
+ *       (database/seeders/PermissionTableSeeder.php:58), does NOT hold it -- $superadminNewPermission
+ *       contains no order permission at all -- which is exactly why the operator branch above is
+ *       mandatory rather than a convenience. 'Show Order' is already the permission guarding the
+ *       admin order screen that
  *       emits these links (app/Http/Controllers/OrderController.php:501) -- so the gate is exactly
  *       as tight as the UI and creates no dead link. No new permission name is introduced: an
  *       unseeded one can never be granted and would lock everyone out permanently.
@@ -107,13 +126,15 @@ use Symfony\Component\HttpFoundation\Response;
  * DISCLOSED BEHAVIOUR CHANGE, recorded so it is not discovered in production: the document button
  * on the ANONYMOUS storefront order page stops working for a caller who is not signed in. That
  * page is served by routes/customer.php:165, outside any auth group, and is reached from the
- * emailed {order_url}. BOTH BRANCHES of its @if are affected, which is why enabling or disabling
- * the addon is not a workaround: with AutomaticOrderPrinting inactive,
- * resources/views/front_end/pages/order-detail.blade.php:30 links `shippinglabel.pdf`; with it
- * active, :27-28 pushes the module's own @stack('invoice-button')
- * (packages/workdo/AutomaticOrderPrinting/src/resources/views/pages/button.blade.php:8,28,50),
- * which links `invoice.shippinglabel.pdf` and `invoice.shippinglabel.printing`. All three are
- * guard targets. A signed-in shopper keeps it. A
+ * emailed {order_url}. ONLY ONE BRANCH of its @if ever offers a link, and the measurement matters
+ * because the other reading is tempting and wrong: when module_is_active('AutomaticOrderPrinting')
+ * is FALSE, resources/views/front_end/pages/order-detail.blade.php:30 links `shippinglabel.pdf`,
+ * and that is the link that stops working. When it is TRUE, :27-28 renders
+ * @stack('invoice-button') -- and NOTHING EVER FILLS THAT STACK ON THIS VIEW. The only pusher is
+ * packages/workdo/AutomaticOrderPrinting/src/app/Providers/ViewComposer.php:41, registered at :28
+ * for the views `order.view` and `front_end.sections.order_detail`, neither of which is
+ * `front_end.pages.order-detail`. So with the addon active the storefront page today shows no
+ * document button at all, and this guard changes nothing there. A signed-in shopper keeps it. A
  * GUEST order cannot be self-served at all, because orders.customer_id defaults to 0. Preserving
  * that flow safely needs a scoped expiring document token; no signed-URL machinery exists in this
  * codebase (only routes/auth.php:45 uses `signed`, for email verification) and inventing one is
@@ -194,6 +215,43 @@ class OrderDocumentAccessGuard
         'order-receipt/{id}' => ['table' => 'orders', 'param' => 'id'],
 
         // ---------------------------------------------------------------------------------
+        // SHOPPER-FACING ORDER DOCUMENTS. Both are in routes/customer.php's
+        // EnsureCustomerAuthenticated group, so a signed-in shopper is required -- and that is
+        // ALL that was required: neither handler compares the order to the caller or to the
+        // store. Any shopper of any tenant could read any order's full detail, which is the
+        // brief's "authentication is necessary but not sufficient" on the storefront side.
+        //   AccountProfileController::customerorder():819  Crypt::decrypt then
+        //       Order::order_detail($id); no customer_id, no store_id.
+        //   AccountProfileController::order_refund():901   with ?refund=true, takes the route
+        //       parameter VERBATIM -- a raw, enumerable integer -- into Order::order_detail().
+        //       Its else-branch loads OrderRefund, which IS covered by a global scope
+        //       (config/tenancy.php), so only the refund=true branch is exposed. This is the
+        //       route that forced resolveOrderId() to accept the raw form.
+        // Found by an adversarial audit of this guard AFTER its first commit, not by the census
+        // -- neither uri contains any of the words the uri census scans for, which is why that
+        // census is no longer the only net. See
+        // OrderDocumentRouteResolutionTest::test_every_route_reaching_an_order_document_handler_is_guarded.
+        '{storeSlug?}/customerorder/{id}' => ['table' => 'orders', 'param' => 'id'],
+        '{storeSlug?}/order-refund/{id}' => ['table' => 'orders', 'param' => 'id'],
+
+        // THE REFUND REQUEST SCREEN, which is an order document by any reading:
+        // OrderRefundController::show() does Crypt::decrypt then Order::order_detail($id) and
+        // renders the order with its line items. It is authenticated (Authenticate is in the
+        // measured stack) and it DOES call getCurrentStore() -- but only to look up the store's
+        // OrderRefundSetting rows at :41-42. The order itself is never compared to the caller's
+        // store, and no permission is checked. Registered by
+        // `Route::resource('refund-request', OrderRefundController::class)` at
+        // routes/web.php:1274, so the parameter is Laravel's snake_case of the resource name.
+        'refund-request/{refund_request}' => ['table' => 'orders', 'param' => 'refund_request'],
+
+        // A SECOND URI ON AN ALREADY-GUARDED HANDLER. Route::resource('order') at
+        // routes/web.php:1051 registers `order/{order}` -> OrderController@show, the same action
+        // as the guarded `orders/order_view/{id}`, but with a different parameter NAME. Guarding
+        // by uri means a second uri on a guarded handler is NOT guarded by implication, so it is
+        // listed explicitly. Note `param` is 'order', not 'id'.
+        'order/{order}' => ['table' => 'orders', 'param' => 'order'],
+
+        // ---------------------------------------------------------------------------------
         // NO ORDER ID AT ALL. invoice_preview builds `new Order()` and renders a template
         // chooser, so it leaks no order data. Authentication only -- this entry is hardening,
         // not a vulnerability fix, and gating it on an order permission would break the
@@ -219,10 +277,11 @@ class OrderDocumentAccessGuard
 
         // Anonymous is refused here and not deferred. The three existing host guards open with
         // `if (! $user) return $next($request)` because every route they sit on declares `auth`.
-        // NINE OF THE THIRTEEN TARGETS DECLARE NO SUCH THING -- their measured stack contains no
-        // Authenticate at all -- so deferring on a null principal would be a straight anonymous
-        // pass-through and the fix a no-op. On the four host targets this branch is unreachable:
-        // Authenticate precedes this guard in their stack and has already redirected.
+        // NINE OF THE SEVENTEEN TARGETS DECLARE NO SUCH THING -- their measured stack contains
+        // no Authenticate at all -- so deferring on a null principal would be a straight
+        // anonymous pass-through and the fix a no-op. On the eight host targets this branch is
+        // largely unreachable: Authenticate (admin) or EnsureCustomerAuthenticated (storefront)
+        // precedes this guard in their stack and has already refused an anonymous caller.
         // EXPLICIT GUARD NAMES, NEVER auth()->user(). The DEFAULT guard is mutable: Laravel's
         // actingAs($customer, 'customers') sets it, and App\Http\Middleware\CustomAuth logs a
         // token's owner into whichever of the three guards matches its tokenable class. So
@@ -274,8 +333,22 @@ class OrderDocumentAccessGuard
     }
 
     /**
-     * The encrypted route parameter, or null if it is absent or does not decrypt to a positive
-     * integer. Crypt failure is a denial, never a pass.
+     * The order id a route parameter denotes, or null if it denotes none.
+     *
+     * ENCRYPTED OR RAW, BECAUSE THE HANDLERS ARE BOTH. Most targets pass `Crypt::encrypt($id)`,
+     * but AccountProfileController::order_refund():901 takes the route parameter VERBATIM into
+     * `Order::order_detail($id)` -- a plain, enumerable integer -- so a decrypt-only resolver
+     * would deny that route's LEGITIMATE callers while the defect it was added for stayed open.
+     *
+     * ACCEPTING THE RAW FORM WEAKENS NOTHING, and that is the whole reason it is allowed: the
+     * encryption is not a control here. APP_KEY is published in this repository's git history and
+     * unrotated, so anyone holding a clone can mint the encrypted form of any integer -- the
+     * class docblock's central point. Authorization is the comparison in authorises(); this
+     * method only decides WHICH row to compare. A caller who supplies a raw id they do not own
+     * gets the same 403 as one who supplies its encrypted form, which is asserted both ways in
+     * tests/Feature/Security/OrderDocumentAccessTest.
+     *
+     * Still fails closed on everything that is not a positive integer in one of those two forms.
      */
     private function resolveOrderId(Request $request, $route, string $param): ?int
     {
@@ -288,7 +361,8 @@ class OrderDocumentAccessGuard
         try {
             $decrypted = Crypt::decrypt($raw);
         } catch (\Throwable $e) {
-            return null;
+            // Not an encrypted payload. It may still be a raw id -- see the docblock.
+            $decrypted = $raw;
         }
 
         if (! is_scalar($decrypted)) {

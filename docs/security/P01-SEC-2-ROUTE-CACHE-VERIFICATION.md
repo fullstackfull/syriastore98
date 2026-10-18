@@ -2,7 +2,7 @@
 
 `App\Http\Middleware\OrderDocumentAccessGuard` is registered with
 `$middleware->appendToGroup('web', ...)` in `bootstrap/app.php` rather than on the routes it
-protects. That choice is forced: nine of its thirteen target uris are declared in vendored module
+protects. That choice is forced: nine of its seventeen target uris are declared in vendored module
 route files that `.github/scripts/guard-no-workdo-changes.sh` forbids editing, and those files are
 required from `$this->app->booted()` (`app/Providers/PackageServiceProvider.php:35`) — i.e. *after*
 `routes/web.php` — so a host re-declaration loses the method+uri slot again.
@@ -113,7 +113,7 @@ sqlite environment holding only `add_on_managers`", so no claim is made in eithe
 does not affect the guard: the guard is on the group, so it applies to whichever of the two
 declarations of `shippinglabel/pdf/{id}` is live.
 
-The script also covers only the four `AutomaticOrderPrinting` uris, not all thirteen targets. The
+The script also covers only the four `AutomaticOrderPrinting` uris, not all seventeen targets. The
 other nine are pinned instead by the census ratchet in
 `tests/Feature/Security/OrderDocumentRouteResolutionTest`, which reads the route *files* and so
 needs no module enabled; the mechanism proven here is a property of the `web` group, not of any

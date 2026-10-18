@@ -101,9 +101,17 @@ open. Provision, then move. Rotating `APP_KEY` additionally needs a re-encryptio
 
 ---
 
-## S3 — Unauthenticated access to tenant-owned order documents — **CLOSED by P01-SEC-2**
+## S3 — Unauthenticated access to tenant-owned order documents — **PARTIALLY CLOSED by P01-SEC-2**
 
-> **Closed.** `App\Http\Middleware\OrderDocumentAccessGuard`, appended to the `web` group in
+> **Partially closed — seventeen uris guarded, three order-document routes knowingly left open.**
+> The three are S12 below, every one of them reproduced. The word is "partially" because an
+> adversarial audit of the fix, run after it was committed, found four further order-document
+> routes the guard had missed (now closed: `{storeSlug?}/customerorder/{id}`,
+> `{storeSlug?}/order-refund/{id}`, `refund-request/{refund_request}`, `order/{order}`) and three
+> it cannot close within this package's authority. **Do not read this row as "order documents are
+> safe".**
+>
+> **Closed part.** `App\Http\Middleware\OrderDocumentAccessGuard`, appended to the `web` group in
 > `bootstrap/app.php` — the fix shape this row predicted. The finding below is kept verbatim
 > rather than deleted, because the vendored defect it describes is still in the module and the
 > guard is what stops it being reachable.
@@ -121,7 +129,16 @@ open. Provision, then move. Rotating `APP_KEY` additionally needs a re-encryptio
 >    module enabled at all, so the severity of this row never depended on the module.
 >
 > Nine further uris in `AuctionProduct` and `LotteryPrizes` have the identical shape and are
-> guarded too; thirteen in total. See **S11** for the pattern behind them.
+> guarded too; seventeen in total. See **S11** for the pattern behind them.
+>
+> **A third thing the first pass got wrong, recorded because it is the useful lesson:** the
+> regression ratchet shipped with that fix matched route uris against a word list
+> (`shippinglabel|printlabel|order-view|order-receipt|invoice|packing`). Three of the four misses
+> above are order documents whose uri contains none of those words, so the ratchet reported a
+> clean sweep over a surface it could not see. It is now backed by a census keyed on the
+> **handler** instead — `OrderDocumentRouteResolutionTest::test_every_route_reaching_an_order_document_handler_is_guarded`
+> — which fails on a new route to any known order-document method whatever its uri says. A census
+> keyed on how a uri is spelled cannot find the document route nobody thought to spell.
 
 `packages/workdo/AutomaticOrderPrinting/src/routes/web.php:24` opens a route group whose
 middleware is `['web']` **only** — no `auth`. Inside it:
@@ -357,6 +374,104 @@ question S1 asks. `SELECT module, is_enable FROM add_on_managers` answers both.
 
 ---
 
+## S12 — Order documents reachable outside the `web` group, or by design, that P01-SEC-2 did not close
+
+**S2 HIGH.** Every row here was **reproduced by execution** during an adversarial audit of
+P01-SEC-2's own guard, run after that guard was committed. None is hypothetical. Each is left open
+for a stated reason, not an oversight.
+
+| # | Route | Who gets in | Why P01-SEC-2 did not close it |
+|---|---|---|---|
+| a | `POST api/{slug}/order-detail` → `ApiController@order_detail` (`routes/api.php:108`) | **any customer token, any tenant** | `api` group — the guard is on `web`, and the brief forbids changing the Flutter API contract |
+| b | `GET api/admin/order-detail` → `DashboardController@orderDetail` (`routes/api.php:337`) | **any token at all**, including a delivery driver's | same |
+| c | `GET {storeSlug?}/customerpayment/{id}` → `PartialPaymentsController@customerpayment` (`PartialPayments/src/routes/web.php:27`) | **anonymous** | anonymous payment-by-link is the designed flow; gating it needs the owner's decision (same decision as the storefront print button) |
+
+**(a)** `getStore($slug)` is resolved and then never used; the handler calls
+`Order::order_detail($request->order_id)` with no `customer_id` and no `store_id` predicate.
+Reproduced: a customer token for store B read store A's full order document, HTTP 200.
+
+**(b)** Validates only that `order_id` is present, then `Order::order_detail()`. Its sibling
+`ViewOrder()` at `:1861` does resolve and check the store, so the omission is local, not a design.
+Reproduced: a merchant token for a different tenant read the victim order, HTTP 200.
+
+**(c)** Declared in a `['web']`-only group, so the resolved stack has neither `Authenticate` nor
+`EnsureCustomerAuthenticated`. `Crypt::decrypt` then `Order::order_detail`; the customer principal
+is used only as `auth('customers')->user()->id ?? 0` passed to a payment-list API, never compared
+to the order. Reproduced anonymously, HTTP 200, with the module enabled through the production
+loader.
+
+**Fix shape for (a) and (b):** the same ownership predicate, written at the two call sites or in an
+api-group middleware. It is a *separate package* because it changes API response behaviour and the
+Flutter app treats some statuses specially — `lib/network/network.dart` forces a logout on any 401,
+so the denial must be 403 there too.
+
+**Fix shape for (c):** whatever the owner decides for customer-facing documents generally. The
+honest options are a scoped expiring document token or accepting link-bearer access; this
+repository has no signed-URL machinery for documents today (`routes/auth.php:45` is the only
+`signed` route, for email verification).
+
+---
+
+## S13 — `UserController::store()` lets a merchant mint a `super admin`, defeating every tenant predicate
+
+**S1 URGENT.** This outranks everything else on this list, and it is not an order-document defect —
+it is a privilege-escalation primitive that makes the operator branch of *every* authorization
+check in the codebase assignable by a merchant.
+
+`app/Http/Controllers/UserController.php:109-114`:
+
+```php
+$role_r = Role::find($request->role);      // UNSCOPED
+$user->type = $role_r->name;               // no RESERVED_NAMES check
+```
+
+The sibling `update()` at `:243-262` was already hardened and carries both controls — a scoped
+`Role::where('id', ...)->where('created_by', ...)->where('store_id', getCurrentStore())` lookup and
+a `RolePolicy::RESERVED_NAMES` refusal, with a comment explaining why. **`store()` was missed.**
+The seeded global `super admin` role (`database/seeders/PermissionTableSeeder.php:55-65`) has
+`store_id` NULL, so it is findable by id from any tenant.
+
+`Create User` is granted to the same `admin` merchant role as `Show Order`
+(`app/Models/Utility.php:2905`, `:2919`), so **every self-registered merchant holds the permission
+needed**.
+
+Reproduced, both steps green: a merchant holding `Create User` posted `role=<super admin role id>`
+to `/users` → HTTP 302, and the created row had `type === 'super admin'`; that row then read a
+foreign tenant's order document at `GET /order-receipt/{id}` → **HTTP 200**.
+
+**Why P01-SEC-2 did not fix it:** it is user management, not order documents, and the fix belongs
+with the other writers of `users.type`, `role_user` and `current_store` — `UserController@store`,
+`UserController@editprofile`, `RoleController@store`, and the API staff-create endpoints. One
+unscoped role id defeats every `store_id` predicate in the application, so it wants its own
+package and its own regression tests, not a line bolted onto a document guard.
+
+**This should be answered before any deployment.** It is the kind of row the P01-A′ brief meant by
+"a credible immediately exploitable issue … requiring owner approval before any live deployment".
+
+---
+
+## S14 — Order-adjacent surfaces found alongside S12/S13, not yet triaged
+
+Recorded so they are not rediscovered from scratch. Each was reported by the same audit; severity
+is **not** assigned because none has been through the same verification as S12 and S13.
+
+- `GET /order/export` (`OrderController:1230`) — dumps every order in the store to any
+  authenticated caller, with no order permission.
+- `GET {storeSlug?}/order-complete?data[order_id]=N` (`OrderController:563`) — discloses another
+  tenant's order number to an anonymous caller and mints its storefront document link.
+- `POST {storeSlug?}/downloadable_prodcut` (`AccountProfileController:845`) — mails digital
+  products for an unscoped raw `order_id`. Reported but **not** reproduced.
+- `DeliverySyriaOrderController:122` — answers differently for an order that exists before its
+  credential check, i.e. a platform-wide order-existence oracle.
+- Every order document renders store settings fetched without reference to the order's store
+  (`app/Models/Utility.php:167`), so a document can print the wrong store's address. A correctness
+  defect, not an access one.
+- `OrderDocumentAccessGuard` denies a shopper their own document when the same browser also holds
+  a live `web` session, because the merchant limb is evaluated first and returns on its own result.
+  A false denial, not a leak; it needs a decision about which principal should win.
+
+---
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**
@@ -382,6 +497,10 @@ Keeping these apart is the point; each is independently reviewable and independe
 | **P01-SEC-1** (urgent, isolated) | S1 containment | Owner must first answer whether the module is active |
 | **P01-SEC-2** | S3 + its regression test | ~~Independent; host-side only~~ **DONE** |
 | **P01-SEC-7** | S11 | Needs the module-loading problem solved first, and the owner's `add_on_managers` answer |
+| **P01-SEC-8** | S13 | **Urgent and isolated.** Owner should answer before any deployment |
+| **P01-SEC-9** | S12 (a) + (b) | Changes API behaviour, so it needs a Flutter window |
+| *(owner decision, not a package)* | S12 (c) | Same decision as the storefront document button |
+| *(triage, not a package)* | S14 | Verify each row before assigning severity |
 | **P01-SEC-3** | S4 + the `larabug` blacklist review | Independent; no contract impact |
 | **P01-SEC-4** | S5 session half (logout, id regeneration, `same_site`) | Independent. Token expiry/abilities wait for a Flutter window |
 | **P01-F** | S6 | Already a named Phase 01 package |

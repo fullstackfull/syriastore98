@@ -20,8 +20,8 @@ use Tests\TestCase;
  * $staticAddons, so its routes are registered only from $this->app->booted() after reading
  * `add_on_managers` -- a table RefreshDatabase has not migrated when that callback fires, and a
  * row no seeder in this repository ever creates. So in the entire existing suite the module's
- * four routes DO NOT EXIST (nor do AuctionProduct's or LotteryPrizes' six),
- * Route::getRoutes() holds only the authenticated routes/web.php:1178
+ * four routes DO NOT EXIST (nor do AuctionProduct's or LotteryPrizes' six, nor
+ * PartialPayments'), Route::getRoutes() holds only the authenticated routes/web.php:1178
  * copy, and tests/Feature/Security/UnauthenticatedRouteBoundaryTest passes today and would pass
  * after any fix, proving nothing. Every test below therefore enables the addon through the
  * production loader first, the way tests/Feature/Tenancy/BulkDeleteAuthorizationTest does, and
@@ -456,6 +456,147 @@ class OrderDocumentAccessTest extends SecurityTestCase
         $this->actingAs($this->makePlatformAdmin(['current_store' => $store->id]))
             ->get('/order-receipt/' . Crypt::encrypt($order->id))
             ->assertStatus(200);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // THE ROUTES AN ADVERSARIAL AUDIT FOUND AFTER THE FIRST COMMIT.
+    //
+    // All four were reachable with the guard installed, because the guard matches on uri and the
+    // first uri census matched on uri WORDS -- none of these four spells anything it looked for.
+    // Three are full order documents on the storefront or the refund screen; the fourth is a
+    // second uri on a handler that was already guarded under its other uri.
+    //
+    //   {storeSlug?}/customerorder/{id}   AccountProfileController@customerorder  -- shopper gate
+    //                                     only: any signed-in shopper, any tenant
+    //   {storeSlug?}/order-refund/{id}    AccountProfileController@order_refund   -- same gate,
+    //                                     and ?refund=true reads a RAW, enumerable integer id
+    //   refund-request/{refund_request}   OrderRefundController@show              -- authenticated,
+    //                                     no permission and no store check on the order
+    //   order/{order}                     OrderController@show (Route::resource) -- same action as
+    //                                     the already-guarded orders/order_view/{id}
+    // ---------------------------------------------------------------------------------------
+
+    public function test_a_shopper_cannot_read_another_tenants_order_through_the_storefront_order_page(): void
+    {
+        [$ownerA, $storeA] = $this->makeTenant();
+        [$ownerB, $storeB] = $this->makeTenant();
+        $orderB = $this->makeOrder($storeB);
+
+        $shopperA = $this->makeCustomer($storeA->id);
+
+        $this->actingAs($shopperA, 'customers')
+            ->get('/' . $storeA->slug . '/customerorder/' . Crypt::encrypt($orderB->id))
+            ->assertForbidden();
+    }
+
+    public function test_a_shopper_is_still_admitted_to_their_own_storefront_order_page(): void
+    {
+        [$owner, $store] = $this->makeTenant();
+        $shopper = $this->makeCustomer($store->id);
+        $order = $this->makeOrder($store, ['customer_id' => $shopper->id, 'is_guest' => 0]);
+
+        $this->actingAs($shopper, 'customers')
+            ->get('/' . $store->slug . '/customerorder/' . Crypt::encrypt($order->id))
+            ->assertStatus(200);
+    }
+
+    /**
+     * THE RAW-ID ROUTE. order_refund() with ?refund=true passes the route parameter VERBATIM into
+     * Order::order_detail(), so the id arrives unencrypted and enumerable. That is why
+     * resolveOrderId() accepts the raw form -- a decrypt-only resolver would have denied this
+     * route's legitimate callers while leaving the leak open.
+     */
+    public function test_a_shopper_cannot_read_another_tenants_order_through_the_raw_id_refund_route(): void
+    {
+        [$ownerA, $storeA] = $this->makeTenant();
+        [$ownerB, $storeB] = $this->makeTenant();
+        $orderB = $this->makeOrder($storeB);
+
+        $shopperA = $this->makeCustomer($storeA->id);
+
+        // The RAW integer, exactly as the handler would have consumed it.
+        $this->actingAs($shopperA, 'customers')
+            ->get('/' . $storeA->slug . '/order-refund/' . $orderB->id . '?refund=true')
+            ->assertForbidden();
+    }
+
+    public function test_a_shopper_is_still_admitted_to_their_own_raw_id_refund_route(): void
+    {
+        [$owner, $store] = $this->makeTenant();
+        $shopper = $this->makeCustomer($store->id);
+        $order = $this->makeOrder($store, ['customer_id' => $shopper->id, 'is_guest' => 0]);
+
+        $this->actingAs($shopper, 'customers')
+            ->get('/' . $store->slug . '/order-refund/' . $order->id . '?refund=true')
+            ->assertStatus(200);
+    }
+
+    /**
+     * ACCEPTING THE RAW FORM WEAKENS NOTHING -- asserted, not argued. The same cross-tenant
+     * request is refused whether the id arrives encrypted or raw, on a target whose handler
+     * expects the encrypted form.
+     */
+    public function test_a_raw_unencrypted_id_is_refused_exactly_like_its_encrypted_form(): void
+    {
+        $this->enableAddon();
+        [$ownerA] = $this->makeTenant();
+        [$ownerB, $storeB] = $this->makeTenant();
+        $orderB = $this->makeOrder($storeB);
+
+        $this->grantPermission($ownerA, \App\Http\Middleware\OrderDocumentAccessGuard::PERMISSION);
+
+        $this->actingAs($ownerA)
+            ->get('/shippinglabel/pdf/' . $orderB->id)
+            ->assertForbidden();
+
+        $this->actingAs($ownerA)
+            ->get('/shippinglabel/pdf/' . Crypt::encrypt($orderB->id))
+            ->assertForbidden();
+    }
+
+    public function test_a_merchant_cannot_read_another_tenants_order_through_the_refund_request_screen(): void
+    {
+        [$ownerA] = $this->makeTenant();
+        [$ownerB, $storeB] = $this->makeTenant();
+        $orderB = $this->makeOrder($storeB);
+
+        $this->grantPermission($ownerA, \App\Http\Middleware\OrderDocumentAccessGuard::PERMISSION);
+
+        $this->actingAs($ownerA)
+            ->get('/refund-request/' . Crypt::encrypt($orderB->id))
+            ->assertForbidden();
+    }
+
+    /**
+     * The second uri on an already-guarded handler. Guarding by uri means guarding one uri does
+     * not guard another that reaches the same action, so this is the regression test for that.
+     *
+     * MEASURED, AND THE TWO FORMS BEHAVE DIFFERENTLY HERE, which is why both are asserted.
+     * `Route::resource('order', ...)` binds `{order}` implicitly, and
+     * Illuminate\Routing\Middleware\SubstituteBindings sits BEFORE this guard in the resolved
+     * stack, so an ENCRYPTED id is not a findable key and the request 404s at binding before the
+     * guard is ever consulted. A RAW id binds successfully and reaches the handler, so the raw
+     * form is the path that was actually reachable -- and it is the one the guard has to refuse.
+     */
+    public function test_a_merchant_cannot_read_another_tenants_order_through_the_resource_show_uri(): void
+    {
+        [$ownerA] = $this->makeTenant();
+        [$ownerB, $storeB] = $this->makeTenant();
+        $orderB = $this->makeOrder($storeB);
+
+        $this->grantPermission($ownerA, \App\Http\Middleware\OrderDocumentAccessGuard::PERMISSION);
+
+        // The reachable form: implicit binding resolves it, so the guard must refuse it.
+        $this->actingAs($ownerA)
+            ->get('/order/' . $orderB->id)
+            ->assertForbidden();
+
+        // The encrypted form never reaches the guard -- SubstituteBindings refuses it first.
+        // Asserted so that a future reordering of the stack shows up here rather than silently
+        // changing which component is doing the work.
+        $this->actingAs($ownerA)
+            ->get('/order/' . Crypt::encrypt($orderB->id))
+            ->assertNotFound();
     }
 
     // ---------------------------------------------------------------------------------------
