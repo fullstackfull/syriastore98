@@ -8,6 +8,7 @@ use App\Models\Store;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Tests\Feature\Security\SecurityTestCase;
 
 /**
@@ -497,35 +498,139 @@ class CredentialBoundaryTest extends SecurityTestCase
     }
 
     /**
-     * The four WorkDo social-login packages carry the same literal and are deliberately NOT
-     * modified — packages/workdo is vendored and under a modification guard. This pins that they
-     * remain unreachable, which is the only thing keeping them harmless.
+     * THE SEVEN VENDORED SOCIAL-LOGIN MODULES STILL CARRY THE LITERAL PASSWORD, and that is an
+     * inventory rather than a control. The control is the host-side refusal, asserted below.
+     *
+     * THIS TEST REPLACES A VACUOUS ONE, and the reason it was vacuous is the trap CLAUDE.md names.
+     * It asserted that no route resolves to any of those packages -- "which is the only thing
+     * keeping them harmless". But no WorkDo module loads in ANY test run unless the test inserts an
+     * `add_on_managers` row (app/Providers/PackageServiceProvider.php), and it inserted none, so
+     * `$reachable` was empty whatever the production reality. In production, once the addon row
+     * exists, packages/workdo/GoogleLogin/src/routes/web.php:23-26 registers `{slug}/auth/google`
+     * and its callback under plain `web`. The assertion could never fail, and it was protecting the
+     * highest-severity row in the queue.
+     *
+     * It also enumerated FOUR packages. There are EIGHT. The ones the old list missed include
+     * SignInWithFacebook, whose `'password' =>'1234'` at :183 was pinned by nothing at all, and
+     * `Signinwithgithub`, whose directory name breaks the `SignInWith*` glob that everyone --
+     * including the first draft of this test -- reaches for. That is why the set below is computed
+     * from the files rather than typed out.
+     *
+     * An adversarial review of P01-SEC-14 A found all of this, and corrected the queue's
+     * attribution too: these are storefront `App\Models\Customer` rows, not merchant `users`.
      */
-    public function test_the_vendored_social_login_literals_remain_unrouted(): void
+    public function test_every_vendored_social_login_package_that_sets_the_literal_is_inventoried(): void
     {
-        $packages = ['SignInWithBitbucket', 'SignInWithOutlook', 'SignInWithTwitter', 'GoogleLogin'];
-        $reachable = [];
+        $withLiteral = [];
 
-        foreach ($packages as $package) {
-            $dir = base_path('packages/workdo/' . $package);
+        foreach (glob(base_path('packages/workdo/*/src/app/Http/Controllers/*.php')) as $file) {
+            $contents = file_get_contents($file) ?: '';
 
-            if (! is_dir($dir)) {
-                continue;
-            }
-
-            foreach (app('router')->getRoutes() as $route) {
-                $action = $route->getActionName();
-
-                if (str_contains($action, $package)) {
-                    $reachable[] = $package . ' => ' . $route->uri();
-                }
+            // The two forms the modules use: a pre-hashed literal and a plain one.
+            if (preg_match("/'password'\s*=>\s*Hash::make\(1234\)/", $contents)
+                || preg_match("/'password'\s*=>\s*'1234'/", $contents)) {
+                $withLiteral[] = basename(dirname($file, 5));
             }
         }
 
-        $this->assertSame([], $reachable,
-            'A vendored social-login package that sets the literal password 1234 now has a '
-            . 'registered route, so the latent defect is live. It cannot be fixed in place under '
-            . 'the WorkDo modification guard — the route must be refused instead. Found: '
-            . implode(', ', $reachable));
+        $withLiteral = array_values(array_unique($withLiteral));
+        sort($withLiteral);
+
+        $this->assertSame([
+            'GoogleLogin',
+            'SignInWithBitbucket',
+            'SignInWithFacebook',
+            'SignInWithLinkedIn',
+            'SignInWithOutlook',
+            'SignInWithSlack',
+            'SignInWithTwitter',
+            // EIGHT, and this one is why the inventory is computed rather than listed by hand.
+            // Its directory is `Signinwithgithub` -- lower-case `inwith` -- so every grep written
+            // as `SignInWith*` misses it, including the one used while writing this very test.
+            'Signinwithgithub',
+        ], $withLiteral,
+            'The set of vendored modules assigning the literal password changed. A NEW one means '
+            . 'another surface for the bypass the host-side refusal in '
+            . 'CustomerLoginController::login covers; a REMOVED one probably means upstream fixed '
+            . 'it, which is worth recording. This is an inventory, not a control -- the control is '
+            . 'the next test.');
+    }
+
+    /**
+     * THE CONTROL: a social row still holding its module-assigned password cannot be used to log in.
+     *
+     * This is what the vacuous route assertion was standing in for. It needs no module to be
+     * loaded and no route to be registered -- it writes the row the modules write and drives the
+     * host's own login endpoint, so it measures the control rather than the environment.
+     *
+     * The preservation cases are asserted in the same test, because a refusal that also refuses
+     * legitimate shoppers is not a fix:
+     *   - a social customer who has since set a real password still logs in;
+     *   - a shopper who simply chose `1234` and has no social_type still logs in.
+     */
+    public function test_a_social_row_with_the_module_password_cannot_log_in(): void
+    {
+        // THE PREMISE IS CREATED HERE, and that is the point rather than a shortcut.
+        //
+        // `customers.social_type` comes from a MODULE migration
+        // (packages/workdo/GoogleLogin/src/database/migrations/..._add_social_auth_id_table.php),
+        // and no WorkDo module migration runs in any test unless the test inserts an
+        // `add_on_managers` row -- so in a fresh database the column is absent and an
+        // early-returning test would measure nothing while reporting green. That is exactly the
+        // blindness that let the vacuous route assertion stand for as long as it did, so this test
+        // adds the column itself, in the shape the module declares it, and asserts it did.
+        //
+        // Nothing about the control is engine- or module-dependent: it is a predicate on a column
+        // and a hash. What the module supplies is the column's existence, and that is what is
+        // reproduced.
+        if (! Schema::hasColumn('customers', 'social_type')) {
+            Schema::table('customers', function ($table) {
+                $table->string('social_id')->nullable();
+                $table->string('social_type')->nullable();
+            });
+        }
+
+        $this->assertTrue(Schema::hasColumn('customers', 'social_type'),
+            'The social column could not be created, so the refusal below cannot be driven at all.');
+
+        [, $store] = $this->makeTenant();
+
+        $make = function (string $label, ?string $socialType, string $password) use ($store) {
+            return Customer::forceCreate([
+                'first_name' => 'Social', 'last_name' => $label,
+                'email' => $label . '-' . uniqid() . '@example.test',
+                'mobile' => '555' . random_int(100000, 999999),
+                'password' => bcrypt($password),
+                'social_type' => $socialType,
+                'store_id' => $store->id, 'status' => 1, 'register_type' => 'email',
+            ]);
+        };
+
+        $login = fn ($customer, string $password) => $this->post(
+            '/' . $store->slug . '/login',
+            ['email' => $customer->email, 'password' => $password]
+        );
+
+        // THE DEFECT: a Google-created row whose password is still the module's literal.
+        $vulnerable = $make('google', 'google', '1234');
+        $login($vulnerable, '1234');
+        $this->assertGuest('customers',
+            'A social row holding the module-assigned password 1234 was logged in, so knowing a '
+            . "shopper's email address is enough to become them.");
+
+        // PRESERVED: the same row once a real password has been set.
+        $reset = $make('reset', 'google', 'a-real-chosen-password');
+        $login($reset, 'a-real-chosen-password');
+        $this->assertAuthenticatedAs($reset, 'customers',
+            'A social customer who set a real password can no longer log in, so the refusal is too '
+            . 'wide.');
+        auth('customers')->logout();
+
+        // PRESERVED: an ordinary shopper who chose 1234 and has no social_type.
+        $ordinary = $make('ordinary', null, '1234');
+        $login($ordinary, '1234');
+        $this->assertAuthenticatedAs($ordinary, 'customers',
+            'An ordinary shopper whose chosen password happens to be 1234 was refused, so the '
+            . 'predicate is keyed on the password alone rather than on the social row.');
     }
 }

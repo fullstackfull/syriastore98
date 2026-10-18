@@ -492,6 +492,112 @@ class ResidualSafetyCorrectionsTest extends SecurityTestCase
     }
 
     /**
+     * THE WEB CHECKOUT IS THE FOURTH MONEY PATH, and it was the one still open after F.
+     *
+     * F guarded the three API order handlers and E guarded payment_sheet. An adversarial review of
+     * F went looking for the same scope mistake F had just fixed and found
+     * PaymentController::processOrder -- the storefront web checkout -- unguarded, with its own
+     * order-writing code.
+     *
+     * Its pre-flight stock check does NOT cover this: assertCartAvailable() at
+     * PaymentController.php:315 does `if (... (int) $qty <= 0) { continue; }`, which SKIPS a
+     * non-positive line. That is right for a stock question and wrong for a pricing one -- the line
+     * is skipped for stock and then priced anyway into `$order->product_price` and
+     * `$order->final_price`.
+     *
+     * THE FIRST VERSION OF THIS TEST WAS VACUOUS and the premise caught it. It asserted only "no
+     * order was created", and no order was created either way: the web checkout 500s in a bare
+     * fixture because PaymentService inserts a `cities` row whose `state_id` and `country_id` have
+     * no parents. So the test passed against unguarded code. It now seeds the geo rows, asserts
+     * that a CLEAN basket records an order through the same request, and identifies the refusal by
+     * the guard's OWN message -- which no other refusal on this path uses.
+     */
+    public function test_the_web_checkout_refuses_a_basket_with_a_negative_line(): void
+    {
+        [, $store, $shippingId] = $this->orderableTenant();
+
+        // PaymentService writes a `cities` row against these ids; without the parents the whole
+        // checkout dies on a foreign-key violation and every assertion below is vacuous.
+        DB::table('countries')->insert([
+            'id' => 101, 'name' => 'Testland', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('states')->insert([
+            'id' => 1, 'name' => 'Teststate', 'country_id' => 101,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('cities')->insert([
+            'id' => 1, 'name' => 'Testcity', 'state_id' => 1, 'country_id' => 101,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $customer = $this->customerIn($store, 'gweb');
+        $big = $this->productIn($store);
+        $cheap = Product::forceCreate([
+            'name' => 'gweb-cheap-' . uniqid(), 'slug' => 'gweb-cheap-' . uniqid(),
+            'product_stock' => 20, 'track_stock' => 1, 'variant_product' => 0,
+            'price' => 50.00, 'sale_price' => 50.00,
+            'store_id' => $store->id, 'created_by' => $store->created_by,
+        ]);
+
+        // The shared billing() fixture uses 'X'/'Y'/'Z' for country, state and city. The API order
+        // handlers never look at them, but the WEB checkout inserts a `cities` row keyed on those
+        // values (PaymentService.php:2672), so non-numeric ids are a foreign-key violation and a
+        // 500 -- which is what made the first version of this test pass against unguarded code.
+        // These are the ids seeded above.
+        $billing = array_merge($this->billing(), [
+            'billing_country' => '101', 'billing_state' => '1', 'billing_city' => '1',
+            'delivery_country' => '101', 'delivery_state' => '1', 'delivery_city' => '1',
+        ]);
+        $post = fn () => $this->actingAs($customer, 'customers')
+            ->post('/' . $store->slug . '/process-order', [
+                'payment_type' => 'cod',
+                'delivery_id' => $shippingId,
+                'method_id' => $shippingId,
+                'billing_info' => $billing,
+            ] + $billing);
+
+        $basket = function (bool $withNegativeLine) use ($customer, $store, $big, $cheap) {
+            Cart::withoutGlobalScopes()->where('customer_id', $customer->id)->delete();
+            Cart::forceCreate([
+                'customer_id' => $customer->id, 'product_id' => $big->id, 'variant_id' => 0,
+                'qty' => 1, 'price' => 1000.00, 'store_id' => $store->id,
+            ]);
+            if ($withNegativeLine) {
+                Cart::forceCreate([
+                    'customer_id' => $customer->id, 'product_id' => $cheap->id, 'variant_id' => 0,
+                    'qty' => -5, 'price' => -250.00, 'store_id' => $store->id,
+                ]);
+            }
+        };
+
+        // THE DENIAL, identified by the guard's own message.
+        $basket(true);
+        $post();
+
+        $this->assertSame('Your cart contains an invalid quantity.', session('error'),
+            'The web checkout did not refuse a basket holding a negative line. Session error was: '
+            . json_encode(session('error')));
+        $this->assertNull(\App\Models\Order::withoutGlobalScopes()
+            ->where('customer_id', $customer->id)->first(),
+            'An order was recorded for a basket holding a negative line.');
+        $this->assertSame(20, (int) Product::withoutGlobalScopes()
+            ->find($cheap->id)->product_stock,
+            "The web checkout moved the merchant's stock for a refused order.");
+
+        // THE PREMISE, which the first version of this test lacked: the SAME request on a clean
+        // basket must go through, or the guard is indistinguishable from a broken checkout.
+        session()->forget('error');
+        $basket(false);
+        $post();
+
+        $this->assertNotNull(\App\Models\Order::withoutGlobalScopes()
+            ->where('customer_id', $customer->id)->first(),
+            'With the negative line removed the same request records no order, so this test is '
+            . 'measuring a checkout that refuses everything rather than the quantity guard. '
+            . 'Session error: ' . json_encode(session('error')));
+    }
+
+    /**
      * AND THE WRITER THAT LET THE ROW EXIST. The storefront web route took the quantity on trust.
      *
      * `CartController::product_cartlist` did `$qty = $request->qty ?? 0` with no validation

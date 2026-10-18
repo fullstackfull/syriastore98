@@ -1165,6 +1165,46 @@ public function handlePaymeraTrigger00($orderId)
             return redirect()->back()->with('error', $this->stockErrorMessage($unavailable));
         }
 
+        // P01-SEC-14 G. A NON-POSITIVE LINE QUANTITY IS NOT A PAYABLE BASKET -- the WEB checkout's
+        // copy of the guard the API order writers got in F, and the fourth and last money path.
+        //
+        // WHY THE STOCK CHECK ABOVE IS NOT THIS. assertCartAvailable() does
+        // `if (... (int) $qty <= 0) { continue; }` at :315 -- it SKIPS a non-positive line rather
+        // than refusing it, which is right for a stock question (there is nothing to reserve) and
+        // wrong for a pricing one. The line is skipped for stock and then priced anyway:
+        // getCartData's figures flow into `$order->product_price` (:2307) and `$order->final_price`
+        // (:2313-2315), so the order is reduced by the negative line exactly as the API handlers
+        // were before F.
+        //
+        // AND THE ROWS CAN STILL BE CREATED. F validated the two writers in the host app --
+        // ApiController::addtocart and CartController::product_cartlist -- but TWO MORE live in
+        // vendored module code that must not be edited:
+        //   packages/workdo/BoostSales/.../BoostSalesController.php:59 -> :183
+        //   packages/workdo/FrequentlyProduct/.../FrequentlyProductController.php:88 -> :209
+        // both `$qty = $request->qty` with no validation, on `POST {storeSlug}/boost-sales-cart`
+        // and `POST {storeSlug}/frequently_product_cart` under plain `web`. Found by an adversarial
+        // review of commit F, which went looking for exactly the scope mistake F had just fixed.
+        // So the read side is where this has to hold, and it now holds on all four paths that turn
+        // a cart into money: here, ordersave, place_order and payment_sheet. The two module writers
+        // are an owner item -- see S29 in docs/security/P01-SECURITY-WORK-QUEUE.md.
+        $nonPositiveLines = collect($cartData['products'] ?? [])
+            ->filter(function ($line) {
+                $qty = $this->cartLineValue($line, 'qty');
+
+                return $qty !== null && is_numeric($qty) && (int) $qty <= 0;
+            })
+            ->count();
+
+        if ($nonPositiveLines > 0) {
+            \Illuminate\Support\Facades\Log::warning('checkout: refused, basket holds a non-positive quantity', [
+                'store_id' => $store->id ?? null,
+                'customer_id' => $customer->id ?? null,
+                'lines' => $nonPositiveLines,
+            ]);
+
+            return redirect()->back()->with('error', __('Your cart contains an invalid quantity.'));
+        }
+
         // Process coupon
         $couponData = $this->processCoupon($request, $cartlist_final_price, $slug);
         $cartlist_final_price = $couponData['cartlist_final_price'];

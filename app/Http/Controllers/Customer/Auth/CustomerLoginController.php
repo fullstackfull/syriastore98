@@ -34,6 +34,15 @@ use Illuminate\Support\Facades\Http;
 class CustomerLoginController extends Controller
 {
     /**
+     * The literal password the seven vendored social-login modules assign to a new customer.
+     *
+     * Named rather than inlined so the refusal above reads as what it is, and so a grep for it
+     * finds both the control and the test that drives it. It is not a secret: it is in seven
+     * files under packages/workdo/ and in this project's own security queue.
+     */
+    private const VENDORED_SOCIAL_LOGIN_PASSWORD = '1234';
+
+    /**
      * Wrong OTP answers allowed per issued code on the web reset flow, after which the code is
      * destroyed. Matches App\Services\CustomerPasswordResetService::MAX_ATTEMPTS, which bounds
      * the API flow, so the two surfaces of one feature do not disagree about what is allowed.
@@ -634,6 +643,60 @@ private function normalizePhone($phone)
 
             // Retrieve the user based on the email address
             $customer = Customer::where('email', $credentials['email'])->where('store_id',$credentials['store_id'])->first();
+
+            // ============================================================================
+            // P01-SEC-14 G. A SOCIAL-CREATED ROW'S MODULE-ASSIGNED PASSWORD IS NOT A CREDENTIAL.
+            //
+            // EIGHT vendored social-login modules create the storefront customer with a literal
+            // password: packages/workdo/GoogleLogin/.../GoogleLoginController.php:118 is
+            // `'password' => Hash::make(1234)`, and SignInWithFacebook (:183), SignInWithLinkedIn,
+            // SignInWithSlack, SignInWithBitbucket, SignInWithOutlook, SignInWithTwitter and
+            // Signinwithgithub (:111) carry the same value. The eighth is spelled `Signinwithgithub`,
+            // which is why the inventory in CredentialBoundaryTest is COMPUTED from the files: every
+            // hand-written `SignInWith*` glob misses it. `Customer`'s `'password' => 'hashed'` cast stores it as bcrypt of
+            // that literal rather than double-hashing it -- the modules' own
+            // `Auth::guard('customers')->attempt([... 'password' => 1234 ...])` depends on exactly
+            // that, so this is their working flow and not a misreading.
+            //
+            // The check below used to be `Hash::check($posted, $customer->password)` and nothing
+            // else. So anyone who knew the email address of a shopper who had ever used a web
+            // social button could sign in as them with the password `1234`, from the open
+            // internet, on a route carrying only `throttle:auth`.
+            //
+            // WHY IT IS CLOSED HERE RATHER THAN THERE. `packages/workdo/` is vendored and under a
+            // modification guard: an in-place edit is reverted by the next upstream update and
+            // leaves no patch record. The host app is where the control belongs.
+            //
+            // THE PREDICATE IS DELIBERATELY NARROW -- a social row AND the module's own literal --
+            // so that nothing legitimate is refused:
+            //   * a social customer who has since set a real password through forgot-password
+            //     keeps logging in, because their hash no longer matches the literal;
+            //   * a shopper who simply chose `1234` keeps logging in, because they have no
+            //     `social_type`; the validator allows four characters, so that is a real case;
+            //   * the social BUTTON keeps working, because the modules authenticate through
+            //     `Auth::guard('customers')->attempt()` and never reach this controller.
+            //
+            // `social_type` is added by a MODULE migration, so the column is absent until that
+            // module has been installed -- hence Schema::hasColumn before reading it. Without that
+            // guard this would throw on any store that has never had a social module.
+            //
+            // Found by an adversarial review of P01-SEC-14 A, which also corrected two things the
+            // security queue had recorded wrongly: the rows are storefront `customers`, not
+            // merchant `users`, and the test that claimed to pin this as unreachable was vacuous.
+            // See S18 and S29 in docs/security/P01-SECURITY-WORK-QUEUE.md.
+            // ============================================================================
+            if ($customer
+                && \Illuminate\Support\Facades\Schema::hasColumn('customers', 'social_type')
+                && ! empty($customer->social_type)
+                && Hash::check(self::VENDORED_SOCIAL_LOGIN_PASSWORD, $customer->password)) {
+                \Illuminate\Support\Facades\Log::warning('customer login: refused a social row still holding its module-assigned password', [
+                    'store_id' => $store->id ?? null,
+                    'customer_id' => $customer->id,
+                    'social_type' => $customer->social_type,
+                ]);
+
+                return redirect()->back()->with('error', __('Please sign in with the provider you used to create this account, or reset your password.'));
+            }
 
             try {
                 // If a user with the given email exists and the password matches using Bcrypt

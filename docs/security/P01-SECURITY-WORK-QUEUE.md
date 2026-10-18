@@ -752,8 +752,9 @@ used. Nothing uses it today.
 
 ## S18 — Accounts created with a password published in this repository
 
-> **Closed in application code; four vendored packages remain, held harmless only by not being
-> routed.**
+> **Closed in application code. The "four vendored packages, held harmless by not being routed"
+> half of this row was WRONG on both counts and is superseded by S29: there are EIGHT, and the test
+> that pinned them as unrouted could not fail.**
 
 The emergency removed `hello@1234` from the API recovery path. **Five more sites wrote a fixed
 literal as a live credential**, and anyone who read the source could sign in as every account
@@ -771,11 +772,23 @@ but not signable-into with a known value. Nothing in `app/` ever attempted a log
 literals (checked). A ratchet over all of `app/` — stripping comments with PHP's own tokeniser,
 because the docblocks explaining these defects quote the literals — fails on any new one.
 
-**Not fixed, deliberately:** four WorkDo social-login packages (`SignInWithBitbucket`,
-`SignInWithOutlook`, `SignInWithTwitter`, `GoogleLogin`) carry the same literal and
-`SignInWithOutlook:174` even *authenticates* with it. `packages/workdo` is vendored and under a
-modification guard. They are harmless only because their routes are not registered, and a test
-pins that: if one is ever routed, the route must be refused rather than the package patched.
+**The vendored half — CORRECTED, and now CLOSED by P01-SEC-14 G. Read S29 instead of this
+paragraph.** What stood here was: *"four WorkDo social-login packages (`SignInWithBitbucket`,
+`SignInWithOutlook`, `SignInWithTwitter`, `GoogleLogin`) carry the same literal… They are harmless
+only because their routes are not registered, and a test pins that."* Three errors, each found by
+an adversarial review of P01-SEC-14:
+
+1. **There are eight, not four** — add `SignInWithFacebook`, `SignInWithLinkedIn`, `SignInWithSlack`
+   and `Signinwithgithub`. The last is spelled with a lower-case `inwith`, so a `SignInWith*` glob
+   never sees it.
+2. **The test that "pinned" it could not fail.** No WorkDo module loads in any test run without an
+   `add_on_managers` row, and it inserted none, so its route scan was empty regardless of
+   production. In production those routes ARE registered once the addon row exists.
+3. **"Harmless" was never true.** `CustomerLoginController::login` checked only the hash, so the
+   literal was a live credential for every storefront customer those modules created.
+
+The host-side refusal is in place and the computed inventory replaces the hand-written list. S29
+carries the detail, the preserved journeys and the disclosure question.
 
 ---
 
@@ -1376,11 +1389,12 @@ recorded with why not. Every fix is isolated by a test that fails when the fix i
 ### Verified and deliberately NOT changed
 
 - **`packages/workdo/GoogleLogin/.../GoogleLoginController.php:118` writes the fixed password
-  `"1234"`** on web social-login rows, so a verified provider identity can be bypassed with an email
-  address alone. It is **`users`** (merchants), not storefront customers, and it is vendored module
-  code this project must not edit — the remedy is a host-side control or a fork, which is an owner
-  decision. Same family as S18. **This is the highest-value row the review produced and it is not
-  P01-SEC-14's to fix.**
+  `"1234"`.** **CORRECTED, AND CLOSED — see S29.** What is written above was wrong in two ways and
+  the correction matters more than the original note: the rows are **storefront
+  `App\Models\Customer`** records, not merchant `users`, and it is not outside P01-SEC-14's scope,
+  because signing in as a shopper with a password nobody chose is exactly the "unauthorized sign-in"
+  the brief's Work Package A names. It was also NOT "the remedy is an owner decision": a narrow
+  host-side refusal exists, takes nothing from `packages/workdo/`, and is now in place.
 - **The PaymentIntent is bound to no order, and the order is recorded `Paid` without being checked
   against it.** Pre-existing and structural: the documented flow is compute-total → payment-sheet
   → confirm on device → place-order, so no `orders` row exists when the intent is created. S21.
@@ -1527,6 +1541,121 @@ contract for these three endpoints nor the admin Flutter app sends the field.
 
 ---
 
+## S29 — Eight vendored modules gave shoppers the password `1234` — **CLOSED by P01-SEC-14 G**
+
+The highest-severity thing any of the three review passes produced, and the project had already
+recorded it as handled. It was not.
+
+**The defect.** Eight vendored social-login modules create the storefront customer with a literal
+password — `GoogleLogin` (`GoogleLoginController.php:118`, `Hash::make(1234)`),
+`SignInWithFacebook` (`:183`, `'1234'`), `SignInWithLinkedIn`, `SignInWithSlack`,
+`SignInWithBitbucket`, `SignInWithOutlook`, `SignInWithTwitter` and `Signinwithgithub` (`:111`).
+`Customer`'s `'password' => 'hashed'` cast stores a pre-hashed value unchanged and hashes a plain
+one once, so every such row holds bcrypt of `1234` — and the modules' own
+`Auth::guard('customers')->attempt([... 'password' => 1234 ...])` depends on exactly that, so this
+is their working flow rather than a misreading of it.
+
+`CustomerLoginController::login` then authenticated with `Hash::check($posted, $customer->password)`
+and no check of `social_type` at all. So **anyone who knew the email address of a shopper who had
+ever used a web social button could sign in as them with `1234`**, from the open internet, on a
+route carrying only `throttle:auth` (10/min per ip+email — no obstacle to one known password).
+
+**Three things the record had wrong, each worth more than the row itself.**
+
+1. **S18 said these modules "are harmless only because their routes are not registered, and a test
+   pins that".** The test could not fail. `test_the_vendored_social_login_literals_remain_unrouted`
+   scanned the router for routes belonging to those packages — but **no WorkDo module loads in any
+   test run unless the test inserts an `add_on_managers` row**, and it inserted none, so the result
+   was empty whatever production does. In production, once the addon row exists,
+   `packages/workdo/GoogleLogin/src/routes/web.php:23-26` registers `{slug}/auth/google` and its
+   callback under plain `web`. This is the exact blindness CLAUDE.md warns about, protecting the
+   highest-severity row in this document.
+2. **It enumerated four packages. There are eight.** The missed ones include `SignInWithFacebook`,
+   pinned by nothing, and `Signinwithgithub` — whose directory is spelled with a lower-case
+   `inwith`, so every hand-written `SignInWith*` glob misses it, including the first draft of the
+   replacement test. The inventory is now **computed from the files** rather than typed out, which
+   is how the eighth was found.
+3. **P01-SEC-14's own S27 entry called the rows `users` (merchants).** They are
+   `App\Models\Customer`. Corrected above.
+
+**The fix, and why it is narrow.** `packages/workdo/` is vendored and under a modification guard, so
+the control is host-side: `CustomerLoginController::login` refuses when a row has a `social_type`
+**and** its password still matches the module literal. Nothing legitimate is refused —
+
+- a social customer who has since set a real password through forgot-password keeps logging in,
+  because their hash no longer matches;
+- a shopper who simply chose `1234` keeps logging in, because they have no `social_type` (the
+  validator allows four characters, so this is a real case);
+- the social **button** keeps working, because the modules authenticate through
+  `Auth::guard('customers')->attempt()` and never reach this controller.
+
+The password is deliberately **not** scrubbed: that would break the modules' own `attempt()` call
+and so disable the provider integration, which the brief forbids without owner approval.
+
+`social_type` is added by a module migration, so the column can be absent; the predicate is guarded
+on `Schema::hasColumn` and the test creates the column in the shape the module declares, asserts it
+did, and then drives the real login endpoint — so it measures the control and not the environment.
+
+### Owner items left by S29
+
+1. **How many such rows exist?** `SELECT COUNT(*) FROM customers WHERE social_type IS NOT NULL;`
+   and, of those, how many still hold bcrypt of the literal. Every one is an account that was
+   open to anyone who knew its email address. **That is a disclosure question, not an engineering
+   one.**
+2. **Those rows cannot be scrubbed without breaking the modules.** The clean end state is a fork or
+   an upstream fix that mints a random password; until then the host-side refusal is what stands
+   between those accounts and anyone who knows the email address, and it must not be removed.
+3. **`SELECT COUNT(*) FROM add_on_managers`** — whether these modules are active at all decides
+   whether this was ever live. The refusal costs nothing either way.
+
+---
+
+## S30 — The negative-quantity family, closed on all four money paths — **two writers remain, in vendored code**
+
+Three commits chased one defect outward, each because a review pass asked "where else?":
+
+| commit | what it closed |
+|---|---|
+| **E** | `payment_sheet` (the card path) refuses a basket with a `qty <= 0` line; `addtocart` validates `integer|min:1` |
+| **F** | `ordersave`, `place_order` and `confirm_order` refuse it too — a COD order had bypassed E entirely; `CartController::product_cartlist` (the storefront web writer) validates |
+| **G** | `PaymentController::processOrder` — the storefront WEB checkout — refuses it. The fourth and last path that turns a cart into money |
+
+**Why the web checkout's existing stock check did not already cover it.**
+`assertCartAvailable()` at `PaymentController.php:315` does
+`if (... (int) $qty <= 0) { continue; }` — it **skips** a non-positive line. That is correct for a
+stock question (there is nothing to reserve) and wrong for a pricing one: the line is skipped for
+stock and then priced anyway into `$order->product_price` and `$order->final_price`. A guard that
+looks like the one you need is worse than none, which is the same lesson as S28 F2.
+
+### Two writers remain, and they cannot be fixed in place
+
+| file | route | middleware |
+|---|---|---|
+| `packages/workdo/BoostSales/.../BoostSalesController.php:59 → :183` | `POST {storeSlug}/boost-sales-cart` | plain `web` |
+| `packages/workdo/FrequentlyProduct/.../FrequentlyProductController.php:88 → :209` | `POST {storeSlug}/frequently_product_cart` | plain `web` |
+
+Both are `$qty = $request->qty` written straight to `carts.qty` with no validation, and both are
+vendored — `packages/workdo/` is under a modification guard, so an in-place fix is reverted by the
+next upstream update and leaves no patch record.
+
+**This is why the control is on the READ side.** All four paths that turn a cart into money now
+refuse such a row whatever wrote it, so the money and the stock are closed. What a module route can
+still do is **create** the row, which costs the shopper their own checkout until it is removed — a
+self-inflicted denial, not a cross-tenant or money defect.
+
+**Owner decision.** The clean end state is an upstream fix or a route middleware over those two
+module routes. A middleware is a few lines in the host app and needs no module edit; it is not made
+here because it changes the behaviour of module routes, and because the harm it would prevent is
+already prevented at every point where it matters. A model-level guard on `Cart` was considered and
+rejected: `Cart` is touched by 70 modules and a refusal there is not a narrow change.
+
+**NOT a fixable-by-validation case, recorded so nobody tries:** `carts.qty` cannot simply be made
+`UNSIGNED`. A migration on a live money-adjacent table is an owner operation, and the column's
+existing negative rows — if any — would fail the alter. `SELECT COUNT(*) FROM carts WHERE qty <= 0;`
+is the question to answer first.
+
+---
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**
@@ -1558,7 +1687,7 @@ Keeping these apart is the point; each is independently reviewable and independe
 | *(triage, not a package)* | S14 | Verify each row before assigning severity |
 | **P01-SEC-10** | **S15-A** | **EMERGENCY.** Anonymous platform takeover. Answer before any deployment; route can be disabled as an interim with no app release |
 | **P01-SEC-11** | S15-B rows 1-7 + **S19** | ~~One API-authorization pass, one shared ownership helper, one Flutter window~~ **DONE.** 26 handlers, nine commits, one shared helper (`resolveStoreCustomer`). No new 401 on any path a shipped client calls; see S19 for the five rows left open |
-| **P01-SEC-14** | **S20** + **S22** + **S23** + **S25**, and the amount half of **S21** | ~~Identity and payment trust boundaries~~ **DONE.** Six commits (A, B, C, D, E, F). Provider tokens verified server-side; the amount OWED — on the card path and on COD alike — proof against a posted price, currency, coupon code, shipping price or negative quantity; `notify_user` failed closed; four coupon lookups store-scoped; the order's discount and ledger columns taken from the server. E and F are the two adversarial reviews' own findings — see S27 and S28; F closed a HIGH that bypassed E's guard through COD. No new 401 on any path a shipped client calls |
+| **P01-SEC-14** | **S20** + **S22** + **S23** + **S25**, and the amount half of **S21** | ~~Identity and payment trust boundaries~~ **DONE.** Six commits (A, B, C, D, E, F). Provider tokens verified server-side; the amount OWED — on the card path and on COD alike — proof against a posted price, currency, coupon code, shipping price or negative quantity; `notify_user` failed closed; four coupon lookups store-scoped; the order's discount and ledger columns taken from the server. E and F are the two adversarial reviews' own findings — see S27 and S28; F closed a HIGH that bypassed E's guard through COD, and G closed S29, the `1234` password on eight vendored social-login modules that S18 had recorded as harmless. No new 401 on any path a shipped client calls |
 | *(owner decision, not a package)* | **S21** calculation rows, **S24**, **S26** | Each changes money or deletes history. Answer before the next commerce package |
 | **P01-SEC-12** | S15-B row 8 | `config/superadminaccess.php` denylist vs the finance permissions. No API impact |
 | **P01-SEC-3** | S4 + the `larabug` blacklist review | Independent; no contract impact |
