@@ -4817,7 +4817,30 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             ], $messages->first());
         }
 
-        $Product = Product::find($request->id);
+        // AUTHZ: `user_id` came from the request, so a review could be ATTRIBUTED to anyone --
+        // the dedupe below keyed on the same posted value, so an attacker could also exhaust
+        // another account's one-review-per-product allowance. The client must already be sending
+        // the shopper's own id for that dedupe to mean anything, so deriving it from the session
+        // closes the forgery without changing what a correct client achieves.
+        //
+        // Note on the column, left as it is because changing it is a schema decision and not
+        // this package's: `testimonials.user_id` has no foreign key but
+        // Testimonial::UserData() is `hasOne(User::class, 'id', 'user_id')`, i.e. it points at
+        // the ADMIN table, and the admin-side writer (Api/DashboardController) writes a users id
+        // into it. So the column holds ids from two different tables depending on who wrote the
+        // row. That conflation is pre-existing and unchanged here -- the storefront already had
+        // to be sending a customers id.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
+            return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
+        }
+
+        // The product must belong to the store in the path. Product carries StoreScope, but on
+        // this route no tenant resolves and `null_tenant => 'open'` adds no predicate, so an
+        // unscoped find() reached ANY tenant's product -- and AvregeRating() below then WRITES to
+        // that product row (`$Product->average_rating`), so this was a cross-tenant write, not
+        // only a cross-tenant read.
+        $Product = Product::where('id', $request->id)->where('store_id', $store->id)->first();
         if (empty($Product)) {
             return $this->error([
                 'message' => 'Product not found.'
@@ -4825,7 +4848,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
 
 
-        $is_Review = Testimonial::where('user_id', $request->user_id)->where('product_id', $request->id)->where('store_id', $store->id)->exists();
+        $is_Review = Testimonial::where('user_id', $customer->id)->where('product_id', $request->id)->where('store_id', $store->id)->exists();
 
         if ($is_Review) {
             return $this->error([
@@ -4835,7 +4858,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
 
         $review = new Testimonial();
-        $review->user_id        = $request->user_id;
+        $review->user_id        = $customer->id;
         $review->category_id    = $Product->category_id;
         $review->product_id     = $request->id;
         $review->rating_no      = $request->rating_no;
@@ -7111,13 +7134,48 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             ], $messages->first());
         }
 
+        // AUTHZ: this handler read NO principal of any kind, so it was a content-publishing
+        // primitive on any tenant's catalogue for any token holder. Three separate problems:
+        //
+        //   - No principal and no attribution. `testimonials.user_id` was never set, so it took
+        //     its column default of 1 -- every review written here claimed to be from user id 1.
+        //   - `product_id` was neither checked for existence nor for store membership, so a
+        //     review could be attached to another tenant's product, or to no product at all.
+        //   - `category_id` came from the caller too, and carries an FK to `categories`, so a
+        //     review could be filed under another tenant's category -- and a nonexistent one
+        //     produced a 500 instead of a validation error.
+        //   - `status` came from the CALLER, so the review was self-publishing. product_rating,
+        //     the other endpoint writing this same table, sets status itself; this one now
+        //     matches it. The field is still accepted and still validated so a client sending it
+        //     is not rejected -- it is simply no longer trusted.
+        //
+        // Not changed: this endpoint has no one-review-per-product dedupe where product_rating
+        // does. Adding one would deny a journey that works today, and bounding review volume is
+        // a product decision rather than an authorization one. Recorded, not fixed.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
+            return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
+        }
+
+        $Product = Product::where('id', $request->product_id)->where('store_id', $store->id)->first();
+        if (empty($Product)) {
+            return $this->error(['message' => __('Product not found.')], __('Product not found.'));
+        }
+
         $Testimonial = new Testimonial();
-        $Testimonial->category_id = $request->category_id;
-        $Testimonial->product_id = $request->product_id;
+        $Testimonial->user_id = $customer->id;
+        // Was `$request->category_id`. That is a fourth caller-supplied identifier -- it carries a
+        // real foreign key to `categories` (2023_12_26_095726_create_testimonials_table.php:27),
+        // so a caller could file a review under ANOTHER tenant's category, and a category id that
+        // does not exist produced a constraint violation and a 500 rather than a validation
+        // error. Derived from the product, which is what product_rating already does. The field is
+        // still accepted and validated so a client sending it is not rejected.
+        $Testimonial->category_id = $Product->category_id;
+        $Testimonial->product_id = $Product->id;
         $Testimonial->rating_no = $request->rating_no;
         $Testimonial->title = $request->title;
         $Testimonial->description = $request->description;
-        $Testimonial->status = $request->status;
+        $Testimonial->status = 1;
         $Testimonial->store_id = $store->id;
         $Testimonial->save();
 
