@@ -6841,11 +6841,45 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
     public function payment_sheet(Request $request, $slug = '')
     {
         $store = getStore($slug);
-        
+
+        // AUTHZ: this endpoint had no principal check and no store guard, so ANY token holder --
+        // a merchant, a driver, or a customer of a different store -- created a Stripe
+        // PaymentIntent against THIS store's Stripe account, with an amount and currency of their
+        // choosing. That is an unauthorized call on someone else's payment processor: it consumes
+        // the merchant's Stripe account and shows up in their dashboard. A bogus slug also reached
+        // `$store->id` on null and produced a 500.
+        //
+        // NOT FIXED HERE, and recorded in docs/security/P01-SECURITY-WORK-QUEUE.md rather than
+        // claimed: `amount` still comes from the request. Binding it to a server-computed cart
+        // total is the right shape, but it is a change to what the client must send, and no client
+        // in either repository calls this path, so the contract cannot be verified from here.
+        // Whether a mismatched intent can actually mark an order paid depends on
+        // PaymentVerificationService, which is a separate question from this package's.
+        if (empty($store)) {
+            return $this->error(['message' => __('Store not found.')], __("Store not found."));
+        }
+
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
+            return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
+        }
+
+        // A negative or non-numeric amount reached Stripe as-is.
+        $validator = \Validator::make($request->all(), [
+            'price' => 'required|numeric|min:1',
+            'currency' => 'required|string|size:3',
+        ]);
+        if ($validator->fails()) {
+            $messages = $validator->getMessageBag();
+            return $this->error(['message' => $messages->first()], $messages->first());
+        }
 
         $pk_key = Utility::GetValueByName('publishable_key', $store->id);
         $sk_key = Utility::GetValueByName('stripe_secret', $store->id);
 
+        // Left as written: the duplicated `empty($sk_key)` means this errors exactly when the
+        // SECRET is missing, which is the condition that matters, and $pk_key is unused. Changing
+        // it to test $pk_key too would refuse configurations that work today.
         if (empty($sk_key) && empty($sk_key)) {
             return $this->error(['message' => 'publishable key or stripe secret not found.']);
         }
