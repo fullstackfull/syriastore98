@@ -2138,6 +2138,49 @@ fails `own negative`, removing the predicate fails `foreign positive`.
    and the brief's own ban on widening applies. The negative half — the part that *mints* stock — is
    closed by the quantity guard, which is what the brief asked for.
 
+### A claim two reviewers rated critical, and the measurement that refuted it
+
+`final_sub_total` **is** genuinely absent from the merges the handlers build before calling
+`apply_coupon` — they pass `coupon_code`, `sub_total` and `slug` only
+(`PaiementProPaymentController.php:376-382` and the same shape in the other five) — and
+`apply_coupon` reads `$request->final_sub_total` in **three** places: the spend gate, the base the
+discount is subtracted from, and the percentage base (`ApiController.php:3763-3776`, `:3820-3826`).
+So a posted value does survive the state merge. Two independent reviewers rated it **critical**, one
+of them claiming `orders.final_price` could be driven negative.
+
+**It is inert.** Driven through the real route with a valid, active, in-store 10% `percentage`
+coupon and `coupon_info` populated as a real checkout stores it:
+
+| posted `final_sub_total` | `orders.coupon_price` | `orders.final_price` | `orders.product_price` |
+|---|---|---|---|
+| nothing | 0.0 | 100.0 | 100.0 |
+| 1000000 | 0.0 | 100.0 | 100.0 |
+| −1000000 | 0.0 | 100.0 | 100.0 |
+
+Identical. The discount is **zero** even with no manipulation at all, which is **S24**: `apply_coupon`
+refuses every coupon that is not `fixed product discount`, so the percentage and flat branches —
+`final_sub_total`'s only consumers — are dead code today. The queue already records
+`final_sub_total` as a precondition of the S24 fix; what is new is that these **five gateway
+handlers are five more call sites that must move in that same change**, or fixing S24 opens them.
+
+A third reviewer reached this conclusion by reading; the table above is what settled it. It is the
+clearest case in this package for verifying before reporting: the code path was described
+correctly and the exploitability was not.
+
+### Two more pre-existing crashes, found while testing that
+
+Both on the **guest coupon** path, and both the same "every legitimate return fails" character as
+the `out_of_stock_threshold` and CinetPay crashes:
+
+- **`PaiementProPaymentController.php:293`** — `$request->coupon_info['coupon_id']` is read whenever
+  `coupon_code` is present, with no check that `coupon_info` exists. A guest whose state carries a
+  coupon code but no `coupon_info` gets `Trying to access array offset on null`, then a fatal on
+  `$coupon->PerUsesCouponCount()` one line later. (The lookup itself **is** store-scoped here,
+  which is worth noting against the reviewer's claim that it is not.)
+- **`PaiementProPaymentController.php:810`** — `Undefined array key "coupon_name"`, raised **after
+  the order row has committed**. Same shape as the CinetPay event fatal: the shopper is charged,
+  the order exists, and they see a 500.
+
 ### Claims the review confirmed
 
 AuthorizeNet-is-the-charge; PayU's storefront route writing no order; `PayUPaymentController::getProductStatus`
