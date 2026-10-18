@@ -6280,12 +6280,102 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             ], $messages->first());
         }
 
+        // S12(a). THIS ENDPOINT RESOLVED $store FROM THE SLUG AND THEN NEVER USED IT. It called
+        // Order::order_detail($request->order_id) -- `Order::find()` with the store id read off
+        // the order itself -- with no customer predicate and no store predicate, so ANY holder of
+        // ANY valid token read any order on the platform. Reproduced before this change: a
+        // customer token belonging to store B returned store A's full order document, HTTP 200.
+        // `Order` carries neither the tenancy trait nor an entry in config/tenancy.php's
+        // scoped_models allowlist, so no global scope supplied the missing predicate either.
+        if (!$this->resolveViewableOrder($request->order_id, $store)) {
+            // The endpoint's OWN not-found envelope, verbatim, for two reasons: the Flutter app
+            // already handles this path, and "not yours" must be indistinguishable from "no such
+            // order" so the endpoint cannot enumerate order ids. Never 401 -- repo B's
+            // lib/network/network.dart forces a logout on any 401.
+            return $this->error(__('Order not found.'), __('Order not found.'));
+        }
+
         $order = Order::order_detail($request->order_id);
         if (!empty($order['message'])) {
             return $this->error($order['message'], $order['message']);
         } else {
             return $this->success($order, __('Order detail get successfully.'));
         }
+    }
+
+    /**
+     * The order a storefront-API caller is entitled to read, or null.
+     *
+     * S12(a). Deliberately shaped like DashboardController::resolveChangeableOrder() -- the
+     * admin API's equivalent helper -- so the two surfaces cannot drift into different ideas of
+     * who owns an order. `custom.auth` (App\Http\Middleware\CustomAuth) logs a token's owner
+     * into whichever of the three guards matches its tokenable class, so all three principals can
+     * legitimately arrive here and each needs its own relationship to the order:
+     *
+     *   Customer      -> they placed it. orders.customer_id must equal their id and be non-zero;
+     *                    a guest order carries customer_id = 0, so 0 can never match.
+     *   DeliveryBoy   -> it is assigned to them. orders.deliveryboy_id, NOT orders.delivery_id --
+     *                    the latter is a Shipping id (app/Models/Order.php:122-123) and both
+     *                    columns exist, so confusing them would silently admit nobody or
+     *                    everybody.
+     *   User          -> the platform operator, or an actor whose own tenant owns the order's
+     *                    store. `created_by = creatorId()` is the predicate used by
+     *                    DashboardController::resolveOwnedStore() and StoreController, so staff
+     *                    keep working rather than being locked out alongside attackers.
+     *
+     * Anything else, including an unauthenticated caller, returns null and the endpoint answers
+     * its ordinary not-found. Fails closed on every branch.
+     *
+     * The slug's store is checked too when one resolved, as defence in depth: a customer of store
+     * A asking store B's endpoint for their own order gets nothing, so the slug cannot be used to
+     * pivot. It is NOT the primary control -- the ownership comparisons above are -- because
+     * getStore() resolves from a URL segment the caller chooses.
+     */
+    private function resolveViewableOrder($orderId, $store = null)
+    {
+        if (empty($orderId)) {
+            return null;
+        }
+
+        $order = Order::find($orderId);
+
+        if (!$order) {
+            return null;
+        }
+
+        if (!empty($store) && (int) $order->store_id !== (int) $store->id) {
+            return null;
+        }
+
+        $customer = auth('customers')->user();
+
+        if ($customer) {
+            $orderCustomerId = (int) ($order->customer_id ?? 0);
+
+            return ($orderCustomerId > 0 && $orderCustomerId === (int) $customer->id) ? $order : null;
+        }
+
+        $boy = auth('deliveryboy')->user();
+
+        if ($boy) {
+            return ((int) ($order->deliveryboy_id ?? 0) === (int) $boy->id && !empty($order->deliveryboy_id))
+                ? $order
+                : null;
+        }
+
+        $actor = auth()->user();
+
+        if ($actor instanceof User) {
+            if (strtolower(trim((string) $actor->type)) === 'super admin') {
+                return $order;
+            }
+
+            $ownedStoreIds = Store::where('created_by', $actor->creatorId())->pluck('id')->all();
+
+            return in_array((int) $order->store_id, array_map('intval', $ownedStoreIds), true) ? $order : null;
+        }
+
+        return null;
     }
 
     public function order_status_change(Request $request, $slug = '')

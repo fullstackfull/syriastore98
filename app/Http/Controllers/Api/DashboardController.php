@@ -4381,6 +4381,32 @@ public function DeleteStore(Request $request)
             ]);
         }
 
+        // S12(b). THIS ENDPOINT HAD NO OWNERSHIP CHECK AT ALL -- not a store predicate, not a
+        // permission, nothing. It validated that `order_id` was present and then called
+        // Order::order_detail(), which is `Order::find($order_id)` with the store id read off the
+        // order itself (app/Models/Order.php), so ANY holder of ANY valid token -- a merchant
+        // from another tenant, a shopper, a delivery driver -- read any order on the platform.
+        // Reproduced before this change: a merchant token for tenant B returned tenant A's full
+        // order document with HTTP 200.
+        //
+        // THE PREDICATE IS NOT NEW CODE. resolveChangeableOrder() already exists in this
+        // controller and already encodes exactly the right rule -- the assigned delivery boy, the
+        // platform operator, or an actor whose tenant owns the order's store. The sibling
+        // ViewOrder() (:1861) already uses the same shape. This endpoint simply never called it.
+        //
+        // WHY THE DENIAL IS THE EXISTING 'Order not found!' ENVELOPE rather than a 403:
+        //   - the contract must not change. $this->error() answers HTTP 200 with
+        //     {status: 0, message, data}, which is what this endpoint ALREADY returns when
+        //     Order::order_detail() reports a problem, so the Flutter app's existing handling of
+        //     that path is unchanged and no app release is needed;
+        //   - repo B's lib/network/network.dart maps any 401 onto a forced logout, so a denial
+        //     must never be 401;
+        //   - "not found" and "not yours" are deliberately indistinguishable, so the endpoint
+        //     cannot be used to enumerate which order ids exist on the platform.
+        if (!$this->resolveChangeableOrder($request->order_id)) {
+            return $this->error(['message' => __('Order not found!')]);
+        }
+
         $order = Order::order_detail($request->order_id);
 
         if (!empty($order['message'])) {
