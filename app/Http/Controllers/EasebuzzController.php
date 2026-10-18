@@ -46,10 +46,12 @@ use App\Models\UserCoupon;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Cache;
 use App\Http\Controllers\Concerns\GuardsPlanActivation;
+use App\Http\Controllers\Concerns\GuardsGatewayReturn;
 
 class EasebuzzController extends Controller
 {
     use GuardsPlanActivation;
+    use GuardsGatewayReturn;
 
     public function planPayWithEasebuzz(Request $request)
     {
@@ -223,11 +225,33 @@ class EasebuzzController extends Controller
 
     public function getProductStatus(Request $request, $storeSlug)
     {
-        $requests_data = json_decode(urldecode($request->input('request_data')), true);
-        if(empty($requests_data))
-        {
-            $requests_data = Session::get('easebuzz_request_data');
+        /*
+         * P01-COMMERCE-SEC-01. THE CHECKOUT STATE IS THE SERVER'S, OR THERE IS NO ORDER.
+         *
+         * THIS ONE WAS THE INVERSE OF ITS FIVE SIBLINGS, AND WORSE. It read the state from a
+         * REQUEST parameter FIRST and used the session only as a fallback:
+         *
+         *     $requests_data = json_decode(urldecode($request->input('request_data')), true);
+         *     if (empty($requests_data)) { $requests_data = Session::get('easebuzz_request_data'); }
+         *
+         * so no expired session was even needed -- a JSON blob in the query string was
+         * authoritative by design, carrying the prices, the shipping, the coupon, the cart, the
+         * STORE the order is written to and the CUSTOMER it is written for. The request source is
+         * removed rather than reordered: a value the caller supplies is not a weaker source of
+         * truth here, it is not a source of truth at all.
+         *
+         * See App\Http\Controllers\Concerns\GuardsGatewayReturn.
+         */
+        $requests_data = $this->storedCheckoutState($request, 'easebuzz', 'easebuzz_request_data');
+
+        if ($requests_data === null) {
+            return $this->gatewayReturnRefusal();
         }
+
+        // Always true now that the refusal above returns early. Left in place rather than
+        // unwrapped because its closing brace pairs with an `else` ~600 lines below, and
+        // restructuring that is a bigger change than this package should make; it is NOT a
+        // control, so nobody should read it as one.
         if($requests_data)
         {
 

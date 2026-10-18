@@ -35,10 +35,12 @@ use App\Facades\ModuleFacade as Module;
 use Illuminate\Support\Facades\Cache;
 use App\Traits\ApiResponser;
 use App\Http\Controllers\Concerns\GuardsPlanActivation;
+use App\Http\Controllers\Concerns\GuardsGatewayReturn;
 
 class PaiementProPaymentController extends Controller
 {
     use GuardsPlanActivation;
+    use GuardsGatewayReturn;
 
     use ApiResponser;//
 
@@ -220,16 +222,37 @@ class PaiementProPaymentController extends Controller
     public function getProductStatus(Request $request, $slug)
     {
         // if ($request->responsecode == 0) {
-            $requests_data = (Session::get('request_data'));
-            // Merge $requests_data into the request
+            /*
+             * P01-COMMERCE-SEC-01. THE CHECKOUT STATE IS THE SERVER'S, OR THERE IS NO ORDER.
+             *
+             * Three things were wrong here and all three are closed by reading the stored state
+             * and refusing when it is absent:
+             *
+             *   1. the `$request->all()` fallback handed the caller the prices, the shipping, the
+             *      coupon, the cart, the STORE and the CUSTOMER -- by not sending a session cookie;
+             *   2. `$request->merge($requests_data)` ran BEFORE that null check, so on the
+             *      fallback path the merge had already pushed a null through the request bag;
+             *   3. the `coupon_info` fix-up below read `$request->cartlist`, i.e. the caller's own
+             *      cart, into the state the order is written from. It now reads the state's own
+             *      cartlist, which PaymentController::processOrder computed.
+             *
+             * See App\Http\Controllers\Concerns\GuardsGatewayReturn for why the stored state is
+             * sufficient: it is the request as it stood after processOrder priced the cart,
+             * computed the shipping server-side and refused a non-positive quantity.
+             */
+            $requests_data = $this->storedCheckoutState($request, 'paiementpro');
+
+            if ($requests_data === null) {
+                return $this->gatewayReturnRefusal();
+            }
+
+            if (! isset($requests_data['coupon_info']) && isset($requests_data['cartlist']['coupon_info'])) {
+                $requests_data['coupon_info'] = is_object($requests_data['cartlist']['coupon_info'])
+                    ? (array) $requests_data['cartlist']['coupon_info']
+                    : $requests_data['cartlist']['coupon_info'];
+            }
+
             $request->merge($requests_data);
-            if (!isset($requests_data['coupon_info']) && isset($request->cartlist['coupon_info'])) {
-                $requests_data['coupon_info'] = is_object($request->cartlist['coupon_info']) ? (array) $request->cartlist['coupon_info'] : $request->cartlist['coupon_info'];
-            }
-            if($requests_data == null)
-            {
-                $requests_data = $request->all();
-            }
             $slug = !empty($requests_data['slug']) ? $requests_data['slug'] : '';
             $store = getStore($slug);
 

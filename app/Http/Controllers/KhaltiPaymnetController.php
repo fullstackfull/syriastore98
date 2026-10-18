@@ -42,10 +42,12 @@ use App\Models\TaxMethod;
 use App\Models\UserCoupon;
 use App\Facades\ModuleFacade as Module;
 use Illuminate\Support\Facades\Cache;
+use App\Http\Controllers\Concerns\GuardsGatewayReturn;
 
 class KhaltiPaymnetController extends Controller
 {
     use ApiResponser;
+    use GuardsGatewayReturn;
     //
     public function planPayWithKhalti(Request $request)
     {
@@ -207,10 +209,21 @@ class KhaltiPaymnetController extends Controller
 
     public function getOrderPaymentStatus(Request $request,$slug)
     {
-        $requests_data = (\Session::get('request_data'));
-        if($requests_data == null)
-        {
-            $requests_data = $request->all();
+        /*
+         * P01-COMMERCE-SEC-01. THE CHECKOUT STATE IS THE SERVER'S, OR THERE IS NO ORDER.
+         *
+         * This block used to fall back to `$request->all()` when the session held nothing, which
+         * handed the caller the prices, the shipping, the coupon, the cart, the STORE the order is
+         * written to and the CUSTOMER it is written for -- by simply not sending a session cookie.
+         * See App\Http\Controllers\Concerns\GuardsGatewayReturn for why reading only the stored
+         * state is sufficient rather than merely narrower: that state is the request as it stood
+         * AFTER PaymentController::processOrder priced the cart, computed the shipping server-side
+         * and refused a non-positive quantity, so this handler inherits all of it.
+         */
+        $requests_data = $this->storedCheckoutState($request, 'khalti');
+
+        if ($requests_data === null) {
+            return $this->gatewayReturnRefusal();
         }
         $slug = !empty($requests_data['slug']) ? $requests_data['slug'] : '';
         $store = getStore($slug);
