@@ -28,6 +28,13 @@ class AuthController extends Controller
     {
         $store = getStore($slug);
 
+        // A bogus slug reached `$store->created_by` below and produced a 500 for everyone. The
+        // store is also the tenant predicate for the lookup added further down, so it has to
+        // resolve before anything else happens.
+        if (empty($store)) {
+            return $this->error(['message' => __('Store not found.')], __('Store not found.'));
+        }
+
         $rules = [
             'first_name' => 'nullable|string|max:255',
             'last_name' => 'nullable|string|max:255',
@@ -52,40 +59,114 @@ class AuthController extends Controller
             ],$messages->first());
         }
 
-        $user                   = new Customer();
-        if(!empty($request->email) && $request->register_type != 'email') {
-            if( $request->register_type == 'facebook') {
+        // ====================================================================================
+        // AUTHZ-1. THE ONLY UNAUTHENTICATED ROW IN THIS PACKAGE, so the caller here is the open
+        // internet: routes/api.php:46 carries ['APILog'] alone, and APILog is `return
+        // $next($request)`.
+        //
+        // THE DEFECT. `register_type == 'email'` applies 'unique:customers,email', so that path
+        // can only create. Every OTHER value skipped that rule and took a lookup branch that was:
+        //
+        //     $user = Customer::where('email', $request->email)->first();   // no store predicate
+        //
+        // and then overwrote first_name, last_name, email, mobile, created_by and store_id on
+        // whatever row that found, saved it, logged it in and returned a Bearer token. So anyone
+        // who knew a customer's email address posted `register_type=google` with any `google_id`
+        // and received a working token for that account -- in any store, because the lookup had no
+        // tenant predicate, and the victim was moved into the attacker's chosen store as a side
+        // effect. The victim's password was never touched, so nothing told them.
+        //
+        // WHAT IT DOES NOW. The lookup is by PROVIDER ID within THIS STORE. Three consequences:
+        //
+        //   - A row created by email registration carries no provider id, so a social request can
+        //     never adopt a password account.
+        //   - The predicate is the resolved store, so one tenant's registration cannot reach
+        //     another tenant's customer, and an existing row's store_id and created_by are left
+        //     alone rather than re-written.
+        //   - An existing row's email is left alone too; it is already that account's.
+        //
+        // If the provider id does not match but the EMAIL already exists in this store, the
+        // request is refused rather than adopting the row or silently creating a duplicate that
+        // would make the password-reset lookup ambiguous. That is a new refusal on a journey that
+        // "worked" before, and it is deliberate: what it did before was the takeover.
+        //
+        // RESIDUAL, NOT CLOSED HERE. This endpoint verifies no provider token -- `google_id` is a
+        // posted string. An attacker must now know the victim's provider id rather than their
+        // email address, and can never touch a password account, but a known provider id is still
+        // sufficient. Closing that needs real Google/Apple/Facebook token verification, a new
+        // outbound dependency that is not this package's to add. Recorded in the security queue.
+        //
+        // COMPATIBILITY. Path, method and the success payload are unchanged. Every refusal uses
+        // the error envelope this handler already returns (HTTP 200 with status 0), so no new 401
+        // appears on an unauthenticated path.
+        // ====================================================================================
+        $providerColumns = [
+            'google'   => 'google_id',
+            'apple'    => 'apple_id',
+            'facebook' => 'facebook_id',
+        ];
 
-                if(empty($email) && empty($request->mobile)) {
-                    return $this->error(['message' => __('Email or mobile required in facebook login.')], __('Email or mobile required in facebook login.'));
-                }
+        $user = new Customer();
 
-                $user_query = Customer::query();
-                if(!empty($email)) {
-                    $user = $user_query->where('email', $email)->first();
-                }
-                if(!empty($email)) {
-                    $user = $user_query->where('mobile', $request->mobile)->first();
-                }
-            } else {
-                $user = Customer::where('email', $request->email)->first();
+        if ($request->register_type != 'email') {
+            $providerColumn = $providerColumns[$request->register_type] ?? null;
+
+            if ($providerColumn === null) {
+                $message = $request->register_type . ' id is missing.';
+                return $this->error(['message' => $message], $message);
             }
 
-            if(empty($user)) {
-                $user                   = new Customer();
+            // The provider id is validated before the lookup, so an empty one cannot match a row
+            // whose column is also empty -- which is every row created by email registration.
+            $providerId = $request->input($providerColumn);
+            if (empty($providerId)) {
+                $message = $request->register_type . ' id is missing.';
+                return $this->error(['message' => $message], $message);
+            }
+
+            if ($request->register_type == 'facebook' && empty($email) && empty($request->mobile)) {
+                return $this->error(['message' => __('Email or mobile required in facebook login.')], __('Email or mobile required in facebook login.'));
+            }
+
+            $existing = Customer::withoutGlobalScopes()
+                ->where('store_id', $store->id)
+                ->where($providerColumn, $providerId)
+                ->first();
+
+            if ($existing !== null) {
+                $user = $existing;
+            } elseif (! empty($request->email)) {
+                $emailTaken = Customer::withoutGlobalScopes()
+                    ->where('store_id', $store->id)
+                    ->where('email', $request->email)
+                    ->exists();
+
+                if ($emailTaken) {
+                    return $this->error(
+                        ['message' => __('An account already exists for this email address.')],
+                        __('An account already exists for this email address.')
+                    );
+                }
             }
         }
 
+        $isNewAccount = ! $user->exists;
+
         $user->first_name       = $request->first_name ?? null;
         $user->last_name        = $request->last_name ?? null;
-        $user->email            = $request->email ?? null;
         $user->type             = 'customer';
         $user->mobile           = $request->mobile ?? null;
         $user->firebase_token   = $request->token ?? null;
         $user->device_type      = $request->device_type ?? null;
         $user->register_type    = $request->register_type ?? null;
-        $user->created_by       = $store->created_by;
-        $user->store_id         = $store->id;
+
+        // An existing account's email, tenant and owner are its own. Only a new row takes them
+        // from the request and the resolved store.
+        if ($isNewAccount) {
+            $user->email        = $request->email ?? null;
+            $user->created_by   = $store->created_by;
+            $user->store_id     = $store->id;
+        }
 
 
         if ($request->register_type == 'email') {
@@ -129,8 +210,10 @@ class AuthController extends Controller
         $user->token_type = 'Bearer';
 
         $user_array = $user->toArray();
-        $user_data = User::find($user->id);
-        $user_array['image'] = !empty($user_data->profile_image) ? $user_data->profile_image : "themes/style/uploads/require/user.png";
+        // Was `User::find($user->id)` -- the ADMIN model keyed by a customers.id. Those are
+        // independent sequences, so the path returned to a shopper was whichever MERCHANT shared
+        // their integer. The image belongs to the customer that was just registered.
+        $user_array['image'] = !empty($user->profile_image) ? $user->profile_image : "themes/style/uploads/require/user.png";
         return $this->success($user_array, __('Register successfully.'));
     }
 
