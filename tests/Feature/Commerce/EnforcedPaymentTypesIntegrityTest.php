@@ -204,21 +204,50 @@ class EnforcedPaymentTypesIntegrityTest extends TestCase
     {
         $base = base_path();
 
+        /*
+         * NINE -> THREE. SIX OF THE SURVEYED LITERALS ARE GONE, and this is the reduction the
+         * survey existed to make visible rather than a weakening of it.
+         *
+         * P01-COMMERCE-SEC-01 wired the six storefront gateway-return handlers --
+         * AuthorizeNetPaymnet, CinetPay, Easebuzz, KhaltiPaymnet, PaiementProPayment and
+         * PayUPayment -- to resolveOrderPaymentStatus() through
+         * App\Http\Controllers\Concerns\GuardsGatewayReturn::gatewayReturnPaymentStatus(). The
+         * survey above anticipated exactly this and said why it had not been done: "Their files
+         * belong to another agent in this phase, so none was changed." That agent is the one who
+         * made this change.
+         *
+         * NO BEHAVIOUR CHANGED when they were wired: none of those payment types is in
+         * ENFORCED_PAYMENT_TYPES, so the resolver returns the same 'Paid' the literal did. What
+         * changed is that each write is now LOGGED as unverified, and that enforcing one of them
+         * becomes a one-line change in the service instead of another edit to six controllers.
+         *
+         * THE THREE THAT REMAIN are untouched because they are still another workstream's:
+         * NMIPayController and PosController are not gateway-return handlers in this package's
+         * scope, and the LotteryPrizes one is vendored module code under the modification guard.
+         *
+         * The per-file counting is kept exactly as the original docblock argues for -- it is
+         * strictly stronger than a line pin, and it still fails if a tenth literal appears in any
+         * surveyed file.
+         */
         // file => how many literal `payment_status = 'Paid'` writes it is surveyed to hold.
         $sites = [
-            'app/Http/Controllers/AuthorizeNetPaymnetController.php' => 1,
-            'app/Http/Controllers/PayUPaymentController.php' => 1,
             'app/Http/Controllers/NMIPayController.php' => 1,
-            'app/Http/Controllers/KhaltiPaymnetController.php' => 1,
-            'app/Http/Controllers/EasebuzzController.php' => 1,
             'app/Http/Controllers/PosController.php' => 1,
-            'app/Http/Controllers/PaiementProPaymentController.php' => 1,
-            'app/Http/Controllers/CinetPayController.php' => 1,
             'packages/workdo/LotteryPrizes/src/app/Http/Controllers/LotteryResultController.php' => 1,
         ];
 
-        $this->assertCount(9, $sites, 'the survey covers nine sites');
-        $this->assertSame(9, array_sum($sites), 'the survey covers nine literal Paid writes');
+        // The six now wired to the resolver must hold NO literal write at all.
+        $wired = [
+            'app/Http/Controllers/AuthorizeNetPaymnetController.php',
+            'app/Http/Controllers/PayUPaymentController.php',
+            'app/Http/Controllers/KhaltiPaymnetController.php',
+            'app/Http/Controllers/EasebuzzController.php',
+            'app/Http/Controllers/PaiementProPaymentController.php',
+            'app/Http/Controllers/CinetPayController.php',
+        ];
+
+        $this->assertCount(3, $sites, 'three surveyed sites remain outside this package');
+        $this->assertSame(3, array_sum($sites), 'three literal Paid writes remain');
 
         $pattern = "/payment_status['\"]?\s*(=>|=)\s*['\"]Paid['\"]/";
 
@@ -243,6 +272,35 @@ class EnforcedPaymentTypesIntegrityTest extends TestCase
                 . 'this list; do not just delete the row. If one was ADDED, that is a new '
                 . 'hardcoded Paid write and it needs the derivation helper instead.'
             );
+        }
+
+        /*
+         * AND THE SIX ARE WIRED, asserted both ways: no literal write left, and the shared seam
+         * actually called. Either half alone would be satisfiable without the other -- a file can
+         * lose its literal by having the whole branch deleted, and it can gain the call while
+         * keeping a second literal elsewhere.
+         */
+        foreach ($wired as $relative) {
+            $path = $base . '/' . $relative;
+            $this->assertFileExists($path);
+
+            $contents = file_get_contents($path);
+
+            $literals = [];
+            foreach (file($path) as $i => $line) {
+                if (preg_match($pattern, $line) === 1) {
+                    $literals[] = $i + 1;
+                }
+            }
+
+            $this->assertSame([], $literals,
+                $relative . ' still writes payment_status = \'Paid\' as a literal, at line(s) '
+                . implode(', ', $literals) . '. It is wired to the resolver, so a literal beside '
+                . 'that call is a second, unverified path to Paid.');
+
+            $this->assertStringContainsString('gatewayReturnPaymentStatus(', $contents,
+                $relative . ' does not call the shared payment-status seam, so its order writer '
+                . 'derives nothing and an ENFORCED_PAYMENT_TYPES entry could not affect it.');
         }
     }
 

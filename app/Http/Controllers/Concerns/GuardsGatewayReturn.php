@@ -122,6 +122,50 @@ trait GuardsGatewayReturn
         return $state;
     }
 
+    /** @var \App\Services\PaymentVerificationService|null */
+    private $gatewayReturnVerifier;
+
+    /**
+     * The platform's existing answer to "may this order be recorded as Paid?".
+     *
+     * NOT A NEW SEAM. App\Services\PaymentVerificationService already owns this question and is
+     * already called by PaymentController (:2436, :3546) and PaymentService (:2594). These six
+     * handlers were simply never wired to it -- they wrote the literal `'Paid'`, with nothing
+     * between the shopper's browser and that assignment having asked a gateway whether money
+     * moved.
+     *
+     * WIRING IT CHANGES NO BEHAVIOUR TODAY, and that is deliberate. None of these payment types is
+     * in PaymentVerificationService::ENFORCED_PAYMENT_TYPES, so resolveOrderPaymentStatus()
+     * returns exactly the 'Paid' the literal did. What it buys is the two things the service was
+     * built for: every unverified Paid write is now LOGGED, so the residual exposure is
+     * measurable instead of invisible, and enforcing a gateway later becomes a one-line change in
+     * that service rather than another edit to six controllers.
+     *
+     * The service's own docblock states the reason the posture is preserved rather than flipped:
+     * recording every gateway order as Pending would stop merchant wallets being credited for 51
+     * live payment methods -- a business change, not a security fix. Choosing that is the owner's,
+     * and it is the blocker recorded for these six.
+     */
+    protected function gatewayReturnVerifier(): \App\Services\PaymentVerificationService
+    {
+        return $this->gatewayReturnVerifier ??= new \App\Services\PaymentVerificationService();
+    }
+
+    /**
+     * The payment status to record for an order written by a gateway-return handler.
+     *
+     * @param  mixed  $expectedTotal  the order's own final_price, for the log line
+     */
+    protected function gatewayReturnPaymentStatus(?string $paymentType, $expectedTotal, string $site): string
+    {
+        return $this->gatewayReturnVerifier()->resolveOrderPaymentStatus(
+            $paymentType,
+            $this->gatewayReturnVerifier()->consumeVerification(),
+            $expectedTotal,
+            $site
+        );
+    }
+
     /**
      * The amount this server says is payable, from the state it stored at initiation.
      *

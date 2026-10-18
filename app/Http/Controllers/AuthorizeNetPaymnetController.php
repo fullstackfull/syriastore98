@@ -756,7 +756,24 @@ class AuthorizeNetPaymnetController extends Controller
                     event(new AddAdditionalFields($order,$request->all(),$store));
                     $order->payment_comment = !empty($requests_data['payment_comment']) ? $requests_data['payment_comment'] : '';
                     $order->payment_type = $requests_data['payment_type'];
-                    $order->payment_status = 'Paid';
+                    /*
+                     * P01-COMMERCE-SEC-01. DERIVED, NOT ASSERTED -- the same wiring PaymentController (:2436)
+                     * and PaymentService (:2594) already use. This was the literal `'Paid'`, with nothing
+                     * between the shopper's browser and this line having asked a gateway whether money moved.
+                     *
+                     * NO BEHAVIOUR CHANGES TODAY: this payment type is not in
+                     * PaymentVerificationService::ENFORCED_PAYMENT_TYPES, so the call returns exactly the 'Paid'
+                     * the literal did. What it buys is that the unverified write is LOGGED -- the exposure
+                     * becomes measurable -- and that enforcing this gateway later is a one-line change in that
+                     * service instead of another edit here. Flipping the posture is the owner's call, because
+                     * recording every gateway order as Pending stops merchant wallets being credited; see the
+                     * blocker in docs/security/P01-SECURITY-WORK-QUEUE.md.
+                     */
+                    $order->payment_status = $this->gatewayReturnPaymentStatus(
+                        $requests_data['payment_type'] ?? null,
+                        $order->final_price,
+                        __METHOD__
+                    );
                     $order->delivery_id = $requests_data['method_id'] ?? 0;
                     $order->delivery_comment = !empty($requests_data['delivery_comment']) ? $requests_data['delivery_comment'] : '';
                     if (module_is_active('PreOrder') && \Auth::guard('customers')->user() && isset($requests_data['order_type']) && $requests_data['order_type'] == 'pre_order') {
