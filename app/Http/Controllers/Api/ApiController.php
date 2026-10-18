@@ -6842,6 +6842,49 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
         
 
+        // ====================================================================================
+        // AUTHZ-2. A SHOPPER DELETES THEIR OWN ACCOUNT. That is the only thing this endpoint is
+        // for, and it is now the only thing it can do.
+        //
+        // THE DEFECT, and it was the most destructive row in this package. The body was:
+        //
+        //     $user = User::find($request->user_id);            // the ADMIN model, bare id
+        //     DeliveryAddress::where('customer_id', $request->user_id)->delete();
+        //     Order::where('customer_id', $request->user_id)->delete();
+        //     Wishlist::where('customer_id', $request->user_id)->delete();
+        //     Testimonial::where('user_id', $request->user_id)->delete();
+        //     $user->delete();
+        //
+        // Four separate failures:
+        //
+        //   1. NO AUTHORIZATION. The route carries ['custom.auth','APILog'] and custom.auth admits
+        //      a Customer, a User or a DeliveryBoy token. `user_id` was read straight off the
+        //      request and never compared to the caller. Any token holder could delete any row.
+        //   2. IT OPERATED ON THE ADMIN MODEL. `User::find()` -- so the row deleted was a
+        //      MERCHANT or the PLATFORM OPERATOR, on a storefront endpoint whose only plausible
+        //      caller is a shopper.
+        //   3. NO TENANT PREDICATE, AND NO SCOPE TO FALL BACK ON. None of User, Order, Wishlist,
+        //      DeliveryAddress or Testimonial carries the tenancy trait or appears in
+        //      config/tenancy.php's scoped_models (verified), so nothing narrowed any of the five
+        //      deletes.
+        //   4. IT CONFLATED TWO ID SPACES. The four cascade deletes filter `customer_id` by a
+        //      value taken from `users.id`. `users` and `customers` are different tables with
+        //      independent sequences, so the rows destroyed belonged to whichever CUSTOMER happened
+        //      to share that integer -- an unrelated shopper's entire order history, addresses and
+        //      wishlist, deleted as a side effect of naming a merchant.
+        //
+        // WHAT IT DOES NOW. It deletes the authenticated CUSTOMER -- the principal this storefront
+        // endpoint actually serves -- and only ever that one account, with the cascade filtered by
+        // that customer's own id so the two id spaces can no longer be crossed. It cannot touch
+        // `users` at all; deleting a merchant or an operator is an administrative action on a
+        // different, session-authenticated surface and was never this endpoint's job.
+        //
+        // COMPATIBILITY. Path, method and response shape are unchanged, and `user_id` is still
+        // accepted and validated so a client that sends it is not rejected -- it is simply no
+        // longer trusted. A caller that is not a shopper gets this endpoint's existing
+        // 'User not found.' error (HTTP 200 with status 0), which is also what it already answered
+        // for an id that did not resolve, so no new 401 is introduced on a path a client calls.
+        // ====================================================================================
         $rules = [
             'user_id' => 'required'
         ];
@@ -6854,23 +6897,33 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             ], $messages->first());
         }
 
-        $user = User::find($request->user_id);
-        if (!empty($user)) {
-            $delivery_address = DeliveryAddress::where('customer_id', $request->user_id);
-            $orders = Order::where('customer_id', $request->user_id);
-            $wishlist = Wishlist::where('customer_id', $request->user_id);
-            $review = Testimonial::where('user_id', $request->user_id);
+        $customer = auth('customers')->user();
 
-            $wishlist->delete();
-            $orders->delete();
-            $delivery_address->delete();
-            $review->delete();
-            $user->delete();
-
-            return $this->success(['message' => __('User Deleted successfully.')], __('User Deleted successfully.'));
-        } else {
+        // A merchant's or a driver's token satisfies custom.auth with auth('customers') null, so
+        // the principal class is checked rather than merely "is anyone authenticated".
+        if (! $customer instanceof Customer) {
             return $this->error(['message' => __('User not found.')], __('User not found.'));
         }
+
+        // The slug must be the customer's own store. A customer row with no store passes, because
+        // `customers.store_id` is nullable and imports write that table; the account deleted is
+        // the session's either way, so the slug cannot redirect this to another account.
+        if ($customer->store_id !== null && (int) $customer->store_id !== (int) $store->id) {
+            return $this->error(['message' => __('User not found.')], __('User not found.'));
+        }
+
+        // `$request->user_id` is deliberately ignored from here on.
+        $customerId = (int) $customer->id;
+
+        Wishlist::where('customer_id', $customerId)->delete();
+        Order::where('customer_id', $customerId)->delete();
+        DeliveryAddress::where('customer_id', $customerId)->delete();
+        Testimonial::where('user_id', $customerId)->delete();
+
+        $customer->tokens()->delete();
+        $customer->delete();
+
+        return $this->success(['message' => __('User Deleted successfully.')], __('User Deleted successfully.'));
     }
 
     public function subscribe(Request $request, $slug = '')
