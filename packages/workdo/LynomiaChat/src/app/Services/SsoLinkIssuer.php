@@ -62,14 +62,29 @@ class SsoLinkIssuer
             );
         }
 
-        $identity = $this->identities->identityFor($link, $actor);
+        // EVERY REMOTE CALL ON THIS PATH IS WRAPPED, not just the SSO mint: admitting a person
+        // to the workspace is itself a platform call, and it is the FIRST one, so a revoked
+        // grant surfaces there before the mint is ever reached. Recording what the failure
+        // actually was is what stops the merchant page claiming a healthy connection while
+        // every click fails -- the whole of the incident in
+        // docs/integrations/storesyria-lynomia/07-incident-authorization-revoked.md.
+        try {
+            $identity = $this->identities->identityFor($link, $actor);
 
-        // SCOPED TO THIS WORKSPACE AND NO OTHER. Lynomia verifies the pairing before honouring
-        // it, so this is a request for a boundary rather than an assertion of one.
-        $url = $this->api->issueSsoUrl(
-            (int) $identity->lynomia_user_id,
-            (int) $link->lynomia_account_id
-        );
+            // SCOPED TO THIS WORKSPACE AND NO OTHER. Lynomia verifies the pairing before honouring
+            // it, so this is a request for a boundary rather than an assertion of one.
+            $url = $this->api->issueSsoUrl(
+                (int) $identity->lynomia_user_id,
+                (int) $link->lynomia_account_id
+            );
+        } catch (LynomiaApiException $e) {
+            AuthorizationHealth::record($link, $e);
+
+            throw $e;
+        }
+
+        // A call that worked is proof the grant is back, whoever restored it and however.
+        AuthorizationHealth::clear($link);
 
         $identity->forceFill(['last_sso_at' => now()])->save();
 

@@ -5,6 +5,7 @@ namespace Workdo\LynomiaChat\app\Console\Commands;
 use Illuminate\Console\Command;
 use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
+use Workdo\LynomiaChat\app\Services\AuthorizationHealth;
 use Workdo\LynomiaChat\app\Services\PlatformApiClient;
 use Workdo\LynomiaChat\app\Support\StoreIdentity;
 
@@ -30,7 +31,7 @@ use Workdo\LynomiaChat\app\Support\StoreIdentity;
  * WHICH SIDE IS AUTHORITATIVE, FOR WHAT. For whether an installation EXISTS and what state it is
  * in: Lynomia, because it owns the row -- so this copies Lynomia's answer down. For whether it is
  * PERMITTED: this side, because it owns the link state and the credential -- so a link that is
- * not `allowsSso()` is skipped entirely rather than having its commerce belief refreshed. Facts
+ * not `arrangementAllowsSso()` is skipped entirely rather than having its commerce belief refreshed. Facts
  * only ever move in the direction of the system that owns them.
  *
  * ONE GET PER STORE, from the same read-only endpoint the operator console already uses. Nothing
@@ -57,10 +58,16 @@ class ReconcileLynomiaCommerce extends Command
         $repaired = 0;
 
         foreach ($this->candidates() as $link) {
-            // RE-ASKED PER ROW, not filtered in SQL. allowsSso() is state + provisioned +
-            // ownership-proven-where-claimed, and the last of those is not expressible as a
-            // predicate the query could carry without restating the rule in a second place.
-            if (! $link->allowsSso()) {
+            // RE-ASKED PER ROW, not filtered in SQL: ownership-proven-where-claimed is not
+            // expressible as a predicate the query could carry without restating the rule in a
+            // second place.
+            //
+            // `arrangementAllowsSso`, NOT `allowsSso`, and the difference is load-bearing. The
+            // latter folds in whether Lynomia currently admits us -- so gating here on it made
+            // this sweep skip every store whose authorization had been revoked, which is exactly
+            // the set it exists to notice and to clear once the grant returns. A store would
+            // have gone blind the moment it broke and stayed that way forever.
+            if (! $link->arrangementAllowsSso()) {
                 continue;
             }
 
@@ -88,12 +95,27 @@ class ReconcileLynomiaCommerce extends Command
             try {
                 $installation = $this->installationFor($api, $link, $external);
             } catch (LynomiaApiException $e) {
+                // THE ONE FAILURE THAT IS NOT AN OUTAGE. A revoked grant is a durable fact about
+                // one workspace, and this sweep is the only thing that asks about every linked
+                // store unprompted -- so it is where a merchant who has not clicked anything
+                // since the revocation gets noticed, within the hour, instead of finding out
+                // when their inbox is empty.
+                if (! $dryRun) {
+                    AuthorizationHealth::record($link, $e);
+                }
+
                 // An unreachable Lynomia is not drift. Leaving the belief alone is right: it was
                 // the last thing Lynomia actually said, and replacing it with "we could not ask"
                 // would turn an outage into a wrong answer on every merchant's page at once.
                 $this->warn("store {$link->store_id}: could not ask Lynomia ({$e->kind})");
 
                 continue;
+            }
+
+            // The read succeeded, so the grant is there. Clearing here is what repairs a store
+            // whose authorization came back without anybody pressing the merchant's button.
+            if (! $dryRun) {
+                AuthorizationHealth::clear($link);
             }
 
             $changes = $this->drift($link, $installation);

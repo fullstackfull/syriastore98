@@ -255,11 +255,17 @@ class CommerceActivator
                 $this->storeName($link)
             );
         } catch (LynomiaApiException $e) {
+            // RECORDED BEFORE THE COMMERCE REASON, because a revoked grant is not a commerce
+            // problem and must not be reported as one: every platform call for the workspace is
+            // failing, not just this one, and the fix is to re-authorise rather than to retry.
+            AuthorizationHealth::record($link, $e);
             $this->recordFailure($link, $e);
 
             throw $e;
         }
 
+        // A call that worked is proof the grant is there, whoever restored it and however.
+        AuthorizationHealth::clear($link);
         $this->recordSuccess($link, $result, $version);
 
         AuditLog::record('lynomia_commerce_installed', $link->fresh(), [], [
