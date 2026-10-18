@@ -66,7 +66,13 @@ class AuthenticateCommerceApi
         // THE ORDINARY GATE, unchanged and still the answer for every request but one.
         // A revoked or pending link must not serve commerce data even while its credential
         // still verifies: the credential proves WHICH store, the link state proves WHETHER.
-        $permitted = $link->allowsSso();
+        // `arrangementAllowsSso`, NOT `allowsSso`: this guards the INBOUND direction -- Lynomia
+        // reading this store's orders with the `lsc_` commerce credential, a secret issued by
+        // this side that the merchant never touched. A merchant removing Store Syria's grant on
+        // their WORKSPACE does not withdraw Lynomia's access to their STORE, and refusing here
+        // would flip Lynomia's commerce store to `needs_reauth` and manufacture a second outage
+        // to recover from. The link state, suspension and revocation all still govern this.
+        $permitted = $link->arrangementAllowsSso();
 
         // THE ONE EXCEPTION, AND IT IS NARROWER THAN IT LOOKS.
         //

@@ -819,5 +819,13 @@
     "Connect store data": "ربط بيانات المتجر",
     "Your store data is not being shared with Lynomia Chat.": "بيانات متجرك غير مشتركة مع ليونوميا شات.",
     "The last check did not get through:": "آخر عملية تحقق لم تكتمل:",
-    "Connect your store so your team can see a customer's orders and deliveries while they are talking to them.": "اربط متجرك ليتمكّن فريقك من رؤية طلبات العميل وشحناته أثناء محادثته."
+    "Connect your store so your team can see a customer's orders and deliveries while they are talking to them.": "اربط متجرك ليتمكّن فريقك من رؤية طلبات العميل وشحناته أثناء محادثته.",
+    "This store has no Lynomia Chat workspace to recover. Connect one first.": "لا يوجد لهذا المتجر مساحة عمل في ليونوميا شات لاستعادتها. اربط واحدة أولاً.",
+    "That code is for a different Lynomia Chat workspace. Generate the code inside the workspace this store is already connected to.": "هذا الرمز يخص مساحة عمل أخرى في ليونوميا شات. أنشئ الرمز من داخل مساحة العمل المرتبطة بهذا المتجر بالفعل.",
+    "Your Lynomia Chat connection has been restored.": "تم استعادة اتصالك بليونوميا شات.",
+    "Integration authorization needs recovery": "صلاحية التكامل تحتاج إلى استعادة",
+    "Lynomia Chat no longer allows Store Syria to open this workspace. Your workspace, your team and your conversations are all safe -- only the connection between the two systems was removed.": "لم يعد ليونوميا شات يسمح لستور سيريا بفتح مساحة العمل هذه. مساحة عملك وفريقك ومحادثاتك جميعها آمنة — ما تم إزالته هو الربط بين النظامين فقط.",
+    "In Lynomia Chat open Settings, then Integrations, then generate a connection code, and paste it here. Generate it inside the workspace this store is already connected to.": "في ليونوميا شات افتح الإعدادات، ثم التكاملات، ثم أنشئ رمز ربط والصقه هنا. أنشئه من داخل مساحة العمل المرتبطة بهذا المتجر بالفعل.",
+    "Restore connection": "استعادة الربط",
+    "Restore the connection above to open this workspace again.": "استعد الربط بالأعلى لفتح مساحة العمل هذه مرة أخرى."
 }

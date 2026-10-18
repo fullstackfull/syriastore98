@@ -105,6 +105,36 @@ class ConnectionController extends Controller
     }
 
     /**
+     * RECOVER AUTHORIZATION FOR THE WORKSPACE THIS STORE IS ALREADY CONNECTED TO.
+     *
+     * Not a claim, and not a reconnection: the workspace, its id, its state and its commerce
+     * installation are all untouched. What is restored is Lynomia's grant, which the merchant
+     * removed through Lynomia's own Connected platforms page and which nothing on this side
+     * could put back -- the claim path refuses a store that already has a workspace, by design.
+     *
+     * The code is used ONLY as proof that the person minting it administers the workspace this
+     * store already names. AccountLinker::reauthorize refuses it if the ids do not match, which
+     * is what makes this incapable of pointing a store at somebody else's workspace.
+     */
+    public function recoverAuthorization(LinkExistingAccountRequest $request): RedirectResponse
+    {
+        /** @var LynomiaStoreLink|null $link */
+        $link = $request->attributes->get(EnsureStoreOwnsLink::ATTRIBUTE);
+
+        if (! $link) {
+            return back()->with('error', __('This store is not connected to Lynomia Chat.'));
+        }
+
+        try {
+            $this->linker->reauthorize($link, $request->user(), (string) $request->validated('connection_code'));
+        } catch (LynomiaApiException $e) {
+            return back()->with('error', $this->merchantMessage($e));
+        }
+
+        return back()->with('success', __('Your Lynomia Chat connection has been restored.'));
+    }
+
+    /**
      * Redirect into the merchant's Lynomia workspace.
      *
      * The SSO URL is used as a redirect target and nothing else: it is not rendered into the

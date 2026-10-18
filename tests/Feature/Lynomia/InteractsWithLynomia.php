@@ -318,7 +318,11 @@ trait InteractsWithLynomia
                 // nothing on them -- see Platform::Api::V1::AccountLinksController. Who signs
                 // in afterwards is a separate, per-person decision.
                 $key === 'POST /platform/api/v1/account_links' => Http::response([
-                    'account_id' => $accountId,
+                    // `link_account_id` scripts a code that is perfectly valid and proves a
+                    // DIFFERENT workspace -- which is the cross-tenant takeover attempt, and the
+                    // only way to exercise the recovery guard honestly: it has to be told no by
+                    // the id comparison rather than by the redemption failing.
+                    'account_id' => $this->lynomiaScript['link_account_id'] ?? $accountId,
                     'account_name' => 'Claimed WS',
                     'authorized_by_user_id' => $this->lynomiaScript['authorized_by'] ?? 4242,
                     'authorized_by_name' => 'Merchant Admin',

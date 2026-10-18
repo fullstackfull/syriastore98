@@ -28,13 +28,64 @@
             </div>
         @endif
 
+        {{-- ========================================= authorization needs recovery
+
+             THE ONE FAILURE THE MERCHANT CAUSED AND THE MERCHANT CAN FIX. Removing "Store Syria
+             Integration" from Lynomia's own Connected platforms page deletes the grant this
+             whole integration runs on. Nothing here is broken -- the workspace, its people, its
+             conversations and this store's link are all intact -- but every call to it answers
+             401, and before this banner the page went on saying "connected" because every column
+             it renders from was still true as of the last call that worked.
+
+             Shown ABOVE the workspace card and not inside it, because while this is true nothing
+             in that card can be acted on: Open, the commerce controls and the identity list are
+             all reporting a workspace nobody here can reach. --}}
+        @if ($authorizationLost)
+            <div class="alert alert-danger">
+                <strong>{{ __('Integration authorization needs recovery') }}</strong>
+                <p class="mb-2">
+                    {{ __('Lynomia Chat no longer allows Store Syria to open this workspace. Your workspace, your team and your conversations are all safe -- only the connection between the two systems was removed.') }}
+                </p>
+                <p class="mb-2 small">
+                    {{ __('In Lynomia Chat open Settings, then Integrations, then generate a connection code, and paste it here. Generate it inside the workspace this store is already connected to.') }}
+                    @if ($link?->lynomia_account_name)
+                        <span class="text-muted">({{ $link->lynomia_account_name }})</span>
+                    @endif
+                </p>
+                <form method="POST" action="{{ route('lynomia.connect.recover') }}" class="row g-2 align-items-start">
+                    @csrf
+                    <div class="col-12 col-md-5">
+                        <input type="text" name="connection_code" class="form-control form-control-sm"
+                               autocomplete="off" spellcheck="false" maxlength="19"
+                               placeholder="{{ __('XXXX-XXXX-XXXX-XXXX') }}" required>
+                        @error('connection_code')
+                            <small class="text-danger">{{ $message }}</small>
+                        @enderror
+                    </div>
+                    <div class="col-auto">
+                        <button type="submit" class="btn btn-sm btn-primary" @disabled(!$integrationConfigured)>
+                            {{ __('Restore connection') }}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        @endif
+
         <div class="card">
             <div class="card-header">
                 <h5>{{ __('Lynomia Chat workspace') }}</h5>
             </div>
             <div class="card-body">
 
-                @if ($link && $link->isActive())
+                @if ($authorizationLost)
+                    {{-- Deliberately NOT the ordinary "not connected" copy: this store IS
+                         connected to a workspace, and offering it the first-time Create/Connect
+                         choice would invite a merchant to provision a SECOND workspace while
+                         their real one sits there, reachable again the moment they paste a code. --}}
+                    <p class="mb-0 text-muted">
+                        {{ __('Restore the connection above to open this workspace again.') }}
+                    </p>
+                @elseif ($link && $link->isActive())
                     <p class="mb-3">
                         {{ __('This store is connected to Lynomia Chat.') }}
                         @if ($link->lynomia_account_name)
