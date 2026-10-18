@@ -87,6 +87,15 @@ class RoleController extends Controller
                 [
                     'name' => [
                         'required',
+                        'max:100',
+                        // S13-b. THE SIBLING update():216 ALREADY HAD THIS AND store() DID NOT,
+                        // which is how the escalation got its role: a staff member with
+                        // 'Create Role' created a tenant-scoped role named `admin` here, then
+                        // assigned it to themselves through UserController::update(), whose own
+                        // reserved-name refusal could not help because RESERVED_NAMES omitted
+                        // 'admin'. Closing the list was necessary; closing this validator stops
+                        // the role existing in the first place.
+                        \Illuminate\Validation\Rule::notIn(RolePolicy::RESERVED_NAMES),
                         Rule::unique('roles')->where(function ($query) {
                         return $query->where('store_id', getCurrentStore())->where('created_by', \Auth::user()->id);
                         })

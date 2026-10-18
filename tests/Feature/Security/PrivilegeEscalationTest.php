@@ -211,6 +211,126 @@ class PrivilegeEscalationTest extends SecurityTestCase
     }
 
     // -----------------------------------------------------------------------------------
+    // S13-b -- THE RESERVED-NAME LIST, which was the hole in the FIRST S13 fix.
+    //
+    // UserController::update() was already hardened and BOTH its controls were intact, yet a
+    // staff member could still self-promote: RolePolicy::RESERVED_NAMES listed only the
+    // `super admin` spellings, and `admin` is an authority literal too -- compared against 47
+    // times, and the value User::creatorId() uses to decide that a row is the root of its own
+    // tenant. Scoping the lookup was necessary and not sufficient.
+    // -----------------------------------------------------------------------------------
+
+    public function test_admin_is_a_reserved_role_name(): void
+    {
+        $this->assertContains('admin', RolePolicy::RESERVED_NAMES,
+            'users.type === "admin" decides tenant-root status (User::creatorId()) and gates '
+            . 'store creation (StoreController::create()), so the name must be reserved.');
+        $this->assertContains('super admin', RolePolicy::RESERVED_NAMES);
+    }
+
+    public function test_staff_cannot_self_promote_to_tenant_owner_by_naming_a_role_admin(): void
+    {
+        [$merchant, $store] = $this->merchantWhoCanCreateUsers();
+
+        $staff = $this->makeStaff($merchant, ['current_store' => $store->id]);
+        $this->grantPermission($staff, 'Create Role');
+        $this->grantPermission($staff, 'Edit User');
+        $staff = $staff->fresh();
+
+        // Step 1: the role must not even be creatable.
+        $this->actingAs($staff)->post('/roles', [
+            'name' => 'admin',
+            'permissions' => [],
+        ]);
+
+        $this->assertSame(
+            0,
+            Role::where('name', 'admin')->where('store_id', $store->id)->count(),
+            'A tenant-scoped role literally named "admin" was created. Assigning it writes '
+            . 'users.type = "admin", which makes the holder the root of their own tenant.'
+        );
+
+        // Step 2: and even if one existed, assigning it must be refused. Created directly here,
+        // bypassing the validator, so this half is tested independently of step 1.
+        $smuggled = $this->makeRole($merchant, $store, 'admin');
+
+        $this->actingAs($staff)->put('/users/' . $staff->id, [
+            'name' => $staff->name,
+            'email' => $staff->email,
+            'role' => $smuggled->id,
+        ]);
+
+        $this->assertNotSame('admin', $staff->fresh()->type,
+            'A staff member promoted themselves to users.type = "admin".');
+        $this->assertSame((int) $merchant->id, (int) $staff->fresh()->creatorId(),
+            'creatorId() now resolves to the staff member themselves, so they are their own '
+            . 'tenant root and every created_by predicate answers about them.');
+    }
+
+    // -----------------------------------------------------------------------------------
+    // S13-c / S13-d -- THE TWO is_enable_login WRITERS, which had no authorization at all.
+    // -----------------------------------------------------------------------------------
+
+    public function test_an_unrelated_staff_member_cannot_re_enable_a_locked_out_merchant(): void
+    {
+        [$victim, $victimStore] = $this->makeTenant();
+        $victim->is_enable_login = 0;
+        $victim->save();
+
+        // A different tenant entirely, holding no permissions whatsoever.
+        [$otherMerchant, $otherStore] = $this->makeTenant();
+        $attacker = $this->makeStaff($otherMerchant, ['current_store' => $otherStore->id]);
+
+        $this->actingAs($attacker)->post('/user-unable', [
+            'id' => $victim->id,
+            'owner_id' => $victim->id,
+            'name' => 'user',
+            'is_active' => 1,
+        ]);
+
+        $this->assertSame(0, (int) $victim->fresh()->is_enable_login,
+            'A zero-permission staff member in an unrelated tenant re-granted sign-in to a '
+            . 'merchant an operator had locked out.');
+    }
+
+    public function test_an_unrelated_staff_member_cannot_toggle_login_through_the_encrypted_route(): void
+    {
+        [$victim] = $this->makeTenant();
+        $victim->is_enable_login = 1;
+        $victim->save();
+
+        [$otherMerchant, $otherStore] = $this->makeTenant();
+        $attacker = $this->makeStaff($otherMerchant, ['current_store' => $otherStore->id]);
+
+        // The encrypted id is an ENCODING, not a control: APP_KEY is in this repository's git
+        // history, so anyone with a clone can mint this for any user id.
+        $this->actingAs($attacker)->get('/user-enable-login/' . \Illuminate\Support\Facades\Crypt::encrypt($victim->id));
+
+        $this->assertSame(1, (int) $victim->fresh()->is_enable_login,
+            'A zero-permission staff member toggled another tenant\'s login gate.');
+    }
+
+    public function test_a_merchant_can_still_manage_their_own_staff_login(): void
+    {
+        [$merchant, $store] = $this->merchantWhoCanCreateUsers();
+        $this->grantPermission($merchant, 'Edit User');
+
+        $staff = $this->makeStaff($merchant, ['current_store' => $store->id]);
+        $staff->is_enable_login = 1;
+        $staff->save();
+
+        $this->actingAs($merchant->fresh())->post('/user-unable', [
+            'id' => $staff->id,
+            'owner_id' => $merchant->id,
+            'name' => 'user',
+            'is_active' => 0,
+        ]);
+
+        $this->assertSame(0, (int) $staff->fresh()->is_enable_login,
+            'A merchant can no longer disable their own staff member\'s login -- the fix went too far.');
+    }
+
+    // -----------------------------------------------------------------------------------
     // THE LEGITIMATE FLOWS MUST SURVIVE. A fix that blocks these is not a fix.
     // -----------------------------------------------------------------------------------
 

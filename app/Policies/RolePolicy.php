@@ -30,6 +30,38 @@ class RolePolicy
      */
     public const RESERVED_NAMES = [
         'super admin', 'superadmin', 'Super Admin', 'SuperAdmin', 'SUPER ADMIN',
+        // S13-b. `admin` BELONGS HERE AND ITS ABSENCE WAS A LIVE ESCALATION.
+        //
+        // This list existed to stop a tenant naming a role into platform-operator status, and it
+        // covered only the `super admin` spellings. But `admin` is an authority discriminator in
+        // its own right -- the codebase compares users.type against 'admin' 47 times, against
+        // 'super admin' 77 -- and writing it does three things at once:
+        //
+        //   App\Models\User::creatorId():100  returns $this->id for type 'admin', so the row
+        //       becomes THE ROOT OF ITS OWN TENANT and every created_by = creatorId() predicate
+        //       in the application starts answering about the actor instead of their merchant.
+        //   StoreController::create():62, store():94  gate store creation on
+        //       `type == 'admin'` with NO permission check at all, so the flip hands over a
+        //       capability that answered "Permission denied" a moment earlier.
+        //   Utility.php, helper.php, AuthenticatedSessionController and PaymentController all
+        //       branch merchant-owner behaviour on the same literal.
+        //
+        // REPRODUCED before this change: a staff member holding 'Create Role' and 'Edit User' --
+        // both grantable by any merchant -- created a tenant-scoped role named `admin`, assigned
+        // it to themselves through the ALREADY-HARDENED UserController::update(), and watched
+        // users.type go 'staff' -> 'admin', creatorId() go from the merchant's id to their own,
+        // and GET /stores/create go from 302-deny to 200. Both of update()'s controls were
+        // intact; the LIST was the hole.
+        //
+        // THE SEEDED MERCHANT ROLE IS ALSO LITERALLY NAMED `admin`, which sounds like a conflict
+        // and is not: it carries store_id NULL, so the tenant-scoped role lookup in
+        // UserController already refuses it on both write paths. Only a tenant-authored role of
+        // that name was ever assignable, and that is precisely what must not be.
+        //
+        // The case variants are here because RoleController's validator uses
+        // Rule::notIn(), which compares case-SENSITIVELY, while UserController lowercases first.
+        // Both consumers are now covered by the same list.
+        'admin', 'Admin', 'ADMIN',
     ];
 
     protected function isPlatformAdmin(?User $actor): bool
