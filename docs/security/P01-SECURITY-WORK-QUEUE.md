@@ -2049,6 +2049,29 @@ fails `own negative`, removing the predicate fails `foreign positive`.
    bites only against the blanket-refusal regression it names. **Only the PaiementPro positive
    control proves a legitimate return completes.**
 
+8. **The five gateway controllers never got the atomic decrement or the stock give-back**, which is
+   the brief's "stock mutation failure and retry behaviour" case and the honest answer to it.
+   Counted: each of the five carries **two** raw read-modify-write decrements
+   (`$remain_stock = $Product->product_stock - $qtyy; ... ->save()`) and **zero** uses of
+   `App\Services\ProductStockService`, against 12 uses in `PaymentController`. So two things
+   P01-SEC-14 fixed on the `processOrder`/`ordersave` paths are absent here:
+
+   - **Atomicity.** Two concurrent checkouts both write `stock - qty` and the second overwrites the
+     first, so the shop oversells by the quantity it processed concurrently. Live today.
+     `tests/Feature/Commerce/OrderStockConcurrencyTest` proves the *atomic* path holds under ten
+     concurrent checkouts; nothing covers these five, because they do not use it.
+   - **Give-back.** `$appliedStockChanges` appears **zero** times in all five. On a mid-loop
+     failure — `return $this->error(['message' => __('Product not found .')])` — the lines already
+     decremented stay decremented with no order written.
+
+   **I could not demonstrate the give-back loss by execution**, and say so rather than assert it:
+   the obvious construction (delete a product row so its line fails inside the loop) is caught
+   *before* the loop, and the probe measured `firstLineStock` unchanged at its seeded 50. The
+   *absence* of the machinery is a grep result, not a measured loss. **Not fixed:** restructuring
+   the stock loop in five live payment handlers is a change of a different size from this package,
+   and the brief's own ban on widening applies. The negative half — the part that *mints* stock — is
+   closed by the quantity guard, which is what the brief asked for.
+
 ### Claims the review confirmed
 
 AuthorizeNet-is-the-charge; PayU's storefront route writing no order; `PayUPaymentController::getProductStatus`
