@@ -472,6 +472,72 @@ is **not** assigned because none has been through the same verification as S12 a
 
 ---
 
+## S15 — Privilege-write escalations outside the web account-management surface
+
+**S1 URGENT as a group, and one row is an emergency.** Every row here was found by a sweep of
+every writer of `users.type`, `role_user`, `users.current_store` and account credentials, and
+every one marked reproduced was **executed** against the real route and middleware stack. None is
+hypothetical.
+
+They are **not fixed**, and the reason is scope rather than doubt: twelve are `routes/api.php`
+handlers whose behaviour the shipped Flutter app depends on, and the brief reserves API behaviour
+changes for an owner-approved window. The web-guard half of the same class (S13-b/c/d) is closed.
+
+### S15-A — **EMERGENCY: anonymous password overwrite of any account, operator included**
+
+`POST api/{slug}/forgot-password-save` → `Api\AuthController::forgot_password_save():376`.
+Middleware is `['APILog', 'throttle:auth']` — **no `custom.auth`**. The body is
+`email` + `password`; the handler does `User::where('email', $email)->first()` — unscoped — then
+`$has_email->password = bcrypt($request->password); $has_email->save();`.
+
+**It never reads the OTP.** And the flow is incoherent as well as open: the two preceding steps,
+`forgot_password_send_otp():` and `forgot_password_verify_otp():`, both operate on **`Customer`**
+and store `password_otp` / `password_otp_datetime` on the customer row, while this step writes to
+**`User`** — a different table. So the endpoint cannot serve its stated purpose (a customer who
+completes the OTP correctly never gets their own password changed) *and* it hands any anonymous
+caller who knows an email address that account's password, **including the platform super admin**.
+
+A single unauthenticated HTTP request is a full platform takeover. This should be answered before
+anything else on this list, and before any deployment.
+
+**Fix shape:** operate on `Customer` like the other two steps, scope to the slug's store, require a
+verified unexpired `password_otp`, and clear it after one use. The OTP protocol already exists, so
+this is using it rather than inventing one — but it changes the endpoint's behaviour, so it needs
+the owner's window. An interim mitigation that needs no app release is to disable the route.
+
+### S15-B — the rest, grouped by what they write
+
+| # | Route / handler | Who gets in | What they write |
+|---|---|---|---|
+| 1 | `Api\AuthController::forgot_password_save():397` | anonymous, any slug incl. non-existent | any `users.password` |
+| 2 | `POST api/{slug}/register` → `AuthController:71` | anonymous | hijacks an existing customer by email and moves them into the attacker's tenant |
+| 3 | `ApiController::change_password` / `profile_update():5772,5786` | any non-`customers` token — every delivery driver | password and email of **any customer in any store** |
+| 4 | `ApiController::user_delete():6682` | any `custom.auth` token, incl. a self-registered customer | deletes an arbitrary `User` row — operator included — plus that id's orders, addresses, wishlist, reviews |
+| 5 | `DeliveryBoyApiController` all five methods `:48` | any token; for reset/update/destroy an anonymous attacker can mint one via `POST api/{slug}/register` | creates and seizes delivery-boy principals in **any** tenant; `store_id` comes from the caller |
+| 6 | `Api\DashboardController:4007` | any non-admin user the operator created | name and email of **every merchant on the platform**, then takeover by password reset |
+| 7 | `AccountProfileController:74` (`POST /{storeSlug}/my-account`) | any signed-in shopper | another shopper's email and name, across tenants |
+| 8 | `config/superadminaccess.php:3` | any merchant with `Create Role` — i.e. every merchant | grants a role the **six money-moving finance permissions** the merchant does not itself hold; the denylist has 13 names and omits them |
+
+Two further rows are **not reproduced** and are recorded as unverified:
+`GoogleAuthenticationController:34` copies the merchant's own `google2fa_secret` onto every staff
+row in the tenant; `AuthController:334` writes a **hardcoded password** (`'hello@1234'`, a literal
+in the repository) on the customer OTP reset path, whose OTP send is also not store-scoped.
+
+### Why these are one package and not eight
+
+Seven of the eight write a credential or an identity on a row the caller supplied, with no
+ownership predicate — the same defect shape as S13, in a surface where the fix must also preserve a
+compiled client's contract. They want one API-authorization pass with one shared ownership helper
+(`Api\DashboardController::resolveChangeableOrder()` and the `resolveViewableOrder()` added for
+S12 are the precedent), one Flutter window, and one regression suite — not eight separate patches
+racing each other.
+
+**Precondition:** the same `SELECT module, is_enable FROM add_on_managers` that S1 and S11 need,
+plus confirmation of which API endpoints the shipped app actually calls. `tests/Support/ApiContract`
+already holds the pinned endpoint manifest and is the right place to read that from.
+
+---
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**
@@ -501,6 +567,9 @@ Keeping these apart is the point; each is independently reviewable and independe
 | **P01-SEC-9** | S12 (a) + (b) | Changes API behaviour, so it needs a Flutter window |
 | *(owner decision, not a package)* | S12 (c) | Same decision as the storefront document button |
 | *(triage, not a package)* | S14 | Verify each row before assigning severity |
+| **P01-SEC-10** | **S15-A** | **EMERGENCY.** Anonymous platform takeover. Answer before any deployment; route can be disabled as an interim with no app release |
+| **P01-SEC-11** | S15-B rows 1-7 | One API-authorization pass, one shared ownership helper, one Flutter window |
+| **P01-SEC-12** | S15-B row 8 | `config/superadminaccess.php` denylist vs the finance permissions. No API impact |
 | **P01-SEC-3** | S4 + the `larabug` blacklist review | Independent; no contract impact |
 | **P01-SEC-4** | S5 session half (logout, id regeneration, `same_site`) | Independent. Token expiry/abilities wait for a Flutter window |
 | **P01-F** | S6 | Already a named Phase 01 package |
