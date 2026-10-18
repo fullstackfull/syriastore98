@@ -1072,4 +1072,79 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
             'delivery_country' => '101', 'delivery_state' => '1', 'delivery_city' => '1',
         ];
     }
+
+    /**
+     * THE PINS THEMSELVES, ISOLATED — because nothing else in this file isolates them.
+     *
+     * HOW THIS TEST CAME TO EXIST, because the omission is the lesson. `adoptStoredCheckoutState()`
+     * does two things: it runs a merge on the guest arm (where none ran before), and it PINS
+     * `customer_id` and `method_id`. Three tests above fail when the whole method is reverted, so
+     * the merge is proven. The pins were not: every fixture in this file builds its state from
+     * forgedCheckoutState(), which SETS `customer_id`, and a merge alone is sufficient whenever the
+     * state carries the key. Measured — replacing the method's body with a plain
+     * `$request->merge($state)` left all 42 tests in this file GREEN.
+     *
+     * The pins exist for the case `merge()` cannot reach: a key the state OMITS. That is the case
+     * this test builds, by unsetting it. Without the pin the posted value stands and becomes
+     * `$order->customer_id`; with it the value is `''`, which every handler reads as "a guest".
+     *
+     * AND A CORRECTION ABOUT THE OTHER PIN. `method_id` is pinned by the same two lines and is NOT
+     * isolated by anything, here or elsewhere, because commit 0ad3f7e0 made it unreachable:
+     * once CartController::get_shipping_method refuses another tenant's method and floors the
+     * charge at zero, a posted `method_id` has no attacker-beneficial case left. A foreign method
+     * is refused by the predicate, a negative cost by the floor, and this store's own positive-cost
+     * method only makes the shopper pay MORE. So the removal checks recorded for 7484b290 and
+     * 57c8953c were valid when they were run and are STALE NOW — a later, deeper fix subsumed
+     * them. The pin is kept as defence in depth at zero cost, and is documented as unproven rather
+     * than claimed as a guard.
+     */
+    public function test_the_identity_pin_covers_a_key_the_state_omits(): void
+    {
+        [, $store] = $this->tenant();
+        $victim = $this->customerIn($store, 'pinvictim');
+        $product = $this->productIn($store, 100.00, 50);
+
+        $sid = 'cookie-' . uniqid();
+        Cart::forceCreate([
+            'customer_id' => 0, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+            'cookie_session_id' => $sid,
+        ]);
+        Cart::forceCreate([
+            'customer_id' => $victim->id, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 4, 'price' => 100.00, 'store_id' => $store->id,
+        ]);
+
+        // The state OMITS customer_id entirely. This is what merge() cannot overwrite, and it is
+        // the whole reason the pin exists.
+        $state = $this->forgedCheckoutState($store, '', ['payment_type' => 'paiementpro']);
+        unset($state['customer_id']);
+
+        $before = self::orderCount();
+
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state])
+            ->post('/' . $store->slug . '/get-payment-paiementpro', [
+                'responsecode' => 0,
+                'status' => 'success',
+                'customer_id' => $victim->id,      // the whole attack
+            ]);
+
+        $this->assertSame($before + 1, self::orderCount(),
+            'The return wrote no order, so the assertions below would be vacuous.');
+
+        $this->assertSame(0, (int) DB::table('orders')->where('customer_id', $victim->id)->count(),
+            "A return was recorded as another customer's order by posting their id against a "
+            . 'stored state that omits the key. This is the case merge() cannot reach.');
+
+        $order = DB::table('orders')->orderByDesc('id')->first();
+        $this->assertSame(0, (int) $order->customer_id,
+            'A state that names no customer produced an order with an owner. Value: '
+            . var_export($order->customer_id, true));
+
+        $this->assertSame(4, (int) DB::table('carts')
+            ->where('customer_id', $victim->id)->sum('qty'),
+            "Another customer's basket was emptied by the cart delete, which keys on "
+            . '$request->customer_id.');
+    }
 }

@@ -1758,7 +1758,10 @@ be fixed the same way.
 
 Every route below is declared in `routes/customer.php` inside a group whose only middleware is
 `[web, ActiveTheme, themelanguage]` — **no authentication, no authorization, no throttle**, and
-three of the six are `Route::any`, so they answer GET without a CSRF token.
+**five of the six** are `Route::any`, so they answer GET without a CSRF token (only
+`order-khalti` is POST-only) — and Easebuzz is CSRF-exempt even on POST, by the
+`'*get-payment-easebuzz*'` pattern in `bootstrap/app.php`. I first recorded "three"; re-counted
+from `routes/customer.php`.
 
 | handler | route | what it actually is | gateway verification | fixed |
 |---|---|---|---|---|
@@ -1894,8 +1897,34 @@ Every guard was removed and re-measured:
 | `storedCheckoutState` → the old fallback | **20 of 20 fail** |
 | the same, in `PaymentController` only | **5 of 5 fail** |
 | `adoptStoredCheckoutState`'s body | **3 fail** (khalti, cinetpay, easebuzz) |
-| the `method_id` pin alone | **1 fails**, printing `'-500.00SYP'` |
-| the seventh handler's pin, back to its bare merge | **1 of 2 fails**, printing `-500.0` — PaiementPro still passes, which is what isolates the pin |
+| the `method_id` pin alone | **1 fails**, printing `'-500.00SYP'` — ***STALE, see below*** |
+| the seventh handler's pin, back to its bare merge | **1 of 2 fails**, printing `-500.0` — ***STALE, see below*** |
+| both pins, keeping the merge | **1 fails** — `test_the_identity_pin_covers_a_key_the_state_omits`, the only fixture that isolates them |
+| `adoptStoredCheckoutState()` entirely | **3 fail** — the merge-on-the-guest-arm half |
+| `Session::forget()` from all six | **6 fail** — the rewritten replay test |
+| the shipping floor | **1 fails** — `own negative` |
+| the shipping store predicate | **1 fails** — `foreign positive` |
+
+**TWO OF THOSE REMOVAL CHECKS WENT STALE INSIDE THIS PACKAGE, and the second review caught it.**
+The checks recorded for `7484b290` and `57c8953c` were valid when they were run. `0ad3f7e0` then
+fixed the same defect one leg deeper, at the chokepoint — and that **subsumed the `method_id` pin**.
+Re-measured: with `0ad3f7e0` in place, removing the `method_id` pin fails **nothing**, and replacing
+the whole of `adoptStoredCheckoutState()` with a plain `$request->merge($state)` left all 42 tests in
+the file **green**.
+
+So the pins were never isolated by any fixture here, for a reason worth stating: every state in this
+file is built by `forgedCheckoutState()`, which **sets** `customer_id` — and a plain merge is
+sufficient whenever the state carries the key. The pins exist for the case `merge()` cannot reach, a
+key the state **omits**, and nothing built that case.
+`test_the_identity_pin_covers_a_key_the_state_omits` now does, by unsetting it, and it is the one
+test that fails when the pins go.
+
+The `method_id` pin has **no remaining attacker-beneficial case at all** after `0ad3f7e0`: a foreign
+method is refused by the store predicate, a negative cost by the floor, and this store's own
+positive-cost method only makes the shopper pay more. It is kept as defence in depth at zero cost and
+is recorded as **unproven**, not claimed as a guard. This is the project's own "a test must bite"
+rule turned on its author: a later fix can stop an earlier test from biting, and nothing re-checks
+it unless someone looks.
 | the store predicate on the cart delete | **nothing fails** — which is why it was reverted |
 
 Two tests are labelled in their own docblocks as **not** evidence for this package, because a
@@ -2051,8 +2080,12 @@ fails `own negative`, removing the predicate fails `foreign positive`.
 
 8. **The five gateway controllers never got the atomic decrement or the stock give-back**, which is
    the brief's "stock mutation failure and retry behaviour" case and the honest answer to it.
-   Counted: each of the five carries **two** raw read-modify-write decrements
-   (`$remain_stock = $Product->product_stock - $qtyy; ... ->save()`) and **zero** uses of
+   Counted: each of the five carries **three** raw read-modify-write decrements
+   — a variant one, a `$datas->product_stock` one and a `$Product->product_stock` one, at
+   e.g. Khalti `:437`, `:465`, `:530` (**I first counted two**; the middle one reads `$datas`, not
+   `$Product`, so the pattern I grepped missed it, and the wrong count reached a commit message.
+   The *placement* claim is unaffected: all three sit after the quantity guard and before
+   `new Order()`) — and **zero** uses of
    `App\Services\ProductStockService`, against 12 uses in `PaymentController`. So two things
    P01-SEC-14 fixed on the `processOrder`/`ordersave` paths are absent here:
 
