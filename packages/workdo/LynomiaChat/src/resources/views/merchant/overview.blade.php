@@ -46,6 +46,172 @@
                         {{ __('Open Lynomia Chat') }}
                     </a>
 
+                    {{-- ------------------------------------------------ store data (commerce)
+
+                         WHY THIS IS A SECOND LINE AND NOT A SECOND TICK ON THE FIRST ONE. A
+                         connected workspace is a chat inbox; a connected STORE is the orders and
+                         customers inside it, held on the other system as its own installation
+                         with its own state. They fail separately and they recover separately, so
+                         showing one reading for both is how a merchant ends up looking at a green
+                         tick with no orders in their inbox and nothing to press.
+
+                         Every state here comes from CommerceState, which derives it from the row.
+                         There is no success message to get stuck on and no spinner that outlives
+                         the attempt that started it.
+
+                         NO TOKEN APPEARS ANYWHERE ON THIS PAGE, in any state. The merchant never
+                         holds one -- that is the entire point of the Connect button. --}}
+                    <div class="mt-4 pt-3 border-top">
+                        <h6 class="mb-2">{{ __('Store data') }}</h6>
+
+                        @php($commerce = \Workdo\LynomiaChat\app\Support\CommerceState::class)
+
+                        @switch($commerceState)
+                            @case($commerce::UNAVAILABLE)
+                                {{-- The workspace is ACTIVE but not yet usable: a claimed
+                                     workspace whose ownership Lynomia has not confirmed, or a link
+                                     an operator has paused. Commerce cannot be connected to it and
+                                     the commerce API would refuse it, so no button is offered --
+                                     there is nothing the merchant could press that would work. --}}
+                                <p class="mb-0">
+                                    <span class="badge bg-secondary">{{ __('Not connected') }}</span>
+                                    {{ __('Your Lynomia Chat connection is not ready for store data yet. Please contact support.') }}
+                                </p>
+                                @break
+
+                            @case($commerce::CONNECTED)
+                                <p class="mb-2">
+                                    <span class="badge bg-success">{{ __('Connected') }}</span>
+                                    {{ __('Your orders, customers and abandoned carts are available to your team in Lynomia Chat.') }}
+                                </p>
+                                {{-- A VERIFY THAT FAILED OVER A CONNECTION THAT IS WORKING. Worth
+                                     mentioning and not a disconnection, so it is a note beside the
+                                     green badge rather than a red state replacing it -- which is
+                                     what it used to be, taking the Stop-sharing control with it. --}}
+                                @if ($commerceNote)
+                                    <p class="text-muted small mb-2">
+                                        {{ __('The last check did not get through:') }} {{ $commerceNote }}
+                                    </p>
+                                @endif
+
+                                <div class="d-flex gap-2 flex-wrap">
+                                    <form method="POST" action="{{ route('lynomia.commerce.verify') }}">
+                                        @csrf
+                                        <button type="submit" class="btn btn-outline-secondary btn-sm" @disabled(!$commerceConfigured)>
+                                            {{ __('Verify connection') }}
+                                        </button>
+                                    </form>
+
+                                    {{-- ENDS THE STORE-DATA HALF ONLY. The workspace, the
+                                         conversations and the team stay -- which is why this sits
+                                         here and not beside "Open Lynomia Chat". Confirmed first,
+                                         because it revokes the credential and the merchant's team
+                                         loses the order panel the moment it is pressed. --}}
+                                    <form method="POST" action="{{ route('lynomia.commerce.disconnect') }}"
+                                          onsubmit="return confirm('{{ __('Stop sharing your store data with Lynomia Chat? Your conversations stay, and you can connect it again at any time.') }}');">
+                                        @csrf
+                                        <button type="submit" class="btn btn-outline-danger btn-sm">
+                                            {{ __('Stop sharing store data') }}
+                                        </button>
+                                    </form>
+                                </div>
+                                @break
+
+                            @case($commerce::CONNECTING)
+                                {{-- An attempt is genuinely in flight: the claim on the row says so,
+                                     and it goes stale on its own, so this cannot persist after the
+                                     process that set it has died. No progress bar is shown, because
+                                     the backend exposes no progress to show. --}}
+                                <p class="mb-0">
+                                    <span class="badge bg-secondary">{{ __('Connecting') }}</span>
+                                    {{ __('We are connecting your store data. This usually takes a few seconds -- refresh to see the result.') }}
+                                </p>
+                                @break
+
+                            @case($commerce::SUSPENDED)
+                                {{-- Switched off on the Lynomia side by an operator. Offering a
+                                     retry here would be offering the merchant a button that
+                                     deliberately does nothing. --}}
+                                <p class="mb-0">
+                                    <span class="badge bg-warning">{{ __('Unavailable') }}</span>
+                                    {{ __('Your store data connection has been paused. Please contact support.') }}
+                                </p>
+                                @break
+
+                            @case($commerce::NEEDS_REPAIR)
+                                <p class="mb-2">
+                                    <span class="badge bg-warning">{{ __('Needs attention') }}</span>
+                                    {{ __('Lynomia Chat can no longer read your store data. Reconnecting fixes this.') }}
+                                </p>
+                                <form method="POST" action="{{ route('lynomia.commerce.connect') }}">
+                                    @csrf
+                                    <button type="submit" class="btn btn-primary btn-sm" @disabled(!$commerceConfigured)>
+                                        {{ __('Reconnect store data') }}
+                                    </button>
+                                </form>
+                                @break
+
+                            @case($commerce::FAILED)
+                                <p class="mb-2">
+                                    <span class="badge bg-danger">{{ __('Not connected') }}</span>
+                                    {{-- The column stores a locale-free REASON CODE; the sentence
+                                         is produced here, in this reader's language. It used to
+                                         store the rendered string, which meant the row carried
+                                         whichever language the failing request ran under and showed
+                                         it to everyone else in the tenant. A provider response body
+                                         never reaches either. --}}
+                                    <span class="small">{{ \Workdo\LynomiaChat\app\Support\CommerceState::reason($link) }}</span>
+                                </p>
+                                <form method="POST" action="{{ route('lynomia.commerce.connect') }}">
+                                    @csrf
+                                    <button type="submit" class="btn btn-primary btn-sm" @disabled(!$commerceConfigured)>
+                                        {{ __('Try again') }}
+                                    </button>
+                                </form>
+                                {{-- The reference an operator can find this attempt by. Not an
+                                     internal exception and not an id the merchant has to understand
+                                     -- it is the store, which is what support will ask for. --}}
+                                <p class="text-muted small mt-2 mb-0">
+                                    {{ __('If this keeps happening, give support this reference:') }}
+                                    <code>LYN-{{ $link->store_id }}-{{ $link->commerce_attempts }}</code>
+                                </p>
+                                @break
+
+                            @case($commerce::DISCONNECTED)
+                                {{-- Stopped on purpose -- by this merchant, or by an operator
+                                     revoking the credential. Its own branch because the wording
+                                     "complete setup" is wrong for something that was set up and
+                                     then ended, and because saying so is what tells a merchant
+                                     who did not do it that somebody did. --}}
+                                <p class="mb-2">
+                                    <span class="badge bg-secondary">{{ __('Not connected') }}</span>
+                                    {{ __('Your store data is not being shared with Lynomia Chat.') }}
+                                </p>
+                                <form method="POST" action="{{ route('lynomia.commerce.connect') }}">
+                                    @csrf
+                                    <button type="submit" class="btn btn-primary btn-sm" @disabled(!$commerceConfigured)>
+                                        {{ __('Connect store data') }}
+                                    </button>
+                                </form>
+                                @break
+
+                            @default
+                                {{-- NOT_CONNECTED. One button, and it does the whole thing: the
+                                     credential is minted, carried and installed server side, so
+                                     there is nothing for the merchant to copy and nobody for them
+                                     to ask. --}}
+                                <p class="text-muted small mb-2">
+                                    {{ __("Connect your store so your team can see a customer's orders and deliveries while they are talking to them.") }}
+                                </p>
+                                <form method="POST" action="{{ route('lynomia.commerce.connect') }}">
+                                    @csrf
+                                    <button type="submit" class="btn btn-primary btn-sm" @disabled(!$commerceConfigured)>
+                                        {{ __('Complete store data setup') }}
+                                    </button>
+                                </form>
+                        @endswitch
+                    </div>
+
                     {{-- WHO FROM THIS STORE HAS A SEAT, AND WITH WHAT RIGHTS.
                          Everyone used to arrive in Lynomia as one shared administrator, so nothing
                          anyone did there was attributable and a warehouse packer had the run of the

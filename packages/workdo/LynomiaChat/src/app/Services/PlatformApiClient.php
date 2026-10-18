@@ -591,6 +591,61 @@ class PlatformApiClient
         ];
     }
 
+    /**
+     * INSTALL (OR RE-INSTALL) THIS STORE'S COMMERCE CONNECTION IN THE MERCHANT'S WORKSPACE.
+     *
+     * THE CALL THAT REMOVES THE MANUAL STEP. Until now the only way a `storesyria` row could
+     * exist in Lynomia's `commerce_stores` was a human pasting an `lsc_` token into a form in
+     * Lynomia's own settings, as an administrator of that workspace. So a merchant could
+     * provision a workspace from their own dashboard in one click and then had to ask a Store
+     * Syria operator for a token to finish -- which is the step the merchant onboarding was
+     * supposed to not have.
+     *
+     * THE CREDENTIAL IS THE PROOF, NOT THE PLATFORM TOKEN. The platform token says which app is
+     * asking and which accounts it may touch; it says nothing about which STORE it may attach.
+     * Lynomia takes the credential sent here, presents it back to this application's own commerce
+     * identity endpoint, and keeps the result only if the identity that comes back is the store
+     * named in `external_store_id`. A credential minted for another store therefore cannot
+     * install this one, and the refusal is made by the system that issued it.
+     *
+     * IDEMPOTENT, which is what makes it safe to call on every activation and every verify: the
+     * operation is keyed on (provider, external_store_id) and `applied` says whether THIS call
+     * changed anything. A repeat with the credential already stored writes nothing.
+     *
+     * THE CREDENTIAL GOES NOWHERE ELSE. It is a parameter here and nothing in this class logs a
+     * payload; `config/initializers/filter_parameter_logging.rb` filters it on the far side.
+     *
+     * @return array{commerce_store_id:?int, external_store_id:?string, status:string, applied:bool, name:?string}
+     */
+    public function installCommerce(
+        int $accountId,
+        string $externalStoreId,
+        string $baseUrl,
+        string $commerceToken,
+        ?string $name = null,
+        string $provider = 'storesyria'
+    ): array {
+        $body = $this->send('put', "/platform/api/v1/accounts/{$accountId}/commerce_installation", array_filter([
+            'provider' => $provider,
+            'external_store_id' => $externalStoreId,
+            'base_url' => $baseUrl,
+            'commerce_token' => $commerceToken,
+            'name' => $name,
+        ], fn ($value) => $value !== null && $value !== ''));
+
+        return [
+            // Lynomia's own id for the installation. The same column
+            // CampaignApiController::ownStoreId fills when it happens to OBSERVE the store in
+            // `audience_fields` -- this is the same fact, learned directly instead of by
+            // coincidence.
+            'commerce_store_id' => is_numeric($body['commerce_store_id'] ?? null) ? (int) $body['commerce_store_id'] : null,
+            'external_store_id' => is_string($body['external_store_id'] ?? null) ? $body['external_store_id'] : null,
+            'status' => is_string($body['status'] ?? null) ? $body['status'] : 'unknown',
+            'applied' => ($body['applied'] ?? false) === true,
+            'name' => is_string($body['name'] ?? null) ? $body['name'] : null,
+        ];
+    }
+
     private function send(string $method, string $path, array $payload = [], bool $retryTransport = true): array
     {
         $this->assertUsable();

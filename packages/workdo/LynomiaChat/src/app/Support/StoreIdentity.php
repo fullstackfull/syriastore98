@@ -64,6 +64,27 @@ final class StoreIdentity
     }
 
     /**
+     * The identity WITHOUT materialising one, for a reader that must not write.
+     *
+     * `of()` is a lazy writer: the first caller for a store persists the composed value, because
+     * that value is what Lynomia matches the store by forever after and it must not be able to
+     * move. That is right for every path that is about to TELL Lynomia something, and wrong for a
+     * reader -- the reconciliation sweep's `--dry-run` promised to change nothing and then pinned
+     * the identity of every provisioned link it looked at, before the HTTP call and therefore even
+     * for links it went on to skip.
+     *
+     * Returns null when nothing has been recorded, which a reader should treat as "this store has
+     * never told Lynomia who it is" rather than guessing -- a computed value here would be a guess
+     * that the next real caller might not agree with.
+     */
+    public static function known(int $storeId): ?string
+    {
+        $stored = (string) (LynomiaStoreLink::where('store_id', $storeId)->value('commerce_external_store_id') ?? '');
+
+        return $stored === '' ? null : $stored;
+    }
+
+    /**
      * Stored if we have it; otherwise composed once and kept.
      *
      * The lazy write is what makes this safe to deploy over existing links, which all

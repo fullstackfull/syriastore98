@@ -105,6 +105,7 @@ class LynomiaChatServiceProvider extends ServiceProvider
             \Workdo\LynomiaChat\app\Console\Commands\DeliverLynomiaConsentDecisions::class,
             \Workdo\LynomiaChat\app\Console\Commands\ReconcileLynomiaConsents::class,
             \Workdo\LynomiaChat\app\Console\Commands\ReconcileLynomiaDeliveries::class,
+            \Workdo\LynomiaChat\app\Console\Commands\ReconcileLynomiaCommerce::class,
         ]);
 
         $this->app->booted(function () {
@@ -129,6 +130,16 @@ class LynomiaChatServiceProvider extends ServiceProvider
             // can act on. Unlike consents this reads ONE workspace, not one per merchant,
             // so the cost does not grow with the number of stores.
             $schedule->command('lynomia:reconcile-deliveries')->everyFifteenMinutes()->withoutOverlapping();
+            // HOURLY, and for the same reason as the consent sweep: it repairs a belief rather
+            // than carrying traffic. The states it corrects -- an operator disabling a store in
+            // Lynomia, a credential rejected unattended, a response lost after Lynomia had
+            // already committed -- move on the scale of a person noticing something, not on the
+            // scale of a message arriving. One read per connected store per hour.
+            //
+            // It cannot install, mint or rotate anything (see ReconcileLynomiaCommerce), so
+            // there is no frequency at which this sweep could attach a merchant's store to a
+            // workspace unattended.
+            $schedule->command('lynomia:reconcile-commerce')->hourly()->withoutOverlapping();
         });
     }
 
