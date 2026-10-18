@@ -206,18 +206,59 @@ class LynomiaChatServiceProvider extends ServiceProvider
             ];
         });
 
-        // The commerce API: per credential-bearing store, resolved from the token rather than
-        // the IP, so one merchant's adapter traffic cannot starve another's. Unauthenticated
-        // callers fall to the IP tier below because the middleware rejects them before any
-        // store is known.
+        // THE COMMERCE API, TIER 1 -- the anonymous flood, exactly as `lynomia-ingress` above.
+        // Everyone pays this, keyed on the caller, before any credential is parsed. It is the
+        // only limit an UNVERIFIED request can consume, so no volume of garbage can touch a
+        // merchant's budget, and a hostile caller cannot make the host do an HMAC and a database
+        // read per request for free.
+        RateLimiter::for('lynomia-commerce-ip', function (Request $request) {
+            return [
+                Limit::perMinute((int) config('lynomia.commerce_unverified_rate_per_minute', 120))
+                    ->by('lynomia-commerce:ip:' . $request->ip()),
+            ];
+        });
+
+        // THE COMMERCE API, TIER 2 -- the real per-store budget, and ONLY a credential-verified
+        // request reaches it.
+        //
+        // THIS USED TO BE ONE TIER AND IT WAS THE IP ONE, FOR EVERY MERCHANT AT ONCE. The route
+        // listed `throttle:lynomia-commerce` BEFORE AuthenticateCommerceApi, and this limiter
+        // read the store from a request attribute that the middleware sets at the END of its
+        // handle(). Laravel resolves a named limiter when the throttle middleware runs, so the
+        // attribute was always unset, `is_int($store)` was always false, and every request --
+        // every store's -- fell to one shared bucket keyed on the caller IP. Lynomia reads every
+        // merchant's orders from one egress address, so that bucket was ONE 120/minute allowance
+        // for the entire installation: one busy merchant's agents returned 429 to every other
+        // merchant's commerce panel, and Lynomia does not retry a 429 (its Commerce::HttpClient
+        // retries only 502/503/504), so the panel degraded or went blank for a tenant who had
+        // done nothing. The per-store branch below was unreachable dead code.
+        //
+        // The route now carries the three-element stack the events ingress has carried all
+        // along -- IP ceiling, then verification, then this -- which is what makes the store id
+        // here a VERIFIED one rather than an absent one.
         RateLimiter::for('lynomia-commerce', function (Request $request) {
             $store = $request->attributes->get(
                 \Workdo\LynomiaChat\app\Http\Middleware\AuthenticateCommerceApi::STORE_ID
             );
 
-            return is_int($store)
-                ? [Limit::perMinute((int) config('lynomia.commerce_rate_per_minute', 600))->by('lynomia-commerce:store:' . $store)]
-                : [Limit::perMinute(120)->by('lynomia-commerce:ip:' . $request->ip())];
+            // Unreachable in the configured stack -- AuthenticateCommerceApi rejects an
+            // unverified request before this runs, and the store id is stamped from the
+            // credential it just verified, never from anything the caller supplied. If some
+            // future rewiring lets one through, it gets no budget at all rather than somebody
+            // else's: the same choice `lynomia-events` makes, for the same reason.
+            if (! is_int($store)) {
+                return [Limit::perMinute(1)->by('lynomia-commerce:unverified:' . $request->ip())];
+            }
+
+            $perMinute = max(60, (int) config('lynomia.commerce_rate_per_minute', 600));
+
+            return [
+                Limit::perMinute($perMinute)->by('lynomia-commerce:store:' . $store),
+                // A whole-installation ceiling, so many verified stores together still cannot
+                // saturate the host -- the same backstop `lynomia-events` keeps above its own
+                // per-store budget.
+                Limit::perMinute($perMinute * 10)->by('lynomia-commerce:all'),
+            ];
         });
 
         // TIER 2 -- the real per-store budget, and ONLY a signature-verified delivery reaches
