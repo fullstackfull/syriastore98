@@ -560,6 +560,21 @@ jobs:
           fi
           echo "all ${count} files parse"
 
+      - name: Design-system token contrast must stay WCAG-conformant
+        # P01B HANDOVER. The imported design system ships two verification tools and NEITHER was
+        # wired into CI, so a token edit that destroyed a contrast ratio would have shipped
+        # silently. This is the half that costs nothing to run: pure Python 3, no pip install, no
+        # browser, ~1s. It resolves every --ss-* var() chain and computes real WCAG 2.1 ratios for
+        # 40 foreground/background pairs across light and dark, and also fails if the `auto` scope
+        # drifts from the `dark` scope.
+        #
+        # THE BROWSER HALF IS DELIBERATELY NOT HERE. docs/design-system/tools/browser-checks.cjs
+        # covers focus rings, tab order, RTL geometry and overflow at 7 widths -- 66 checks that
+        # all passed during the handover -- but it needs Playwright, Chromium and eight rendered
+        # fixtures. Adding that to every run is a dependency and a runtime decision for the owner,
+        # not something to slip into a security sprint. It stays a documented manual run.
+        run: python3 docs/design-system/tools/check-contrast.py public/css/store-syria-ds.css
+
       - name: Cross-repo API contract - the shipped Flutter app must not be broken
         # The Flutter admin app pins its endpoint paths as constants compiled into a
         # binary already on merchants' phones. A server-side route rename silently

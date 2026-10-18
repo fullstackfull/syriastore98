@@ -194,8 +194,18 @@ function contrast(a, b) {
 
   // ---------------------------------------------------------------- E. permissions
   console.log('\nE. PERMISSION GATING — a view-only merchant gets no create, edit or delete control');
-  console.log('  NOTE (pre-existing, unchanged): drag-to-reorder still works for a view-only merchant; '
-    + 'the reorder endpoint checks no permission. Reported to Backend, not changed here.');
+  // This note said the reorder endpoint checked no permission and had been "reported to Backend".
+  // It has since been fixed, so the note would now be false: ProductAttributeOptionController
+  // ::option() gates on 'Edit Attributes Option' and resolves every posted id within the caller's
+  // own store, all-or-nothing. A view-only merchant now gets a JSON 403 from the drag, which this
+  // harness cannot see because it drives static previews with no Laravel behind them -- the
+  // server-side half is covered by
+  // tests/Feature/Security/AttributeOptionAndCustomerBoundaryTest instead. What this section
+  // still legitimately proves is the UI half: that no create, edit or delete AFFORDANCE is
+  // rendered for a view-only merchant.
+  console.log('  NOTE: the drag affordance is still rendered for a view-only merchant, but the '
+    + 'reorder endpoint now refuses them (403) -- see AttributeOptionAndCustomerBoundaryTest. '
+    + 'Hiding the handle too is an open UX item, not a security gap.');
   {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     await page.goto(BASE + 'new-en-noperm.html');
