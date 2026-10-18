@@ -42,10 +42,12 @@ use App\Models\TaxMethod;
 use App\Facades\ModuleFacade as Module;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
+use App\Http\Controllers\Concerns\GuardsGatewayReturn;
 
 class PaymentController extends Controller
 {
     use ApiResponser;
+    use GuardsGatewayReturn;
     protected $paymentService;
 
     /**
@@ -1877,7 +1879,22 @@ public function handlePaymeraTrigger00($orderId)
 
     public function getProductStatus(Request $request, $slug)
     {
-        $requests_data = Session::get('request_data');
+        /*
+         * P01-COMMERCE-SEC-01. THE CHECKOUT STATE IS THE SERVER'S, OR THERE IS NO ORDER.
+         *
+         * This is the GENERIC storefront payment return -- route('store.payment.status'), the
+         * handler the PayU return redirects into, and the writer for every provider whose
+         * initiation ends at this URL. It had the same `$request->all()` fallback the six gateway
+         * controllers had (`if ($requests_data == null) { $requests_data = $request->all(); }`,
+         * removed below), so a caller who sent no session cookie supplied the cart, the prices,
+         * the shipping, the coupon, the STORE the order is written to and the CUSTOMER it is
+         * written for. See App\Http\Controllers\Concerns\GuardsGatewayReturn.
+         */
+        $requests_data = $this->storedCheckoutState($request, 'storefront-return');
+
+        if ($requests_data === null) {
+            return $this->gatewayReturnRefusal();
+        }
         $store = getStore($slug);
         $admin_payment_setting = getAdminAllSetting($store->created_by, $store->id);
         
@@ -1937,12 +1954,12 @@ public function handlePaymeraTrigger00($orderId)
             $request->merge($requests_data);
         }
 
-        if (!isset($requests_data['coupon_info']) && isset($request->cartlist['coupon_info'])) {
-            $requests_data['coupon_info'] = is_object($request->cartlist['coupon_info']) ? (array) $request->cartlist['coupon_info'] : $request->cartlist['coupon_info'];
-        }
-
-        if ($requests_data == null) {
-            $requests_data = $request->all();
+        // Re-pointed from $request->cartlist to the stored state. The merge above makes the two
+        // the same whenever the stored state carries a cartlist, but NOT when it does not -- there
+        // a posted cartlist would have survived and chosen the discount. The fallback that used to
+        // follow this block was the defect named at the top of this method.
+        if (!isset($requests_data['coupon_info']) && isset($requests_data['cartlist']['coupon_info'])) {
+            $requests_data['coupon_info'] = is_object($requests_data['cartlist']['coupon_info']) ? (array) $requests_data['cartlist']['coupon_info'] : $requests_data['cartlist']['coupon_info'];
         }
         $slug = !empty($requests_data['slug']) ? $requests_data['slug'] : '';
         $store = getStore($slug);
@@ -2139,6 +2156,15 @@ public function handlePaymeraTrigger00($orderId)
         }
 
         $settings = Setting::where('store_id', $store->id)->pluck('value', 'name')->toArray();
+
+        // P01-COMMERCE-SEC-01. A non-positive or fractional line quantity is refused BEFORE any
+        // stock row moves. A negative qty makes the atomic decrement an INCREMENT -- free stock
+        // minted on a return -- and processOrder's own quantity check does not cover this entry
+        // point, which is reached directly by the gateway redirect. Unlike whatsapp() below, this
+        // method has no assertCartAvailable() call to lean on.
+        if ($this->basketHasNonPositiveQuantity($products ?? null)) {
+            return $this->gatewayReturnQuantityRefusal($request, 'storefront-return');
+        }
 
         // Order stock decrease start
         $prodduct_id_array = [];

@@ -61,13 +61,19 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
     private const REFUSAL = 'We could not confirm your checkout details';
 
     /**
-     * The six storefront gateway-return routes, as routes/customer.php declares them.
+     * The storefront order-writing return routes, as routes/customer.php declares them.
      *
-     * PayU is deliberately absent and that is a finding rather than an omission: its storefront
-     * route (`/store-payu-payment/status` -> storeGetPayUStatus) writes no order at all -- it
-     * redirects to route('store.payment.status'), which is PaymentController::getProductStatus --
-     * and PayUPaymentController::getProductStatus, which DOES carry the fallback shape, is not
-     * routed anywhere and so is dead code. See the report.
+     * WHERE PAYU IS, AND A CORRECTION. PayU has no entry of its own, and tracing why found a
+     * SEVENTH handler with the same defect. `/store-payu-payment/status` -> storeGetPayUStatus
+     * writes no order: it redirects to route('store.payment.status'). That is
+     * PaymentController::getProductStatus -- the GENERIC storefront return, the writer for PayU
+     * and for every other provider whose initiation ends at that URL -- and it carried the same
+     * `if ($requests_data == null) { $requests_data = $request->all(); }` fallback, 65 lines below
+     * its session read. An earlier commit message in this package asserted that handler "reads the
+     * session only"; that was wrong, and `storefront-return` below is the entry that covers it.
+     *
+     * PayUPaymentController::getProductStatus also carries the fallback shape and IS dead code --
+     * no route declares it. It is left untouched rather than deleted, and recorded in the report.
      *
      * @return array<string, array{0: string, 1: string}>  label => [uri template, method]
      */
@@ -79,6 +85,7 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
             'paiementpro' => ['{slug}/get-payment-paiementpro', 'post'],
             'cinetpay' => ['{slug}/get-payment-cinetPay', 'post'],
             'easebuzz' => ['{slug}/get-payment-easebuzz', 'post'],
+            'storefront-return' => ['{slug}/get-payment-status', 'post'],
         ];
     }
 
