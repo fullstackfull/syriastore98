@@ -247,9 +247,18 @@ class AuthController extends Controller
     {
 
         $store = getStore($slug);
-       
+
+        // TENANT BINDING. This resolved the customer by email ALONE, so a customer of store A was
+        // resettable through store B's slug. Every lookup in this flow is now scoped to the slug's
+        // store, and an unresolvable slug is refused rather than defaulted.
+        if (empty($store)) {
+            return $this->error([
+                'message' => __("We can't find a user with that email address.")
+            ], __("We can't find a user with that email address."));
+        }
+
         $email = $request->email;
-        $has_email = Customer::where('email', $email)->first();
+        $has_email = Customer::where('email', $email)->where('store_id', $store->id)->first();
         if(empty($has_email)) {
             return $this->error([
                 'message' => __("We can't find a user with that email address.")
@@ -263,7 +272,16 @@ class AuthController extends Controller
         }
 
         $OTP = Utility::generateNumericOTP(4);
-        $has_email->update(['password_otp' => $OTP,'password_otp_datetime' => date('Y-m-d H:i:s') ]);
+
+        // THE OTP IS NO LONGER WRITTEN TO THE CUSTOMER ROW. It was stored in plaintext in
+        // `customers.password_otp`, so any reader of that table held a live reset credential. It
+        // now lives only as a HASH in the cache, keyed by store AND customer, with an expiry and
+        // an attempt counter -- see App\Services\CustomerPasswordResetService for why the cache
+        // rather than that column (it is declared integer() and cannot hold a hash on MySQL).
+        // `password_otp_datetime` is still stamped because the web flow and any UI that reads it
+        // are untouched by this change.
+        app(\App\Services\CustomerPasswordResetService::class)->issueOtp($has_email, (int) $store->id, (string) $OTP);
+        $has_email->update(['password_otp' => null, 'password_otp_datetime' => date('Y-m-d H:i:s') ]);
 
         $settings = Setting::where('store_id',$store->id)->pluck('value', 'name')->toArray();
 
@@ -299,31 +317,46 @@ class AuthController extends Controller
 
         $store = getStore($slug);
        
+        if (empty($store)) {
+            return $this->error([
+                'message' => __("OTP has been not matched.")
+            ], __("OTP has been not matched."));
+        }
+
         $email = $request->email;
         $request_otp = $request->otp;
 
-        $has_email = Customer::where('email', $email)->first();
+        // Scoped to the slug's store -- see send_otp.
+        $has_email = Customer::where('email', $email)->where('store_id', $store->id)->first();
         if(empty($has_email)) {
             return $this->error([
                 'message' => __("We can't find a user with that email address.")
             ], __("We can't find a user with that email address."));
         }
 
-        if(empty($has_email->password_otp)) {
-            return $this->error([
-                'message' => __("OTP no found.")
-            ], __("OTP no found"));
-        }
+        // THE FIXED PASSWORD IS GONE, AND IT WAS THE WHOLE DEFECT. This block used to read:
+        //
+        //     $password = 'hello@1234';
+        //     $has_email->password = bcrypt($password);
+        //     $has_email->save();
+        //     ... Mail::to(...)->send(new OTPVerify($has_email, $password));
+        //
+        // A correct OTP therefore set the account's password to a literal COMMITTED TO THIS
+        // REPOSITORY and mailed it. Because the value is fixed and public, anyone who knew a
+        // target had used the recovery flow could sign in as them WITHOUT ever seeing the OTP,
+        // and the customer was never asked to choose a password at all.
+        //
+        // Verification now proves control of the mailbox and NOTHING ELSE: it mints a single-use,
+        // expiring, customer- and store-bound reset token and writes no password. The password is
+        // chosen by the caller at forgot-password-save, which consumes that token.
+        //
+        // One answer for every failure -- absent, expired, wrong, or too many attempts -- so the
+        // response cannot be used to tell them apart. The attempt limit is what makes a 4-digit
+        // OTP defensible: 10,000 values would otherwise be exhaustible inside its 10 minutes.
+        $resetService = app(\App\Services\CustomerPasswordResetService::class);
+        $resetToken = $resetService->verifyOtp($has_email, (int) $store->id, $request_otp === null ? null : (string) $request_otp);
 
-        $expire_time = date('Y-m-d H:i:s', strtotime('+10 minutes', strtotime($has_email->password_otp_datetime)));
-        $current_time = date('Y-m-d H:i:s');
-        if($expire_time < $current_time) {
-            return $this->error([
-                'message' => __("OTP has been expired.")
-            ], __("OTP has been expired."));
-        }
-
-        if($request_otp != $has_email->password_otp) {
+        if ($resetToken === null) {
             return $this->error([
                 'message' => __("OTP has been not matched.")
             ], __("OTP has been not matched."));
@@ -331,8 +364,6 @@ class AuthController extends Controller
 
         $has_email->password_otp = null;
         $has_email->password_otp_datetime = null;
-        $password = 'hello@1234';
-        $has_email->password = bcrypt($password);
         $has_email->save();
 
         $settings = Setting::where('store_id',$store->id)->pluck('value', 'name')->toArray();
@@ -349,7 +380,11 @@ class AuthController extends Controller
                 'mail.from.name' => $settings['MAIL_FROM_NAME'],
             ]
         );
-        Mail::to($has_email->email)->send(new OTPVerify($has_email, $password));
+        // THE "HERE IS YOUR NEW PASSWORD" MAIL IS NOT SENT, because there is no longer a
+        // password to send. App\Mail\OTPVerify exists only to deliver one and is left in place
+        // untouched for the web flow; emailing a credential was itself part of the defect.
+        // The mail configuration above is still applied, so the SMTP behaviour of this endpoint
+        // is otherwise unchanged.
 
         $DeliveryAddress = DeliveryAddress::where('customer_id', $has_email->id)->where('default_address', 1)->first();
         $user_array = [];
@@ -369,6 +404,12 @@ class AuthController extends Controller
         $token = $has_email->createToken('auth_token')->plainTextToken;
         $user_array['token'] = $token;
         $user_array['token_type'] = 'Bearer';
+
+        // ADDITIVE ONLY. Every field this endpoint returned before is still returned, including
+        // the Sanctum token, so a client that reads the old shape is unaffected. `reset_token` is
+        // the new authorisation for forgot-password-save; a client that does not send it can
+        // still authorise that call with the Bearer token above, which it already receives.
+        $user_array['reset_token'] = $resetToken;
         $user_array['message'] = __("OTP has been successfully matched.");
         return $this->success($user_array, __("OTP has been successfully matched."));
     }
@@ -393,16 +434,98 @@ class AuthController extends Controller
             ], $messages->first());
         }
 
+        // ============================================================================
+        // THE DEFECT THIS REPLACES, stated in full because it was the most severe finding in
+        // this project. The body of this method was:
+        //
+        //     $has_email = User::where('email', $email)->first();   // the ADMIN model, unscoped
+        //     $has_email->password = bcrypt($request->password);
+        //     $has_email->save();
+        //
+        // The route carries ['APILog', 'throttle:auth'] and NO authentication middleware
+        // (routes/api.php:52). So any anonymous caller who knew an email address set that
+        // account's password -- including the platform super admin. It never read the OTP, and it
+        // wrote to `users` while the OTP was issued and verified against `customers`, so the flow
+        // could not even serve its stated purpose: a customer who entered the correct OTP never
+        // got their own password changed.
+        //
+        // WHAT IT DOES NOW. It resets a CUSTOMER -- the model the rest of this flow uses -- in the
+        // slug's store, and only on proof that the caller completed the OTP step. It can no
+        // longer write to `users` at all; administrative password reset is a separate,
+        // session-authenticated surface and was never this endpoint's job.
+        //
+        // TWO ACCEPTED AUTHORISATIONS, so a client that has not been updated still works:
+        //   reset_token  the single-use, expiring, customer- and store-bound token minted by
+        //                forgot-password-verify-otp and returned in its response.
+        //   a Bearer token on the `customers` guard  which verify-otp ALSO already returns, so a
+        //                client that simply forwards it authorises this call with no body change.
+        // Anything else is refused. The request body contract (email + password) is unchanged.
+        // ============================================================================
+        if (empty($store)) {
+            return $this->error([
+                'message' => __("We can't find a user with that email address.")
+            ], __("We can't find a user with that email address."));
+        }
+
         $email = $request->email;
-        $has_email = User::where('email', $email)->first();
+        $has_email = Customer::where('email', $email)->where('store_id', $store->id)->first();
         if(empty($has_email)) {
             return $this->error([
                 'message' => __("We can't find a user with that email address.")
             ], __("We can't find a user with that email address."));
         }
 
+        $resetService = app(\App\Services\CustomerPasswordResetService::class);
+        $authorisedCustomerId = $resetService->consumeResetToken($request->reset_token, (int) $store->id);
+
+        if ($authorisedCustomerId === null) {
+            // FALLBACK for a client that forwards the Bearer token verify-otp already gave it.
+            //
+            // The token is resolved HERE rather than read off a guard, because this route carries
+            // ['APILog','throttle:auth'] and NOT `custom.auth` -- so nothing populates
+            // auth('customers') and reading it would always return null, making the whole
+            // compatibility path dead code. Measured: the first version of this fallback did
+            // exactly that and the test for it failed.
+            //
+            // Adding `custom.auth` to the route instead would have made authentication MANDATORY
+            // and answered 401 to a client that sends no token, and repo B's network.dart turns
+            // any 401 into a forced logout. Resolving the token in the handler keeps the route's
+            // middleware byte-identical while giving the fallback real effect.
+            //
+            // Sanctum's own findToken() is used, the same call App\Http\Middleware\CustomAuth
+            // makes: it splits on `|`, finds by id, and does the timing-safe hash_equals against
+            // the stored hash. Expiry is honoured, and the tokenable must be a Customer in THIS
+            // store -- a merchant's or a driver's token authorises nothing here.
+            $bearer = $request->bearerToken();
+
+            if (! empty($bearer)) {
+                $accessToken = \Laravel\Sanctum\PersonalAccessToken::findToken($bearer);
+
+                if ($accessToken
+                    && (! $accessToken->expires_at || ! $accessToken->expires_at->isPast())) {
+                    $tokenable = $accessToken->tokenable;
+
+                    if ($tokenable instanceof Customer
+                        && (int) $tokenable->store_id === (int) $store->id) {
+                        $authorisedCustomerId = (int) $tokenable->id;
+                    }
+                }
+            }
+        }
+
+        // The authorisation must name THIS customer. A token for one account cannot reset another,
+        // which is what makes the earlier "any email you can name" behaviour impossible now.
+        if ($authorisedCustomerId === null || $authorisedCustomerId !== (int) $has_email->id) {
+            return $this->error([
+                'message' => __("This password reset is not authorized.")
+            ], __("This password reset is not authorized."));
+        }
+
         $has_email->password = bcrypt($request->password);
+        $has_email->password_otp = null;
+        $has_email->password_otp_datetime = null;
         $has_email->save();
+
         return $this->success([
             'message' => __("Password changed successfully.")
         ], __("Password changed successfully."));
