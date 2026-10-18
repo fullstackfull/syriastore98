@@ -54,7 +54,7 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
      * assertion PASSES AGAINST THE VULNERABLE CODE. Measured -- with the old
      * `$requests_data = $request->all()` fallback restored, the three denial tests here still
      * passed, because the handler goes on to raise "Undefined array key data"
-     * (AuthorizeNetPaymnetController.php:271) and answers 500, so no order is written either way.
+     * (the capture-amount line this package replaced) and answers 500, so no order is written either way.
      * That is precisely the "tests that pass merely because the route crashes" the brief forbids.
      * The refusal message is the one observable that only this guard produces.
      */
@@ -98,8 +98,8 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
      * AuthorizeNetPaymnetController::getOrderPaymentStatus is not a gateway return -- it is the
      * charge -- so before it reaches the stock loop it builds a live Authorize.Net
      * `authCaptureTransaction`. With no SDK transaction possible here, the builder throws into an
-     * EMPTY `catch (\Exception $e) {}` at :298-299 and the next statement raises
-     * "Undefined variable $requestNet" at :332. So its quantity guard is placed correctly (before
+     * EMPTY `catch (\Exception $e) {}` at :335-336 and the next statement raises
+     * "Undefined variable $requestNet" at :338. So its quantity guard is placed correctly (before
      * the stock loop, before any order row) but is NOT verified by execution, and the empty catch
      * is itself a pre-existing defect that makes the handler 500 whenever the SDK setup throws.
      * Both are recorded as blockers in the package report rather than guessed around.
@@ -125,8 +125,8 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
      * `cart` cookie drives a genuine guest checkout all the way to the write.
      *
      * EXCLUDED, with reasons:
-     *   - authorizenet: fatals at "Undefined variable $requestNet" (:332) because the SDK setup
-     *     throws into an empty `catch (\Exception $e) {}` (:298-299), so it never reaches the
+     *   - authorizenet: fatals at "Undefined variable $requestNet" (:338) because the SDK setup
+     *     throws into an empty `catch (\Exception $e) {}` (:335-336), so it never reaches the
      *     writer here. It carries the same code shape and the same fix; that fix is NOT verified
      *     by execution and is recorded as a blocker in the report.
      *   - storefront-return: PaymentController::getProductStatus merges the stored state
@@ -152,7 +152,7 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
     /**
      * The two handlers that reach `new Order()` here AND consult a shipping method.
      *
-     * khalti stops at verifyPayment() and authorizenet fatals at :332, so neither reaches the
+     * khalti stops at verifyPayment() and authorizenet fatals at :338, so neither reaches the
      * delivery_price write; cinetpay and easebuzz reach the writer but PaiementPro is the cleanest
      * of that family to drive. storefront-return is the one that mattered -- see the test.
      *
@@ -365,41 +365,68 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
      * A REPLAYED RETURN IS STILL ONE ORDER AT MOST.
      *
      * The stored state is single-use: each handler calls Session::forget() after reading it, so a
-     * second identical return finds nothing and is now refused rather than falling through to the
-     * request. This asserts the REPLAY property that follows from the fix; it does not claim the
-     * handlers have an idempotency key, which they do not -- see the report.
+     * second identical return finds nothing and is refused rather than falling through to the
+     * request.
+     *
+     * THIS TEST WAS REWRITTEN AFTER AN ADVERSARIAL REVIEW, because the first version did not test
+     * replay at all. It never called withSession(), so NO stored state was present on any of its
+     * three requests -- every one of them was simply the forged-return case again, and deleting
+     * every Session::forget() from all six handlers would not have failed it. It now drives a
+     * GENUINE first return (the guest's own cookie basket, the server's own state) and replays
+     * THAT, so the state has to be consumed by request 1 for requests 2 and 3 to be refused.
+     *
+     * It does NOT claim the handlers have an idempotency key. They do not: the only thing stopping
+     * a replay is that the session entry is gone. A real duplicate server-to-server notification,
+     * which none of these handlers accepts today, would need one. See the report.
      *
      * @dataProvider gatewayReturnRoutes
      */
     public function test_replaying_a_return_cannot_multiply_orders(string $uri, string $method): void
     {
         [, $store] = $this->tenant();
-        $customer = $this->customerIn($store, 'replay');
-        $product = $this->productIn($store);
+        $product = $this->productIn($store, 100.00, 50);
+
+        // The first request is a GENUINE return: the guest's own cookie basket and the server's
+        // own stored state. That is what makes this a replay test rather than a second copy of
+        // the forged-return test -- the state must be CONSUMED by request 1 for requests 2 and 3
+        // to find nothing.
+        $sid = 'cookie-' . uniqid();
         Cart::forceCreate([
-            'customer_id' => $customer->id, 'product_id' => $product->id, 'variant_id' => 0,
+            'customer_id' => 0, 'product_id' => $product->id, 'variant_id' => 0,
             'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+            'cookie_session_id' => $sid,
         ]);
 
         $path = '/' . str_replace('{slug}', $store->slug, $uri);
-        $payload = $this->forgedCheckoutState($store, $customer->id, [
-            'responsecode' => 0,
-            'status' => 'success',
-            'request_data' => json_encode($this->forgedCheckoutState($store, $customer->id)),
-        ]);
+        $state = $this->forgedCheckoutState($store, '');
+        $body = ['responsecode' => 0, 'status' => 'success'];
 
         $before = self::orderCount();
 
-        for ($i = 0; $i < 3; $i++) {
+        // Request 1: the state is present, exactly once, as the server left it.
+        session()->forget('error');
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state, 'easebuzz_request_data' => $state])
+            ->{$method}($path, $body);
+
+        $afterFirst = self::orderCount();
+
+        // Requests 2 and 3: the same return, replayed. Session::forget() in the handler means the
+        // state is gone, and the caller cannot put it back -- that is the property under test.
+        for ($i = 0; $i < 2; $i++) {
             session()->forget('error');
-            $this->{$method}($path, $payload);
+            $this->withCookie('cart', $sid)->{$method}($path, $body);
+
+            $this->assertStringContainsString(self::REFUSAL, (string) session('error'),
+                'Replay ' . ($i + 2) . ' was not refused, so the order-count assertion below '
+                . 'could be satisfied by a crash instead of by the guard. Session error was: '
+                . json_encode(session('error')));
         }
 
-        $this->assertStringContainsString(self::REFUSAL, (string) session('error'),
-            'The guard did not refuse the replay, so the order-count assertion below would be '
-            . 'satisfied by a crash. Session error was: ' . json_encode(session('error')));
-        $this->assertSame($before, self::orderCount(),
-            'Replaying a forged return multiplied orders.');
+        $this->assertSame($afterFirst, self::orderCount(),
+            'Replaying a consumed return wrote a further order. At most the first request may.');
+        $this->assertLessThanOrEqual($before + 1, self::orderCount(),
+            'Three identical returns produced more than one order.');
     }
 
     /**
@@ -476,9 +503,10 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
      *     the return payload at KhaltiPaymnetController.php:597-603), and this environment has no
      *     gateway;
      *   - it must not assert "no 500", because several of these handlers raise pre-existing errors
-     *     further down the happy path -- AuthorizeNetPaymnetController.php:271 reads
-     *     `json_decode($input['data'])['get_amount']` and raises "Undefined array key data"
-     *     without it. A 500 from a later stage says nothing about this guard, and treating it as
+     *     further down the happy path -- AuthorizeNet's old capture-amount line read
+     *     `json_decode($input['data'])['get_amount']` and raised "Undefined array key data"
+     *     without it. That line is gone, but the handler still fatals further down -- see the
+     *     reachableStockLoopRoutes() docblock. A 500 from a later stage says nothing about this guard, and treating it as
      *     evidence would make the test measure the wrong thing.
      *
      * So the property asserted is exactly the property added: with server-stored state the guard
@@ -540,6 +568,19 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
      *
      * The stored-state guard does not close this. A guest doing a real checkout HAS valid stored
      * state; they simply add `customer_id=<victim>` to the return they are already making.
+     *
+     * WHAT THIS TEST DOES NOT PROVE, and the name is narrower than it reads. It proves a return
+     * cannot be claimed BY POSTING THE ID ON THE RETURN. The same OUTCOME is still reachable
+     * through the INITIATION leg and is NOT closed: PaymentController::handleCustomerRegistration
+     * does `Customer::where('email', $billing['email'])->first()` (:1310) -- find-or-create by a
+     * posted e-mail, with no proof of control -- and that customer's id becomes the state's
+     * `customer_id`, which this fix then faithfully restores. MEASURED: a guest whose only input
+     * is the victim's e-mail in the ordinary checkout form got
+     * `orders.customer_id = <victim>` and the victim's saved basket deleted. That is a
+     * pre-existing guest-attribution defect, it is an owner decision rather than a guard (the
+     * platform deliberately links a guest order to a matching account), and it is recorded in
+     * docs/security/P01-SECURITY-WORK-QUEUE.md. An adversarial review of the committed package
+     * found it; this docblock exists so the test is not read as covering more than it does.
      *
      * MEASURED BEFORE THE FIX, by this fixture: cinetpay and easebuzz wrote an order owned by the
      * victim AND emptied the victim's cart in both stores; khalti emptied the victim's cart in
@@ -613,7 +654,7 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
      *
      * It is asserted on paiementpro alone, and that is a finding rather than a choice. Of the six,
      * it is the only one that reaches `new Order()` in this environment without a live gateway:
-     * khalti stops at `$khalti->verifyPayment()` (:590), authorizenet fatals at :332, cinetpay and
+     * khalti stops at `$khalti->verifyPayment()` (:637), authorizenet fatals at :338, cinetpay and
      * easebuzz reach the writer but only after their own response checks, and
      * PaymentController::getProductStatus stops earlier still. What this test therefore proves is
      * that the guards added in this package do not block a legitimate return; it does not prove

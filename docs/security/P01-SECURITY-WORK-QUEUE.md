@@ -1849,8 +1849,8 @@ one field to the return they were already making. All three were measured on the
    single-use (`Session::forget()` after reading). A genuine duplicate server-to-server notification
    — which none of these handlers accepts today — would need a real key.
 3. **AuthorizeNet's fix is not verified by execution.** An empty `catch (\Exception $e) {}` at
-   `:298-299` swallows the SDK setup failure and the next statement raises `Undefined variable
-   $requestNet` at `:332`, so the handler 500s before reaching its stock loop. The state guard and
+   `:335-336` swallows the SDK setup failure and the next statement raises `Undefined variable
+   $requestNet` at `:338`, so the handler 500s before reaching its stock loop. The state guard and
    capture-amount fix are verified; the **quantity guard is placed correctly and never ran.** The
    empty catch is itself a live defect: any SDK throw becomes a 500 for a real shopper mid-charge.
 4. **`PaymentController::whatsapp` (`:3098`) keeps its `$request->all()` fallback at `:3103`, and
@@ -1917,11 +1917,175 @@ satisfied by a handler that refuses everything.
 claiming otherwise would be exactly the "simulated validation mistaken for real gateway
 verification" the brief warns against.
 
-### Next
+### What the adversarial review of this package found — and the one it found that mattered most
 
-Item 4 above is the next package: **server-side pricing on the WhatsApp/Telegram order-placement
-entry**, which also carries the settings crash. Items 1 and 2 are owner decisions and gate nothing
-else on this list.
+The committed work was reviewed against the six categories the package brief names. Every claim
+below was driven through the real routes before being accepted; two of the reviewer's claims were
+corrections to **my own records**, which are fixed in place.
+
+**The review's most important finding, and the one every test in this package was structurally
+unable to see.** All of them attack the **return**. The attack is one leg earlier.
+
+```
+POST {slug}/process-order  with a method_id and nothing else
+  -> processShipping()                      PaymentController.php:1689  (gated only on !empty($request->method_id))
+  -> CartController::get_shipping_method()
+  -> ShippingMethod::find($request->method_id)            <-- no store predicate, and
+                                                              ShippingMethod is not in scoped_models
+  -> for 'Local pickup' the merchant's `cost` column is used VERBATIM
+  -> prepareFinalRequestData() writes it as shipping_final_price
+     AND FOLDS IT INTO cartlist_final_price               PaymentController.php:1721
+  -> the gateway return reads the state, exactly as it should, and writes the order
+```
+
+MEASURED, both legs, through the real routes:
+
+| leg | input | result |
+|---|---|---|
+| 1 — `process-order` | **only** `method_id=<store B's 'Local pickup', cost '-50'>` | state `shipping_final_price` `'-50'`, `cartlist_final_price` **50.0** |
+| 2 — the return | **no money fields at all** | `orders.product_price` 100.0, `orders.final_price` **50.0** |
+
+A guest pays 50 for 100 of goods. For AuthorizeNet that same `cartlist_final_price` is what
+`serverPayableAmount()` hands to the card capture, so it is the amount **charged**. `cost` is a
+merchant-controlled string column written with no validation, so a negative one needs no exotic
+access — and the method did not have to belong to the attacker's store.
+
+**Why this package's guards could not see it: the stored state really was the server's.** Reading
+only the stored state is still correct. The server had been talked into computing a poisoned figure
+one leg earlier. `test_posted_money_cannot_change_the_order_total` could never have caught it — it
+posts money **on the return**, the leg that was already safe. That is what the fence was fencing
+against, found from the other side.
+
+Closed in `0ad3f7e0`, in **one place**: `CartController::get_shipping_method`, the single chokepoint
+that `processShipping()` (initiation), the five gateway returns and
+`PaymentController::getProductStatus` all share.
+
+1. The lookup is **store-scoped**. A `NULL` `store_id` is still accepted — the column is nullable,
+   legacy rows may not carry it, and refusing those would hide a merchant's own shipping method,
+   which is a broken storefront rather than a fix. What is refused is a method belonging to a
+   **different** store.
+2. The computed charge is **floored at zero**. A negative charge is not free shipping: it is
+   subtracted from the payable.
+
+Each guard is independently necessary, and the data provider isolates both — removing the floor
+fails `own negative`, removing the predicate fails `foreign positive`.
+
+### Two corrections to my own records that the review forced
+
+- **AuthorizeNet's line numbers were stale.** The empty `catch (\Exception $e) {}` is at
+  **`:335-336`** and the `Undefined variable $requestNet` use at **`:338`** — not `:298-299`/`:332`.
+  They shifted when `81db1700` inserted the capture-amount comment. The stale numbers were in this
+  section and in two test docblocks; all are fixed.
+- **`test_replaying_a_return_cannot_multiply_orders` did not test replay.** It never called
+  `withSession()`, so no stored state was present on any of its three requests — every one was the
+  forged-return case again, and deleting every `Session::forget()` from all six handlers would not
+  have failed it. Rewritten to drive a **genuine** first return and replay that. It now fails on
+  **all six** when `Session::forget()` is removed.
+
+### Findings accepted, verified, and deliberately NOT fixed
+
+1. **A guest can still claim a victim's order — through the e-mail, at initiation.**
+   `handleCustomerRegistration` does `Customer::where('email', $billing['email'])->first()`
+   (`PaymentController.php:1310`) — find-or-create by a **posted e-mail**, with no proof of control
+   — and that id becomes the state's `customer_id`, which `0eee8524`'s pin then faithfully
+   restores. MEASURED: a guest whose only input was the victim's e-mail in the ordinary checkout
+   form got `orders.customer_id = <victim>` and the victim's saved basket **deleted**.
+   **This makes `0eee8524`'s test claim narrower than its name**, and the docblock now says so: it
+   proves a return cannot be claimed *by posting the id on the return*.
+   **Not fixed, because the fix is a product decision, not a guard.** The platform deliberately
+   links a guest order to a matching account. Writing `customer_id = 0` for guests and keeping the
+   e-mail only in `order_billing_details` would close it and would also detach every *legitimate*
+   guest order from its account. **Owner decision.**
+2. **Khalti's verification is amount-unbound**, which qualifies the one row in the table above that
+   reads "verifies". `$amount = $payload['amount']` (`:635`) is the **browser's** figure;
+   `verifyPayment($secret, $token, $amount)` (`:637`) is gated on HTTP status alone (`:638`), and
+   the order's own total is never compared to it. A token for a 1-unit payment satisfies the gate
+   for a 100-unit order. **Not fixed:** the comparison needs Khalti's minor-unit convention, and
+   enforcing a factor I cannot calibrate would either break every live Khalti order or emit a false
+   mismatch on each one. Per the brief, a gateway that cannot be secured without credential-based
+   testing gets a **blocker**, not a guess.
+3. **A ninth handler of the same family has no guards at all.**
+   `NMIPayController::getNMIProductStatus`, `Route::any {slug}/get-payment-NMI`
+   (`routes/customer.php:355`), same middleware group. It is the *other* card-charge handler and it
+   carries every shape this package set out to remove: `Session::get('request_data')` with a caller
+   fallback (`:164-168`), the charge amount from the state with no recomputation (`:183`), card
+   number and CVV from the request (`:184-186`), raw read-modify-write stock decrements with **no
+   quantity guard**, and a literal `'Paid'` (`:605`). Its stock loop sits inside
+   `if ($parsedResponse['response'] == 1)`, so it needs live NMI credentials — **latent in this
+   environment, live for such a store.** The caller fallback itself is probably inert: `json_encode()`
+   makes `$requests_data` a *string*, so the later `['slug']` reads break rather than obey. **Not
+   fixed:** shipping guards I cannot execute even once to a live card-charge path is the thing the
+   brief forbids. It is the clearest next package.
+4. **Every legitimate CinetPay return 500s after committing the order.**
+   `CinetPayController.php:1008` does `event(new CinetPayPayment(...))` and **`CinetPayPayment`
+   exists nowhere in the repository** — one grep hit, the `new` itself — so it resolves to
+   `App\Http\Controllers\CinetPayPayment` and raises an uncaught `Error`. Already committed by then:
+   the order row, the stock decrements and the cart deletes. Never reached: the cookie-cart clear,
+   the reward event and the `order.complete` redirect. My own probe recorded exactly this —
+   `http=500` with `orders=1`. Pre-existing, same "every legitimate return fails" character as the
+   `out_of_stock_threshold` crash, and it belongs with it.
+5. **CinetPay omits the coupon from its order total.** `:743` and `:762` write
+   `$final_price + $tax_price` where Khalti (`:656`), Easebuzz (`:687`), PaiementPro (`:688`) and
+   AuthorizeNet (`:749`) all write `... - $coupon_price`. Same basket, same coupon, two different
+   `orders.final_price`, with `coupon_price` recorded on the row either way. Against the shopper.
+   **Not fixed:** it is a live money formula and the coupon path is not drivable here — S24 records
+   that `apply_coupon` refuses every coupon that is not `fixed product discount`, so a test could
+   not bite. It needs S24 first.
+6. **`orders.delivery_price` receives a formatted currency string on the five.**
+   `CartController:547`/`:582` overwrite `shipping_final_price` with
+   `currency_format_with_sym(...)`. The default symbol position is `'pre'`
+   (`app/Helper/helper.php:1151`), so production MySQL gets `"$500.00"` into a DECIMAL column and
+   stores `0.00`. `PaymentController:2138` is the only one reading the numeric `total_final_price`.
+   The new shipping test only gets a castable value because it sets
+   `site_currency_symbol_position => post`. Correctness; no attacker benefit beyond what is already
+   fixed above.
+7. **Per-provider vacuity inside otherwise-biting tests**, now stated in the docblocks rather than
+   left implied: the negative-quantity test's two stock assertions cannot move for
+   `storefront-return` (that handler decrements through `ProductStockService::normaliseQuantity`,
+   which returns null for `qty <= 0`, so stock cannot move there with or without the guard — its
+   message assertion carries the weight); the identity test's orders assertion cannot fire for
+   `khalti` (it never reaches `new Order()` here, so its in-store cart assertion carries the
+   weight); and part B of the A/B test is satisfied by a 500 on authorizenet and cinetpay, so it
+   bites only against the blanket-refusal regression it names. **Only the PaiementPro positive
+   control proves a legitimate return completes.**
+
+### Claims the review confirmed
+
+AuthorizeNet-is-the-charge; PayU's storefront route writing no order; `PayUPaymentController::getProductStatus`
+being unrouted; the quantity guard preceding **every** stock write in all seven, with no second
+loop, no early decrement and no give-back path; the guard's logic having no hole for non-numeric,
+fractional, `'-0'`, array or boolean quantities; `cart_list` resolving its principal through
+`resolveStoreCustomer`; `apply_coupon` being store-scoped; `TaxMethod` carrying `store_id` in all
+six; the per-line cart delete carrying `store_id`; and the refusal log recording key **names** only,
+never values.
+
+One qualification worth keeping: "Khalti is the only one of the six that verifies server-side" holds
+only among the five **pure returns**. AuthorizeNet's whole order write is nested inside the SDK's own
+`getResultCode() == "Ok"`, and `PaymentController::getProductStatus` verifies PhonePe (`:1910`) and
+Tap (`:1942`) and reads toyyibpay's status (`:1928`). The table above states this correctly.
+
+### Next, in priority order
+
+The census this package produced is now nine order writers, not six, and two of them are
+unguarded. Both are the same shape and neither can be closed by the guards here.
+
+1. **`NMIPayController::getNMIProductStatus`** — a live `Route::any` with no auth, the *other* card
+   charge, and not one of this package's guards. Latent only because its stock loop needs live NMI
+   credentials. **It needs a store with credentials, or a stub, before anything is shipped to it** —
+   that is the precondition, and it is why this package stopped at reporting it.
+2. **`PaymentController::whatsapp`** — server-side pricing on the WhatsApp/Telegram
+   order-placement entry, which takes its whole checkout from `$request->all()` because two
+   checkout views post to it without passing through `processOrder`. Carries the
+   `out_of_stock_threshold`/`notification` crash, and the CinetPay `event(new CinetPayPayment(...))`
+   fatal belongs in the same sweep.
+3. **The order-total formulas** — CinetPay's missing coupon subtraction, the reward branch
+   subtracting the reward *instead of* the coupon on all six, and `orders.delivery_price` taking a
+   formatted currency string. Gated on **S24**: the coupon path is not drivable until
+   `apply_coupon` stops refusing every non-`fixed product discount` coupon, so a test cannot bite
+   before then.
+
+Owner decisions, gating nothing else on this list: guest-order attribution by posted e-mail, Khalti
+amount binding, and the unverified-`'Paid'` posture.
 
 ---
 
@@ -1959,7 +2123,8 @@ Keeping these apart is the point; each is independently reviewable and independe
 | **P01-SEC-14** | **S20** + **S22** + **S23** + **S25**, and the amount half of **S21** | ~~Identity and payment trust boundaries~~ **DONE.** Six commits (A, B, C, D, E, F). Provider tokens verified server-side; the amount OWED — on the card path and on COD alike — proof against a posted price, currency, coupon code, shipping price or negative quantity; `notify_user` failed closed; four coupon lookups store-scoped; the order's discount and ledger columns taken from the server. E and F are the two adversarial reviews' own findings — see S27 and S28; F closed a HIGH that bypassed E's guard through COD, and G closed S29, the `1234` password on eight vendored social-login modules that S18 had recorded as harmless. No new 401 on any path a shipped client calls. H closed S31's web half — a payer setting `orders.final_price`, the COD cash amount — and S31 carries the six gateway controllers with the same defect as a prepared design awaiting approval |
 | *(owner decision, not a package)* | **S21** calculation rows, **S24**, **S26** | Each changes money or deletes history. Answer before the next commerce package |
 | **P01-COMMERCE-SEC-01** | **S32**, and the gateway half of **S31** + **S30** | ~~Payment-return integrity and server-authoritative totals~~ **DONE.** Five commits. The `$request->all()` fallback is gone from all six gateway returns and from a seventh S31 did not name (`PaymentController::getProductStatus`, PayU's real writer); the AuthorizeNet capture amount is the server's; a non-positive quantity is refused before any stock row moves; `'Paid'` is derived rather than asserted. Testing the guard then found three more: a guest return claimable for another customer, the browser choosing the shipping price from any tenant's methods, and an unproven cart-delete predicate that was reverted rather than shipped. 38 tests, 124 assertions; every guard removed and re-measured. **Five items left open, four of them owner decisions — see S32** |
-| **P01-COMMERCE-SEC-02** *(next, recommended)* | **S32 item 4** + the settings crash | Server-side pricing on the WhatsApp/Telegram order-placement entry (`PaymentController::whatsapp`), which still takes its whole checkout from `$request->all()` because two checkout views post to it without passing through `processOrder`. Carries the `out_of_stock_threshold`/`notification` crash with it. Host-side only; no contract change |
+| **P01-COMMERCE-SEC-02** *(next, recommended)* | **S32's two unguarded writers** | `NMIPayController::getNMIProductStatus` (a live `Route::any`, the other card charge, no guards at all — needs NMI credentials or a stub first) and `PaymentController::whatsapp` (server-side pricing on the WhatsApp/Telegram entry, which takes its whole checkout from `$request->all()` because two checkout views bypass `processOrder`). Sweep the `out_of_stock_threshold`/`notification` crash and the CinetPay `CinetPayPayment` fatal with them. Host-side only; no contract change |
+| *(owner decision, not a package)* | **S32 items 1–2** | Guest-order attribution by posted e-mail, and Khalti amount binding. Each changes behaviour a real shopper depends on, or needs credentials this environment does not have |
 | **P01-SEC-12** | S15-B row 8 | `config/superadminaccess.php` denylist vs the finance permissions. No API impact |
 | **P01-SEC-3** | S4 + the `larabug` blacklist review | Independent; no contract impact |
 | **P01-SEC-4** | S5 session half (logout, id regeneration, `same_site`) | Independent. Token expiry/abilities wait for a Flutter window |
