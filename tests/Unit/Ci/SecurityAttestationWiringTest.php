@@ -129,4 +129,36 @@ final class SecurityAttestationWiringTest extends TestCase
         $this->assertStringNotContainsString('github.event.action', (string) file_get_contents(self::CI_WORKFLOW),
             'a ci.yml job conditional on the event action publishes a skipped run that replaces a failed one');
     }
+
+    /**
+     * THE GATE HAS TO SEE THE FILE THE LIMITERS LIVE IN. It did not: the pattern matched no
+     * alternative against the service provider, so a diff touching only the limiter closures --
+     * retuning a multiple, reordering the throttle tiers, the change that re-opens the P0 these
+     * pull requests close -- printed "no security-sensitive paths" and exited 0.
+     *
+     * Asserted by the paths rather than by the pattern's text, so the pattern can be rewritten and
+     * these still have to be covered.
+     */
+    public function test_the_pattern_covers_the_surfaces_the_limiters_live_on(): void
+    {
+        $script = (string) file_get_contents(__DIR__ . '/../../../' . self::SCRIPT);
+        $this->assertSame(1, preg_match("/^PATTERN='(.+)'$/m", $script, $m), 'PATTERN is not a single-quoted one-liner any more');
+        $pattern = $m[1];
+
+        $covered = [
+            'packages/workdo/LynomiaChat/src/app/Providers/LynomiaChatServiceProvider.php' => 'every rate limiter in the integration',
+            'packages/workdo/LynomiaChat/src/app/Services/EventSignature.php' => 'the delivery signature',
+            'packages/workdo/LynomiaChat/src/app/Http/Middleware/AuthenticateCommerceApi.php' => 'the credential check the tiers sit around',
+            'packages/workdo/LynomiaChat/src/routes/web.php' => 'the throttle ordering',
+            'packages/workdo/LynomiaChat/src/config/lynomia.php' => 'the budgets',
+            'packages/workdo/LynomiaChat/src/database/migrations/2026_11_03_000100_add_commerce_activation_to_lynomia_store_links.php' => 'schema',
+        ];
+
+        foreach ($covered as $path => $why) {
+            $this->assertSame(1, preg_match('#' . $pattern . '#', $path), "the gate does not flag {$path} ({$why})");
+        }
+
+        $this->assertSame(0, preg_match('#' . $pattern . '#', 'packages/workdo/LynomiaChat/src/resources/views/setup.blade.php'),
+            'a view-only diff should not require a security checklist; the pattern has widened past its purpose');
+    }
 }
