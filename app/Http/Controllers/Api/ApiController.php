@@ -6463,12 +6463,60 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         return null;
     }
 
+    /**
+     * AUTHZ-3. Change the status of an order THE CALLER OWNS.
+     *
+     * THE DEFECT. The body was:
+     *
+     *     $store = getStore($slug);            // resolved, never read
+     *     $data['order_id'] = $request->order_id;
+     *     $data['order_status'] = $request->order_status;
+     *     Order::order_status_change($data);   // Order::find($order_id), bare id
+     *
+     * No ownership check of any kind, and `Order` carries neither the tenancy trait nor an entry
+     * in config/tenancy.php's `scoped_models` (verified), so no global scope narrowed it either.
+     * The route carries ['custom.auth','APILog'], and custom.auth admits a Customer, a User or a
+     * DeliveryBoy token -- so ANY holder of ANY valid token could set the status of ANY order on
+     * the platform by iterating integers.
+     *
+     * AND IT MOVES MONEY. The cancel branch at app/Models/Order.php:539-554 sets
+     * `delivered_status = 2` AND `payment_status = 'Unpaid'`, then saves -- and the comment beside
+     * it says plainly that the observer then calls the wallet service. So the hole was not a
+     * status field: it was an attacker-triggered refund against any order in any store.
+     *
+     * THE FIX REUSES THE HELPER THAT ALREADY EXISTS. resolveViewableOrder() was written for S12
+     * and already encodes what it means for an order to be yours, separately for each of the three
+     * principals custom.auth can produce: a Customer who placed it, a DeliveryBoy it is assigned
+     * to, a User whose tenant owns its store (operator always). Writing a second predicate here
+     * would be how the two surfaces drift apart, which is the hazard that helper's own docblock
+     * warns about.
+     *
+     * The resolved order's id is what goes to the model, not the request's -- so the value that
+     * passed the check is the value that is acted on.
+     *
+     * WHAT IS STILL OPEN, and is reported rather than guessed at: ownership is now required, but
+     * WHICH status each principal may set is not constrained. A customer can still mark their own
+     * order 'pickedup'. Closing that needs a decision about the status machine (who may confirm,
+     * who may mark delivered), which is a product question, not a security one. Self-service
+     * cancellation of one's own order is a legitimate journey and is deliberately preserved -- the
+     * model already refuses it once delivered_status != 0.
+     *
+     * COMPATIBILITY. Path, method and request body are unchanged. A refusal returns the model's
+     * own 'Order not found.' string through ApiResponser::error(), which is HTTP 200 with
+     * status: 0 -- the same shape this endpoint already returned for an unknown id, and NOT a 401,
+     * which the shipped Flutter client turns into a forced logout.
+     */
     public function order_status_change(Request $request, $slug = '')
     {
         $store = getStore($slug);
-        
 
-        $data['order_id'] = $request->order_id;
+        $order = $this->resolveViewableOrder($request->order_id, $store);
+
+        if (!$order) {
+            return $this->error(['message' => __('Order not found.')], __('Order not found.'));
+        }
+
+        $data['order_id'] = $order->id;
         $data['order_status'] = $request->order_status;
 
         $date = Order::order_status_change($data);
@@ -6479,14 +6527,36 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
     }
 
+    /**
+     * AUTHZ-4. Mark a product returned on an order THE CALLER OWNS.
+     *
+     * The same defect and the same fix as order_status_change above: `$store` was resolved and
+     * never read, and `$request->order_id` went straight to Order::product_return(), which does a
+     * bare Order::find(). Any token holder could mark lines returned on any order in any store.
+     *
+     * This one also writes INVENTORY: app/Models/Order.php:657-669 increments
+     * `products.product_stock` or `product_variants.stock` by the returned quantity, so the hole
+     * was a cross-tenant stock write as well as an order write.
+     *
+     * Note that Order::product_return() dereferences its find() with no null guard
+     * (app/Models/Order.php:643-644), so a nonexistent id was a 500 rather than a refusal. That
+     * no longer reaches the model from here, because ownership is resolved first -- which also
+     * means a regression test for "an unknown order is refused" measures a denial and not a crash.
+     */
     public function product_return(Request $request, $slug = '')
     {
         $store = getStore($slug);
-        
+
+        $order = $this->resolveViewableOrder($request->order_id, $store);
+
+        if (!$order) {
+            return $this->error(['message' => __('Order not found.')], __('Order not found.'));
+        }
+
         $data['product_id'] = $request->product_id;
         $data['variant_id'] = $request->variant_id;
-        $data['order_id']   = $request->order_id;
-        
+        $data['order_id']   = $order->id;
+
         $responce = Order::product_return($data);
         if ($responce['status'] == 'success') {
             return $this->success(['message' => $responce['message']], $responce['message']);
