@@ -7,6 +7,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
+use Workdo\LynomiaChat\app\Http\Controllers\SuperAdmin\IntegrationController;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\AccountLinker;
 use Workdo\LynomiaChat\app\Services\AccountProvisioner;
@@ -205,6 +206,50 @@ class LynomiaAuthorizationRecoveryTest extends TestCase
         $this->assertFalse($link->fresh()->allowsSso());
     }
 
+    /**
+     * THE OPERATOR IS NOT LOCKED OUT OF THE THING THEY NEED DURING A RECOVERY.
+     *
+     * Minting a commerce credential needs Lynomia for nothing -- it is derived from the master
+     * secret, the store id and a version -- and it is one of the things an operator may have to
+     * do while a revoked grant is being restored. The UI gate (`canIssueCommerceCredential`) and
+     * the server gate (`IntegrationController::issueCommerceCredential`) must therefore agree,
+     * and both must read the ARRANGEMENT rather than the current authorization.
+     *
+     * Pinned because the split that introduced `arrangementAllowsSso()` changed the UI gate and
+     * very nearly left the server gate on `allowsSso()` -- which offers an operator an enabled
+     * button that answers "that workspace connection is not active" when the workspace is
+     * perfectly active and it is the grant that is gone.
+     */
+    public function test_an_operator_can_still_mint_a_commerce_credential_while_authorization_is_lost(): void
+    {
+        [, , $link] = $this->activeLink();
+        $link->fresh()->forceFill(['authorization_lost_at' => now()])->save();
+
+        $this->assertTrue($link->fresh()->canIssueCommerceCredential(), 'the button was hidden');
+
+        $this->actingAs($this->operator());
+        $redirect = app(IntegrationController::class)->issueCommerceCredential($link->id);
+
+        $this->assertSame(1, (int) $link->fresh()->commerce_credential_version);
+        $this->assertNotEmpty($redirect->getSession()->get('lynomia_commerce_credential'));
+        $this->assertEmpty($redirect->getSession()->get('error'));
+    }
+
+    /** And a link the ARRANGEMENT refuses is still refused, by both gates, for the same reason. */
+    public function test_a_suspended_link_is_refused_by_both_gates(): void
+    {
+        [, , $link] = $this->activeLink();
+        $link->fresh()->forceFill(['state' => LinkState::SUSPENDED])->save();
+
+        $this->assertFalse($link->fresh()->canIssueCommerceCredential());
+
+        $this->actingAs($this->operator());
+        $redirect = app(IntegrationController::class)->issueCommerceCredential($link->id);
+
+        $this->assertSame(0, (int) $link->fresh()->commerce_credential_version);
+        $this->assertNotEmpty($redirect->getSession()->get('error'));
+    }
+
     // ================================================ recovery
 
     /**
@@ -364,8 +409,17 @@ class LynomiaAuthorizationRecoveryTest extends TestCase
             'connection_code' => 'ABCDEFGHJKLMNPQR',
         ]);
 
-        $response->assertStatus(302);
-        $response->assertSessionHas('error');
+        // THE MIDDLEWARE'S OWN REFUSAL, asserted by its message and its destination rather than
+        // by the status. EnsureStoreOwnsLink authorizes the STORE from Store.created_by before
+        // it looks up any link, and sends the caller to the dashboard.
+        //
+        // Pinned this precisely because a looser assertion did not test the control at all:
+        // `assertStatus(302)` plus `assertSessionHas('error')` also passes when the middleware
+        // is absent, because recoverAuthorization's own "no link on this request" branch answers
+        // `back()->with('error', ...)` -- also a 302, also a session error, also no wire call.
+        // Removing the middleware left the test green. It does not now.
+        $response->assertRedirect(route('dashboard'));
+        $response->assertSessionHas('error', __('You do not have access to this store.'));
         $this->assertTrue(AuthorizationHealth::lost($linkA->fresh()));
         $this->assertSame(0, $this->sentCount('POST', '/account_links'));
     }

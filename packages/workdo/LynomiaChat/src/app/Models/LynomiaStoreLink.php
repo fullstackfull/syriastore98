@@ -202,8 +202,9 @@ class LynomiaStoreLink extends Model
      * Whether an operator may mint a commerce credential for this store right now. A credential
      * grants a machine read access to the merchant's orders and customers, so it is offered only
      * for a link that would also allow SSO -- active, provisioned, and (for a claimed workspace)
-     * proven. This is the UI gate; issueCommerceCredential enforces the same allowsSso() check
-     * server-side, so a hidden button is never the only thing standing between a caller and a key.
+     * proven. This is the UI gate; IntegrationController::issueCommerceCredential enforces this
+     * same `arrangementAllowsSso()` predicate server-side, so a hidden button is never the only
+     * thing standing between a caller and a key -- and an offered one is never refused.
      */
     public function canIssueCommerceCredential(): bool
     {
