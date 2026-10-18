@@ -189,7 +189,38 @@ merchant does not itself hold. No API impact, no migration, small and self-conta
 
 ---
 
-## P01-TOOL-1 — Agent tooling  ·  **separate, subsequent, and deliberately last**
+## P01-TOOL-1 — Agent tooling  ·  **DELIVERED**
+
+> **All four items are done and committed.** The four skills the package assumed would need
+> installing were **already available** — nothing was installed.
+>
+> | | where | verified by |
+> |---|---|---|
+> | project `CLAUDE.md` | `/CLAUDE.md` | `ClaudeConfigurationTest` (pointers resolve; length bounded) |
+> | WorkDo PreToolUse hook | `.claude/hooks/guard-protected-paths.php` | 44 cases executed against the real script, both directions |
+> | `tenant-authz-reviewer` | `.claude/agents/` | frontmatter contract, read-only tool set |
+> | `/tenant-check` | `.claude/commands/` | runs only suites that exist; names the gate |
+>
+> **THE PLACEMENT DECISION BELOW IS REVERSED, by the owner.** This section recommended keeping all
+> four *outside* the application repository, on the precedent of the P01B tooling commit (176 files
+> of unrelated design skills). The owner's P01-TOOL-1 brief instead says "commit and push approved
+> project configuration to the existing Claude A development branch", so `.claude/` is committed.
+>
+> That precedent is still respected, because the distinction it was really about is kept: what is
+> committed is **project** configuration that is specific to this repository and useless outside it
+> — its WorkDo allowlist, its test paths, its authorization pitfalls. **Personal** configuration
+> stays out: `frontend-design`, `ui-ux-pro-max` and Claude B's five design skills remain in
+> `~/.claude/skills/` (outside version control entirely — `/home/user` is not a git repository),
+> and `.claude/settings.local.json` plus `CLAUDE.local.md` are now gitignored.
+>
+> **Two limitations, both measured.** The subagent and the slash command are registered at session
+> start, so neither could be invoked from the session that created them — `Agent(subagent_type:
+> tenant-authz-reviewer)` answered "Agent type not found" and `/tenant-check` answered "Unknown
+> skill". Both become live in a new session in this repository. The tests compensate by holding
+> both files to the documented frontmatter contract field by field, but **a live invocation of
+> either is still unverified.**
+
+### The package as originally scoped
 
 Scheduled as its own package because tooling must not delay security work, and because each item
 below changes how future work is done rather than what the product does. In priority order:
@@ -209,9 +240,10 @@ below changes how future work is done rather than what the product does. In prio
 4. **A `/tenant-check` command** wrapping the existing guard scripts and the tenancy test subset.
    Wraps, does not duplicate.
 
-Keep all four in `.claude/` **outside** the application repository unless the owner decides
-otherwise — the P01B tooling commit (176 files of unrelated design skills) is the precedent for
-why.
+~~Keep all four in `.claude/` **outside** the application repository unless the owner decides
+otherwise~~ — superseded; see the decision recorded above. The P01B tooling commit (176 files of
+unrelated design skills) remains the precedent for keeping *personal* tooling out, and it is
+still honoured.
 
 ---
 

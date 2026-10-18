@@ -45,3 +45,7 @@ composer.phar
 # business in version control and shows up as an untracked file after any test run.
 .phpunit.result.cache
 .phpunit.cache
+
+# Personal Claude Code configuration; project configuration is .claude/settings.json
+.claude/settings.local.json
+CLAUDE.local.md
