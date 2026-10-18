@@ -496,6 +496,74 @@ class OrderDocumentRouteResolutionTest extends TestCase
     }
 
     /**
+     * NO ALIAS ROUTE REACHES A GUARDED ACTION BY A DIFFERENT URI.
+     *
+     * The guard matches on uri, so guarding one uri does NOT guard another that reaches the same
+     * controller action -- a fact this project learned the hard way: `order/{order}` from
+     * Route::resource('order') reached OrderController@show, already guarded under
+     * `orders/order_view/{id}`, and was wide open. That one is now a target; this test is the
+     * general form, so the next one is a failure rather than a discovery.
+     *
+     * Dynamic on purpose, and complementary to the two file-scanning censuses above: it asks the
+     * RESOLVED route table which actions the targets reach, then asks whether any other route
+     * reaches one of those same actions without the guard. A uri nobody thought to scan for is
+     * invisible to a text scan but not to this.
+     */
+    public function test_no_alias_route_reaches_a_guarded_action_without_the_guard(): void
+    {
+        $this->enableAutomaticOrderPrinting();
+
+        $targets = (new \ReflectionClass(\App\Http\Middleware\OrderDocumentAccessGuard::class))
+            ->getConstant('TARGETS');
+
+        $router = app('router');
+
+        // Which controller actions are reached by a GUARDED uri.
+        $guardedActions = [];
+
+        foreach ($router->getRoutes() as $route) {
+            if (array_key_exists($route->uri(), $targets)) {
+                $guardedActions[$route->getActionName()] = $route->uri();
+            }
+        }
+
+        $this->assertNotEmpty($guardedActions,
+            'No guard target resolves to a route, so this test would pass vacuously.');
+
+        // Any OTHER route reaching one of them, without the guard, is an alias bypass.
+        $aliases = [];
+
+        foreach ($router->getRoutes() as $route) {
+            $action = $route->getActionName();
+
+            if (! array_key_exists($action, $guardedActions)) {
+                continue;
+            }
+
+            if (array_key_exists($route->uri(), $targets)) {
+                continue;
+            }
+
+            // NO MIDDLEWARE-MEMBERSHIP EXEMPTION HERE, and its absence is the point. The guard is
+            // appended to the `web` GROUP, so gatherRouteMiddleware() lists it for every web
+            // route on the site whether or not it arms for that route -- handle() returns early
+            // unless the matched uri is in TARGETS. An earlier version of this test skipped
+            // routes whose stack "contained" the guard, which exempted every web route and made
+            // the whole check vacuous: deleting `order/{order}` from TARGETS left it green.
+            // Caught by sabotaging TARGETS and watching nothing fail. Membership proves nothing;
+            // being a TARGET is the only thing that does.
+            $aliases[] = implode(',', $route->methods()) . ' ' . $route->uri()
+                . '  ->  ' . $action . '  (also reached by the guarded ' . $guardedActions[$action] . ')';
+        }
+
+        $this->assertSame([], $aliases,
+            "A route reaches an order-document action that the guard protects under a DIFFERENT "
+            . "uri, without carrying the guard:\n  " . implode("\n  ", $aliases)
+            . "\n\nAdd its uri to TARGETS. Guarding one uri does not guard another that reaches "
+            . 'the same action.');
+    }
+
+    /**
      * TRIPWIRE. The guard matches on verb + uri, and nine of its seventeen target uris are
      * module-owned strings in code CI forbids editing. An upstream rename would silently
      * unhook the guard, so the uris are pinned here against the route table itself.
