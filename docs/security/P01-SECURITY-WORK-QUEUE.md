@@ -483,7 +483,33 @@ They are **not fixed**, and the reason is scope rather than doubt: twelve are `r
 handlers whose behaviour the shipped Flutter app depends on, and the brief reserves API behaviour
 changes for an owner-approved window. The web-guard half of the same class (S13-b/c/d) is closed.
 
-### S15-A — **EMERGENCY: anonymous password overwrite of any account, operator included**
+### S15-A — **CLOSED in code; server exposure UNVERIFIED** (was: anonymous password overwrite of any account, operator included)
+
+> **Fixed on the feature branch** by `App\Services\CustomerPasswordResetService` plus the three
+> rewritten handlers: single-use, expiring, customer- and store-bound reset authorization; the OTP
+> stored only as a hash with a 5-attempt limit; no fixed password; no write to `users` at all.
+> 19 regression tests, and 9 of them fail if either defect is restored.
+>
+> **Three things are NOT closed by that commit, and two need the owner:**
+>
+> 1. **Server exposure is unverified.** This container's network policy denies the host
+>    (403 CONNECT at the proxy), so whether the route was reachable could not be established. A
+>    Git commit does not protect the running server: block `POST /api/*/forgot-password-save` at
+>    the web server or WAF until the fix is deployed.
+> 2. **Rotate credentials.** The platform operator's password, and any administrator password,
+>    was settable by anyone who knew the email address.
+> 3. **`storage/logs/api-*.log` is compromised material.** `APILog` logged whole requests and
+>    responses on these routes, so up to 15 days of plaintext passwords, OTPs and bearer tokens
+>    may be on the server. Redaction is now in place for future requests; the existing files are
+>    not retroactively cleaned, and only the owner can read or rotate them. Whether any past reset
+>    was malicious **cannot be determined from this repository**.
+>
+> A fourth finding surfaced while fixing it and is tracked as its own package: the WEB reset flow
+> writes a bcrypt hash into an `integer()` column, so it cannot verify on MySQL. See
+> `docs/development/phase-1/10-NEXT-WORK-PACKAGES.md` (P01-SEC-13). That is very likely why the
+> insecure API path existed.
+
+### The finding as reported
 
 `POST api/{slug}/forgot-password-save` → `Api\AuthController::forgot_password_save():376`.
 Middleware is `['APILog', 'throttle:auth']` — **no `custom.auth`**. The body is
