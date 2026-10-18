@@ -522,7 +522,11 @@ public function store(Request $request)
     public function applycoupon(Request $request, $slug)
     {
         $store = getStore($slug);
-        $coupon = Coupon::whereRaw('BINARY `coupon_code` = ?', [$request->coupon_code])->where('store_id', $store->id)->first();
+        // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
+        $coupon = Coupon::findByExactCode(
+            $request->coupon_code,
+            fn ($query) => $query->where('store_id', $store->id)
+        );
         $param = [
             'slug' => $slug,
             'store_id' => $store->id,

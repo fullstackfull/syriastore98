@@ -714,7 +714,13 @@ public function saveStoreFcmToken(Request $request)
             $original_price += $total_product_orignal_price;
             $shipping_original_price += $shipping_price;
             if (isset($request['coupon_code'])) {
-                $coupon = Coupon::whereRaw('BINARY `coupon_code` = ?', [$request['coupon_code']])->whereDate('coupon_expiry_date', '>=', date('Y-m-d'))->first();
+                // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode -- the
+                // previous `BINARY` form was MySQL-only and made this whole path 500 on SQLite.
+                //
+                $coupon = Coupon::findByExactCode(
+                    $request['coupon_code'],
+                    fn ($query) => $query->whereDate('coupon_expiry_date', '>=', date('Y-m-d'))
+                );
                 if ($coupon) {
                     $coupon_apply_price = Cart::getCouponTotalAmount($coupon, $final_price, $cart_product_data->id, $cart_product_data->category_id);
 
@@ -763,7 +769,8 @@ public function saveStoreFcmToken(Request $request)
         }
 
         if (isset($request['coupon_code'])) {
-            $coupon = Coupon::whereRaw('BINARY `coupon_code` = ?', [$request['coupon_code']])->first();
+            // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
+            $coupon = Coupon::findByExactCode($request['coupon_code']);
             if (!empty($coupon)) {
                 $coupon_count = $coupon->UsesCouponCount();
                 $couponQuery = Coupon::query();
@@ -3592,7 +3599,11 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $CURRENCY = Utility::GetValueByName('CURRENCY', $store->id);
         $couponQuery = Coupon::query();
         $code = trim($request->coupon_code);
-        $coupon = (clone $couponQuery)->whereRaw('BINARY `coupon_code` = ?', [$code])->where('store_id', $store->id)->first();
+        // P01-SEC-14 C4: portable exact-code match, store-scoped as before. This is the site the
+        // brief names: `BINARY` is MySQL-only, so apply_coupon returned 500 on SQLite before
+        // reaching any of its own logic, and the endpoint was untestable. See
+        // Coupon::findByExactCode.
+        $coupon = Coupon::findByExactCode($code, fn ($query) => $query->where('store_id', $store->id));
         if (!empty($coupon)) {
             $coupon_count = $coupon->UsesCouponCount();
             $coupon_expiry_date = (clone $couponQuery)->where('id', $coupon->id)
@@ -4407,7 +4418,8 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $coupon_array['shipping_original_price'] = (float)  $coupon_array['shipping_total_price'] ?? 0;
             $coupon_array['coupon_code'] =  $coupon->coupon_code ?? 'Code';
             if (isset($request->coupon_code)) {
-                $coupon = Coupon::whereRaw('BINARY `coupon_code` = ?', [$request->coupon_code])->first();
+                // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
+                $coupon = Coupon::findByExactCode($request->coupon_code);
             }
             $coupon_array['coupon_info'] = [];
             $coupon_array['id'] = $coupon->id;
@@ -7096,32 +7108,71 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             ], $messages->first());
         }
         
-        $Product = Product::find($request->product_id);
+        // ====================================================================================
+        // P01-SEC-14 C2. THIS ENDPOINT CANNOT RECORD THE THING IT APPEARS TO OFFER, and what it
+        // could record was an unauthorized write. Both established by reading the schema and the
+        // consumer, not by inference.
+        //
+        // WHAT IT WROTE. `notify_users.user_id` carries a foreign key to `users`
+        // (2024_03_21_084240_create_notify_users_table.php:23) -- the ADMIN table -- and the
+        // handler took that id from the request. So any token holder could enrol an arbitrary
+        // platform user, up to and including the operator.
+        //
+        // WHY THAT IS NOT MERELY AN UNTIDY ROW. The consumer is ProductController:1609-1618: when a
+        // product returns to stock it reads these rows, resolves `User::find($value->user_id)`, and
+        // sends an FCM PUSH NOTIFICATION to that user's `firebase_token`. So the write bought a
+        // caller the ability to direct unsolicited push notifications at a merchant's or the
+        // operator's device, triggered by a restock of a product the caller chose. The product was
+        // not store-scoped either, so the chosen product could belong to any tenant.
+        //
+        // WHY THE SHOPPER JOURNEY IT LOOKS LIKE ("notify me when this is back in stock") CANNOT
+        // WORK AT ALL. A storefront caller is a `customers` row. Writing a customers id into a
+        // column with an FK to `users` is a constraint violation, so it cannot be stored; and where
+        // it did not violate the constraint it would point at whichever MERCHANT happens to share
+        // that integer, which is the same id-space conflation P01-SEC-11 closed in user_delete and
+        // product_rating. Either way the notification goes to the wrong person.
+        //
+        // SO THIS FAILS CLOSED. The principal and product checks below are real gates and are kept
+        // -- they are what a corrected implementation needs -- but the write is refused, because
+        // every row this endpoint can produce is either unauthorized or misdirected. Nothing is
+        // lost: no client in either repository calls this path, the shopper journey never worked,
+        // and ProductController continues to serve rows that already exist.
+        //
+        // THE OWNER'S DECISION, recorded in docs/security/P01-SECURITY-WORK-QUEUE.md S22: this
+        // needs a `customer_id` column on `notify_users` (or the FK dropped and the column's
+        // meaning settled), which is a schema change and GATE-F work. That decision is what
+        // reopens this endpoint.
+        // ====================================================================================
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
+            return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
+        }
+
+        // Store-scoped, like every other Product lookup P01-SEC-11 corrected: Product registers
+        // StoreScope but is not in config/tenancy.php's scoped_models, so the scope adds no
+        // predicate for any principal and an unscoped find() reaches every tenant's catalogue.
+        $Product = Product::where('id', $request->product_id)
+            ->where('store_id', $store->id)
+            ->first();
         if (empty($Product)) {
             return $this->error(['message' => __('Product not found.')], __('Product not found.'));
         }
-        
-        $user = User::find($request->user_id);
-        if (empty($user)) {
-            return $this->error(['message' => __('User not found.')], __('User not found.'));
-        }
-        
-        $values['user_id'] = $request->user_id;
-        $values['product_id'] = $request->product_id;
-        $values['store_id'] = $store->id;
-        $values['created_at'] = now();
-        $values['updated_at'] = now();
-        
-        $NotifyUser = DB::table('notify_users')->where('user_id', $request->user_id)->where('product_id', $request->product_id)->where('store_id', $store->id)->first();
-        if (empty($NotifyUser)) {
-            $NotifyUser = DB::table('notify_users')->insert($values);
-        }
 
-        if (!empty($NotifyUser)) {
-            return $this->success(['point' => __('User notify successfully.')], __('User notify successfully.'));
-        } else {
-            return $this->error(['message' => __('Somthing went wong.')], __('Somthing went wong.'));
-        }
+        \Illuminate\Support\Facades\Log::info('notify_user: refused, awaiting schema decision', [
+            'store_id' => $store->id,
+            'customer_id' => $customer->id,
+            'product_id' => $Product->id,
+        ]);
+
+        return $this->error(
+            ['message' => __('Stock notifications are not available.')],
+            __('Stock notifications are not available.')
+        );
+
+        // The write this method used to perform is removed rather than left unreachable after the
+        // return above: dead code reads as a live fallback and invites being switched back on
+        // without the schema change that would make it correct. Its shape is in the history, at
+        // the commit that introduced this refusal.
     }
 
     public function recent_product(Request $request, $slug = '')
@@ -7603,14 +7654,14 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                 $ProductStock->save();
 
                                 if ($ProductStock->stock <= $ProductStock->low_stock_threshold) {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                             Utility::variant_low_stock_threshold($product, $ProductStock, $settings);
                                         }
                                     }
                                 }
-                                if ($ProductStock->stock <= $settings['out_of_stock_threshold']) {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock", json_decode($settings['notification']))) {
+                                if ($ProductStock->stock <= ($settings['out_of_stock_threshold'] ?? '0')) {
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                             Utility::variant_out_of_stock($product, $ProductStock, $settings);
                                         }
@@ -7621,20 +7672,20 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                 $datas->product_stock = $remain_stock;
                                 $datas->save();
                                 if ($datas->product_stock <= $datas->low_stock_threshold) {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                             Utility::variant_low_stock_threshold($product, $datas, $settings);
                                         }
                                     }
                                 }
-                                if ($datas->product_stock <= $settings['out_of_stock_threshold']) {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock", json_decode($settings['notification']))) {
+                                if ($datas->product_stock <= ($settings['out_of_stock_threshold'] ?? '0')) {
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                             Utility::variant_out_of_stock($product, $datas, $settings);
                                         }
                                     }
                                 }
-                                if ($datas->product_stock <= $settings['out_of_stock_threshold'] && $datas->stock_order_status == 'notify_customer') {
+                                if ($datas->product_stock <= ($settings['out_of_stock_threshold'] ?? '0') && $datas->stock_order_status == 'notify_customer') {
                                     //Stock Mail
                                     $order_email = $billing['email'];
                                     $owner = User::find($store->created_by);
@@ -7672,22 +7723,22 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                             $Product->product_stock = $remain_stock;
                             $Product->save();
                             if ($Product->product_stock <= $Product->low_stock_threshold) {
-                                if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
+                                if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                     if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                         Utility::low_stock_threshold($Product, $settings);
                                     }
                                 }
                             }
 
-                            if ($Product->product_stock <= $settings['out_of_stock_threshold']) {
-                                if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock", json_decode($settings['notification']))) {
+                            if ($Product->product_stock <= ($settings['out_of_stock_threshold'] ?? '0')) {
+                                if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock", json_decode($settings['notification'] ?? '[]'))) {
                                     if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                         Utility::out_of_stock($Product, $settings);
                                     }
                                 }
                             }
 
-                            if ($Product->product_stock <= $settings['out_of_stock_threshold'] && $Product->stock_order_status == 'notify_customer') {
+                            if ($Product->product_stock <= ($settings['out_of_stock_threshold'] ?? '0') && $Product->stock_order_status == 'notify_customer') {
                                 //Stock Mail
                                 $order_email = $billing['email'];
                                 $owner = User::find($store->created_by);
@@ -7824,7 +7875,42 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $order->product_id = isset($prodduct_id_array) ? $prodduct_id_array : '';
         $order->product_json = json_encode($order_array['product']);
         $order->product_price = (float)$order_array['final_price'];
-        $order->coupon_price = $order_array['coupon_info']['discount_amount'];
+        // P01-SEC-14 C3, SECOND DEFECT ON THE SAME PATH, found by re-running ordersave after the
+        // coupon_info fix and watching it still return 500.
+        //
+        // This method reads its settings with `Setting::where('store_id', ...)->pluck('value',
+        // 'name')` (line 7427), which returns ONLY the rows a store has actually written. Its
+        // sibling place_order reads the same settings through `Utility::Setting($storeId)`, which
+        // merges a defaults map first. So two keys that place_order always finds --
+        // `out_of_stock_threshold` and `notification` -- are simply absent here for any store that
+        // has not written them, and nothing seeds them. Reading an absent key is a PHP 8 warning,
+        // which Laravel's handler converts to an ErrorException, so the request became a 500 inside
+        // the stock-decrement loop.
+        //
+        // The defaults supplied below are the platform's OWN, copied from Utility::Setting():
+        // 'out_of_stock_threshold' => '0' (Utility.php:113) and 'notification' => '[]'
+        // (Utility.php:110). They are applied per read rather than by switching this method to
+        // Utility::Setting(), because that accessor would also start supplying defaults for every
+        // OTHER key this long method reads -- `stock_management` among them -- which would change
+        // stock behaviour for stores that have configured none. That is a bigger change than a
+        // residual-corrections package should make; the accessor asymmetry is recorded as an owner
+        // item instead.
+        // P01-SEC-14 C3. `$order_array['coupon_info']` is initialised to null at the top of this
+        // method and populated ONLY inside the coupon branch, but this line read it
+        // unconditionally -- so every order placed WITHOUT a coupon raised "Trying to access array
+        // offset on null" and returned 500 before $order->save(). Measured: ordersave could not
+        // complete for any caller, legitimate or otherwise, unless a coupon was applied.
+        //
+        // That 500 landed AFTER the stock decrement and the cart delete, so a shopper's basket was
+        // emptied and a merchant's stock moved with no order to show for it. It is therefore a
+        // destructive failure, not merely a broken endpoint.
+        //
+        // 0 is the correct default rather than a placeholder: `coupon_price` is the discount
+        // APPLIED, and an order with no coupon has no discount. It is also exactly what the sibling
+        // place_order writes -- that method initialises `$coupon_price = 0` and assigns it
+        // unconditionally -- so the two order writers now agree. Getting this wrong would be a
+        // money defect, which is why it is 0 and not null or ''.
+        $order->coupon_price = $order_array['coupon_info']['discount_amount'] ?? 0;
         $order->delivery_price = $order_array['delivery_charge'];
         $order->tax_price = $order_array['tax']['tax_price'];
         

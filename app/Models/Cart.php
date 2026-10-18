@@ -573,7 +573,11 @@ class Cart extends Model
                 $shipping_original_price += $shipping_price;
 
                 if (isset($data['coupon_code'])) {
-                    $coupon = Coupon::whereRaw('BINARY `coupon_code` = ?', [$data['coupon_code']]) ->whereDate('coupon_expiry_date', '>=', now()->toDateString())->first();
+                    // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
+                    $coupon = Coupon::findByExactCode(
+                        $data['coupon_code'],
+                        fn ($query) => $query->whereDate('coupon_expiry_date', '>=', now()->toDateString())
+                    );
                     if ($coupon) {
                         $coupon_apply_price = self::getCouponTotalAmount($coupon, $final_price, $cart_product_data->id, $cart_product_data->category_id);
                         $coupon_price += $final_price - $coupon_apply_price;

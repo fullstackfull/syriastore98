@@ -269,44 +269,37 @@ class StorefrontOrderPlacementAuthorizationTest extends SecurityTestCase
     }
 
     /**
-     * ordersave CANNOT COMPLETE FOR ANYONE, and that is a measured finding rather than a fixture
-     * problem, so it is asserted here instead of being left as a failing premise.
+     * ordersave NOW COMPLETES, and this replaces the test that recorded it not completing.
      *
-     * `$order->coupon_price = $order_array['coupon_info']['discount_amount']`
-     * (ApiController:7608) reads a key that is only ever set inside the coupon branch, and
-     * `coupon_info` is null for an order placed without a coupon -- confirm_order's own response
-     * shows `"coupon_info":null`. So the handler raises "Trying to access array offset on null"
-     * and returns 500 BEFORE `$order->save()`, for a legitimate shopper as readily as for an
-     * attacker. The enumeration of this family also found ordersave's coupon branch unreachable
-     * (`isset($coupon_data['coupon_id'])` is never satisfied), so there is no payload that gets
-     * past this line.
+     * When this file was written, ordersave returned 500 for every caller before $order->save():
+     * `$order_array['coupon_info']['discount_amount']` read a key populated only inside the coupon
+     * branch, and `$settings['out_of_stock_threshold']` / `$settings['notification']` read keys
+     * this method's raw settings query does not supply. The previous test asserted that 500 and
+     * said in its own docblock that it should be replaced by a proper premise assertion once the
+     * endpoint worked. P01-SEC-14 C3 fixed both, so this is that replacement.
      *
-     * BUT THE HOLE WAS STILL EXPLOITABLE, and this correction matters: the 500 happens AFTER the
-     * stock decrement and the cart delete. Driven with its fix reverted, a merchant's token
-     * against a victim's id decrements that victim's product stock and empties their cart, then
-     * dies. So ordersave's defect is destructive rather than order-creating -- an attacker could
-     * not forge an order through it, but could repeatedly destroy a shopper's basket and move a
-     * merchant's stock. The stock and cart assertions in the trap tests below are the ones that
-     * bite for this endpoint; the order-count assertion does not.
-     *
-     * Repairing the 500 is out of scope here: it is a functional defect in order totals, not an
-     * authorization one.
+     * This matters for the whole file: the ordersave rows of the shared providers below were
+     * previously proving less than they appeared to, because a handler that fails for everyone
+     * refuses an attacker for the wrong reason. With this premise passing they are real
+     * measurements.
      */
-    public function test_ordersave_cannot_complete_for_anyone(): void
+    public function test_a_shopper_can_save_their_own_order(): void
     {
         [, $store, $shippingId] = $this->orderableTenant();
         $customer = $this->customerIn($store, 'premise3');
         $product = $this->productIn($store);
         $this->cartFor($store, $customer, $product, 2);
 
-        $response = $this->place($store, 'order-save', $customer->id, $shippingId,
+        $this->place($store, 'order-save', $customer->id, $shippingId,
             $customer->createToken('t')->plainTextToken);
 
-        $this->assertSame(500, $response->getStatusCode(),
-            'order-save now completes, so its denial tests below have become real measurements '
-            . 'and this test should be replaced by a proper premise assertion.');
-        $this->assertSame(0, self::ordersFor($customer->id)->count(),
-            'order-save created an order, so the 500 is no longer before the save.');
+        $this->assertSame(1, self::ordersFor($customer->id)->count(),
+            'order-save no longer creates an order, so every ordersave denial below is measuring a '
+            . 'handler that fails for everyone rather than one that refuses.');
+        $this->assertSame(8, self::stockOf($product),
+            'Stock was not decremented, so the order did not really go through.');
+        $this->assertSame(0, self::cartRows($customer->id)->count(),
+            'The cart was not cleared, so the order did not really go through.');
     }
 
     // ===================================================================================
@@ -426,10 +419,11 @@ class StorefrontOrderPlacementAuthorizationTest extends SecurityTestCase
 
     public static function trapEndpoints(): array
     {
-        // For 'order-save' it is the STOCK and CART assertions that bite, not the order count:
-        // see test_ordersave_cannot_complete_for_anyone(). For 'confirm-order' none of the three
-        // bites, because that handler persists no order at all -- its exposure is measured by
-        // test_a_merchant_token_cannot_read_a_shoppers_basket_through_confirm_order().
+        // For 'confirm-order' the order-count assertion does not bite, because that handler
+        // persists no order at all -- its exposure is measured by
+        // test_a_merchant_token_cannot_read_a_shoppers_basket_through_confirm_order(). For
+        // 'order-save' all three assertions are now live: P01-SEC-14 C3 made that handler able to
+        // complete, so a refusal there is a refusal rather than a crash.
         return ['confirm_order' => ['confirm-order'], 'ordersave' => ['order-save']];
     }
 

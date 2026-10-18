@@ -54,7 +54,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
      * builder, and the surrounding query still carries its scopes, so conflating the two would
      * overstate this inventory.
      */
-    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_fifty_nine(): void
+    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_fifty_seven(): void
     {
         $perDir = [];
 
@@ -62,7 +62,35 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             $perDir[$dir] = count($this->rawEntryPoints($dir));
         }
 
-        // 114, UP FROM 113, AND THE DELTA IS ONE ADDED SITE -- P01-SEC-2.
+        // 112, DOWN FROM 114, AND THE DELTA IS TWO DELETED SITES -- P01-SEC-14 WORK PACKAGE C.
+        //
+        // Both were in app/Http/Controllers/Api/ApiController.php::notify_user, and both are
+        // GONE rather than rewritten:
+        //
+        //     $NotifyUser = DB::table('notify_users')
+        //         ->where('user_id', $request->user_id)
+        //         ->where('product_id', $request->product_id)
+        //         ->where('store_id', $store->id)
+        //         ->first();                                          // the `aware` one
+        //     $NotifyUser = DB::table('notify_users')->insert($values);  // the unscoped one
+        //
+        // THIS IS A REDUCTION IN RAW EXPOSURE, NOT A RELAXED RATCHET. The handler stored a
+        // caller-supplied `user_id` as the subscriber of a back-in-stock notification, and the
+        // consumer of that row sends an FCM push to the matching `users` row -- so a shopper
+        // could enlist an arbitrary platform user as the recipient. `notify_users.user_id`
+        // carries a foreign key to `users`, so a storefront customer's own id is not storable
+        // there at all: there is no correct value this handler could have written. It now fails
+        // closed (store-scoped product lookup, log, refusal envelope) and the write block was
+        // deleted outright rather than left after a `return`, because dead code reads as a live
+        // fallback. The schema decision that would let the feature work is an owner item --
+        // see S22 in docs/security/P01-SECURITY-WORK-QUEUE.md -- and when it is taken, the
+        // replacement write belongs in this inventory again, with a store predicate.
+        //
+        // The refusal and the absence of the write are asserted by
+        // tests/Feature/Security/ResidualSafetyCorrectionsTest.
+        //
+        // THE PRECEDING DELTA, PRESERVED VERBATIM: 114, UP FROM 113, AND THE DELTA IS ONE ADDED
+        // SITE -- P01-SEC-2.
         //
         // app/Http/Middleware/OrderDocumentAccessGuard.php, in handle()
         //
@@ -134,13 +162,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // variable binding justified, by
         // tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest, and exercised end to end by
         // tests/Feature/Tenancy/BulkDeleteAuthorizationTest.
-        $this->assertSame(['app' => 114, 'packages' => 45], $perDir,
+        $this->assertSame(['app' => 112, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
             . 'a raw query became Eloquent, which is an improvement worth recording here.');
 
-        $this->assertSame(159, array_sum($perDir));
+        $this->assertSame(157, array_sum($perDir));
     }
 
     /**
@@ -165,7 +193,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             'currency' => [3, 3],
             'customers' => [5, 3],
             'migrations' => [1, 1],
-            'notify_users' => [2, 1],
+            // `notify_users` USED TO BE LISTED HERE AT [2, 1] AND HAS LEFT THIS POPULATION
+            // ALTOGETHER: it now has no literal raw statement at all. P01-SEC-14 Work Package C
+            // deleted both -- the aware read and the unscoped insert -- when
+            // Api/ApiController.php::notify_user was made to fail closed. See the site-by-site
+            // note in the entry-point test above for why there was no correct value that insert
+            // could have written. If a store-scoped replacement write lands after the S22 schema
+            // decision, this row comes back and the ratchet will say so.
             // [1, 0], DOWN FROM [2, 1]. Commit 1bd56358 deleted
             // ChatwootOrderNotificationService, whose `DB::table('order_billing_details')
             // ->where('order_id', ...)->value('telephone')` was the single unscoped statement on
@@ -191,15 +225,30 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         ], $actual, 'The per-table raw-query inventory changed. If a `no-store_id` count went UP, '
             . 'a raw cross-tenant query was added where no global scope can reach it.');
 
-        // 135, DOWN FROM 136, AND 66, DOWN FROM 67 -- the same single deletion as above, flowing
-        // through both totals. The removed statement was attributable to a literal table name
-        // (order_billing_details) AND carried no store_id predicate, so it is subtracted from
-        // each sum exactly once. The unattributable count is unchanged at 20, so the
-        // attributable-plus-unattributable figure quoted in the message below moves 156 -> 155.
-        $this->assertSame(135, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '135 literal-table sites of the 155 entry points; the other 20 build their table name '
+        // 133, DOWN FROM 135, AND 65, DOWN FROM 66 -- the two notify_user deletions above,
+        // flowing through both totals. Both were attributable to a literal table name
+        // (notify_users) so both come off the first sum; only one of them lacked a store_id
+        // predicate, so the second sum moves by one.
+        //
+        // AND THE MESSAGE BELOW IS CORRECTED WHILE IT IS BEING TOUCHED, which is a separate
+        // thing from this delta and is called out so the two are not confused. It read '135
+        // literal-table sites of the 155 entry points; the other 20 build their table name from
+        // a variable'. 155 and 20 were already stale before P01-SEC-14: the four variable-table
+        // sites added since (BulkDeleteTenantGuard.php:431, :454, :469 and
+        // OrderDocumentAccessGuard.php:319) are all `DB::table($variable)`, so they raised the
+        // unattributable count 20 -> 24 and the entry-point total with it, and the prose was
+        // never flowed through. Re-measured rather than arithmetic: 157 entry-point lines, 133
+        // literal-table lines, 24 entry-point lines that are not a literal `DB::table('x')`.
+        // The 24 are DashboardController.php:3302, :3374, :3468, :3564, :3665,
+        // StoreFinanceController.php:302, BulkDeleteTenantGuard.php:431, :454, :469,
+        // OrderDocumentAccessGuard.php:319, Customer.php:149, Product.php:97,
+        // ProductAttribute.php:48, Tag.php:47, User.php:160, Utility.php:3171, :3173, :3196,
+        // :3198, :3212, :3214, OrderFinancialService.php:289, :402 and
+        // packages/workdo/Marketing/src/app/Models/Storefield.php:36.
+        $this->assertSame(133, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            '133 literal-table sites of the 157 entry points; the other 24 build their table name '
             . 'from a variable and so cannot be attributed (see LIMIT 2 in this class docblock).');
-        $this->assertSame(66, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        $this->assertSame(65, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**
@@ -252,8 +301,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // TENANT-DISCRIMINATED TABLES REACHED BY RAW SQL WITH NO store_id IN THE STATEMENT,
             // by table and statement count. Alphabetical, because the list is ksort()ed.
             //
-            // READ THE PER-TABLE NOTES BEFORE TREATING ANY OF THESE AS A LIVE EXPOSURE. Two of
-            // the four are not, and the exact sites are named so nobody has to re-derive it:
+            // READ THE PER-TABLE NOTES BEFORE TREATING ANY OF THESE AS A LIVE EXPOSURE. One of
+            // the three is not, and the exact sites are named so nobody has to re-derive it.
+            // THERE WERE FOUR ENTRIES AND TWO SUCH CAVEATS until P01-SEC-14 Work Package C; the
+            // fourth, `notify_users`, has left the list and its note is kept below rather than
+            // deleted, because the reason it was a false positive is the same reason the handler
+            // that produced it could not be made correct in place:
             //
             // `customers` -- NOT a tenancy finding, and this note is a CORRECTION of what was
             // first written here. The first version of this comment called it "the one that
@@ -269,20 +322,33 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // validators -- both carry `->where('store_id', $storeId)` and are correctly counted
             // as aware, not exposed.
             'customers' => 3,
-            // `notify_users` IS an allowlisted Eloquent model (NotifyUser), so the same caveat
-            // applies to it as to `customers`: the scope governs its Eloquent reads and cannot
-            // touch a raw statement.
+            // `notify_users` => 1 WAS HERE AND IS NOT ANY MORE, and it is not reclassified: it
+            // has left the population this list describes, because P01-SEC-14 Work Package C
+            // deleted both of its raw statements outright. The note is preserved because it was
+            // the right reading of the wrong question.
             //
-            // AND IT IS A FALSE POSITIVE, which is why LIMIT 1 in this class docblock cuts both
-            // ways and is worth reading before acting on any number here. The one statement
-            // counted is the INSERT at Api/ApiController.php:6524,
-            // `DB::table('notify_users')->insert($values)`. `$values['store_id']` is assigned
-            // six lines earlier at :6518, outside the statement this inventory reads, so the
-            // write really does carry the discriminator. The paired READ at :6522 does filter on
-            // `store_id` and is correctly counted as aware. Kept in the list rather than
-            // special-cased, because an inventory with hand-carved exceptions stops being
-            // reproducible -- the exception is recorded here instead.
-            'notify_users' => 1,
+            // WHAT IT SAID, AND WHY IT WAS CORRECT AS A TENANCY READING. `notify_users` IS an
+            // allowlisted Eloquent model (NotifyUser), so the same caveat applied to it as to
+            // `customers`: the scope governs its Eloquent reads and cannot touch a raw
+            // statement. The one statement counted was the INSERT at
+            // Api/ApiController.php:6524, `DB::table('notify_users')->insert($values)`.
+            // `$values['store_id']` was assigned six lines earlier at :6518, outside the
+            // statement this inventory reads, so the write really did carry the discriminator --
+            // which is why LIMIT 1 in this class docblock cuts both ways and is worth reading
+            // before acting on any number here. The paired READ at :6522 did filter on
+            // `store_id` and was correctly counted as aware. It was kept in the list rather
+            // than special-cased, because an inventory with hand-carved exceptions stops being
+            // reproducible.
+            //
+            // WHAT THE TENANCY READING COULD NOT SEE. The discriminator was present and the
+            // SUBSCRIBER was not: `$values['user_id']` came from `$request->user_id`, so a
+            // storefront shopper chose whose back-in-stock push to enlist, and
+            // `notify_users.user_id` is a foreign key to `users`, which makes a customer's own
+            // id unstorable there. A store predicate on that insert would have been a correct
+            // predicate on an incorrect row. The handler now refuses; the feature waits on the
+            // S22 schema decision in docs/security/P01-SECURITY-WORK-QUEUE.md. A per-table
+            // count can only ever be a lower bound on the exposure -- this is what that limit
+            // looks like in practice.
             // `settings` IS THE REAL ONE, and it is the widest surface in the codebase: read on
             // every page render through getAdminAllSetting() (app/Helper/helper.php:350-382).
             // It is also why Setting is NOT allowlisted. The nine sites:
@@ -356,7 +422,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             'stores',                  // the tenant REGISTRY itself -- ownership, not scoping
             'users',                   // no store_id column at all; see the DO-NOT-SCOPE list
         ], $notDiscriminated, 'A table moved between "has store_id" and "does not". That changes '
-            . 'what the 66 unscoped statements mean, so re-read the classification above.');
+            . 'what the 65 unscoped statements mean, so re-read the classification above.');
 
         $this->assertSame([
             // `coupon_requests` is declared only by a PACKAGE module

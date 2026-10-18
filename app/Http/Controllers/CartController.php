@@ -564,7 +564,8 @@ foreach ($response->data->product_list as $item) {
         $store = getStore($slug);
         $CURRENCY = \App\Models\Utility::GetValueByName('defult_currancy_symbol', $store->id);
         $code = trim($request->coupon_code);
-        $coupon = Coupon::whereRaw('BINARY `coupon_code` = ?', [$code])->where('store_id', $store->id)->first();
+        // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
+        $coupon = Coupon::findByExactCode($code, fn ($query) => $query->where('store_id', $store->id));
         $user = User::where('id', $store->created_by)->first();
         if ($user) {
             $plan = Plan::find($user->plan_id);
@@ -784,7 +785,8 @@ foreach ($response->data->product_list as $item) {
         }
 
         $code = trim($request->coupon_code);
-        $coupon = Coupon::whereRaw('BINARY `coupon_code` = ?', [$code])->where('store_id', $store->id)->first();
+        // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
+        $coupon = Coupon::findByExactCode($code, fn ($query) => $query->where('store_id', $store->id));
         $CURRENCY = \App\Models\Utility::GetValueByName('defult_currancy_symbol', $store->id);
         $tax_option = TaxOption::where('store_id', $store->id)
             ->pluck('value', 'name')->toArray();
