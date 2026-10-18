@@ -60,6 +60,8 @@ class LynomiaStoreLink extends Model
         'verified_by',
         'last_error',
         'last_synced_at',
+        'authorization_lost_at',
+        'authorization_recovered_at',
         'provisioning_stage',
         'provisioning_started_at',
         'provisioning_attempts',
@@ -109,6 +111,8 @@ class LynomiaStoreLink extends Model
         'verification_expires_at' => 'datetime',
         'verified_at' => 'datetime',
         'last_synced_at' => 'datetime',
+        'authorization_lost_at' => 'datetime',
+        'authorization_recovered_at' => 'datetime',
         'events_reconciled_at' => 'datetime',
         'commerce_credential_version' => 'integer',
         'commerce_credential_issued_at' => 'datetime',
@@ -198,12 +202,16 @@ class LynomiaStoreLink extends Model
      * Whether an operator may mint a commerce credential for this store right now. A credential
      * grants a machine read access to the merchant's orders and customers, so it is offered only
      * for a link that would also allow SSO -- active, provisioned, and (for a claimed workspace)
-     * proven. This is the UI gate; issueCommerceCredential enforces the same allowsSso() check
-     * server-side, so a hidden button is never the only thing standing between a caller and a key.
+     * proven. This is the UI gate; IntegrationController::issueCommerceCredential enforces this
+     * same `arrangementAllowsSso()` predicate server-side, so a hidden button is never the only
+     * thing standing between a caller and a key -- and an offered one is never refused.
      */
     public function canIssueCommerceCredential(): bool
     {
-        return $this->allowsSso();
+        // The ARRANGEMENT, not the current authorization: minting is a local derivation that
+        // needs Lynomia for nothing, and an operator may legitimately need a credential while a
+        // revoked grant is being recovered.
+        return $this->arrangementAllowsSso();
     }
 
     /**
@@ -242,11 +250,58 @@ class LynomiaStoreLink extends Model
      */
     public function allowsSso(): bool
     {
+        // AUTHORIZATION IS THE FAR SIDE'S ANSWER, AND IT OVERRIDES EVERY DECISION MADE HERE for
+        // anything that has to REACH Lynomia. A workspace whose grant the merchant removed
+        // cannot be opened, cannot be read through the BFF and cannot have commerce installed --
+        // every platform call for it answers 401 -- and leaving this true is what let the
+        // merchant page, the commerce state and the SSO button all go on promising a connection
+        // that no longer worked.
+        return $this->arrangementAllowsSso() && ! $this->authorizationLost();
+    }
+
+    /**
+     * What THIS side has decided, leaving aside whether Lynomia currently admits us.
+     *
+     * THE SPLIT IS NOT COSMETIC -- three callers need this one and would be wrong with the other.
+     *
+     *   the reconciliation sweep   it is the only thing that asks about every linked store
+     *                              unprompted, so it is what NOTICES a revocation and what
+     *                              clears it when the grant comes back. Gating it on
+     *                              `allowsSso()` made it skip precisely the stores it exists to
+     *                              re-examine: once authorization was lost the sweep went blind
+     *                              to that store forever, and nothing could ever clear it again.
+     *
+     *   AuthenticateCommerceApi    guards the OPPOSITE DIRECTION. That is Lynomia reading this
+     *                              store's orders, authorised by the `lsc_` commerce credential
+     *                              -- a different secret, issued by this side, which the
+     *                              merchant did not touch. Refusing it would flip Lynomia's
+     *                              commerce store to `needs_reauth` and manufacture a second
+     *                              outage to recover from, for no security gain: the merchant
+     *                              withdrew Store Syria's access to their WORKSPACE, not
+     *                              Lynomia's access to their STORE.
+     *
+     *   minting a commerce credential  a local derivation that needs Lynomia for nothing, and an
+     *                              operator may legitimately need one DURING a recovery.
+     */
+    public function arrangementAllowsSso(): bool
+    {
         if (! in_array($this->state, LinkState::SSO_ALLOWED, true) || ! $this->isProvisioned()) {
             return false;
         }
 
         return $this->link_mode !== self::MODE_LINK_EXISTING || $this->ownershipProven();
+    }
+
+    /**
+     * True when Lynomia has told us it no longer permits this app on this workspace.
+     *
+     * Distinct from every state on this row: those are what THIS side decided about the
+     * arrangement, this is what the other side decided about us. It is recoverable by the
+     * merchant, which is why it is not folded into `state`.
+     */
+    public function authorizationLost(): bool
+    {
+        return $this->authorization_lost_at !== null;
     }
 
     /**

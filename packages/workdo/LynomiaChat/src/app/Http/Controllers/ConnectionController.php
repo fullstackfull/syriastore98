@@ -105,6 +105,49 @@ class ConnectionController extends Controller
     }
 
     /**
+     * RECOVER AUTHORIZATION FOR THE WORKSPACE THIS STORE IS ALREADY CONNECTED TO.
+     *
+     * Not a claim, and not a reconnection: the workspace, its id, its state and its commerce
+     * installation are all untouched. What is restored is Lynomia's grant, which the merchant
+     * removed through Lynomia's own Connected platforms page and which nothing on this side
+     * could put back -- the claim path refuses a store that already has a workspace, by design.
+     *
+     * The code is used ONLY as proof that the person minting it administers the workspace this
+     * store already names. AccountLinker::reauthorize refuses it if the ids do not match, which
+     * is what makes this incapable of pointing a store at somebody else's workspace.
+     */
+    public function recoverAuthorization(LinkExistingAccountRequest $request): RedirectResponse
+    {
+        /** @var LynomiaStoreLink|null $link */
+        $link = $request->attributes->get(EnsureStoreOwnsLink::ATTRIBUTE);
+
+        if (! $link) {
+            return back()->with('error', __('This store is not connected to Lynomia Chat.'));
+        }
+
+        try {
+            $recovered = $this->linker->reauthorize($link, $request->user(), (string) $request->validated('connection_code'));
+        } catch (LynomiaApiException $e) {
+            return back()->with('error', $this->merchantMessage($e));
+        }
+
+        // WHAT CAME BACK IS THE GRANT, WHICH IS NOT ALWAYS THE WHOLE CONNECTION.
+        //
+        // `reauthorize` deliberately leaves `state` alone -- the arrangement did not change,
+        // only Lynomia's willingness to admit us -- so a link that an operator revoked while
+        // the grant was already missing comes out of this with its grant back and its state
+        // still REVOKED. Every surface goes on refusing it, correctly, which is why no gate is
+        // added here; but telling that merchant their connection "has been restored" is the
+        // same kind of untruth this whole change exists to remove from the page above.
+        return back()->with(
+            'success',
+            $recovered->isActive()
+                ? __('Your Lynomia Chat connection has been restored.')
+                : __('Lynomia Chat accepted the code, but this store\'s connection was ended by support. Please contact support to reopen it.')
+        );
+    }
+
+    /**
      * Redirect into the merchant's Lynomia workspace.
      *
      * The SSO URL is used as a redirect target and nothing else: it is not rendered into the

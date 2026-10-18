@@ -612,7 +612,17 @@ class IntegrationController extends Controller
             return back()->with('error', __('That connection no longer exists.'));
         }
 
-        if (! $model->allowsSso()) {
+        // THE ARRANGEMENT, NOT THE CURRENT AUTHORIZATION, and it must match
+        // `canIssueCommerceCredential()` exactly -- that is the button on this same page, and a
+        // button that is offered by a server that refuses it is worse than no button.
+        //
+        // Minting needs Lynomia for nothing: the credential is derived from the master secret,
+        // the store id and a version. A merchant who removed Store Syria's grant on their
+        // WORKSPACE has not withdrawn anything about their STORE, the credential still verifies
+        // inbound (AuthenticateCommerceApi gates on the same predicate), and an operator may
+        // legitimately need to issue one while a revoked grant is being recovered. The link
+        // state, suspension and revocation all still refuse here.
+        if (! $model->arrangementAllowsSso()) {
             return back()->with('error', __('That workspace connection is not active.'));
         }
 

@@ -198,6 +198,14 @@ Route::middleware(['web', 'auth', 'xss', 'setlocate', 'verified'])->group(functi
                 ->middleware(EnsureStoreOwnsLink::class)
                 ->name('connect.link');
 
+            // RECOVERING A GRANT THE MERCHANT REMOVED ON THE LYNOMIA SIDE. `existing`, because
+            // there is nothing to recover without a link, and the controller reads the account
+            // from that row rather than from anything the request carries -- the code proves who
+            // the merchant is, the row decides which workspace they are allowed to prove it for.
+            Route::post('/connect/recover', [ConnectionController::class, 'recoverAuthorization'])
+                ->middleware(EnsureStoreOwnsLink::class . ':existing')
+                ->name('connect.recover');
+
             // ------------------------------------------------- commerce activation
             //
             // FINISHING THE JOB, WITHOUT A TOKEN CHANGING HANDS. Connecting a workspace and

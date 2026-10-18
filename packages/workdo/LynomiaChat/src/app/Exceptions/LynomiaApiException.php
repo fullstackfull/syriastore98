@@ -152,14 +152,33 @@ class LynomiaApiException extends RuntimeException
         }
 
         return match (true) {
+            // THE GRANT ON ONE WORKSPACE IS GONE, which is a completely different incident from a
+            // bad platform credential and was indistinguishable from it until Lynomia started
+            // sending a code. A bad credential is an operator's problem on this side and breaks
+            // every merchant at once; a revoked grant is ONE merchant's, breaks only them, and
+            // they can recover it themselves in a minute by minting a connection code.
+            //
+            // Measured, not theorised: a merchant removed the Store Syria Integration through
+            // Lynomia's Connected platforms page, every platform call for their workspace began
+            // answering 401, this mapping called it a credential failure, and their store
+            // dashboard went on reporting a healthy connection because nothing recorded the
+            // difference. See docs/integrations/storesyria-lynomia/07-incident-authorization-revoked.md.
+            ($status === 401 || $status === 403) && $errorCode === 'non_permissible_resource' => new self(
+                self::KIND_NOT_PERMISSIBLE,
+                'Lynomia no longer permits this app on that workspace.',
+                $status,
+                null,
+                $errorCode
+            ),
             $status === 401 || $status === 403 => new self(
-                // The Platform API answers 401 for a bad token and, from
-                // validate_platform_app_permissible, "Non permissible resource" for an account
-                // this app was never granted. Both arrive as 401 there, so they cannot be told
-                // apart by status alone -- say so rather than guess.
+                // Anything else on a 401: a token Lynomia does not recognise at all, or an older
+                // Lynomia that predates the codes above. Both are the same thing to act on -- the
+                // credential, not one merchant's grant -- and neither is a merchant's to fix.
                 self::KIND_UNAUTHORIZED,
-                'Lynomia rejected the platform credential, or this app is not permitted on that account.',
-                $status
+                'Lynomia rejected the platform credential.',
+                $status,
+                null,
+                $errorCode
             ),
             $status === 404 && $errorCode === 'subject_not_linked' => new self(
                 self::KIND_SUBJECT_NOT_LINKED,

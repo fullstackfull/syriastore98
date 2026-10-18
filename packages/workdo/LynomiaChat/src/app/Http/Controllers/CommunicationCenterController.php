@@ -13,6 +13,7 @@ use Workdo\LynomiaChat\app\Models\LynomiaStoreIdentity;
 use Workdo\LynomiaChat\app\Support\CommerceState;
 use Workdo\LynomiaChat\app\Support\MerchantContact;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
+use Workdo\LynomiaChat\app\Services\AuthorizationHealth;
 use Workdo\LynomiaChat\app\Services\CommerceCredential;
 use Workdo\LynomiaChat\app\Services\PlatformApiClient;
 
@@ -48,6 +49,11 @@ class CommunicationCenterController extends Controller
             // failed attempt, or coming back a day later, reads the same truth either way --
             // and a half-finished setup can never render as a success, because the state and
             // the buttons both come from the same derivation. See CommerceState.
+            // WHETHER LYNOMIA STILL LETS US IN. Read from the row, not from a live call: this
+            // installation's panels are local on purpose so they do not go blank when the far
+            // side is down. The paths that DO call -- opening the workspace, connecting commerce,
+            // the hourly sweep -- write it down, and this renders what they learned.
+            'authorizationLost' => AuthorizationHealth::lost($link),
             'commerceState' => CommerceState::of($link),
             // WHY THIS IS NOT THE SAME BOOLEAN AS THE ONE ABOVE. `integrationConfigured` answers
             // "could we talk to Lynomia at all" -- enabled, base URL, platform token. Connecting
