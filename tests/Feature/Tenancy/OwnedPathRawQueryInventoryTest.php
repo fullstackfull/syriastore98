@@ -223,7 +223,19 @@ class OwnedPathRawQueryInventoryTest extends TestCase
         // fail-closed behaviour it depends on, not merely that the class exists.
         $guard = (string) file_get_contents(base_path('app/Http/Middleware/OrderDocumentAccessGuard.php'));
 
-        $this->assertStringContainsString('return $storeId === (int) $currentStore;', $guard,
+        // PINNED ON THE COMPARISON, NOT THE WHOLE STATEMENT, and the difference is a lesson this
+        // ratchet taught at its own expense. The original assertion matched
+        // `return $storeId === (int) $currentStore;` verbatim. A later fix (S14, the mixed-session
+        // false denial) reshaped that statement into a ternary so the merchant limb could fall
+        // through to the shopper limb instead of returning its own verdict -- the CONTROL was
+        // untouched and strictly improved, but the exact text vanished and this test went red on
+        // a change that strengthened the thing it guards.
+        //
+        // A ratchet that fails on a safe refactor of the code it protects teaches people to edit
+        // the ratchet, which is how one stops meaning anything. Matching the comparison alone
+        // keeps the real claim -- the order's store IS compared against the caller's -- while
+        // surviving the statement being wrapped, returned early from, or assigned.
+        $this->assertStringContainsString('$storeId === (int) $currentStore', $guard,
             'OrderDocumentAccessGuard no longer compares the order\'s store against the '
             . "caller's, so the raw read in its handle() is now an unscoped cross-tenant fetch "
             . "and the 'comparison' classification above is no longer true.");
