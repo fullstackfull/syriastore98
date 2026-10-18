@@ -385,6 +385,12 @@ class CinetPayController extends Controller
 
             \Session::forget('request_data');
             $customer_id = $requests_data['customer_id'] ?? '';
+            // P01-COMMERCE-SEC-01. The stored state is now the request for the REST of this handler,
+            // not only on the authenticated arm below. See
+            // GuardsGatewayReturn::adoptStoredCheckoutState(): on the GUEST arm the pre-existing
+            // `$request->merge($requests_data)` never ran, so every later `$request->customer_id` was
+            // the posted value -- the order's owner, and the subject of the cart delete.
+            $this->adoptStoredCheckoutState($request, $requests_data);
 
             if (!empty($requests_data['method_id'])) {
 

@@ -122,6 +122,46 @@ trait GuardsGatewayReturn
         return $state;
     }
 
+    /**
+     * Make the stored checkout state the request, for the whole handler.
+     *
+     * WHY THIS IS A SECOND GUARD AND NOT A TIDY-UP. storedCheckoutState() decides WHICH array the
+     * handler reads. It does not stop the handler reading `$request->x` instead, and five of these
+     * handlers do -- on one branch only. Each splits on
+     *
+     *     if (! auth('customers')->user()) { ...guest... }
+     *     elseif (! empty($customer_id))  { ...$request->merge($requests_data); ... }
+     *
+     * so the merge that reconciles the two runs for an AUTHENTICATED shopper and never for a
+     * guest. On the guest arm every later `$request->customer_id` is the POSTED value: it becomes
+     * `$order->customer_id`, the `product_order_id`, the UserCoupon owner, and the subject of
+     * `Cart::where('customer_id', $request->customer_id)->delete()`.
+     *
+     * The stored-state guard cannot close that, because the attacker is a real guest with real
+     * stored state -- they add one field to the return they were already making. Measured, before
+     * this method existed: a guest return posting `customer_id=<victim>` wrote an order OWNED BY
+     * THE VICTIM on cinetpay and easebuzz, and emptied the victim's basket on cinetpay,
+     * easebuzz and khalti.
+     *
+     * WHY IT ALSO PINS customer_id SEPARATELY. `Request::merge()` can only overwrite a key the
+     * stored state actually carries, and a guest state frequently carries no `customer_id` at all
+     * -- there was no customer to record one for. Merging alone would therefore leave the posted
+     * id standing in exactly the case that matters. Pinning it to `$state['customer_id'] ?? ''`
+     * makes the absent case explicit: empty, which every one of these handlers already reads as
+     * "a guest" (`!empty($request->customer_id) ? ... : 0`).
+     *
+     * WHAT IT DOES NOT TOUCH. merge() only replaces keys the state holds. The gateway's own return
+     * fields -- token, status, responsecode, transaction ids -- are not in the state, because the
+     * state was captured at initiation, before the gateway answered; nor are the card fields
+     * AuthorizeNet's form collects. All of those survive untouched, which is why this is safe to
+     * apply unconditionally on a live checkout.
+     */
+    protected function adoptStoredCheckoutState(Request $request, array $state): void
+    {
+        $request->merge($state);
+        $request->merge(['customer_id' => $state['customer_id'] ?? '']);
+    }
+
     /** @var \App\Services\PaymentVerificationService|null */
     private $gatewayReturnVerifier;
 

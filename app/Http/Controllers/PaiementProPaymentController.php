@@ -258,6 +258,12 @@ class PaiementProPaymentController extends Controller
 
             Session::forget('request_data');
             $customer_id = $requests_data['customer_id'] ?? '';
+            // P01-COMMERCE-SEC-01. The stored state is now the request for the REST of this handler,
+            // not only on the authenticated arm below. See
+            // GuardsGatewayReturn::adoptStoredCheckoutState(): on the GUEST arm the pre-existing
+            // `$request->merge($requests_data)` never ran, so every later `$request->customer_id` was
+            // the posted value -- the order's owner, and the subject of the cart delete.
+            $this->adoptStoredCheckoutState($request, $requests_data);
 
             if(!empty($requests_data['method_id'])){
 
@@ -634,6 +640,16 @@ class PaiementProPaymentController extends Controller
                 }
             }
             if (isset($request->customer_id) && !empty($request->customer_id)) {
+                // P01-COMMERCE-SEC-01, EXAMINED AND DELIBERATELY LEFT AS IS. This delete carries no
+                // store predicate, unlike the per-line delete above it, so on its face an order in this
+                // store empties the same shopper's basket in every other store. Adding
+                // ->where('store_id', $store->id) was tried and REVERTED because it could not be shown
+                // to change any outcome: Cart is in config/tenancy.php's scoped_models, and on both
+                // principals that reach this line -- an authenticated customer and a cookie guest -- a
+                // tenant resolves, so StoreScope already adds the predicate. Measured both ways: the
+                // other store's rows survive with and without it. It is recorded as a residual rather
+                // than shipped unproven, because null_tenant is 'open': a principal that resolved NO
+                // tenant would get no predicate from either source. See the package report.
                 Cart::where('customer_id', $request->customer_id)->delete();
             }
             // Order stock decrease end

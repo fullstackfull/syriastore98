@@ -112,6 +112,41 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
         return $routes;
     }
 
+    /**
+     * The returns whose ORDER WRITER is reachable in this environment, via the guest cart cookie.
+     *
+     * This is the only provider here that gets past the cart fetch to `new Order()`, and it is
+     * what makes the identity test below non-vacuous. The guest branch of each handler reads its
+     * basket from `Cart::cart_list_cookie()`, i.e. `Cart::where('cookie_session_id',
+     * Cookie::get('cart'))` (app/Models/Cart.php:198-208) -- not from the authenticated
+     * customer -- so seeding a row with a `cookie_session_id` and sending the matching (encrypted)
+     * `cart` cookie drives a genuine guest checkout all the way to the write.
+     *
+     * EXCLUDED, with reasons:
+     *   - authorizenet: fatals at "Undefined variable $requestNet" (:332) because the SDK setup
+     *     throws into an empty `catch (\Exception $e) {}` (:298-299), so it never reaches the
+     *     writer here. It carries the same code shape and the same fix; that fix is NOT verified
+     *     by execution and is recorded as a blocker in the report.
+     *   - storefront-return: PaymentController::getProductStatus merges the stored state
+     *     unconditionally and so never had this defect; it is covered by the four tests above.
+     *
+     * paiementpro is deliberately INCLUDED although it was already fixed in 8a981bb0 (its
+     * `$request->merge($requests_data)` sits above the branch, at :255). It is the POSITIVE
+     * CONTROL: it passed this test before the fix in this commit and after it, which is what shows
+     * the test is reading the identity and not merely "the handler did nothing".
+     *
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function guestWriterRoutes(): array
+    {
+        return [
+            'khalti' => ['{slug}/order-khalti', 'post'],
+            'paiementpro' => ['{slug}/get-payment-paiementpro', 'post'],
+            'cinetpay' => ['{slug}/get-payment-cinetPay', 'post'],
+            'easebuzz' => ['{slug}/get-payment-easebuzz', 'post'],
+        ];
+    }
+
     private function tenant(): array
     {
         [$merchant, $store] = $this->makeTenant();
@@ -448,5 +483,141 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
         $this->assertStringNotContainsString($refusal, (string) session('error'),
             'With server-stored state present the guard still refused, so it blocks legitimate '
             . 'returns as well as forged ones. Session error was: ' . json_encode(session('error')));
+    }
+
+    // =====================================================================================
+    //  THE IDENTITY ON THE RETURN
+    // =====================================================================================
+
+    /**
+     * A GUEST RETURN CANNOT BE CLAIMED FOR ANOTHER CUSTOMER, AND CANNOT EMPTY THEIR BASKET.
+     *
+     * THE DEFECT, separate from the stored-state one and not closed by it. Each handler splits on
+     * `if (!auth('customers')->user()) { ... } elseif (!empty($customer_id)) { ... }` and
+     * `$request->merge($requests_data)` sits inside the SECOND arm only
+     * (KhaltiPaymnetController.php:306, CinetPayController.php:472, EasebuzzController.php:347,
+     * AuthorizeNetPaymnetController.php:409). So on the GUEST arm the request is never overwritten
+     * by the stored state, and every `$request->customer_id` read further down is the POSTED
+     * value: the order's owner (`$order->customer_id`), its `product_order_id`, its UserCoupon
+     * row, and -- worst -- `Cart::where('customer_id', $request->customer_id)->delete()`.
+     *
+     * The stored-state guard does not close this. A guest doing a real checkout HAS valid stored
+     * state; they simply add `customer_id=<victim>` to the return they are already making.
+     *
+     * MEASURED BEFORE THE FIX, by this fixture: cinetpay and easebuzz wrote an order owned by the
+     * victim AND emptied the victim's cart in both stores; khalti emptied the victim's cart in
+     * both stores. paiementpro did neither, because its merge is above the branch.
+     *
+     * @dataProvider guestWriterRoutes
+     */
+    public function test_a_guest_return_cannot_be_claimed_for_another_customer(string $uri, string $method): void
+    {
+        [, $store] = $this->tenant();
+        [, $otherStore] = $this->tenant();
+        $victim = $this->customerIn($store, 'claimvictim');
+        $product = $this->productIn($store, 100.00, 50);
+        $otherProduct = $this->productIn($otherStore, 70.00, 50);
+
+        // The guest's own basket, found by cookie -- this is what makes the checkout genuine.
+        $sid = 'cookie-' . uniqid();
+        Cart::forceCreate([
+            'customer_id' => 0, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+            'cookie_session_id' => $sid,
+        ]);
+
+        // The victim's baskets: one in this store, one in a DIFFERENT store. The second is what
+        // the missing store predicate on the delete reaches.
+        Cart::forceCreate([
+            'customer_id' => $victim->id, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 2, 'price' => 100.00, 'store_id' => $store->id,
+        ]);
+        Cart::forceCreate([
+            'customer_id' => $victim->id, 'product_id' => $otherProduct->id, 'variant_id' => 0,
+            'qty' => 3, 'price' => 70.00, 'store_id' => $otherStore->id,
+        ]);
+
+        $state = $this->forgedCheckoutState($store, '');   // a GUEST state: no customer_id
+
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state, 'easebuzz_request_data' => $state])
+            ->{$method}('/' . str_replace('{slug}', $store->slug, $uri), [
+                'responsecode' => 0,
+                'status' => 'success',
+                'customer_id' => $victim->id,      // the whole attack
+            ]);
+
+        $this->assertSame(0, (int) DB::table('orders')->where('customer_id', $victim->id)->count(),
+            "A guest return was recorded as another customer's order by posting their id.");
+
+        $this->assertSame(1, (int) DB::table('carts')
+            ->where('customer_id', $victim->id)->where('store_id', $store->id)->count(),
+            "A guest return emptied another customer's basket in this store.");
+
+        // STATED HONESTLY: this row survives because the identity pin above stops the delete
+        // running at all, NOT because the delete is store-scoped -- it is not. A store predicate
+        // was tried here and REVERTED: removing it changes nothing on either principal that
+        // reaches the line, because Cart's StoreScope already supplies one. Measured both ways.
+        // So this assertion is a "nothing else was destroyed" check and is NOT evidence for a
+        // store predicate; the unscoped delete is recorded as a residual in the package report.
+        $this->assertSame(1, (int) DB::table('carts')
+            ->where('customer_id', $victim->id)->where('store_id', $otherStore->id)->count(),
+            'A guest return destroyed cart rows outside the store it was placed in.');
+    }
+
+    /**
+     * THE POSITIVE CONTROL: a legitimate guest return STILL WRITES ITS ORDER.
+     *
+     * Without this, every refusal above could be satisfied by a handler that refuses everything.
+     * This is the brief's "normal checkout / genuine completion" case, as far as it can honestly
+     * be driven here: the stored state is the server's, the basket is the guest's own cookie
+     * basket, nothing is forged -- and an order is written, owned by nobody (customer_id 0,
+     * is_guest 1), for the SERVER's price.
+     *
+     * It is asserted on paiementpro alone, and that is a finding rather than a choice. Of the six,
+     * it is the only one that reaches `new Order()` in this environment without a live gateway:
+     * khalti stops at `$khalti->verifyPayment()` (:590), authorizenet fatals at :332, cinetpay and
+     * easebuzz reach the writer but only after their own response checks, and
+     * PaymentController::getProductStatus stops earlier still. What this test therefore proves is
+     * that the guards added in this package do not block a legitimate return; it does not prove
+     * any gateway verified a payment, which none of them does -- see the report.
+     */
+    public function test_a_legitimate_guest_return_still_writes_its_order(): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store, 100.00, 50);
+
+        $sid = 'cookie-' . uniqid();
+        Cart::forceCreate([
+            'customer_id' => 0, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+            'cookie_session_id' => $sid,
+        ]);
+
+        $state = $this->forgedCheckoutState($store, '', ['payment_type' => 'paiementpro']);
+        $before = self::orderCount();
+
+        session()->forget('error');
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state])
+            ->post('/' . $store->slug . '/get-payment-paiementpro', [
+                'responsecode' => 0, 'status' => 'success',
+            ]);
+
+        $this->assertStringNotContainsString(self::REFUSAL, (string) session('error'),
+            'A legitimate guest return was refused by one of this package\'s guards. Session '
+            . 'error was: ' . json_encode(session('error')));
+
+        $this->assertSame($before + 1, self::orderCount(),
+            'A legitimate guest return wrote no order, so every refusal asserted above could be '
+            . 'satisfied by a handler that refuses everything.');
+
+        $order = DB::table('orders')->orderByDesc('id')->first();
+        $this->assertSame(0, (int) $order->customer_id, 'A guest order acquired an owner.');
+        $this->assertSame(1, (int) $order->is_guest, 'A guest order was not marked as a guest order.');
+        $this->assertSame(100.00, round((float) $order->final_price, 2),
+            "The order did not carry the SERVER's price for the guest's own basket.");
+        $this->assertSame(49, (int) Product::withoutGlobalScopes()->find($product->id)->product_stock,
+            'A completed order did not consume its stock.');
     }
 }
