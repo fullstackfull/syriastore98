@@ -880,4 +880,155 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
             "The payable moved as well, which would make this a payable manipulation and not "
             . 'only a shipping-price one.');
     }
+
+    // =====================================================================================
+    //  THE OTHER LEG: WHAT THE SERVER ITSELF WAS TALKED INTO COMPUTING
+    // =====================================================================================
+
+    /**
+     * A SHIPPING METHOD CANNOT PRICE A CHECKOUT IT DOES NOT BELONG TO, AND CANNOT PRICE IT BELOW ZERO.
+     *
+     * THIS IS THE DEFECT EVERY OTHER TEST IN THIS FILE WAS STRUCTURALLY UNABLE TO SEE, and it was
+     * the most serious one. All of them attack the RETURN. This one attacks the INITIATION, one leg
+     * earlier, and then lets the return behave perfectly.
+     *
+     * The chain, entirely server-side after the first request:
+     *
+     *   POST {slug}/process-order with a method_id
+     *     -> PaymentController::processShipping() (:1689, gated only on !empty($request->method_id))
+     *     -> CartController::get_shipping_method() -> ShippingMethod::find($request->method_id)
+     *        -- which had NO store predicate, and ShippingMethod is not in scoped_models
+     *     -> for 'Local pickup' the merchant's `cost` column is used VERBATIM
+     *     -> PaymentController::prepareFinalRequestData() writes it to the state as
+     *        shipping_final_price AND FOLDS IT INTO cartlist_final_price (:1721,
+     *        $cartlist_final_price + $delivery_price + $tax_price) -- the payable
+     *     -> the gateway return reads the state, as it is supposed to, and writes the order
+     *
+     * So the browser never has to post a money field on the return at all. Every guard in this
+     * package stands aside correctly, because the stored state really IS the server's. The server
+     * had been talked into computing a poisoned figure one leg earlier. `cost` is a
+     * merchant-controlled string column that ShippingMethodController::update() writes with no
+     * validation, so a negative one needs no exotic access -- any merchant on the platform can
+     * publish one, and the method did not even have to be theirs.
+     *
+     * MEASURED before the fix, both legs driven through the real routes:
+     *   step 1, posting ONLY method_id=<store B's 'Local pickup', cost '-50'>:
+     *           state shipping_final_price '-50', cartlist_final_price 50.0
+     *   step 2, posting NO money fields:
+     *           orders.product_price 100.0, orders.final_price 50.0
+     * For AuthorizeNet the same cartlist_final_price is what
+     * GuardsGatewayReturn::serverPayableAmount() hands to the card capture, so this is the amount
+     * charged, not merely the amount recorded.
+     *
+     * TWO GUARDS, AND EACH PROVIDER BELOW ISOLATES ONE OF THEM:
+     *   'foreign positive'  -- another store's method at cost 500. The FLOOR cannot catch this
+     *                          (500 is positive); only the store predicate can. Free-or-cheap
+     *                          shipping, or an inflated charge, from any tenant's price list.
+     *   'foreign negative'  -- another store's method at cost -50. Either guard catches it; this
+     *                          is the measured attack above.
+     *   'own negative'      -- THIS store's own method at cost -50. The store predicate cannot
+     *                          catch this; only the floor can.
+     *
+     * @dataProvider foreignShippingMethods
+     */
+    public function test_a_shipping_method_cannot_price_a_checkout_it_does_not_own(
+        string $label,
+        bool $foreign,
+        string $cost
+    ): void {
+        [, $store] = $this->tenant();
+        [, $otherStore] = $this->tenant();
+        $product = $this->productIn($store, 100.00, 50);
+
+        DB::table('plans')->update(['shipping_method' => 'on']);
+
+        $owner = $foreign ? $otherStore : $store;
+        $zoneId = DB::table('shipping_zones')->insertGetId([
+            'zone_name' => 'z-' . uniqid(), 'shipping_method' => 'Local pickup',
+            'store_id' => $owner->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $methodId = DB::table('shipping_methods')->insertGetId([
+            'method_name' => 'Local pickup', 'zone_id' => $zoneId, 'cost' => $cost,
+            'calculation_type' => 1, 'store_id' => $owner->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $sid = 'cookie-' . uniqid();
+        Cart::forceCreate([
+            'customer_id' => 0, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+            'cookie_session_id' => $sid,
+        ]);
+
+        // ---- LEG 1: initiation. The ONLY attacker input is method_id. ----
+        $this->withCookie('cart', $sid)->post('/' . $store->slug . '/process-order', [
+            'payment_type' => 'Paiementpro',
+            'billing_info' => $this->guestBilling(),
+            'method_id' => $methodId,
+        ]);
+
+        $state = session('request_data');
+
+        $this->assertIsArray($state,
+            'Initiation stored no checkout state, so leg 2 below would prove nothing. '
+            . 'Set: ' . $label . '. Session error: ' . json_encode(session('error')));
+
+        $this->assertGreaterThanOrEqual(0, (float) ($state['shipping_final_price'] ?? 0),
+            "The server computed a NEGATIVE shipping charge into its own checkout state ("
+            . $label . '). Value: ' . var_export($state['shipping_final_price'] ?? null, true));
+
+        $this->assertSame(100.00, round((float) ($state['cartlist_final_price'] ?? 0), 2),
+            'The server folded a foreign or negative shipping charge into the PAYABLE it stored ('
+            . $label . '). Value: ' . var_export($state['cartlist_final_price'] ?? null, true)
+            . ' -- the basket is 100.00 of goods with no shipping this store sold.');
+
+        // ---- LEG 2: the return, behaving perfectly. NO money fields posted. ----
+        $before = self::orderCount();
+
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state])
+            ->post('/' . $store->slug . '/get-payment-paiementpro',
+                ['responsecode' => 0, 'status' => 'success']);
+
+        $this->assertSame($before + 1, self::orderCount(),
+            'The return wrote no order, so the assertions below would be vacuous. Set: ' . $label);
+
+        $order = DB::table('orders')->orderByDesc('id')->first();
+
+        $this->assertSame(100.00, round((float) $order->final_price, 2),
+            'The order was priced by a shipping method this store does not sell, or below zero ('
+            . $label . '). final_price=' . var_export($order->final_price, true)
+            . ' product_price=' . var_export($order->product_price, true));
+        $this->assertGreaterThanOrEqual(0, (float) $order->delivery_price,
+            'A negative shipping price reached orders.delivery_price (' . $label . ').');
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: bool, 2: string}>  label => [label, foreign?, cost]
+     */
+    public static function foreignShippingMethods(): array
+    {
+        return [
+            // isolates the STORE PREDICATE -- the floor cannot catch a positive cost
+            'foreign positive' => ['foreign positive', true, '500'],
+            // either guard catches this one; it is the measured attack
+            'foreign negative' => ['foreign negative', true, '-50'],
+            // isolates the FLOOR -- the store predicate cannot catch this store's own method
+            'own negative' => ['own negative', false, '-50'],
+        ];
+    }
+
+    /** The billing block the guest checkout form posts, with FK-valid geo ids. */
+    private function guestBilling(): array
+    {
+        return [
+            'firstname' => 'A', 'lastname' => 'B',
+            'email' => 'guest-' . uniqid() . '@example.test',
+            'billing_user_telephone' => '123', 'billing_address' => 'x',
+            'billing_postecode' => '1', 'billing_country' => '101',
+            'billing_state' => '1', 'billing_city' => '1', 'billing_company_name' => '',
+            'delivery_address' => 'x', 'delivery_postcode' => '1',
+            'delivery_country' => '101', 'delivery_state' => '1', 'delivery_city' => '1',
+        ];
+    }
 }

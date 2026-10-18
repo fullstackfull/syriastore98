@@ -430,7 +430,34 @@ class CartController extends Controller
     public function get_shipping_method(Request $request, $slug)
     {
         $store = getStore($slug);
-        $shippingMethods = ShippingMethod::find($request->method_id);
+        /*
+         * P01-COMMERCE-SEC-01. STORE-SCOPED. This was `ShippingMethod::find($request->method_id)`
+         * -- no store predicate, and ShippingMethod is NOT in config/tenancy.php's scoped_models,
+         * so the global scope adds none either. `method_id` is caller-supplied at BOTH legs of a
+         * checkout, so any shopper could apply ANY tenant's shipping method, at that tenant's
+         * cost, to their own order.
+         *
+         * `cost` is a merchant-controlled string column written with no validation by
+         * ShippingMethodController::update(), so a merchant can publish a NEGATIVE one. MEASURED,
+         * before this change: posting only `method_id=<store B's 'Local pickup', cost '-50'>` to
+         * {slug}/process-order produced a SERVER-COMPUTED checkout state carrying
+         * shipping_final_price '-50' and cartlist_final_price 50.0 -- the payable -- and the
+         * following gateway return, posting no money fields at all, wrote an order with
+         * product_price 100.0 and final_price 50.0. For AuthorizeNet the same figure is the amount
+         * captured from the card (GuardsGatewayReturn::serverPayableAmount()).
+         *
+         * This is why the gateway-return guards could not see it: the state really was the
+         * server's. The server had computed a poisoned figure one leg earlier.
+         *
+         * A NULL store_id is still accepted. The column is nullable and legacy rows may not carry
+         * it; refusing those would hide a merchant's own shipping method, which is a broken
+         * storefront rather than a fix. What is refused is a method belonging to a DIFFERENT store.
+         */
+        $shippingMethods = ShippingMethod::where('id', $request->method_id)
+            ->where(function ($q) use ($store) {
+                $q->where('store_id', $store->id ?? 0)->orWhereNull('store_id');
+            })
+            ->first();
         if (auth('customers')->guest()) {
             $response = Cart::cart_list_cookie($request->all(), $store->id);
             $response = json_decode(json_encode($response));
@@ -490,6 +517,28 @@ foreach ($response->data->product_list as $item) {
 
                 $total_shipping_price = $shipping_final_price;
             }
+
+            /*
+             * P01-COMMERCE-SEC-01. A SHIPPING CHARGE IS NEVER NEGATIVE.
+             *
+             * Every branch above multiplies or copies `$shippingMethods->cost`, which is a
+             * merchant-controlled string column written with no validation. A negative one does
+             * not merely zero the shipping -- it is SUBTRACTED from the payable, because
+             * PaymentController::prepareFinalRequestData() folds the delivery price into
+             * `cartlist_final_price` and Cart::cart_list_cookie() adds it into `total_sub_price`.
+             * So a negative charge is a discount on the goods, and on the card capture.
+             *
+             * The floor is applied here rather than at the six call sites because this method is
+             * the single chokepoint they all share: PaymentController::processShipping() at
+             * initiation, the five gateway returns, and PaymentController::getProductStatus().
+             * It cannot refuse a legitimate charge, since no legitimate charge is below zero.
+             */
+            foreach (['cost_totle', 'shipping_final_price', 'total_shipping_price'] as $moneyVar) {
+                if (isset($$moneyVar) && is_numeric($$moneyVar) && $$moneyVar < 0) {
+                    $$moneyVar = 0;
+                }
+            }
+
             $product_digital_id = $product_digital_not_id = [];
             foreach ($response->data->product_list as $item) {
                 $products_datas = Product::find($item->product_id);
