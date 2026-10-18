@@ -305,6 +305,21 @@ class AccountLinker
                 'actor_id' => (int) $actor->id,
             ]);
 
+            // THE REDEMPTION ALREADY HAPPENED, SO "NOTHING WAS WRITTEN" IS ONLY TRUE LOCALLY.
+            //
+            // redeemLinkCode burned the code upstream AND created this app's permissible on the
+            // workspace it proved. Refusing here without disposing of it leaves exactly what
+            // request() calls "the orphaned access this flow exists to prevent": a standing grant
+            // on a workspace no row in this database references, which nothing will ever hand
+            // back because nothing can find it. Reached without an attack -- a merchant with two
+            // stores pasting store A's code into store B's recovery form.
+            //
+            // `IfUnreferenced` is the whole safety of doing it here: if any link still names that
+            // workspace it belongs to a store that did nothing wrong, and revoking it would break
+            // their SSO. Best-effort by design -- a failed hand-back logs and does not turn the
+            // merchant's refusal into a 500.
+            $this->handBackGrantIfUnreferenced((int) ($proof['account_id'] ?? 0));
+
             throw new LynomiaApiException(
                 LynomiaApiException::KIND_CONFLICT,
                 __('That code is for a different Lynomia Chat workspace. Generate the code inside the workspace this store is already connected to.')
@@ -313,12 +328,48 @@ class AccountLinker
 
         // The grant is back. Record who vouched for it and that we are permitted again; the
         // workspace, its id, its state and its commerce installation are untouched.
-        $link->forceFill([
+        $attributes = [
             'lynomia_user_id' => $proof['authorized_by_user_id'] ?? $link->lynomia_user_id,
             'lynomia_account_name' => $proof['account_name'] ?? $link->lynomia_account_name,
-            'last_error' => null,
             'last_synced_at' => now(),
-        ])->save();
+        ];
+
+        // `last_error` IS ONLY OURS TO CLEAR WHEN THE ARRANGEMENT IS INTACT.
+        //
+        // On an ACTIVE row the only thing that can have written it is a failure of the very
+        // thing just fixed, so clearing it is the honest record. On any other state it holds an
+        // OPERATOR's reason for ending the arrangement -- InstallationLifecycle::move writes the
+        // suspend/decommission reason there (480 chars) and revoke() writes the revocation
+        // reason -- and a merchant restoring a grant has not answered any of that. Nulling it
+        // would let a merchant-initiated action erase an operator's record from the row; the
+        // audit rows keep a copy, but truncated to 200 characters, so it is not a clean restore.
+        if ($link->isActive()) {
+            $attributes['last_error'] = null;
+        }
+
+        $link->forceFill($attributes)->save();
+
+        // THE GRANT THAT CAME BACK IS THE ACCOUNT'S, AND THAT IS NOT THE WHOLE OF WHAT WAS LOST.
+        //
+        // Lynomia's revoke destroys the per-USER permissibles alongside the account's
+        // (Integrations::AccountGrants#release_unneeded_user_grants), and redeeming a code
+        // restores only the account one -- deliberately, because granting the authorizing
+        // administrator's own identity would hand this app an UNSCOPED session for a person who
+        // consented to one workspace (account_links_controller.rb says so at length).
+        //
+        // So the stale `lynomia_store_identities` rows are the problem: they name Lynomia users
+        // this app no longer holds, IdentityProvisioner resolves them, skips creation, and
+        // `GET /platform/api/v1/users/:id/login` answers 401 because that route checks the
+        // permissible on the USER, not just the account. The merchant would be told their
+        // connection was restored and then be unable to open their inbox -- and the next failure
+        // would re-light the banner, so the recovery loops.
+        //
+        // handBackGrant has forgotten the workspace for this exact reason since it was written:
+        // "a later re-link to the same workspace resolves them, skips creation, and fails at the
+        // SSO call with an authorization error the merchant can do nothing about." The next SSO
+        // mints fresh identities through POST /platform/api/v1/users, which re-grants the
+        // permissible on each person as it resolves them.
+        $this->identities->forgetWorkspace((int) $link->lynomia_account_id);
 
         AuthorizationHealth::clear($link);
 

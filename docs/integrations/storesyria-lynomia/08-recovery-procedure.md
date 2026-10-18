@@ -127,8 +127,20 @@ What `reauthorize` does, in order:
 
 - Writes, Lynomia side: one `platform_app_permissibles` row (account 135 ← app 4), the user grant
   for the authorizing administrator, audit `integrations.account_link.granted`.
-- Writes, Store Syria side: the four fields above on `lynomia_store_links` for store 26. **The
-  state, the account id, the link mode and the Commerce installation are not touched.**
+- Writes, Store Syria side: the fields above on `lynomia_store_links` for store 26, and it
+  **deletes this workspace's `lynomia_store_identities` rows**. **The state, the account id, the
+  link mode and the Commerce installation are not touched.**
+- Why the identities go: Lynomia's revoke destroyed the per-**user** permissibles along with the
+  account's, and redeeming a code restores only the account one — deliberately, since granting the
+  authorizing administrator's own identity would hand the app an unscoped session for them. The
+  stale rows name Lynomia users the app no longer holds, and
+  `GET /platform/api/v1/users/:id/login` checks the permissible on the **user**. Left in place they
+  make SSO keep answering 401 after a "restored" connection, and the next failure re-lights the
+  banner — a recovery that loops. Forgetting them makes the next sign-in mint fresh identities,
+  which is what re-grants the per-user permissible. The merchant sees nothing of this; their team
+  list and roles are rebuilt as people sign in.
+- Verify this specifically: after the banner clears, **open the workspace**. A successful redirect
+  is the proof the user grants are back; a cleared banner alone is not.
 - Verify: the banner is gone, the workspace card reads connected, and
   `php artisan lynomia:reconcile-commerce --dry-run` no longer prints a `(not_permissible)` line
   for store 26.
@@ -216,14 +228,22 @@ account the app does not currently hold a permissible on, which is exactly the a
 before recovery.
 
 ```
-bundle exec rake 'ops:adopt_provisioned_workspaces[4,store_syria_store_id]'          # dry run, writes nothing
-bundle exec rake 'ops:adopt_provisioned_workspaces[4,store_syria_store_id,commit]'   # writes
+bundle exec rake 'ops:adopt_provisioned_workspaces[4,store_syria_store_id,135]'          # dry run, writes nothing
+bundle exec rake 'ops:adopt_provisioned_workspaces[4,store_syria_store_id,135,commit]'   # writes
 ```
 
-Read the dry-run output line by line before committing. It lists every account it would adopt with
-the marker value it is relying on, and every account it is skipping with the reason. It refuses an
-account that already names a provisioning app — including a different one, which is a conflict for
-a person to look at rather than something to overwrite.
+**The account list is required**, and that is the security property rather than a convenience: the
+marker it corroborates against lives in `custom_attributes`, which the Platform API lets an app
+write on any account it holds, so a run that *selected* on the marker could be made to adopt a
+grant a merchant had merely invited. Naming `135` means nothing else can ride along. Several
+accounts are separated with `+` (`135+208`).
+
+Read the dry-run output line by line before committing. For each account it prints the marker value
+it is relying on, when the account and the grant were created, and whether a code redemption is
+recorded against this app — which this very procedure produces at step 2, so it is information for
+you and not a refusal. Accounts it skips are listed with the reason; it refuses one that already
+names a provisioning app (including a different one — a conflict for a person to look at), one the
+app holds no live grant on, and the installation's own platform workspace.
 
 - Writes: `accounts.provisioned_by_platform_app_id = 4`, one `Custom::AuditLog` row per account
   (`integrations.account_link.adopted_as_managed`) recording the marker it inferred from.
@@ -249,6 +269,13 @@ unrevocable connection.
 | 4 retire legacy Commerce | status, credentials, customer links | reconnect in account 1; **customer links are not recoverable** | partially |
 | 5 merchant reconnects | new `commerce_stores` row under 135 | merchant disconnects; account 1's row is gone | partially |
 | 6 adopt as managed | one column, one audit row | set the column back to NULL | yes |
+
+An operator who needs to **end** a managed connection (rather than record one) has
+`rake 'ops:revoke_managed_connection[4,135]'` on the Lynomia side — dry run by default. It calls
+the same `revoke` the source platform's own hand-back calls, so it releases the user grants, sweeps
+outstanding SSO links and writes the same audit row. It deliberately leaves
+`provisioned_by_platform_app_id` alone: that records that this app created the workspace, which
+stays true after the grant is gone.
 
 ## 7. What this procedure will not do
 

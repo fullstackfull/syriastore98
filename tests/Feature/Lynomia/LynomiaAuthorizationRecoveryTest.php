@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 use Workdo\LynomiaChat\app\Exceptions\LynomiaApiException;
 use Workdo\LynomiaChat\app\Http\Controllers\SuperAdmin\IntegrationController;
+use Workdo\LynomiaChat\app\Models\LynomiaStoreIdentity;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\AccountLinker;
 use Workdo\LynomiaChat\app\Services\AccountProvisioner;
@@ -344,6 +345,170 @@ class LynomiaAuthorizationRecoveryTest extends TestCase
         $this->assertFalse($link->fresh()->arrangementAllowsSso());
     }
 
+    /**
+     * A MERCHANT'S RECOVERY DOES NOT ERASE AN OPERATOR'S RECORD.
+     *
+     * `last_error` on this row is written by operator-owned transitions --
+     * InstallationLifecycle::move puts the suspend/decommission reason there, and revoke() puts
+     * the revocation reason there, both up to 480 characters. A merchant restoring a GRANT has
+     * answered none of that, so recovery clears the field only on an ACTIVE row, where the only
+     * thing that can have written it is a failure of the very thing just fixed.
+     *
+     * The audit rows do keep a copy of the reason, but truncated to 200 characters, so letting a
+     * merchant action null the column is not a clean restore.
+     */
+    public function test_recovery_does_not_clear_an_operators_reason_on_a_revoked_link(): void
+    {
+        [$owner, , $link] = $this->activeLink();
+        $reason = 'Ended by support after the 2026-10 billing dispute; see ticket SS-4417.';
+        $link->fresh()->forceFill([
+            'authorization_lost_at' => now(),
+            'state' => LinkState::REVOKED,
+            'last_error' => $reason,
+        ])->save();
+
+        $response = $this->actingAs($owner)->post('/lynomia/connect/recover', [
+            'connection_code' => 'ABCDEFGHJKLMNPQR',
+        ]);
+
+        $response->assertSessionHas('success');
+        $this->assertFalse(AuthorizationHealth::lost($link->fresh()), 'the grant did come back');
+        $this->assertSame($reason, $link->fresh()->last_error, "the operator's reason was erased");
+    }
+
+    /** On an ACTIVE row it IS ours to clear: nothing but the restored grant can have written it. */
+    public function test_recovery_clears_the_stale_error_on_an_active_link(): void
+    {
+        [$owner, , $link] = $this->activeLink();
+        $link->fresh()->forceFill([
+            'authorization_lost_at' => now(),
+            'last_error' => 'kind_not_permissible',
+        ])->save();
+
+        $this->actingAs($owner)->post('/lynomia/connect/recover', [
+            'connection_code' => 'ABCDEFGHJKLMNPQR',
+        ])->assertSessionHas('success');
+
+        $this->assertNull($link->fresh()->last_error);
+    }
+
+    /**
+     * A REFUSED RECOVERY DOES NOT LEAVE A GRANT NOBODY CAN SEE.
+     *
+     * `redeemLinkCode` burns the code upstream AND creates this app's permissible on the
+     * workspace it proves -- so by the time the cross-tenant guard refuses, Lynomia has already
+     * granted access to a workspace that no row in this database references. Nothing would ever
+     * hand it back, because nothing could find it. `request()` has disposed of exactly this case
+     * since it was written ("the orphaned access this flow exists to prevent"); recovery did not.
+     *
+     * Reached without an attack: one merchant, two stores, store A's code pasted into store B's
+     * recovery form.
+     */
+    public function test_a_refused_recovery_hands_back_the_grant_it_accidentally_created(): void
+    {
+        [$owner, , $link] = $this->activeLink();
+        $link->fresh()->forceFill(['authorization_lost_at' => now()])->save();
+
+        // Lynomia honours the code and answers with the workspace it really proves: another one.
+        $this->fakeLynomia(['account_id' => self::ACCOUNT, 'link_account_id' => 9999]);
+
+        $response = $this->actingAs($owner)->post('/lynomia/connect/recover', [
+            'connection_code' => 'ABCDEFGHJKLMNPQR',
+        ]);
+
+        $response->assertSessionHas('error');
+        $this->assertSame(self::ACCOUNT, (int) $link->fresh()->lynomia_account_id, 'the store was repointed');
+
+        // The grant on 9999 is handed back, because nothing here references that workspace.
+        $this->assertSame(1, $this->sentCount('DELETE', '/account_links/9999'),
+            'the accidental grant on the other workspace was left standing');
+    }
+
+    /**
+     * ...BUT IT DOES NOT TOUCH A WORKSPACE SOMEBODY ELSE IS STANDING ON.
+     *
+     * If another store's link already names that workspace, the grant is not something the
+     * redemption just created -- it is what that store's working connection runs on. Handing it
+     * back would break an innocent merchant's SSO and hide their workspace from the recovery
+     * lookup, which is a worse outcome than the orphan.
+     */
+    public function test_a_refused_recovery_leaves_another_stores_workspace_alone(): void
+    {
+        [$ownerA, , $linkA] = $this->activeLink();
+        $linkA->fresh()->forceFill(['authorization_lost_at' => now()])->save();
+
+        // A second tenant with a live link on workspace 9999.
+        $ownerB = $this->merchant();
+        $storeB = $this->storeFor($ownerB);
+        $this->entitle($ownerB);
+        LynomiaStoreLink::create([
+            'store_id' => (int) $storeB->id,
+            'owner_user_id' => (int) $ownerB->creatorId(),
+            'lynomia_account_id' => 9999,
+            'state' => LinkState::ACTIVE,
+            'link_mode' => LynomiaStoreLink::MODE_PROVISION,
+        ]);
+
+        $this->fakeLynomia(['account_id' => self::ACCOUNT, 'link_account_id' => 9999]);
+
+        $this->actingAs($ownerA)->post('/lynomia/connect/recover', [
+            'connection_code' => 'ABCDEFGHJKLMNPQR',
+        ])->assertSessionHas('error');
+
+        $this->assertSame(0, $this->sentCount('DELETE', '/account_links/9999'),
+            "another store's live workspace was revoked");
+        $this->assertSame(LinkState::ACTIVE, LynomiaStoreLink::where('store_id', $storeB->id)->first()->state);
+    }
+
+    /**
+     * RECOVERY HAS TO RESTORE THE INBOX, NOT JUST THE ROW.
+     *
+     * Lynomia's revoke destroys the per-USER permissibles alongside the account's, and redeeming
+     * a code restores only the account one -- on purpose, because granting the authorizing
+     * administrator's identity would hand this app an unscoped session for them. That leaves the
+     * `lynomia_store_identities` rows naming users this app no longer holds:
+     * `GET /platform/api/v1/users/:id/login` checks the permissible on the USER, so SSO keeps
+     * answering 401 and the next failure re-lights the banner. The merchant is told they are
+     * restored and then cannot open their workspace -- a recovery that loops.
+     *
+     * So recovery forgets the workspace's identities and the next sign-in mints fresh ones, which
+     * is what re-grants the per-user permissible. `handBackGrant` has done this since it was
+     * written, for this exact reason; recovery did not.
+     */
+    public function test_recovery_forgets_the_stale_identities_so_sso_works_again(): void
+    {
+        [$owner, , $link] = $this->activeLink();
+
+        // The merchant has signed in once, so an identity row exists naming a Lynomia user.
+        app(SsoLinkIssuer::class)->issueFor($link->fresh(), $owner->fresh());
+        $this->assertSame(
+            1,
+            LynomiaStoreIdentity::where('lynomia_account_id', self::ACCOUNT)->count(),
+            'no identity to go stale'
+        );
+
+        $link->fresh()->forceFill(['authorization_lost_at' => now()])->save();
+
+        $this->fakeLynomia(['account_id' => self::ACCOUNT]);
+        $this->actingAs($owner->fresh())->post('/lynomia/connect/recover', [
+            'connection_code' => 'ABCDEFGHJKLMNPQR',
+        ])->assertSessionHas('success');
+
+        // The stale row is gone, so the next sign-in creates the user upstream again -- and that
+        // call is what re-grants this app the permissible on them.
+        $this->assertSame(
+            0,
+            LynomiaStoreIdentity::where('lynomia_account_id', self::ACCOUNT)->count(),
+            'the stale identity survived, so SSO will keep answering 401'
+        );
+
+        $before = $this->sentCount('POST', '/platform/api/v1/users');
+        app(SsoLinkIssuer::class)->issueFor($link->fresh(), $owner->fresh());
+        $this->assertGreaterThan($before, $this->sentCount('POST', '/platform/api/v1/users'),
+            'the identity was reused rather than re-minted');
+        $this->assertSame(1, LynomiaStoreIdentity::where('lynomia_account_id', self::ACCOUNT)->count());
+    }
+
     /** REPEATED RECOVERY REQUESTS. Idempotent, and never a second workspace. */
     public function test_repeated_recovery_requests_are_safe(): void
     {
@@ -411,6 +576,99 @@ class LynomiaAuthorizationRecoveryTest extends TestCase
         $this->artisan('lynomia:reconcile-commerce', ['--dry-run' => true])->assertExitCode(0);
 
         $this->assertFalse(AuthorizationHealth::lost($link->fresh()));
+    }
+
+    /**
+     * THE PRODUCTION CASE, REPRODUCED BY SHAPE. This is the row the incident happened on, and the
+     * one the remedy has to work for -- so it is pinned rather than argued.
+     *
+     * Store 26 -> Lynomia account 135 ("al atalssian"): `link_mode = provision`, `state = active`,
+     * `provisioning_stage = complete`, commerce installed, and `ownership_proven_at` NULL -- it was
+     * never claimed, because this app CREATED the workspace, so there was never an ownership
+     * question to answer. That last field is the one that makes this row distinctive: every
+     * ownership-proven predicate on the SSO path reads
+     * `link_mode !== MODE_LINK_EXISTING || ownershipProven()`, which a provisioned link satisfies
+     * on the left -- and a recovery path that required `ownershipProven()` outright would refuse
+     * exactly this merchant while appearing to work for claimed workspaces.
+     *
+     * NOTHING HERE TOUCHES PRODUCTION. The ids are an in-memory sqlite fixture; 135 is used as the
+     * literal so the correspondence is unmistakable, not because anything reaches that account.
+     */
+    public function test_the_production_row_shape_for_store_26_is_recoverable(): void
+    {
+        [$owner, $store] = $this->entitledTenant();
+        $this->fakeLynomia(['account_id' => 135]);
+        $link = app(AccountProvisioner::class)->provision($store, $owner->fresh())->fresh();
+        app(CommerceActivator::class)->activate($link, $owner->fresh());
+
+        // The row as production holds it: provisioned, active, commerce installed, never claimed,
+        // and -- as of today -- with nothing recorded about the lost grant.
+        $link->fresh()->forceFill([
+            'ownership_proven_at' => null,
+            'authorization_lost_at' => null,
+            'authorization_recovered_at' => null,
+        ])->save();
+
+        $before = $link->fresh();
+        $this->assertSame(LynomiaStoreLink::MODE_PROVISION, $before->link_mode);
+        $this->assertSame(LinkState::ACTIVE, $before->state);
+        $this->assertSame(135, (int) $before->lynomia_account_id);
+        $this->assertNull($before->ownership_proven_at, 'the distinguishing field');
+        $this->assertFalse($before->ownershipProven());
+        $this->assertNotNull($before->lynomia_commerce_store_id);
+        $this->assertSame(CommerceState::CONNECTED, CommerceState::of($before));
+
+        // STEP 1. Lynomia starts refusing every call for this workspace. Before the diff the page
+        // went on reporting health; the sweep now notices without the merchant touching anything.
+        $this->revokeUpstream('GET /platform/api/v1/accounts/135/integration_health');
+        $this->artisan('lynomia:reconcile-commerce')->assertExitCode(0);
+        $this->assertTrue(AuthorizationHealth::lost($link->fresh()), 'the sweep did not notice');
+
+        // STEP 2. The page says recovery is needed rather than showing the workspace as healthy,
+        // and commerce reads unavailable rather than connected.
+        $this->actingAs($owner->fresh())->get('/lynomia/')
+            ->assertOk()
+            ->assertSee('Integration authorization needs recovery', false);
+        $this->assertSame(CommerceState::UNAVAILABLE, CommerceState::of($link->fresh()));
+
+        // STEP 3. The merchant redeems a code minted inside account 135. The code is proof of who
+        // they are; the row decides which workspace they are allowed to prove it for.
+        $this->fakeLynomia(['account_id' => 135]);
+        $response = $this->actingAs($owner->fresh())->post('/lynomia/connect/recover', [
+            'connection_code' => 'ABCDEFGHJKLMNPQR',
+        ]);
+
+        $response->assertSessionHas('success');
+        $this->assertSame(
+            __('Your Lynomia Chat connection has been restored.'),
+            $response->getSession()->get('success'),
+            'an active link must get the active sentence'
+        );
+
+        // STEP 4. The same workspace, and only that. No second account, no second link row.
+        $after = $link->fresh();
+        $this->assertFalse(AuthorizationHealth::lost($after));
+        $this->assertSame(135, (int) $after->lynomia_account_id, 'the workspace id moved');
+        $this->assertSame($before->state, $after->state);
+        $this->assertSame($before->link_mode, $after->link_mode);
+        $this->assertSame($before->provisioning_stage, $after->provisioning_stage);
+        $this->assertSame((int) $before->owner_user_id, (int) $after->owner_user_id);
+        $this->assertSame(1, LynomiaStoreLink::count(), 'a second link row appeared');
+        $this->assertSame(0, $this->sentCount('POST', '/platform/api/v1/accounts'),
+            'a second workspace was provisioned');
+
+        // STEP 5. The commerce installation is untouched and usable again -- no reinstall, no new
+        // credential, no version bump that would strand the one Lynomia already holds.
+        $this->assertSame(
+            (int) $before->lynomia_commerce_store_id,
+            (int) $after->lynomia_commerce_store_id
+        );
+        $this->assertSame(
+            (int) $before->commerce_credential_version,
+            (int) $after->commerce_credential_version
+        );
+        $this->assertSame(CommerceState::CONNECTED, CommerceState::of($after));
+        $this->assertTrue($after->allowsSso());
     }
 
     /** Recovery needs a workspace to recover; there is nothing to prove otherwise. */
