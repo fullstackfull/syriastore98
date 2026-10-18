@@ -2175,7 +2175,7 @@ public function handlePaymeraTrigger00($orderId)
         // minted on a return -- and processOrder's own quantity check does not cover this entry
         // point, which is reached directly by the gateway redirect. Unlike whatsapp() below, this
         // method has no assertCartAvailable() call to lean on.
-        if ($this->basketHasNonPositiveQuantity($products ?? null)) {
+        if ($this->basketHasUnusableQuantity($products ?? null)) {
             return $this->gatewayReturnQuantityRefusal($request, 'storefront-return');
         }
 

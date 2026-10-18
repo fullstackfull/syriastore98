@@ -1147,4 +1147,62 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
             "Another customer's basket was emptied by the cart delete, which keys on "
             . '$request->customer_id.');
     }
+
+    /**
+     * AN ABSURD QUANTITY CANNOT MOVE STOCK EITHER — the guard had a floor and no ceiling.
+     *
+     * The negative-quantity test above covers `qty < 1`. This covers the other end, and the
+     * omission was a hole rather than a simplification: MEASURED, before the ceiling, a cart line
+     * of qty 2147483647 on an otherwise LEGITIMATE PaiementPro return took a product seeded at 50
+     * units to `product_stock` **-2147483597**, and wrote the order. The quantity is not negative,
+     * so the floor waves it through; the result is as negative as stock gets.
+     *
+     * It needs no payment and no account. `carts.qty` is written straight from the request with no
+     * validation by two vendored module routes under plain `web`
+     * (packages/workdo/BoostSales/.../BoostSalesController.php:59 and
+     * packages/workdo/FrequentlyProduct/.../FrequentlyProductController.php:88 — both unfixable in
+     * place under the vendor guard), and CinetPay, Easebuzz and PaiementPro verify nothing, so the
+     * stock moves whether or not money did. One anonymous request corrupts any merchant's
+     * inventory, with no order anybody intends to pay for.
+     *
+     * The product is priced at 1.00 so the basket's total stays representable; the attack is about
+     * the stock column, not the money.
+     *
+     * @dataProvider reachableStockLoopRoutes
+     */
+    public function test_an_absurd_quantity_is_refused_on_the_return(string $uri, string $method): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store, 1.00, 50);
+
+        $sid = 'cookie-' . uniqid();
+        Cart::forceCreate([
+            'customer_id' => 0, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 2147483647, 'price' => 1.00, 'store_id' => $store->id,
+            'cookie_session_id' => $sid,
+        ]);
+
+        $state = $this->forgedCheckoutState($store, '');
+        $before = self::orderCount();
+
+        session()->forget('error');
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state, 'easebuzz_request_data' => $state])
+            ->{$method}('/' . str_replace('{slug}', $store->slug, $uri), [
+                'responsecode' => 0, 'status' => 'success',
+            ]);
+
+        $this->assertStringContainsString('Your cart contains an invalid quantity',
+            (string) session('error'),
+            'The quantity guard did not fire on an absurd quantity, so the stock assertion below '
+            . 'could be satisfied by a crash. Session error was: ' . json_encode(session('error')));
+
+        $this->assertSame(50, (int) Product::withoutGlobalScopes()
+            ->find($product->id)->product_stock,
+            "The merchant's stock moved for a refused basket. Before the ceiling this read "
+            . '-2147483597.');
+
+        $this->assertSame($before, self::orderCount(),
+            'An order was written for a basket holding an unusable quantity.');
+    }
 }

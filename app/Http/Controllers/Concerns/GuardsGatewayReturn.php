@@ -82,6 +82,14 @@ trait GuardsGatewayReturn
     public const CHECKOUT_STATE_KEY = 'request_data';
 
     /**
+     * The largest single cart-line quantity that can be a real order.
+     *
+     * See basketHasUnusableQuantity() for the measurement that produced it, and for why this is a
+     * sanity bound rather than a business rule.
+     */
+    public const MAX_SANE_LINE_QUANTITY = 1000000;
+
+    /**
      * The checkout state this server stored at payment initiation, or NULL.
      *
      * NULL means "do not write an order from this request" -- never "fall back to the request".
@@ -298,7 +306,7 @@ trait GuardsGatewayReturn
      *
      * @param  iterable<mixed>|null  $products  the cart list's product_list, objects or arrays
      */
-    protected function basketHasNonPositiveQuantity($products): bool
+    protected function basketHasUnusableQuantity($products): bool
     {
         if (empty($products)) {
             return false;
@@ -317,6 +325,35 @@ trait GuardsGatewayReturn
             }
 
             if (! is_numeric($qty) || (int) $qty < 1 || (float) $qty != (int) $qty) {
+                return true;
+            }
+
+            /*
+             * AND A CEILING. The guard originally had none, and that was a hole rather than a
+             * simplification. MEASURED: a cart line of qty 2147483647 on an otherwise legitimate
+             * PaiementPro return took a product seeded at 50 units to product_stock
+             * -2147483597, and wrote the order. The quantity is not negative, so the test above
+             * waves it through; the RESULT is as negative as stock gets.
+             *
+             * It needs no payment and no account. `carts.qty` is written straight from the request
+             * with no validation by two vendored module routes under plain `web`
+             * (packages/workdo/BoostSales/.../BoostSalesController.php:59 and
+             * packages/workdo/FrequentlyProduct/.../FrequentlyProductController.php:88), and three
+             * of these gateways verify nothing, so the stock moves whether or not money did. One
+             * anonymous request corrupts any merchant's inventory.
+             *
+             * THIS IS A SANITY BOUND, NOT A BUSINESS RULE, and the distinction matters because the
+             * guard REFUSES the return. The business rule is the merchant's own
+             * `products.maximum_quantity`, which CartQuantityControl enforces where that module is
+             * active (PaymentController::checkCartQuantityControl) -- and which is checked at
+             * INITIATION only, never here. This bound exists solely so that a quantity which
+             * cannot be a real order line, and is the signature of an unvalidated write rather
+             * than of a shopper, cannot move stock. It sits deliberately far above any genuine
+             * single line: a merchant whose one cart line legitimately exceeds a million units has
+             * a wholesale problem this platform is not solving. If one ever does, RAISE the
+             * constant -- do not remove the check.
+             */
+            if ((int) $qty > self::MAX_SANE_LINE_QUANTITY) {
                 return true;
             }
         }

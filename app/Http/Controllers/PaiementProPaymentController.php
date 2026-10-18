@@ -448,11 +448,11 @@ class PaiementProPaymentController extends Controller
              *
              * The decrement below is `$remain_stock = $Product->product_stock - $qtyy`, so a negative
              * quantity ADDS stock while the same line reduces every total it is summed into. See
-             * App\Http\Controllers\Concerns\GuardsGatewayReturn::basketHasNonPositiveQuantity() for why
+             * App\Http\Controllers\Concerns\GuardsGatewayReturn::basketHasUnusableQuantity() for why
              * the initiation-time guard is not enough on its own: the cart stays mutable across the
              * gateway round trip, and two vendored module routes can still write such a row.
              */
-            if ($this->basketHasNonPositiveQuantity($products)) {
+            if ($this->basketHasUnusableQuantity($products)) {
                 return $this->gatewayReturnQuantityRefusal($request, 'paiementpro');
             }
             $prodduct_id_array = [];

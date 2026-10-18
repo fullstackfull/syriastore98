@@ -1835,7 +1835,18 @@ one field to the return they were already making. All three were measured on the
    `billing_info`, so without the FK parents it raised a FOREIGN KEY violation and 500d **before**
    the order write — the defect was sitting behind a crash, which is exactly the condition the
    project's "a test must bite" rule exists to catch.
-4. **`Product` is still unscoped** and `ShippingMethod` joins it. Both are reachable cross-tenant by
+4. **The quantity guard had a floor and no ceiling.** MEASURED: a cart line of qty `2147483647`
+   on an otherwise **legitimate** PaiementPro return took a product seeded at 50 units to
+   `product_stock` **−2147483597**, and wrote the order. The quantity is not negative, so the floor
+   waved it through; the result is as negative as stock gets. It needs no payment and no account —
+   `carts.qty` is written straight from the request by two vendored module routes under plain `web`,
+   and three of these gateways verify nothing, so the stock moves whether or not money did. One
+   anonymous request corrupts any merchant's inventory, with no order anyone intends to pay for.
+   Closed by `MAX_SANE_LINE_QUANTITY`; the guard is renamed `basketHasUnusableQuantity()` because
+   "non-positive" no longer describes it. The bound is a **sanity bound, not a business rule** —
+   the business rule is the merchant's own `products.maximum_quantity`, which `CartQuantityControl`
+   enforces at initiation only and never here.
+5. **`Product` is still unscoped** and `ShippingMethod` joins it. Both are reachable cross-tenant by
    id from these routes; the fixes above remove the *caller's* ability to supply those ids, which is
    containment, not a scope.
 
@@ -1904,6 +1915,7 @@ Every guard was removed and re-measured:
 | `Session::forget()` from all six | **6 fail** — the rewritten replay test |
 | the shipping floor | **1 fails** — `own negative` |
 | the shipping store predicate | **1 fails** — `foreign positive` |
+| the quantity **ceiling** | **5 fail** — `test_an_absurd_quantity_is_refused_on_the_return` |
 
 **TWO OF THOSE REMOVAL CHECKS WENT STALE INSIDE THIS PACKAGE, and the second review caught it.**
 The checks recorded for `7484b290` and `57c8953c` were valid when they were run. `0ad3f7e0` then
