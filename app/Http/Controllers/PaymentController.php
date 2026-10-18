@@ -1146,6 +1146,36 @@ public function handlePaymeraTrigger00($orderId)
             return $validationResult;
         }
 
+        // ====================================================================================
+        // P01-SEC-14 H. THE CALLER'S `shipping_final_price` IS NOT ALLOWED INTO THE CART READ THIS
+        // ORDER IS BUILT FROM -- the WEB half of the F5 fix, and the sharper of the two.
+        //
+        // MEASURED through this endpoint on a 100.00 basket, before this line existed:
+        //
+        //     nothing posted              product_price 100.0   final_price  100.0
+        //     shipping_final_price = 500  product_price 100.0   final_price  600.0
+        //     shipping_final_price = -900 product_price 100.0   final_price -800.0
+        //
+        // `orders.final_price` is the amount OWED -- for a `cod` order it is the cash the driver
+        // collects -- and it lands there from `$final_sub_total_price`, which is
+        // `$cartlist['total_sub_price']` (:1997 and :2025), which cart_list builds by adding
+        // `(int)$request['shipping_final_price']` with no floor. So the shopper set what they owed,
+        // to any value including a negative one.
+        //
+        // This is worse than the defect Work Package B closed on payment_sheet: that was the card
+        // amount on an endpoint no shipped client calls, and this is the storefront web journey
+        // real shoppers use. F5 closed the same hole on the three API order handlers and stopped
+        // there -- the third time in this package that a guard was scoped to the API and the web
+        // path was left open. Found by an adversarial review of commit F.
+        //
+        // ZERO rather than the real shipping, because the real figure is not known yet:
+        // processShipping() runs at :1215 and prepareFinalRequestData() then puts the SERVER's
+        // `$delivery_price` into exactly this request key (:1687), so the authoritative value
+        // arrives on its own and the order carries it in `delivery_price`. Zeroing here only
+        // removes the caller's.
+        // ====================================================================================
+        $request->merge(['shipping_final_price' => 0]);
+
         // Get cart data
         $cartData = $this->getCartData($request, $store, $customer, $isGuest);
         if (isset($cartData['error'])) {

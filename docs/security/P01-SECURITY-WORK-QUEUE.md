@@ -1656,6 +1656,89 @@ is the question to answer first.
 
 ---
 
+## S31 — The payer sets `orders.final_price` on the gateway-return paths — **web checkout CLOSED, six gateway controllers OPEN, design prepared**
+
+The most serious thing any review pass found, and it was found by asking the scope question a fourth
+time. **One path is closed and measured; six are open with an identical, one-line remedy that cannot
+be verified in this environment.**
+
+### What is closed — `PaymentController::processOrder` (P01-SEC-14 H)
+
+MEASURED end to end through the real route, on a 100.00 basket:
+
+| posted | `orders.product_price` | `orders.final_price` |
+|---|---|---|
+| nothing | 100.0 | 100.0 |
+| `shipping_final_price = 500` | 100.0 | **600.0** |
+| `shipping_final_price = -900` | 100.0 | **−800.0** |
+
+`orders.final_price` is the amount **owed** — for a `cod` order it is the cash the driver collects.
+It lands there from `$final_sub_total_price`, which is `$cartlist['total_sub_price']`
+(`PaymentController.php:1997` and `:2025`), which `cart_list` builds by adding
+`(int)$request['shipping_final_price']` with no floor. So the shopper set what they owed, to any
+value including a negative one.
+
+**This is worse than the defect Work Package B closed.** That was the card amount on an endpoint no
+shipped client calls; this is the storefront web journey real shoppers use, and it is COD cash.
+After the fix all three rows read 100.0.
+
+### What is open — the same line, six gateway-return controllers
+
+Each takes `$requests_data = $request->all()` and hands it to the cart reader, so the payer's
+`shipping_final_price` flows into `total_sub_price` and from there into `orders.final_price` exactly
+as above. **No race is needed: the shopper posts directly to these routes** (e.g.
+`POST {storeSlug?}/order-khalti`, `routes/customer.php:185`).
+
+| controller | computes its own `$delivery_price` |
+|---|---|
+| `AuthorizeNetPaymnetController.php` | yes |
+| `CinetPayController.php` | yes |
+| `EasebuzzController.php` | yes |
+| `KhaltiPaymnetController.php` | yes (`:360-363` → `$order->delivery_price` at `:603`) |
+| `PaiementProPaymentController.php` | yes |
+| `PayUPaymentController.php` | yes |
+
+### The design, prepared rather than applied — and why
+
+**The edit is one line per controller**, immediately before the cart read, identical to the one in
+`processOrder`:
+
+```php
+$request->merge(['shipping_final_price' => 0]);
+```
+
+It is safe in the same way: every one of the six computes its own `$delivery_price` from
+`get_shipping_method()` and writes it to the order's own `delivery_price` column, so zeroing removes
+only the caller's figure. `PaymentService.php:2277-2286` already logs that a client-supplied
+`shipping_final_price` was discarded on its own path, so this is the project's established pattern
+rather than a new policy.
+
+**It is not applied here because it cannot be executed here.** These are gateway-RETURN handlers:
+driving one end to end needs that gateway's credentials and a real callback, and this environment
+has neither. Six untested edits to live payment-return paths on a trading business is the case the
+brief reserves — *"if a secure fix requires changes to the order calculation architecture, prepare a
+tested design and request approval before implementing the larger change."* The mechanism was read
+at every site and the measurement above is from the one path that CAN be driven; what is missing is
+execution on the six, not understanding of them.
+
+**The test that would prove each one** is already written for the closed path and transfers directly:
+seed `countries`/`states`/`cities`, post the handler's payload with and without
+`shipping_final_price`, and assert `orders.final_price` is the basket's own total in both cases. It
+needs a gateway stub or a staging credential per controller.
+
+### And the stock half, same family
+
+Eleven files carry a raw `$remain_stock = $ProductStock->stock - $qtyy;`, including the six above.
+With a negative `$qtyy` that subtraction **ADDS** stock — the inventory corruption S30 closed on the
+four entry paths is still reachable on a gateway return, because the return handler re-reads the
+cart after the entry guard has already passed. The quantity guard that the four money paths now
+carry would close it at each site; that is the same six-controller change and belongs with it.
+
+**Owner decision, in one sentence:** approve the one-line shipping fix plus the quantity guard
+across those six controllers, in an environment where each gateway return can actually be driven.
+
+---
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**
@@ -1687,7 +1770,7 @@ Keeping these apart is the point; each is independently reviewable and independe
 | *(triage, not a package)* | S14 | Verify each row before assigning severity |
 | **P01-SEC-10** | **S15-A** | **EMERGENCY.** Anonymous platform takeover. Answer before any deployment; route can be disabled as an interim with no app release |
 | **P01-SEC-11** | S15-B rows 1-7 + **S19** | ~~One API-authorization pass, one shared ownership helper, one Flutter window~~ **DONE.** 26 handlers, nine commits, one shared helper (`resolveStoreCustomer`). No new 401 on any path a shipped client calls; see S19 for the five rows left open |
-| **P01-SEC-14** | **S20** + **S22** + **S23** + **S25**, and the amount half of **S21** | ~~Identity and payment trust boundaries~~ **DONE.** Six commits (A, B, C, D, E, F). Provider tokens verified server-side; the amount OWED — on the card path and on COD alike — proof against a posted price, currency, coupon code, shipping price or negative quantity; `notify_user` failed closed; four coupon lookups store-scoped; the order's discount and ledger columns taken from the server. E and F are the two adversarial reviews' own findings — see S27 and S28; F closed a HIGH that bypassed E's guard through COD, and G closed S29, the `1234` password on eight vendored social-login modules that S18 had recorded as harmless. No new 401 on any path a shipped client calls |
+| **P01-SEC-14** | **S20** + **S22** + **S23** + **S25**, and the amount half of **S21** | ~~Identity and payment trust boundaries~~ **DONE.** Six commits (A, B, C, D, E, F). Provider tokens verified server-side; the amount OWED — on the card path and on COD alike — proof against a posted price, currency, coupon code, shipping price or negative quantity; `notify_user` failed closed; four coupon lookups store-scoped; the order's discount and ledger columns taken from the server. E and F are the two adversarial reviews' own findings — see S27 and S28; F closed a HIGH that bypassed E's guard through COD, and G closed S29, the `1234` password on eight vendored social-login modules that S18 had recorded as harmless. No new 401 on any path a shipped client calls. H closed S31's web half — a payer setting `orders.final_price`, the COD cash amount — and S31 carries the six gateway controllers with the same defect as a prepared design awaiting approval |
 | *(owner decision, not a package)* | **S21** calculation rows, **S24**, **S26** | Each changes money or deletes history. Answer before the next commerce package |
 | **P01-SEC-12** | S15-B row 8 | `config/superadminaccess.php` denylist vs the finance permissions. No API impact |
 | **P01-SEC-3** | S4 + the `larabug` blacklist review | Independent; no contract impact |

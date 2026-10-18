@@ -492,6 +492,159 @@ class ResidualSafetyCorrectionsTest extends SecurityTestCase
     }
 
     /**
+     * THE PAYER CANNOT SET WHAT THEY OWE ON THE WEB CHECKOUT. The sharpest money defect the whole
+     * package found, and a different column from the API one.
+     *
+     * MEASURED through the real route on a 100.00 basket, before the fix:
+     *
+     *   posted                         orders.product_price   orders.final_price
+     *   (nothing)                              100.0               100.0
+     *   shipping_final_price = 500             100.0               600.0
+     *   shipping_final_price = -900            100.0              -800.0
+     *
+     * `final_price` is the amount OWED -- for a `cod` order it is the cash the driver collects --
+     * and it lands there from `$cartlist['total_sub_price']` (PaymentController.php:1997, :2025),
+     * which cart_list builds by adding `(int)$request['shipping_final_price']` with no floor.
+     *
+     * Note the contrast with the API path, where the same input moved `product_price` only, which
+     * is the ledger. Here it moves what the shopper pays. F5 fixed the three API handlers and
+     * stopped -- the third time in this package a guard was scoped to the API while the web path
+     * stayed open. Found by an adversarial review of commit F.
+     *
+     * Six gateway-RETURN controllers have the identical defect and are NOT fixed: driving one needs
+     * that gateway's credentials and a real callback. The one-line remedy and the test that would
+     * prove it are written up as S31 in docs/security/P01-SECURITY-WORK-QUEUE.md.
+     */
+    public function test_a_posted_shipping_price_cannot_change_what_the_web_checkout_charges(): void
+    {
+        [, $store, $shippingId] = $this->orderableTenant();
+
+        // PaymentService writes a `cities` row keyed on these ids; without the parents the whole
+        // checkout dies on a foreign-key violation and every assertion here is vacuous.
+        DB::table('countries')->insert([
+            'id' => 101, 'name' => 'Testland', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('states')->insert([
+            'id' => 1, 'name' => 'Teststate', 'country_id' => 101,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('cities')->insert([
+            'id' => 1, 'name' => 'Testcity', 'state_id' => 1, 'country_id' => 101,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $billing = array_merge($this->billing(), [
+            'billing_country' => '101', 'billing_state' => '1', 'billing_city' => '1',
+            'delivery_country' => '101', 'delivery_state' => '1', 'delivery_city' => '1',
+        ]);
+
+        $recorded = [];
+
+        foreach ([null, 500, -900] as $shipping) {
+            $customer = $this->customerIn($store, 'h' . (string) $shipping);
+            $product = $this->productIn($store);
+            Cart::forceCreate([
+                'customer_id' => $customer->id, 'product_id' => $product->id, 'variant_id' => 0,
+                'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+            ]);
+
+            $payload = [
+                'payment_type' => 'cod',
+                'delivery_id' => $shippingId,
+                'method_id' => $shippingId,
+                'billing_info' => $billing,
+            ] + $billing;
+            if ($shipping !== null) {
+                $payload['shipping_final_price'] = $shipping;
+            }
+
+            $this->actingAs($customer, 'customers')
+                ->post('/' . $store->slug . '/process-order', $payload);
+
+            $order = \App\Models\Order::withoutGlobalScopes()
+                ->where('customer_id', $customer->id)->first();
+
+            $this->assertNotNull($order,
+                'The web checkout recorded no order for shipping_final_price = '
+                . json_encode($shipping) . ', so this test is measuring a broken checkout rather '
+                . 'than the control. Session error: ' . json_encode(session('error')));
+
+            $recorded[json_encode($shipping)] = [
+                (float) $order->product_price, (float) $order->final_price,
+            ];
+        }
+
+        $this->assertSame(
+            ['null' => [100.0, 100.0], '500' => [100.0, 100.0], '-900' => [100.0, 100.0]],
+            $recorded,
+            'A posted shipping price moved what the web checkout charges. Measured before the fix: '
+            . '500 recorded final_price 600.0 and -900 recorded -800.0, against a basket worth '
+            . '100.00.'
+        );
+    }
+
+    /**
+     * `confirm_order`'s QUANTITY GUARD, which had no test -- and the absence was not theoretical.
+     *
+     * F added the non-positive-quantity refusal to three handlers and tested two. An adversarial
+     * review of F flagged the third as uncovered, and the proof arrived by accident minutes later:
+     * a stray `if (false)` was left over that handler's guard in a working tree and **the entire
+     * Feature suite still passed, gate and all**. A guard no test touches is a guard that can be
+     * disabled without anyone noticing, which is the whole argument for this file.
+     *
+     * confirm_order persists nothing, so the observable is its REFUSAL rather than an absent order:
+     * the preview must not price a basket the order writers will refuse.
+     */
+    public function test_the_confirmation_preview_refuses_a_basket_with_a_negative_line(): void
+    {
+        [, $store, $shippingId] = $this->orderableTenant();
+        $customer = $this->customerIn($store, 'confirmqty');
+        $big = $this->productIn($store);
+        $cheap = Product::forceCreate([
+            'name' => 'cq-' . uniqid(), 'slug' => 'cq-' . uniqid(),
+            'product_stock' => 20, 'track_stock' => 1, 'variant_product' => 0,
+            'price' => 50.00, 'sale_price' => 50.00,
+            'store_id' => $store->id, 'created_by' => $store->created_by,
+        ]);
+        $token = $customer->createToken('t')->plainTextToken;
+
+        $payload = [
+            'customer_id' => $customer->id,
+            'billing_info' => $this->billing(),
+            'payment_type' => 'cod',
+            'delivery_id' => $shippingId,
+            'method_id' => $shippingId,
+        ];
+
+        Cart::forceCreate([
+            'customer_id' => $customer->id, 'product_id' => $big->id, 'variant_id' => 0,
+            'qty' => 1, 'price' => 1000.00, 'store_id' => $store->id,
+        ]);
+
+        // THE PREMISE FIRST: a clean basket previews successfully, so a refusal below is the guard
+        // and not this endpoint failing for an unrelated reason.
+        $clean = $this->callApi($store, 'confirm-order', $payload, $token);
+        $this->assertSame(1, (int) $clean->json('status'),
+            'confirm-order refused a clean basket, so the assertion below cannot distinguish the '
+            . 'quantity guard from a broken endpoint: ' . json_encode($clean->json('message')));
+
+        Cart::forceCreate([
+            'customer_id' => $customer->id, 'product_id' => $cheap->id, 'variant_id' => 0,
+            'qty' => -5, 'price' => -250.00, 'store_id' => $store->id,
+        ]);
+
+        $refused = $this->callApi($store, 'confirm-order', $payload, $token);
+
+        $this->assertSame(0, (int) $refused->json('status'),
+            'confirm-order priced a basket holding a negative line, so it previews a total the '
+            . 'order writers will refuse.');
+        $this->assertSame('Your cart contains an invalid quantity.',
+            $refused->json('data.message') ?? $refused->json('message'),
+            'confirm-order refused for some other reason than the quantity: '
+            . json_encode($refused->json('message')));
+    }
+
+    /**
      * THE WEB CHECKOUT IS THE FOURTH MONEY PATH, and it was the one still open after F.
      *
      * F guarded the three API order handlers and E guarded payment_sheet. An adversarial review of
