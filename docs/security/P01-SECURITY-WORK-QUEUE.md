@@ -1048,6 +1048,12 @@ credential. `Setting` is not in `config/tenancy.php`'s `scoped_models`, so no gl
    refuse, without any outbound call. A store that offers Apple sign-in **must** have this row
    written before it works again. The brief forbids inventing provider credentials or disabling a
    provider without approval, so it refuses rather than guesses.
+
+   **Neither new key has a writer yet**, so until one exists the row has to be inserted directly —
+   `settings(name, value, store_id, created_by)`, e.g.
+   `('apple_client_ids', 'com.yourcompany.app', <store_id>, <merchant_user_id>)` and
+   `('google_api_audiences', '<android-client-id>,<ios-client-id>', …)`. A field in the merchant
+   panel beside the existing Google rows is a Phase 02 item, not a security change.
 2. **Google may need a second audience.** `Google_client_id` is a *web* client (it is stored with a
    secret and a redirect URI), while a mobile app's ID token carries the **platform** client id —
    Android and iOS each have their own. `google_api_audiences` (comma-separated, optional) is merged
@@ -1058,7 +1064,22 @@ credential. `Setting` is not in `config/tenancy.php`'s `scoped_models`, so no gl
    `routes/api.php` but it changes a public endpoint's behaviour under load. It now also gates an
    outbound JWKS fetch, though the refuse-before-fetch order means an unconfigured store cannot be
    used to generate traffic.
-4. **`Api\AuthController::login` stays unrouted, and must.** Its provider lookup is
+4. **THE CLIENT CONTRACT CHANGED, and that is the compatibility cost of this fix.** The documented
+   `register` request (`packages/workdo/Api/src/documentation/theme.json`) carries `google_id`, not
+   `google_token`: there is no documented field for a verifiable credential, because the endpoint
+   never verified one. So a client that has not been updated to send an ID token is refused, for
+   every provider. The brief's instruction for this case is explicit — "if required provider
+   verification cannot be implemented or tested, fail closed for the unsafe path and report its
+   client compatibility impact" — and that is what this is.
+
+   What bounds it: **no client in either repository sends any of these fields.** The admin Flutter
+   app was grepped for `register_type`, `google_id`, `apple_id`, `facebook_id` and all three
+   `*_token` names and uses none of them; the storefront web has no social customer login (the
+   vendored `SignInWith*` modules are MERCHANT sign-in through Socialite's server-side code
+   exchange, which verifies properly). The exposure is to third-party consumers of the documented
+   theme API, who need a one-field change: send the provider's ID token as `google_token` /
+   `apple_token` / `facebook_token`.
+5. **`Api\AuthController::login` stays unrouted, and must.** Its provider lookup is
    `Customer::query()->where('google_id', $request->google_id)->first()` with **no store predicate
    at all** — and with `null_tenant => 'open'` an unauthenticated caller gets no predicate from the
    scope either, so it would reach every tenant. Routing it reintroduces a worse version of S20.
@@ -1195,7 +1216,23 @@ through `Cart::getCouponTotalAmount()`, which works).
 
 **NOT FIXED HERE, deliberately.** Repairing it makes discounts start applying on a live platform
 where they currently never do — a revenue change, and the owner's call rather than an authorization
-fix's. The change is a brace move. Interaction with S25 below: with S25 in place a percentage or flat
+fix's. The change is a brace move.
+
+**TWO THINGS MUST MOVE IN THE SAME CHANGE, or fixing this one opens them.**
+
+1. `apply_coupon`'s minimum/maximum-spend gate and its percentage arithmetic read
+   `$request->final_sub_total`, which `ordersave` does not overwrite (it adds only `sub_total`).
+   Today that is unreachable because percentage coupons never get that far — driven and confirmed:
+   posting `final_sub_total = 100000` returns the same `amount = 7.00` as omitting it, because a
+   `fixed product discount` coupon takes its figure from the product list, not from the posted base.
+   The moment percentage coupons work, the discount base is caller-supplied. **Overwrite
+   `final_sub_total` with the server's figure wherever `sub_total` is already overwritten.**
+2. The zero-total guard added in P01-SEC-14 E (S27 item 7) refuses a coupon figure that is not
+   positive or that exceeds the basket. A correct `apply_coupon` returns a positive figure below the
+   basket total, so the guard admits it — but the guard is the only thing between a `"0.00"` return
+   and a free order, so **do not remove it while making this change; verify against it.**
+
+Interaction with S25 below: with S25 in place a percentage or flat
 coupon records `coupon_price = 0`, which is the server's honest answer because the server refused the
 coupon, but it is a change from recording whatever the client posted.
 
@@ -1272,6 +1309,96 @@ reading it and by seeding each condition and confirming it is detected.
 
 ---
 
+## S27 — What the adversarial review of P01-SEC-14 found, and what it changed
+
+The package was reviewed by four independent lenses after implementation, each finding then driven
+at by three further agents instructed to refute it. Six were acted on in commit E; the rest are
+recorded with why not. Every fix is isolated by a test that fails when the fix is reverted.
+
+### Corrected, because they were regressions this package introduced
+
+1. **The idempotency key replayed a second genuine purchase.** It hashed store, customer, amount and
+   currency — nothing that distinguishes one checkout from the next. A shopper buying the same
+   product twice inside Stripe's 24-hour window produced a byte-identical key, so Stripe returned
+   the FIRST, already-succeeded PaymentIntent: either the client cannot confirm it and a legitimate
+   purchase is blocked, or it treats it as success and the second order is recorded paid against a
+   charge that never happened. The basket's cart-row ids, variants and quantities are in the key now
+   — `place_order` and `ordersave` delete the cart rows, so a re-added basket hashes differently
+   while a double-tap still collapses.
+2. **A Facebook transport failure logged the merchant's app secret.** `debug_token` is authenticated
+   with `{app-id}|{app-secret}` as a QUERY parameter, so a Guzzle error quotes the whole URI —
+   secret and caller token included — and the handler logged `$e->getMessage()` verbatim. S4 is
+   already "the API log is a plaintext credential store"; this would have added to it. Redacted, and
+   the test drives a faked transport failure and reads what was actually logged.
+3. **A non-string token field returned HTTP 500 to an anonymous caller.** `google_token[]=x` against
+   a `?string` parameter raised a TypeError, which is not a `SocialIdentityVerificationException`,
+   so it escaped `register`'s catch. Anything that is not a string is now "no token presented" —
+   the same refusal as every other failure, which is the point of the fail-closed design.
+4. **The handler's own docblock had the coupon direction backwards.** It claimed
+   `total_final_price` is post-coupon. It is PRE-coupon: `$cart_final_price += $final_price` runs
+   before the coupon block assigns `$final_price = $coupon_apply_price`. Corrected in place, with
+   the real reason the key is still right (it is the one the caller cannot move) and the cost (the
+   discount is omitted) stated beside it.
+5. **One test did not isolate what its docblock claimed.**
+   `test_a_store_with_no_settings_rows_can_still_save_an_order` omitted `stock_management`, which
+   skips the block where the two guarded keys are read — so it passed with both `??` defaults
+   reverted while five sibling tests failed. Rewritten to turn stock management ON with the keys
+   unset; it now fails when the fix is removed. A second docblock, on the unconfigured-audience
+   test, was narrowed to the outcome it really isolates.
+
+### Corrected, pre-existing, because each defeats a control this package delivered
+
+6. **A negative line quantity reduced the payable.** `addtocart` validated `'qty' => 'required'` and
+   nothing more. Measured: posting `qty = -5` returned "added successfully", stored -5, and
+   `cart-list` then returned `total_final_price = -150.00` for a basket of one 100.00 product plus
+   one 50.00 product at -5. So the amount was computed from the server's own data exactly as
+   intended, and the data had been poisoned at a different endpoint. `integer|min:1` at the write
+   boundary, and `payment_sheet` refuses a basket that already holds such a row.
+7. **An accepted coupon made the order free.** Measured through `order-save` with one 100.00
+   product: no coupon → `product_price` 100.0, `final_price` 100.0; an accepted coupon →
+   **0.0 and 0.0** with a 7.00 discount recorded. `apply_coupon` builds its `final_price` from a
+   nested cart read not reached for a coupon whose `sale_items` is 0, so it returns the string
+   `"0.00"` — and `!empty("0.00")` is TRUE in PHP, so the assignment fired on a zero. A shopper
+   holding any working coupon code owed nothing. Guarded in `ordersave` and `place_order` by
+   refusing a figure that cannot be a discounted basket (not positive, or larger than the basket)
+   and keeping the server's own total. `confirm_order` has the same line and is left alone: it
+   persists nothing. **This is not the coupon fix** — see S24 — so the order is now internally
+   inconsistent in a visible way (100.00 owed with a 7.00 discount recorded beside it), which is the
+   honest state and far better than 0.00 owed.
+
+### Verified and deliberately NOT changed
+
+- **`packages/workdo/GoogleLogin/.../GoogleLoginController.php:118` writes the fixed password
+  `"1234"`** on web social-login rows, so a verified provider identity can be bypassed with an email
+  address alone. It is **`users`** (merchants), not storefront customers, and it is vendored module
+  code this project must not edit — the remedy is a host-side control or a fork, which is an owner
+  decision. Same family as S18. **This is the highest-value row the review produced and it is not
+  P01-SEC-14's to fix.**
+- **The PaymentIntent is bound to no order, and the order is recorded `Paid` without being checked
+  against it.** Pre-existing and structural: the documented flow is compute-total → payment-sheet
+  → confirm on device → place-order, so no `orders` row exists when the intent is created. S21.
+- **With `PartialPayments` active the shopper is charged the full basket rather than the deposit they
+  chose.** The deposit is computed in the module's own flow and `payment_sheet` knows nothing of it.
+  A store running that module should not use this endpoint until S21 is answered.
+- **`apply_coupon`'s spend gate reads the caller's `final_sub_total`.** Driven: posting
+  `final_sub_total = 100000` returned the same `amount = 7.00` as omitting it. It would matter for a
+  percentage coupon, which S24 shows is refused outright today — so it is recorded as a
+  precondition of the S24 fix rather than as an open hole.
+- **`notify_user` now returns 401 to a merchant or driver token** where it previously returned 200.
+  The shipped Flutter app force-logs-out on 401, so this would matter — except nothing in either
+  repository calls the endpoint (grepped). Recorded so that if a client ever does, the status is a
+  known decision rather than a surprise.
+- **~61 `PlanCoupon` code lookups remain case-sensitive via `BINARY` while 19 are not.** S23.
+
+### Refuted on investigation
+
+- **"`payment_sheet` reads a Stripe secret the panel never writes."** It does write it:
+  `Api\DashboardController.php:3649` is the **admin Flutter app's** settings endpoint, under
+  `api/admin/`, and the name matches. This raises rather than lowers the stakes on the rows above,
+  because it means merchants really do configure this path.
+
+---
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**
@@ -1303,7 +1430,7 @@ Keeping these apart is the point; each is independently reviewable and independe
 | *(triage, not a package)* | S14 | Verify each row before assigning severity |
 | **P01-SEC-10** | **S15-A** | **EMERGENCY.** Anonymous platform takeover. Answer before any deployment; route can be disabled as an interim with no app release |
 | **P01-SEC-11** | S15-B rows 1-7 + **S19** | ~~One API-authorization pass, one shared ownership helper, one Flutter window~~ **DONE.** 26 handlers, nine commits, one shared helper (`resolveStoreCustomer`). No new 401 on any path a shipped client calls; see S19 for the five rows left open |
-| **P01-SEC-14** | **S20** + **S22** + **S23** + **S25**, and the amount half of **S21** | ~~Identity and payment trust boundaries~~ **DONE.** Four commits (A, B, C, D). Provider tokens verified server-side; the payable derived from the cart; `notify_user` failed closed; four coupon lookups store-scoped; the order's discount taken from the server's verdict. No new 401 on any path a shipped client calls |
+| **P01-SEC-14** | **S20** + **S22** + **S23** + **S25**, and the amount half of **S21** | ~~Identity and payment trust boundaries~~ **DONE.** Five commits (A, B, C, D, E). Provider tokens verified server-side; the payable derived from the cart and proof against a posted coupon, shipping price or negative quantity; `notify_user` failed closed; four coupon lookups store-scoped; the order's discount taken from the server's verdict; an accepted coupon can no longer zero an order. E is the adversarial review's own findings — see S27. No new 401 on any path a shipped client calls |
 | *(owner decision, not a package)* | **S21** calculation rows, **S24**, **S26** | Each changes money or deletes history. Answer before the next commerce package |
 | **P01-SEC-12** | S15-B row 8 | `config/superadminaccess.php` denylist vs the finance permissions. No API impact |
 | **P01-SEC-3** | S4 + the `larabug` blacklist review | Independent; no contract impact |

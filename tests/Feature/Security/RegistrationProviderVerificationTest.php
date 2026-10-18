@@ -8,6 +8,7 @@ use App\Services\SocialIdentity\SocialIdentityVerifier;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Tests\Feature\Security\SecurityTestCase;
 use Tests\Support\SocialIdentity\FakeOidcProvider;
 
@@ -371,6 +372,15 @@ class RegistrationProviderVerificationTest extends SecurityTestCase
             . 'audience there is no check to make, so this is a signature-only verification -- '
             . 'which authenticates whoever holds any validly signed token for that person.');
         $this->assertSame(0, self::customers()->count());
+
+        // WHICH CONTROL THIS TEST ISOLATES, stated because the first version of this docblock
+        // overclaimed and an adversarial review of this package caught it. It isolates the
+        // OUTCOME -- an unconfigured store refuses -- and NOT the `$audiences === []` early
+        // return, because the audience intersection further down refuses an empty list anyway, so
+        // this passes with that guard removed. The guard's own job is to refuse BEFORE the
+        // outbound key fetch, and the test that isolates it is
+        // test_a_store_with_no_google_credential_refuses_without_contacting_the_provider, which
+        // asserts Http::assertNothingSent().
     }
 
     /**
@@ -681,6 +691,100 @@ class RegistrationProviderVerificationTest extends SecurityTestCase
         $this->assertSame('first@example.test',
             self::customers()->where('google_id', 'stable-sub')->value('email'),
             "A returning sign-in rewrote the account's email, which moves password recovery.");
+    }
+
+    /**
+     * A NON-STRING TOKEN FIELD MUST NOT CRASH THE ENDPOINT.
+     *
+     * `register` is unauthenticated, and `$request->input('google_token')` is whatever was posted,
+     * so `google_token[]=x` hands the verifier an array. While the parameter was typed `?string`
+     * that raised a TypeError, which is not a SocialIdentityVerificationException, so it escaped
+     * register()'s catch and an anonymous caller got HTTP 500 with a stack trace. Found by an
+     * adversarial review of this package.
+     *
+     * The refusal must be the SAME refusal as any other failure -- that is the whole point of the
+     * fail-closed design, which exists so this endpoint cannot be used to tell one failure mode
+     * from another.
+     */
+    public function test_a_non_string_token_field_does_not_crash_the_endpoint(): void
+    {
+        [$store] = $this->googleStore();
+        Http::preventStrayRequests();
+
+        foreach ([
+            'an array' => ['x'],
+            'a nested array' => ['a' => 'b'],
+            'a boolean' => true,
+            'an integer' => 12345,
+        ] as $label => $value) {
+            $response = $this->register($store, [
+                'register_type' => 'google',
+                'google_token' => $value,
+                'email' => 'crash-' . md5($label) . '@example.test',
+                'first_name' => 'Crash', 'last_name' => 'Probe',
+            ]);
+
+            $this->assertSame(200, $response->getStatusCode(),
+                'Posting ' . $label . ' as google_token returned HTTP '
+                . $response->getStatusCode() . ' rather than the refusal envelope.');
+            $this->assertSame(0, $response->json('status'),
+                'Posting ' . $label . ' as google_token was not refused.');
+            $this->assertStringNotContainsString('Stack trace', $response->getContent());
+        }
+
+        $this->assertSame(0, Customer::withoutGlobalScopes()->count(),
+            'A malformed token field created an account.');
+    }
+
+    /**
+     * A PROVIDER FAILURE MUST NOT WRITE THE MERCHANT'S APP SECRET TO THE LOG.
+     *
+     * Facebook's `debug_token` is authenticated with an app access token that is literally
+     * `{app-id}|{app-secret}`, and it travels as a QUERY PARAMETER. So a Guzzle connection or
+     * request failure quotes the whole URI in its message -- app secret and caller token included
+     * -- and the handler logged `$e->getMessage()` verbatim. S4 in the security queue is already
+     * "the API log is a plaintext credential store"; this change would have added to it. Found by
+     * an adversarial review of this package.
+     *
+     * Driven by faking a transport failure and reading what was actually logged, rather than by
+     * inspecting the redaction helper, so the assertion covers the path and not just the regex.
+     */
+    public function test_a_facebook_transport_failure_does_not_log_the_app_secret(): void
+    {
+        [, $store] = $this->makeTenant();
+        $this->setting($store, 'facebook_client_id', '1234567890');
+        $this->setting($store, 'facebook_client_secret', 'fb-app-secret-do-not-log');
+
+        Http::fake(function () {
+            throw new \Illuminate\Http\Client\ConnectionException(
+                'cURL error 7: Failed to connect to graph.facebook.com for '
+                . 'https://graph.facebook.com/debug_token?input_token=CALLER-TOKEN-VALUE'
+                . '&access_token=1234567890|fb-app-secret-do-not-log'
+            );
+        });
+
+        $logged = [];
+        Log::listen(function ($event) use (&$logged) {
+            $logged[] = $event->message . ' ' . json_encode($event->context);
+        });
+
+        $response = $this->register($store, [
+            'register_type' => 'facebook',
+            'facebook_token' => 'CALLER-TOKEN-VALUE',
+            'email' => 'fblog@example.test',
+            'first_name' => 'Fb', 'last_name' => 'Log',
+        ]);
+
+        $this->assertSame(0, $response->json('status'), 'the transport failure was not refused');
+
+        $all = implode("\n", $logged);
+        $this->assertNotSame('', $all,
+            'Nothing was logged at all, so this test cannot tell a redacted log from no log. The '
+            . 'refusal is supposed to record its reason.');
+        $this->assertStringNotContainsString('fb-app-secret-do-not-log', $all,
+            "The merchant's Facebook app secret was written to the log.");
+        $this->assertStringNotContainsString('CALLER-TOKEN-VALUE', $all,
+            "The caller's Facebook access token was written to the log.");
     }
 
     /**

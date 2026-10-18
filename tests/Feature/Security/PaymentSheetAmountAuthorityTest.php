@@ -569,6 +569,115 @@ class PaymentSheetAmountAuthorityTest extends SecurityTestCase
     }
 
     /**
+     * A NEGATIVE LINE QUANTITY CANNOT REDUCE THE PAYABLE -- the one route past this package's
+     * amount authority that does not involve the request at charge time.
+     *
+     * `addtocart` validated `'qty' => 'required'` and nothing more. MEASURED through the real
+     * endpoints: posting `qty = -5` to api/{slug}/add-cart returned
+     * `"<product> added successfully."`, the row was stored at -5, and cart-list then returned
+     * `total_final_price = -150.00` for a basket of one 100.00 product plus one 50.00 product at
+     * -5. So the server computed the amount from its own data, exactly as this package intends,
+     * and its own data had been poisoned at a different endpoint. Found by an adversarial review
+     * of this package.
+     *
+     * The basket here nets POSITIVE on purpose. A basket that nets to nothing is already caught by
+     * the `$payable <= 0` guard, so a test built on one would pass without either new control --
+     * which is the shape of vacuous test this project has been bitten by before.
+     */
+    public function test_a_negative_line_quantity_cannot_reduce_the_payable(): void
+    {
+        [, $store] = $this->stripeStore('USD');
+        $customer = $this->customerIn($store, 'negqty');
+        $token = $customer->createToken('t')->plainTextToken;
+
+        // 1000.00 - (5 x 50.00) = 750.00: positive, and 250.00 short of the basket's worth.
+        $this->cartWorth($store, $customer, 1000.00, 1);
+        $cheap = Product::forceCreate([
+            'name' => 'neg-' . uniqid(), 'slug' => 'neg-' . uniqid(),
+            'product_stock' => 100, 'track_stock' => 0, 'variant_product' => 0,
+            'price' => 50.00, 'sale_price' => 50.00,
+            'store_id' => $store->id, 'created_by' => $store->created_by,
+        ]);
+
+        // THE BOUNDARY. The endpoint must refuse the quantity outright.
+        $added = $this->withHeaders(['Authorization' => 'Bearer ' . $token])
+            ->postJson('/api/' . $store->slug . '/add-cart', [
+                'customer_id' => $customer->id, 'product_id' => $cheap->id,
+                'qty' => -5, 'variant_id' => 0,
+            ]);
+
+        $this->assertSame(0, $added->json('status'),
+            'add-cart accepted qty = -5: ' . json_encode($added->json('message')));
+        $this->assertSame(0, Cart::withoutGlobalScopes()
+            ->where('customer_id', $customer->id)->where('qty', '<=', 0)->count(),
+            'A non-positive quantity was stored.');
+
+        // THE PAYMENT BOUNDARY, independently. A row written by any other path must not be
+        // charged either, so one is planted directly and the amount re-checked.
+        Cart::forceCreate([
+            'customer_id' => $customer->id, 'product_id' => $cheap->id, 'variant_id' => 0,
+            'qty' => -5, 'price' => -250.00, 'store_id' => $store->id,
+        ]);
+
+        $this->stripe = RecordingStripeHttpClient::install();
+        $response = $this->callSheet($store, [], $token);
+
+        $create = $this->stripe->lastPaymentIntentCreate();
+        $this->assertNull($create,
+            'An intent was created for a basket holding a negative quantity, for '
+            . json_encode($create['params']['amount'] ?? null) . ' rather than the basket\'s own '
+            . '100000.');
+        $this->assertStringNotContainsString('clientSecret', $response->getContent());
+    }
+
+    /**
+     * A SECOND, GENUINELY SEPARATE PURCHASE OF THE SAME BASKET MUST NOT BE REPLAYED.
+     *
+     * Stripe returns the SAME PaymentIntent for a repeated idempotency key, for 24 hours. The first
+     * version of this package hashed only store, customer, amount and currency -- nothing that
+     * distinguishes one checkout from the next -- so a shopper who bought the same product twice in
+     * a day got the first, already-succeeded intent back on the second attempt. Either the client
+     * cannot confirm an already-succeeded intent and a legitimate purchase is blocked, or it treats
+     * it as success and the second order is recorded paid against a charge that never happened.
+     *
+     * This test is the one that would have caught it: it empties the cart the way place_order and
+     * ordersave do, re-adds the same product at the same price, and asserts a DIFFERENT key. The
+     * three tests above still assert the collapsing behaviour for a true retry, so the two
+     * requirements are pinned against each other rather than traded off.
+     */
+    public function test_a_second_purchase_of_the_same_basket_is_not_replayed(): void
+    {
+        [, $store] = $this->stripeStore('USD');
+        $customer = $this->customerIn($store, 'repeat');
+        $this->cartWorth($store, $customer, 30.00, 1);
+        $token = $customer->createToken('t')->plainTextToken;
+
+        $this->stripe = RecordingStripeHttpClient::install();
+        $this->callSheet($store, [], $token);
+        $first = $this->stripe->lastIdempotencyKey();
+        $this->assertNotNull($first, 'no intent was created, so nothing is being measured');
+
+        // What place_order (ApiController:3259) and ordersave do once the order is placed.
+        Cart::withoutGlobalScopes()->where('customer_id', $customer->id)->delete();
+        $this->assertSame(0, Cart::withoutGlobalScopes()
+            ->where('customer_id', $customer->id)->count(), 'the cart was not actually cleared');
+
+        // The same shopper buys the same thing again, so store, customer, amount and currency are
+        // all byte-identical to the first attempt.
+        $this->cartWorth($store, $customer, 30.00, 1);
+
+        RecordingStripeHttpClient::restore();
+        $this->stripe = RecordingStripeHttpClient::install();
+        $this->callSheet($store, [], $token);
+        $second = $this->stripe->lastIdempotencyKey();
+        $this->assertNotNull($second, 'no intent was created for the second purchase');
+
+        $this->assertNotSame($first, $second,
+            'The second purchase reused the first purchase\'s idempotency key, so Stripe replays '
+            . 'the first intent inside its 24-hour window and the second payment never happens.');
+    }
+
+    /**
      * NO COUPON CODE, FROM ANY STORE, CAN CHANGE WHAT THIS ENDPOINT CHARGES.
      *
      * A coupon is the one amount-bearing input that is legitimately a STRING rather than a number,

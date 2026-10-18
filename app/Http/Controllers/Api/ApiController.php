@@ -919,7 +919,19 @@ public function saveStoreFcmToken(Request $request)
         $rules = [
             'product_id' => 'required',
             'variant_id' => 'nullable',
-            'qty' => 'required',
+            // P01-SEC-14 E5. `required` alone let a shopper post `qty = -5`. MEASURED: the row
+            // was stored at -5 and api/{slug}/cart-list then returned
+            // `total_final_price = -150.00` for a basket holding one 100.00 product and one
+            // 50.00 product at qty -5. That is the amount payment_sheet charges, so a negative
+            // line REDUCES the payable using data the server stored itself -- the one route past
+            // Work Package B's amount authority that does not involve the request at charge time.
+            // The `$payable <= 0` guard there only catches the extreme case; a basket that nets
+            // positive is charged the reduced figure.
+            //
+            // `integer` accepts the numeric strings a JSON client sends ("2"), so no working
+            // client is refused; it rejects `-5`, `0`, `1.5` and `[]`. Found by an adversarial
+            // review of this package.
+            'qty' => 'required|integer|min:1',
         ];
         $customer = $this->resolveStoreCustomer($store);
         if ($customer === null) {
@@ -3089,7 +3101,38 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $order_array['coupon']['message'] = $apply_coupon['message'];
             $order_array['coupon']['status'] = false;
             if (!empty($apply_coupon['final_price'])) {
-                $cartlist_final_price = $apply_coupon['final_price'];
+                // P01-SEC-14 E6. A COUPON MAY ONLY LOWER THE BASKET TOTAL, NEVER ZERO IT.
+                //
+                // MEASURED, through api/{slug}/order-save with one 100.00 product: without a
+                // coupon the order recorded product_price 100.0 and final_price 100.0; WITH an
+                // accepted coupon it recorded 0.0 and 0.0, and a 7.00 discount. An accepted coupon
+                // made the order free. The cause is upstream: apply_coupon() builds its
+                // `final_price` from a nested cart read that is not reached for a coupon whose
+                // `sale_items` is 0, so the figure comes back "0.00", and `!empty("0.00")` is TRUE
+                // in PHP -- a non-empty string -- so the assignment fired on a zero.
+                //
+                // THIS GUARD IS NOT THE COUPON FIX. Correcting apply_coupon's arithmetic is the
+                // order-calculation change this package is not to start, and S24 in
+                // docs/security/P01-SECURITY-WORK-QUEUE.md shows that path is doubly broken: every
+                // coupon type except `fixed product discount` is refused outright by a mispaired
+                // `else`. What this does is refuse a figure that cannot be a discounted basket --
+                // not positive, or larger than the basket itself -- and keep the server's own
+                // total instead. Narrow, fails safe, and it leaves a correct coupon reduction
+                // working: a positive figure below the basket total is still accepted.
+                //
+                // Numeric comparison, not `empty()`: that is what let "0.00" through.
+                $couponedTotal = (float) $apply_coupon['final_price'];
+
+                if ($couponedTotal > 0 && $couponedTotal <= (float) $cartlist_final_price) {
+                    $cartlist_final_price = $apply_coupon['final_price'];
+                } else {
+                    \Illuminate\Support\Facades\Log::warning('coupon: refused an implausible discounted total', [
+                        'handler' => __FUNCTION__,
+                        'store_id' => $store->id,
+                        'basket_total' => (float) $cartlist_final_price,
+                        'coupon_total' => $couponedTotal,
+                    ]);
+                }
                 $coupon_price = $apply_coupon['amount'];
                 $order_array['coupon']['status'] = true;
             }
@@ -6966,9 +7009,25 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         // on top. Charging `total_sub_price` would take 121.00 for an order that records 110.00 as
         // owed, which is worse than undercharging: it is money the order has no record of.
         //
-        // `total_final_price` is also post-coupon -- the coupon reduces `$final_price` at 721-723
-        // before it accumulates into `$cart_final_price` -- so it is not a pre-discount subtotal
-        // despite looking like one.
+        // CORRECTION, from an adversarial review of this very change. The first version of this
+        // comment said `total_final_price` is "also post-coupon -- the coupon reduces
+        // `$final_price` before it accumulates into `$cart_final_price`". THAT IS BACKWARDS, and
+        // reading the accumulation order settles it: `$cart_final_price += $final_price` runs
+        // BEFORE the coupon block assigns `$final_price = $coupon_apply_price`, so the discount
+        // reaches `$tax_price`, `$coupon_price` and `total_sub_price` and never reaches the key
+        // charged here. Measured through api/{slug}/cart-list on one 100.00 product with a 50%
+        // coupon: total_final_price 100.00, total_sub_price 50.00.
+        //
+        // So this amount is PRE-coupon, and a coupon-bearing checkout through this endpoint is
+        // charged the undiscounted total. That is a real cost and it is NOT why the key was
+        // chosen. The reason it is still the right key is the opposite property, also measured:
+        // `shipping_final_price = -999` drives total_sub_price to -899.00 and leaves
+        // total_final_price at 100.00. `total_sub_price` is settable by the caller to any value;
+        // this one is not settable at all. An amount that is wrong by a known, bounded,
+        // server-side figure beats an amount the payer writes.
+        //
+        // Both the omitted discount and the omitted shipping are S21 owner items with the full
+        // measurement table.
         //
         // WHAT IT STILL DOES NOT COVER, recorded rather than smoothed over: SHIPPING. Neither cart
         // key includes it, while `orders.final_price` uses `$data['shipping_total_price']` when a
@@ -7035,6 +7094,29 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         // envelope carries no `total_final_price`, so a refusal there lands on the zero check below
         // rather than producing a zero-amount intent.
 
+        // P01-SEC-14 E5. A NON-POSITIVE LINE QUANTITY IS NOT A PAYABLE BASKET. addtocart now
+        // refuses one at the boundary, but a row written before that -- or by any other writer --
+        // would still subtract from the total computed above, and the `$payable <= 0` check below
+        // only catches a basket that nets to nothing. Refusing here protects the amount whatever
+        // let the row in, and it fails closed: a shopper sees a refusal rather than a cheap charge.
+        $nonPositiveLines = Cart::where('customer_id', $customer->id)
+            ->where('store_id', $store->id)
+            ->where('qty', '<=', 0)
+            ->count();
+
+        if ($nonPositiveLines > 0) {
+            \Illuminate\Support\Facades\Log::warning('payment_sheet: refused, basket holds a non-positive quantity', [
+                'store_id' => $store->id,
+                'customer_id' => $customer->id,
+                'lines' => $nonPositiveLines,
+            ]);
+
+            return $this->error(
+                ['message' => __('Your cart contains an invalid quantity.')],
+                __('Your cart contains an invalid quantity.')
+            );
+        }
+
         $payable = StripeMoney::toMinorUnits($cartData['total_final_price'] ?? 0, $currency);
 
         if ($payable <= 0) {
@@ -7072,14 +7154,38 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                     // key, a caller could sit in a loop and fill a merchant's Stripe dashboard with
                     // intents. Stripe returns the SAME intent for a repeated key, so a client that
                     // retries -- or a shopper who taps twice -- gets one intent rather than
-                    // several. The key is derived from exactly what identifies this attempt, so a
-                    // genuinely changed basket gets a new intent as it must.
+                    // several.
+                    //
+                    // THE BASKET'S ROW IDENTITY IS IN THE KEY, and that is a correction to the
+                    // first version of this change rather than a refinement. That version hashed
+                    // only store, customer, amount and currency, which contains nothing that
+                    // distinguishes one checkout from the next: a shopper who buys the same product
+                    // twice in a day produced a byte-identical key inside Stripe's 24-hour
+                    // idempotency window, so Stripe replayed the FIRST, already-succeeded intent
+                    // and the second purchase either could not be confirmed or was recorded paid
+                    // against a charge that never happened. Found by an adversarial review of this
+                    // package and reproduced from the code; pinned by
+                    // PaymentSheetAmountAuthorityTest::
+                    // test_a_second_purchase_of_the_same_basket_is_not_replayed.
+                    //
+                    // `cart.id` is what makes it work: place_order and ordersave DELETE the cart
+                    // rows, so a re-added basket carries new ids and hashes differently, while a
+                    // double-tap on the same rows still collapses. qty and variant are included so
+                    // an edited basket is a new attempt too. Read with the same predicate
+                    // cart_list uses, so the two cannot disagree about which rows are the basket.
                     'idempotency_key' => hash('sha256', implode('|', [
                         'payment_sheet',
                         $store->id,
                         $customer->id,
                         $payable,
                         strtolower($currency),
+                        Cart::where('customer_id', $customer->id)
+                            ->where('store_id', $store->id)
+                            ->orderBy('id')
+                            ->get(['id', 'product_id', 'variant_id', 'qty'])
+                            ->map(fn ($row) => $row->id . ':' . $row->product_id . ':'
+                                . $row->variant_id . ':' . $row->qty)
+                            ->implode(','),
                     ])),
                 ]
             );
@@ -7635,7 +7741,38 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $order_array['coupon_info']['message'] = $apply_coupon['message'] ?? null;
             $order_array['coupon_info']['status'] = false;
             if (!empty($apply_coupon['final_price'])) {
-                $cartlist_final_price = $apply_coupon['final_price'];
+                // P01-SEC-14 E6. A COUPON MAY ONLY LOWER THE BASKET TOTAL, NEVER ZERO IT.
+                //
+                // MEASURED, through api/{slug}/order-save with one 100.00 product: without a
+                // coupon the order recorded product_price 100.0 and final_price 100.0; WITH an
+                // accepted coupon it recorded 0.0 and 0.0, and a 7.00 discount. An accepted coupon
+                // made the order free. The cause is upstream: apply_coupon() builds its
+                // `final_price` from a nested cart read that is not reached for a coupon whose
+                // `sale_items` is 0, so the figure comes back "0.00", and `!empty("0.00")` is TRUE
+                // in PHP -- a non-empty string -- so the assignment fired on a zero.
+                //
+                // THIS GUARD IS NOT THE COUPON FIX. Correcting apply_coupon's arithmetic is the
+                // order-calculation change this package is not to start, and S24 in
+                // docs/security/P01-SECURITY-WORK-QUEUE.md shows that path is doubly broken: every
+                // coupon type except `fixed product discount` is refused outright by a mispaired
+                // `else`. What this does is refuse a figure that cannot be a discounted basket --
+                // not positive, or larger than the basket itself -- and keep the server's own
+                // total instead. Narrow, fails safe, and it leaves a correct coupon reduction
+                // working: a positive figure below the basket total is still accepted.
+                //
+                // Numeric comparison, not `empty()`: that is what let "0.00" through.
+                $couponedTotal = (float) $apply_coupon['final_price'];
+
+                if ($couponedTotal > 0 && $couponedTotal <= (float) $cartlist_final_price) {
+                    $cartlist_final_price = $apply_coupon['final_price'];
+                } else {
+                    \Illuminate\Support\Facades\Log::warning('coupon: refused an implausible discounted total', [
+                        'handler' => __FUNCTION__,
+                        'store_id' => $store->id,
+                        'basket_total' => (float) $cartlist_final_price,
+                        'coupon_total' => $couponedTotal,
+                    ]);
+                }
                 $order_array['coupon_info']['status'] = true;
                 $verified_coupon = $apply_coupon;
             }

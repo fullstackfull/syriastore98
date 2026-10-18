@@ -363,6 +363,66 @@ class ResidualSafetyCorrectionsTest extends SecurityTestCase
             . 'accepted, and 95 would mean the posted number is still being read.');
     }
     /**
+     * AN ACCEPTED COUPON MADE THE ORDER FREE. Measured, and that is not an exaggeration.
+     *
+     * Driven through api/{slug}/order-save with one 100.00 product:
+     *
+     *   no coupon                 product_price 100.0   coupon_price 0.0   final_price 100.0
+     *   an ACCEPTED coupon        product_price   0.0   coupon_price 7.0   final_price   0.0
+     *
+     * `apply_coupon()` builds its `final_price` from a nested cart read that is not reached for a
+     * coupon whose `sale_items` is 0, so it returns the string "0.00" -- and `!empty("0.00")` is
+     * TRUE in PHP, so `$cartlist_final_price = $apply_coupon['final_price']` fired on a zero. A
+     * shopper holding any working coupon code got an order recording nothing owed, which for a COD
+     * order is free goods. Found by an adversarial review of this package; pre-existing, and
+     * untestable before C4 made apply_coupon reachable on SQLite at all.
+     *
+     * The guard refuses a figure that cannot be a discounted basket -- not positive, or larger
+     * than the basket -- and keeps the server's own total. It is NOT the coupon fix: correcting
+     * apply_coupon's arithmetic is the order-calculation change this package is not to start, and
+     * S24 records that the same path refuses every coupon type but one. So the order is now
+     * internally inconsistent in a visible way -- 100.00 owed with a 7.00 discount recorded
+     * beside it -- which is the honest state to leave it in and is far better than 0.00 owed.
+     */
+    public function test_an_accepted_coupon_cannot_zero_the_order_total(): void
+    {
+        [, $store, $shippingId] = $this->orderableTenant();
+        $customer = $this->customerIn($store, 'c3f');
+        $product = $this->productIn($store);
+        Cart::forceCreate([
+            'customer_id' => $customer->id, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+        ]);
+        $this->makeAcceptedCoupon($store, 'ZEROPROBE', $product->id);
+
+        $this->callApi($store, 'order-save', [
+            'customer_id' => $customer->id,
+            'billing_info' => $this->billing(),
+            'payment_type' => 'cod',
+            'delivery_id' => $shippingId,
+            'method_id' => $shippingId,
+            'coupon_info' => [
+                'coupon_code' => 'ZEROPROBE',
+                'coupon_discount_type' => 'flat',
+                'coupon_discount_number' => '7',
+                'coupon_discount_amount' => '7',
+                'coupon_final_amount' => '93',
+            ],
+        ], $customer->createToken('t')->plainTextToken);
+
+        $order = \App\Models\Order::withoutGlobalScopes()
+            ->where('customer_id', $customer->id)->first();
+
+        $this->assertNotNull($order, 'order-save did not complete with an accepted coupon.');
+        $this->assertSame(100.0, (float) $order->product_price,
+            'The order recorded product_price ' . $order->product_price . '. 0 means an accepted '
+            . "coupon still zeroes the basket total this order was built from.");
+        $this->assertGreaterThan(0.0, (float) $order->final_price,
+            'The order recorded final_price ' . $order->final_price . ', so a shopper holding a '
+            . 'working coupon code owes nothing.');
+    }
+
+    /**
      * AND THE STORE BOUNDARY ON THE SAME COLUMN. Another tenant's coupon code must not discount
      * an order here.
      *
@@ -409,12 +469,36 @@ class ResidualSafetyCorrectionsTest extends SecurityTestCase
     }
 
     /**
-     * A store that has written NO settings rows at all still completes, which is the condition the
-     * two missing keys represent: nothing seeds `out_of_stock_threshold` or `notification`.
+     * THE TWO MISSING SETTINGS KEYS, isolated -- and this test is a CORRECTION of one that was
+     * vacuous.
+     *
+     * The first version called `orderableTenant(seedStockManagement: false)`, reasoning that a
+     * store with no settings rows is exactly the condition the missing keys represent. It is not:
+     * `out_of_stock_threshold` and `notification` are read INSIDE the block gated on
+     * `$settings['stock_management'] == 'on'`, so omitting `stock_management` skips the code the
+     * fix guards. Proved rather than reasoned: with both `?? ` defaults reverted, five tests in
+     * this file fail and that one still passed. An adversarial review of this package flagged it
+     * and the revert confirmed it.
+     *
+     * So this version turns stock management ON -- entering the block -- while leaving the two
+     * keys unwritten, and asserts their absence as a premise first, because a fixture that
+     * accidentally seeded them would make the test pass for the wrong reason.
      */
-    public function test_a_store_with_no_settings_rows_can_still_save_an_order(): void
+    public function test_an_order_completes_with_stock_management_on_and_the_two_keys_unset(): void
     {
-        [$merchant, $store, $shippingId] = $this->orderableTenant(seedStockManagement: false);
+        [$merchant, $store, $shippingId] = $this->orderableTenant();
+
+        $this->assertSame('on', DB::table('settings')->where('store_id', $store->id)
+            ->where('name', 'stock_management')->value('value'),
+            'stock_management is not on, so the block that reads the two keys is never entered '
+            . 'and this test isolates nothing.');
+
+        foreach (['out_of_stock_threshold', 'notification'] as $name) {
+            $this->assertNull(DB::table('settings')->where('store_id', $store->id)
+                ->where('name', $name)->value('value'),
+                'The fixture seeded ' . $name . ', so the missing-key fix is not being exercised.');
+        }
+
         $customer = $this->customerIn($store, 'c3b');
         $product = $this->productIn($store);
         Cart::forceCreate([
@@ -432,7 +516,9 @@ class ResidualSafetyCorrectionsTest extends SecurityTestCase
 
         $this->assertSame(1, \App\Models\Order::withoutGlobalScopes()
             ->where('customer_id', $customer->id)->count(),
-            'A store that has configured no settings cannot save an order.');
+            'An order could not be saved with stock management on and neither '
+            . '`out_of_stock_threshold` nor `notification` configured -- the raw settings pluck '
+            . 'supplies no defaults, so both keys are simply absent.');
     }
 
     // ===================================================================================
@@ -705,6 +791,14 @@ class ResidualSafetyCorrectionsTest extends SecurityTestCase
      * the handlers: an admin user with a resolvable Plan assigned THROUGH ELOQUENT (User is
      * Cachable, so a raw write leaves a stale read), the admin_details cache forgotten, and a
      * shippings row.
+     */
+    /**
+     * @param  bool  $seedStockManagement  no test passes false any more -- the one that did was
+     *                                     vacuous for exactly that reason (see
+     *                                     test_an_order_completes_with_stock_management_on_and_the_two_keys_unset).
+     *                                     Kept because a future test of the stock-management-OFF
+     *                                     path needs it, and removing it would invite the same
+     *                                     mistake to be re-made inline.
      */
     private function orderableTenant(bool $seedStockManagement = true): array
     {

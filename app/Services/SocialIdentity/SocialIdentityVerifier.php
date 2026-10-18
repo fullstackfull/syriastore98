@@ -80,7 +80,16 @@ class SocialIdentityVerifier
     /**
      * @throws SocialIdentityVerificationException
      */
-    public function verify(string $provider, ?string $token, Store $store): VerifiedSocialIdentity
+    /**
+     * @param  mixed  $token  deliberately NOT typed `?string`. It comes from
+     *                        `$request->input('google_token')` on an UNAUTHENTICATED route, so a
+     *                        caller can post `google_token[]=x` and hand this an array. A
+     *                        `?string` parameter turned that into a TypeError, which is not a
+     *                        SocialIdentityVerificationException, so it escaped register()'s catch
+     *                        and returned HTTP 500 with a stack trace to an anonymous caller.
+     *                        Anything that is not a string is now simply "no token presented".
+     */
+    public function verify(string $provider, $token, Store $store): VerifiedSocialIdentity
     {
         if (! self::isSupported($provider)) {
             throw new SocialIdentityVerificationException(
@@ -88,7 +97,7 @@ class SocialIdentityVerifier
             );
         }
 
-        if ($token === null || trim($token) === '') {
+        if (! is_string($token) || trim($token) === '') {
             throw new SocialIdentityVerificationException(
                 SocialIdentityVerificationException::REASON_NO_TOKEN,
                 'No ' . self::TOKEN_FIELDS[$provider] . ' was presented.'
@@ -221,8 +230,14 @@ class SocialIdentityVerifier
                 ]
             );
         } catch (Throwable $e) {
+            // REDACTED, and not for tidiness. The app access token is literally
+            // "{app-id}|{app-secret}" and it travels as a QUERY PARAMETER, so a Guzzle connection
+            // or request error quotes the whole URI in its message -- the merchant's Facebook app
+            // secret and the caller's access token included. S4 in the security queue is "the API
+            // log is a plaintext credential store"; this would have added to it. Found by an
+            // adversarial review of this package.
             Log::warning('social-identity: facebook debug_token call failed', [
-                'error' => $e->getMessage(),
+                'error' => self::redactSecrets($e->getMessage()),
             ]);
 
             throw new SocialIdentityVerificationException(
@@ -291,6 +306,23 @@ class SocialIdentityVerifier
             providerId: $subject,
             email: null,
             emailVerified: false,
+        );
+    }
+
+    /**
+     * Replace the VALUES of any token-bearing query parameter in a string.
+     *
+     * Applied to anything derived from an exception message before it is logged. Conservative on
+     * purpose: it matches the parameter names this class actually sends and redacts to the end of
+     * the value rather than trying to parse the URI, because a malformed URI in an error message is
+     * exactly the case where parsing fails and the secret survives.
+     */
+    private static function redactSecrets(string $message): string
+    {
+        return (string) preg_replace(
+            '/\b(access_token|input_token|client_secret|id_token)=[^\s&"\']*/i',
+            '$1=[REDACTED]',
+            $message
         );
     }
 }
