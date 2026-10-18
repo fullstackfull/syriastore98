@@ -126,12 +126,25 @@ class ConnectionController extends Controller
         }
 
         try {
-            $this->linker->reauthorize($link, $request->user(), (string) $request->validated('connection_code'));
+            $recovered = $this->linker->reauthorize($link, $request->user(), (string) $request->validated('connection_code'));
         } catch (LynomiaApiException $e) {
             return back()->with('error', $this->merchantMessage($e));
         }
 
-        return back()->with('success', __('Your Lynomia Chat connection has been restored.'));
+        // WHAT CAME BACK IS THE GRANT, WHICH IS NOT ALWAYS THE WHOLE CONNECTION.
+        //
+        // `reauthorize` deliberately leaves `state` alone -- the arrangement did not change,
+        // only Lynomia's willingness to admit us -- so a link that an operator revoked while
+        // the grant was already missing comes out of this with its grant back and its state
+        // still REVOKED. Every surface goes on refusing it, correctly, which is why no gate is
+        // added here; but telling that merchant their connection "has been restored" is the
+        // same kind of untruth this whole change exists to remove from the page above.
+        return back()->with(
+            'success',
+            $recovered->isActive()
+                ? __('Your Lynomia Chat connection has been restored.')
+                : __('Lynomia Chat accepted the code, but this store\'s connection was ended by support. Please contact support to reopen it.')
+        );
     }
 
     /**

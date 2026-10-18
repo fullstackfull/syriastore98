@@ -13,6 +13,7 @@ use Workdo\LynomiaChat\app\Services\AccountLinker;
 use Workdo\LynomiaChat\app\Services\AccountProvisioner;
 use Workdo\LynomiaChat\app\Services\AuthorizationHealth;
 use Workdo\LynomiaChat\app\Services\CommerceActivator;
+use Workdo\LynomiaChat\app\Services\CommerceCredential;
 use Workdo\LynomiaChat\app\Services\SsoLinkIssuer;
 use Workdo\LynomiaChat\app\Support\CommerceState;
 use Workdo\LynomiaChat\app\Support\LinkState;
@@ -304,6 +305,45 @@ class LynomiaAuthorizationRecoveryTest extends TestCase
         $this->assertNotNull(AuditLog::where('action', 'lynomia_authorization_recovery_refused')->first());
     }
 
+    /**
+     * THE GRANT CAME BACK; THE CONNECTION DID NOT. SAY SO.
+     *
+     * `reauthorize` deliberately leaves `state` alone, so a link an operator revoked while the
+     * grant was already gone comes out of a successful redemption with its grant restored and
+     * its state still REVOKED. Every surface goes on refusing it -- correctly, and no state gate
+     * is added here, because one would fold health back into state and would also stop a
+     * merchant putting the grant back BEFORE an operator's restore(), whose resume push needs
+     * the grant to exist.
+     *
+     * What is NOT acceptable is telling that merchant their connection "has been restored".
+     * This whole change exists because a page reported health it did not have.
+     */
+    public function test_a_revoked_link_is_not_told_its_connection_is_restored(): void
+    {
+        [$owner, , $link] = $this->activeLink();
+        $link->fresh()->forceFill([
+            'authorization_lost_at' => now(),
+            'state' => LinkState::REVOKED,
+        ])->save();
+
+        $response = $this->actingAs($owner)->post('/lynomia/connect/recover', [
+            'connection_code' => 'ABCDEFGHJKLMNPQR',
+        ]);
+
+        // The redemption itself succeeded -- the grant is back and the flag is cleared.
+        $response->assertSessionHas('success');
+        $this->assertFalse(AuthorizationHealth::lost($link->fresh()));
+
+        // But the sentence does not claim the connection works, because it does not.
+        $this->assertSame(
+            __('Lynomia Chat accepted the code, but this store\'s connection was ended by support. Please contact support to reopen it.'),
+            $response->getSession()->get('success')
+        );
+        $this->assertSame(LinkState::REVOKED, $link->fresh()->state);
+        $this->assertFalse($link->fresh()->allowsSso(), 'a revoked link must gain nothing from a recovery');
+        $this->assertFalse($link->fresh()->arrangementAllowsSso());
+    }
+
     /** REPEATED RECOVERY REQUESTS. Idempotent, and never a second workspace. */
     public function test_repeated_recovery_requests_are_safe(): void
     {
@@ -422,6 +462,53 @@ class LynomiaAuthorizationRecoveryTest extends TestCase
         $response->assertSessionHas('error', __('You do not have access to this store.'));
         $this->assertTrue(AuthorizationHealth::lost($linkA->fresh()));
         $this->assertSame(0, $this->sentCount('POST', '/account_links'));
+    }
+
+    /**
+     * THE ASYMMETRY, PINNED, BECAUSE IT IS THE MOST COUNTERINTUITIVE THING IN THIS CHANGE.
+     *
+     * A merchant removing Store Syria's grant on their WORKSPACE has not withdrawn Lynomia's
+     * access to their STORE: the inbound commerce credential is an `lsc_` secret this side
+     * issued, which the merchant never touched, and `AuthenticateCommerceApi` therefore reads
+     * `arrangementAllowsSso()`. Refusing here would flip Lynomia's commerce store to
+     * `needs_reauth` and manufacture a second outage out of the first.
+     *
+     * Without this example the inbound middleware is one well-meaning "consistency" edit away
+     * from `allowsSso()`, which is precisely the second outage. The outbound direction is
+     * refused in the same example so the two halves cannot drift apart silently.
+     */
+    public function test_inbound_commerce_reads_keep_working_while_authorization_is_lost(): void
+    {
+        [, , $link] = $this->activeLink();
+        $link->fresh()->forceFill(['commerce_credential_version' => 1])->save();
+        $token = CommerceCredential::issue($link->fresh());
+
+        $this->getJson('/api/lynomia/commerce/v1/store', ['Authorization' => 'Bearer ' . $token])
+            ->assertOk();
+
+        $link->fresh()->forceFill(['authorization_lost_at' => now()])->save();
+
+        // INBOUND: unaffected. The credential proves which store; the grant it lost was on the
+        // workspace, which this direction does not go through.
+        $this->getJson('/api/lynomia/commerce/v1/store', ['Authorization' => 'Bearer ' . $token])
+            ->assertOk();
+
+        // OUTBOUND: refused, by the same link, at the same moment.
+        $this->assertFalse($link->fresh()->allowsSso());
+        $this->assertTrue($link->fresh()->arrangementAllowsSso());
+    }
+
+    /** And the link state still governs the inbound direction, which the widening did not touch. */
+    public function test_a_suspended_link_still_refuses_inbound_commerce_reads(): void
+    {
+        [, , $link] = $this->activeLink();
+        $link->fresh()->forceFill(['commerce_credential_version' => 1])->save();
+        $token = CommerceCredential::issue($link->fresh());
+
+        $link->fresh()->forceFill(['state' => LinkState::SUSPENDED])->save();
+
+        $this->getJson('/api/lynomia/commerce/v1/store', ['Authorization' => 'Bearer ' . $token])
+            ->assertStatus(403);
     }
 
     /** The claim path is untouched: a provisioned store still cannot be re-claimed. */

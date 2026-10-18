@@ -827,5 +827,6 @@
     "Lynomia Chat no longer allows Store Syria to open this workspace. Your workspace, your team and your conversations are all safe -- only the connection between the two systems was removed.": "لم يعد ليونوميا شات يسمح لستور سيريا بفتح مساحة العمل هذه. مساحة عملك وفريقك ومحادثاتك جميعها آمنة — ما تم إزالته هو الربط بين النظامين فقط.",
     "In Lynomia Chat open Settings, then Integrations, then generate a connection code, and paste it here. Generate it inside the workspace this store is already connected to.": "في ليونوميا شات افتح الإعدادات، ثم التكاملات، ثم أنشئ رمز ربط والصقه هنا. أنشئه من داخل مساحة العمل المرتبطة بهذا المتجر بالفعل.",
     "Restore connection": "استعادة الربط",
-    "Restore the connection above to open this workspace again.": "استعد الربط بالأعلى لفتح مساحة العمل هذه مرة أخرى."
+    "Restore the connection above to open this workspace again.": "استعد الربط بالأعلى لفتح مساحة العمل هذه مرة أخرى.",
+    "Lynomia Chat accepted the code, but this store's connection was ended by support. Please contact support to reopen it.": "قبل لينوميا شات الرمز، لكن اتصال هذا المتجر أُنهي من قِبل الدعم. يُرجى التواصل مع الدعم لإعادة فتحه."
 }

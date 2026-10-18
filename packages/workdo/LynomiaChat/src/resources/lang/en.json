@@ -827,5 +827,6 @@
     "Lynomia Chat no longer allows Store Syria to open this workspace. Your workspace, your team and your conversations are all safe -- only the connection between the two systems was removed.": "Lynomia Chat no longer allows Store Syria to open this workspace. Your workspace, your team and your conversations are all safe -- only the connection between the two systems was removed.",
     "In Lynomia Chat open Settings, then Integrations, then generate a connection code, and paste it here. Generate it inside the workspace this store is already connected to.": "In Lynomia Chat open Settings, then Integrations, then generate a connection code, and paste it here. Generate it inside the workspace this store is already connected to.",
     "Restore connection": "Restore connection",
-    "Restore the connection above to open this workspace again.": "Restore the connection above to open this workspace again."
+    "Restore the connection above to open this workspace again.": "Restore the connection above to open this workspace again.",
+    "Lynomia Chat accepted the code, but this store's connection was ended by support. Please contact support to reopen it.": "Lynomia Chat accepted the code, but this store's connection was ended by support. Please contact support to reopen it."
 }
