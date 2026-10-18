@@ -109,13 +109,24 @@ return [
      * from Lynomia rather than waiting for a re-delivery that never comes.
      */
     /**
-     * The ceiling on UNVERIFIED inbound requests, per caller IP, per minute. This is the only
-     * limit a request without a valid signature can consume -- the per-store budget below is
-     * spent exclusively by deliveries that have already proved they came from Lynomia.
+     * THE EVENT BUDGET. `ingress_rate_per_minute` is what ONE verified store may spend on
+     * deliveries, and the only knob here that scales what merchants can deliver: the ceiling over
+     * all merchants is ten times it, derived in code
+     * (LynomiaChatServiceProvider::INGRESS_INSTALLATION_MULTIPLE), and the shared pre-verification
+     * tier is that plus the platform's own budget below. Three numbers that have to agree, derived
+     * from one, because as three independent settings they did not: the shared tier shipped at 300
+     * while one store's budget was 600, so no store could reach its own and a busy merchant
+     * silently consumed the allowance the platform's notices needed.
+     *
+     * `ingress_unverified_rate_per_minute` is NOT that ceiling. It is the much smaller allowance
+     * for a request carrying no signature header at all -- a header lookup, before any HMAC over
+     * the body -- which a real delivery never pays. A signed-but-forged delivery is bounded by the
+     * shared ceiling instead, because a tight bound in front of the HMAC is shared with honest
+     * deliveries, and a refused delivery here is a destroyed one.
      */
-    'ingress_unverified_rate_per_minute' => (int) env('LYNOMIA_INGRESS_UNVERIFIED_RATE_PER_MINUTE', 300),
-
     'ingress_rate_per_minute' => (int) env('LYNOMIA_INGRESS_RATE_PER_MINUTE', 600),
+
+    'ingress_unverified_rate_per_minute' => (int) env('LYNOMIA_INGRESS_UNVERIFIED_RATE_PER_MINUTE', 300),
 
     /**
      * THE COMMERCE API'S BUDGET. `commerce_rate_per_minute` is what ONE verified store may spend,

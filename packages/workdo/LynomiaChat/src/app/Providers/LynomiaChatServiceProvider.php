@@ -11,6 +11,7 @@ use Illuminate\Support\ServiceProvider;
 use Workdo\LynomiaChat\app\Services\AccountLinker;
 use Workdo\LynomiaChat\app\Services\AccountProvisioner;
 use Workdo\LynomiaChat\app\Services\CommerceCredential;
+use Workdo\LynomiaChat\app\Services\EventSignature;
 use Workdo\LynomiaChat\app\Services\EventSubscriptionManager;
 use Workdo\LynomiaChat\app\Services\IdentityProvisioner;
 use Workdo\LynomiaChat\app\Services\MerchantInboxGateway;
@@ -192,6 +193,50 @@ class LynomiaChatServiceProvider extends ServiceProvider
         return max(60, (int) config('lynomia.commerce_rate_per_minute', 600));
     }
 
+    /**
+     * THE EVENT BUDGETS, derived the same way and for the same reason as the commerce pair
+     * below -- see the note there. `lynomia-ingress` had the identical defect: 300/minute keyed
+     * on the caller IP, in front of a per-store budget of 600, on a route Lynomia delivers every
+     * merchant's events to from one egress address. No store could reach its own budget and
+     * `lynomia-events:all` was unreachable.
+     *
+     * IT IS WORSE HERE THAN IT WAS THERE, in two ways. A refused commerce read degrades a panel;
+     * a refused delivery is GONE -- an account webhook failure is swallowed by Webhooks::Trigger
+     * and never retried, as the note on registerIngressLimiter records. And `lynomia-ingress` is
+     * tier 1 for TWO routes, merchant events and the platform's own notices, so the 300 was
+     * shared between them: a busy merchant's traffic silently consumed the budget the
+     * installation needed to tell its merchants their integration was broken.
+     */
+    private const INGRESS_INSTALLATION_MULTIPLE = 10;
+
+    /** What ONE verified store may spend on deliveries per minute. */
+    private static function ingressStoreBudget(): int
+    {
+        return max(60, (int) config('lynomia.ingress_rate_per_minute', 600));
+    }
+
+    /** What the platform's own notices may spend per minute. */
+    private static function platformIngressBudget(): int
+    {
+        return max(60, (int) config('lynomia.platform_ingress_rate_per_minute', 600));
+    }
+
+    /** What ALL merchant deliveries together may spend per minute. */
+    private static function ingressEventsCeiling(): int
+    {
+        return self::ingressStoreBudget() * self::INGRESS_INSTALLATION_MULTIPLE;
+    }
+
+    /**
+     * What tier 1 allows, which has to cover BOTH tiers beneath it: `lynomia-ingress` is the
+     * first element of the merchant-events stack and of the platform-events stack, so a ceiling
+     * sized for one of them starves the other.
+     */
+    private static function ingressSharedCeiling(): int
+    {
+        return self::ingressEventsCeiling() + self::platformIngressBudget();
+    }
+
     /** What ALL commerce traffic may spend per minute, which on one egress address is the ceiling. */
     private static function commerceInstallationCeiling(): int
     {
@@ -223,14 +268,33 @@ class LynomiaChatServiceProvider extends ServiceProvider
      */
     protected function registerIngressLimiter(): void
     {
-        // TIER 1 -- the anonymous flood. Everyone pays this, before anything is parsed or
-        // verified, keyed on the caller. It is the only limit an UNVERIFIED request can consume,
-        // so no amount of garbage can touch a merchant's delivery budget.
+        // TIER 1 -- what a delivery pays BEFORE its signature is checked, for both ingress routes.
+        //
+        // KEYED ON THE IP, WHICH HERE MEANS KEYED ON THE WHOLE INSTALLATION, because Lynomia
+        // delivers every merchant's events from a single egress address. So this is the ceiling on
+        // all inbound deliveries there are, and it is sized as one -- see ingressSharedCeiling.
+        // It used to be 300, below one store's 600, which is why no store could reach its own
+        // budget and why a busy merchant could silently consume the allowance the platform's own
+        // notices needed.
+        //
+        // WHAT STILL BOUNDS GARBAGE CHEAPLY. A request carrying no signature header at all cannot
+        // be Lynomia, and seeing that is a header lookup -- no HMAC over the body, no key
+        // derivation, no database read. It gets its own much smaller allowance, which a real
+        // delivery never touches. A signed-but-forged delivery does reach the HMAC, bounded by the
+        // ceiling: that work is one hash, and a tight bound in front of it is shared with honest
+        // deliveries, which is the defect above.
         RateLimiter::for('lynomia-ingress', function (Request $request) {
-            return [
-                Limit::perMinute((int) config('lynomia.ingress_unverified_rate_per_minute', 300))
+            $limits = [
+                Limit::perMinute(self::ingressSharedCeiling())
                     ->by('lynomia-ingress:ip:' . $request->ip()),
             ];
+
+            if (! $request->hasHeader(EventSignature::SIGNATURE_HEADER)) {
+                $limits[] = Limit::perMinute(max(1, (int) config('lynomia.ingress_unverified_rate_per_minute', 300)))
+                    ->by('lynomia-ingress:unsigned:' . $request->ip());
+            }
+
+            return $limits;
         });
 
         // THE COMMERCE API, TIER 1 -- what a request pays BEFORE its credential is parsed.
@@ -327,13 +391,11 @@ class LynomiaChatServiceProvider extends ServiceProvider
                 return [Limit::perMinute(1)->by('lynomia-events:unverified:' . $request->ip())];
             }
 
-            $perMinute = max(60, (int) config('lynomia.ingress_rate_per_minute', 600));
-
             return [
-                Limit::perMinute($perMinute)->by('lynomia-events:store:' . $store),
-                // A whole-installation ceiling, so many verified stores together still cannot
-                // saturate the host.
-                Limit::perMinute($perMinute * 10)->by('lynomia-events:all'),
+                Limit::perMinute(self::ingressStoreBudget())->by('lynomia-events:store:' . $store),
+                // Every merchant's deliveries together. Tier 1 covers this plus the platform's
+                // share; both read the same helpers, so the three numbers cannot contradict.
+                Limit::perMinute(self::ingressEventsCeiling())->by('lynomia-events:all'),
             ];
         });
 
@@ -365,8 +427,7 @@ class LynomiaChatServiceProvider extends ServiceProvider
         // there are no tenants to be fair between. Generous, because a burst of delivery
         // receipts after a queue drains is ordinary and must not look like an attack.
         RateLimiter::for('lynomia-platform-events', function (Request $request) {
-            return [Limit::perMinute((int) config('lynomia.platform_ingress_rate_per_minute', 600))
-                ->by('lynomia-platform-events')];
+            return [Limit::perMinute(self::platformIngressBudget())->by('lynomia-platform-events')];
         });
 
         // B4. Confirming a merchant's number makes a phone ring, so the budget is small and it
