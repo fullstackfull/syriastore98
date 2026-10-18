@@ -39,6 +39,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Cookie;
 use App\Http\Controllers\Concerns\GuardsPlanActivation;
 use App\Http\Controllers\Concerns\GuardsGatewayReturn;
+use Illuminate\Support\Facades\Log;
 
 class AuthorizeNetPaymnetController extends Controller
 {
@@ -268,9 +269,38 @@ class AuthorizeNetPaymnetController extends Controller
             }
         }
         $input          = $request->all();
-        $data           = json_decode($input['data'] , true);
 
-        $amount         =   (int) $data['get_amount'];
+        /*
+         * P01-COMMERCE-SEC-01. THE CAPTURED AMOUNT IS THE SERVER'S.
+         *
+         * This handler is not a gateway return -- it is the CHARGE. It reads the card number,
+         * expiry and CVV from the request below and builds an Authorize.Net
+         * `authCaptureTransaction`. The amount used to be
+         *
+         *     $data   = json_decode($input['data'], true);
+         *     $amount = (int) $data['get_amount'];
+         *
+         * so the shopper chose how much their own card was charged, from a JSON blob in their own
+         * request body. Of everything the brief lists as off-limits to the browser -- prices,
+         * shipping, discounts, taxes, the final payable, stock, payment success -- this is the
+         * capture itself.
+         *
+         * `cartlist_final_price` in the stored state is the full payable: products plus the
+         * SERVER's delivery price plus the SERVER's tax, assembled by
+         * PaymentController::prepareFinalRequestData(). See
+         * App\Http\Controllers\Concerns\GuardsGatewayReturn::serverPayableAmount(), including
+         * why it rounds where the old line truncated -- `(int)` charged 10 for a 10.99 basket.
+         */
+        $amount = $this->serverPayableAmount($requests_data);
+
+        if ($amount === null) {
+            Log::warning('AuthorizeNet capture refused: no server-computed payable in the stored state.', [
+                'store_id' => $store->id ?? null,
+                'customer_id' => $customer_id ?: null,
+            ]);
+
+            return $this->gatewayReturnRefusal();
+        }
         $admin_payment_setting = getAdminAllSetting(null,$store->id);
 
         try {
@@ -463,6 +493,24 @@ class AuthorizeNetPaymnetController extends Controller
                     $settings = Setting::where('store_id', $store->id)->pluck('value', 'name')->toArray();
 
                     // Order stock decrease start
+                    
+                    /*
+                     * P01-COMMERCE-SEC-01. A BASKET WITH A NON-POSITIVE LINE IS NOT PRICED AND NOT SHIPPED.
+                     *
+                     * Placed here because here it is free: the loop below is the first thing that touches stock,
+                     * and the order row is not written until ~200 lines further on, so a refusal leaves nothing
+                     * behind. It is the same position assertCartAvailable() occupies in
+                     * PaymentController::processOrder, and the same reasoning.
+                     *
+                     * The decrement below is `$remain_stock = $Product->product_stock - $qtyy`, so a negative
+                     * quantity ADDS stock while the same line reduces every total it is summed into. See
+                     * App\Http\Controllers\Concerns\GuardsGatewayReturn::basketHasNonPositiveQuantity() for why
+                     * the initiation-time guard is not enough on its own: the cart stays mutable across the
+                     * gateway round trip, and two vendored module routes can still write such a row.
+                     */
+                    if ($this->basketHasNonPositiveQuantity($products)) {
+                        return $this->gatewayReturnQuantityRefusal($request, 'authorizenet');
+                    }
                     $prodduct_id_array = [];
                     if (!empty($products)) {
                         foreach ($products as $key => $product) {

@@ -123,6 +123,126 @@ trait GuardsGatewayReturn
     }
 
     /**
+     * The amount this server says is payable, from the state it stored at initiation.
+     *
+     * WHY THIS EXISTS. AuthorizeNetPaymnetController::getOrderPaymentStatus is not a gateway
+     * RETURN at all -- it is the charge. It takes the card number, expiry and CVV from the request
+     * and builds an Authorize.Net `authCaptureTransaction`, and it set the captured amount from
+     *
+     *     $input  = $request->all();
+     *     $data   = json_decode($input['data'], true);
+     *     $amount = (int) $data['get_amount'];
+     *
+     * so the shopper chose how much their own card was charged. That is the one item the brief
+     * names that is worse than an order-total defect: not what the ledger records, but what the
+     * gateway captures.
+     *
+     * WHERE THE RIGHT NUMBER COMES FROM. `cartlist_final_price` in the stored state is the FULL
+     * payable, not the basket subtotal: PaymentController::prepareFinalRequestData() writes it as
+     * `$cartlist_final_price + $delivery_price + $tax_price`, with the delivery price from
+     * processShipping() and the tax from OrderTaxResolver. So it is products plus server shipping
+     * plus server tax, computed by the guarded path, which is exactly the figure a capture should
+     * use.
+     *
+     * ROUNDED, NOT TRUNCATED. The old line was `(int) $data['get_amount']`, so a 10.99 basket
+     * captured 10 -- the merchant lost the pence on every non-integer total. This returns a
+     * 2-decimal value. That is a change in what is charged, in the merchant's favour and towards
+     * the order's own recorded figure, and it is called out in the commit rather than slipped in.
+     *
+     * Returns null when the state carries no total, so the caller can refuse rather than charge a
+     * guess.
+     *
+     * @param  array<string, mixed>  $state
+     */
+    protected function serverPayableAmount(array $state): ?float
+    {
+        $total = $state['cartlist_final_price'] ?? null;
+
+        if ($total === null || $total === '' || ! is_numeric($total)) {
+            return null;
+        }
+
+        $amount = round((float) $total, 2);
+
+        // A capture of zero or less is not a capture. The initiation path already refuses an empty
+        // or non-positive basket, so reaching here with one means the state is not usable.
+        return $amount > 0 ? $amount : null;
+    }
+
+    /**
+     * Does this basket hold a line whose quantity is not a positive integer?
+     *
+     * WHY A GATEWAY RETURN NEEDS ITS OWN CHECK, when PaymentController::processOrder already
+     * refuses such a basket at initiation: the cart is still mutable between the two. The shopper
+     * is redirected to the gateway, and the cart rows are only deleted once the order is written
+     * on the way back -- so a row added in between is read here for the first time. And two
+     * writers that can add one are in vendored module code this project must not edit:
+     *
+     *     packages/workdo/BoostSales/.../BoostSalesController.php:59 -> :183
+     *     packages/workdo/FrequentlyProduct/.../FrequentlyProductController.php:88 -> :209
+     *
+     * both `$qty = $request->qty` written straight to `carts.qty` with no validation, on routes
+     * under plain `web`. See S30 in docs/security/P01-SECURITY-WORK-QUEUE.md.
+     *
+     * WHAT A NEGATIVE LINE DOES IF IT REACHES THE LOOP. Every one of these handlers decrements
+     * with `$remain_stock = $Product->product_stock - $qtyy`, and subtracting a negative ADDS
+     * stock -- measured on the API and web order writers at 20 -> 25 for a qty of -5 -- while the
+     * same line reduces every total it is summed into. So it is an inventory defect and an amount
+     * defect in one row.
+     *
+     * The caller must refuse the whole basket rather than skip the line: skipping prices an order
+     * the shopper did not ask for, and this is the last point before any row is written.
+     *
+     * @param  iterable<mixed>|null  $products  the cart list's product_list, objects or arrays
+     */
+    protected function basketHasNonPositiveQuantity($products): bool
+    {
+        if (empty($products)) {
+            return false;
+        }
+
+        foreach ($products as $line) {
+            $qty = is_array($line)
+                ? ($line['qty'] ?? null)
+                : (is_object($line) ? ($line->qty ?? null) : null);
+
+            // A null or absent qty is NOT treated as an offence: the handlers themselves read it
+            // as `!empty($product->qty) ? $product->qty : 0` and a 0 there decrements nothing.
+            // What must be refused is a value that is present and not a positive integer.
+            if ($qty === null || $qty === '') {
+                continue;
+            }
+
+            if (! is_numeric($qty) || (int) $qty < 1 || (float) $qty != (int) $qty) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * What a handler returns when a basket cannot be priced.
+     *
+     * Separate text from the state refusal so a log or a support conversation can tell the two
+     * apart, and so the regression tests can assert which guard fired.
+     */
+    protected function gatewayReturnQuantityRefusal(Request $request, string $gateway)
+    {
+        Log::warning('Gateway return refused: basket holds a non-positive quantity.', [
+            'gateway' => $gateway,
+            'path' => $request->path(),
+            'ip' => $request->ip(),
+            'authenticated_customer' => optional(auth('customers')->user())->id,
+        ]);
+
+        return redirect()->back()->with(
+            'error',
+            __('Your cart contains an invalid quantity. Your payment has not been applied to an order — please contact the store.')
+        );
+    }
+
+    /**
      * What a handler returns when there is no stored state.
      *
      * A redirect rather than `abort(403)`: the caller may be a shopper whose session expired on

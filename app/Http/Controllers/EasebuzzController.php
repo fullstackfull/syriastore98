@@ -430,6 +430,24 @@ class EasebuzzController extends Controller
             $settings = Setting::where('store_id', $store->id)->pluck('value', 'name')->toArray();
 
             // Order stock decrease start
+            
+            /*
+             * P01-COMMERCE-SEC-01. A BASKET WITH A NON-POSITIVE LINE IS NOT PRICED AND NOT SHIPPED.
+             *
+             * Placed here because here it is free: the loop below is the first thing that touches stock,
+             * and the order row is not written until ~200 lines further on, so a refusal leaves nothing
+             * behind. It is the same position assertCartAvailable() occupies in
+             * PaymentController::processOrder, and the same reasoning.
+             *
+             * The decrement below is `$remain_stock = $Product->product_stock - $qtyy`, so a negative
+             * quantity ADDS stock while the same line reduces every total it is summed into. See
+             * App\Http\Controllers\Concerns\GuardsGatewayReturn::basketHasNonPositiveQuantity() for why
+             * the initiation-time guard is not enough on its own: the cart stays mutable across the
+             * gateway round trip, and two vendored module routes can still write such a row.
+             */
+            if ($this->basketHasNonPositiveQuantity($products)) {
+                return $this->gatewayReturnQuantityRefusal($request, 'easebuzz');
+            }
             $prodduct_id_array = [];
             if (!empty($products)) {
                 foreach ($products as $key => $product) {

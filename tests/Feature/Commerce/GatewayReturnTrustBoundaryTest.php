@@ -82,6 +82,29 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
         ];
     }
 
+    /**
+     * The routes whose stock loop can actually be REACHED in this environment.
+     *
+     * AuthorizeNet is excluded and the reason is a finding, not a convenience.
+     * AuthorizeNetPaymnetController::getOrderPaymentStatus is not a gateway return -- it is the
+     * charge -- so before it reaches the stock loop it builds a live Authorize.Net
+     * `authCaptureTransaction`. With no SDK transaction possible here, the builder throws into an
+     * EMPTY `catch (\Exception $e) {}` at :298-299 and the next statement raises
+     * "Undefined variable $requestNet" at :332. So its quantity guard is placed correctly (before
+     * the stock loop, before any order row) but is NOT verified by execution, and the empty catch
+     * is itself a pre-existing defect that makes the handler 500 whenever the SDK setup throws.
+     * Both are recorded as blockers in the package report rather than guessed around.
+     *
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function reachableStockLoopRoutes(): array
+    {
+        $routes = self::gatewayReturnRoutes();
+        unset($routes['authorizenet']);
+
+        return $routes;
+    }
+
     private function tenant(): array
     {
         [$merchant, $store] = $this->makeTenant();
@@ -298,6 +321,68 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
             . 'satisfied by a crash. Session error was: ' . json_encode(session('error')));
         $this->assertSame($before, self::orderCount(),
             'Replaying a forged return multiplied orders.');
+    }
+
+    /**
+     * A NEGATIVE CART LINE CANNOT BE PRICED OR SHIPPED BY A GATEWAY RETURN.
+     *
+     * The stored state is present and legitimate -- this is a genuine shopper coming back from
+     * the gateway -- and the cart has acquired a line with qty -5 since initiation. That is not
+     * hypothetical: the cart stays mutable across the round trip (the rows are only deleted when
+     * the order is written on the way back), and two vendored module routes write `carts.qty`
+     * straight from the request with no validation
+     * (packages/workdo/BoostSales/.../BoostSalesController.php:59 and
+     * packages/workdo/FrequentlyProduct/.../FrequentlyProductController.php:88 -- both under
+     * plain `web`, both unfixable in place under the vendor guard).
+     *
+     * If it reaches the loop, `$remain_stock = $Product->product_stock - $qtyy` ADDS stock, and
+     * the same line reduces every total it is summed into. The basket is worth 1000.00 and nets
+     * positive on purpose, so a guard that only catches a basket summing to nothing would not
+     * satisfy this.
+     *
+     * @dataProvider reachableStockLoopRoutes
+     */
+    public function test_a_negative_cart_line_is_refused_on_the_return(string $uri, string $method): void
+    {
+        [, $store] = $this->tenant();
+        $customer = $this->customerIn($store, 'negqty');
+        $big = $this->productIn($store, 1000.00, 50);
+        $cheap = $this->productIn($store, 50.00, 20);
+
+        Cart::forceCreate([
+            'customer_id' => $customer->id, 'product_id' => $big->id, 'variant_id' => 0,
+            'qty' => 1, 'price' => 1000.00, 'store_id' => $store->id,
+        ]);
+        Cart::forceCreate([
+            'customer_id' => $customer->id, 'product_id' => $cheap->id, 'variant_id' => 0,
+            'qty' => -5, 'price' => -250.00, 'store_id' => $store->id,
+        ]);
+
+        $state = $this->forgedCheckoutState($store, $customer->id);
+        $before = self::orderCount();
+
+        session()->forget('error');
+        $this->actingAs($customer, 'customers')
+            ->withSession([
+                'request_data' => $state,
+                'easebuzz_request_data' => $state,
+            ])
+            ->{$method}('/' . str_replace('{slug}', $store->slug, $uri), [
+                'responsecode' => 0, 'status' => 'success',
+            ]);
+
+        $this->assertStringContainsString('Your cart contains an invalid quantity',
+            (string) session('error'),
+            'The quantity guard did not fire, so the assertions below would be satisfied by the '
+            . 'handler crashing instead. Session error was: ' . json_encode(session('error')));
+
+        $this->assertSame($before, self::orderCount(),
+            'An order was written for a basket holding a negative line.');
+        $this->assertSame(20, (int) Product::withoutGlobalScopes()->find($cheap->id)->product_stock,
+            "The merchant's stock moved for a refused order. It goes UP, not down, because the "
+            . 'decrement subtracts a negative quantity.');
+        $this->assertSame(50, (int) Product::withoutGlobalScopes()->find($big->id)->product_stock,
+            'Stock moved for the legitimate line of a refused basket.');
     }
 
     /**
