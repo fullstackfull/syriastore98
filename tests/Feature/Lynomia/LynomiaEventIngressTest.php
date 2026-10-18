@@ -3,8 +3,10 @@
 namespace Tests\Feature\Lynomia;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
+use Workdo\LynomiaChat\app\Http\Middleware\GuardEventIngress;
 use Workdo\LynomiaChat\app\Models\LynomiaInboxEvent;
 use Workdo\LynomiaChat\app\Services\AccountProvisioner;
 use Workdo\LynomiaChat\app\Services\EventSignature;
@@ -72,7 +74,13 @@ class LynomiaEventIngressTest extends TestCase
             'Content-Type' => 'application/json',
         ], static fn ($value) => $value !== false);
 
-        return $this->call('POST', "/lynomia/events/{$storeId}", [], [], [], $this->serverHeaders($headers), $body);
+        $server = $this->serverHeaders($headers);
+
+        if (isset($overrides['ip'])) {
+            $server['REMOTE_ADDR'] = $overrides['ip'];
+        }
+
+        return $this->call('POST', "/lynomia/events/{$storeId}", [], [], [], $server, $body);
     }
 
     private function serverHeaders(array $headers): array
@@ -349,6 +357,159 @@ class LynomiaEventIngressTest extends TestCase
     // hundred-odd routes/api.php endpoints. Lynomia sends every store's deliveries from a single
     // egress address, so one merchant's burst spent everybody's budget -- and an account webhook
     // is never retried upstream, so each 429 destroyed a real event. These pin the replacement.
+
+    /**
+     * A STORE REACHES ITS OWN DELIVERY BUDGET. On this route that is not a nicety: a 429 is not a
+     * delayed delivery, it is a destroyed one -- an account webhook failure is swallowed by
+     * Webhooks::Trigger and never retried.
+     *
+     * Before the shared tier was sized as the installation ceiling it is, this refused at
+     * delivery 300 of 400: the per-IP tier carried 300 while one store's documented budget was
+     * 600, and Lynomia delivers every merchant's events from one egress address.
+     */
+    public function test_a_store_can_spend_its_own_event_budget(): void
+    {
+        $budget = 400; // under the documented per-store 600, over the old shared per-IP 300
+        config()->set('lynomia.ingress_rate_per_minute', $budget);
+        [, , $link] = $this->connectedTenant();
+
+        for ($i = 0; $i < $budget; $i++) {
+            $response = $this->deliver((int) $link->store_id, $this->payload());
+            $this->assertNotSame(429, $response->getStatusCode(),
+                "refused at delivery {$i} of {$budget}, before the store's own budget ran out");
+        }
+    }
+
+    /**
+     * TWO MERCHANTS, ONE EGRESS ADDRESS, INDEPENDENT BUDGETS -- the property the shared tier was
+     * quietly denying. Lynomia delivers every merchant's events from a single address, so if the
+     * binding limit is keyed on that address then one merchant's volume refuses another's
+     * deliveries. Store A spends its whole budget; store B has never been heard from.
+     */
+    public function test_one_merchants_deliveries_do_not_consume_anothers_budget(): void
+    {
+        // DELIBERATELY ABOVE THE OLD SHARED CEILING of 300. At the 60 floor this example passes
+        // even with the defect restored -- 62 deliveries never reach 300 -- which is the same way
+        // the commerce suite stayed green over an unfixed defect. A regression test that cannot
+        // fail under the bug it names is decoration.
+        $budget = 400;
+        config()->set('lynomia.ingress_rate_per_minute', $budget);
+        $egress = '203.0.113.7';
+
+        [, , $linkA] = $this->connectedTenant(7001);
+        [, , $linkB] = $this->connectedTenant(7002);
+
+        for ($i = 0; $i < $budget; $i++) {
+            $this->deliver((int) $linkA->store_id, $this->payload(7001), ['ip' => $egress])->assertOk();
+        }
+
+        // A is spent...
+        $this->deliver((int) $linkA->store_id, $this->payload(7001), ['ip' => $egress])->assertStatus(429);
+
+        // ...and B, from the very same address, is not.
+        $this->deliver((int) $linkB->store_id, $this->payload(7002), ['ip' => $egress])->assertOk();
+
+        $this->assertSame($budget + 1, LynomiaInboxEvent::count(),
+            "store A's accepted deliveries plus store B's one, and nothing from the refusal");
+        $this->assertSame(1, LynomiaInboxEvent::where('store_id', $linkB->store_id)->count());
+    }
+
+    /**
+     * THE REFUSAL IS A READABLE 429, AND THE DELIVERY IS GONE. Lynomia does not retry an account
+     * webhook -- the failure is swallowed by Webhooks::Trigger and never enters Sidekiq's retry or
+     * dead set -- so a throttled delivery is not deferred, it is destroyed. That is why the budget
+     * has to be reachable, and why this asserts the consequence rather than only the status: after
+     * the refusal there is no event for it and nothing will ever create one.
+     *
+     * `Retry-After` is still the right thing to send: it is what a client that DOES retry needs,
+     * and its absence would make the refusal uninterpretable to the one that might be written.
+     */
+    public function test_an_over_budget_delivery_is_refused_readably_and_is_not_recorded(): void
+    {
+        $budget = 60;
+        config()->set('lynomia.ingress_rate_per_minute', $budget);
+        [, , $link] = $this->connectedTenant();
+
+        for ($i = 0; $i < $budget; $i++) {
+            $this->deliver((int) $link->store_id, $this->payload())->assertOk();
+        }
+        $accepted = LynomiaInboxEvent::count();
+
+        $response = $this->deliver((int) $link->store_id, $this->payload(), ['delivery' => 'the-lost-one']);
+
+        $response->assertStatus(429);
+        $this->assertNotNull($response->headers->get('Retry-After'),
+            'a 429 with no Retry-After cannot be interpreted by any client that retries');
+        $this->assertSame($accepted, LynomiaInboxEvent::count(),
+            'the refused delivery left no event, and nothing upstream will resend it');
+        $this->assertSame(0, LynomiaInboxEvent::where('delivery_id', 'the-lost-one')->count());
+    }
+
+    /**
+     * AND THE INVARIANT, STATED ONCE. The per-IP tier is tier 1 for BOTH ingress routes, so it
+     * has to cover every tier-2 budget beneath it: every merchant's deliveries together, plus the
+     * platform's own notices. Sized below any of them, whichever route is busier starves the
+     * others -- and the thing starved is an event nobody will resend.
+     */
+    public function test_the_shared_ingress_ceiling_covers_both_routes_budgets(): void
+    {
+        config()->set('lynomia.ingress_rate_per_minute', 200);
+        config()->set('lynomia.platform_ingress_rate_per_minute', 300);
+
+        $unsigned = Request::create('/lynomia/events/11', 'POST');
+        $shared = $this->ingressLimits('lynomia-ingress', $unsigned);
+
+        $verified = Request::create('/lynomia/events/11', 'POST');
+        $verified->attributes->set(GuardEventIngress::VERIFIED_STORE, 11);
+        $events = $this->ingressLimits('lynomia-events', $verified);
+
+        $platform = $this->ingressLimits('lynomia-platform-events', Request::create('/lynomia/platform-events', 'POST'));
+
+        $ceiling = $shared['lynomia-ingress:ip:127.0.0.1'] ?? null;
+        $this->assertNotNull($ceiling, 'the shared tier no longer carries an installation ceiling');
+        $this->assertSame(200, $events['lynomia-events:store:11'] ?? null);
+        $this->assertSame(2000, $events['lynomia-events:all'] ?? null);
+        $this->assertSame(300, $platform['lynomia-platform-events'] ?? null);
+
+        $this->assertGreaterThan($events['lynomia-events:store:11'], $ceiling,
+            'the shared ceiling is at or below one store\'s budget, so no store can reach its own');
+        $this->assertSame(2000 + 300, $ceiling,
+            'the shared ceiling does not cover both routes, so one starves the other');
+    }
+
+    /**
+     * A delivery carrying no signature header at all cannot be Lynomia, and seeing that costs a
+     * header lookup rather than an HMAC. It pays a separate, much smaller allowance; a real
+     * delivery never touches it.
+     */
+    public function test_only_an_unsigned_delivery_pays_the_pre_verification_allowance(): void
+    {
+        $unsigned = Request::create('/lynomia/events/11', 'POST');
+        $signed = Request::create('/lynomia/events/11', 'POST');
+        $signed->headers->set(EventSignature::SIGNATURE_HEADER, 'sha256=' . str_repeat('a', 64));
+
+        $this->assertArrayHasKey('lynomia-ingress:unsigned:127.0.0.1', $this->ingressLimits('lynomia-ingress', $unsigned));
+        $this->assertArrayNotHasKey('lynomia-ingress:unsigned:127.0.0.1', $this->ingressLimits('lynomia-ingress', $signed));
+    }
+
+    /**
+     * The allowances a named limiter hands back for one request, by the bucket they count
+     * against. Three examples above are about the RELATIONSHIP between tiers' sizes, which is
+     * not observable by spending them.
+     *
+     * @return array<string,int>
+     */
+    private function ingressLimits(string $limiter, Request $request): array
+    {
+        $limits = call_user_func(app(\Illuminate\Cache\RateLimiter::class)->limiter($limiter), $request);
+        $sizes = [];
+
+        foreach (is_array($limits) ? $limits : [$limits] as $limit) {
+            $sizes[$limit->key] = $limit->maxAttempts;
+        }
+
+        return $sizes;
+    }
 
     public function test_the_ingress_no_longer_shares_the_platform_wide_api_throttle(): void
     {
