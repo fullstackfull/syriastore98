@@ -1949,10 +1949,23 @@ public function handlePaymeraTrigger00($orderId)
             }
         }
 
-        if (is_array($requests_data)) {
-            // Merge $requests_data into the request
-            $request->merge($requests_data);
-        }
+        /*
+         * P01-COMMERCE-SEC-01. This was a bare `$request->merge($requests_data)`, and a bare merge
+         * is not enough: Request::merge() can only overwrite a key the stored state CARRIES. A
+         * checkout where the shopper chose no shipping method carries no `method_id`, so the
+         * POSTED one survived and `ShippingMethod::find()` -- no store predicate, and the model is
+         * not in config/tenancy.php's scoped_models -- resolved it against every tenant's methods.
+         *
+         * MEASURED on this handler, which is the generic storefront return and PayU's real order
+         * writer: a store-B 'Local pickup' method at cost '-500', posted here on a store-A guest
+         * return, wrote delivery_price -500.0. The five gateway controllers were fixed first;
+         * this one was left on its pre-existing merge and the defect stayed live here.
+         *
+         * adoptStoredCheckoutState() merges AND pins customer_id and method_id. The is_array()
+         * test it replaces is redundant -- storedCheckoutState() above returns ?array and this
+         * method returns early on null.
+         */
+        $this->adoptStoredCheckoutState($request, $requests_data);
 
         // Re-pointed from $request->cartlist to the stored state. The merge above makes the two
         // the same whenever the stored state carries a cartlist, but NOT when it does not -- there

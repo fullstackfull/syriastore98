@@ -149,6 +149,23 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
         ];
     }
 
+    /**
+     * The two handlers that reach `new Order()` here AND consult a shipping method.
+     *
+     * khalti stops at verifyPayment() and authorizenet fatals at :332, so neither reaches the
+     * delivery_price write; cinetpay and easebuzz reach the writer but PaiementPro is the cleanest
+     * of that family to drive. storefront-return is the one that mattered -- see the test.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function shippingWriterRoutes(): array
+    {
+        return [
+            'paiementpro' => ['{slug}/get-payment-paiementpro'],
+            'storefront-return' => ['{slug}/get-payment-status'],
+        ];
+    }
+
     private function tenant(): array
     {
         [$merchant, $store] = $this->makeTenant();
@@ -180,6 +197,24 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
                 'created_at' => now(), 'updated_at' => now(),
             ]);
         }
+
+        /*
+         * PaymentController::getProductStatus INSERTS a `cities` row from billing_info, so without
+         * these FK parents it raises a FOREIGN KEY violation and 500s BEFORE the order write --
+         * which would make every assertion against that handler vacuous. insertOrIgnore because
+         * several tests build two tenants.
+         */
+        DB::table('countries')->insertOrIgnore([
+            'id' => 101, 'name' => 'Syria', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('states')->insertOrIgnore([
+            'id' => 1, 'name' => 'Damascus', 'country_id' => 101,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('cities')->insertOrIgnore([
+            'id' => 1, 'name' => 'Damascus', 'country_id' => 101, 'state_id' => 1,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
 
         return [$merchant, $store];
     }
@@ -760,8 +795,21 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
      * (PaiementProPaymentController.php:686-707 against :682), so this was a shipping-price and
      * data-integrity defect, not a way to pay less. It is fixed regardless, because the brief puts
      * shipping price on the list of things the browser must not decide.
+     *
+     * DRIVEN ON BOTH REACHABLE WRITERS, and the second one is why this test grew a provider.
+     * PaymentController::getProductStatus -- the generic storefront return, and PayU's real order
+     * writer -- kept its own pre-existing bare `$request->merge($requests_data)` when the five
+     * gateway controllers were switched to adoptStoredCheckoutState(). A bare merge does not pin,
+     * so the defect stayed LIVE there after it was closed in the five: this test measured
+     * delivery_price -500.0 on `{slug}/get-payment-status` while the five already read 0.00.
+     *
+     * Reaching that handler at all needs the countries/states/cities rows the fixture now seeds:
+     * it INSERTS a cities row from billing_info, and without the FK parents it 500s before the
+     * order write, which would have hidden the defect behind a crash.
+     *
+     * @dataProvider shippingWriterRoutes
      */
-    public function test_the_browser_cannot_choose_the_shipping_method_on_the_return(): void
+    public function test_the_browser_cannot_choose_the_shipping_method_on_the_return(string $uri): void
     {
         [, $store] = $this->tenant();
         [, $otherStore] = $this->tenant();
@@ -812,7 +860,7 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
 
         $this->withCookie('cart', $sid)
             ->withSession(['request_data' => $state])
-            ->post('/' . $store->slug . '/get-payment-paiementpro', [
+            ->post('/' . str_replace('{slug}', $store->slug, $uri), [
                 'responsecode' => 0,
                 'status' => 'success',
                 'method_id' => $foreignMethodId,     // the whole attack

@@ -1815,8 +1815,24 @@ one field to the return they were already making. All three were measured on the
    **not in `config/tenancy.php`'s `scoped_models`**. A store-B `Local pickup` method at cost
    `'-500'` put `-500.00SYP` into store A's `orders.delivery_price` — another tenant's figure,
    negative, non-numeric, in a money column. The **payable was unaffected**: `$order->final_price`
-   never reads `$delivery_price`. Closed in `7484b290`.
-3. **`Product` is still unscoped** and `ShippingMethod` joins it. Both are reachable cross-tenant by
+   never reads `$delivery_price`. Closed in `7484b290` for the five gateway controllers.
+   **And then it was still live on the seventh**, which is the one that matters most — see below.
+3. **A bare merge does not pin, and the seventh handler had a bare merge.**
+   `PaymentController::getProductStatus` already carried its own
+   `if (is_array($requests_data)) { $request->merge($requests_data); }`, so when the five were
+   switched to `adoptStoredCheckoutState()` it was left alone as "already merging". That was wrong:
+   `merge()` cannot overwrite a key the state omits, which is the entire reason the pins exist. The
+   shipping defect above therefore stayed **live** on the generic storefront return — PayU's real
+   order writer — after it was closed in the five. Measured: `delivery_price` **−500.0** on
+   `{slug}/get-payment-status` while the five already read 0.00. Closed in `9f0c2c0d`.
+
+   Finding it needed two things that had been hiding it. First, a tabulation of which handler calls
+   which trait member, rather than an assumption that "it merges" meant "it is covered". Second,
+   `countries`/`states`/`cities` rows in the fixture: that handler **inserts** a `cities` row from
+   `billing_info`, so without the FK parents it raised a FOREIGN KEY violation and 500d **before**
+   the order write — the defect was sitting behind a crash, which is exactly the condition the
+   project's "a test must bite" rule exists to catch.
+4. **`Product` is still unscoped** and `ShippingMethod` joins it. Both are reachable cross-tenant by
    id from these routes; the fixes above remove the *caller's* ability to supply those ids, which is
    containment, not a scope.
 
@@ -1879,6 +1895,7 @@ Every guard was removed and re-measured:
 | the same, in `PaymentController` only | **5 of 5 fail** |
 | `adoptStoredCheckoutState`'s body | **3 fail** (khalti, cinetpay, easebuzz) |
 | the `method_id` pin alone | **1 fails**, printing `'-500.00SYP'` |
+| the seventh handler's pin, back to its bare merge | **1 of 2 fails**, printing `-500.0` — PaiementPro still passes, which is what isolates the pin |
 | the store predicate on the cart delete | **nothing fails** — which is why it was reverted |
 
 Two tests are labelled in their own docblocks as **not** evidence for this package, because a
