@@ -3,8 +3,11 @@
 namespace Tests\Feature\Lynomia;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
+use Workdo\LynomiaChat\app\Http\Middleware\AuthenticateCommerceApi;
 use Workdo\LynomiaChat\app\Models\LynomiaStoreLink;
 use Workdo\LynomiaChat\app\Services\AccountProvisioner;
 use Workdo\LynomiaChat\app\Services\CommerceCredential;
@@ -59,6 +62,25 @@ class LynomiaCommerceRateLimitTest extends TestCase
         $link->forceFill(['commerce_credential_version' => 1])->save();
 
         return [$link->fresh(), CommerceCredential::issue($link->fresh())];
+    }
+
+    /**
+     * The allowances a named limiter hands back for one request, keyed by the bucket they count
+     * against. Resolving the closure is the only way to see a limit's size without spending it,
+     * and two examples below are about the RELATIONSHIP between two tiers' sizes.
+     *
+     * @return array<string,int>
+     */
+    private function limitsFor(string $limiter, Request $request): array
+    {
+        $limits = call_user_func(RateLimiter::limiter($limiter), $request);
+        $sizes = [];
+
+        foreach (is_array($limits) ? $limits : [$limits] as $limit) {
+            $sizes[$limit->key] = $limit->maxAttempts;
+        }
+
+        return $sizes;
     }
 
     /** Every merchant's traffic arrives from Lynomia's one egress address, so the tests use one too. */
@@ -183,7 +205,8 @@ class LynomiaCommerceRateLimitTest extends TestCase
      */
     public function test_an_invalid_credential_cannot_spend_the_store_it_claims(): void
     {
-        config()->set('lynomia.commerce_unverified_rate_per_minute', 1000);
+        // No need to raise the pre-auth allowance: `lsc_...` IS well formed, so it never touches
+        // the malformed bucket. What it pays is the installation ceiling, like any other request.
         [$link, $token] = $this->connectedStore(7001);
         $claimed = 'lsc_' . $link->store_id . '_1_' . str_repeat('a', 64);
 
@@ -195,6 +218,80 @@ class LynomiaCommerceRateLimitTest extends TestCase
         for ($i = 0; $i < self::STORE_BUDGET; $i++) {
             $this->callStore($token)->assertOk();
         }
+    }
+
+    /**
+     * THE SAME PROPERTY AT A BUDGET THAT MEETS THE SHARED CEILING -- the example the first
+     * attempt at this fix needed and did not have.
+     *
+     * Every other example here runs at the 60 floor, and 60-odd requests never reached the
+     * 120/minute the per-IP tier shipped with. So the suite was green while, on the shipped
+     * configuration, a store could not reach its own 600: the per-store bucket existed and was
+     * unreachable, and one busy merchant still returned 429 to every other merchant's panel.
+     * Here one store spends a budget LARGER than that old ceiling before the other store is
+     * heard from, so if the shared tier is ever sized below the per-store budget again, store A
+     * is refused before its own budget runs out and this fails.
+     */
+    public function test_a_store_reaches_its_whole_budget_even_past_the_old_shared_ceiling(): void
+    {
+        $budget = 130; // above the 120 the per-IP tier used to carry
+        config()->set('lynomia.commerce_rate_per_minute', $budget);
+
+        [, $tokenA] = $this->connectedStore(7001);
+        [, $tokenB] = $this->connectedStore(7002);
+
+        for ($i = 0; $i < $budget; $i++) {
+            $this->callStore($tokenA)->assertOk();
+        }
+
+        // The refusal, when it comes, is store A's own budget running out -- proven by store B
+        // being unaffected on the very next request from the same address.
+        $this->callStore($tokenA)->assertStatus(429);
+        $this->callStore($tokenB)->assertOk();
+    }
+
+    /**
+     * AND THE INVARIANT BEHIND IT, STATED ONCE. On this route the per-IP tier is the whole
+     * installation's ceiling, because Lynomia reads every merchant's orders from one egress
+     * address. A ceiling below a single store's budget makes that budget unreachable, which is
+     * the defect. The two numbers are now derived from one another in code so they cannot
+     * contradict; this is the assertion that says so.
+     */
+    public function test_the_installation_ceiling_sits_above_a_single_stores_budget(): void
+    {
+        config()->set('lynomia.commerce_rate_per_minute', 200);
+
+        $anonymous = Request::create('/api/lynomia/commerce/v1/store');
+        $ceiling = $this->limitsFor('lynomia-commerce-ip', $anonymous)['lynomia-commerce:ip:127.0.0.1'] ?? null;
+
+        $verified = Request::create('/api/lynomia/commerce/v1/store');
+        $verified->attributes->set(AuthenticateCommerceApi::STORE_ID, 7001);
+        $tier2 = $this->limitsFor('lynomia-commerce', $verified);
+
+        $this->assertSame(200, $tier2['lynomia-commerce:store:7001'] ?? null, 'the per-store budget is not the configured one');
+        $this->assertNotNull($ceiling, 'the per-IP tier no longer carries an installation ceiling');
+        $this->assertGreaterThan(
+            $tier2['lynomia-commerce:store:7001'],
+            $ceiling,
+            'the shared per-IP ceiling is at or below one store\'s budget, so no store can reach its own allowance'
+        );
+        $this->assertSame($ceiling, $tier2['lynomia-commerce:all'] ?? null,
+            'the two places that express the installation ceiling disagree, so one of them is wrong');
+    }
+
+    /**
+     * A request that does not even carry an `lsc_`-shaped bearer token pays a separate, much
+     * smaller allowance -- the one thing left that bounds garbage before an HMAC and a database
+     * read. Lynomia never pays it, which is the whole point of giving it its own key.
+     */
+    public function test_only_a_malformed_credential_pays_the_pre_auth_allowance(): void
+    {
+        $anonymous = Request::create('/api/lynomia/commerce/v1/store');
+        $wellFormed = Request::create('/api/lynomia/commerce/v1/store');
+        $wellFormed->headers->set('Authorization', 'Bearer lsc_1_1_' . str_repeat('a', 64));
+
+        $this->assertArrayHasKey('lynomia-commerce:malformed:127.0.0.1', $this->limitsFor('lynomia-commerce-ip', $anonymous));
+        $this->assertArrayNotHasKey('lynomia-commerce:malformed:127.0.0.1', $this->limitsFor('lynomia-commerce-ip', $wellFormed));
     }
 
     // ------------------------------------------------- the configuration is real

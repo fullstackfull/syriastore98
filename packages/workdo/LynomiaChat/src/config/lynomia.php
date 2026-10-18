@@ -118,28 +118,34 @@ return [
     'ingress_rate_per_minute' => (int) env('LYNOMIA_INGRESS_RATE_PER_MINUTE', 600),
 
     /**
-     * THE COMMERCE API'S TWO CEILINGS, which are the two halves of the same rule the events
-     * ingress already follows: an unverified caller may spend only the IP ceiling, and the
-     * per-store budget is spent exclusively by a request whose `lsc_` credential has already
-     * been verified.
+     * THE COMMERCE API'S BUDGET. `commerce_rate_per_minute` is what ONE verified store may spend,
+     * and it is the only number here that scales merchant throughput: the whole-installation
+     * ceiling is derived from it in code, at ten times its value
+     * (LynomiaChatServiceProvider::COMMERCE_INSTALLATION_MULTIPLE), because a ceiling is only
+     * meaningful relative to what one store may spend and two independently configured numbers
+     * could contradict each other. They did -- the ceiling shipped BELOW one store's budget, so
+     * no store could reach its own budget and one busy merchant still returned 429 to every
+     * other merchant's panel. Raise this one knob to give every store more; there is no separate
+     * ceiling to raise with it.
      *
-     * `commerce_unverified_rate_per_minute` is paid by everybody, before anything is parsed,
-     * so no volume of garbage can reach a merchant's budget. It is deliberately NOT generous:
-     * an honest caller spends one of these and then moves to the per-store tier.
+     * Higher than one inbox needs, because one panel open is several calls -- the customer
+     * lookup, the orders, the carts -- and an agent moving between conversations pays that each
+     * time. The floor is 60; below that the limiter uses 60 anyway.
      *
-     * `commerce_rate_per_minute` is the per-store budget. Higher than the inbox needs because
-     * one panel open is several calls -- the customer lookup, the orders, the carts -- and an
-     * agent moving between conversations pays that each time. A whole-installation ceiling of
-     * ten times this value sits above it (registerIngressLimiter), so many verified stores
-     * together still cannot saturate the host.
+     * `commerce_unverified_rate_per_minute` is NOT that ceiling and must not be read as one. It
+     * is the much smaller allowance for a request whose Authorization header does not even carry
+     * an `lsc_`-shaped bearer token -- recognised by a string comparison, before any HMAC or
+     * database read, and never paid by Lynomia. A well-formed but forged credential is bounded
+     * by the installation ceiling instead, because a tight bound in front of the HMAC is shared
+     * with honest traffic and that is exactly how the cross-merchant defect happened.
      *
      * BOTH WERE READ FROM A KEY THAT DID NOT EXIST. `config('lynomia.commerce_rate_per_minute')`
      * had no entry here, so the limiter silently used its inline default -- and could not be
      * tuned without a code change, unlike every sibling limit on this page.
      */
-    'commerce_unverified_rate_per_minute' => (int) env('LYNOMIA_COMMERCE_UNVERIFIED_RATE_PER_MINUTE', 120),
-
     'commerce_rate_per_minute' => (int) env('LYNOMIA_COMMERCE_RATE_PER_MINUTE', 600),
+
+    'commerce_unverified_rate_per_minute' => (int) env('LYNOMIA_COMMERCE_UNVERIFIED_RATE_PER_MINUTE', 120),
 
     /**
      * The Automation Studio's own budget, per PERSON rather than per store.
