@@ -3477,53 +3477,24 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         if (empty($store)) {
             return $this->error(['message' => __('Store not found.')], __("Store not found."));
         }
-        if (auth('customers')->user()) {
-
-            $rules = [
-
-                'title' => 'required',
-
-                'address' => 'required',
-
-                'country' => 'required|exists:countries,id',
-
-                'state' => 'required|exists:states,id',
-
-                'city' => 'required',
-
-                'postcode' => 'required',
-
-                'default_address' => 'required',
-
-            ];
-
-
-
-            $customer_id = auth('customers')->user()->id ?? null;
-        } else {
-
-            $rules = [
-
-                'customer_id' => 'required',
-
-                'title' => 'required',
-
-                'address' => 'required',
-
-                'country' => 'required|exists:countries,id',
-
-                'state' => 'required|exists:states,id',
-
-                'city' => 'required',
-
-                'postcode' => 'required',
-
-                'default_address' => 'required',
-
-            ];
-
-            $customer_id = $request->customer_id ?? null;
-        }
+        // AUTHZ: the guard-class trap, and this one WRITES. The else branch took
+        // `$customer_id = $request->customer_id`, so a merchant's or a driver's token -- for which
+        // auth('customers') is null -- created a delivery address on an arbitrary shopper's
+        // account and then demoted their existing defaults, making the planted address the
+        // shipping destination for their next order.
+        //
+        // Note the demotion below keyed on `$request->customer_id` on BOTH branches, so even a
+        // legitimate shopper demoted the addresses of whichever account they named. It is scoped
+        // to the derived id now.
+        $rules = [
+            'title' => 'required',
+            'address' => 'required',
+            'country' => 'required|exists:countries,id',
+            'state' => 'required|exists:states,id',
+            'city' => 'required',
+            'postcode' => 'required',
+            'default_address' => 'required',
+        ];
 
         $validator = \Validator::make($request->all(), $rules);
         if ($validator->fails()) {
@@ -3532,10 +3503,11 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 'message' => $messages->first()
             ]);
         }
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+        $customer_id = $customer->id;
         $user = new DeliveryAddress();
         $default_address = !empty($request->default_address) ? 1 : 0;
         $user->title = $request->title;
@@ -3552,7 +3524,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
         if ($default_address == 1) {
             $u_a_a['default_address'] = 0;
-            DeliveryAddress::where('customer_id', $request->customer_id)->where('id', '!=', $user->id)->update($u_a_a);
+            DeliveryAddress::where('customer_id', $customer_id)->where('id', '!=', $user->id)->update($u_a_a);
         }
         return $this->success(['message' => __('Address added success.')]);
     }
@@ -4424,19 +4396,32 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 'message' => $messages->first()
             ], $messages->first());
         }
-        $customer = Customer::find($request->customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: two independent attacker-chosen ids, never compared -- `customer_id` for the
+        // liveness check and `address_id` for the row. Worse, it then WROTE
+        // `$DeliveryAddress->customer_id = $request->customer_id`, so the row was re-parented: you
+        // could overwrite a victim's address and equally move your own address onto their account,
+        // then demote all their other addresses so yours became the shipping destination.
+        // `$store` was resolved on line 1 of this method and never read -- not even an empty()
+        // gate -- so the endpoint had no store involvement whatsoever.
+        //
+        // Both limbs are needed: derive the customer from the session AND scope the address lookup
+        // to that customer. Either alone leaves the other id free.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
         $default_address = !empty($request->default_address) ? 1 : 0;
 
-        $DeliveryAddress = DeliveryAddress::find($request->address_id);
+        $DeliveryAddress = DeliveryAddress::where('id', $request->address_id)
+            ->where('customer_id', $customer->id)
+            ->first();
         if (!empty($DeliveryAddress)) {
             $DeliveryAddress->title = $request->title;
             $DeliveryAddress->country_id = $request->country;
             $DeliveryAddress->state_id = $request->state;
             $DeliveryAddress->city_id = $request->city;
-            $DeliveryAddress->customer_id = $request->customer_id;
+            // customer_id is NOT reassigned. The row already belongs to this customer -- that is
+            // how it was found -- and writing the posted value back is what allowed re-parenting.
             $DeliveryAddress->title = $request->title;
             $DeliveryAddress->address = $request->address;
             $DeliveryAddress->postcode = $request->postcode;
@@ -4445,7 +4430,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
             if ($default_address == 1) {
                 $u_a_a['default_address'] = 0;
-                DeliveryAddress::where('customer_id', $request->customer_id)->where('id', '!=', $request->address_id)->update($u_a_a);
+                DeliveryAddress::where('customer_id', $customer->id)->where('id', '!=', $DeliveryAddress->id)->update($u_a_a);
             }
 
             return $this->success(['message' => __('Address update successfully.')], __('Address update successfully.'));
@@ -5942,7 +5927,19 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 'message' => $messages->first()
             ], $messages->first());
         }
-        $user = DeliveryAddress::where('customer_id', $request->customer_id)->where('title', 'main')->first();
+        // AUTHZ: the lookup and the demotion both keyed on `$request->customer_id` with no
+        // predicate, and when no 'main' row existed the handler CREATED one on the named account.
+        // So this wrote, or created, any customer's main address -- and since an order placed
+        // later ships to the default address, that is control of a shipping destination.
+        //
+        // This branch had no 401 today, so one is introduced. It is reachable only by a caller
+        // that is not the shopper whose address this is.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
+            return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
+        }
+
+        $user = DeliveryAddress::where('customer_id', $customer->id)->where('title', 'main')->first();
         if (empty($user)) {
             $user = new DeliveryAddress();
         }
@@ -5952,7 +5949,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $user->country_id = $request->country;
             $user->state_id = $request->state;
             $user->city_id = $request->city;
-            $user->customer_id = $request->customer_id;
+            $user->customer_id = $customer->id;
             $user->title = 'main';
             $user->address = $request->address;
             $user->postcode = $request->postcode;
@@ -5962,12 +5959,16 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
             if ($default_address == 1) {
                 $u_a_a['default_address'] = 0;
-                DeliveryAddress::where('customer_id', $request->customer_id)->where('id', '!=', $user->id)->update($u_a_a);
+                DeliveryAddress::where('customer_id', $customer->id)->where('id', '!=', $user->id)->update($u_a_a);
             }
 
-            $user_detail_array['customer_id']   = $request->customer_id;
+            $user_detail_array['customer_id']   = $customer->id;
             $request->request->add($user_detail_array);
-            $user_detail_response = $this->user_detail($request);
+            // $slug was omitted here, so the internal call resolved no store and answered its own
+            // error envelope -- the response's `data` was the error payload rather than the
+            // profile. Passing it makes the nested read work as intended; the outer response shape
+            // is unchanged either way, because this method wraps it in its own success().
+            $user_detail_response = $this->user_detail($request, $slug);
             $user_detail = (array)$user_detail_response->getData()->data;
             return $this->success(['message' => __('Address updated successfully.'), 'data' => $user_detail], __('Address updated successfully.'));
         } else {
@@ -5989,7 +5990,23 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             ], $messages->first());
         }
 
-        $DeliveryAddress = DeliveryAddress::where('id', $request->address_id)->first();
+        // AUTHZ: this handler read NO principal id at all -- no customer_id, no Customer::find,
+        // not even a getStore -- so `address_id` alone deleted any address row on the platform by
+        // incrementing integer. It is the one member of this family with no posted customer id to
+        // ignore, so the fix is an OWNERSHIP PREDICATE rather than a derived target.
+        //
+        // The refusal reuses this handler's own 'Address not found.' message at HTTP 200, the
+        // precedent set by order_detail: "not yours" is then indistinguishable from "no such row",
+        // so the endpoint cannot be used to enumerate which address ids exist. That also means no
+        // new status code appears on a path a client calls.
+        $customer = $this->resolveStoreCustomer(getStore($slug));
+        if ($customer === null) {
+            return $this->error(['message' => __('Address not found.')], __('Address not found.'));
+        }
+
+        $DeliveryAddress = DeliveryAddress::where('id', $request->address_id)
+            ->where('customer_id', $customer->id)
+            ->first();
         if (!empty($DeliveryAddress)) {
             $DeliveryAddress->delete();
             return $this->success(['message' => __('Address deleted successfully.')], __('Address deleted successfully.'));
