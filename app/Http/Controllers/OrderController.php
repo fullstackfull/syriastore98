@@ -1227,8 +1227,38 @@ public function store(Request $request)
         ]);
     }
 
+    /**
+     * S14 / order export. THIS CHECKED NO PERMISSION AT ALL -- any authenticated web principal
+     * could download the whole order book as a spreadsheet, including a staff member whose role
+     * grants no order permission whatsoever, while the order LIST they are refused sits behind
+     * 'Manage Order' (index():483).
+     *
+     * IT IS NOT, HOWEVER, A CROSS-TENANT LEAK, and the finding that reached me said it was.
+     * App\Exports\OrderExport::collection() does `Order::where('store_id', $store->id)` with
+     * `$store = getStoreById(getCurrentStore())`, so the rows are already the caller's own
+     * store's. Reporting it as cross-tenant would have overstated it; the real defect is that
+     * the permission boundary around the order book had a file-shaped hole in it.
+     *
+     * Gated on 'Manage Order' -- the permission the order list already uses, seeded by
+     * Utility::addNewData() and granted to the merchant role. No new name is introduced.
+     * Operator-first because isAbleTo() has no super-admin bypass here.
+     *
+     * The empty-store guard also closes a 500: with no store context `getStoreById(null)` returns
+     * null and OrderExport dereferences `$store->id`.
+     */
     public function fileExport()
     {
+        $user = auth()->user();
+        $isOperator = $user && strtolower(trim((string) $user->type)) === 'super admin';
+
+        if (!$user || (!$isOperator && !$user->isAbleTo('Manage Order'))) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        if (empty(getCurrentStore())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         $fileName = 'Order.xlsx';
         return Excel::download(new OrderExport, $fileName);
     }

@@ -379,13 +379,25 @@ class OrderDocumentAccessGuard
     {
         $storeId = $row->store_id === null ? null : (int) $row->store_id;
 
+        // EITHER IDENTITY MAY ENTITLE THE CALLER, and this is a correction rather than a
+        // widening. The merchant limb used to `return false` on its own failure, so a browser
+        // holding BOTH a live admin session and a shopper session -- entirely possible, since
+        // config/session.php sets the cookie path to '/' and the storefront sits inside the same
+        // `web` group -- was refused its OWN order document: the web limb ran first, failed, and
+        // never let the shopper limb speak. A false DENIAL, reported by the P01-SEC-2 audit.
+        //
+        // Falling through is not a bypass: the shopper limb below is not weaker, it is a
+        // different entitlement, and it still demands orders.customer_id equal a non-zero
+        // customer id AND the stores match. A principal who genuinely holds two identities should
+        // be admitted if EITHER of them owns the document; being admitted by neither is the only
+        // correct refusal.
         if ($user !== null) {
             if ($user->type === self::PLATFORM_ADMIN) {
                 return true;
             }
 
             if (! $user->isAbleTo(self::PERMISSION)) {
-                return false;
+                return $this->shopperOwns($customer, $row);
             }
 
             // PASS THE USER ID EXPLICITLY. getCurrentStore() with no argument reads
@@ -400,13 +412,33 @@ class OrderDocumentAccessGuard
             // invisible to every `where('store_id', ...)` predicate in the application and must
             // not become visible here.
             if (empty($currentStore) || $storeId === null) {
-                return false;
+                return $this->shopperOwns($customer, $row);
             }
 
-            return $storeId === (int) $currentStore;
+            return $storeId === (int) $currentStore
+                ? true
+                : $this->shopperOwns($customer, $row);
         }
 
-        // The shopper limb. customer_id defaults to 0 on a guest order, so 0 can never match.
+        return $this->shopperOwns($customer, $row);
+    }
+
+    /**
+     * Whether the signed-in shopper, if there is one, placed this order in their own store.
+     *
+     * Extracted so the merchant limb can fall through to it rather than returning its own
+     * verdict. customer_id defaults to 0 on a guest order, so 0 can never match: a guest order
+     * is not self-serviceable by anyone.
+     *
+     * @param object{store_id: mixed, customer_id: mixed} $row
+     */
+    private function shopperOwns(?object $customer, object $row): bool
+    {
+        if ($customer === null) {
+            return false;
+        }
+
+        $storeId = $row->store_id === null ? null : (int) $row->store_id;
         $customerId = $row->customer_id === null ? 0 : (int) $row->customer_id;
 
         if ($customerId <= 0 || (int) $customer->id !== $customerId) {

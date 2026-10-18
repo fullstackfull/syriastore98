@@ -718,6 +718,59 @@ class OrderDocumentAccessTest extends SecurityTestCase
         );
     }
 
+    /**
+     * MIXED SESSIONS -- a FALSE DENIAL, found by the P01-SEC-2 adversarial audit.
+     *
+     * config/session.php sets the cookie path to '/' and the storefront sits inside the same
+     * `web` group as the admin, so one browser can legitimately hold BOTH a live admin session
+     * and a shopper session. The merchant limb used to return its own verdict, so such a caller
+     * was refused their OWN order document: the web limb ran first, failed the permission or the
+     * store comparison, and the shopper limb never got to speak.
+     *
+     * Not a leak -- a usability defect that reads as a security bug to whoever hits it. The limbs
+     * now fall through, and the shopper limb is no weaker for it: it still demands a non-zero
+     * customer_id match and the same store.
+     */
+    public function test_a_shopper_who_also_holds_an_admin_session_still_gets_their_own_document(): void
+    {
+        // THE STOREFRONT ORDER PAGE, not a module label route, and the choice is load-bearing:
+        // the AutomaticOrderPrinting handler reads `automatic_order_printings`, whose migration
+        // only runs when that module is enabled, so admitting the request there dies on a missing
+        // table and the 200 could never be asserted. This target's handler runs in the test
+        // schema, so a 200 here really does mean the guard let the caller through.
+        [$foreignMerchant] = $this->makeTenant();
+
+        [$owner, $store] = $this->makeTenant();
+        $shopper = $this->makeCustomer($store->id);
+        $order = $this->makeOrder($store, ['customer_id' => $shopper->id, 'is_guest' => 0]);
+
+        // The admin identity belongs to a DIFFERENT tenant and holds no order permission, so the
+        // merchant limb must fail and only the shopper limb can carry this request.
+        $this->actingAs($foreignMerchant)
+            ->actingAs($shopper, 'customers')
+            ->get('/' . $store->slug . '/customerorder/' . Crypt::encrypt($order->id))
+            ->assertStatus(200);
+    }
+
+    /**
+     * And the fall-through must not have become a bypass: the same doubled principal must still
+     * be refused an order that NEITHER identity owns.
+     */
+    public function test_a_doubled_principal_is_still_refused_an_order_neither_identity_owns(): void
+    {
+        [$foreignMerchant] = $this->makeTenant();
+        [$ownerA, $storeA] = $this->makeTenant();
+        [$ownerB, $storeB] = $this->makeTenant();
+
+        $shopperA = $this->makeCustomer($storeA->id);
+        $orderB = $this->makeOrder($storeB, ['product_order_id' => 'NEITHER-OWNS']);
+
+        $this->actingAs($foreignMerchant)
+            ->actingAs($shopperA, 'customers')
+            ->get('/' . $storeA->slug . '/customerorder/' . Crypt::encrypt($orderB->id))
+            ->assertForbidden();
+    }
+
     // ---------------------------------------------------------------------------------------
     // WIRING -- §5.13 and §5.14
     // ---------------------------------------------------------------------------------------

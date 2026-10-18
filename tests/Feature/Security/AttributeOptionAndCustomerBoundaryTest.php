@@ -258,6 +258,56 @@ class AttributeOptionAndCustomerBoundaryTest extends SecurityTestCase
     }
 
     // ===================================================================================
+    // S14 -- /order/export
+    //
+    // Reported to me as "dumps every order in the store to anyone authenticated, with no order
+    // permission at all". The second half was true; the first was overstated.
+    // App\Exports\OrderExport::collection() already does
+    // `Order::where('store_id', $store->id)` with $store from getCurrentStore(), so the rows were
+    // never cross-tenant. The real defect was that the order book had a file-shaped hole in its
+    // permission boundary: the order LIST needs 'Manage Order' and the spreadsheet of the same
+    // rows needed nothing.
+    // ===================================================================================
+
+    public function test_a_user_without_manage_order_cannot_export_the_order_book(): void
+    {
+        [$owner, $store] = $this->makeTenant();
+        $staff = $this->makeStaff($owner, ['current_store' => $store->id]);
+
+        $response = $this->actingAs($staff)->get('/order/export');
+
+        $this->assertNotSame(200, $response->getStatusCode(),
+            'A staff member holding no order permission downloaded the order book.');
+    }
+
+    public function test_a_merchant_with_manage_order_can_still_export(): void
+    {
+        [$owner, $store] = $this->makeTenant();
+        $this->makeOrder($store);
+        $this->grantPermission($owner, 'Manage Order');
+
+        $this->actingAs($owner)->get('/order/export')->assertStatus(200);
+    }
+
+    /**
+     * A caller with the permission but NO store context used to reach
+     * OrderExport::collection(), where `getStoreById(null)` returns null and `$store->id` raised
+     * a 500. It is a refusal now, not a stack trace.
+     */
+    public function test_a_merchant_with_no_store_context_does_not_500_on_export(): void
+    {
+        $stray = $this->makeMerchant();
+        $stray->current_store = null;
+        $stray->save();
+        $this->grantPermission($stray->fresh(), 'Manage Order');
+
+        $response = $this->actingAs($stray->fresh())->get('/order/export');
+
+        $this->assertNotSame(500, $response->getStatusCode(),
+            'The export still raises a server error for a caller with no store context.');
+    }
+
+    // ===================================================================================
     // P01B-SEC-2 -- ADD CUSTOMER
     // ===================================================================================
 
