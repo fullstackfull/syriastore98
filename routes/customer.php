@@ -115,10 +115,15 @@ Route::post('{storeSlug?}/login/{cart?}', [CustomerLoginController::class, 'logi
 
 
 
+// THROTTLED like the sibling login route at :102-104. Neither of the two OTP POSTs carried a
+// limiter: `send` could be driven to mint codes without bound -- SMS and e-mail cost real money
+// per message on this platform -- and `verify` could be driven to guess them. The in-handler
+// attempt limit (CustomerLoginController::MAX_OTP_ATTEMPTS) bounds guesses per CODE; this bounds
+// requests per caller, which is the half an attempt counter cannot do.
 Route::post(
     '{storeSlug?}/forgot-password/otp/send',
     [CustomerLoginController::class, 'sendPasswordOtp']
-)->name('customer.password.otp.send');
+)->middleware('throttle:auth')->name('customer.password.otp.send');
 
 Route::get(
     '{storeSlug?}/forgot-password/otp/verify',
@@ -128,7 +133,7 @@ Route::get(
 Route::post(
     '{storeSlug?}/forgot-password/otp/verify',
     [CustomerLoginController::class, 'verifyPasswordOtp']
-)->name('customer.password.otp.verify');
+)->middleware('throttle:auth')->name('customer.password.otp.verify');
 
 Route::get(
     '{storeSlug?}/reset-password/otp',

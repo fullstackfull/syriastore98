@@ -5769,24 +5769,66 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
     }
 
+    /**
+     * A SIGNED-IN SHOPPER CHANGES THEIR OWN PASSWORD. Nothing else.
+     *
+     * THE DEFECT THIS REPLACES was found by an adversarial review of the password-recovery fix,
+     * which asked the question this endpoint answers badly: can an administrator's or a delivery
+     * driver's token authorise a customer password change? Here it could, for any customer, in
+     * any store. The body was:
+     *
+     *     if (!auth('customers')->user()) {
+     *         $rules = ['customer_id' => 'required'];
+     *         $customer_id = $request->customer_id;      // attacker-supplied
+     *     } else {
+     *         $customer_id = auth('customers')->user()->id;
+     *     }
+     *     ...
+     *     $user = Customer::find($customer_id);          // no store predicate, no ownership check
+     *     $user->password = bcrypt($request->password);
+     *
+     * The route carries `custom.auth`, and App\Http\Middleware\CustomAuth logs a token's owner
+     * into whichever guard matches its tokenable class: a Customer into `customers`, a User into
+     * `web`, a DeliveryBoy into `deliveryboy`. So a MERCHANT's or a DRIVER's token passes the
+     * middleware and leaves auth('customers') null -- taking the first branch, where
+     * `customer_id` was read straight off the request and `Customer::find()` applied no scope.
+     *
+     * Measured, in tests/Feature/Security/CustomerPasswordResetAdversarialTest:
+     *   - a merchant's token set an arbitrary customer's password;
+     *   - a DELIVERY DRIVER's token set the password of a customer belonging to a DIFFERENT
+     *     STORE -- a cross-tenant account takeover from the least privileged principal the
+     *     platform issues tokens to. Nothing resolves a tenant for the `deliveryboy` guard, so
+     *     config/tenancy.php's `null_tenant => 'open'` left Customer unscoped for them.
+     *
+     * The sibling case -- a merchant reaching into another store -- happened to be refused, but
+     * only because a merchant token DOES resolve a tenant and the global scope then narrowed the
+     * lookup. A control that works by accident for one principal and not another is not a
+     * control, so the check below is explicit and does not depend on the scope at all.
+     *
+     * $rules also had three assignment sites, the last unconditional, so the
+     * 'customer_id' => 'required' rule was overwritten before \Validator ever saw it -- the id
+     * was never even validated.
+     *
+     * COMPATIBILITY. The `customer_id` branch was reachable ONLY by a non-customer token, so no
+     * customer-facing client could ever have used it: a customer's token populates
+     * auth('customers') and takes the other branch. Neither Flutter client in this project calls
+     * this endpoint (it is absent from tests/Support/ApiContract/manifests/flutter-endpoints.json
+     * and nothing in the admin app references it), and the self-service journey -- a Bearer token
+     * plus `password`, no `customer_id` -- is unchanged, including its request shape, its success
+     * message and its 401 envelope.
+     */
     public function change_password(Request $request, $slug = '')
     {
-        if (!auth('customers')->user()) {
-            $rules = [
-                'customer_id' => 'required',
-            ];
+        $customer = auth('customers')->user();
 
-            $customer_id = $request->customer_id;
-        } else {
-            $rules = [];
-            $customer_id = auth('customers')->user()->id;
-        }
-        $store = getStore($slug);
-        
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHENTICATION IS NOW THE PRINCIPAL, not a hint. A merchant, a platform operator or a
+        // delivery driver holds a valid token and passes `custom.auth`, but is not a shopper and
+        // has no business on this endpoint. Resetting a customer's password administratively is a
+        // separate, session-authenticated surface and was never this one's job.
+        if (! $customer instanceof Customer) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+
         $rules = [
             'password' => 'required|string|min:8'
         ];
@@ -5799,15 +5841,32 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             ], $messages->first());
         }
 
-        $user = Customer::find($customer_id);
-        if (!empty($user)) {
-            $user->password = bcrypt($request->password);
-            $user->save();
+        // THE STORE IN THE PATH MUST BE THE CUSTOMER'S OWN. The slug was resolved here and then
+        // never read, so the endpoint was indifferent to which storefront it was called through.
+        // Checked explicitly rather than left to the global tenant scope, which is open whenever
+        // no tenant resolves.
+        //
+        // A customer whose row carries NO store passes. `customers.store_id` is nullable and
+        // imports write that table (config/tenancy.php names ShopifyCustomerController among the
+        // writers), so such rows are plausible -- and refusing them would deny a real shopper
+        // their own password change to close nothing: this endpoint is self-scoped by the check
+        // above, so where it acts does not depend on which slug was used.
+        $store = getStore($slug);
 
-            return $this->success(['message' => __('Password updated.')], __('Password updated.'));
-        } else {
-            return $this->error(['message' => __('User not found.')], __('User not found.'));
+        if (empty($store)) {
+            return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+
+        if ($customer->store_id !== null && (int) $customer->store_id !== (int) $store->id) {
+            return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
+        }
+
+        // `customer_id` from the request is deliberately ignored. The only account this endpoint
+        // can change is the one the presented token belongs to.
+        $customer->password = bcrypt($request->password);
+        $customer->save();
+
+        return $this->success(['message' => __('Password updated.')], __('Password updated.'));
     }
 
     public function change_address(Request $request, $slug = '')

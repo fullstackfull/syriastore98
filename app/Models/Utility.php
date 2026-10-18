@@ -3288,13 +3288,31 @@ class Utility extends Model
         }
     }
 
+    /**
+     * A NUMERIC ONE-TIME CODE, FROM A CRYPTOGRAPHIC SOURCE.
+     *
+     * This drew each digit with `rand() % 10`. PHP aliases rand() to mt_rand(), a Mersenne
+     * Twister seeded once per process: its state is recoverable from a short run of outputs, so
+     * an attacker who could observe a few codes -- by asking for codes on accounts they own at
+     * the same store, served by the same php-fpm worker -- could predict the next one and reset
+     * a stranger's password without ever reaching their mailbox. Password recovery is the only
+     * caller (Api\AuthController::forgot_password_send_otp), which is exactly the case where
+     * predictability is account takeover.
+     *
+     * random_int() draws from the system CSPRNG and throws rather than falling back to a weak
+     * source, so a failure cannot silently degrade into a guessable code. The return shape is
+     * unchanged -- a string of exactly $n digits, leading zeros preserved, which the old
+     * alphabet ("1357902468", all ten digits in an odd order) also produced.
+     *
+     * tests/Feature/Security/CustomerPasswordResetAdversarialTest pins the shape, the full
+     * ten-digit alphabet, and the fact that a seeded generator no longer reproduces the sequence.
+     */
     public static function generateNumericOTP($n)
     {
-        $generator = "1357902468";
         $result = "";
 
         for ($i = 1; $i <= $n; $i++) {
-            $result .= substr($generator, (rand() % (strlen($generator))), 1);
+            $result .= (string) random_int(0, 9);
         }
 
         return $result;

@@ -185,9 +185,32 @@ middlewares are **logging only** — `AdminApiLog.php:19-22` is `return $next($r
 work in `terminate()`. The contract checker already says this plainly:
 *"a route that only logs is not a route that authenticates."*
 
-**Fix shape:** log method, path, status code and duration. Never the objects. Redact `Authorization`
-and `Cookie` explicitly rather than relying on a blacklist. Separately, consider whether 15-day
-retention of API bodies is wanted at all.
+> **BOTH LOGGERS NOW REDACT — the second half closed by the password-recovery VERIFICATION.**
+>
+> The password-recovery emergency fixed `APILog` only. This row named both, and `AdminApiLog` was
+> still passing the whole `$request` and `$response` to the log — on **128 route declarations**,
+> among them `adminlogin` (`routes/api.php:134`), `updatepassword` (`:304`) and
+> `deliveryboysReset-password/{id}` (`:363`). So **administrator passwords, delivery-driver
+> passwords and admin bearer tokens continued to be written to disk in plaintext** with the same
+> 15-day retention, for the whole period the storefront side was considered fixed.
+>
+> The redaction now lives in one place, `App\Http\Middleware\Concerns\RedactsApiLogFields`, used
+> by both, and a test asserts both use it and that neither logs the raw objects — because fixing
+> one and not its twin is exactly how this survived. Verified by removal: reverting the admin
+> scrubber fails the test.
+>
+> **Still open on this row, and both need the owner:**
+>
+> 1. **Existing log files are compromised material.** Redaction applies to future requests only.
+>    `storage/logs/api-*.log` on the running server may hold up to 15 days of plaintext customer,
+>    administrator and driver passwords, OTPs and bearer tokens. Only the owner can read or rotate
+>    them, and whether any past use was malicious **cannot be determined from this repository**.
+> 2. **Tokens never expire and carry `['*']`** — the two facts below that make a log read a
+>    permanent unscoped credential. Untouched by this package.
+
+**Fix shape (for what remains):** tokens — add `config/sanctum.php` with an expiration, and scope
+abilities at the four mint sites. Logs — decide whether 15-day retention of API bodies is wanted
+at all, and rotate what is on the server now.
 
 Adjacent, same package: `config/larabug.php:99-111` filters `*name*`, `*email*`, `*credit_card*`,
 `*cvv*`, `*iban*` — and nothing else. Across ~50 gateway integrations that blacklist is not
@@ -483,12 +506,69 @@ They are **not fixed**, and the reason is scope rather than doubt: twelve are `r
 handlers whose behaviour the shipped Flutter app depends on, and the brief reserves API behaviour
 changes for an owner-approved window. The web-guard half of the same class (S13-b/c/d) is closed.
 
-### S15-A — **CLOSED in code; server exposure UNVERIFIED** (was: anonymous password overwrite of any account, operator included)
+### S15-A — **CLOSED in code, then RE-OPENED by an independent review, then closed again; server exposure still UNVERIFIED**
 
-> **Fixed on the feature branch** by `App\Services\CustomerPasswordResetService` plus the three
-> rewritten handlers: single-use, expiring, customer- and store-bound reset authorization; the OTP
-> stored only as a hash with a 5-attempt limit; no fixed password; no write to `users` at all.
-> 19 regression tests, and 9 of them fail if either defect is restored.
+> **The first fix stopped both reported defects and left eleven findings — ten demonstrated
+> defects and one hardening gap.** An adversarial review of it (the package after) wrote 49 tests
+> designed to disprove it; **thirteen failed**. That is the headline of this row, because the
+> emergency fix was reported as complete at the time:
+>
+> | # | What survived the emergency fix | Severity |
+> |---|---|---|
+> | 1 | `change-password` — a **delivery driver's** token set **any customer's** password in **any store** | **critical** |
+> | 2 | `change-password` — a merchant's or operator's token set any customer's password in their tenant | **critical** |
+> | 3 | The compatibility Bearer was **any customer login token**: an ordinary session reset the password with no OTP and no current password | **high** |
+> | 4 | One completed OTP step authorised **unlimited** resets (the Bearer was not single-use, and Sanctum has no expiry configured) | **high** |
+> | 5 | A successful reset left **sibling reset tokens** alive | medium |
+> | 6 | A successful reset left **every pre-existing session** alive, so the attacker kept their token | medium |
+> | 7 | A **wrong guess extended the OTP's lifetime** — the code re-put a fresh TTL while its own comment claimed the opposite | medium |
+> | 8 | The attempt limit bound **one code, not the account**: re-sending reset the counter for free | medium |
+> | 9 | The attempt counter's read-modify-write was **not atomic** | medium |
+> | 10 | The OTP came from `rand()` — **Mersenne Twister, predictable**, not a CSPRNG | medium |
+> | 11 | `deliveryboysReset-password`: **any** valid token set **any** driver's password in **any** store | **critical** |
+>
+> Row 11 is `POST api/admin/deliveryboysReset-password/{id}?store_id=N` (`routes/api.php:363`),
+> read while checking that route's logging. `store_id` arrives in the **query string**, so the
+> `where('store_id', ...)` predicate compared the attacker's two supplied values against each
+> other rather than checking a tenant, and there was no authorisation beyond `custom.auth`. A
+> shopper's token, another store's driver's token, or any merchant's token set any driver's
+> password anywhere. Fixed rather than deferred to P01-SEC-11 because the shipped admin app sends
+> its own `store_id` with the merchant's Bearer, so the ownership check refuses nothing that client
+> sends — pinned by a test for that journey.
+>
+> Rows 1, 2 and 11 are not in the recovery handlers at all. Rows 1 and 2 are
+> `POST api/{slug}/change-password`
+> (`Api\ApiController::change_password`), found because the owner's brief asked whether an
+> administrator or driver token can authorise a customer password change — a question about the
+> **surface**, not about one handler. `custom.auth` logs a token's owner into whichever guard
+> matches its class, so a `User` or `DeliveryBoy` token passed the middleware and left
+> `auth('customers')` null, taking a branch that read `customer_id` **straight off the request**
+> and called `Customer::find()` with no scope and no ownership check. Row 1 crosses the tenant
+> boundary because nothing resolves a tenant for the `deliveryboy` guard, so
+> `config/tenancy.php`'s `null_tenant => 'open'` left the model unscoped for them.
+>
+> The merchant-to-another-store case happened to be refused — but only because a merchant token
+> *does* resolve a tenant and the global scope then narrowed the lookup. **A control that works by
+> accident for one principal and not another is not a control**, so the replacement checks the
+> principal and the store explicitly and does not rely on the scope.
+>
+> **All eleven are now closed**, each pinned by a test that fails when that single fix is reverted
+> (twelve removal checks run individually; three of the removal checks were themselves wrong on the
+> first attempt and were corrected — one reverted something the deadline check was already
+> covering, one used an anchor that matched twice and silently applied nothing).
+>
+> The mechanisms: a **generation record** per recovery round, so the newest round is the only live
+> one and spending any authorisation retires its siblings; **registration** of the compatibility
+> Bearer, so the fallback accepts the session recovery itself minted and nothing else; the OTP's
+> **deadline stored in the record** and honoured on re-put; a **per-account send cap**
+> (5 per 60 minutes); the whole verify step under a **cache lock**, failing closed on contention
+> (ArrayStore, FileStore and DatabaseStore all support locks — measured); `random_int()` for the
+> code; and **revocation of every other session** on a successful reset, keeping only the one the
+> recovery round itself minted so the client is not logged out mid-flow.
+>
+> **49** adversarial tests (`tests/Feature/Security/CustomerPasswordResetAdversarialTest`), the
+> original **19** still passing unchanged, and **10** for the column migration
+> (`CustomerPasswordOtpColumnMigrationTest`). Full suite re-run.
 >
 > **Three things are NOT closed by that commit, and two need the owner:**
 >

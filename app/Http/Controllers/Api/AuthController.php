@@ -271,7 +271,7 @@ class AuthController extends Controller
             ], __("You can't login because you used social login."));
         }
 
-        $OTP = Utility::generateNumericOTP(4);
+        $OTP = Utility::generateNumericOTP(\App\Services\CustomerPasswordResetService::OTP_DIGITS);
 
         // THE OTP IS NO LONGER WRITTEN TO THE CUSTOMER ROW. It was stored in plaintext in
         // `customers.password_otp`, so any reader of that table held a live reset credential. It
@@ -280,7 +280,18 @@ class AuthController extends Controller
         // rather than that column (it is declared integer() and cannot hold a hash on MySQL).
         // `password_otp_datetime` is still stamped because the web flow and any UI that reads it
         // are untouched by this change.
-        app(\App\Services\CustomerPasswordResetService::class)->issueOtp($has_email, (int) $store->id, (string) $OTP);
+        //
+        // THE SEND IS CAPPED PER ACCOUNT PER WINDOW, and that cap is what gives the five-guess
+        // attempt limit any force. An independent review of the first fix found the limit bound
+        // one CODE rather than the account: five wrong guesses, re-send, five more, for the price
+        // of one extra request -- so a four-digit code was exhaustible. issueOtp() now returns
+        // false when the budget is spent and the request is refused.
+        if (! app(\App\Services\CustomerPasswordResetService::class)->issueOtp($has_email, (int) $store->id, (string) $OTP)) {
+            return $this->error([
+                'message' => __('Too many password reset requests. Please try again later.')
+            ], __('Too many password reset requests. Please try again later.'));
+        }
+
         $has_email->update(['password_otp' => null, 'password_otp_datetime' => date('Y-m-d H:i:s') ]);
 
         $settings = Setting::where('store_id',$store->id)->pluck('value', 'name')->toArray();
@@ -401,9 +412,26 @@ class AuthController extends Controller
         $user_array['city'] = !empty($DeliveryAddress->city) ? $DeliveryAddress->city : '';
         $user_array['address'] = !empty($DeliveryAddress->address) ? $DeliveryAddress->address : '';
         $user_array['postcode'] = !empty($DeliveryAddress->postcode) ? $DeliveryAddress->postcode : '';
-        $token = $has_email->createToken('auth_token')->plainTextToken;
+        $accessToken = $has_email->createToken('auth_token');
+        $token = $accessToken->plainTextToken;
         $user_array['token'] = $token;
         $user_array['token_type'] = 'Bearer';
+
+        // THE COMPATIBILITY BEARER IS REGISTERED, NOT INFERRED, and that is the difference
+        // between a password-reset credential and an ordinary login session.
+        //
+        // forgot-password-save used to accept ANY unexpired Sanctum token belonging to a Customer
+        // of the store. So a shopper's long-lived login token -- the one their phone has held
+        // since they signed in, with no OTP anywhere in the story -- set that account's password
+        // with no knowledge of the current one. One stolen token was a permanent takeover and the
+        // OTP step was optional. Registering THIS token id against THIS recovery round means the
+        // fallback accepts the session recovery itself just minted and nothing else, and that it
+        // is spent on first use like the reset token beside it.
+        $resetService->registerRecoveryBearer(
+            (int) $accessToken->accessToken->id,
+            (int) $has_email->id,
+            (int) $store->id
+        );
 
         // ADDITIVE ONLY. Every field this endpoint returned before is still returned, including
         // the Sanctum token, so a client that reads the old shape is unaffected. `reset_token` is
@@ -476,9 +504,9 @@ class AuthController extends Controller
         }
 
         $resetService = app(\App\Services\CustomerPasswordResetService::class);
-        $authorisedCustomerId = $resetService->consumeResetToken($request->reset_token, (int) $store->id);
+        $authorisation = $resetService->consumeResetToken($request->reset_token, (int) $store->id);
 
-        if ($authorisedCustomerId === null) {
+        if ($authorisation === null) {
             // FALLBACK for a client that forwards the Bearer token verify-otp already gave it.
             //
             // The token is resolved HERE rather than read off a guard, because this route carries
@@ -494,28 +522,35 @@ class AuthController extends Controller
             //
             // Sanctum's own findToken() is used, the same call App\Http\Middleware\CustomAuth
             // makes: it splits on `|`, finds by id, and does the timing-safe hash_equals against
-            // the stored hash. Expiry is honoured, and the tokenable must be a Customer in THIS
-            // store -- a merchant's or a driver's token authorises nothing here.
+            // the stored hash.
+            //
+            // WHAT AN INDEPENDENT REVIEW CHANGED HERE. This used to accept the token on
+            // `$tokenable instanceof Customer` plus a store match -- which is true of EVERY
+            // customer login token. An ordinary session was therefore a password-reset
+            // authorisation: no OTP, no current password, no expiry (this project configures none
+            // for Sanctum), and reusable without limit, so the single-use reset token beside it
+            // guaranteed nothing. The token must now have been REGISTERED by the verify step of a
+            // live recovery round, and consuming it retires that round. A login token, a
+            // merchant's token and a driver's token have no such record and authorise nothing.
             $bearer = $request->bearerToken();
 
             if (! empty($bearer)) {
                 $accessToken = \Laravel\Sanctum\PersonalAccessToken::findToken($bearer);
 
                 if ($accessToken
-                    && (! $accessToken->expires_at || ! $accessToken->expires_at->isPast())) {
-                    $tokenable = $accessToken->tokenable;
-
-                    if ($tokenable instanceof Customer
-                        && (int) $tokenable->store_id === (int) $store->id) {
-                        $authorisedCustomerId = (int) $tokenable->id;
-                    }
+                    && (! $accessToken->expires_at || ! $accessToken->expires_at->isPast())
+                    && $accessToken->tokenable instanceof Customer) {
+                    $authorisation = $resetService->consumeRecoveryBearer(
+                        (int) $accessToken->id,
+                        (int) $store->id
+                    );
                 }
             }
         }
 
         // The authorisation must name THIS customer. A token for one account cannot reset another,
         // which is what makes the earlier "any email you can name" behaviour impossible now.
-        if ($authorisedCustomerId === null || $authorisedCustomerId !== (int) $has_email->id) {
+        if ($authorisation === null || (int) $authorisation['customer_id'] !== (int) $has_email->id) {
             return $this->error([
                 'message' => __("This password reset is not authorized.")
             ], __("This password reset is not authorized."));
@@ -525,6 +560,20 @@ class AuthController extends Controller
         $has_email->password_otp = null;
         $has_email->password_otp_datetime = null;
         $has_email->save();
+
+        // EVERY OTHER SESSION ON THE ACCOUNT ENDS HERE. A recovery reset is the one moment the
+        // platform has positive evidence that control of the account was in doubt, and leaving
+        // the pre-existing tokens alive means the owner recovers their password while an attacker
+        // keeps their session -- the reset accomplishes nothing against the actor it is aimed at.
+        //
+        // The session this very recovery round minted is kept when the caller is holding it, so a
+        // client that signed in at verify-otp and then saved a password is not logged out
+        // mid-flow. Everything older goes.
+        $keep = $authorisation['keep_token_id'];
+
+        $has_email->tokens()
+            ->when($keep !== null, fn ($query) => $query->where('id', '!=', $keep))
+            ->delete();
 
         return $this->success([
             'message' => __("Password changed successfully.")

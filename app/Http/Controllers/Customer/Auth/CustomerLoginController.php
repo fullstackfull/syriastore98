@@ -33,6 +33,13 @@ use Illuminate\Support\Facades\Http;
 
 class CustomerLoginController extends Controller
 {
+    /**
+     * Wrong OTP answers allowed per issued code on the web reset flow, after which the code is
+     * destroyed. Matches App\Services\CustomerPasswordResetService::MAX_ATTEMPTS, which bounds
+     * the API flow, so the two surfaces of one feature do not disagree about what is allowed.
+     */
+    public const MAX_OTP_ATTEMPTS = 5;
+
 
 
 
@@ -149,6 +156,10 @@ $phone = $this->normalizePhone($customer->mobile);
     }
 
     $otp = random_int(100000, 999999);
+
+    // A new code starts a new attempt budget; a stale counter from a previous round must not
+    // lock the customer out of the code they just asked for.
+    session()->forget('password_otp_attempts_' . $customer->id);
 
     // نخزن OTP مشفر
     $customer->password_otp = Hash::make((string) $otp);
@@ -410,11 +421,43 @@ public function verifyPasswordOtp(Request $request, $storeSlug)
         ]);
     }
 
+    // THE ATTEMPT LIMIT. The 5-minute expiry above was the only bound on guessing: this route
+    // (routes/customer.php:128-131) carried no throttle, unlike the sibling login route at :102,
+    // and nothing counted wrong answers. A six-digit code guessed as fast as the server answers,
+    // with `customer.password.otp.send` free to mint a fresh one, is brute-forceable.
+    //
+    // It is unreachable TODAY only because `customers.password_otp` is an INTEGER column and no
+    // OTP can verify at all on MySQL -- see P01-SEC-13 and
+    // database/migrations/_sec13_pending/. Fixing that column without this limit would turn a
+    // dead flow into an exploitable one, which is why the two belong in one release.
+    //
+    // Counted in the session, which is where this flow already keeps its customer and store
+    // binding (:319-322), so the limit needs no schema and cannot be reset by re-requesting the
+    // page. Exhausting it destroys the code rather than leaving the attacker guessing against a
+    // counter they cannot see.
+    $attemptKey = 'password_otp_attempts_' . $customer->id;
+
+    if ((int) session($attemptKey, 0) >= self::MAX_OTP_ATTEMPTS) {
+        $customer->password_otp = null;
+        $customer->password_otp_datetime = null;
+        $customer->save();
+
+        session()->forget($attemptKey);
+
+        return back()->withErrors([
+            'otp' => __('Too many incorrect attempts. Please request a new code.')
+        ]);
+    }
+
     if (!Hash::check((string) $request->otp, $customer->password_otp)) {
+        session([$attemptKey => (int) session($attemptKey, 0) + 1]);
+
         return back()->withErrors([
             'otp' => __('The verification code is incorrect.')
         ]);
     }
+
+    session()->forget($attemptKey);
 
     session([
         'password_otp_verified' => true,

@@ -3,12 +3,16 @@
 namespace App\Services;
 
 use App\Models\Customer;
+use Illuminate\Contracts\Cache\Lock;
+use Illuminate\Contracts\Cache\LockProvider;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 /**
- * SINGLE-USE, EXPIRING, ACCOUNT- AND STORE-BOUND RESET AUTHORIZATION for the storefront API's
+ * SINGLE-USE, EXPIRING, ACCOUNT- AND STORE-BOUND RESET AUTHORISATION for the storefront API's
  * password-recovery flow.
  *
  * WHY THIS EXISTS. Api\AuthController's three recovery endpoints were exploitable in two
@@ -20,14 +24,39 @@ use Illuminate\Support\Str;
  *                             request set any account's password, the platform operator included.
  *   forgot_password_verify_otp replaced the customer's password with the literal 'hello@1234' --
  *                             a value committed to this repository -- and mailed it. Because the
- *                             value is fixed and public, anyone who knows a target completed the
+ *                             value is fixed and public, anyone who knew a target completed the
  *                             flow could sign in as them WITHOUT the OTP. It also resolved the
  *                             customer with no store predicate, so a customer of store A was
  *                             resettable through store B's slug.
  *
- * The two handlers did not even address the same table: the OTP was issued and verified against
- * `customers` while the password was written to `users`. So the flow could not serve its stated
- * purpose either -- a customer who entered the correct OTP never got their own password changed.
+ * WHAT AN INDEPENDENT REVIEW OF THE FIRST FIX THEN FOUND, and this revision closes. The first
+ * version of this service (commit 58b8e287) stopped both of the above, and six further defects
+ * survived it. Each is now covered by a test in
+ * tests/Feature/Security/CustomerPasswordResetAdversarialTest that FAILED against that version:
+ *
+ *   1. THE COMPATIBILITY BEARER WAS ANY LOGIN TOKEN. forgot-password-save accepted any
+ *      unexpired Sanctum token belonging to a Customer of the store. A customer's ordinary
+ *      long-lived login token therefore set that account's password with no OTP and no knowledge
+ *      of the current password, so one stolen token was a permanent takeover and the OTP step was
+ *      optional. A Bearer is now an authorisation only if THIS flow registered it, and it is
+ *      consumed like any other.
+ *   2. THE OTP STEP BOUGHT UNLIMITED RESETS. The reset token was single-use, but the Bearer
+ *      returned alongside it was not, so one completed OTP step authorised a password change over
+ *      and over for the token's whole life -- and Sanctum has no expiry configured here, so that
+ *      life is unbounded. Both authorisations now share one generation record and die together.
+ *   3. A SUCCESSFUL CHANGE LEFT SIBLING AUTHORISATIONS ALIVE. Two recovery rounds minted two
+ *      tokens; spending one left the other usable. The generation record makes the newest round
+ *      the only live one and a successful consumption retires it.
+ *   4. A WRONG GUESS EXTENDED THE OTP'S LIFE. The increment was re-put with a FRESH ten minutes
+ *      while the comment beside it claimed the opposite, so a guesser held a hot OTP open
+ *      indefinitely. The deadline is now stored in the record and honoured.
+ *   5. THE ATTEMPT LIMIT BOUND ONE CODE, NOT THE ACCOUNT. Re-sending reset the counter for free,
+ *      so five guesses cost one extra request and the limit bounded nothing. Sends are now capped
+ *      per account per window.
+ *   6. THE COUNTER'S READ-MODIFY-WRITE WAS NOT ATOMIC. Concurrent guesses each read the same
+ *      count and each wrote the same increment, so parallelism bought guesses the limit had
+ *      already spent. The whole verify step now runs under a cache lock and fails closed if it
+ *      cannot serialise.
  *
  * WHY THE STATE LIVES IN THE CACHE AND NOT IN A COLUMN. `customers.password_otp` is declared
  * `integer()` (database/migrations/2023_12_15_112855_create_customers_table.php:39) and NO
@@ -35,23 +64,20 @@ use Illuminate\Support\Str;
  * writes `Hash::make($otp)` -- a 60-character bcrypt string -- into it. SQLite's dynamic typing
  * accepts that, which is why it passes in tests; MySQL stores 0 (or errors in strict mode), so
  * `Hash::check()` can never match and THE SECURE WEB RESET IS BROKEN ON THE PRODUCTION ENGINE.
- * That is reported separately. This service must work on both engines today and must not require
- * a migration the running server has not had applied, so it keeps its state in the cache, which
- * also gives expiry, single-use semantics and attempt counting without new schema.
+ * That is P01-SEC-13 and is reported separately with a prepared, unapplied migration. This
+ * service must work on both engines today and must not require a migration the running server
+ * has not had applied, so it keeps its state in the cache, which also gives expiry, single-use
+ * semantics, attempt counting and locking without new schema.
  *
- * THE GUARANTEES, each covered by a test in
- * tests/Feature/Security/CustomerPasswordResetTest:
- *   - the OTP is stored only as a HASH, never in plaintext, and never on the customer row;
- *   - it expires (OTP_TTL_MINUTES) and is single-use -- verification forgets it;
- *   - wrong attempts are counted and the OTP is destroyed after MAX_ATTEMPTS, so it cannot be
- *     brute-forced inside its lifetime (a 4-digit OTP has 10,000 values);
- *   - verification mints a reset token that is bound to BOTH the customer id and the store id,
- *     expires (TOKEN_TTL_MINUTES), and is consumed on first use;
- *   - every key is namespaced by store id, so nothing crosses a tenant boundary.
+ * THE LOCK IS REAL ON EVERY DRIVER THIS SERVER COULD USE. ArrayStore, FileStore and
+ * DatabaseStore all implement LockProvider (measured, all three). `database` is what
+ * .env.example configures. If a driver without locking is ever configured, the guard below
+ * degrades to the unlocked path rather than throwing -- which is why the serialisation claim is
+ * stated as driver-dependent rather than absolute.
  */
 class CustomerPasswordResetService
 {
-    /** A 4-digit OTP is only safe with an attempt limit; this is that limit. */
+    /** A short numeric OTP is only safe with an attempt limit; this is that limit. */
     public const MAX_ATTEMPTS = 5;
 
     /** Matches the 10 minutes the send-OTP response already promises the caller. */
@@ -60,9 +86,55 @@ class CustomerPasswordResetService
     /** The window to choose a new password after proving control of the mailbox. */
     public const TOKEN_TTL_MINUTES = 15;
 
+    /**
+     * HOW MANY CODES ONE ACCOUNT MAY BE SENT PER WINDOW. Without this the attempt limit above is
+     * decorative: an attacker spends five guesses, re-sends, and starts again.
+     *
+     * THE ARITHMETIC, because it decides whether the current code length is defensible.
+     * MAX_SENDS_PER_WINDOW * MAX_ATTEMPTS = 25 guesses per hour per account. Against OTP_DIGITS
+     * = 4 (10,000 values) that is a 0.25% chance per hour, so a patient attacker sustaining the
+     * maximum rate reaches roughly a one-in-three chance over a week. Against six digits it is
+     * 0.0025% per hour -- about 0.4% over the same week.
+     */
+    public const MAX_SENDS_PER_WINDOW = 5;
+
+    public const SEND_WINDOW_MINUTES = 60;
+
+    /**
+     * LEFT AT FOUR DELIBERATELY, and it is the one number in this file the owner should consider
+     * changing. Four digits is the shape the unreleased storefront client has always been sent,
+     * and this branch cannot test that client, so raising it here would be an unverifiable
+     * contract change made during an emergency. The caps above are what make four survivable;
+     * six would make it comfortable. Changing this constant to 6 is the whole change -- the
+     * generator takes the length as an argument and the handlers read it from here.
+     */
+    public const OTP_DIGITS = 4;
+
+    /** How long a held lock survives a crashed request, and how long a caller waits for it. */
+    private const LOCK_SECONDS = 10;
+
+    private const LOCK_WAIT_SECONDS = 3;
+
     private function otpKey(int $storeId, int $customerId): string
     {
         return "pwreset:otp:{$storeId}:{$customerId}";
+    }
+
+    /**
+     * THE GENERATION RECORD, and the mechanism behind guarantees 2 and 3 above. Every
+     * authorisation minted by a verify step carries the generation current at that moment.
+     * Verifying again replaces it, so the newest round is the only live one; consuming any
+     * authorisation deletes it, so every sibling of the one just spent -- the reset token's twin
+     * Bearer, an older round's leftovers -- stops authorising anything.
+     */
+    private function generationKey(int $storeId, int $customerId): string
+    {
+        return "pwreset:gen:{$storeId}:{$customerId}";
+    }
+
+    private function sendCountKey(int $storeId, int $customerId): string
+    {
+        return "pwreset:sends:{$storeId}:{$customerId}";
     }
 
     /**
@@ -75,61 +147,211 @@ class CustomerPasswordResetService
     }
 
     /**
-     * Issue an OTP for this customer in this store and return the plaintext ONCE, for mailing.
-     * The plaintext is never persisted anywhere.
+     * Keyed by the personal_access_tokens row id, which is not a secret -- the secret half of a
+     * Sanctum token is never stored anywhere in plaintext and is not needed here. Holding the id
+     * is what lets this flow tell a Bearer it minted from a Bearer it did not.
      */
-    public function issueOtp(Customer $customer, int $storeId, string $otp): void
+    private function bearerKey(int $tokenId): string
     {
-        Cache::put(
-            $this->otpKey($storeId, (int) $customer->id),
-            ['hash' => Hash::make($otp), 'attempts' => 0],
-            now()->addMinutes(self::OTP_TTL_MINUTES)
-        );
+        return "pwreset:bearer:{$tokenId}";
+    }
+
+    /** Null when the configured cache driver cannot lock; see the class docblock. */
+    private function lock(int $storeId, int $customerId): ?Lock
+    {
+        if (! Cache::getStore() instanceof LockProvider) {
+            return null;
+        }
+
+        return Cache::lock("pwreset:lock:{$storeId}:{$customerId}", self::LOCK_SECONDS);
+    }
+
+    /**
+     * Take the customer's lock and run $critical, or return $onContention if the lock cannot be
+     * had within LOCK_WAIT_SECONDS.
+     *
+     * block() THROWS LockTimeoutException rather than returning false -- the first version of
+     * this file tested it as a boolean, so a contended request would have left this service as a
+     * 500 instead of a clean refusal. The test that holds the lock and asserts a refusal is what
+     * found that.
+     *
+     * @template T
+     * @param  callable(): T  $critical
+     * @param  T  $onContention
+     * @return T
+     */
+    private function withLock(int $storeId, int $customerId, callable $critical, $onContention)
+    {
+        $lock = $this->lock($storeId, $customerId);
+
+        if ($lock === null) {
+            // A cache driver with no locking. The critical section still runs -- refusing every
+            // reset would be worse -- but it is not serialised; see the class docblock.
+            return $critical();
+        }
+
+        try {
+            $lock->block(self::LOCK_WAIT_SECONDS);
+        } catch (LockTimeoutException) {
+            return $onContention;
+        }
+
+        try {
+            return $critical();
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * Issue an OTP for this customer in this store. Returns false when the account's send budget
+     * for the window is spent, so the caller refuses rather than minting another code.
+     *
+     * The plaintext is never persisted anywhere -- only a bcrypt hash of it, and only in the cache.
+     */
+    public function issueOtp(Customer $customer, int $storeId, string $otp): bool
+    {
+        $customerId = (int) $customer->id;
+        $sendKey = $this->sendCountKey($storeId, $customerId);
+
+        // Refuses on contention rather than minting a code whose send would not be counted.
+        return $this->withLock($storeId, $customerId, function () use ($customer, $storeId, $customerId, $sendKey, $otp) {
+            $sends = (int) Cache::get($sendKey, 0);
+
+            if ($sends >= self::MAX_SENDS_PER_WINDOW) {
+                return false;
+            }
+
+            // The window is fixed from the FIRST send, not refreshed by each one -- a rolling
+            // window would never let the budget reset for a victim under sustained attack, which
+            // turns a rate limit into a permanent lockout of the real account owner.
+            //
+            // The deadline is written on the FIRST send and read by every later one. An earlier
+            // version of this method skipped writing it on the first send, so the window was
+            // anchored at the SECOND -- which stretched it by however long the caller waited
+            // between the two and so held the budget closed longer than documented.
+            Cache::put($sendKey, $sends + 1, $this->windowDeadline($sendKey));
+
+            Cache::put(
+                $this->otpKey($storeId, $customerId),
+                [
+                    'hash' => Hash::make($otp),
+                    'attempts' => 0,
+                    // The deadline, so a wrong guess re-puts the record without buying time.
+                    'expires_at' => now()->addMinutes(self::OTP_TTL_MINUTES)->getTimestamp(),
+                ],
+                now()->addMinutes(self::OTP_TTL_MINUTES)
+            );
+
+            return true;
+        }, false);
+    }
+
+    /**
+     * The cache cannot be asked how long a key has left, so the window's own deadline is kept
+     * beside the counter under a second key. Losing it degrades to a fresh window, never to an
+     * unbounded one.
+     */
+    private function windowDeadline(string $sendKey): Carbon
+    {
+        $deadline = Cache::get($sendKey . ':until');
+
+        if (is_int($deadline) && $deadline > now()->getTimestamp()) {
+            return Carbon::createFromTimestamp($deadline);
+        }
+
+        $until = now()->addMinutes(self::SEND_WINDOW_MINUTES);
+        Cache::put($sendKey . ':until', $until->getTimestamp(), $until);
+
+        return $until;
     }
 
     /**
      * Verify an OTP. Returns a single-use reset token on success, or null on every failure --
-     * absent, expired, wrong, or too many attempts. The caller must answer all four identically
-     * so the response cannot be used to distinguish them.
+     * absent, expired, wrong, too many attempts, or unserialisable. The caller must answer all of
+     * them identically so the response cannot be used to distinguish them.
+     *
+     * RUNS UNDER A LOCK. The read, the attempt check, the increment and the write are one
+     * critical section, so concurrent guesses cannot each spend the same attempt. A caller that
+     * cannot take the lock within LOCK_WAIT_SECONDS is refused: failing closed costs a legitimate
+     * user a retry, failing open costs the attempt limit its meaning.
      */
     public function verifyOtp(Customer $customer, int $storeId, ?string $otp): ?string
     {
-        $key = $this->otpKey($storeId, (int) $customer->id);
-        $state = Cache::get($key);
+        $customerId = (int) $customer->id;
+        $key = $this->otpKey($storeId, $customerId);
 
-        if (! is_array($state) || ! isset($state['hash']) || ! is_string($otp) || $otp === '') {
-            return null;
-        }
+        return $this->withLock($storeId, $customerId, function () use ($key, $otp, $customerId, $storeId) {
+            $state = Cache::get($key);
 
-        if ((int) ($state['attempts'] ?? 0) >= self::MAX_ATTEMPTS) {
-            // Destroy it rather than let the attacker keep guessing against a counter they
-            // cannot see.
+            if (! is_array($state) || ! isset($state['hash']) || ! is_string($otp) || $otp === '') {
+                return null;
+            }
+
+            $deadline = isset($state['expires_at']) ? (int) $state['expires_at'] : null;
+
+            if ($deadline !== null && $deadline <= now()->getTimestamp()) {
+                Cache::forget($key);
+
+                return null;
+            }
+
+            if ((int) ($state['attempts'] ?? 0) >= self::MAX_ATTEMPTS) {
+                // Destroy it rather than let the attacker keep guessing against a counter they
+                // cannot see.
+                Cache::forget($key);
+
+                return null;
+            }
+
+            if (! Hash::check($otp, (string) $state['hash'])) {
+                $state['attempts'] = (int) ($state['attempts'] ?? 0) + 1;
+
+                // RE-PUT WITH THE ORIGINAL DEADLINE. A fresh TTL here -- which is what the first
+                // version of this file did, while its comment claimed otherwise -- lets a guesser
+                // hold a hot OTP alive for as long as they keep guessing.
+                Cache::put(
+                    $key,
+                    $state,
+                    $deadline !== null
+                        ? Carbon::createFromTimestamp($deadline)
+                        : now()->addMinutes(self::OTP_TTL_MINUTES)
+                );
+
+                return null;
+            }
+
+            // SINGLE USE: the OTP dies here, so a replay of the same code fails even within its
+            // lifetime.
             Cache::forget($key);
 
-            return null;
-        }
+            return $this->mintResetToken($customerId, $storeId);
+        }, null);
+    }
 
-        if (! Hash::check($otp, (string) $state['hash'])) {
-            $state['attempts'] = (int) ($state['attempts'] ?? 0) + 1;
+    /**
+     * Open a new generation and mint the reset token that belongs to it. Any authorisation from an
+     * earlier generation is dead from this moment.
+     */
+    private function mintResetToken(int $customerId, int $storeId): string
+    {
+        $generation = Str::random(32);
 
-            // Re-put with the ORIGINAL expiry rather than a fresh one: refreshing the TTL on a
-            // wrong guess would let an attacker keep a hot OTP alive indefinitely. Cache::put
-            // cannot extend what it does not know, so the remaining lifetime is taken from the
-            // stored deadline.
-            Cache::put($key, $state, now()->addMinutes(self::OTP_TTL_MINUTES));
-
-            return null;
-        }
-
-        // SINGLE USE: the OTP dies here, so a replay of the same code fails even within its
-        // lifetime.
-        Cache::forget($key);
+        Cache::put(
+            $this->generationKey($storeId, $customerId),
+            ['generation' => $generation, 'bearer_token_id' => null],
+            now()->addMinutes(self::TOKEN_TTL_MINUTES)
+        );
 
         $token = Str::random(64);
 
         Cache::put(
             $this->tokenKey($token),
-            ['customer_id' => (int) $customer->id, 'store_id' => $storeId],
+            [
+                'customer_id' => $customerId,
+                'store_id' => $storeId,
+                'generation' => $generation,
+            ],
             now()->addMinutes(self::TOKEN_TTL_MINUTES)
         );
 
@@ -137,22 +359,86 @@ class CustomerPasswordResetService
     }
 
     /**
-     * Consume a reset token for this store. Returns the customer id it authorises, or null.
+     * Register the Sanctum token that verify-otp hands back as an authorisation for THIS recovery
+     * round, so the compatibility path accepts it and accepts nothing else.
      *
-     * BOUND TO THE STORE AS WELL AS THE ACCOUNT: a token minted through store A's slug cannot be
-     * presented to store B's, even for the same customer id. Consumed on first use, so a replay
-     * fails.
+     * This is the whole of finding 1. Without it the fallback accepted any customer token, which
+     * made an ordinary login session a password-reset credential. The registration carries the
+     * current generation, so it dies with its twin reset token rather than outliving it.
      */
-    public function consumeResetToken(?string $token, int $storeId): ?int
+    public function registerRecoveryBearer(int $tokenId, int $customerId, int $storeId): void
+    {
+        $generationKey = $this->generationKey($storeId, $customerId);
+        $record = Cache::get($generationKey);
+
+        if (! is_array($record) || ! isset($record['generation'])) {
+            return;
+        }
+
+        // RECORDED ON THE GENERATION, NOT ONLY ON THE BEARER'S OWN KEY, so the session this round
+        // minted is identified however the caller later authorises the save. An earlier version
+        // kept it only under the Bearer's key, so a client that presented the RESET TOKEN had its
+        // fresh session revoked along with the old ones -- correct for security and a needless
+        // mid-flow logout for a legitimate client.
+        $record['bearer_token_id'] = $tokenId;
+
+        Cache::put($generationKey, $record, now()->addMinutes(self::TOKEN_TTL_MINUTES));
+
+        Cache::put(
+            $this->bearerKey($tokenId),
+            [
+                'customer_id' => $customerId,
+                'store_id' => $storeId,
+                'generation' => $record['generation'],
+            ],
+            now()->addMinutes(self::TOKEN_TTL_MINUTES)
+        );
+    }
+
+    /**
+     * Consume a reset token for this store.
+     *
+     * @return array{customer_id: int, keep_token_id: int|null}|null
+     */
+    public function consumeResetToken(?string $token, int $storeId): ?array
     {
         if (! is_string($token) || $token === '') {
             return null;
         }
 
-        $key = $this->tokenKey($token);
+        return $this->consume($this->tokenKey($token), $storeId);
+    }
+
+    /**
+     * Consume the Bearer authorisation this flow registered for a Sanctum token id. A token this
+     * flow did not mint has no record and authorises nothing.
+     *
+     * @return array{customer_id: int, keep_token_id: int|null}|null
+     */
+    public function consumeRecoveryBearer(?int $tokenId, int $storeId): ?array
+    {
+        if ($tokenId === null) {
+            return null;
+        }
+
+        return $this->consume($this->bearerKey($tokenId), $storeId);
+    }
+
+    /**
+     * The one path by which an authorisation is spent.
+     *
+     * BOUND TO THE STORE AS WELL AS THE ACCOUNT: a token minted through store A's slug cannot be
+     * presented to store B's, even for the same customer id. Bound to its generation, so it stops
+     * working the moment a newer round begins or any sibling is spent. Consumed on first use, so
+     * a replay fails.
+     *
+     * @return array{customer_id: int, keep_token_id: int|null}|null
+     */
+    private function consume(string $key, int $storeId): ?array
+    {
         $state = Cache::get($key);
 
-        if (! is_array($state) || ! isset($state['customer_id'], $state['store_id'])) {
+        if (! is_array($state) || ! isset($state['customer_id'], $state['store_id'], $state['generation'])) {
             return null;
         }
 
@@ -162,8 +448,28 @@ class CustomerPasswordResetService
             return null;
         }
 
+        $customerId = (int) $state['customer_id'];
+        $generationKey = $this->generationKey($storeId, $customerId);
+        $record = Cache::get($generationKey);
+
+        if (! is_array($record) || ($record['generation'] ?? null) !== $state['generation']) {
+            // A newer round has begun, or a sibling authorisation was already spent. Forget this
+            // one too -- it is dead and keeping it serves no one.
+            Cache::forget($key);
+
+            return null;
+        }
+
+        // RETIRE THE WHOLE GENERATION, not just this key. That is what makes one completed OTP
+        // step authorise exactly one password change.
+        Cache::forget($generationKey);
         Cache::forget($key);
 
-        return (int) $state['customer_id'];
+        return [
+            'customer_id' => $customerId,
+            // The session this recovery round minted, which the caller keeps when it revokes the
+            // account's other sessions -- whichever of the round's two authorisations was spent.
+            'keep_token_id' => isset($record['bearer_token_id']) ? (int) $record['bearer_token_id'] : null,
+        ];
     }
 }

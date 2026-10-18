@@ -195,6 +195,36 @@ public function update(Request $request, $id)
     /**
      * إعادة تعيين كلمة المرور لسائق في متجر محدد
      */
+    /**
+     * AN OPERATOR WHO OWNS THE STORE SETS ONE OF THEIR OWN DRIVERS' PASSWORDS. Nothing else.
+     *
+     * THE DEFECT THIS REPLACES was found by the password-recovery verification package, which had
+     * this route in hand for its logging and read the handler while it was there. The body began:
+     *
+     *     $store_id = $request->query('store_id');          // attacker-supplied
+     *     ...
+     *     $deliveryBoy = DeliveryBoy::where('id', $id)->where('store_id', $store_id)->first();
+     *     ...
+     *     $deliveryBoy->update(['password' => Hash::make($request->password)]);
+     *
+     * `store_id` arrives in the QUERY STRING, so the `where('store_id', ...)` predicate was not a
+     * tenant check at all -- it only checked the attacker's two supplied values against each
+     * other. And there was NO authorisation beyond `custom.auth`: any principal holding any valid
+     * token -- a CUSTOMER, another store's DRIVER, any merchant -- could set ANY delivery driver's
+     * password in ANY store, cross-tenant, by naming the matching store_id.
+     *
+     * WHAT IT DOES NOW. The caller must be a `User` (the `web` guard; a customer's or a driver's
+     * token no longer reaches the write at all) and the named store must be one they own, or that
+     * their own account was created under -- `creatorId()`, the same derivation the rest of the
+     * admin surface uses for a staff member acting inside their merchant's tenant.
+     *
+     * COMPATIBILITY, and it is why this could be fixed here rather than deferred to the Flutter
+     * authorization pass. The shipped admin app sends `store_id` = `Prefs.getStoreID()`, its own
+     * selected store (repo B `lib/config/repository/delivery_boy_repository.dart:47`), with the
+     * merchant's Bearer. Every request it makes still succeeds: same path, same method, same query
+     * parameters, same body, same success and error shapes. The only requests newly refused are
+     * ones where the caller does not own the store they named, which that client never sends.
+     */
     public function resetPassword(Request $request,  $id)
     {
     $store_id = $request->query('store_id');
@@ -205,6 +235,30 @@ public function update(Request $request, $id)
         ], 400);
     }
 
+    // The principal must be an administrative user. `custom.auth` logs a token's owner into
+    // whichever guard matches its class, so a customer or a driver token passes the middleware
+    // and must be refused here.
+    $operator = auth()->user();
+
+    if (! $operator instanceof \App\Models\User) {
+        return response()->json([
+            'status' => 'error',
+            'message' => __('Unauthenticated.')
+        ], 401);
+    }
+
+    // ...and the named store must be theirs. Without this the query-string store_id authorises
+    // nothing it is checked against.
+    $ownsStore = \App\Models\Store::where('id', $store_id)
+        ->where('created_by', $operator->creatorId())
+        ->exists();
+
+    if (! $ownsStore) {
+        return response()->json([
+            'status' => 'error',
+            'message' => __('Delivery Boy not found ')
+        ], 404);
+    }
 
     $deliveryBoy = \App\Models\DeliveryBoy::where('id', $id)
                                           ->where('store_id', $store_id)
