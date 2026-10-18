@@ -2985,15 +2985,40 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 'message' => $messages->first()
             ]);
         }
-        $customer = Customer::find($request->customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // ====================================================================================
+        // AUTHZ: the worst of this family, because it is the only one that never consulted the
+        // session for its subject on ANY branch. `Customer::find($request->customer_id)` is a
+        // liveness check on an id the caller chose, so place_order was exploitable by an ORDINARY
+        // CUSTOMER TOKEN too, not only by a wrong-class principal like its siblings.
+        //
+        // What one request did, with a victim's id and no relationship to them:
+        //
+        //   - read their cart (via cart_list, which took the same posted id);
+        //   - DECREMENTED real Product and ProductVariant stock;
+        //   - DELETED their cart rows;
+        //   - created an Order in their name with the attacker's billing name, email, phone and
+        //     address, which OrderObserver turns into a money row and a wallet touch;
+        //   - sent "Order Created" mail to the attacker's address and to the store owner.
+        //
+        // Every one of those is now bound to the authenticated shopper. `customer_id` is still
+        // required and still validated so a client sending it is not rejected; it is no longer
+        // read. The refusal reuses the 401 this branch already returned for an unresolvable id.
+        //
+        // Note `place-order-guest` (routes/api.php:105) is the same handler and also carries
+        // custom.auth, so there is no guest journey to preserve here: a caller with no token
+        // already got 401 from the middleware. The `-guest` suffix on these routes means "the
+        // handler has an auth('customers') fallback", not "the route is public".
+        // ====================================================================================
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+        $customerId = (int) $customer->id;
         $cartlist_final_price = 0;
         $final_price = 0;
 
-        if (!empty($request->customer_id)) {
-            $cart_list['customer_id']   = $request->customer_id;
+        if (!empty($customerId)) {
+            $cart_list['customer_id']   = $customerId;
             $request->request->add($cart_list);
             $cartlist_response = $this->cart_list($request, $slug);
             $cartlist = (array)$cartlist_response->getData()->data;
@@ -3202,7 +3227,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                     }
                 }
                 // remove from cart
-                Cart::where( 'customer_id', $request->customer_id )->where( 'product_id', $product_id )->where( 'variant_id', $variant_id )->where( 'store_id', $store->id )->delete();
+                Cart::where( 'customer_id', $customerId )->where( 'product_id', $product_id )->where( 'variant_id', $variant_id )->where( 'store_id', $store->id )->delete();
             }
         }
         // Order stock decrease end
@@ -3218,9 +3243,9 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
         // add in  Order table  start
         $order = new Order();
-        $order->product_order_id = $request->customer_id . date('YmdHis');
+        $order->product_order_id = $customerId . date('YmdHis');
         $order->order_date = date('Y-m-d H:i:s');
-        $order->customer_id = $request->customer_id;
+        $order->customer_id = $customerId;
         $order->product_id = $prodduct_id_array;
         $order->product_json = json_encode($products);
         $order->product_price = $final_sub_total_price;
@@ -6095,27 +6120,23 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
         
 
-        if (auth('customers')->user()) {
-            $rules = [
-                'payment_type' => 'required',
-                'delivery_id' => 'required',
-            ];
-            $customer_id         = auth('customers')->user()->id;
-        } else {
-            $rules = [
-                'customer_id' => 'required',
-                'payment_type' => 'required',
-                'delivery_id' => 'required',
-            ];
-            $customer_id         = $request->customer_id ?? null;
-        }
+        // AUTHZ: the guard-class trap on an order-creating handler. The else branch took
+        // `$customer_id = $request->customer_id`, so a merchant's or a driver's token -- for which
+        // auth('customers') is null -- placed an order in a named shopper's name, decrementing
+        // real stock, clearing their cart and creating the financial record that OrderObserver
+        // writes. See resolveStoreCustomer().
+        $rules = [
+            'payment_type' => 'required',
+            'delivery_id' => 'required',
+        ];
 
         $cartlist_final_price = 0;
         $final_price = 0;
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+        $customer_id         = $customer->id;
         // cart list api call
         if (!empty($customer_id)) {
             $cart_list['customer_id']   = $customer_id;
@@ -7194,24 +7215,28 @@ $currentCurrencyCode = \App\Models\Utility::GetValueByName('CURRENCY', $storeId)
 $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', $storeId) ?: '$';
         $settings = Setting::where('store_id', $store->id)->pluck('value', 'name')->toArray();
 
-        if (auth('customers')->user()) {
-            $rules = [
-                'payment_type' => 'required',
-                'delivery_id' => 'required',
-            ];
-            $customer_id         = auth('customers')->user()->id;
-        } else {
-            $rules = [
-                'customer_id' => 'required',
-                'payment_type' => 'required',
-                'delivery_id' => 'required',
-            ];
-            $customer_id         = $request->customer_id ?? null;
-        }
-        $customer = Customer::find($customer_id);
-        if (!isset($customer) || empty($customer)) {
+        // AUTHZ: the guard-class trap, inverted. The else branch took
+        // `$customer_id = $request->customer_id`, so a merchant's or driver's token placed an
+        // order in a shopper's name -- real stock decrements, their cart cleared, and the money
+        // row OrderObserver writes.
+        //
+        // Unlike place_order, a genuine customer token could not be made to act on someone else
+        // here, because `$request->request->add($cart_list)` a few lines below OVERWROTE the
+        // request's own customer_id with the derived value, so the later reads of
+        // `$request->customer_id` happened to see it. That is correctness by side effect: anything
+        // that reordered this method, or any later read added above the mutation, would silently
+        // go back to trusting caller input. The four later reads -- the cart delete, the
+        // product_order_id, the order's customer_id and the UserCoupon attribution -- now use
+        // `$customer_id` directly, so they do not depend on the mutation at all.
+        $rules = [
+            'payment_type' => 'required',
+            'delivery_id' => 'required',
+        ];
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+        $customer_id         = $customer->id;
         $cartlist_final_price = 0;
         $final_price = 0;
         // cart list api call
@@ -7478,7 +7503,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                     }
                 }
                 // remove from cart
-                Cart::where('customer_id', $request->customer_id)->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id', $store->id)->delete();
+                Cart::where('customer_id', $customer_id)->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id', $store->id)->delete();
             }
             // Order stock decrease end
 
@@ -7565,7 +7590,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
         $is_guest = 1;
         if (auth('customers')->check()) {
-            $product_order_id  = $request->customer_id . date('YmdHis');
+            $product_order_id  = $customer_id . date('YmdHis');
             $is_guest = 0;
         }
         $product_reward_point = 1;
@@ -7575,7 +7600,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $order = new Order();
         $order->product_order_id = $product_order_id;
         $order->order_date = date('Y-m-d H:i:s');
-        $order->customer_id = !empty($request->customer_id) ? $request->customer_id : 0;
+        $order->customer_id = !empty($customer_id) ? $customer_id : 0;
         $order->is_guest = $is_guest;
         $order->product_id = isset($prodduct_id_array) ? $prodduct_id_array : '';
         $order->product_json = json_encode($order_array['product']);
@@ -7701,7 +7726,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
                 // Coupon history
                 $UserCoupon = new UserCoupon();
-                $UserCoupon->user_id = !empty($request->customer_id) ? $request->customer_id : null;
+                $UserCoupon->user_id = !empty($customer_id) ? $customer_id : null;
                 $UserCoupon->coupon_id = $Coupon->id;
                 $UserCoupon->amount = $coupon_data['coupon_discount_amount'];
                 $UserCoupon->order_id = $order->id;
