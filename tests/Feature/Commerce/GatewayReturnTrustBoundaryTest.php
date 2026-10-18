@@ -620,4 +620,214 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
         $this->assertSame(49, (int) Product::withoutGlobalScopes()->find($product->id)->product_stock,
             'A completed order did not consume its stock.');
     }
+
+    /**
+     * THE POSTED MONEY DOES NOT REACH THE ORDER, even on a return that is otherwise genuine.
+     *
+     * Every other amount test in this file works by REMOVING the stored state, so it proves the
+     * handler refuses rather than that it ignores the browser. This one is the opposite and is the
+     * brief's "manipulated positive shipping amount" / "negative shipping amount" case directly:
+     * the stored state is present and correct (one 100.00 line, zero shipping, zero tax), the
+     * checkout is a real guest checkout that completes and writes its order -- and the return POST
+     * carries the attacker's figures for every money field the handlers read.
+     *
+     * Both directions are driven, because they are different attacks and a guard that catches one
+     * need not catch the other: inflate (a merchant paid for shipping nobody bought, and the
+     * shopper's own wallet/COD figure follows the order total) and deflate below zero (which
+     * `SetNumber()` at app/Helper/helper.php:131 silently turns into its absolute value, so a
+     * negative is not even reliably a negative downstream).
+     *
+     * The order must come out at exactly the server's 100.00 either way.
+     *
+     * WHAT THIS TEST IS, EXACTLY. It is a REGRESSION FENCE, not evidence for a guard added in this
+     * package, and the difference was measured rather than assumed: stripping BOTH merges from
+     * PaiementProPaymentController (its pre-existing one at :255 and
+     * adoptStoredCheckoutState()) leaves all three cases PASSING. The reason is structural -- the
+     * guest arm never consults `$request` for money at all. It reads the basket's totals from
+     * `Cart::cart_list_cookie()` and `tax_price` from the stored state (:333-341), and
+     * `$order->final_price` is built from those and from the stored `cartlist_final_price`
+     * (:686-707). So there is no guard here to remove, and a posted figure has nowhere to enter.
+     *
+     * It is kept because that structure is exactly what a future edit could break silently, and
+     * because the brief asks for these two cases by name. It is NOT counted as proof of a fix.
+     * The one money field a posted value really did reach is method_id, and that has its own test
+     * below -- which does fail when its guard is removed.
+     *
+     * @dataProvider manipulatedMoney
+     */
+    public function test_posted_money_cannot_change_the_order_total(string $label, array $money): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store, 100.00, 50);
+
+        $sid = 'cookie-' . uniqid();
+        Cart::forceCreate([
+            'customer_id' => 0, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+            'cookie_session_id' => $sid,
+        ]);
+
+        $state = $this->forgedCheckoutState($store, '', ['payment_type' => 'paiementpro']);
+        $before = self::orderCount();
+
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state])
+            ->post('/' . $store->slug . '/get-payment-paiementpro',
+                array_merge(['responsecode' => 0, 'status' => 'success'], $money));
+
+        $this->assertSame($before + 1, self::orderCount(),
+            'The return wrote no order, so the total assertions below would be vacuous. '
+            . 'Manipulation set: ' . $label);
+
+        $order = DB::table('orders')->orderByDesc('id')->first();
+
+        $this->assertSame(100.00, round((float) $order->final_price, 2),
+            "The browser set the order's final payable (" . $label . '). The server computed '
+            . '100.00 for this basket.');
+        $this->assertSame(0.00, round((float) $order->delivery_price, 2),
+            "The browser set the order's shipping price (" . $label . ').');
+        $this->assertGreaterThanOrEqual(0, (float) $order->final_price,
+            'The order carries a negative payable total (' . $label . ').');
+        $this->assertGreaterThanOrEqual(0, (float) $order->delivery_price,
+            'The order carries a negative shipping price (' . $label . ').');
+    }
+
+    /**
+     * The money fields these handlers read, set to an attacker's figures.
+     *
+     * `cartlist_final_price` is the full payable PaymentController::prepareFinalRequestData()
+     * writes; `shipping_final_price` is the server's delivery price; `tax_price` and `final_price`
+     * are read in the guest arm. `coupon_info` is included because the discount is applied from
+     * whichever array wins.
+     *
+     * @return array<string, array{0: string, 1: array<string, mixed>}>
+     */
+    public static function manipulatedMoney(): array
+    {
+        return [
+            'inflated shipping' => ['inflated shipping', [
+                'shipping_final_price' => 5000,
+                'cartlist_final_price' => 5100,
+                'final_price' => 5100,
+                'tax_price' => 900,
+            ]],
+            'negative shipping' => ['negative shipping', [
+                'shipping_final_price' => -900,
+                'cartlist_final_price' => -800,
+                'final_price' => -800,
+                'tax_price' => -50,
+            ]],
+            'free basket' => ['free basket', [
+                'shipping_final_price' => 0,
+                'cartlist_final_price' => 0,
+                'final_price' => 0,
+                'tax_price' => 0,
+                'coupon_info' => ['coupon_id' => 1, 'discount_amount' => 100],
+            ]],
+        ];
+    }
+
+    /**
+     * THE BROWSER CANNOT CHOOSE THE SHIPPING METHOD ON THE RETURN -- not even another tenant's.
+     *
+     * This is the one money field a posted value really did reach, and it survived the stored-state
+     * guard. `$request->merge($requests_data)` can only overwrite a key the state CARRIES, and a
+     * checkout where the shopper picked no shipping method carries no `method_id`. The handlers
+     * then act on the posted one:
+     *
+     *     if (!empty($request->method_id)) { ... CartController::get_shipping_method($request) }
+     *
+     * and that resolves `ShippingMethod::find($request->method_id)` (CartController.php:433) with
+     * NO store predicate -- and ShippingMethod is not in config/tenancy.php's scoped_models, so
+     * the global scope adds none either. Any tenant's method, at any tenant's cost.
+     *
+     * `cost` is a merchant-controlled string column, so a merchant on the platform can publish a
+     * NEGATIVE one. The fixture below does exactly that, with the store's currency symbol in the
+     * `post` position -- the Arabic default, which this platform ships for -- so
+     * `currency_format_with_sym()` returns a string that LEADS with the number and casts cleanly
+     * to a negative float.
+     *
+     * MEASURED before the method_id pin: orders.delivery_price held `-500.00SYP`. Another tenant's
+     * figure, negative, and not numeric, in a money column. On SQLite it stores as that text; a
+     * MySQL DECIMAL column takes -500.00, so the merchant's shipping revenue goes negative in
+     * every report that sums it.
+     *
+     * WHAT IT DID NOT DO, stated because the difference decides the severity: the shopper's
+     * payable was unaffected. $order->final_price is built from the stored state's
+     * cartlist_final_price and the server's own cart figures and never from $delivery_price
+     * (PaiementProPaymentController.php:686-707 against :682), so this was a shipping-price and
+     * data-integrity defect, not a way to pay less. It is fixed regardless, because the brief puts
+     * shipping price on the list of things the browser must not decide.
+     */
+    public function test_the_browser_cannot_choose_the_shipping_method_on_the_return(): void
+    {
+        [, $store] = $this->tenant();
+        [, $otherStore] = $this->tenant();
+        $product = $this->productIn($store, 100.00, 50);
+
+        // The plan must permit shipping methods, or the handler skips the block entirely and this
+        // test would pass without reading anything.
+        DB::table('plans')->update(['shipping_method' => 'on']);
+
+        // A currency whose symbol follows the number, so the formatted string casts to a float.
+        foreach ([
+            'site_currency_symbol_position' => 'post',
+            'decimal_separator' => 'dot',
+            'thousand_separator' => 'dot',
+            'defult_currancy_symbol' => 'SYP',
+        ] as $name => $value) {
+            DB::table('settings')->insert([
+                'name' => $name, 'value' => $value,
+                'created_by' => $store->created_by, 'store_id' => $store->id,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+        Cache::flush();
+
+        // ANOTHER STORE's shipping method, at a negative cost its own merchant set.
+        $zoneId = DB::table('shipping_zones')->insertGetId([
+            'zone_name' => 'other-zone', 'shipping_method' => 'Local pickup',
+            'store_id' => $otherStore->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $foreignMethodId = DB::table('shipping_methods')->insertGetId([
+            'method_name' => 'Local pickup', 'zone_id' => $zoneId, 'cost' => '-500',
+            'calculation_type' => 1, 'store_id' => $otherStore->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $sid = 'cookie-' . uniqid();
+        Cart::forceCreate([
+            'customer_id' => 0, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+            'cookie_session_id' => $sid,
+        ]);
+
+        // The server's checkout state names NO shipping method -- nothing was charged for it.
+        $state = $this->forgedCheckoutState($store, '', ['payment_type' => 'paiementpro']);
+        unset($state['method_id']);
+
+        $before = self::orderCount();
+
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state])
+            ->post('/' . $store->slug . '/get-payment-paiementpro', [
+                'responsecode' => 0,
+                'status' => 'success',
+                'method_id' => $foreignMethodId,     // the whole attack
+            ]);
+
+        $this->assertSame($before + 1, self::orderCount(),
+            'The return wrote no order, so the assertions below would be vacuous.');
+
+        $order = DB::table('orders')->orderByDesc('id')->first();
+
+        $this->assertSame(0.00, round((float) $order->delivery_price, 2),
+            "The browser chose the order's shipping price by posting a method_id the server never "
+            . 'selected. Value written: ' . var_export($order->delivery_price, true));
+        $this->assertGreaterThanOrEqual(0, (float) $order->delivery_price,
+            'A negative shipping price reached a money column.');
+        $this->assertSame(100.00, round((float) $order->final_price, 2),
+            "The payable moved as well, which would make this a payable manipulation and not "
+            . 'only a shipping-price one.');
+    }
 }

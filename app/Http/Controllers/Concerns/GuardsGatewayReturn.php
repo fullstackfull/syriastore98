@@ -143,12 +143,28 @@ trait GuardsGatewayReturn
      * THE VICTIM on cinetpay and easebuzz, and emptied the victim's basket on cinetpay,
      * easebuzz and khalti.
      *
-     * WHY IT ALSO PINS customer_id SEPARATELY. `Request::merge()` can only overwrite a key the
-     * stored state actually carries, and a guest state frequently carries no `customer_id` at all
-     * -- there was no customer to record one for. Merging alone would therefore leave the posted
-     * id standing in exactly the case that matters. Pinning it to `$state['customer_id'] ?? ''`
-     * makes the absent case explicit: empty, which every one of these handlers already reads as
-     * "a guest" (`!empty($request->customer_id) ? ... : 0`).
+     * WHY IT PINS TWO FIELDS SEPARATELY. `Request::merge()` can only overwrite a key the stored
+     * state actually carries, so a field the state OMITS keeps whatever the caller posted -- and
+     * both of the fields that matter are routinely omitted.
+     *
+     *   customer_id: a guest state carries none, because there was no customer to record. Merging
+     *   alone would leave the posted id standing in exactly the case that matters. Pinned to
+     *   `?? ''`, which every one of these handlers already reads as "a guest"
+     *   (`!empty($request->customer_id) ? ... : 0`).
+     *
+     *   method_id: a checkout where the shopper chose no shipping method carries none, and the
+     *   handlers then take the POSTED one -- `if (!empty($request->method_id))` ->
+     *   `CartController::get_shipping_method()` -> `ShippingMethod::find($request->method_id)`
+     *   (CartController.php:433), which has no store predicate and whose model is NOT in
+     *   config/tenancy.php's scoped_models. So the browser chose the shipping price, from any
+     *   tenant's methods. MEASURED: a store-B 'Local pickup' method with cost '-500' posted on a
+     *   store-A return put `-500.00SYP` into `orders.delivery_price` -- another tenant's figure,
+     *   negative, and not even numeric, in a money column. The payable itself was unaffected
+     *   (`$order->final_price` is built from the stored state's `cartlist_final_price` and the
+     *   server's cart figures, never from `$delivery_price`), which is why this is recorded as a
+     *   shipping-price and data-integrity defect and not as a payable manipulation. The brief
+     *   names shipping price as the browser's to lose either way. Pinned to `?? ''`, which the
+     *   handlers' own `if (!empty($requests_data['method_id']))` already treats as "no method".
      *
      * WHAT IT DOES NOT TOUCH. merge() only replaces keys the state holds. The gateway's own return
      * fields -- token, status, responsecode, transaction ids -- are not in the state, because the
@@ -159,7 +175,10 @@ trait GuardsGatewayReturn
     protected function adoptStoredCheckoutState(Request $request, array $state): void
     {
         $request->merge($state);
-        $request->merge(['customer_id' => $state['customer_id'] ?? '']);
+        $request->merge([
+            'customer_id' => $state['customer_id'] ?? '',
+            'method_id' => $state['method_id'] ?? '',
+        ]);
     }
 
     /** @var \App\Services\PaymentVerificationService|null */
