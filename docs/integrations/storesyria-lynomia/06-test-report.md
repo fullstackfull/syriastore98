@@ -27,14 +27,8 @@ php vendor/bin/phpunit tests/Feature/Lynomia tests/Contract
 → OK (706 tests, 6931 assertions)
 
 php vendor/bin/phpunit                       # whole suite, all three testsuites
-→ Tests: 2343, Assertions: PENDING, Failures: 2, Skipped: 17
+→ Tests: 2343, Assertions: 15503, Failures: 2, Skipped: 17
 ```
-
-The whole-suite assertion count is being re-measured as this is committed: the figure recorded
-before the review fixes (2332 tests / 15,467 assertions) described eleven tests ago and is not
-repeated here, because a number that no longer describes the code is worse than an absent one.
-The 706-test module run above is measured on exactly this code, and the two failures below are
-unchanged and independently reproduced.
 
 **The two failures are pre-existing and unrelated to this work:**
 
