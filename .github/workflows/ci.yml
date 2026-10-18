@@ -1510,16 +1510,18 @@ jobs:
             --base-ref="${{ steps.base.outputs.sha }}" \
             --official-exit="${{ steps.official.outputs.exit }}"
 
-      - name: Require the human checklist on a security-sensitive diff
-        env:
-          # VIA THE ENVIRONMENT, NEVER INTERPOLATED INTO THE SCRIPT. ${{ }} substitution happens
-          # before the shell sees the line, so a pull request body is attacker-controlled text
-          # pasted into a command -- a body containing a quote and a semicolon executes.
-          PR_BODY: ${{ github.event.pull_request.body }}
-          BASE_SHA: ${{ steps.base.outputs.sha }}
-        run: |
-          printf '%s' "$PR_BODY" > /tmp/pr-body.txt
-          .github/scripts/flag-sensitive-diff.sh "$BASE_SHA" /tmp/pr-body.txt
+      # THE ATTESTATION USED TO BE THE NEXT STEP HERE, and it moved to its own workflow --
+      # .github/workflows/security-attestation.yml -- because it is the one check a pull request
+      # DESCRIPTION edit can change, and this workflow does not run on an edit. Leaving it here
+      # meant a reviewer who signed the checklist watched the gate stay red until somebody pushed
+      # a cosmetic commit. It is not weakened by moving: the same script, the same marker, run on
+      # every pull request event including `edited`.
+      #
+      # This workflow's trigger is deliberately NOT widened to include `edited`. A check run is
+      # per-commit, so a job that SKIPPED on an edit would publish a "skipped" run for the same
+      # head SHA and replace the "failure" from the code run -- and a skipped required check
+      # counts as satisfied. Red tests plus a description edit would have become a green
+      # required check. The attestation lives in a workflow whose jobs always run instead.
 
       - uses: actions/upload-artifact@v4
         if: always()

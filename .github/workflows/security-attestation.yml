@@ -1,0 +1,73 @@
+name: Security attestation
+
+# THE ONE CHECK A PULL REQUEST DESCRIPTION EDIT CAN CHANGE, which is why it is here and not in
+# ci.yml.
+#
+# .github/SECURITY-DIFF-REVIEW.md requires a human to work a checklist and leave a marker in the
+# description. ci.yml's `on: pull_request` takes the default types -- [opened, synchronize,
+# reopened] -- so editing the description triggered nothing, and re-running a job replays the
+# original webhook payload with the pre-edit body. A reviewer who signed the checklist watched the
+# gate stay red. The only ways out were a cosmetic commit to force a `synchronize`, or merging past
+# a red required check: one is noise in the history, the other is the bypass the gate exists to
+# prevent.
+#
+# WHY A SEPARATE WORKFLOW RATHER THAN `edited` ADDED TO ci.yml. A check run is per-commit. Adding
+# `edited` there and skipping the code jobs -- which is the obvious way to avoid re-running the
+# suites for a text change -- would publish a "skipped" run for the same head SHA and REPLACE the
+# "failure" from the code run, and a skipped required check counts as satisfied. Red tests plus a
+# description edit would have become a green required check: precisely the bypass this gate is for.
+# Letting ci.yml re-run in full on every edit avoids that but spends ten minutes of suites on a
+# text change, and would let an edit cancel an in-flight code run through the shared concurrency
+# group. One workflow whose single job always runs, on every pull request event, has neither
+# problem.
+#
+# BRANCH PROTECTION, the one step not in this file: if "Merge-base regression gate (new failures
+# only)" is a required check, add "Security-sensitive diff: human checklist" to the required list
+# as well. The attestation is enforced here now and the regression gate no longer covers it.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Keyed on the pull request, and separate from ci.yml's group so an edit can never cancel a
+  # code run. Edits supersede each other, which is what cancel-in-progress is for here.
+  group: security-attestation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  attestation:
+    name: "Security-sensitive diff: human checklist"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse to run as root
+        run: '[ "$(id -u)" != "0" ] || { echo "refusing to run as root"; exit 1; }'
+
+      # Full history: the merge base cannot be resolved from a shallow clone.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve the merge base
+        id: base
+        run: |
+          set -euo pipefail
+          BASE="$(git merge-base "origin/${{ github.base_ref }}" HEAD)"
+          echo "sha=${BASE}" >> "$GITHUB_OUTPUT"
+          echo "merge base: ${BASE}"
+
+      - name: Require the human checklist on a security-sensitive diff
+        env:
+          # VIA THE ENVIRONMENT, NEVER INTERPOLATED INTO THE SCRIPT. ${{ }} substitution happens
+          # before the shell sees the line, so a pull request body is attacker-controlled text
+          # pasted into a command -- a body containing a quote and a semicolon executes.
+          #
+          # On an `edited` event this is the CURRENT body, which is the whole point of this file.
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          printf '%s' "$PR_BODY" > /tmp/pr-body.txt
+          .github/scripts/flag-sensitive-diff.sh "$BASE_SHA" /tmp/pr-body.txt
