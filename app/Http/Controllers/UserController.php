@@ -106,7 +106,47 @@ class UserController extends Controller
             {
 
                 $objUser    = \Auth::user();
-                $role_r = Role::find($request->role);
+
+                // S13 -- PRIVILEGE ESCALATION. This was `Role::find($request->role)`: unscoped,
+                // on request input, and its result was written to BOTH `$user->type` (below) and
+                // `$user->addRole()`. The seeded global `super admin` role
+                // (database/seeders/PermissionTableSeeder.php) carries store_id NULL, so it was
+                // findable by id from any tenant, and `Create User` is granted to the merchant
+                // `admin` role (app/Models/Utility.php) -- so EVERY self-registered merchant
+                // could mint a platform operator.
+                //
+                // WHY THAT WAS THE WORST DEFECT IN THIS PROJECT, not a local one. Nothing here
+                // trusts Laratrust for operator identity: permissions_as_gates is disabled and
+                // Laratrust has no super-admin bypass, so authorization code compares
+                // `users.type === 'super admin'` directly -- App\Policies\OrderPolicy,
+                // App\Http\Middleware\OrderDocumentAccessGuard,
+                // Api\DashboardController::resolveOwnedStore() and the rest. Writing that string
+                // defeated every store_id predicate in the codebase at once.
+                //
+                // THE FIX IS NOT NEW CODE. The sibling update():240-266 was already hardened and
+                // carries exactly these two controls; store() was missed, and nothing noticed
+                // because the pair was never asserted to agree. Both halves are mirrored here
+                // verbatim -- a role lookup scoped to the actor's own tenant, then a
+                // RolePolicy::RESERVED_NAMES refusal as defence in depth -- and
+                // tests/Feature/Security/PrivilegeEscalationTest now pins the two methods
+                // together so they cannot drift apart again.
+                //
+                // NO OPERATOR SPECIAL CASE, deliberately, because update() has none either:
+                // consistency between the pair is the whole point of the fix. A platform operator
+                // keeps every capability they had except minting another operator through the
+                // merchant user form, which was never this form's job.
+                $role_r = Role::where('id', $request->role)
+                    ->where('created_by', '=', $objUser->creatorId())
+                    ->where('store_id', getCurrentStore())
+                    ->first();
+
+                if (!$role_r) {
+                    return redirect()->back()->with('error', __('The selected role is not available in this store.'));
+                }
+
+                if (in_array(strtolower($role_r->name), RolePolicy::RESERVED_NAMES, true)) {
+                    return redirect()->back()->with('error', __('That role cannot be assigned.'));
+                }
 
                 $user =  new User();
                 $user->name =  $request['name'];
