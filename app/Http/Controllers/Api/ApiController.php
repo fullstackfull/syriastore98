@@ -11,6 +11,7 @@ use App\Models\Category;
 use App\Models\{Utility, Wishlist, FlashSale};
 use App\Payments\RetiredGateways;
 use Illuminate\Http\Request;
+use App\Services\Payments\StripeMoney;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use App\Traits\ApiResponser;
@@ -6892,19 +6893,81 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
     {
         $store = getStore($slug);
 
-        // AUTHZ: this endpoint had no principal check and no store guard, so ANY token holder --
-        // a merchant, a driver, or a customer of a different store -- created a Stripe
-        // PaymentIntent against THIS store's Stripe account, with an amount and currency of their
-        // choosing. That is an unauthorized call on someone else's payment processor: it consumes
-        // the merchant's Stripe account and shows up in their dashboard. A bogus slug also reached
-        // `$store->id` on null and produced a 500.
+        // ====================================================================================
+        // P01-SEC-14 WORK PACKAGE B. THE AMOUNT AND THE CURRENCY ARE NOW THE SERVER'S.
         //
-        // NOT FIXED HERE, and recorded in docs/security/P01-SECURITY-WORK-QUEUE.md rather than
-        // claimed: `amount` still comes from the request. Binding it to a server-computed cart
-        // total is the right shape, but it is a change to what the client must send, and no client
-        // in either repository calls this path, so the contract cannot be verified from here.
-        // Whether a mismatched intent can actually mark an order paid depends on
-        // PaymentVerificationService, which is a separate question from this package's.
+        // THE DEFECT. This handler built the PaymentIntent from the request body:
+        //
+        //     'amount'   => $request['price'],
+        //     'currency' => $request['currency'],
+        //
+        // so the customer decided what they owed. Measured, not argued: a shopper with a basket
+        // worth 107.70 asked to pay one cent and the merchant's Stripe account was given one cent
+        // (PaymentSheetAmountAuthorityTest's baseline test recorded exactly that before this
+        // change). P01-SEC-11 closed WHO may call this endpoint -- it requires a Customer of the
+        // store in the path -- and recorded the amount as explicitly not fixed.
+        //
+        // WHERE THE AUTHORITATIVE AMOUNT COMES FROM. The server already computes what this
+        // customer owes, in cart_list(), which the previous package made session-derived: it reads
+        // the authenticated customer's cart, prices every line through the same product, variant,
+        // wholesale and tax code the order writers use, and returns the result. So the amount is
+        // taken from there rather than from a new calculation. That is deliberate -- a second
+        // implementation of a basket total is a second answer to "what do I owe", and the two
+        // would drift.
+        //
+        // WHICH KEY, and this was settled by MEASURING the two candidates against the order the
+        // checkout actually writes, not by reading their names. For a basket of one 100.00 product
+        // under a 10% store tax:
+        //
+        //     cart_list total_final_price   110.00     <- line prices, which already include tax
+        //     cart_list total_sub_price     121.00     <- the above PLUS tax computed again, on 110
+        //     orders.final_price            110.00     <- what the order records as owed
+        //     orders.product_price          121.00
+        //     orders.tax_price                0.00
+        //
+        // So `total_final_price` is the figure that matches the order, and `total_sub_price`
+        // double-counts the tax: the per-line price is already tax-inclusive, and `$final_total`
+        // (built at 757-762) adds `$tax_price` -- itself computed on the already-taxed line total --
+        // on top. Charging `total_sub_price` would take 121.00 for an order that records 110.00 as
+        // owed, which is worse than undercharging: it is money the order has no record of.
+        //
+        // `total_final_price` is also post-coupon -- the coupon reduces `$final_price` at 721-723
+        // before it accumulates into `$cart_final_price` -- so it is not a pre-discount subtotal
+        // despite looking like one.
+        //
+        // WHAT IT STILL DOES NOT COVER, recorded rather than smoothed over: SHIPPING. Neither cart
+        // key includes it, while `orders.final_price` uses `$data['shipping_total_price']` when a
+        // shipping method applies (3283-3291). So for a basket that ships, this amount can be lower
+        // than the order's. That gap, the tax double-count above, and the fact that
+        // `orders.tax_price` is written as 0 while the tax sits inside `product_price`, are all
+        // pre-existing order-calculation defects. Reconciling them is the order-calculation change
+        // this package is explicitly not to start; they are written up as owner items in
+        // docs/security/P01-SECURITY-WORK-QUEUE.md S21.
+        //
+        // The security property delivered here does not depend on resolving them: the amount is no
+        // longer the caller's to choose, and it is now derived from the same computation the order
+        // writer uses.
+        //
+        // UNITS. Stripe's `amount` is an integer in the currency's minor unit. The documented
+        // client contract (packages/workdo/Api/src/documentation/theme.json,
+        // general-detail/payment-sheet) shows `"price": "10770"` for a $107.70 basket, so the
+        // client was already sending minor units and the handler passed them through. The cart
+        // total is in MAJOR units, so it has to be converted -- see
+        // App\Services\Payments\StripeMoney, which carries the project's own zero-decimal
+        // currency list.
+        //
+        // NO ORDER EXISTS YET. The documented request carries no order id, and the flow is
+        // compute-total -> payment-sheet -> confirm on device -> place-order, so there is no
+        // orders row to bind to. A discrepancy between this cart total and the total place_order
+        // later writes is therefore possible and is an owner item, not something to paper over
+        // here; see the security queue. Reconciling the two is an order-calculation change, which
+        // this package is explicitly not to start.
+        //
+        // COMPATIBILITY. Path, method and the success shape are unchanged -- still a bare
+        // {"clientSecret": ...}. `price` and `currency` are still accepted so a client sending
+        // them is not rejected; they are simply no longer read, exactly as `customer_id` is
+        // treated across the storefront API.
+        // ====================================================================================
         if (empty($store)) {
             return $this->error(['message' => __('Store not found.')], __("Store not found."));
         }
@@ -6914,44 +6977,101 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
 
-        // A negative or non-numeric amount reached Stripe as-is.
-        $validator = \Validator::make($request->all(), [
-            'price' => 'required|numeric|min:1',
-            'currency' => 'required|string|size:3',
-        ]);
-        if ($validator->fails()) {
-            $messages = $validator->getMessageBag();
-            return $this->error(['message' => $messages->first()], $messages->first());
+        // THE CURRENCY IS THE STORE'S, not the caller's. Taking it from the request let a caller
+        // pair a store's amount with another currency's minor-unit scale -- 10770 is $107.70 but
+        // also ¥10,770 -- and it is the same value the Stripe Checkout arm already uses
+        // (PaymentService::processStripe reads CURRENCY_NAME for the same purpose).
+        $currency = trim((string) Utility::GetValueByName('CURRENCY_NAME', $store->id));
+        if ($currency === '') {
+            return $this->error(
+                ['message' => __('This store has no payment currency configured.')],
+                __('This store has no payment currency configured.')
+            );
         }
 
-        $pk_key = Utility::GetValueByName('publishable_key', $store->id);
+        $cartResponse = $this->cart_list($request, $slug);
+        $cartData = (array) ($cartResponse->getData()->data ?? []);
+
+        if (empty($cartData['product_list'])) {
+            return $this->error(['message' => __('Your cart is empty.')], __('Your cart is empty.'));
+        }
+
+        // An empty basket is not a payable amount, and neither is a cart_list refusal: its error
+        // envelope carries no `total_final_price`, so a refusal there lands on the zero check below
+        // rather than producing a zero-amount intent.
+
+        $payable = StripeMoney::toMinorUnits($cartData['total_final_price'] ?? 0, $currency);
+
+        if ($payable <= 0) {
+            return $this->error(['message' => __('Invalid amount.')], __('Invalid amount.'));
+        }
+
         $sk_key = Utility::GetValueByName('stripe_secret', $store->id);
 
         // Left as written: the duplicated `empty($sk_key)` means this errors exactly when the
-        // SECRET is missing, which is the condition that matters, and $pk_key is unused. Changing
-        // it to test $pk_key too would refuse configurations that work today.
+        // SECRET is missing, which is the condition that matters, and the publishable key is not
+        // needed server-side. Changing it to test both would refuse configurations that work today.
         if (empty($sk_key) && empty($sk_key)) {
             return $this->error(['message' => 'publishable key or stripe secret not found.']);
         }
 
         \Stripe\Stripe::setApiKey($sk_key);
         try {
-            // Create a PaymentIntent with amount and currency
-            $paymentIntent = \Stripe\PaymentIntent::create([
-                'amount' => $request['price'],
-                'currency' => $request['currency'],
-                'automatic_payment_methods' => [
-                    'enabled' => true,
+            $paymentIntent = \Stripe\PaymentIntent::create(
+                [
+                    'amount' => $payable,
+                    'currency' => strtolower($currency),
+                    'automatic_payment_methods' => [
+                        'enabled' => true,
+                    ],
+                    // Reconciliation. Money arriving in a merchant's Stripe account should say
+                    // which store and which shopper it belongs to without a lookup through a
+                    // clientSecret nobody keeps. Two fields, no PII.
+                    'metadata' => [
+                        'store_id' => (string) $store->id,
+                        'customer_id' => (string) $customer->id,
+                    ],
                 ],
-            ]);
+                [
+                    // SPAM AND DUPLICATE-INTENT MITIGATION, with no new infrastructure. Without a
+                    // key, a caller could sit in a loop and fill a merchant's Stripe dashboard with
+                    // intents. Stripe returns the SAME intent for a repeated key, so a client that
+                    // retries -- or a shopper who taps twice -- gets one intent rather than
+                    // several. The key is derived from exactly what identifies this attempt, so a
+                    // genuinely changed basket gets a new intent as it must.
+                    'idempotency_key' => hash('sha256', implode('|', [
+                        'payment_sheet',
+                        $store->id,
+                        $customer->id,
+                        $payable,
+                        strtolower($currency),
+                    ])),
+                ]
+            );
+
             $output = [
                 'clientSecret' => $paymentIntent->client_secret,
             ];
-            return json_encode($output);
-        } catch (Error $e) {
 
-            http_response_code(500);
-            echo json_encode(['error' => $e->getMessage()]);
+            return json_encode($output);
+        } catch (\Throwable $e) {
+            // Was `catch (Error $e)`, unqualified inside namespace App\Http\Controllers\Api, so
+            // it resolved to a non-existent App\Http\Controllers\Api\Error and could never
+            // match: a Stripe failure became an unhandled 500 with a stack trace. \Throwable
+            // catches both Stripe's exceptions and PHP errors. The gateway contract is unchanged
+            // for the success path; a failure now returns this endpoint's own error envelope
+            // instead of a framework error page, and the reason goes to the log rather than to the
+            // caller.
+            \Illuminate\Support\Facades\Log::error('payment_sheet: stripe payment intent failed', [
+                'store_id' => $store->id,
+                'customer_id' => $customer->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return $this->error(
+                ['message' => __('Payment could not be started.')],
+                __('Payment could not be started.')
+            );
         }
     }
 

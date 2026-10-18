@@ -116,7 +116,20 @@ class StorefrontPaymentSheetAuthorizationTest extends SecurityTestCase
             'An anonymous caller got past the gate.');
     }
 
-    public function test_a_negative_amount_is_refused(): void
+    /**
+     * SUPERSEDED BY P01-SEC-14 WORK PACKAGE B, and rewritten rather than deleted.
+     *
+     * When this was written the handler took `price` from the request, so the defence against a
+     * negative amount was a validation rule and this test asserted that rule's message. Work
+     * Package B made the amount server-derived, so a posted price -- negative, enormous or absurd
+     * -- is not validated because it is not read. That is strictly stronger than rejecting it, and
+     * the assertion now says so: the refusal still happens (this shopper has no cart), and it is
+     * NOT a complaint about the posted value.
+     *
+     * PaymentSheetAmountAuthorityTest is where the amount's provenance is proved against the
+     * Stripe transport.
+     */
+    public function test_a_posted_amount_is_not_validated_because_it_is_not_read(): void
     {
         [, $store] = $this->makeTenant();
         $customer = $this->customerIn($store, 'n1');
@@ -125,10 +138,11 @@ class StorefrontPaymentSheetAuthorizationTest extends SecurityTestCase
             $customer->createToken('t')->plainTextToken);
 
         $this->assertSame(0, $response->json('status'),
-            'A negative amount reached Stripe.');
-        $this->assertStringContainsString('price', strtolower(
+            'A shopper with no cart was served.');
+        $this->assertStringNotContainsString('price', strtolower(
             (string) $response->json('message') . ' ' . (string) $response->json('data.message')),
-            'The refusal was not the amount validation, so this test is measuring something else.');
+            'The handler is still validating the posted price, which means it is still reading it.');
+        $this->assertStringNotContainsString('clientSecret', $response->getContent());
     }
 
     public function test_a_nonnumeric_amount_is_refused(): void
@@ -169,24 +183,32 @@ class StorefrontPaymentSheetAuthorizationTest extends SecurityTestCase
      * evidence the authorized path is not being refused -- without needing a Stripe secret or an
      * outbound call.
      */
+    /**
+     * The store's own shopper gets PAST the authorization gate, proven by the error they receive.
+     *
+     * UPDATED FOR P01-SEC-14 WORK PACKAGE B: the handler now resolves the payable amount from the
+     * caller's cart BEFORE it looks for a Stripe key, so the first thing an authorized caller with
+     * an empty basket meets is the cart check rather than the key check. Reaching that message is
+     * still positive evidence of having passed the gate -- an unauthorized caller never sees it --
+     * and it needs no Stripe secret and no outbound call.
+     */
     public function test_a_shopper_of_this_store_passes_the_gate(): void
     {
         [, $store] = $this->makeTenant();
         $customer = $this->customerIn($store, 'ok1');
 
-        // No stripe_secret is configured, so the next thing after the gate is this branch.
         $this->assertNull(DB::table('settings')->where('name', 'stripe_secret')
             ->where('store_id', $store->id)->value('value'),
-            'A stripe secret exists in this fixture, so this test would call Stripe.');
+            'A stripe secret exists in this fixture, so this test could call Stripe.');
 
         $response = $this->callApi($store, $this->payload(),
             $customer->createToken('t')->plainTextToken);
 
         // ApiResponser::error() puts the handler's own text in data.message and leaves the
         // top-level `message` as its 'fail' default when no second argument is passed.
-        $this->assertStringContainsString('stripe secret',
+        $this->assertStringContainsString('cart is empty',
             strtolower((string) $response->json('data.message')),
-            "The store's own shopper was refused before reaching the Stripe-key check, so the "
-            . 'gate is rejecting the authorized caller.');
+            "The store's own shopper was refused before reaching the cart check, so the gate is "
+            . 'rejecting the authorized caller.');
     }
 }
