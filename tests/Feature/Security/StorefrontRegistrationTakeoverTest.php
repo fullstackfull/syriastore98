@@ -57,6 +57,16 @@ class StorefrontRegistrationTakeoverTest extends SecurityTestCase
         ], $attributes));
     }
 
+    /**
+     * Lookups bypass the tenant scope: `Customer` carries StoreScope and SoftDeletingScope, so a
+     * plain query answers against whichever tenant happens to be resolved rather than against the
+     * table. The cross-store tests here would otherwise be measuring the scope.
+     */
+    private static function customers()
+    {
+        return Customer::withoutGlobalScopes();
+    }
+
     private function register($store, array $payload)
     {
         return $this->postJson('/api/' . $store->slug . '/register', $payload);
@@ -181,7 +191,7 @@ class StorefrontRegistrationTakeoverTest extends SecurityTestCase
 
         $response->assertStatus(200)->assertJsonPath('status', 1);
 
-        $created = Customer::where('email', 'fresh-b1@example.test')->first();
+        $created = self::customers()->where('email', 'fresh-b1@example.test')->first();
         $this->assertNotNull($created, 'Email registration no longer creates an account.');
         $this->assertSame((int) $store->id, (int) $created->store_id,
             'A new account was not placed in the store it registered at.');
@@ -202,7 +212,7 @@ class StorefrontRegistrationTakeoverTest extends SecurityTestCase
 
         $response->assertStatus(200)->assertJsonPath('status', 1);
 
-        $created = Customer::where('google_id', 'brand-new-google-id')->first();
+        $created = self::customers()->where('google_id', 'brand-new-google-id')->first();
         $this->assertNotNull($created, 'First-time social registration no longer creates an account.');
         $this->assertSame((int) $store->id, (int) $created->store_id);
         $this->assertNotNull($response->json('data.token'));
@@ -224,7 +234,7 @@ class StorefrontRegistrationTakeoverTest extends SecurityTestCase
             'first_name' => 'Returning',
         ]);
         $first->assertJsonPath('status', 1);
-        $firstId = (int) Customer::where('google_id', 'returning-google-id')->value('id');
+        $firstId = (int) self::customers()->where('google_id', 'returning-google-id')->value('id');
 
         $second = $this->register($store, [
             'register_type' => 'google',
@@ -234,9 +244,9 @@ class StorefrontRegistrationTakeoverTest extends SecurityTestCase
         ]);
         $second->assertJsonPath('status', 1);
 
-        $this->assertSame(1, Customer::where('google_id', 'returning-google-id')->count(),
+        $this->assertSame(1, self::customers()->where('google_id', 'returning-google-id')->count(),
             'Signing in again created a duplicate account, orphaning the first one.');
-        $this->assertSame($firstId, (int) Customer::where('google_id', 'returning-google-id')->value('id'),
+        $this->assertSame($firstId, (int) self::customers()->where('google_id', 'returning-google-id')->value('id'),
             'The returning user resolved to a different row than the one they created.');
     }
 
@@ -258,8 +268,8 @@ class StorefrontRegistrationTakeoverTest extends SecurityTestCase
             'email' => 'multi-b4@example.test', 'first_name' => 'Shopper',
         ])->assertJsonPath('status', 1);
 
-        $inA = Customer::where('google_id', 'multi-store-google-id')->where('store_id', $storeA->id)->count();
-        $inB = Customer::where('google_id', 'multi-store-google-id')->where('store_id', $storeB->id)->count();
+        $inA = self::customers()->where('google_id', 'multi-store-google-id')->where('store_id', $storeA->id)->count();
+        $inB = self::customers()->where('google_id', 'multi-store-google-id')->where('store_id', $storeB->id)->count();
 
         $this->assertSame(1, $inA, 'The store A account was moved or duplicated.');
         $this->assertSame(1, $inB, 'Store B did not get its own account for this shopper.');
@@ -289,7 +299,7 @@ class StorefrontRegistrationTakeoverTest extends SecurityTestCase
             'email' => 'attacker@evil.test', 'first_name' => 'Real',
         ]);
 
-        $account = Customer::where('google_id', 'email-rewrite-google-id')->first();
+        $account = self::customers()->where('google_id', 'email-rewrite-google-id')->first();
         $this->assertNotNull($account);
         $this->assertSame('real-owner@example.test', $account->email,
             "A registration rewrote an existing account's email address, so password recovery "
@@ -318,7 +328,7 @@ class StorefrontRegistrationTakeoverTest extends SecurityTestCase
             'first_name' => 'New',
         ])->assertJsonPath('status', 1);
 
-        $created = Customer::where('google_id', 'image-c1-google-id')->first();
+        $created = self::customers()->where('google_id', 'image-c1-google-id')->first();
         $this->assertNotNull($created, 'the fixture did not register');
 
         // Step 2: force the collision rather than hoping the two sequences line up, so this

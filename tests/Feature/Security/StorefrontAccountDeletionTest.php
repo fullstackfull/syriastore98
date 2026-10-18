@@ -113,6 +113,27 @@ class StorefrontAccountDeletionTest extends SecurityTestCase
         return [$order, $address, $wishlist];
     }
 
+    /**
+     * Assertions bypass the tenant scope deliberately.
+     *
+     * `Customer` carries BOTH StoreScope and SoftDeletingScope (verified by enumerating
+     * getGlobalScopes()). So a plain `Customer::find()` in an assertion answers null whenever the
+     * resolved tenant differs from the row's store -- which is precisely what the cross-store
+     * tests here construct -- and the soft-delete scope hides a trashed row too. An
+     * "it is gone" assertion written that way passes whether or not the fix works.
+     *
+     * withoutGlobalScopes() drops both, so these read the table. `customerStillExists()` then
+     * states soft-deletion explicitly rather than inheriting it from a scope.
+     */
+    private function customerStillExists($customer): bool
+    {
+        $row = Customer::withoutGlobalScopes()->find(
+            $customer instanceof Customer ? $customer->getKey() : $customer
+        );
+
+        return $row !== null && $row->deleted_at === null;
+    }
+
     private function assertBelongingsIntact(array $belongings, string $because): void
     {
         [$order, $address, $wishlist] = $belongings;
@@ -157,7 +178,7 @@ class StorefrontAccountDeletionTest extends SecurityTestCase
 
         $this->callUserDelete($store, $victim->id, $merchant->createToken('t')->plainTextToken);
 
-        $this->assertNotNull(Customer::find($victim->id),
+        $this->assertTrue($this->customerStillExists($victim),
             "A merchant's token deleted a customer through the storefront endpoint.");
         $this->assertBelongingsIntact($belongings, "A merchant's token ran the cascade");
     }
@@ -171,7 +192,7 @@ class StorefrontAccountDeletionTest extends SecurityTestCase
 
         $this->callUserDelete($store, $victim->id, $driver->createToken('t')->plainTextToken);
 
-        $this->assertNotNull(Customer::find($victim->id),
+        $this->assertTrue($this->customerStillExists($victim),
             "A delivery driver's token deleted a customer.");
         $this->assertBelongingsIntact($belongings, "A driver's token ran the cascade");
     }
@@ -218,7 +239,7 @@ class StorefrontAccountDeletionTest extends SecurityTestCase
 
         $this->callUserDelete($store, $collidingUserId, $attacker->createToken('t')->plainTextToken);
 
-        $this->assertNotNull(Customer::find($bystander->id),
+        $this->assertTrue($this->customerStillExists($bystander),
             'Naming a users.id deleted the CUSTOMER sharing that integer.');
         $this->assertBelongingsIntact(
             $belongings,
@@ -241,7 +262,7 @@ class StorefrontAccountDeletionTest extends SecurityTestCase
 
         $this->callUserDelete($store, $victim->id, $attacker->createToken('t')->plainTextToken);
 
-        $this->assertNotNull(Customer::find($victim->id),
+        $this->assertTrue($this->customerStillExists($victim),
             'One shopper deleted another by naming their id.');
         $this->assertBelongingsIntact($belongings, 'One shopper ran the cascade on another');
     }
@@ -257,7 +278,7 @@ class StorefrontAccountDeletionTest extends SecurityTestCase
 
         $this->callUserDelete($storeB, $victim->id, $attacker->createToken('t')->plainTextToken);
 
-        $this->assertNotNull(Customer::find($victim->id),
+        $this->assertTrue($this->customerStillExists($victim),
             'A shopper of store B deleted a customer of store A.');
         $this->assertBelongingsIntact($belongings, 'A cross-tenant cascade ran');
     }
@@ -281,7 +302,7 @@ class StorefrontAccountDeletionTest extends SecurityTestCase
 
         $this->callUserDelete($storeB, $customer->id, $customer->createToken('t')->plainTextToken);
 
-        $this->assertNotNull(Customer::find($customer->id),
+        $this->assertTrue($this->customerStillExists($customer),
             "Store B's endpoint deleted a customer of store A.");
         $this->assertBelongingsIntact($belongings, "Store B's endpoint ran the cascade on store A");
     }
@@ -299,7 +320,7 @@ class StorefrontAccountDeletionTest extends SecurityTestCase
 
         $this->callUserDelete($store, $victim->id, null);
 
-        $this->assertNotNull(Customer::find($victim->id),
+        $this->assertTrue($this->customerStillExists($victim),
             'An anonymous caller deleted a customer.');
     }
 
@@ -318,7 +339,7 @@ class StorefrontAccountDeletionTest extends SecurityTestCase
             ->assertStatus(200)
             ->assertJsonPath('status', 1);
 
-        $this->assertNull(Customer::withoutTrashed()->find($customer->id),
+        $this->assertFalse($this->customerStillExists($customer),
             'A shopper can no longer delete their own account; that is the journey this endpoint '
             . 'exists for.');
 
@@ -343,7 +364,7 @@ class StorefrontAccountDeletionTest extends SecurityTestCase
         $this->callUserDelete($store, $leaving->id, $leaving->createToken('t')->plainTextToken)
             ->assertJsonPath('status', 1);
 
-        $this->assertNotNull(Customer::find($staying->id),
+        $this->assertTrue($this->customerStillExists($staying),
             'Deleting one account removed another.');
         $this->assertBelongingsIntact($stayingBelongings, 'The cascade reached another customer');
     }
@@ -358,9 +379,9 @@ class StorefrontAccountDeletionTest extends SecurityTestCase
         $this->callUserDelete($store, $other->id, $customer->createToken('t')->plainTextToken)
             ->assertJsonPath('status', 1);
 
-        $this->assertNull(Customer::withoutTrashed()->find($customer->id),
+        $this->assertFalse($this->customerStillExists($customer),
             "The session's own account was not the one deleted.");
-        $this->assertNotNull(Customer::find($other->id),
+        $this->assertTrue($this->customerStillExists($other),
             'The tampered user_id reached another account.');
     }
 }
