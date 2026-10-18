@@ -1824,7 +1824,7 @@ one field to the return they were already making. All three were measured on the
    `merge()` cannot overwrite a key the state omits, which is the entire reason the pins exist. The
    shipping defect above therefore stayed **live** on the generic storefront return — PayU's real
    order writer — after it was closed in the five. Measured: `delivery_price` **−500.0** on
-   `{slug}/get-payment-status` while the five already read 0.00. Closed in `9f0c2c0d`.
+   `{slug}/get-payment-status` while the five already read 0.00. Closed in `57c8953c`.
 
    Finding it needed two things that had been hiding it. First, a tabulation of which handler calls
    which trait member, rather than an assumption that "it merges" meant "it is covered". Second,
