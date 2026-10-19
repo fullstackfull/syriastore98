@@ -1085,10 +1085,12 @@
       "title": "BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour",
       "workstream": "security",
       "risk": "high",
-      "status": "READY",
+      "status": "BLOCKED",
       "issue": 42,
       "scope": [
-        "packages/workdo/BackupRestore/"
+        "tests/Support/Security/bin/verify-backuprestore-module-gating.php",
+        "tests/Feature/Security/BackupRestoreModuleGatingTest.php",
+        "docs/security/P1-OWN-01-BACKUPRESTORE-CONTAINMENT.md"
       ],
       "existing_status": "OWNER CONFIRMED 2026-10-19: the BackupRestore module is DISABLED on the Store Syria server. The IMMEDIATE ACTIVATION RISK IS THEREFORE MITIGATED -- the unauthenticated route to the whole database and .env is not reachable while the module is not loaded. The row is NOT closed: the owner's confirmation is about the server's current state, not about what the code does, and two things remain verifiable here without touching the server or enabling anything -- whether a disabled module really registers no routes, and what the loader does with a module whose state changes. Previously BLOCKED on exactly the question the owner has now answered.",
       "depends_on": [],
@@ -1105,12 +1107,12 @@
       ],
       "compatibility": "If active, this is an incident, not a backlog row.",
       "db": "None (containment is host-side only).",
-      "evidence": "Owner confirmation 2026-10-19 that the module is DISABLED. Code evidence: packages/workdo/BackupRestore/src/routes/web.php:17-19 (auth + PlanModuleCheck only); app/Providers/PackageServiceProvider.php:54-57 (the loader's silent catch). Verification pending.",
+      "evidence": "ENGINEERING HALF COMPLETE. The owner's 2026-10-19 confirmation that the module is DISABLED was taken as the server's state, and the code was then asked what each meaning of 'disabled' actually protects -- the answers differ and only one is safe. MEASURED, three application boots in three subprocesses against throwaway sqlite files (tests/Support/Security/bin/verify-backuprestore-module-gating.php, 6 checks, 0 failures): with NO add_on_managers row the module registers NO route; WITH A ROW AT is_enable = 0 ALL EIGHT backuprestore ROUTES ARE REGISTERED, BYTE-IDENTICAL TO is_enable = 1. PackageServiceProvider.php:47 does AddOnManager::pluck('module') with no is_enable predicate, so a row's EXISTENCE loads the module -- the flag gates nothing at the loader. So 'disabled' is protective only if it means NO ROW. THE THREE DISAGREEING SOURCES, documented as the task required: (1) row existence gates the loader and hence the route table; (2) is_enable gates App\\Classes\\Module::isEnabled() only (Module.php:138-144); (3) module_is_active() gates PlanModuleCheck for non-operators and is PRINCIPAL-DEPENDENT on top of (2) -- false with no principal (helper.php:1338), true UNCONDITIONALLY for a super admin (:1328-1330), else ActivatedModule(). A STANDALONE SCRIPT RATHER THAN A TEST, deliberately: no WorkDo module loads in any test run, so an in-process 'the routes are absent' assertion cannot fail -- CredentialBoundaryTest:504-511 records that exact vacuous assertion having guarded the queue's highest-severity row. The in-suite file holds only what IS measurable in-process: four ratchets on the code shape (4 tests, 11 assertions), each written to STRIP COMMENT LINES before matching, because P1-INV-08 proved a source-grep ratchet can be satisfied by a docblock quoting what it scans for. THREE REMOVAL CHECKS: adding the is_enable filter to the loader fails it; removing PlanModuleCheck's super-admin short-circuit fails it; and a comment quoting the needle does NOT satisfy it (comment-proofing measured, not assumed). S1'S TITLE IS IMPRECISE AND IT CHANGES WHERE THE FIX GOES. S1 reads 'unauthenticated route to the whole database and .env'. The ROUTE is not unauthenticated -- all eight carry auth, plus the controller's own isAbleTo. What is unauthenticated is the ARTEFACT: a generated backup sits at 0777 inside the document root and .htaccess serves any real file unrewritten, so containment is a HOST change and does not touch packages/workdo/. DISABLING THE MODULE DOES NOT REMOVE AN ARTEFACT ALREADY GENERATED -- the one exposure that persists today. Also recorded for the owner's decision, not fixed (vendored): shell injection via $request->database_name interpolated into shell_exec, a failed dump reported as success, the DB password on the command line, no restore at all, and api/backuprestore carrying auth:api when no api guard exists. NOT DONE because three read-only SERVER observations remain, listed in section 5 of the write-up, none of which enables the module or reads a backup. The module was not enabled anywhere outside throwaway sqlite files; packages/ is untouched and guard-no-workdo-changes.sh exits 0.",
       "queue_refs": [
         "S1"
       ],
       "owner_decision": false,
-      "blocked_on": null
+      "blocked_on": "Three read-only server observations only the owner can make: whether an add_on_managers row for BackupRestore exists at all (NOT whether is_enable is 0 -- per the measured finding the flag does not gate the loader), what artefacts sit in storage/uploads/{Files,Database}_Backup, and whether .htaccess already denies those paths. The engineering half is COMPLETE; see docs/security/P1-OWN-01-BACKUPRESTORE-CONTAINMENT.md section 5 for the exact three checks, none of which enables the module or reads a backup."
     },
     {
       "id": "P1-OWN-02",

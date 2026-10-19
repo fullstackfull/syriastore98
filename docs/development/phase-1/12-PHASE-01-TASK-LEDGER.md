@@ -10,7 +10,7 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 45 — 10 DONE, 13 READY, 8 BACKLOG, 14 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
+| Tasks | 45 — 10 DONE, 12 READY, 8 BACKLOG, 15 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
 | Requiring an owner decision | 16 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
@@ -101,7 +101,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 15. `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted *(orders, BACKLOG, risk high)*
 16. `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon *(orders, BACKLOG, risk high)*
 17. `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account *(orders, BLOCKED, risk high)*
-18. `P1-OWN-01` — BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour *(security, READY, risk high)*
+18. `P1-OWN-01` — BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour *(security, BLOCKED, risk high)*
 19. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
 20. `P1-OWN-03` — The compromised API log on the running server *(security, BLOCKED, risk high)*
 21. `P1-OWN-04` — Token lifetime and abilities for clients already on merchants' phones *(security, BLOCKED, risk high)*
@@ -298,13 +298,14 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **BLOCKED** |
 | Risk | high |
 | Workstream | Security & Identity |
 | GitHub issue | #42 |
 | Owner decision required | no |
+| Blocked on | Three read-only server observations only the owner can make: whether an add_on_managers row for BackupRestore exists at all (NOT whether is_enable is 0 -- per the measured finding the flag does not gate the loader), what artefacts sit in storage/uploads/{Files,Database}_Backup, and whether .htaccess already denies those paths. The engineering half is COMPLETE; see docs/security/P1-OWN-01-BACKUPRESTORE-CONTAINMENT.md section 5 for the exact three checks, none of which enables the module or reads a backup. |
 | Depends on | — |
-| Scope | `packages/workdo/BackupRestore/` |
+| Scope | `tests/Support/Security/bin/verify-backuprestore-module-gating.php`, `tests/Feature/Security/BackupRestoreModuleGatingTest.php`, `docs/security/P1-OWN-01-BACKUPRESTORE-CONTAINMENT.md` |
 | Queue references | S1 |
 | Database / migration | None (containment is host-side only). |
 | Compatibility impact | If active, this is an incident, not a backlog row. |
@@ -322,7 +323,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 - Negative: with no add_on_managers row, the BackupRestore routes resolve to nothing (404), asserted against the real route table
 - Premise test: the same assertion would FAIL if the module were loaded -- so the test is not vacuous (see CLAUDE.md on module loading in tests)
 
-**Evidence.** Owner confirmation 2026-10-19 that the module is DISABLED. Code evidence: packages/workdo/BackupRestore/src/routes/web.php:17-19 (auth + PlanModuleCheck only); app/Providers/PackageServiceProvider.php:54-57 (the loader's silent catch). Verification pending.
+**Evidence.** ENGINEERING HALF COMPLETE. The owner's 2026-10-19 confirmation that the module is DISABLED was taken as the server's state, and the code was then asked what each meaning of 'disabled' actually protects -- the answers differ and only one is safe. MEASURED, three application boots in three subprocesses against throwaway sqlite files (tests/Support/Security/bin/verify-backuprestore-module-gating.php, 6 checks, 0 failures): with NO add_on_managers row the module registers NO route; WITH A ROW AT is_enable = 0 ALL EIGHT backuprestore ROUTES ARE REGISTERED, BYTE-IDENTICAL TO is_enable = 1. PackageServiceProvider.php:47 does AddOnManager::pluck('module') with no is_enable predicate, so a row's EXISTENCE loads the module -- the flag gates nothing at the loader. So 'disabled' is protective only if it means NO ROW. THE THREE DISAGREEING SOURCES, documented as the task required: (1) row existence gates the loader and hence the route table; (2) is_enable gates App\Classes\Module::isEnabled() only (Module.php:138-144); (3) module_is_active() gates PlanModuleCheck for non-operators and is PRINCIPAL-DEPENDENT on top of (2) -- false with no principal (helper.php:1338), true UNCONDITIONALLY for a super admin (:1328-1330), else ActivatedModule(). A STANDALONE SCRIPT RATHER THAN A TEST, deliberately: no WorkDo module loads in any test run, so an in-process 'the routes are absent' assertion cannot fail -- CredentialBoundaryTest:504-511 records that exact vacuous assertion having guarded the queue's highest-severity row. The in-suite file holds only what IS measurable in-process: four ratchets on the code shape (4 tests, 11 assertions), each written to STRIP COMMENT LINES before matching, because P1-INV-08 proved a source-grep ratchet can be satisfied by a docblock quoting what it scans for. THREE REMOVAL CHECKS: adding the is_enable filter to the loader fails it; removing PlanModuleCheck's super-admin short-circuit fails it; and a comment quoting the needle does NOT satisfy it (comment-proofing measured, not assumed). S1'S TITLE IS IMPRECISE AND IT CHANGES WHERE THE FIX GOES. S1 reads 'unauthenticated route to the whole database and .env'. The ROUTE is not unauthenticated -- all eight carry auth, plus the controller's own isAbleTo. What is unauthenticated is the ARTEFACT: a generated backup sits at 0777 inside the document root and .htaccess serves any real file unrewritten, so containment is a HOST change and does not touch packages/workdo/. DISABLING THE MODULE DOES NOT REMOVE AN ARTEFACT ALREADY GENERATED -- the one exposure that persists today. Also recorded for the owner's decision, not fixed (vendored): shell injection via $request->database_name interpolated into shell_exec, a failed dump reported as success, the DB password on the command line, no restore at all, and api/backuprestore carrying auth:api when no api guard exists. NOT DONE because three read-only SERVER observations remain, listed in section 5 of the write-up, none of which enables the module or reads a backup. The module was not enabled anywhere outside throwaway sqlite files; packages/ is untouched and guard-no-workdo-changes.sh exits 0.
 
 ### `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets
 
