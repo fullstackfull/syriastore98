@@ -1,6 +1,29 @@
 # P01-COMMERCE-SEC-03 — `ProductVariant` ownership and checkout tenant isolation
 
-**Status: prepared, not started.** Scoped deliberately small, and written so it can be rejected
+> ## DELIVERED. See [`S35`](../../security/P01-SECURITY-WORK-QUEUE.md) for what shipped and what
+> was measured; this document is the investigation it was planned from, kept for the trace and
+> **corrected in place where the delivery proved it wrong**.
+>
+> **Three corrections this package's own work forced:**
+>
+> 1. **The variant inventory was 12. It is 14.** `PaymentService::getProductStatus:2334` was
+>    missed — it mutates stock and resolves its product with a bare `Product::find()`. The full
+>    table, with the product predicate and preflight status of each, is in S35.
+> 2. **`place_order` was the live leg, and §4b item 1 below was too cautious about it.** That item
+>    called the missing ownership refusal a cross-tenant *reference*. Measured through the real
+>    route, it was a cross-tenant **inventory write**: store B's `product_variants.stock` 50 → 43,
+>    with an order written in store A. The refusal is hoisted, reversing S34's deliberate
+>    non-mirroring, because measurement overtook the argument for it.
+> 3. **The `addtocart` trace in §4 was right, and one detail was missing**: the variant branch's
+>    `if (empty($ProductVariant))` sat *below* the `explode()` that dereferenced it and *inside*
+>    `if ($option == true)`, so it was unreachable. A mismatched pair answered 500 rather than a
+>    refusal — and a first version of the regression test passed because of that very 500.
+>
+> What remains open after delivery is in S35's final section: `confirm_order`,
+> `PaymentService::getProductStatus`, the hard-versus-nullable-tolerant predicate decision, and
+> the global-scope question this package was told not to take.
+
+**Status at the time of writing: prepared, not started.** Scoped deliberately small, and written so it can be rejected
 without blocking anything else. It is the follow-up P01-COMMERCE-SEC-02's adversarial review
 identified; §7 item 1 of [`S33`](../../security/P01-SECURITY-WORK-QUEUE.md) is the one-paragraph
 version.

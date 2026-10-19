@@ -2735,6 +2735,177 @@ store then decrements the other merchant's stock. That refutes the "module-gated
 paragraph the next-package document shipped with; both are corrected in
 [`11-NEXT-PACKAGE-PRODUCTVARIANT-TENANCY.md`](../development/phase-1/11-NEXT-PACKAGE-PRODUCTVARIANT-TENANCY.md).
 
+---
+
+## S35 — The cart → order chain that reached another merchant's inventory
+
+**CLOSED by P01-COMMERCE-SEC-03.** The first cross-tenant **inventory write** in this project's
+record that needs no module, no forged principal and no payment: an ordinary customer of one store,
+using their own token, in **two requests**.
+
+### The chain, measured before the fix
+
+```
+POST /api/{slugA}/add-cart          store-A customer, their own bearer token
+    product_id   = <store B's variant product>
+    attribute_id = <store B's variant>
+    variant_id   = <same>
+  -> carts row PERSISTED: {product_id: B's, variant_id: B's, store_id: A's}
+     (then HTTP 500 — see "the row survives the error" below)
+
+POST /api/{slugA}/place-order       an ordinary checkout, same token
+  -> store B's product_variants.stock  50 -> 43   (the cart quantity, 7)
+  -> an order written in store A
+  -> HTTP 500
+```
+
+Both legs driven through the real routes by
+`tests/Feature/Security/ForeignProductCartChainTest`, which failed on exactly these three
+assertions against the unfixed code and passes now.
+
+### Why the existing guards did not see it
+
+`addtocart` has resolved its product **store-scoped** since S19 —
+`Product::where('id', $request->product_id)->where('store_id', $store->id)` — and the comment above
+that line claimed it "keeps a foreign product out of the cart in the first place". **It did not.**
+Nothing acted on the null: `if ($product && …)` guarded only the variant-required message, and
+control reached the `attribute_id` branch, which
+
+- resolves the variant as
+  `ProductVariant::where('id', $request->attribute_id)->where('product_id', $request->product_id)`
+  — **the caller's own two values**, consulting neither the store nor `$product`;
+- prices the line from that foreign variant (`$ProductVariant->final_price * qty`);
+- takes the **posted** `variant_id` at the `$product_stock_datas` fallback, which that branch never
+  assigns;
+- writes `$cart->product_id = $request->product_id` verbatim.
+
+**`ProductVariant` carries no `StoreScope` and is not in `config/tenancy.php`'s `scoped_models`, so
+SCOPING THE PRODUCT DOES NOT SCOPE THE VARIANT.** That one sentence is the whole defect, and it is
+why every fix in this package comes in two halves.
+
+**The row survives the error.** `$cart->save()` runs before the handler dereferences the same null
+`$product`, with no transaction around the pair — so the refusal the caller saw and the persistence
+were independent. Partial persistence was part of the attack, not a side effect, which is why the
+tests assert the table rather than the response.
+
+### What was fixed
+
+| | |
+|---|---|
+| `ApiController::addtocart` | the store-scoped lookup's **null is now refused**, before any branch. One guard covers the variant, wholesale, size-guideline and plain paths |
+| `ApiController::addtocart` (variant branch) | `if (empty($ProductVariant))` **moved above** the `explode(',', $ProductVariant->variation_option)` that dereferenced it — the guard was unreachable, nested inside `if ($option == true)` which could only be true once the dereference had already succeeded. A mismatched pair answered 500 instead of "Product not found." |
+| `ApiController::place_order` | the ownership refusal **hoisted out of the stock-management arm**, as S34 did for `ordersave` |
+| `ApiController::place_order` | `empty($ProductStock)` tested **before** its dereference, same shape as the above |
+| `GuardsGatewayReturn::basketHasForeignProduct()` | **extended to the variant**: a line whose variant belongs to a different product is refused |
+| 6 checkout preflights wired | PaiementPro, CinetPay, Easebuzz, Khalti, `PaymentController::getProductStatus`, `PaymentController::whatsapp` — before any stock row moves |
+
+**`place_order`'s hoist reverses a decision S34 recorded.** S34 declined to mirror `ordersave`'s
+hoist here, arguing that this handler's stock-management expression was always correct so an
+unmanaged store never had the refusal, and that hoisting would be a *new* refusal over a hard
+`store_id` predicate. **Measurement overtook that argument**: `place-order` was the leg that
+actually moved store B's stock (50 → 43), while `ordersave` refused the identical request *because*
+of S34's hoist. A live cross-tenant inventory write is not an unknown legacy behaviour worth
+preserving.
+
+### The variant half is not a `store_id` predicate, and that is deliberate
+
+`product_variants.store_id` **is nullable** (`create_product_variants_table.php:30`), so a hard
+store predicate on the variant would drop legitimate legacy rows. The helper instead requires the
+variant to belong to **the product it is paired with**, which the product half has already
+established belongs to this store. Same conclusion, no legacy cost. A variant id that resolves to
+no row is left to the handlers' own "Product not found" paths, exactly as a missing product is.
+
+### The inventory, corrected
+
+The next-package document said **12** variant lookup sites. Verified against current code, the
+stock-mutating set is **14** — `PaymentService::getProductStatus:2334` was missed, and it also
+resolves its product with a bare `Product::find($product_id)`:
+
+| file | variant site | product predicate | preflight now |
+|---|---|---|---|
+| `Api/ApiController` `place_order` | `:3349` | store-scoped | ownership refusal hoisted |
+| `Api/ApiController` `confirm_order` | `:6632` | **none** | — see §open |
+| `Api/ApiController` `ordersave` | `:8175` | store-scoped | S34's hoist |
+| `PaymentController::getProductStatus` | `:2127` | **none** | **wired** |
+| `PaymentController::getWhatsappUrl` | `:2869` | **none** | availability check only, no write |
+| `PaymentController::whatsapp` | `:3408` | **none** | **wired** |
+| `PaymentService::getProductStatus` | `:2334` | **none** | — see §open |
+| `NMIPayController` | `:607` | store-scoped | S33's preflight |
+| `KhaltiPaymnetController` | `:431` | **none** | **wired** |
+| `EasebuzzController` | `:471` | **none** | **wired** |
+| `PaiementProPaymentController` | `:472` | **none** | **wired** |
+| `CinetPayController` | `:577` | **none** | **wired** |
+| `AuthorizeNetPaymnetController` | `:534` | **none** | not wired — handler dies before its loop |
+| `PayUPaymentController` | `:407` | **none** | not wired — **unrouted dead code** |
+
+### Evidence
+
+`tests/Feature/Security/ForeignProductCartChainTest` — **15 tests**, every one driving the whole
+journey through real routes rather than a validation helper, with real database assertions.
+
+Coverage against the brief's list: customer A adding product B ✓ · variant B under product A ✓ ·
+correct product with incorrect variant ✓ · foreign cart rows already stored ✓ (both API writers and
+the gateway return) · orders from foreign or inconsistent carts ✓ · stock mutation across stores ✓ ·
+stock management ON and OFF ✓ · valid plain and variant purchases ✓ · a request that fails after
+validation but before persistence ✓.
+
+Eight controls removed and re-measured, **all eight bite**:
+
+| control removed | result |
+|---|---|
+| the `addtocart` product-null refusal | **2 fail** |
+| the `addtocart` variant emptiness guard | **1 fails** |
+| `place_order`'s ownership refusal | **1 fails** |
+| the helper's **variant** half | **1 fails** |
+| the helper's **product** half | **5 fail** |
+| the PaiementPro preflight | **2 fail** |
+| the storefront-return preflight | **1 fails** |
+| the whatsapp preflight | **1 fails** |
+
+**THREE OF THOSE EIGHT FAILED NOTHING ON THE FIRST RUN, and the removal check is what found it** —
+the project's "a test must bite" rule turned on its author for the third package running:
+
+| control | first attempt | after |
+|---|---|---|
+| the `addtocart` variant emptiness guard | **nothing failed** — the mismatch test asserted only that no row named the foreign variant, and without the guard the handler **500s** on the null dereference, so no row is written either way. The exact "passes only because of an unrelated HTTP 500" shape the brief forbids | the test asserts the response is **not 500** first: a refusal and a crash are not the same outcome. **1 fails** |
+| the storefront-return preflight | **nothing failed** — no test drove `{slug}/get-payment-status` with a foreign basket | a data-provider test drives it; **1 fails** |
+| the whatsapp preflight | **nothing failed** — same | same test drives `{slug}/whatsapp`; **1 fails** |
+
+**The positive controls are what stop the rest being vacuous**, one per leg: a legitimate variant
+purchase (add-to-cart → order → the variant's own stock moves by the quantity ordered), a legitimate
+plain purchase, a legitimate guest gateway return (order written, variant 50 → 43), and an unmanaged
+store completing an order **without** deducting — so the fix cannot be mistaken for having
+re-coupled ownership to the stock-management setting S34 separated.
+
+One test also caught a fixture error of its own before any of this: `add-cart` is routed at
+`{slug}/add-cart`, not `{slug}/addtocart`, and the first run of four refusal tests passed **because
+the route 404'd**. Fixed before anything was concluded from them.
+
+### Still open — and the owner decisions this package deliberately did not take
+
+1. **`ApiController::confirm_order:6632` and `PaymentService::getProductStatus:2334`** both mutate
+   stock, both resolve their product with **no** store predicate, and neither has a preflight.
+   `confirm_order` was out of this package's measured chain and `PaymentService::getProductStatus`
+   is the twin of a handler already wired — both are small, and both are left rather than guessed
+   at, because neither was driven to a measured stock movement here.
+2. **The two predicate rules still disagree.** `addtocart`, `place_order` and `ordersave` use a
+   **hard** `->where('store_id', $store->id)`; `basketHasForeignProduct()` and `0ad3f7e0` accept a
+   **NULL** `store_id` as "not a provable mismatch". The hard form is what those three handlers
+   already shipped, so this package changed no policy — but it means **a legacy product whose
+   `store_id` is NULL is refused at checkout on those routes**. Whether such rows exist in
+   production is one query the owner can answer and this environment cannot:
+   `SELECT COUNT(*) FROM products WHERE store_id IS NULL;` — and the same for `product_variants`.
+   If the answer is zero, make the nullable-tolerant rule the only rule. If it is not,
+   the hard predicates need the tolerant form and the tolerance needs a compensating control.
+   **Owner decision.**
+3. **`ProductVariant` and `Product` remain globally unscoped.** What shipped is containment at the
+   caller, three packages running. Adding them to `scoped_models` is a platform-wide change to
+   every read, with `null_tenant => 'open'` underneath it, and needs its own compatibility
+   decision — which the brief for this package explicitly withheld.
+4. **AuthorizeNet and PayU are not wired**, with the same stated reasons as in S33: the first dies
+   in an empty `catch` before its stock loop, the second is unrouted dead code. Neither is
+   verifiable by execution here, and a guard nothing can fail is not a guard.
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**

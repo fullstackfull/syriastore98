@@ -275,6 +275,49 @@ still honoured.
 
 ---
 
+## P01-COMMERCE-SEC-03 — `ProductVariant` ownership & checkout tenant isolation  ·  **DELIVERED**
+
+> **Done.** The full record is [`S35`](../../security/P01-SECURITY-WORK-QUEUE.md); the
+> investigation it was planned from, with the corrections the delivery forced, is
+> [`11-NEXT-PACKAGE-PRODUCTVARIANT-TENANCY.md`](11-NEXT-PACKAGE-PRODUCTVARIANT-TENANCY.md).
+>
+> **The first cross-tenant inventory write in this project's record that needs no module, no
+> forged principal and no payment** — an ordinary customer of one store, their own token, two
+> requests:
+>
+> ```
+> POST /api/{slugA}/add-cart     product_id + attribute_id = store B's variant product
+>   -> carts row persisted {product_id: B's, variant_id: B's, store_id: A's}, then HTTP 500
+> POST /api/{slugA}/place-order
+>   -> store B's product_variants.stock 50 -> 43, an order written in store A
+> ```
+>
+> **One sentence explains all of it: `ProductVariant` carries no `StoreScope` and is not in
+> `scoped_models`, so scoping the product does not scope the variant.** `addtocart` had been
+> store-scoping its product since S19 and ignoring the null that lookup returned; the
+> `attribute_id` branch then resolved the variant from the caller's own two values and wrote the
+> posted `product_id` verbatim — before the dereference that produced the 500, with no transaction,
+> so the poisoned row survived the error the caller saw.
+>
+> Fixed: the null is refused at the cart entry; two dead emptiness guards moved above the
+> dereferences they were meant to prevent; `place_order`'s ownership refusal hoisted out of the
+> stock-management arm (reversing S34's deliberate non-mirroring, because measurement overtook the
+> argument); `basketHasForeignProduct()` extended to the variant; six checkout preflights wired.
+>
+> **15 tests, every one driving the whole journey through real routes. Eight controls removed and
+> re-measured — all eight bite, and three of them failed nothing on the first run.** One of those
+> three is worth remembering: a test asserting "no cart row was written" passed with its guard
+> removed, because without the guard the route **500s** and writes nothing either way. The fix was
+> to assert the response is not a 500 first — a refusal and a crash are not the same outcome.
+>
+> **Owner decisions left open**, in S35's final section: whether any `products`/`product_variants`
+> rows have a NULL `store_id` (one query, and it decides which of the two predicate rules this
+> codebase should keep), `confirm_order` and `PaymentService::getProductStatus` (both mutate stock
+> with no store predicate and no preflight), and the global-scope question this package was told
+> not to take.
+
+---
+
 ## Still owed before Phase 01 acceptance
 
 Unchanged from [`09-SINGLE-DEVELOPER-TRANSITION.md`](09-SINGLE-DEVELOPER-TRANSITION.md), plus:

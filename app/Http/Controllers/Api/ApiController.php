@@ -958,6 +958,48 @@ public function saveStoreFcmToken(Request $request)
         // consume merchant B's inventory. Refusing it here keeps a foreign product out of the cart
         // in the first place.
         $product = Product::where('id', $request->product_id)->where('store_id', $store->id)->first();
+
+        /*
+         * AND THE NULL IT RETURNS IS REFUSED. P01-COMMERCE-SEC-03.
+         *
+         * The lookup above has been store-scoped since S19 and the comment above it claims it
+         * "keeps a foreign product out of the cart in the first place". IT DID NOT. Nothing acted
+         * on the null: `if ($product && ...)` guards only the variant-required message, and
+         * control then reached the `attribute_id` branch below (`:1451`), which resolves the
+         * VARIANT from the caller's own two values --
+         * `ProductVariant::where('id', $request->attribute_id)->where('product_id', $request->product_id)`
+         * -- never consults `$product`, prices from that foreign variant, and writes
+         * `$cart->product_id = $request->product_id` verbatim. `ProductVariant` carries no
+         * StoreScope and is not in config/tenancy.php's `scoped_models`, so SCOPING THE PRODUCT
+         * DID NOT SCOPE THE VARIANT.
+         *
+         * MEASURED end to end, before this guard, by an ordinary store-A customer using their own
+         * token -- no module, no forged principal, two requests:
+         *
+         *   POST /api/{slugA}/add-cart   product_id + attribute_id = store B's variant product
+         *     -> carts row {product_id: B's, variant_id: B's, store_id: A's} PERSISTED
+         *   POST /api/{slugA}/place-order
+         *     -> store B's product_variants.stock 50 -> 43, an order written, then HTTP 500
+         *
+         * The 500 is the handler dereferencing this same null further down -- AFTER `$cart->save()`,
+         * with no transaction around the pair, so the refusal and the persistence were independent
+         * and the poisoned row survived the error the caller saw. Refusing here is what makes the
+         * write impossible rather than merely followed by an error.
+         *
+         * WHY A HARD `store_id` MATCH AND NOT THE NULLABLE-TOLERANT RULE used by
+         * GuardsGatewayReturn::basketHasForeignProduct() and 0ad3f7e0: because this is the
+         * predicate THIS HANDLER ALREADY SHIPS. The `else` branch at :1512 has always answered
+         * "Product not found." on `empty($product)`, so a legacy product with a NULL `store_id`
+         * is already refused on that path today. This guard makes the `attribute_id` branch agree
+         * with its neighbour; it introduces no new policy about NULL `store_id`. The asymmetry
+         * between the two rules is real and is recorded as an owner decision in
+         * docs/development/phase-1/11-NEXT-PACKAGE-PRODUCTVARIANT-TENANCY.md rather than settled
+         * unilaterally here.
+         */
+        if (empty($product)) {
+            return $this->error(['message' => __('Product not found.')], __('Product not found.'));
+        }
+
         if ($product && $product->variant_product == 1) {
             if (!module_is_active('SizeGuideline')){
                 if ( empty( $request->variant_id ) || $request->variant_id == 0 ) {
@@ -1449,19 +1491,35 @@ public function saveStoreFcmToken(Request $request)
             }
         } else {
             if ( !empty( $request->attribute_id ) || $request->attribute_id != 0 ) {
+                /*
+                 * The variant must belong to THIS product, which the guard above has already
+                 * established belongs to THIS store. That pairing is what makes the chain sound:
+                 * `product_variants.store_id` is nullable, so a hard store predicate here would
+                 * drop legitimate legacy variant rows -- requiring the store-scoped `$product`
+                 * instead reaches the same conclusion without that cost.
+                 */
                 $ProductVariant = ProductVariant::where( 'id', $request->attribute_id )
                 ->where( 'product_id', $request->product_id )
                 ->first();
 
+                /*
+                 * AND THE EMPTINESS CHECK RUNS BEFORE THE DEREFERENCE, which it did not.
+                 * `explode(',', $ProductVariant->variation_option)` was the FIRST statement after
+                 * the lookup and `if (empty($ProductVariant))` came after it, nested inside
+                 * `if ($option == true)` -- so it could only ever be reached when the dereference
+                 * had already succeeded. A variant id that does not belong to this product
+                 * therefore answered HTTP 500 instead of "Product not found.", which is also how
+                 * a mismatched pair presented. Same dead-guard shape as `Cart.php:717`.
+                 */
+                if (empty($ProductVariant)) {
+                    return $this->error(['message' => __('Product not found.')], __('Product not found.'));
+                }
+
                 $variationOptions = explode(',', $ProductVariant->variation_option);
                 $option = in_array('manage_stock', $variationOptions);
                 if ($option  == true) {
-                    if (empty($ProductVariant)) {
-                        return $this->error(['message' => __('Product not found.')],  __('Product not found.'));
-                    } else {
-                        if ($ProductVariant->stock < $settings['out_of_stock_threshold'] && $ProductVariant->stock_order_status == 'not_allow') {
-                            return $this->error(['message' => __('Product has out of stock.')], __('Product has out of stock.'));
-                        }
+                    if ($ProductVariant->stock < ($settings['out_of_stock_threshold'] ?? '0') && $ProductVariant->stock_order_status == 'not_allow') {
+                        return $this->error(['message' => __('Product has out of stock.')], __('Product has out of stock.'));
                     }
                 }
 
@@ -3251,9 +3309,56 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 $Product = Product::where('id', $product_id)->where('store_id', $store->id)->first();
                 $datas = $Product;
 
+                /*
+                 * THE STORE-OWNERSHIP REFUSAL, OUTSIDE THE STOCK-MANAGEMENT ARM.
+                 * P01-COMMERCE-SEC-03; the twin of the one S34 hoisted in `ordersave`.
+                 *
+                 * S34 deliberately did NOT mirror it here, on the argument that this handler's
+                 * stock-management expression was always correct -- so an unmanaged store had
+                 * never had the refusal -- and that hoisting it would be a NEW refusal over a
+                 * hard `store_id` predicate. That reasoning is now overtaken by measurement.
+                 *
+                 * MEASURED, with a cart row naming another merchant's variant product, through
+                 * this exact route and an ordinary store-A customer's own token:
+                 *
+                 *   POST /api/{slugA}/place-order
+                 *     -> store B's product_variants.stock 50 -> 43  (the cart quantity, 7)
+                 *     -> an order written in store A, then HTTP 500
+                 *
+                 * `ordersave` refused the same request, because of S34's hoist. So this was not a
+                 * theoretical asymmetry between two handlers -- it was the live half. A
+                 * cross-tenant INVENTORY WRITE is not an "unknown legacy behaviour" worth
+                 * preserving, and the brief is explicit that tenant isolation is not weakened to
+                 * retain one.
+                 *
+                 * The NULL-`store_id` consequence is real and is recorded rather than hidden: a
+                 * legacy product whose `store_id` is NULL now fails this predicate and its
+                 * checkout is refused on this route, as it already was on `ordersave` and on
+                 * `add-cart`'s non-variant branch. Whether such rows exist in production is an
+                 * OWNER QUESTION, written up in
+                 * docs/development/phase-1/11-NEXT-PACKAGE-PRODUCTVARIANT-TENANCY.md with the
+                 * one-line query to answer it. Refusing is the fail-closed direction and it is
+                 * consistent with the two paths that already behave this way.
+                 */
+                if (!empty($product_id) && $product_id != 0 && empty($Product)) {
+                    return $this->error(['message' => __('Product not found .')]);
+                }
+
                 if (($settings['stock_management'] ?? null) === 'on') {
                     if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
                         $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();
+
+                        /*
+                         * `$ProductStock` is tested before it is dereferenced. `explode()` on
+                         * `variation_option` ran first and `if (!empty($ProductStock))` came
+                         * after, so a line naming a variant that does not belong to its product
+                         * raised a null property read -- a 500 -- instead of this handler's own
+                         * refusal. Same correction as NMIPayController received in S33.
+                         */
+                        if (empty($ProductStock)) {
+                            return $this->error(['message' => __('Product not found .')]);
+                        }
+
                         $variationOptions = explode(',', $ProductStock->variation_option);
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductStock)) {

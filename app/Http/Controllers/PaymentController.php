@@ -2101,6 +2101,17 @@ public function handlePaymeraTrigger00($orderId)
             return $this->gatewayReturnQuantityRefusal($request, 'storefront-return');
         }
 
+        /*
+         * AND THE BASKET MUST BE THIS STORE'S -- product AND variant. P01-COMMERCE-SEC-03.
+         * See GuardsGatewayReturn::basketHasForeignProduct(). This handler's stock loop resolves
+         * both halves from the caller's values -- `Product::where('id', $product_id)` with no
+         * store predicate at all, and the variant from `id` + `product_id` -- so this is the only
+         * place on the path where ownership is decided, and it is decided before any row moves.
+         */
+        if ($this->basketHasForeignProduct($products ?? null, $store)) {
+            return $this->gatewayReturnForeignProductRefusal($request, 'storefront-return');
+        }
+
         // Order stock decrease start
         $prodduct_id_array = [];
         // Stock decrements applied in this loop, so they can be given back if
@@ -3364,6 +3375,16 @@ $result = app(\App\Services\StoreNotificationService::class)
          */
         if ($this->basketHasUnusableQuantity($products)) {
             return $this->error(['message' => __('Your cart contains an invalid quantity. Please review your cart and try again.')]);
+        }
+
+        /*
+         * AND THE BASKET MUST BE THIS STORE'S -- product AND variant. P01-COMMERCE-SEC-03.
+         * Same reasoning as the sibling in getProductStatus() above; this writer's loop resolves
+         * `Product::where('id', $product_id)` with no store predicate either. The refusal is an
+         * `error()` envelope rather than a redirect because this handler answers an AJAX caller.
+         */
+        if ($this->basketHasForeignProduct($products, $store)) {
+            return $this->error(['message' => __('Your cart contains an item this store does not sell. Please review your cart and try again.')]);
         }
 
         $settings = Setting::where('store_id', $store->id)->pluck('value', 'name')->toArray();

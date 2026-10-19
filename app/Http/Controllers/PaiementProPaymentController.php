@@ -455,6 +455,27 @@ class PaiementProPaymentController extends Controller
             if ($this->basketHasUnusableQuantity($products)) {
                 return $this->gatewayReturnQuantityRefusal($request, 'paiementpro');
             }
+
+            /*
+             * AND THE BASKET MUST BE THIS STORE'S -- product AND variant. P01-COMMERCE-SEC-03.
+             *
+             * Wired here, immediately after the quantity guard, because both questions belong in
+             * the same place: before any stock row moves and before any order is priced from the
+             * basket. See GuardsGatewayReturn::basketHasForeignProduct(); the variant half exists
+             * because this handler's own stock loop resolves its variant as
+             * `ProductVariant::where('id', $variant_id)->where('product_id', $product_id)` -- the
+             * caller's own two values, with `ProductVariant` scoped by nothing -- so scoping the
+             * product would not have scoped the variant.
+             *
+             * MEASURED on the sibling API route before this guard existed: a store-A cart row
+             * naming store B's variant product took store B's `product_variants.stock` from 50 to
+             * 43 on an ordinary checkout. The row reaches `carts` from any writer that is not
+             * `add-cart` -- two vendored module routes write `product_id` straight from the
+             * request (S30/S32) -- so closing the cart entry does not retire this guard.
+             */
+            if ($this->basketHasForeignProduct($products, $store)) {
+                return $this->gatewayReturnForeignProductRefusal($request, 'paiementpro');
+            }
             $prodduct_id_array = [];
             if (!empty($products)) {
                 foreach ($products as $key => $product) {

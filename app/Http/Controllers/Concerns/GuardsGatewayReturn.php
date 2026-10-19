@@ -408,7 +408,11 @@ trait GuardsGatewayReturn
     }
 
     /**
-     * Does this basket name a product that provably belongs to a DIFFERENT store?
+     * Does this basket name a product, or a variant, that provably belongs somewhere else?
+     *
+     * Two questions, because closing one without the other closes nothing: the product must
+     * belong to THIS store, and the variant must belong to THAT product. See the second half of
+     * the loop for why the variant half is not a `store_id` predicate.
      *
      * WHY THIS IS A PRE-FLIGHT AND NOT A CHECK INSIDE THE STOCK LOOP. The loop is the wrong
      * place for two reasons that only became visible once the loop could refuse at all:
@@ -470,6 +474,51 @@ trait GuardsGatewayReturn
             }
 
             if ((int) $owner !== (int) $store->id) {
+                return true;
+            }
+
+            /*
+             * AND THE VARIANT MUST BELONG TO THAT SAME PRODUCT. P01-COMMERCE-SEC-03.
+             *
+             * SCOPING THE PRODUCT DOES NOT SCOPE THE VARIANT, which is the defect this half
+             * closes. Every stock loop on the platform resolves its variant as
+             *
+             *     ProductVariant::where('id', $variant_id)->where('product_id', $product_id)
+             *
+             * -- a predicate built entirely from the caller's own two values, consulting neither
+             * the store nor the product the handler just resolved. `ProductVariant` carries no
+             * StoreScope and is not in config/tenancy.php's `scoped_models`, so it adds no
+             * predicate for anybody. A line pairing THIS store's product id with ANOTHER
+             * product's variant id therefore reached a variant row this store does not own, and
+             * the decrement landed on it.
+             *
+             * The check is `product_id`, not `store_id`: `product_variants.store_id` is NULLABLE
+             * (create_product_variants_table.php:30), so a hard store predicate would drop
+             * legitimate legacy variant rows. Requiring the variant to belong to a product this
+             * store owns reaches the same conclusion without that cost -- the product half above
+             * has already established ownership.
+             *
+             * A variant id that resolves to NO row is left alone, for the same reason a missing
+             * product is: it is not a provable mismatch, and every one of these loops already has
+             * a "Product not found" path for it.
+             */
+            $variantId = is_array($line)
+                ? ($line['variant_id'] ?? null)
+                : (is_object($line) ? ($line->variant_id ?? null) : null);
+
+            if (empty($variantId) || ! is_numeric($variantId) || (int) $variantId === 0) {
+                continue;
+            }
+
+            $variantProductId = \App\Models\ProductVariant::withoutGlobalScopes()
+                ->whereKey($variantId)
+                ->value('product_id');
+
+            if ($variantProductId === null) {
+                continue;
+            }
+
+            if ((int) $variantProductId !== (int) $productId) {
                 return true;
             }
         }
