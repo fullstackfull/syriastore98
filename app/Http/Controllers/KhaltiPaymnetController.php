@@ -425,7 +425,7 @@ class KhaltiPaymnetController extends Controller
 
                 $Product = Product::where('id', $product_id)->first();
                 $datas = Product::find($product_id);
-                if($settings['stock_management'] ?? '' == 'on')
+                if (($settings['stock_management'] ?? null) === 'on')
                 {
                     if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
                         $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();

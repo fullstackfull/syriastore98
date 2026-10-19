@@ -1645,7 +1645,7 @@ public function saveStoreFcmToken(Request $request)
                         }
                     }
 
-                    if ($settings['stock_management'] ?? '' == 'on') {
+                    if (($settings['stock_management'] ?? null) === 'on') {
                         $variationOptions = explode(',', $ProductVariant->variation_option);
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductVariant)) {
@@ -3251,7 +3251,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 $Product = Product::where('id', $product_id)->where('store_id', $store->id)->first();
                 $datas = $Product;
 
-                if ($settings['stock_management'] == 'on') {
+                if (($settings['stock_management'] ?? null) === 'on') {
                     if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
                         $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();
                         $variationOptions = explode(',', $ProductStock->variation_option);
@@ -8031,7 +8031,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 // which is also what an already-deleted product did.
                 $Product = Product::where('id', $product_id)->where('store_id', $store->id)->first();
                 $datas = $Product;
-                if ($settings['stock_management'] ?? '' == 'on') {
+                if (($settings['stock_management'] ?? null) === 'on') {
                     if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
                         $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();
                         $variationOptions = explode(',', $ProductStock->variation_option);

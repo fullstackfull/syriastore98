@@ -2484,16 +2484,27 @@ in one test must queue them on one instance; `fakeNmiSequence()` does, and its d
 
 ### 7 — What this package did NOT close
 
-1. **`ProductVariant` is unscoped everywhere, and only NMI now has the product-level guard.** The
-   same variant gap exists in all five sibling gateway controllers and in
-   `PaymentController::getProductStatus` / `whatsapp`, none of which has any `Product` store
-   predicate at all. NMI is now the only one of the nine that does, which closes the handler this
-   package owns and leaves the family **inconsistent** — the clearest single follow-up, and
-   `basketHasForeignProduct()` is already shared so wiring the others is a small change per handler.
-   Reachability is the same as S32 item 5: the add-to-cart chokepoints are store-scoped, so a
-   foreign line enters through the two vendored module writers (`BoostSales`,
-   `FrequentlyProduct`), which write `product_id` and `variant_id` straight from the request. Not
-   driven here — no module loads in any test run.
+1. **`ProductVariant` is unscoped everywhere.** Its lookup is
+   `ProductVariant::where('id', $variant_id)->where('product_id', $product_id)` in all twelve stock
+   loops — a predicate built entirely from the caller's own two values, consulting neither the store
+   nor the `$Product` the handler just resolved, so **scoping the product does not scope the
+   variant**. `product_variants.store_id` exists and is nullable, so the project's
+   refuse-a-provable-mismatch rule applies.
+
+   **A CORRECTION TO THIS SECTION'S FIRST VERSION:** it said NMI was "the only one of the nine with
+   a product-level store predicate". Wrong — `ApiController::place_order` (`:3251`),
+   `::ordersave` (`:8032`) and `::variant_list` (`:8527`) have had one all along. The product-level
+   gap is in the **web storefront** handlers, not platform-wide; the **variant** gap is universal
+   and includes the three API writers that do scope the product. The full site-by-site inventory,
+   the scope boundary and the tests owed are in
+   [`docs/development/phase-1/11-NEXT-PACKAGE-PRODUCTVARIANT-TENANCY.md`](../development/phase-1/11-NEXT-PACKAGE-PRODUCTVARIANT-TENANCY.md),
+   prepared as **P01-COMMERCE-SEC-03**. `basketHasForeignProduct()` is already shared by seven
+   handlers, so the work is wiring rather than invention.
+
+   Reachability is the same as S32 item 5 and is **a containment gap, not a demonstrated exploit**:
+   the add-to-cart chokepoints are store-scoped, so a foreign line enters only through the two
+   vendored module writers (`BoostSales`, `FrequentlyProduct`), which write `product_id` and
+   `variant_id` straight from the request. Not driven here — no module loads in any test run.
 2. **A non-numeric cart quantity crashes before any guard can see it** on every handler that prices
    its cart from the database. `app/Models/Cart.php` multiplies `$cart_value->qty` with no cast at
    twelve sites, so `carts.qty = 'many'` raises `TypeError: Unsupported operand types: int * string`
@@ -2504,12 +2515,10 @@ in one test must queue them on one instance; `fakeNmiSequence()` does, and its d
    the stored state rather than the rows.
 3. **The five gateway controllers still have no atomic decrement and no give-back.** S32 item 8,
    unchanged. The Concern they would use now exists.
-4. **`$settings['stock_management'] ?? '' == 'on'` is still a precedence bug** in eight files. `??`
-   binds looser than `==`, so the key's value becomes the condition whenever it exists and a store
-   with stock management **off** still has its stock decremented. **Deliberately left**, honouring
-   the decision already recorded at `PaymentController::stockManagementIsOn()`: correcting it stops
-   inventory being consumed for every merchant who has the setting off, which is a merchant-facing
-   behaviour change. **Owner decision.**
+4. ~~**`$settings['stock_management'] ?? '' == 'on'` is still a precedence bug.**~~ **CLOSED by
+   owner decision — see S34.** Twelve expressions across nine files, corrected to
+   `(($settings['stock_management'] ?? null) === 'on')`, with 39 regression tests covering ON, OFF,
+   absent and an unrecognised value across every order writer reachable in this environment.
 5. **`orders.delivery_price` is still untested on a real shipping figure.** Every state in this file
    carries `shipping_final_price => 0`, so the `get_shipping_method()` arm and the DECIMAL column are
    never driven. S32 item 6 records that a real figure is a *formatted currency string* which MySQL
@@ -2530,6 +2539,160 @@ in one test must queue them on one instance; `fakeNmiSequence()` does, and its d
 10. **`orders.product_price` means different things on different writers** — `total_final_price` on
     NMI, `total_sub_price` on `whatsapp`. Noted, not reconciled; it is a reporting question for the
     owner, not a defect either handler can settle alone.
+
+---
+
+## S34 — `stock_management`: the setting the order writers did not actually read
+
+**CLOSED. Owner-approved behaviour change, and the one in this project's record whose blast radius
+is "most stores".** It was reported and deliberately deferred twice — by P01-SEC-14 (the note at
+`PaymentController::stockManagementIsOn()`) and again by P01-COMMERCE-SEC-02 — because correcting it
+changes live merchant behaviour. The owner has now decided it, with the required behaviour stated:
+**OFF must not automatically deduct stock.**
+
+### The defect
+
+Twelve expressions across nine files tested the setting as
+
+```php
+if ($settings['stock_management'] ?? '' == 'on')
+```
+
+`??` binds **looser** than `==` in PHP, so that parses as
+
+```php
+if ($settings['stock_management'] ?? ('' == 'on'))      // i.e.  ... ?? false
+```
+
+Whenever the key **exists**, its own **value** becomes the condition — and `'off'` is a non-empty
+string, so it is truthy. **A store with stock management OFF had its stock decremented anyway.**
+
+### Why the blast radius is most stores, not a corner case
+
+This is the part the earlier deferrals did not state, and it is what makes the change worth the
+disruption:
+
+- `app/Models/Utility.php:111` ships **`'stock_management' => 'off'`** as the platform default.
+- `app/Http/Controllers/SettingController.php:1094` writes **`'off'`** whenever the merchant's
+  checkbox is unticked: `$request->has('stock_management') ? $request->stock_management : 'off'`.
+
+So the key is **present with value `'off'`** for essentially every store that has ever saved its
+settings — precisely the case the bug mistook for "on". A store that has *never* saved settings has
+no key at all, took the `?? false` limb, and was already correct.
+
+### Exactly one transition changes
+
+| setting | before | after |
+|---|---|---|
+| absent | no deduction | no deduction |
+| `'on'` | deducted | deducted |
+| **present, not `'on'`** | **deducted** | **not deducted** |
+
+All three are pinned by tests, so the two that must not move cannot drift. A fourth data set — a
+value that is neither `'on'` nor `'off'` — separates "the fix reads the value" from "the fix
+special-cases the string `'off'`".
+
+**What deliberately does NOT change: the order is still written.** "Do not deduct" is not "do not
+sell". A merchant who turns stock tracking off is saying they do not want this platform counting
+units, not that checkout should fail — and that is asserted, not assumed, on every path where the
+order write is reachable.
+
+### The twelve sites
+
+| file | sites | enclosing path |
+|---|---|---|
+| `Api/ApiController.php` | 3 | `cart_qty`, `place_order`, `ordersave` |
+| `PaymentController.php` | 2 | `getProductStatus`, `whatsapp` |
+| `PaiementProPaymentController.php` | 1 | `getProductStatus` |
+| `CinetPayController.php` | 1 | `getProductStatus` |
+| `EasebuzzController.php` | 1 | `getProductStatus` |
+| `KhaltiPaymnetController.php` | 1 | `getProductStatus` |
+| `AuthorizeNetPaymnetController.php` | 1 | `getOrderPaymentStatus` |
+| `PayUPaymentController.php` | 1 | `getProductStatus` — **dead code**, unrouted |
+| `Models/Cart.php` | 1 | `cart_qty_cookie` — **not a deduction**, see below |
+
+All now read `(($settings['stock_management'] ?? null) === 'on')`, the form
+`PaymentController::stockManagementIsOn()` and `assertCartAvailable()` have always used.
+
+**One of the twelve was a different bug of the same family.** `ApiController::place_order:3254` was
+a **bare index** — `$settings['stock_management'] == 'on'`, no `??` at all — so a store that has
+never saved its settings raised "Undefined array key", which Laravel promotes to an
+`ErrorException`. On that path the "absent" case was a **500**, not a no-op. It is corrected with the
+rest and its data set is what proves it.
+
+**Two sites already used the correct `isset(...) && ... == 'on'` form and were left alone:**
+`PaymentService.php:2332` and `NMIPayController.php:580`. Their existence is the evidence this was a
+precedence slip rather than a decision, and NMI is driven by a test anyway — so that a future sweep
+cannot "tidy" it into the broken form.
+
+### The one site that is not a deduction, recorded loudly rather than changed quietly
+
+`Cart::cart_qty_cookie()` (`Cart.php:735`, reached by `POST {slug}/change-cart`) chooses between
+**two branches** rather than between deducting and not: the `if` arm bounds a guest's cart increment
+by the variant's stock, the `else` arm applies looser `stock_status` rules. With the bug, a store
+with the setting **off** took the **strict** arm — bounded by a stock count it had asked the platform
+not to keep. After the fix it takes the `else` arm.
+
+So an unmanaged store's shopper can now raise the cart quantity past the recorded stock figure. That
+is the correct reading of "stock management off", it moves no stock and writes no order, and
+`test_an_unmanaged_store_does_not_bound_a_cart_increment_by_stock` asserts it — so the change is on
+the record rather than a side effect nobody measured. The owner's brief says not to change unrelated
+stock behaviour *silently*; this is the site that clause is about.
+
+### A second, quieter inconsistency closed with it
+
+`PaymentController::assertCartAvailable()` has always used the **correct** test, so for a store with
+the setting off it returned "nothing to check" — and the loop then decremented anyway. The two
+halves of one decision disagreed. `test_the_preflight_and_the_loop_agree_about_an_unmanaged_store`
+drives the observable case: a cart line for more units than exist, on an unmanaged store, must be
+neither refused nor deducted, and must still produce an order.
+
+### Evidence
+
+`tests/Feature/Commerce/StockManagementSettingTest.php` — **39 tests**, four settings states across
+every order writer reachable in this environment:
+
+| path | driven by |
+|---|---|
+| `PaiementProPaymentController::getProductStatus` | the order-writing test (order + stock asserted) |
+| `PaymentController::whatsapp` | the order-writing test (order + stock asserted) |
+| `NMIPayController::getNMIProductStatus` | the order-writing test, with the gateway answer substituted |
+| `CinetPay`, `Easebuzz`, `Khalti`, `getProductStatus` | the stock-loop test (stock asserted; only PaiementPro reaches `new Order()`) |
+| `ApiController::place_order`, `::ordersave` | the API test, with a real customer token |
+| `Cart::cart_qty_cookie` | the cart-increment test |
+
+**The ON case is asserted per route as the non-vacuity control, and it earned its keep immediately:**
+Easebuzz moved **no stock at all** with the setting on, because it stores its state under its own
+session key (`easebuzz_request_data`, `EasebuzzController:245`) and seeding only `request_data` left
+it refused at the state guard. Every OFF case for that route would have passed vacuously. The ON
+control is the only reason that was caught.
+
+Removal checks — the precedence bug restored per file:
+
+| file reverted | result |
+|---|---|
+| `PaiementProPaymentController` | **2 fail** |
+| `PaymentController` (3 expressions) | **5 fail** |
+| `Api/ApiController` (3 expressions) | **5 fail** |
+| `CinetPayController` | **2 fail** |
+| `EasebuzzController` | **2 fail** |
+| `KhaltiPaymnetController` | **2 fail** |
+| `AuthorizeNetPaymnetController` | **nothing fails — unreachable** |
+| `PayUPaymentController` | **nothing fails — dead code** |
+| `Models/Cart.php` | **nothing fails — not a deduction** |
+
+**The first run of that harness failed seven of the nine**, which is why the test file grew: only
+PaiementPro and `PaymentController` were covered at first, and CinetPay, Easebuzz, Khalti and the
+two API writers were corrected with nothing able to fail. Three sites remain uncovered by execution
+and are stated rather than implied:
+
+- **AuthorizeNet** — its handler is the charge, not a return, so it dies in an empty `catch` before
+  its stock loop. Same exclusion, same reason, as `GatewayReturnTrustBoundaryTest` records.
+- **PayU** — the method is unrouted dead code; nothing can drive it. If it is ever routed it must be
+  guarded first.
+- **`Cart::cart_qty_cookie`** — driven by a test, but that test asserts the *absence* of stock
+  movement and of an order, which is true on both sides of the fix; what changes there is which
+  increment branch runs.
 
 ## Cross-repository row, carried over
 

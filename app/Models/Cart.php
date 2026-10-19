@@ -732,7 +732,7 @@ class Cart extends Model
                         }
                     }
 
-                    if ($settings['stock_management'] ?? '' == 'on') {
+                    if (($settings['stock_management'] ?? null) === 'on') {
                         $variationOptions = explode(',', $ProductVariant->variation_option);
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductVariant)) {

@@ -276,21 +276,40 @@ class PaymentController extends Controller
     /**
      * Whether this store tracks stock at all.
      *
-     * NOTE, reported and NOT changed: the two destructive loops test this
-     * setting as `$settings['stock_management'] ?? '' == 'on'`
-     * (PaymentController:1709 and :2727). `??` binds LOOSER than `==`, so that
-     * parses as `$settings['stock_management'] ?? ('' == 'on')` — i.e. the key's
-     * VALUE is used as the condition whenever it exists, so a store with
-     * stock_management = 'off' still has its stock decremented. The twin writer
-     * gets it right (PaymentService:2310 uses
-     * `isset(...) && $settings['stock_management'] == 'on'`), which is the
-     * evidence that the controller form is a precedence bug and not a decision.
+     * THE PRECEDENCE BUG THIS DOCBLOCK USED TO REPORT IS NOW FIXED, BY OWNER DECISION.
+     * The note is kept rather than deleted, because the reasoning for deferring it is the
+     * reasoning the owner had to overrule, and the next reader needs both halves.
      *
-     * It is NOT corrected here because correcting it would STOP inventory being
-     * consumed for every merchant who has the setting off — a merchant-facing
-     * behaviour change, not a reliability fix. This pre-flight uses the CORRECT
-     * test, which only ever makes the guard apply to FEWER carts than the loop,
-     * so it cannot refuse an order the loop would have accepted on this account.
+     * WHAT WAS WRONG. Twelve sites tested the setting as
+     * `$settings['stock_management'] ?? '' == 'on'`. `??` binds LOOSER than `==`, so PHP parses
+     * that as `$settings['stock_management'] ?? ('' == 'on')` — i.e. `... ?? false`. Whenever the
+     * key EXISTS its own VALUE becomes the condition, and `'off'` is a non-empty string, so it is
+     * truthy. A store with stock management OFF therefore had its stock decremented on every one
+     * of those paths.
+     *
+     * AND THE COMMON CASE IS 'off', WHICH IS WHY THIS MATTERED MORE THAN THE ORIGINAL NOTE
+     * ALLOWED. `Utility.php:111` ships `'stock_management' => 'off'` as the platform default, and
+     * `SettingController:1094` writes `'off'` whenever the merchant's checkbox is unticked. So the
+     * key is PRESENT with value `'off'` for essentially every store that has ever saved its
+     * settings — which is the exact case the bug mistook for "on".
+     *
+     * That this was a precedence slip and not a decision was always visible from the two writers
+     * that get it right: `PaymentService:2332` and `NMIPayController:580` both use
+     * `isset(...) && ... == 'on'`, and this method uses `(... ?? null) === 'on'`.
+     *
+     * WHY IT WAS DEFERRED, AND WHAT THE OWNER DECIDED. Correcting it STOPS inventory being
+     * consumed for every merchant who has the setting off — a merchant-facing behaviour change
+     * rather than a reliability fix, so it was reported and left. The owner has now approved the
+     * correction with the behaviour stated explicitly: OFF must not automatically deduct stock.
+     * All twelve sites now use the same explicit, correctly grouped test as this method.
+     *
+     * EXACTLY ONE TRANSITION CHANGES. Absent key: no deduction before (the `?? false` limb) and
+     * none now. Value `'on'`: deducted before and now. Value present but not `'on'`: deducted
+     * before, NOT deducted now. That single transition is the fix.
+     *
+     * This pre-flight has always used the correct test, so it could only ever apply to FEWER
+     * carts than the loop; the two now agree, which removes a second, quieter inconsistency —
+     * a store with the setting off was pre-flighted as unmanaged and then decremented anyway.
      */
     private function stockManagementIsOn($store): bool
     {
@@ -2103,7 +2122,7 @@ public function handlePaymeraTrigger00($orderId)
 
                 $Product = Product::where('id', $product_id)->first();
                 $datas = Product::find($product_id);
-                if ($settings['stock_management'] ?? '' == 'on') {
+                if (($settings['stock_management'] ?? null) === 'on') {
                     if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
                         $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();
                         $variationOptions = explode(',', $ProductStock->variation_option);
@@ -3384,7 +3403,7 @@ $result = app(\App\Services\StoreNotificationService::class)
 
                 $Product = Product::where('id', $product_id)->first();
                 $datas = Product::find($product_id);
-                if ($settings['stock_management'] ?? '' == 'on') {
+                if (($settings['stock_management'] ?? null) === 'on') {
                     if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
                         $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();
                         $variationOptions = explode(',', $ProductStock->variation_option);
