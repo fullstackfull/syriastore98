@@ -1305,7 +1305,7 @@
       "title": "CategoryController destroys and rewrites another store's categories, product media, variants and live carts",
       "workstream": "inventory",
       "risk": "critical",
-      "status": "READY",
+      "status": "IN_PROGRESS",
       "issue": 49,
       "scope": [
         "app/Http/Controllers/CategoryController.php",

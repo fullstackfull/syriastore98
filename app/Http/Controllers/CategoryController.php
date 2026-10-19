@@ -175,6 +175,35 @@ class CategoryController extends Controller
     {
         if(auth()->user() && auth()->user()->isAbleTo('Edit Product Category'))
         {
+            /*
+             * OWNERSHIP ON A ROUTE-MODEL-BOUND CATEGORY. P1-INV-08.
+             *
+             * The same shape P1-INV-01 closed on `ProductController::update`: a bound model on a
+             * class no scope filters, with a permission check standing in for an ownership check.
+             * Against another store's category this method rewrote `name`, `slug`, `parent_id`
+             * (so a foreign category could be reparented under one of the caller's own),
+             * `trending` and `status`; and on an image or icon upload it called
+             * `Utility::changeStorageLimit()`, which UNLINKS the victim's existing image from
+             * disk and debits the CALLER's storage quota, then wrote the replacement into
+             * `uploads/' . getCurrentStore()` -- the caller's own media tree.
+             *
+             * Placed above the validator so a cross-store attempt cannot be distinguished from a
+             * refusal by which error comes back, and above every write and every unlink.
+             */
+            if ($this->categoryIsOutsideCurrentStore($category)) {
+                \Illuminate\Support\Facades\Log::warning(
+                    'category update refused: the category belongs to another store',
+                    [
+                        'category_id' => $category->id,
+                        'category_store_id' => $category->store_id ?? null,
+                        'current_store' => getCurrentStore(),
+                        'user_id' => optional(auth()->user())->id,
+                    ]
+                );
+
+                return redirect()->back()->with('error', __('Permission denied.'));
+            }
+
             $validator = \Validator::make(
                 $request->all(), [
                                    'name' => 'required',
@@ -263,9 +292,39 @@ class CategoryController extends Controller
     }
 
     /**
+     * Does this category belong to someone other than the signed-in merchant? P1-INV-08.
+     *
+     * `Category` is absent from `config/tenancy.php`'s `scoped_models` and carries no
+     * `BelongsToStore`, so `Category::find($id)` reaches every tenant and nothing in this
+     * controller narrowed it. The shape is `ProductController`'s, deliberately: platform operator
+     * exempt by `users.type`, then `getCurrentStore()` against the row's own `store_id`. Per
+     * CLAUDE.md there is no super-admin bypass in Laratrust, so the operator has to be named
+     * explicitly or this guard would lock them out of every store's categories.
+     *
+     * An unresolved tenant is treated as OUTSIDE. `StoreScope` fails open on a null tenant by
+     * design; this predicate must not inherit that, because the whole point of it is to be the
+     * thing that holds when the scope adds nothing.
+     */
+    private function categoryIsOutsideCurrentStore($category): bool
+    {
+        $actor = auth()->user();
+
+        if ($actor !== null && $actor->type === \App\Policies\UserPolicy::PLATFORM_ADMIN) {
+            return false;
+        }
+
+        $currentStore = getCurrentStore();
+
+        return empty($category)
+            || empty($currentStore)
+            || empty($category->store_id)
+            || (int) $category->store_id !== (int) $currentStore;
+    }
+
+    /**
      * Remove the specified resource from storage.
      *
-     * @param  \App\Models\Category  $category
+     * @param  int  $id
      * @return \Illuminate\Http\Response
      */
     public function destroy($id)
@@ -276,7 +335,45 @@ class CategoryController extends Controller
             $mainCategory = Category::find($id);
             $category = $mainCategory;
             if(!empty($category)) {
-                $hasChild = Category::where('parent_id', $category->id)->where('store_id', getCurrentStore())->exists();
+                /*
+                 * OWNERSHIP BEFORE THE FIRST DESTRUCTIVE CALL. P1-INV-08.
+                 *
+                 * `isAbleTo('Delete Product Category')` answers *may this user delete
+                 * categories* and never *may this user delete THIS category*. With no predicate
+                 * here, a merchant posting another store's id reached
+                 * `Product::productImageDelete()` for every product in that category, which
+                 * UNLINKS FROM DISK every product image, the cover image, the downloadable
+                 * product and the preview video, and deletes all `product_images` and all
+                 * `product_variants` rows -- the stock with them. Disk unlinking is not
+                 * recoverable from the application, which is why this check sits above
+                 * `categoryImageDelete()`, the first call that touches a file.
+                 */
+                if ($this->categoryIsOutsideCurrentStore($category)) {
+                    \Illuminate\Support\Facades\Log::warning(
+                        'category delete refused: the category belongs to another store',
+                        [
+                            'category_id' => $category->id,
+                            'category_store_id' => $category->store_id ?? null,
+                            'current_store' => getCurrentStore(),
+                            'user_id' => optional(auth()->user())->id,
+                        ]
+                    );
+
+                    return redirect()->back()->with('error', __('Permission denied.'));
+                }
+
+                /*
+                 * THE CHILD GUARD WAS ASKING THE WRONG STORE. P1-INV-08.
+                 *
+                 * This was the only `getCurrentStore()` in the method, and against a foreign
+                 * category it made the attack MORE likely to proceed: it asked whether any child
+                 * of the VICTIM's category belonged to the ATTACKER's store, which is false even
+                 * when the victim's category does have children -- so the guard waved the
+                 * deletion through and orphaned them. Scoped to the category's OWN store it asks
+                 * the question it was written to ask. For an own-store category the two are the
+                 * same value, so a merchant sees no change in behaviour.
+                 */
+                $hasChild = Category::where('parent_id', $category->id)->where('store_id', $category->store_id)->exists();
                 if ($hasChild) {
                     return redirect()->back()->with('error', __('This category has child categories and cannot be deleted.'));
                 }
