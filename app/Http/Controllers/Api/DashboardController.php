@@ -5586,6 +5586,42 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
             ], 403);
         }
 
+        /*
+         * AND THE CUSTOMER MUST BE THIS STORE'S. P01-COMMERCE-SEC-03 FOLLOW-UP, found by an
+         * adversarial authz review of the commit that added the product predicate above.
+         *
+         * `'customer_id' => 'required|exists:customers,id,status,1'` proves the customer EXISTS
+         * and nothing more. `exists:` is a raw query-builder rule, so it bypasses Eloquent
+         * entirely -- and `Customer` is the one model on this platform whose StoreScope actually
+         * filters (CLAUDE.md), which makes that bypass easy to miss. The id then went verbatim
+         * into `Order::create` and both `OrderNote::create` calls, so a merchant could write an
+         * order, under their own store, naming ANOTHER STORE'S CUSTOMER.
+         *
+         * Lower severity than the stock drain this handler also had -- the wallet row follows the
+         * order's store rather than the customer, and the victim's own order list is store-scoped,
+         * so it is cross-tenant data LINKAGE rather than disclosure or money. Closed anyway,
+         * because it is three lines and the ownership question is the same one.
+         *
+         * `withoutGlobalScopes()` because an assertion about another tenant's row must not be
+         * answered by whichever tenant happens to be resolved -- the false-reading trap CLAUDE.md
+         * records. The store predicate is HARD here: `customers.store_id` is how the storefront
+         * identifies its own shoppers, and a customer with no store is not a customer this
+         * merchant may bill.
+         */
+        $customerBelongsToStore = \App\Models\Customer::withoutGlobalScopes()
+            ->where('id', $validated['customer_id'])
+            ->where('store_id', $store->id)
+            ->exists();
+
+        if (! $customerBelongsToStore) {
+            \DB::rollBack();
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Customer not found for this store.'
+            ], 404);
+        }
+
         foreach ($validated['products'] as $item) {
             /*
              * THE PRODUCT MUST BELONG TO THE STORE THIS ORDER IS BEING WRITTEN FOR.

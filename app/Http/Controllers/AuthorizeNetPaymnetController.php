@@ -565,8 +565,50 @@ class AuthorizeNetPaymnetController extends Controller
                             $variant_id = $product->variant_id;
                             $qtyy = !empty($product->qty) ? $product->qty : 0;
 
-                            $Product = Product::where('id', $product_id)->first();
-                            $datas = Product::find($product_id);
+                            /*
+                             * THE BASKET THIS LOOP DECREMENTS IS NOT THE BASKET THE PRE-FLIGHT
+                             * CHECKED, so this loop needs its own predicate. P01-COMMERCE-SEC-03
+                             * FOLLOW-UP, found by an adversarial authz review of the commit that
+                             * added that pre-flight -- i.e. of my own work, for the second time in
+                             * this package.
+                             *
+                             * The pre-charge guard at :330-347 reads the STORED CHECKOUT STATE,
+                             * which is the right basket to decide on before the card is charged
+                             * and the only one available there. But :439/:456 then RE-READ THE
+                             * LIVE CART (`Cart::cart_list_cookie()` on the guest arm,
+                             * `ApiController::cart_list()` on the authenticated one) and this loop
+                             * iterates THAT. A cart row added during the gateway round trip --
+                             * which the two vendored module writers can still do, and which legacy
+                             * rows already are -- was therefore never examined, and
+                             * `Product::where('id', $product_id)` carried no store predicate at
+                             * all, so the decrement landed on another merchant's row.
+                             *
+                             * This is the shape NMIPayController already has (:574-605) and this
+                             * file did not: the pre-flight closes the common case cheaply, and the
+                             * loop's own predicate makes a mid-flight basket change refusable
+                             * rather than chargeable-and-drainable. The refusal is post-capture and
+                             * says so to the shopper, which is the lesser of the two outcomes:
+                             * better a charge to reconcile than another merchant's inventory gone.
+                             *
+                             * NULLABLE-TOLERANT, like NMI's and like the shared helper: a legacy
+                             * product with a NULL `store_id` is not a provable mismatch, and
+                             * refusing it here would hide a merchant's own product. `$datas` is the
+                             * same row, so the plain-product arm below cannot reach past it either.
+                             */
+                            $Product = Product::where('id', $product_id)
+                                ->where(function ($q) use ($store) {
+                                    $q->where('store_id', $store->id)->orWhereNull('store_id');
+                                })
+                                ->first();
+                            $datas = $Product;
+
+                            if (!empty($product_id) && $product_id != 0 && empty($Product)) {
+                                return redirect()->back()->with(
+                                    'error',
+                                    __('Your cart contains an item this store does not sell. Your payment has not been applied to an order — please contact the store.')
+                                );
+                            }
+
                             if (($settings['stock_management'] ?? null) === 'on')
                             {
                                 if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {

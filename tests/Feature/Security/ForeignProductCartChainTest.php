@@ -777,9 +777,12 @@ class ForeignProductCartChainTest extends SecurityTestCase
         $rows = self::cartRowsFor($customer);
 
         $this->assertCount(1, $rows,
-            'The legitimate half of this request (product + its own variant) was refused, so the '
-            . 'assertion below could pass against a handler that simply refuses everything. '
-            . 'Response: ' . $response->getContent());
+            'No cart row was written. Two different causes land here and the distinction matters: '
+            . 'either the legitimate half of this request (product + its own variant) is being '
+            . 'refused -- in which case the assertion below would pass against a handler that '
+            . 'refuses everything -- or the validated-variant assignment is missing, so the gate '
+            . 'before the write correctly refused the POSTED variant instead. Check the response '
+            . 'message to tell them apart. Response: ' . $response->getContent());
         $this->assertSame((int) $ownVariantId, (int) $rows->first()->variant_id,
             'The cart row carries the POSTED variant_id rather than the attribute_id the handler '
             . 'validated against this product.');
@@ -1250,5 +1253,80 @@ class ForeignProductCartChainTest extends SecurityTestCase
             . ' Session error: ' . json_encode(session('error')));
         $this->assertSame(1, (int) DB::table('orders')->count(),
             'A legitimate order was refused on the ' . $surface . ' writer.');
+    }
+    /**
+     * `payment_sheet` REFUSES A FOREIGN BASKET BEFORE A PAYMENT INTENT EXISTS.
+     *
+     * Found by an adversarial authz review of this package, which noticed the asymmetry rather
+     * than a hole: an earlier package gave this handler the QUANTITY guard and never the
+     * OWNERSHIP one. It writes no order and moves no stock — it creates a Stripe PaymentIntent,
+     * and `place_order` writes the order later. That is why it matters now: `place_order` refuses
+     * such a basket since 611357e6, so leaving this unguarded made charge-then-refuse MORE likely
+     * than before.
+     *
+     * The refusal returns before any Stripe call, which is what makes it testable here: a
+     * legitimate basket would need real Stripe keys, so this file carries no positive control for
+     * that leg and says so rather than pretending otherwise.
+     */
+    public function test_payment_sheet_refuses_a_foreign_basket(): void
+    {
+        [, $storeA] = $this->tenant('on');
+        [, $storeB] = $this->tenant('on');
+        $customer = $this->customerIn($storeA, 'sheet');
+        $foreign = $this->plainProductIn($storeB, 50);
+
+        $this->cartRow($storeA, $customer, $foreign->id, 0, 2);
+
+        $response = $this->withHeaders(['Authorization' => 'Bearer ' . $this->token($customer)])
+            ->postJson('/api/' . $storeA->slug . '/payment-sheet', []);
+
+        $this->assertNotSame(500, $response->status(),
+            'payment-sheet crashed rather than refusing: ' . $response->getContent());
+        $this->assertStringContainsString('item this store does not sell',
+            (string) ($response->json('data.message') ?? $response->json('message')),
+            'payment-sheet did not refuse a basket naming another store\'s product: '
+            . $response->getContent());
+        $this->assertSame(50, self::productStock($foreign),
+            'payment-sheet moved stock, which it should never do.');
+    }
+
+    /**
+     * THE ADMIN ORDER API WILL NOT BILL ANOTHER STORE'S CUSTOMER.
+     *
+     * `'customer_id' => 'required|exists:customers,id,status,1'` proves the customer EXISTS and
+     * nothing more: `exists:` is a raw query-builder rule, so it bypasses Eloquent — and
+     * `Customer` is the one model on this platform whose StoreScope actually filters, which makes
+     * that bypass easy to miss. The id then went verbatim into `Order::create` and both
+     * `OrderNote::create` calls.
+     *
+     * Found by an adversarial authz review of the commit that added this handler's PRODUCT
+     * predicate. Lower severity than the stock drain — the wallet follows the order's store, and
+     * the victim's own order list is store-scoped, so it is cross-tenant data linkage rather than
+     * money — and closed anyway, because it is the same ownership question.
+     */
+    public function test_the_admin_order_api_refuses_another_stores_customer(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $foreignCustomer = $this->customerIn($storeB, 'victimadmin');
+        $own = $this->plainProductIn($storeA, 50);
+
+        $ordersBefore = (int) DB::table('orders')->count();
+
+        $response = $this->withHeader('Authorization', 'Bearer ' . $merchantA->createToken('auth_token')->plainTextToken)
+            ->postJson('/api/admin/createOrderViaApi?store_id=' . $storeA->id, [
+                'customer_id' => $foreignCustomer->id,
+                'products' => [['product_id' => $own->id, 'quantity' => 3, 'price' => 10.00]],
+                'payment_type' => 'cod', 'payment_status' => 'Unpaid',
+                'first_name' => 'A', 'last_name' => 'B',
+                'email' => 'a@b.test', 'telephone' => '555000111',
+                'address' => 'Street 1',
+            ]);
+
+        $this->assertSame($ordersBefore, (int) DB::table('orders')->count(),
+            'An order was written for a customer belonging to another store. Response: '
+            . $response->getContent());
+        $this->assertSame(50, self::productStock($own),
+            'Stock moved for an order that was refused.');
     }
 }

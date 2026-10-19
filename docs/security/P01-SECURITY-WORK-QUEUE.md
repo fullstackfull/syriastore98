@@ -2944,7 +2944,22 @@ Two more copies of the same fall-through on the same handler:
 
 **Fixed** by handing the validated variant to the shared assignment, pairing the unpaired lookup,
 and **one gate on the pair about to be persisted**, which covers every branch including the six
-module arms this project cannot test. Removal-checked: the first bites
+module arms this project cannot test.
+
+**AND IT CARRIES THE SAME BEHAVIOUR CHANGE THIS QUEUE GAVE AS ITS REASON FOR NOT TOUCHING THE
+WHOLESALE ARM.** An adversarial authz review caught that asymmetry and it is a fair hit. For a
+caller sending a valid `attribute_id` and **no** `variant_id`, the row used to store `variant_id = 0`
+— so the cart priced at *product* level and the stock loops decremented `products.product_stock`.
+It now stores the real variant id, so the line prices from the variant and the loops decrement
+`product_variants.stock`. That is exactly the consequence recorded below as the reason the
+WholesaleProduct arm was left alone.
+
+The distinction that remains is about *evidence*, not about behaviour: the non-module arm is driven
+by tests, so the change is measured and reversible on a known signal, while no test in this
+repository can load a WorkDo module. Both arms carry the same consequence; one of them can be
+watched. The documented `add-cart` contract (`packages/workdo/Api/src/documentation/theme.json`)
+carries **no** `attribute_id` field at all, so no documented client sends the combination that
+triggers it. Removal-checked: the first bites
 `test_add_to_cart_stores_the_variant_it_validated_not_the_one_posted`; the gate bites
 `test_add_to_cart_refuses_a_stray_variant_on_a_plain_product`. The paired lookup and the gate are
 **mutually subsuming** for the foreign-variant payload — each alone refuses it, so neither alone
@@ -3113,6 +3128,98 @@ The remaining seven are **recorded, not changed** — `PaymentService:2378`,
 cross-tenant write, each sits behind an ownership pre-flight that already refuses the mismatched
 case, and the residual case (a variant id that resolves to nothing) reaches them only from a cart
 row the host-app writers can no longer create.
+
+### S36-10 — The Authorize.Net pre-flight guarded the snapshot; the loop decrements the live cart
+
+**The most important finding of the review of this package, and it is against my own fix.**
+
+S36-3 added an ownership pre-flight before the card capture, reading the basket from the stored
+checkout state — which is the only basket available before the charge, and the right one to decide
+on there. But the handler then **re-reads the live cart** at `:439` (`Cart::cart_list_cookie()`, the
+guest arm) and `:456` (`ApiController::cart_list()`, the authenticated arm), assigns `$products`
+from *that*, and the stock loop iterated it with `Product::where('id', $product_id)->first()` —
+**no store predicate at all**.
+
+So a cart row added **during the gateway round trip** was never examined: the pre-flight saw a clean
+snapshot, the card was captured, and the decrement landed on another merchant's row. The two
+vendored module cart writers can still create such a row (`BoostSalesController`,
+`FrequentlyProductController` — `Product::find()` unscoped, `variant_id` raw), and legacy rows
+already are one. **Latent for a store with neither module active; live for a store with either.**
+
+`NMIPayController` — the sibling card charge — does not have this gap: it assigns
+`$products = $storedProducts` (the *same* array its guard checked) **and** keeps a
+nullable-tolerant store predicate plus an `empty($Product)` refusal in its loop. This file had
+neither half.
+
+**Fixed** by mirroring NMI's shape onto the loop: a nullable-tolerant store predicate
+(`store_id = $store->id OR store_id IS NULL`), `$datas` bound to the same row so the plain-product
+arm cannot reach past it, and an `empty($Product)` refusal. The refusal is **post-capture** and says
+so to the shopper, which is the lesser of two outcomes: better a charge to reconcile than another
+merchant's inventory gone.
+
+**What the test proves and what it does not.** `test_the_authorizenet_capture_refuses_a_foreign_basket_before_charging`
+drives the pre-charge guard and bites. It cannot cover the loop predicate: reaching that loop needs
+a successful Authorize.Net capture, and every request that gets there in this environment dies at
+the SDK. Stated here rather than left as an implication of a passing test.
+
+### S36-11 — The admin order API would bill another store's customer
+
+`'customer_id' => 'required|exists:customers,id,status,1'` proves the customer **exists** and
+nothing more. `exists:` is a raw query-builder rule, so it bypasses Eloquent — and `Customer` is the
+one model on this platform whose `StoreScope` actually filters, which is what makes the bypass easy
+to miss. The id then went verbatim into `Order::create` and both `OrderNote::create` calls, so a
+merchant could write an order **under their own store naming another store's customer**.
+
+Severity is lower than the stock drain the same handler had: the wallet row follows the order's
+store rather than the customer (`OrderObserver`), and the victim cannot see it from their own
+storefront because `ApiController::order_list` is store-scoped. So it is cross-tenant data
+**linkage**, not disclosure or money. **Fixed anyway** — three lines, and the ownership question is
+the same one. Removal-checked.
+
+### S36-12 — `payment_sheet` had the quantity guard and not the ownership one
+
+An asymmetry rather than a hole, and worth closing for a reason that only became true with this
+package: `payment_sheet` creates a Stripe **PaymentIntent** and writes no order — `place_order`
+writes it later, and `place_order` now **refuses** a basket naming another store's product. Leaving
+this unguarded therefore made the **charge-then-refuse** outcome *more* likely than before, not
+less: the shopper would be asked to pay for a basket no order writer will accept.
+
+**Fixed** with the shared pre-flight before `StripeMoney::toMinorUnits()` and before any Stripe
+call. Removal-checked. No positive control is possible here — a legitimate basket needs real Stripe
+keys — and the file says so.
+
+### Three orderings and one translation gap, recorded rather than changed
+
+- **The web cart gate ran after `$ActivityLog->save()`**, so a refused add left an audit row
+  claiming "add to cart" with the variant that was rejected, and the API twin had the opposite
+  order. **Moved above the activity log.** (The first attempt at that move put the block in
+  `cart_remove()`, because "the first `// activity log` in the file" is not the same thing as "this
+  method's". Caught by reading the result rather than trusting the edit.)
+- **`processOrder`'s pre-flights run after `handleCustomerRegistration()`**, which writes a
+  `Customer`, an `ActivityLog` and a `DeliveryAddress`. A refused guest checkout therefore still
+  creates an account and an address. Pre-existing — the two guards that were already there share
+  the ordering — and not changed here.
+- **`PaymentService::getProductStatus`'s guards run after the `bank_transfer` receipt upload**, so a
+  refused bank-transfer checkout leaves an uploaded file behind. Pre-existing, not money, not stock.
+- **Two new flash strings are absent from `resources/lang/ar.json`** — *"Your cart contains an item
+  this store does not sell."* and *"Your cart contains an invalid quantity."* — so an Arabic shopper
+  sees English. They reuse keys `processOrder` already emitted untranslated, so the diff widens an
+  existing gap rather than opening one. Left to a translation pass rather than guessed at.
+
+### One pre-existing storefront question, flagged because it is cheap to check
+
+`products.default_variant_id` is **written** (`ProductController:819`) and **read**
+(`Wishlist.php:49,58,59`) and has **no migration** — a GATE-F-class column. It is only ever written
+for `variant_product == 1`, so for a plain product it is NULL, and the product-detail button renders
+`variant_id="{{ $product->default_variant_id }}"`, i.e. an **empty string**.
+
+Measured on this container's PHP 8.3.6: `"" != 0` is **`true`**, so
+`if (!empty($variant_id) || $variant_id != 0)` — the guest arm's gate at `CartController:276` —
+**enters the variant branch for an empty string** and refuses the add with "Product not found.".
+`0`, `"0"` and an omitted field are all fine. If production really does render an empty string
+there, that is a live guest-storefront break on plain products — **pre-existing, independent of this
+package, and not verifiable from here**. The gates this package added use
+`!empty($x) && (int) $x !== 0`, which does not have this shape.
 
 ### Refuted, and corrected against the reviewer
 

@@ -432,28 +432,17 @@ class CartController extends Controller
                     ->first();
             }
 
-            // activity log
-            $ActivityLog = new ActivityLog();
-            $ActivityLog->customer_id = $customer_id;
-            $ActivityLog->log_type = 'add to cart';
-            $ActivityLog->remark = json_encode(
-                [
-                    'product' => $request->product_id,
-                    'variant' => $variant_id,
-                ]
-            );
-            $ActivityLog->store_id = $store->id;
-            $ActivityLog->save();
-        }
-
-        if (empty($cart)) {
-            $cart = new Cart();
-        } else {
-            $final_price += $cart->price;
-            $qty = $cart->qty + $qty;
-        }
-
-        $cart->customer_id    = $customer_id;
+            /*
+         * PLACED ABOVE THE ACTIVITY LOG, not beside the cart write. An adversarial authz review
+         * pointed out that the first version of this gate sat after `$ActivityLog->save()`, so a
+         * refused add still left a row claiming "add to cart" with the variant that was rejected --
+         * and that the API twin has the opposite order. Not money, not stock, not cross-tenant;
+         * corrected because an audit trail of refused actions is worse than no row at all.
+         *
+         * (And the first attempt at this move put the block in `cart_remove()` instead, because
+         * "the first // activity log in the file" is not the same thing as "this method's". Caught
+         * by reading the result rather than trusting the edit.)
+         */
         /*
          * AND THE PAIR ABOUT TO BE PERSISTED IS VALIDATED ONCE, FOR EVERY ARM.
          * P01-COMMERCE-SEC-03 FOLLOW-UP -- the same gate ApiController::addtocart received, for
@@ -479,6 +468,28 @@ class CartController extends Controller
             }
         }
 
+        // activity log
+            $ActivityLog = new ActivityLog();
+            $ActivityLog->customer_id = $customer_id;
+            $ActivityLog->log_type = 'add to cart';
+            $ActivityLog->remark = json_encode(
+                [
+                    'product' => $request->product_id,
+                    'variant' => $variant_id,
+                ]
+            );
+            $ActivityLog->store_id = $store->id;
+            $ActivityLog->save();
+        }
+
+        if (empty($cart)) {
+            $cart = new Cart();
+        } else {
+            $final_price += $cart->price;
+            $qty = $cart->qty + $qty;
+        }
+
+        $cart->customer_id    = $customer_id;
         $cart->product_id     = $request->product_id;
         $cart->variant_id     = !empty($variant_id) ? $variant_id : 0;
         $cart->qty            = $qty;

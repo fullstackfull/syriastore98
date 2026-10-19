@@ -7481,6 +7481,33 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             return $this->error(['message' => __('Your cart is empty.')], __('Your cart is empty.'));
         }
 
+        /*
+         * AND THE BASKET MUST BE THIS STORE'S, BEFORE A PAYMENT INTENT EXISTS.
+         * P01-COMMERCE-SEC-03 FOLLOW-UP, found by an adversarial authz review of this package
+         * which noticed the asymmetry rather than the hole: this handler was given the QUANTITY
+         * guard by an earlier package and never the OWNERSHIP one.
+         *
+         * It does not mutate stock -- it creates a Stripe PaymentIntent and the order is written
+         * later, by `place_order`. That is exactly why it matters now: `place_order` REFUSES a
+         * basket naming another store's product since 611357e6, so leaving this unguarded makes
+         * the charge-then-refuse outcome MORE likely than before, not less. The shopper would be
+         * asked to pay for a basket no order writer will accept.
+         *
+         * Placed before `StripeMoney::toMinorUnits()` and before any Stripe call, so a refused
+         * basket never reaches the gateway at all.
+         */
+        if ($this->basketHasForeignProduct($cartData['product_list'], $store)) {
+            \Illuminate\Support\Facades\Log::warning('payment_sheet refused: basket names a product from another store', [
+                'store_id' => $store->id,
+                'customer_id' => $customer->id ?? null,
+            ]);
+
+            return $this->error(
+                ['message' => __('Your cart contains an item this store does not sell.')],
+                __('Your cart contains an item this store does not sell.')
+            );
+        }
+
         // An empty basket is not a payable amount, and neither is a cart_list refusal: its error
         // envelope carries no `total_final_price`, so a refusal there lands on the zero check below
         // rather than producing a zero-amount intent.
