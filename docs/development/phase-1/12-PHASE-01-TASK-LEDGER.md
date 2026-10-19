@@ -10,8 +10,8 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 43 — 9 DONE, 11 READY, 8 BACKLOG, 14 BLOCKED, 1 IN_PROGRESS, 0 IN_REVIEW |
-| Requiring an owner decision | 15 |
+| Tasks | 45 — 10 DONE, 13 READY, 8 BACKLOG, 14 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
+| Requiring an owner decision | 16 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
 A task is **not** `DONE` because code was committed — `DONE` requires its acceptance criteria verified, with the evidence recorded in its row.
@@ -38,6 +38,8 @@ graph TD
   P1_INV_01 --> P1_INV_07
   P1_INV_07 --> P1_INV_08
   P1_INV_08 --> P1_INV_09
+  P1_INV_08 --> P1_INV_11
+  P1_INV_08 --> P1_INV_12
   P1_R_01
   P1_R_02
   P1_R_03
@@ -87,35 +89,36 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 3. `P1-INV-04` — WoocomProductController::edit overwrites a foreign product and reassigns its store_id *(inventory, READY, risk high)*
 4. `P1-INV-05` — Concurrency and overselling: reservation semantics across the nine writers *(inventory, BACKLOG, risk medium)*
 5. `P1-INV-06` — Two vendored module cart writers can still plant an unvalidated cart row *(inventory, BLOCKED, risk medium)*
-6. `P1-INV-08` — CategoryController destroys and rewrites another store's categories, product media, variants and live carts *(inventory, IN_PROGRESS, risk critical)*
-7. `P1-INV-09` — Stored media paths are expanded as glob patterns and unlinked with no uploads-root containment *(inventory, BACKLOG, risk medium)*
-8. `P1-INV-10` — The catalogue cluster: two endpoints that cannot work, an unscoped option lookup, and the missing permission limbs *(inventory, READY, risk low)*
-9. `P1-PAY-04` — COD settles at order time, which blocks releasing GATE F *(payments, BLOCKED, risk high)*
-10. `P1-MIG-03` — Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns *(migrations, BLOCKED, risk high)*
-11. `P1-MIG-01` — GATE F: release the six money-bearing tables *(migrations, BLOCKED, risk high)*
-12. `P1-MIG-02` — customers.password_otp is INTEGER while the web reset writes a 60-char bcrypt hash *(migrations, BLOCKED, risk high)*
-13. `P1-MIG-04` — SCHEMA-01: nine more tables live code uses with no migration *(migrations, BLOCKED, risk medium)*
-14. `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted *(orders, BACKLOG, risk high)*
-15. `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon *(orders, BACKLOG, risk high)*
-16. `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account *(orders, BLOCKED, risk high)*
-17. `P1-OWN-01` — BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour *(security, READY, risk high)*
-18. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
-19. `P1-OWN-03` — The compromised API log on the running server *(security, BLOCKED, risk high)*
-20. `P1-OWN-04` — Token lifetime and abilities for clients already on merchants' phones *(security, BLOCKED, risk high)*
-21. `P1-OWN-05` — Anonymous order-document access (customerpayment) and tooling decisions *(platform, BLOCKED, risk medium)*
-22. `P1-OWN-06` — Branch protection and required checks on main *(platform, BLOCKED, risk medium)*
-23. `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites *(payments, READY, risk medium)*
-24. `P1-PAY-02` — Idempotency on gateway returns and order writers *(payments, BACKLOG, risk high)*
-25. `P1-PAY-03` — Gateway callback authenticity: no return proves a payment moved *(payments, BLOCKED, risk high)*
-26. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, READY, risk high)*
-27. `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites *(platform, BACKLOG, risk high)*
-28. `P1-PLT-04` — Module loading swallows every exception with no log line *(platform, BLOCKED, risk medium)*
-29. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, BACKLOG, risk medium)*
-30. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, READY, risk high)*
-31. `P1-SEC-02` — A merchant with Create Role can grant the six finance permissions they do not hold *(security, READY, risk high)*
-32. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, READY, risk medium)*
-33. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, READY, risk medium)*
-34. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
+6. `P1-INV-09` — Stored media paths are expanded as glob patterns and unlinked with no uploads-root containment *(inventory, BACKLOG, risk medium)*
+7. `P1-INV-10` — The catalogue cluster: two endpoints that cannot work, an unscoped option lookup, and the missing permission limbs *(inventory, READY, risk low)*
+8. `P1-INV-11` — Unvalidated parent_id leaks every store's category names, and admits a tree cycle that fatals *(inventory, READY, risk medium)*
+9. `P1-INV-12` — Deleting a category deletes every product in it by FK cascade, below the application *(inventory, READY, risk high)*
+10. `P1-PAY-04` — COD settles at order time, which blocks releasing GATE F *(payments, BLOCKED, risk high)*
+11. `P1-MIG-03` — Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns *(migrations, BLOCKED, risk high)*
+12. `P1-MIG-01` — GATE F: release the six money-bearing tables *(migrations, BLOCKED, risk high)*
+13. `P1-MIG-02` — customers.password_otp is INTEGER while the web reset writes a 60-char bcrypt hash *(migrations, BLOCKED, risk high)*
+14. `P1-MIG-04` — SCHEMA-01: nine more tables live code uses with no migration *(migrations, BLOCKED, risk medium)*
+15. `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted *(orders, BACKLOG, risk high)*
+16. `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon *(orders, BACKLOG, risk high)*
+17. `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account *(orders, BLOCKED, risk high)*
+18. `P1-OWN-01` — BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour *(security, READY, risk high)*
+19. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
+20. `P1-OWN-03` — The compromised API log on the running server *(security, BLOCKED, risk high)*
+21. `P1-OWN-04` — Token lifetime and abilities for clients already on merchants' phones *(security, BLOCKED, risk high)*
+22. `P1-OWN-05` — Anonymous order-document access (customerpayment) and tooling decisions *(platform, BLOCKED, risk medium)*
+23. `P1-OWN-06` — Branch protection and required checks on main *(platform, BLOCKED, risk medium)*
+24. `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites *(payments, READY, risk medium)*
+25. `P1-PAY-02` — Idempotency on gateway returns and order writers *(payments, BACKLOG, risk high)*
+26. `P1-PAY-03` — Gateway callback authenticity: no return proves a payment moved *(payments, BLOCKED, risk high)*
+27. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, READY, risk high)*
+28. `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites *(platform, BACKLOG, risk high)*
+29. `P1-PLT-04` — Module loading swallows every exception with no log line *(platform, BLOCKED, risk medium)*
+30. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, BACKLOG, risk medium)*
+31. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, READY, risk high)*
+32. `P1-SEC-02` — A merchant with Create Role can grant the six finance permissions they do not hold *(security, READY, risk high)*
+33. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, READY, risk medium)*
+34. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, READY, risk medium)*
+35. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
 
 ---
 
@@ -613,7 +616,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 
 | field | value |
 |---|---|
-| Status | **IN_PROGRESS** |
+| Status | **DONE** |
 | Risk | critical |
 | Workstream | Inventory & Stock |
 | GitHub issue | #49 |
@@ -643,7 +646,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 - Removal check on each guard and on the child-guard correction, separately
 - destroy negative: assert through withoutGlobalScopes() that the victim's carts rows survive, so the claim rests on the new predicate rather than on StoreScope
 
-**Evidence.** 
+**Evidence.** Two ownership guards plus a child-guard correction and a loop predicate, through one shared predicate `categoryIsOutsideCurrentStore()` mirroring ProductController's: platform operator exempt by users.type, then getCurrentStore() against the row's own store_id, an unresolved tenant treated as OUTSIDE. destroy() refuses above categoryImageDelete(), the first call that touches a file; update() refuses above the validator, the quota debit, the victim's image unlink and the upload. TESTS: tests/Feature/Security/MerchantCategoryOwnershipTest.php -- 10 passed / 61 assertions. The negatives assert the FILESYSTEM, not just rows, because a fix that refused the row deletes and still unlinked the files would pass a rows-only test. EIGHT REMOVAL CHECKS, ALL BITE: destroy ownership (the victim's cover image is unlinked from disk); the child-guard store value, measured BOTH ways (with ownership off and the guard reverted a victim-with-children is destroyed; with ownership off and the guard corrected it is still refused, so the correction is genuine defence in depth); the child guard itself (the owner's own with-children category is destroyed); update ownership (the victim is renamed); the child guard via the OPERATOR on a SINGLE mutation; the upload-path guard (the victim's artwork is unlinked from disk); and the caller's-upload-directory assertion, proven in both directions by a throwaway probe. FULL FEATURE GATE PASSED at the delivered tree (c4ad2b0f): 2842 testcases, 2 declared failures, 17 declared skips, 0 errors, nothing undeclared, exit 0. Security + Tenancy: 1553 passed / 10 skipped / 0 failures. MySQL: 5 scripts, 5 pass. CORRECTIONS RECORDED, all found by adversarial review or by my own removal checks: (1) MY COMMENT DEGRADED A CI RATCHET -- the destroy() docblock quoted isAbleTo('Delete Product Category') verbatim inside the 1200-byte window BulkDeleteAuthorizationTest greps, and with the real check deleted the suite still passed 23/23. Reworded, and the ratchet STRENGTHENED to require exactly one occurrence and reject a comment-line match; it now fails when the real check is removed. A sweep of all 21 covered controllers found no other instance. (2) A FALSE REASON in both new files: Category DOES carry BelongsToStore (Category.php:14); absence from scoped_models is the operative half. (3) THE CHILD-GUARD REMOVAL CHECK NEEDED TWO MUTATIONS and so did not cover the guard's store value -- closed by the operator tests, since the operator is the only principal reaching that line with the two values differing (getCurrentStore() returns a hardcoded 1 for a super admin with no current_store). (4) A VACUOUS OPERATOR FIXTURE caught by its own premise assertion: under RefreshDatabase the victim store WAS store 1. (5) THE UPLOAD PATH was proven by reading only -- now driven with UploadedFile::fake(). (6) MY OWN REMOVAL CHECK LEAKED A FILE into the tracked uploads/ tree, written by the HANDLER so the test's cleanup never saw it; the first fix cleaned up INLINE, which PHPUnit never reaches because it aborts at the first failed assertion -- moved to tearDown and re-verified. (7) A REGRESSION TEST FAILURE corrected a published severity claim: products.category_id is ON DELETE CASCADE, so the pre-fix exposure was another store's CATALOGUE, not its catalogue media. Verified on MySQL 8.0.46 (3 checks, 0 failures, including information_schema DELETE_RULE = CASCADE) and raised as P1-INV-12. DELIBERATE BEHAVIOUR CHANGE, for the platform operator only: deleting a foreign category WITH children was previously allowed (children were sought in the operator's store, none found, the victim's children orphaned) and is now refused with the child-category message. A narrowing in the safe direction; workaround is to delete the leaves first. Now measured, not reasoned. SCOPE HELD: edit() already scopes its lookup and show() has an empty body, both left alone with the reason recorded. productImageDelete()'s containment is P1-INV-09 (#50), the parent_id leak is P1-INV-11 (#52), the FK cascade is P1-INV-12 (#53). NOT CLAIMED AS GREEN: guard-composer-lock-integrity exits 1 on this tree, pre-existing -- two myfatoorah packages locked but absent from vendor/, composer.lock untouched since 7f412573. The other four guards exit 0.
 
 ### `P1-INV-09` — Stored media paths are expanded as glob patterns and unlinked with no uploads-root containment
 
@@ -707,6 +710,69 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 - (c) negative: another tenant's option id contributes no terms; positive control: the owner's own options still build combinations
 - (e) negative: a merchant without the permission is refused; POSITIVE CONTROL: the platform operator is still served -- this is the control that catches the lockout
 - Removal check on (c) and on each (e) limb
+
+**Evidence.** 
+
+### `P1-INV-11` — Unvalidated parent_id leaks every store's category names, and admits a tree cycle that fatals
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | medium |
+| Workstream | Inventory & Stock |
+| GitHub issue | #52 |
+| Owner decision required | no |
+| Depends on | `P1-INV-08` |
+| Scope | `app/Http/Controllers/CategoryController.php`, `app/Helper/helper.php` |
+| Queue references | S38-4 |
+| Database / migration | None. |
+| Compatibility impact | Adds a refusal where any value was previously accepted. The UI only ever offers own-store ids, so no legitimate merchant workflow changes -- but any API or import path that sets parent_id must be checked before it ships. |
+
+**Existing implementation status.** LIVE. Found by the adversarial review of P1-INV-08 and confirmed by reading the three files involved. P1-INV-08's guard cannot see it, because the row being written is the caller's OWN: categoryIsOutsideCurrentStore() correctly returns false. CategoryController writes parent_id straight from request input in both writers (:123 store, :281 update) with no `exists` rule and no store predicate -- the only validation rule in either is 'name' => 'required'. The value is rendered back through an UNSCOPED relation: Category::parent_category() is a plain belongsTo (Category.php:111-114) and CategoryDataTable renders optional($category->parent_category)->name (:58-60). So a merchant PUTs their own category with parent_id=N, loads /category, and the Parent Category column shows store B's category name -- incrementing N enumerates the platform's whole catalogue taxonomy, one name per request. The create/edit dropdown IS store-scoped, so the UI never offers a foreign id, but that is obscurity and the POST is hand-craftable. Second effect from the same missing rule: parent_id = own id, or any cycle, makes buildCategoryTree (helper.php:2538-2551, unconditional recursion with no visited-set) recurse until it fatals -- a 500 on the caller's own create and edit pages.
+
+**Acceptance criteria.**
+- [ ] parent_id must be 0, or the id of a category in the caller's own store, in BOTH store() and update()
+- [ ] The platform operator is handled consistently with P1-INV-08's predicate
+- [ ] A cycle (parent_id = own id, or any loop) is refused rather than stored
+- [ ] The refusal is the controller's existing redirect-with-error, not a 500
+- [ ] A visited-set in buildCategoryTree is considered as defence in depth, since other writers reach it
+
+**Required tests.**
+- Negative: a cross-store parent_id is refused and the caller's category keeps its previous parent_id
+- Negative: the foreign category's NAME does not appear in the /category listing response -- asserted on rendered output, since the write is only half the defect
+- Negative: parent_id = own id is refused and the edit page still renders 200 rather than fatalling
+- Positive control: a legitimate own-store parent_id is still accepted and still renders in the parent column
+- Removal check on the validation rule and on the cycle check, separately
+
+**Evidence.** 
+
+### `P1-INV-12` — Deleting a category deletes every product in it by FK cascade, below the application
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | high |
+| Workstream | Inventory & Stock |
+| GitHub issue | #53 |
+| Owner decision required | **yes** |
+| Depends on | `P1-INV-08` |
+| Scope | `database/migrations/2023_12_25_093024_create_categories_table.php`, `app/Http/Controllers/CategoryController.php` |
+| Queue references | S38-1 |
+| Database / migration | YES, and deliberately not drafted. Any change alters an FK on `products`, a money-adjacent table holding live catalogue data. Needs the owner's decision and an approved recovery plan first. |
+| Compatibility impact | The alternatives are NOT equivalent for merchants: a cascade loses products, SET NULL orphans them into an uncategorised state, and refuse-while-non-empty blocks a workflow merchants use today. That is why it is an owner decision. |
+
+**Existing implementation status.** FOUND BY A REGRESSION TEST FAILING, and it CORRECTS A CLAIM THIS PROJECT HAD ALREADY PUBLISHED. The P1-INV-08 test asserting that a foreign product sharing the caller's own category kept its rows went red: the row was gone. products.category_id is declared ON DELETE CASCADE against categories.id (create_products_table.php:55) and product_variants.product_id cascades again off products, so $category->delete() removes EVERY product row in the category and every variant under it, for every store, below the application -- no controller predicate can reach it. The first drafts of S38-1 and of issue #49 both said 'the products rows themselves survive'; they do not, so the pre-fix P1-INV-08 exposure was another store's CATALOGUE, not merely its catalogue media. VERIFIED ON THE REAL ENGINE, not inferred from SQLite: tests/Support/Security/bin/verify-category-product-cascade-on-mysql.php, 3 checks 0 failures on MySQL 8.0.46, including information_schema.REFERENTIAL_CONSTRAINTS reporting DELETE_RULE = CASCADE. WHAT P1-INV-08 CLOSED: the cross-tenant path, so a merchant can no longer reach the cascade across a tenant boundary. WHAT IS STILL OPEN: (1) a merchant deleting their OWN category silently destroys every product in it, with no warning and no product count -- the UI says only 'Category delete successfully'; (2) the latent cross-tenant case cannot be closed in the controller, so a foreign product sharing the caller's category keeps its FILES (P1-INV-08's loop predicate) but loses its row and variants, which a regression test now pins deliberately and labels as pinning known-bad behaviour; (3) whether the LIVE schema carries this constraint is unverified and unverifiable from here -- GATE F records 15 tables that live code reads with no migration at all.
+
+**Acceptance criteria.**
+- [ ] The live schema's actual DELETE_RULE for products_category_id_foreign is established on the server, read-only, no DDL
+- [ ] A decision is recorded on the intended behaviour: cascade, SET NULL with an uncategorised bucket, or refuse-while-non-empty as the child-category guard already does for subcategories
+- [ ] If the behaviour changes, the deletion path warns with a product count before destroying anything
+- [ ] The pinning assertions in MerchantCategoryOwnershipTest are updated in the same change, not left to fail
+
+**Required tests.**
+- Whatever behaviour is chosen, asserted on both engines -- the SQLite suite plus the MySQL script, since this is exactly the class of defect SQLite can mask
+- Negative: a merchant cannot destroy products they did not intend to; the warning or refusal is measured
+- Removal check on whatever control replaces the cascade
 
 **Evidence.** 
 
