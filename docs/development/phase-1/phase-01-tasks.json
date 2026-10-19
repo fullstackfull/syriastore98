@@ -708,10 +708,11 @@
       "title": "WoocomProductController::edit overwrites a foreign product and reassigns its store_id",
       "workstream": "inventory",
       "risk": "high",
-      "status": "READY",
+      "status": "IN_PROGRESS",
       "issue": 30,
       "scope": [
-        "app/Http/Controllers/WoocomProductController.php"
+        "app/Http/Controllers/WoocomProductController.php",
+        "tests/Feature/Security/WoocomProductOwnershipTest.php"
       ],
       "existing_status": "CODE-VERIFIED ONLY. The only one of the four S37 sites not confirmed by execution; the most destructive on paper because it moves ownership.",
       "depends_on": [],

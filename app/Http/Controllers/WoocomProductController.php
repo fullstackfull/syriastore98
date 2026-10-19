@@ -366,9 +366,65 @@ class WoocomProductController extends Controller
 
 
             }
-            $woocommerceProduct = (clone $woocommerceConectionQuery)->where('module', 'product')->where('woocomerce_id', $jsonData['id'])->first();
+            /*
+             * THE MAPPING LOOKUP CARRIES THE STORE PREDICATE ITS SIBLINGS ALREADY HAD. P1-INV-04.
+             *
+             * This resolved the LOCAL product from a REMOTE WooCommerce id with no tenant
+             * predicate, while the category lookup eleven lines above (:325) has
+             * `->where('store_id', getCurrentStore())` and the Shopify twin
+             * (ShopifyProductController:533) has it too -- an omission, not a design.
+             *
+             * WooCommerce product ids are per-store and sequential, so two merchants using the
+             * integration collide as a matter of course: both have a product 42. `->first()` has
+             * no ordering, so which tenant's row won was arbitrary.
+             *
+             * REPRODUCED BY EXECUTION (S37-4 was previously code-verified only):
+             * tests/Feature/Security/WoocomProductOwnershipTest.php measured store B's product
+             * moving store_id 2 -> 1, renamed, restocked and re-attributed to merchant A.
+             */
+            $woocommerceProduct = (clone $woocommerceConectionQuery)
+                ->where('store_id', getCurrentStore())
+                ->where('module', 'product')
+                ->where('woocomerce_id', $jsonData['id'])
+                ->first();
+
+            /*
+             * NULL GUARD, newly load-bearing. `->first()` could already return null for an
+             * unmapped remote id and `$woocommerceProduct->original_id` then raised "Attempt to
+             * read property on null" -- a 500 on bad input. Adding the store predicate makes a
+             * FOREIGN id resolve to null too, so the refusal has to be here or a denial would
+             * surface as a crash. Same message as this controller's other not-found branch
+             * (:281), so a foreign id is indistinguishable from an absent one.
+             */
+            if (empty($woocommerceProduct)) {
+                return redirect()->back()->with('error', __('Product Not Found.'));
+            }
+
             $original_id = $woocommerceProduct->original_id;
             $product = \App\Models\Product::find($original_id);
+
+            /*
+             * AND THE RESOLVED PRODUCT IS CHECKED TOO, because the mapping row and the product
+             * are separate facts: `woocommerce_conections.original_id` is a bare integer with no
+             * foreign key (2024_01_30_050713_create_woocommerce_conections_table.php:20), so a
+             * row scoped to this store can still point at a product that was deleted, or at
+             * another tenant's product if a mapping row was ever written with the wrong id. The
+             * ownership of the PRODUCT is what the write needs to be authorised against.
+             */
+            if (empty($product) || (int) $product->store_id !== (int) getCurrentStore()) {
+                \Illuminate\Support\Facades\Log::warning(
+                    'woocommerce product edit refused: the mapped product is not in this store',
+                    [
+                        'woocomerce_id' => $jsonData['id'],
+                        'original_id' => $original_id,
+                        'product_store_id' => $product->store_id ?? null,
+                        'current_store' => getCurrentStore(),
+                        'user_id' => optional(auth()->user())->id,
+                    ]
+                );
+
+                return redirect()->back()->with('error', __('Product Not Found.'));
+            }
             $discount_amount = (!empty($jsonData['regular_price']) ? $jsonData['regular_price'] : 0) - (!empty($jsonData['sale_price']) ? $jsonData['sale_price'] : 0);
 
            
@@ -386,9 +442,22 @@ class WoocomProductController extends Controller
                 $product->slug                  = str_replace(' ','_', strtolower($jsonData['name']));
                 $product->price                 = $jsonData['price'];
                 $product->attribute_id          = $attribute['id'] ?? null;
-                $product->store_id              = getCurrentStore();
-                $product->created_by            = auth()->user()->id;
-
+                /*
+                 * store_id AND created_by ARE NO LONGER WRITTEN HERE. P1-INV-04 acceptance:
+                 * "no code path reassigns an existing product's store_id".
+                 *
+                 * This is an UPDATE path -- the product already exists and already belongs to a
+                 * store. Re-stamping ownership on every edit was how a cross-tenant resolution
+                 * became a transfer rather than merely an overwrite, and even for the legitimate
+                 * owner it is a no-op at best: the guard above has already established that
+                 * `$product->store_id` IS `getCurrentStore()`. Removing the two lines therefore
+                 * changes nothing an owner can observe and removes the transfer primitive
+                 * outright, rather than leaving it one bypassed predicate away.
+                 *
+                 * `created_by` is left alone for the same reason: re-attributing a product to
+                 * whoever last ran an import loses the original author for no stated benefit.
+                 * The create path (`store()`) still sets both, which is where they belong.
+                 */
                 $product->save();
 
                 if (isset($attribute['variant']) && !empty($attribute['variant'])) {

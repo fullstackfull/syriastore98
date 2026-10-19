@@ -10,7 +10,7 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 45 — 11 DONE, 11 READY, 8 BACKLOG, 15 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
+| Tasks | 45 — 11 DONE, 10 READY, 8 BACKLOG, 15 BLOCKED, 1 IN_PROGRESS, 0 IN_REVIEW |
 | Requiring an owner decision | 16 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
@@ -86,7 +86,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 
 1. `P1-INV-02` — OrderController::order_return restocks and marks returned on any store's order *(inventory, READY, risk high)*
 2. `P1-INV-03` — PosController::store writes product_stock to an absolute value from the POS session *(inventory, BACKLOG, risk high)*
-3. `P1-INV-04` — WoocomProductController::edit overwrites a foreign product and reassigns its store_id *(inventory, READY, risk high)*
+3. `P1-INV-04` — WoocomProductController::edit overwrites a foreign product and reassigns its store_id *(inventory, IN_PROGRESS, risk high)*
 4. `P1-INV-05` — Concurrency and overselling: reservation semantics across the nine writers *(inventory, BACKLOG, risk medium)*
 5. `P1-INV-06` — Two vendored module cart writers can still plant an unvalidated cart row *(inventory, BLOCKED, risk medium)*
 6. `P1-INV-09` — Stored media paths are expanded as glob patterns and unlinked with no uploads-root containment *(inventory, BACKLOG, risk medium)*
@@ -501,13 +501,13 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_PROGRESS** |
 | Risk | high |
 | Workstream | Inventory & Stock |
 | GitHub issue | #30 |
 | Owner decision required | no |
 | Depends on | — |
-| Scope | `app/Http/Controllers/WoocomProductController.php` |
+| Scope | `app/Http/Controllers/WoocomProductController.php`, `tests/Feature/Security/WoocomProductOwnershipTest.php` |
 | Queue references | S37, S37-4 |
 | Database / migration | None. |
 | Compatibility impact | WooCommerce import keeps working for its owner. |
