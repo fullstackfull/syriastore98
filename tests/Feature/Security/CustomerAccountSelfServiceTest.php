@@ -50,7 +50,39 @@ class CustomerAccountSelfServiceTest extends SecurityTestCase
 {
     use RefreshDatabase;
 
-    private function customerIn($store, string $label, string $password = 'original-password-not-real'): Customer
+    /**
+     * The password every fixture customer in this file starts with.
+     *
+     * A CONSTANT RATHER THAN A REPEATED LITERAL, because the two uses drifting apart is exactly
+     * what happened: this value was changed in one place (the helper's default) and an assertion
+     * 250 lines away still compared against the old string, so a test that verifies another
+     * account's password was NOT changed started failing for a reason that had nothing to do with
+     * the control it guards.
+     *
+     * It reads as a placeholder on purpose -- see customerIn() for why that shape matters to
+     * .github/scripts/scan-secrets.sh, and why the answer was not to narrow that rule.
+     */
+    private const FIXTURE_PASSWORD = 'placeholder-password-for-tests-only';
+
+    /**
+     * The default password is written to read as a PLACEHOLDER, and that shape is deliberate.
+     *
+     * `.github/scripts/scan-secrets.sh` carries a `generic-assigned-secret` rule that matches any
+     * `password = '<12+ credential-shaped chars>'`, because a real credential committed to source
+     * looks exactly like that and the screen cannot tell intent. The previous value here --
+     * 'original-password-not-real' -- tripped it and blocked the whole build: it SAID it was not
+     * real, but said so in words the screen has no reason to know.
+     *
+     * The fix is not to narrow the rule, and not to chop the string up until the regex misses it.
+     * Either would leave a value that still reads like a credential to a human reviewer, which is
+     * the thing actually worth avoiding. The screen already has a documented placeholder
+     * vocabulary for template values -- `example`, `placeholder`, `changeme` and friends -- and
+     * this value now uses it, so it is unmistakably synthetic to the reader FIRST and to the
+     * scanner as a consequence.
+     *
+     * Do not shorten this back to something that looks like a password.
+     */
+    private function customerIn($store, string $label, string $password = self::FIXTURE_PASSWORD): Customer
     {
         return Customer::forceCreate([
             'first_name' => 'Shopper', 'last_name' => $label,
@@ -289,7 +321,7 @@ class CustomerAccountSelfServiceTest extends SecurityTestCase
 
         $this->assertSame('Shopper', $other->fresh()->first_name,
             'The tampered customer_id still reached another account.');
-        $this->assertTrue(Hash::check('original-password-not-real', (string) $other->fresh()->password));
+        $this->assertTrue(Hash::check(self::FIXTURE_PASSWORD, (string) $other->fresh()->password));
     }
 
     // ===================================================================================
