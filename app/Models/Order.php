@@ -661,6 +661,43 @@ if ($order_status == 'cancel') {
         }
 
 
+        /*
+         * REPLAY GUARD, AND IT REFUSES THE WHOLE CALL RATHER THAN SKIPPING THE RESTOCK.
+         * P1-INV-02, raised by adversarial review as PRE-EXISTING AND LIVE.
+         *
+         * Nothing checked whether the named line was ALREADY returned, so each repeat call
+         * credited the stock again AND subtracted `return_price` from `final_price` again.
+         * Reachable by a CUSTOMER on their own delivered order: routes/api.php:110 ->
+         * ApiController::product_return -> resolveViewableOrder admits the owning customer. No
+         * cash leaves (OrderObserver::updated returns early unless payment_status changed), so
+         * this is integrity and reporting rather than payout -- but a shopper inflating a
+         * merchant's inventory without limit is not acceptable either.
+         *
+         * MY FIRST ATTEMPT AT THIS WAS A `continue` INSIDE THE LOOP, AND IT WAS NOT ENOUGH.
+         * Measured: the stock then held at 59 across a replay, but `final_price` still went
+         * 10.00 -> -80.00, because the second pass (:770-790) recomputes the total from the
+         * CURRENT `final_price` rather than from an immutable base, so the money half compounds
+         * independently of the stock half. Refusing the whole call is the only form that makes
+         * both halves idempotent, and it is also the honest answer: a line that is already
+         * returned has nothing to do.
+         *
+         * The sibling endpoint closed the same primitive with `$previousReturnStatus`
+         * (OrderController.php:750-751). The two ends of the workflow are now consistent on
+         * replay as well as on authorization.
+         */
+        if (!empty($Order->product_json)) {
+            foreach ((array) json_decode($Order->product_json, true) as $line) {
+                if (($line['product_id'] ?? null) == $product_id
+                    && ($line['variant_id'] ?? null) == $variant_id
+                    && (int) ($line['return'] ?? 0) === 1) {
+                    return [
+                        'status' => 'error',
+                        'message' => __('The product has already been returned.'),
+                    ];
+                }
+            }
+        }
+
         if (!empty($Order->product_json)) {
             $product_json = json_decode($Order->product_json, true);
             foreach ($product_json as $key => $product) {
@@ -694,10 +731,22 @@ if ($order_status == 'cancel') {
                     $orderStoreId = $Order->store_id;
 
                     if (empty($orderStoreId)) {
+                        /*
+                         * REFUSE, DO NOT MERELY LOG. Raised by review: the platform operator
+                         * bypasses sameStore, so a NULL-store order DOES reach this method for
+                         * them -- and logging-and-continuing let the MONEY half proceed (the line
+                         * marked returned, `final_price` reduced at :765-770) while the INVENTORY
+                         * half did nothing. A half-applied return is worse than a refused one.
+                         */
                         \Illuminate\Support\Facades\Log::warning(
-                            'order return restocked nothing: the order carries no store_id',
+                            'order return refused: the order carries no store_id',
                             ['order_id' => $Order->id, 'product_id' => $product_id]
                         );
+
+                        return [
+                            'status' => 'error',
+                            'message' => __('Something was wrong.'),
+                        ];
                     } elseif ($variant_id == 0 || empty($variant_id)) {
                         /*
                          * `$line` rather than reassigning `$product`. The original wrote
@@ -721,10 +770,28 @@ if ($order_status == 'cancel') {
                             $stockProduct->save();
                         }
                     } else {
-                        $ProductStock = ProductVariant::where('product_id', $product_id)
-                            ->where('id', $variant_id)
+                        /*
+                         * ANCHORED ON THE PRODUCT'S STORE, NOT THE VARIANT'S. Raised by review:
+                         * `product_variants.store_id` is NULLABLE, `ProductVariant` has no
+                         * auto-populating trait, and the `choice_no` branch of
+                         * ProductController::update (:1505-1519) creates a variant without
+                         * setting it -- so keying on the variant's own column would silently
+                         * restock nothing for a GENUINE own-store return of such a variant.
+                         * (That branch is not reachable from the shipped UI, which is why this
+                         * is hardening rather than a defect, but `products.store_id` is
+                         * populated by EVERY product writer and the variant is tied to it by
+                         * `product_id` -- strictly more robust, same number of lines, and it is
+                         * the shape the sibling `restoreReturnedStock` already uses.)
+                         */
+                        $owningProduct = Product::where('id', $product_id)
                             ->where('store_id', $orderStoreId)
                             ->first();
+
+                        $ProductStock = $owningProduct === null
+                            ? null
+                            : ProductVariant::where('product_id', $owningProduct->id)
+                                ->where('id', $variant_id)
+                                ->first();
                         if (!empty($ProductStock)) {
                             $ProductStock->stock += $product['qty'];
                             $ProductStock->save();

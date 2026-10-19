@@ -55,6 +55,23 @@ class OrderReturnOwnershipTest extends SecurityTestCase
         ]);
     }
 
+    /** A NON-variant product, for the branch the variant tests never reach. */
+    private function simpleProductIn($store, string $name, int $stock = 50): Product
+    {
+        return Product::forceCreate([
+            'name' => $name, 'slug' => 'p-' . uniqid(),
+            'product_stock' => $stock, 'track_stock' => 1, 'variant_product' => 0,
+            'price' => 100.00, 'sale_price' => 90.00, 'status' => 1, 'trending' => 0,
+            'stock_status' => 'in_stock',
+            'store_id' => $store->id, 'created_by' => $store->created_by,
+        ]);
+    }
+
+    private function productStock(int $productId): int
+    {
+        return (int) DB::table('products')->where('id', $productId)->value('product_stock');
+    }
+
     private function variantFor(Product $product, int $stock): int
     {
         return DB::table('product_variants')->insertGetId([
@@ -280,5 +297,157 @@ class OrderReturnOwnershipTest extends SecurityTestCase
         $this->assertNotSame(500, $response->status(),
             'An absent order id still crashes. Body: '
             . substr((string) $response->getContent(), 0, 300));
+    }
+
+    /**
+     * C1 — THE DECISION THIS WHOLE TASK TURNS ON, WHICH NOTHING ELSE PINNED.
+     * ==========================================================================================
+     *
+     * Raised by adversarial review and it was right: in every other test the authorised caller's
+     * `current_store` IS the order's store, so replacing `$Order->store_id` with
+     * `getCurrentStore()` in `product_return()` left ALL SIX tests passing — while silently
+     * restocking nothing for the platform operator, who is the one principal for whom the two
+     * differ. `OrderPolicy::allow` short-circuits on `isPlatformAdmin` BEFORE `sameStore`
+     * (`OrderPolicy.php:56`), so an operator may legitimately return an order in a store that is
+     * not their `current_store` — the same argument already written for `restoreReturnedStock`
+     * at `OrderController.php:810-820`.
+     *
+     * So this is the test that distinguishes "the order's store" from "the caller's store", and
+     * it is the second time in this session a central design decision turned out to have no
+     * coverage at all (see P1-SEC-02's owner-bounding branch).
+     */
+    public function test_the_operator_returning_a_merchants_order_still_restocks_that_merchant(): void
+    {
+        $operator = $this->makePlatformAdmin();
+        // Store 1 must not be the operator's resolved store, or the two values coincide and this
+        // measures nothing -- getCurrentStore() returns a hardcoded 1 for an operator with no
+        // current_store (helper.php:403-404). Same trap as the P1-INV-08 operator tests.
+        $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $product = $this->productIn($storeB, 'operator-returnable', 50);
+        $variant = $this->variantFor($product, 50);
+        $order = $this->deliveredOrder($storeB, $product, $variant, 9);
+
+        $this->assertNotSame((int) $storeB->id, (int) getCurrentStore($operator->id),
+            'The order store and the operator\'s resolved store coincide, so this test cannot '
+            . 'distinguish the two readings.');
+
+        $response = $this->actingAs($operator->fresh())->post('/order-return', [
+            'order_id' => $order->id,
+            'product_id' => $product->id,
+            'variant_id' => $variant,
+        ]);
+
+        $this->assertSame(200, $response->status(),
+            'The operator cannot return a merchant\'s order at all. Body: '
+            . substr((string) $response->getContent(), 0, 300));
+        $this->assertSame(59, $this->variantStock($variant),
+            'The operator\'s return restocked NOTHING: the predicate is keyed on the CALLER\'s '
+            . 'store rather than the ORDER\'s, so the authorised support workflow silently '
+            . 'does nothing.');
+    }
+
+    /**
+     * C2 — THE SHADOWING FIX, WHICH NO TEST REACHED.
+     *
+     * Raised by review: every other request in this file posts a non-zero `variant_id`, so the
+     * `elseif ($variant_id == 0 || empty($variant_id))` branch never executed and reverting
+     * `$line['qty']` to the shadowed `$product['qty']` failed nothing.
+     *
+     * The original wrote `$product = Product::find($product_id)` and then read `$product['qty']`
+     * — by which point `$product` was the MODEL, so `qty` resolved as an attribute and `products`
+     * has no such column. The branch added null and restocked NOTHING, which is why the
+     * cross-tenant reproduction moved a VARIANT's stock rather than a product's.
+     */
+    public function test_a_non_variant_return_restocks_the_product(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Manage Order');
+
+        $product = $this->simpleProductIn($storeA, 'non-variant-returnable', 50);
+        $order = $this->deliveredOrder($storeA, $product, 0, 9);
+
+        $response = $this->actingAs($merchantA->fresh())->post('/order-return', [
+            'order_id' => $order->id,
+            'product_id' => $product->id,
+            'variant_id' => 0,
+        ]);
+
+        $this->assertSame(200, $response->status(),
+            'Body: ' . substr((string) $response->getContent(), 0, 300));
+        $this->assertSame(59, $this->productStock($product->id),
+            'A non-variant return restocked nothing. That is the shadowing bug: $product was '
+            . 'reassigned to the Product model and $product[\'qty\'] then resolved a nonexistent '
+            . 'attribute.');
+    }
+
+    /**
+     * A NON-VARIANT RETURN CANNOT REACH ANOTHER STORE'S PRODUCT EITHER.
+     *
+     * The variant branch has its own cross-store case; this gives the branch fixed above the
+     * same coverage, so the two are not asymmetric.
+     */
+    public function test_a_non_variant_return_cannot_restock_a_foreign_product(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Manage Order');
+
+        $foreign = $this->simpleProductIn($storeB, 'foreign-non-variant', 50);
+        $order = $this->deliveredOrder($storeA, $foreign, 0, 9);
+
+        $response = $this->actingAs($merchantA->fresh())->post('/order-return', [
+            'order_id' => $order->id,
+            'product_id' => $foreign->id,
+            'variant_id' => 0,
+        ]);
+
+        $this->assertSame(50, $this->productStock($foreign->id),
+            'A return on the caller\'s own order restocked another store\'s product.');
+        $this->assertNotSame(500, $response->status(),
+            'Body: ' . substr((string) $response->getContent(), 0, 300));
+    }
+
+    /**
+     * REPLAYING A RETURN CREDITS THE STOCK ONCE.
+     *
+     * Raised by review as PRE-EXISTING AND LIVE: nothing checked whether the line was already
+     * returned, so each repeat call credited the stock again and subtracted `return_price` from
+     * `final_price` again — unbounded inflation, and reachable by a CUSTOMER on their own
+     * delivered order through `routes/api.php:110`. The sibling endpoint closed exactly this
+     * primitive with `$previousReturnStatus`; the two ends are now consistent on replay as well
+     * as on authorization.
+     */
+    public function test_replaying_a_return_does_not_credit_the_stock_twice(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Manage Order');
+
+        $product = $this->productIn($storeA, 'replay-target', 50);
+        $variant = $this->variantFor($product, 50);
+        $order = $this->deliveredOrder($storeA, $product, $variant, 9);
+
+        $payload = [
+            'order_id' => $order->id,
+            'product_id' => $product->id,
+            'variant_id' => $variant,
+        ];
+
+        $this->actingAs($merchantA->fresh())->post('/order-return', $payload);
+        $this->assertSame(59, $this->variantStock($variant),
+            'The first return did not restock, so the replay assertion below measures nothing.');
+
+        $firstFinalPrice = (float) DB::table('orders')->where('id', $order->id)->value('final_price');
+
+        $this->actingAs($merchantA->fresh())->post('/order-return', $payload);
+
+        $this->assertSame(59, $this->variantStock($variant),
+            'Replaying the return credited the stock a second time: 59 -> '
+            . $this->variantStock($variant) . '. Unbounded inflation.');
+        $this->assertSame($firstFinalPrice,
+            (float) DB::table('orders')->where('id', $order->id)->value('final_price'),
+            'Replaying the return reduced final_price again, driving the order total down '
+            . 'without limit.');
     }
 }
