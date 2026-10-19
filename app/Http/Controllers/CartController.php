@@ -359,7 +359,24 @@ class CartController extends Controller
         } else{
 
             if ($product->variant_product == 1) {
-                $ProductVariant = ProductVariant::find($request->variant_id);
+                /*
+                 * PAIRED TO THIS PRODUCT. P01-COMMERCE-SEC-03 FOLLOW-UP.
+                 *
+                 * This was `ProductVariant::find($request->variant_id)`. The product above IS
+                 * store-scoped (P01-COMMERCE-SEC-01) -- but `ProductVariant` carries no StoreScope
+                 * and is not in config/tenancy.php's `scoped_models`, so SCOPING THE PRODUCT DOES
+                 * NOT SCOPE THE VARIANT: `find()` reached any tenant's variant row, it came back
+                 * non-empty, and `$cart->variant_id` was written from it. The guest arm at :277 has
+                 * been paired since P01-COMMERCE-SEC-01; this authenticated twin was not, which is
+                 * the web counterpart of the `addtocart` defect recorded as S36-1.
+                 *
+                 * It also mattered for AVAILABILITY once the checkout writers began refusing such
+                 * baskets: a shopper could poison their own cart here and then be unable to check
+                 * out at all.
+                 */
+                $ProductVariant = ProductVariant::where('id', $request->variant_id)
+                    ->where('product_id', $request->product_id)
+                    ->first();
                 if (empty($ProductVariant)) {
                     return Utility::error(['message' => __('Please Select a variant in a product.')], __('Please Select a variant in a product.'));
                 }
@@ -437,6 +454,31 @@ class CartController extends Controller
         }
 
         $cart->customer_id    = $customer_id;
+        /*
+         * AND THE PAIR ABOUT TO BE PERSISTED IS VALIDATED ONCE, FOR EVERY ARM.
+         * P01-COMMERCE-SEC-03 FOLLOW-UP -- the same gate ApiController::addtocart received, for
+         * the same reason: this method resolves `$variant_id` in three places (:277 paired, :306
+         * unpaired inside the SizeGuideline module arm, :362 paired by the change above) and the
+         * plain-product arm validates no variant at all, so a stray id reached the row verbatim.
+         * One gate before the write makes the stored row sound regardless of which arm produced
+         * the value, including the module arm no test in this repository can exercise.
+         *
+         * `product_id`, not `store_id`: `product_variants.store_id` is nullable, and the
+         * store-scoped `$product` lookup above has already settled the tenancy.
+         */
+        if (!empty($variant_id) && (int) $variant_id !== 0) {
+            $variantBelongsToProduct = ProductVariant::where('id', $variant_id)
+                ->where('product_id', $request->product_id)
+                ->exists();
+
+            if (! $variantBelongsToProduct) {
+                return Utility::error(
+                    ['message' => __('Please Select a variant in a product.')],
+                    __('Please Select a variant in a product.')
+                );
+            }
+        }
+
         $cart->product_id     = $request->product_id;
         $cart->variant_id     = !empty($variant_id) ? $variant_id : 0;
         $cart->qty            = $qty;

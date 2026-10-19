@@ -1069,4 +1069,106 @@ class ForeignProductCartChainTest extends SecurityTestCase
         $this->assertSame($ordersBefore, (int) DB::table('orders')->count(),
             'An order was written for a foreign basket.');
     }
+    /**
+     * A variant the WEB cart writer will accept on its merits.
+     *
+     * `CartController::product_cartlist` refuses any variant whose `variation_option` lacks
+     * `enabled` ("Product variant is not available.") BEFORE it reaches the pairing or the gate.
+     * The shared `variantProductIn()` fixture omits that flag, which made the first version of
+     * `test_the_web_cart_refuses_another_stores_variant` pass with BOTH controls removed —
+     * measured, and the reason this helper exists.
+     */
+    private function enabledVariantProductIn($store, int $productStock = 50, int $variantStock = 50): array
+    {
+        $product = Product::forceCreate([
+            'name' => 'fpc-en-' . uniqid(), 'slug' => 'fpc-en-' . uniqid(),
+            'product_stock' => $productStock, 'track_stock' => 1, 'variant_product' => 1,
+            'price' => 10, 'sale_price' => 10, 'stock_status' => 'in_stock',
+            'store_id' => $store->id, 'created_by' => $store->created_by,
+        ]);
+
+        $variantId = DB::table('product_variants')->insertGetId([
+            'product_id' => $product->id, 'variant' => 'red',
+            'sku' => 'fpc-en-' . uniqid(), 'price' => 10, 'stock' => $variantStock,
+            'store_id' => $store->id, 'variation_option' => 'manage_stock,enabled',
+            'stock_status' => 'in_stock',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        return [$product, $variantId];
+    }
+
+    /**
+     * THE WEB CART WRITER PAIRS ITS VARIANT TOO.
+     *
+     * `CartController::product_cartlist` is the storefront's own add-to-cart
+     * (`POST {storeSlug}/product_cart`). Its product has been store-scoped since
+     * P01-COMMERCE-SEC-01 and its GUEST arm has been variant-paired since then — the
+     * AUTHENTICATED arm had `ProductVariant::find($request->variant_id)`, unpaired, and wrote
+     * `$cart->variant_id` from whatever came back. The web counterpart of S36-1, found by an
+     * executed risk review of this package's own checkout guards.
+     *
+     * It is an AVAILABILITY finding as much as a tenancy one: once the checkout writers began
+     * refusing such baskets, a shopper could poison their own cart here and then be unable to
+     * check out at all.
+     */
+    public function test_the_web_cart_refuses_another_stores_variant(): void
+    {
+        [, $storeA] = $this->tenant('on');
+        [, $storeB] = $this->tenant('on');
+        $customer = $this->customerIn($storeA, 'webcart');
+        [$ownProduct] = $this->enabledVariantProductIn($storeA);
+        [, $foreignVariantId] = $this->enabledVariantProductIn($storeB);
+
+        $response = $this->actingAs($customer, 'customers')
+            ->post('/' . $storeA->slug . '/product_cart', [
+                'product_id' => $ownProduct->id,
+                'variant_id' => $foreignVariantId,
+                'qty' => 1,
+            ]);
+
+        $this->assertNotSame(500, $response->status(),
+            'The web cart writer crashed rather than refusing: ' . $response->getContent());
+        $this->assertSame(0, (int) DB::table('carts')->count(),
+            'The web cart writer persisted a row naming another store\'s variant.');
+    }
+
+    /**
+     * AND IT REFUSES A STRAY VARIANT ON A PLAIN PRODUCT, which no arm of that method validates.
+     *
+     * This is the gate before the write, the twin of `addtocart`'s. It is the control that also
+     * covers the SizeGuideline module arm's unpaired `ProductVariant::find($variant_id)`, which
+     * no test in this repository can drive because no WorkDo module loads in a test run.
+     */
+    public function test_the_web_cart_refuses_a_stray_variant_on_a_plain_product(): void
+    {
+        [, $store] = $this->tenant('on');
+        $customer = $this->customerIn($store, 'webstray');
+        $plain = $this->plainProductIn($store);
+        [, $unrelatedVariantId] = $this->variantProductIn($store);
+
+        $refused = $this->actingAs($customer, 'customers')
+            ->post('/' . $store->slug . '/product_cart', [
+                'product_id' => $plain->id,
+                'variant_id' => $unrelatedVariantId,
+                'qty' => 1,
+            ]);
+
+        $this->assertNotSame(500, $refused->status(),
+            'The web cart writer crashed rather than refusing: ' . $refused->getContent());
+        $this->assertSame(0, (int) DB::table('carts')->count(),
+            'The web cart writer persisted a plain product paired with an unrelated variant.');
+
+        // Positive control: the same product with no variant still goes in, through the same route.
+        $ok = $this->actingAs($customer, 'customers')
+            ->post('/' . $store->slug . '/product_cart', [
+                'product_id' => $plain->id,
+                'variant_id' => 0,
+                'qty' => 1,
+            ]);
+
+        $this->assertSame(1, (int) DB::table('carts')->count(),
+            'The gate refuses a legitimate plain-product add through the web cart as well, which '
+            . 'would be a regression rather than a fix. Response: ' . $ok->getContent());
+    }
 }

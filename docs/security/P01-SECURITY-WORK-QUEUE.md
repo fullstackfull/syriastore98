@@ -3036,6 +3036,33 @@ decrements (50 → 47).
 long-lived worker — and previously unreachable on the variant path, because `find()` always
 resolved a row. `\DB::rollBack()` added before each.
 
+### S36-7 — The web cart writer had the same unpaired variant, and it is an availability finding too
+
+`CartController::product_cartlist` — `POST {storeSlug}/product_cart`, the storefront's own
+add-to-cart — resolves three variants. The guest arm (`:277`) has been **paired** since
+P01-COMMERCE-SEC-01. The **authenticated** arm (`:362`) was
+`ProductVariant::find($request->variant_id)`, unpaired, and `$cart->variant_id` was written from
+whatever came back; the SizeGuideline module arm (`:306`) is unpaired as well. The product has been
+store-scoped on this path since P01-COMMERCE-SEC-01 — and, once again, **scoping the product does
+not scope the variant.**
+
+Found by an *executed* risk review of this package's own checkout guards, which pointed out the
+second-order consequence: with the checkout writers now refusing such baskets, a shopper could
+**poison their own cart here and then be unable to check out at all**. A tenancy fix that creates a
+dead end for the shopper is only half a fix.
+
+**Fixed** by pairing `:362` and by the same one-gate-before-the-write pattern `addtocart` received,
+which also covers the module arm no test here can drive.
+
+**AND THE FIRST VERSION OF ITS TEST PASSED WITH BOTH CONTROLS REMOVED.** `product_cartlist` refuses
+any variant whose `variation_option` lacks `enabled` (*"Product variant is not available."*)
+**before** it reaches either control, and the shared fixture omits that flag — so the refusal under
+test was not the refusal being measured. A dedicated fixture now sets `manage_stock,enabled`.
+Re-measured after the correction: the paired lookup alone is **subsumed** by the gate, and
+**removing both writes the foreign row** — which is what proves the pair. The same both-removed
+check was then run against `addtocart`'s pair and bites there too, which retires the open question
+left by the first harness run.
+
 ### Refuted, and corrected against the reviewer
 
 - **`confirm_order` is not a stock mutator.** The block labelled "Order stock decrease start/end"
