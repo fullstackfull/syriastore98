@@ -8031,6 +8031,40 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 // which is also what an already-deleted product did.
                 $Product = Product::where('id', $product_id)->where('store_id', $store->id)->first();
                 $datas = $Product;
+
+                /*
+                 * THE STORE-OWNERSHIP REFUSAL IS OUTSIDE THE STOCK-MANAGEMENT ARM, because
+                 * correcting that arm's precedence took it out of reach for an unmanaged store.
+                 *
+                 * The refusal for a product this store does not own is the `else` of
+                 * `if (!empty($ProductStock))` / `if (!empty($Product))` INSIDE the arm below.
+                 * While the precedence bug was live, a store with `stock_management = 'off'`
+                 * entered the arm anyway and therefore got that refusal. Fixing the precedence
+                 * made the arm skip for those stores -- and took the ownership check with it, so
+                 * the order would have been written recording ANOTHER MERCHANT'S product, priced
+                 * from their catalogue, with the shopper's cart cleared. No foreign stock moves
+                 * (the deduction is skipped too), so it is a cross-tenant REFERENCE rather than a
+                 * cross-tenant write -- but it is a protection this package removed as a side
+                 * effect, which the brief explicitly forbids. Found by the project's own
+                 * tenant-authz-reviewer on exactly that question.
+                 *
+                 * Hoisting it restores the status quo rather than tightening: an unmanaged store
+                 * was refused before this package, and is refused again now, with the same
+                 * message from the same condition. A managed store reaches the identical refusal
+                 * either way.
+                 *
+                 * NOT MIRRORED ONTO `place_order`, deliberately. That handler's expression was
+                 * ALREADY correct (`== 'on'` over Utility::Setting()'s defaults-backed array), so
+                 * an unmanaged store there has always skipped the arm and never had this refusal
+                 * -- hoisting it would be a NEW refusal, not a restoration. And it would be a
+                 * risky one: the predicate above is a HARD `store_id` match, not the
+                 * nullable-tolerant rule used elsewhere, so a legitimate legacy product with a
+                 * NULL `store_id` would start being refused. Recorded for P01-COMMERCE-SEC-03.
+                 */
+                if (!empty($product_id) && $product_id != 0 && empty($Product)) {
+                    return $this->error(['message' => 'Product not found .']);
+                }
+
                 if (($settings['stock_management'] ?? null) === 'on') {
                     if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
                         $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();

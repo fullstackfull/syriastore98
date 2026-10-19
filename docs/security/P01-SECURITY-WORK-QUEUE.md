@@ -2614,11 +2614,18 @@ order write is reachable.
 All now read `(($settings['stock_management'] ?? null) === 'on')`, the form
 `PaymentController::stockManagementIsOn()` and `assertCartAvailable()` have always used.
 
-**One of the twelve was a different bug of the same family.** `ApiController::place_order:3254` was
-a **bare index** — `$settings['stock_management'] == 'on'`, no `??` at all — so a store that has
-never saved its settings raised "Undefined array key", which Laravel promotes to an
-`ErrorException`. On that path the "absent" case was a **500**, not a no-op. It is corrected with the
-rest and its data set is what proves it.
+**ONE CLAIM IN THIS SECTION'S FIRST VERSION WAS WRONG AND IS WITHDRAWN.** It said
+`ApiController::place_order:3254` was "a bare index ... so a store that has never saved its settings
+raised 'Undefined array key'", and that its "absent" case was a 500. **Both are false.**
+`place_order` does not read the settings table directly: `:3014` is
+`$settings = Utility::Setting($storeId)`, and `Utility.php:135` starts from `$array = $defaults`,
+which already contains `'stock_management' => 'off'` (`:111`). **The key is never absent on that
+path**, so the bare `== 'on'` it carried was already correct for `'off'`, `'yes'` and absent alike,
+and the change to `=== 'on'` there is a consistency normalisation with **no behavioural effect**.
+MEASURED, after the project's own `tenant-authz-reviewer` predicted exactly this: with `:3254`
+reverted to the bare index, all eight `place-order` rows stay green. The genuine absent-key path is
+`ordersave` (`:7755`), which reads the table raw. The test docblock now records which rows bite and
+which are a fence.
 
 **Two sites already used the correct `isset(...) && ... == 'on'` form and were left alone:**
 `PaymentService.php:2332` and `NMIPayController.php:580`. Their existence is the evidence this was a
@@ -2690,9 +2697,43 @@ and are stated rather than implied:
   its stock loop. Same exclusion, same reason, as `GatewayReturnTrustBoundaryTest` records.
 - **PayU** — the method is unrouted dead code; nothing can drive it. If it is ever routed it must be
   guarded first.
-- **`Cart::cart_qty_cookie`** — driven by a test, but that test asserts the *absence* of stock
-  movement and of an order, which is true on both sides of the fix; what changes there is which
-  increment branch runs.
+- **`Cart::cart_qty_cookie`** — now driven and **biting**, after its first test could not fail.
+  That test posted `variant_id => 0`, and `Cart.php:722` gates the block on
+  `if (!empty($request->variant_id) || $request->variant_id != 0)` — for `"0"` BOTH limbs are false,
+  so control went to the non-variant `else` at `:786` and **line 735 never executed**. The removal
+  check said as much (reverting it failed nothing) and the reviewer named the gate. It now drives a
+  real `ProductVariant` row with one unit of stock and `manage_stock` set, so the strict arm would
+  have refused the increment and the loose arm allows it: **1 fails** on revert.
+
+### What the tenant-authz review found in this package's own work
+
+Three corrections, each verified before being accepted, and one protection restored:
+
+1. **THIS CHANGE REMOVED A TENANCY PROTECTION AS A SIDE EFFECT** — the thing the brief forbids.
+   `ApiController::ordersave`'s refusal for a product the store does not own is the `else` of
+   `if (!empty($Product))` **inside** the `stock_management` arm (`:8034`). While the precedence bug
+   was live, an `'off'` store entered that arm anyway and so got the refusal; correcting the
+   precedence made the arm skip and **took the ownership check with it**. The order would have been
+   written recording another merchant's product, priced from their catalogue, with the shopper's
+   cart cleared — a cross-tenant **reference**, not a write, since the deduction is skipped too.
+   The refusal is now **hoisted out of the arm**, which restores the status quo rather than
+   tightening (same condition, same message; a managed store reaches it either way), and
+   `test_an_unmanaged_store_still_refuses_a_foreign_product_line` fails without it.
+   **`place_order` is deliberately NOT mirrored**: its expression was always correct, so an
+   unmanaged store there never had the refusal, and hoisting it would be a NEW refusal over a
+   **hard** `store_id` predicate that would start rejecting legitimate legacy NULL-store products.
+   Recorded for P01-COMMERCE-SEC-03.
+2. **The `place_order` absent-key claim** — withdrawn above.
+3. **The `Cart.php:735` test could not fail** — corrected above.
+
+And one finding that belongs to the next package but **raises its severity**:
+`ApiController::addtocart` can plant a cart row naming a **foreign** product through the host app,
+on its `attribute_id` branch (`:1451`), which never consults the store-scoped `$product` and writes
+`$request->product_id` verbatim at `:1557` — the null dereference that follows raises after the
+insert, with no transaction, so the row persists behind a 500. A later `order-save` on a managed
+store then decrements the other merchant's stock. That refutes the "module-gated only" reachability
+paragraph the next-package document shipped with; both are corrected in
+[`11-NEXT-PACKAGE-PRODUCTVARIANT-TENANCY.md`](../development/phase-1/11-NEXT-PACKAGE-PRODUCTVARIANT-TENANCY.md).
 
 ## Cross-repository row, carried over
 

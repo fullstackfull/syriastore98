@@ -94,20 +94,73 @@ So the work is wiring, not invention — the same argument that made P01-COMMERC
 
 ## 4. Reachability, stated honestly
 
-**This is a containment gap, not a demonstrated exploit, and the package must not be sold as one.**
-The add-to-cart chokepoints are store-scoped: `CartController::product_cartlist:264` and
-`ApiController::addtocart:960` both carry the predicate, and `addtocart` additionally constrains
-`variant_id` to the product. So through the host app a cart row cannot name a foreign product.
+**THIS PARAGRAPH'S FIRST VERSION WAS WRONG, and the correction raises the severity rather than
+lowering it.** It said: *"through the host app a cart row cannot name a foreign product"*, citing
+`CartController::product_cartlist:264` and `ApiController::addtocart:960`. The project's own
+`tenant-authz-reviewer` refuted it, and the refutation is traced below. That sentence is exactly the
+one that would have made someone deprioritise this package, so it is corrected in place.
 
-The writers that **can** put one there are vendored and module-gated —
-`packages/workdo/BoostSales/.../BoostSalesController.php:181-186` writes `product_id` straight from
-the request with no product or store check, and `FrequentlyProduct` is the same shape. Both are
-already named in S30/S32 for `qty`; this records that they are the same hole for `product_id` and
-`variant_id`. **No module loads in any test run**, so a test must enable one through the production
-loader and assert it is really active — the premise rule in `CLAUDE.md` §1.
+`product_cartlist:264` **does** hold. `addtocart` **does not**, on its default path:
 
-That is the honest severity: **the guard is incomplete, and the path to it runs through module code
-this project must not edit.** Which is itself the argument for guarding at the writer.
+```
+POST /api/{slugA}/addtocart     (custom.auth, a real store-A customer's own token)
+  product_id = <store B's variant product>, attribute_id = <store B's variant>, variant_id = same
+
+  :960   $product = Product::where('id', …)->where('store_id', $store->id)->first()   -> NULL, scoped
+  :1450  the top-level else (neither WholesaleProduct nor SizeGuideline active)
+  :1451  if (! empty($request->attribute_id) || …)        <-- never consults $product
+  :1452  ProductVariant::where('id', $request->attribute_id)
+             ->where('product_id', $request->product_id)   <-- the caller's own two values
+  :1518  $variant_id = isset($product_stock_datas->id) ? … : $request->variant_id
+             ($product_stock_datas is never assigned on this branch -> the POSTED id)
+  :1557  $cart->product_id = $request->product_id          <-- foreign
+  :1558  $cart->variant_id = $variant_id                   <-- foreign
+  :1569  $cart->save()                                     <-- ROW PERSISTS
+```
+
+The null dereference that follows raises **after** the insert, and there is no transaction around
+it, so the row survives behind a 500. A later `place-order` or `order-save` on a store with
+`stock_management = 'on'` then resolves that foreign variant at `:3256` / `:8036` and decrements
+**merchant B's** stock. `cart_list` cannot stop it — the row genuinely is store A's — and `Cart`'s
+global scope adds nothing on API routes, which carry no `storeSlug` and therefore resolve no tenant
+(`null_tenant => 'open'`).
+
+So the honest severity is: **a live cross-tenant stock write, reachable by an ordinary customer of
+one store with their own token, through two host-app requests.** Not module-gated, not latent.
+
+The vendored writers remain a second path — `packages/workdo/BoostSales/.../BoostSalesController.php:181-186`
+writes `product_id` straight from the request with no product or store check, and
+`FrequentlyProduct` is the same shape. Both are already named in S30/S32 for `qty`; this records
+that they are the same hole for `product_id` and `variant_id`. No module loads in any test run, so
+testing that path needs the production loader plus a premise assertion (`CLAUDE.md` §1) — but the
+`addtocart` path above needs none of that and should be the package's first unit.
+
+**A note on the fix shape, from the same review.** Prefer requiring the already-store-scoped
+`$Product` to be non-null before entering the variant branch, over adding
+`->where('store_id', …)` to the variant query: `product_variants.store_id` is **nullable**
+(`create_product_variants_table.php:30`), so a hard predicate would drop legitimate legacy rows.
+The same caution applies to the `Product` lookups themselves — `ApiController`'s are HARD
+`store_id` matches, unlike the nullable-tolerant rule `basketHasForeignProduct()` and `0ad3f7e0`
+use, and that inconsistency is its own small decision for this package to make explicitly.
+
+## 4b. Two further findings from the same review, for this package to absorb
+
+1. **`ApiController::place_order` has no ownership refusal for an unmanaged store.** Its product
+   lookup is store-scoped (`:3251`) but the refusal that acts on a null result lives inside the
+   `stock_management` arm (`:3380-3382`), and that handler's expression was always correct — so a
+   store with the setting off has **never** had that refusal. The order is written recording a
+   foreign product, priced from the other merchant's catalogue, with no stock movement: a
+   cross-tenant **reference**, not a write. S34 hoisted the equivalent refusal in `ordersave`
+   because the `stock_management` fix had removed it there; `place_order` was deliberately left,
+   because hoisting it would be a NEW refusal over a HARD `store_id` predicate and would start
+   rejecting legitimate legacy NULL-store products. **That is this package's decision to make.**
+2. **`ApiController::cart_qty` (`:1648`, route `api/{slug}/cart-qty`) is a second `if`/`else`
+   stock-management site**, with the same strict-versus-loose arms as `Cart::cart_qty_cookie`. S34
+   corrected its expression and no test drives it; neither arm does ownership work, so it is a
+   coverage gap rather than a hole. Worth one test here.
+3. **`Cart::cart_qty_cookie` dereferences `$cart_array->store_id` at `Cart.php:717` BEFORE the
+   `empty($cart_array)` check at `:718`**, so that guard is dead and a non-matching cart cookie
+   500s. Pre-existing, unrelated to tenancy, cheap to fix while in the file.
 
 ## 5. Scope boundary — what this package must NOT become
 

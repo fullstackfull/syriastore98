@@ -423,11 +423,27 @@ class StockManagementSettingTest extends SecurityTestCase
      * covered by nothing: reverting all three ApiController expressions failed no test in this
      * file until this one existed.
      *
-     * `place_order` carried a DIFFERENT defect of the same family and it is corrected with them:
-     * a bare `$settings['stock_management'] == 'on'` with no `??` at all, so a store that has
-     * never saved its settings raised "Undefined array key" — which Laravel promotes to an
-     * ErrorException — instead of simply not managing stock. That is why the "absent" data set
-     * matters more here than anywhere else: before the fix it was a 500, not a no-op.
+     * WHICH ROWS OF THIS TEST ACTUALLY BITE, because a claim in its first version was WRONG and
+     * is withdrawn here rather than left standing.
+     *
+     * `order-save` bites: `ApiController:7755` reads the settings table raw
+     * (`Setting::where('store_id', ...)->pluck()`), so the seeded `'off'` was truthy before the
+     * fix and all four of its states move.
+     *
+     * `place-order` DOES NOT BITE, and its site was already correct. It reads
+     * `Utility::Setting($storeId)` (`:3014`), which starts from `Utility.php:135` `$array =
+     * $defaults` -- and `$defaults` already contains `'stock_management' => 'off'` (`:111`). So
+     * the key is NEVER absent on that path, the bare `== 'on'` it carried was already right for
+     * `'off'`, `'yes'` and absent alike, and the change to `=== 'on'` is a consistency
+     * normalisation with no behavioural effect. MEASURED: with `:3254` reverted to the bare
+     * index, all eight `place-order` rows stay green.
+     *
+     * The first version of this docblock claimed that site raised "Undefined array key" for a
+     * never-configured store and that its "absent" case was a 500. BOTH ARE FALSE -- the defaults
+     * array makes absence impossible there -- and the project's own tenant-authz-reviewer
+     * predicted the 8/8 measurement before it was run. The `'absent'` label is an `'off'` case in
+     * disguise for `place-order`, and a genuine absent-key case only for `order-save`. Both are
+     * kept as a regression fence.
      *
      * The route pair is deliberate. Both sit behind `custom.auth`, which is authentication and
      * not authorization — see CLAUDE.md — so the principal here is a real Customer of this store
@@ -514,50 +530,149 @@ class StockManagementSettingTest extends SecurityTestCase
     }
 
     /**
-     * THE ONE CORRECTED SITE THAT IS NOT A DEDUCTION — `Cart::cart_qty_cookie()` (`Cart.php:735`),
+     * THE ONE CORRECTED SITE THAT IS NOT A DEDUCTION -- `Cart::cart_qty_cookie()` (`Cart.php:735`),
      * reached by `POST {slug}/change-cart`.
      *
      * RECORDED LOUDLY RATHER THAN CHANGED QUIETLY, because the owner's brief says not to change
-     * unrelated stock behaviour silently and this is the one place where the behaviour that
-     * changes is not a stock movement.
+     * unrelated stock behaviour silently, and this is the one place where what changes is not a
+     * stock movement.
      *
      * This site chooses between TWO branches rather than between "deduct" and "don't": the `if`
      * arm bounds a guest's cart increment by the variant's stock, the `else` arm applies looser
-     * rules driven by `stock_status`. With the precedence bug, a store with stock management OFF
-     * took the STRICT arm — it was bounded by a stock count it had asked the platform not to
-     * keep. After the fix it takes the `else` arm, which is what the setting asks for.
+     * `stock_status` rules. With the precedence bug a store with stock management OFF took the
+     * STRICT arm -- bounded by a stock count it had asked the platform not to keep. After the fix
+     * it takes the `else` arm, which is what the setting asks for. An unmanaged store's shopper
+     * can therefore now raise the cart quantity past the recorded stock figure. That moves no
+     * stock and writes no order.
      *
-     * So the change here is: an unmanaged store's shopper can now raise the cart quantity past
-     * the recorded stock figure. That is the correct reading of "stock management off", it moves
-     * no stock, it writes no order, and it is asserted here so that it is a decision on the
-     * record instead of a side effect nobody measured.
+     * THIS TEST'S FIRST VERSION COULD NOT FAIL, and the correction is recorded rather than
+     * quietly applied. It posted `variant_id => 0`, and `Cart.php:722` gates the whole block on
+     * `if (!empty($request->variant_id) || $request->variant_id != 0)` -- for `"0"` BOTH limbs are
+     * false (`!empty("0")` is false and `"0" != 0` is false), so control went to the non-variant
+     * `else` at `:786` and LINE 735 NEVER EXECUTED. MEASURED: reverting the `:735` change failed
+     * nothing in the whole file, and the project's own tenant-authz-reviewer named the gate. It
+     * now drives a REAL `ProductVariant` row, which is the only way into that branch.
+     *
+     * The strict arm refuses at `qty >= $ProductVariant->stock`, so with one unit of variant
+     * stock and one unit already in the cart, an unmanaged store must now increment where it used
+     * to be refused.
      */
-    public function test_an_unmanaged_store_does_not_bound_a_cart_increment_by_stock(): void
+    public function test_an_unmanaged_store_does_not_bound_a_cart_increment_by_variant_stock(): void
     {
         [, $store] = $this->tenant('off');
 
-        // One unit in stock, one already in the cart: the strict arm refuses the next increment.
-        $product = $this->productIn($store, 100.00, 1);
+        $product = $this->productIn($store, 100.00, 50);
+        $product->variant_product = 1;
         $product->stock_status = 'in_stock';
         $product->save();
 
-        $sid = $this->guestCart($store, $product);
+        // One unit of variant stock, and `manage_stock`, so the STRICT arm would bound it.
+        $variantId = DB::table('product_variants')->insertGetId([
+            'product_id' => $product->id, 'variant' => 'red',
+            'sku' => 'sm-' . uniqid(), 'price' => 100.00, 'stock' => 1,
+            'store_id' => $store->id, 'variation_option' => 'manage_stock',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $sid = 'sm-cookie-' . uniqid();
+        Cart::forceCreate([
+            'customer_id' => 0, 'product_id' => $product->id, 'variant_id' => $variantId,
+            'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+            'cookie_session_id' => $sid,
+        ]);
 
         $response = $this->withCookie('cart', $sid)
             ->post('/' . $store->slug . '/change-cart', [
                 'cart_id' => 0,
                 'product_id' => $product->id,
-                'variant_id' => 0,
-                'quantity_type' => 'plus',
+                'variant_id' => $variantId,
+                'quantity_type' => 'increase',
             ]);
 
         $response->assertOk();
 
-        $this->assertSame(1, self::stockOf($product),
-            'A cart increment moved stock. This path must never touch inventory.');
+        $this->assertStringNotContainsString('can not increase product quantity', (string) $response->getContent(),
+            'An unmanaged store still bounded a cart increment by a stock figure it had asked the '
+            . 'platform not to keep. Body: ' . substr((string) $response->getContent(), 0, 300));
+
+        $this->assertSame(50, self::stockOf($product),
+            'A cart increment moved product stock. This path must never touch inventory.');
+
+        $this->assertSame(1, (int) DB::table('product_variants')->where('id', $variantId)->value('stock'),
+            'A cart increment moved variant stock. This path must never touch inventory.');
 
         $this->assertSame(0, (int) DB::table('orders')->count(),
             'A cart increment wrote an order.');
+    }
+
+    /**
+     * AN UNMANAGED STORE STILL REFUSES A LINE NAMING ANOTHER MERCHANT'S PRODUCT.
+     *
+     * THE PROTECTION THIS PACKAGE REMOVED AS A SIDE EFFECT, and the reason the ownership refusal
+     * is now hoisted out of the stock-management arm in `ApiController::ordersave`.
+     *
+     * The refusal for a product this store does not own was the `else` of
+     * `if (!empty($Product))` / `if (!empty($ProductStock))` INSIDE that arm. While the
+     * precedence bug was live, a store with `stock_management = 'off'` entered the arm anyway and
+     * therefore got the refusal. Correcting the precedence made the arm skip for those stores and
+     * TOOK THE OWNERSHIP CHECK WITH IT -- the order would have been written recording another
+     * merchant's product, priced from their catalogue, with the shopper's cart cleared. No foreign
+     * stock moves (the deduction is skipped too), so it is a cross-tenant REFERENCE rather than a
+     * cross-tenant write; it is still a protection lost to a change that was about something else,
+     * which the brief forbids. Found by the project's own tenant-authz-reviewer.
+     *
+     * Hoisting it RESTORES the status quo rather than tightening: an unmanaged store was refused
+     * before this package and is refused again now, by the same condition with the same message.
+     * This test fails if the hoisted refusal is removed, and it would have failed against the
+     * intermediate state this package briefly had.
+     *
+     * `place_order` is deliberately NOT mirrored -- see the hoisted comment for why (its
+     * expression was already correct, so hoisting there would be a NEW refusal over a HARD
+     * `store_id` predicate that would start rejecting legitimate legacy NULL-store products).
+     */
+    public function test_an_unmanaged_store_still_refuses_a_foreign_product_line(): void
+    {
+        [, $storeA] = $this->tenant('off');
+        [, $storeB] = $this->tenant('on');
+
+        $shippingId = DB::table('shippings')->insertGetId([
+            'name' => 'standard', 'slug' => 'standard-' . uniqid(),
+            'store_id' => $storeA->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $customer = Customer::forceCreate([
+            'first_name' => 'Api', 'last_name' => 'Shopper',
+            'email' => 'sm-foreign-' . uniqid() . '@example.test',
+            'mobile' => '555' . random_int(100000, 999999),
+            'password' => bcrypt('not-a-real-password'),
+            'store_id' => $storeA->id, 'status' => 1, 'register_type' => 'email',
+        ]);
+
+        $foreign = $this->productIn($storeB, 10.00, 50);
+
+        // A store-A cart row naming store B's product -- the shape S30/S32 record as reachable
+        // through the two vendored module cart writers.
+        Cart::forceCreate([
+            'customer_id' => $customer->id, 'product_id' => $foreign->id, 'variant_id' => 0,
+            'qty' => 2, 'price' => 20.00, 'store_id' => $storeA->id,
+        ]);
+
+        $before = (int) DB::table('orders')->count();
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $customer->createToken('t')->plainTextToken])
+            ->postJson('/api/' . $storeA->slug . '/order-save', [
+                'customer_id' => $customer->id,
+                'billing_info' => $this->apiBilling(),
+                'payment_type' => 'cod',
+                'delivery_id' => $shippingId,
+                'method_id' => $shippingId,
+            ]);
+
+        $this->assertSame($before, (int) DB::table('orders')->count(),
+            'An unmanaged store wrote an order for a line naming another merchant\'s product.');
+
+        $this->assertSame(50, self::stockOf($foreign),
+            "Another merchant's stock moved from an unmanaged store's checkout.");
     }
 
     /**
