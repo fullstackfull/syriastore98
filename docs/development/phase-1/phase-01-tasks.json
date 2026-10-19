@@ -1258,6 +1258,43 @@
    ],
    "owner_decision": true,
    "blocked_on": "Repository owner setting. Cannot be scripted from a session."
+  },
+  {
+   "id": "P1-INV-07",
+   "title": "Three more unchecked ProductController routes: media delete, variant delete, and a request-id read leak",
+   "workstream": "inventory",
+   "risk": "high",
+   "status": "BACKLOG",
+   "issue": 48,
+   "scope": [
+    "app/Http/Controllers/ProductController.php",
+    "routes/web.php"
+   ],
+   "existing_status": "LIVE, found by the adversarial authz review of P1-INV-01, which was asked whether that fix had guarded one door and left another open. `file_delete` (:1956) unlinks another store's media from DISK with no permission and no ownership check; `product_attribute_delete` (:2000) deletes another store's variant and its stock; `attribute_combination_edit` (:1972) resolves `Product::find($request->id)` from REQUEST INPUT, so route-model binding and P1-INV-01's guard do not apply, and renders the foreign product.",
+   "depends_on": [
+    "P1-INV-01"
+   ],
+   "acceptance": [
+    "Each of the three refuses an object belonging to another store, before any read or write",
+    "file_delete cannot unlink another store's file, and the decision is made before File::delete()",
+    "product_attribute_delete cannot delete another store's variant or its stock",
+    "attribute_combination_edit resolves its product with a store predicate despite the id coming from request input",
+    "Each gains the permission limb its siblings have, or the omission is recorded with a reason",
+    "The platform operator is handled as in update()/destroy()"
+   ],
+   "tests": [
+    "Negative per route: a cross-store id changes nothing -- for file_delete, the file still exists on disk",
+    "Positive control per route: the owner's own media/variant/product still works",
+    "Removal check on each guard"
+   ],
+   "compatibility": "Merchant media and variant management must keep working; refusal shape matches the controller's existing redirect convention.",
+   "db": "None.",
+   "evidence": "Pending. Reviewer evidence: ProductController.php:1956-1969, :2000-2005, :1972-1997; routes/web.php:903, :905, :909.",
+   "queue_refs": [
+    "S37-1"
+   ],
+   "owner_decision": false,
+   "blocked_on": null
   }
  ]
 }

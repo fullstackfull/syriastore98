@@ -880,6 +880,29 @@ $Product->cost_price = $request->cost_price;
      */
     public function show(Product $product)
     {
+        /*
+         * OWNERSHIP ON THE BINDING. P1-INV-01 / S37-1.
+         *
+         * `show()` is reached with a route-model-bound `Product $product` and had no ownership
+         * check at all, so another store's product rendered into this merchant's form -- name,
+         * prices, cost, stock and variant rows. A read rather than a write, and the same binding
+         * the write used. Same shape as `destroy()` and `update()`: platform operator exempt,
+         * then `getCurrentStore()` against the product's own `store_id`.
+         */
+        $actor = auth()->user();
+
+        if ($actor === null || $actor->type !== \App\Policies\UserPolicy::PLATFORM_ADMIN) {
+            $currentStore = getCurrentStore();
+
+            if (
+                empty($currentStore)
+                || empty($product->store_id)
+                || (int) $product->store_id !== (int) $currentStore
+            ) {
+                return redirect()->back()->with('error', __('Permission denied.'));
+            }
+        }
+
         $store = getStoreById(getCurrentStore());
         $link = env('APP_URL') . ($store->slug ? ('/'.$store->slug) : '').'/product/';
         $Category = Category::where('store_id', getCurrentStore())->pluck('name', 'id')->prepend('Select Category', '');
@@ -910,6 +933,29 @@ $Product->cost_price = $request->cost_price;
      */
     public function edit(Product $product)
     {
+        /*
+         * OWNERSHIP ON THE BINDING. P1-INV-01 / S37-1.
+         *
+         * `edit()` is reached with a route-model-bound `Product $product` and had no ownership
+         * check at all, so another store's product rendered into this merchant's form -- name,
+         * prices, cost, stock and variant rows. A read rather than a write, and the same binding
+         * the write used. Same shape as `destroy()` and `update()`: platform operator exempt,
+         * then `getCurrentStore()` against the product's own `store_id`.
+         */
+        $actor = auth()->user();
+
+        if ($actor === null || $actor->type !== \App\Policies\UserPolicy::PLATFORM_ADMIN) {
+            $currentStore = getCurrentStore();
+
+            if (
+                empty($currentStore)
+                || empty($product->store_id)
+                || (int) $product->store_id !== (int) $currentStore
+            ) {
+                return redirect()->back()->with('error', __('Permission denied.'));
+            }
+        }
+
         $store = getStoreById(getCurrentStore());
         $link = env('APP_URL') . ($store->slug ? ('/'.$store->slug) : '').'/product/';
         $categories = Category::where('store_id', getCurrentStore())->get();
@@ -966,6 +1012,40 @@ $Product->cost_price = $request->cost_price;
     {
        
         if (auth()->user() && auth()->user()->isAbleTo('Edit Products')) {
+            $actor = auth()->user();
+
+            /*
+             * OWNERSHIP, BEFORE ANYTHING IS WRITTEN. P1-INV-01 / S37-1.
+             *
+             * `isAbleTo('Edit Products')` answers "may this user edit products" and never "may
+             * this user edit THIS product". The target is a route-model-bound `Product $product`,
+             * `App\Models\Product` is not in config/tenancy.php's `scoped_models` and registers
+             * no effective global scope (CLAUDE.md), so the binding resolves across every tenant.
+             *
+             * REPRODUCED BY EXECUTION before this guard was written: a store-A merchant with
+             * `Edit Products` on their own store sent `PUT /product/{store B id}` and renamed the
+             * victim's product and set its `product_stock` 50 -> 7.
+             *
+             * The shape is `destroy()`'s, deliberately — same method, same order, same message —
+             * rather than a second idiom for one question: `isAbleTo` first, the platform operator
+             * exempt via UserPolicy::PLATFORM_ADMIN (matching OrderPolicy::allow), then
+             * `getCurrentStore()` against the product's own `store_id`. An empty current store or
+             * an unowned product is refused: `getCurrentStore()` returns null for a user whose
+             * `current_store` is empty and who owns no store, and a null store must never read as
+             * "matches".
+             */
+            if ($actor->type !== \App\Policies\UserPolicy::PLATFORM_ADMIN) {
+                $currentStore = getCurrentStore();
+
+                if (
+                    empty($currentStore)
+                    || empty($product->store_id)
+                    || (int) $product->store_id !== (int) $currentStore
+                ) {
+                    return redirect()->back()->with('error', __('Permission denied.'));
+                }
+            }
+
             $dir        = 'uploads/' .getCurrentStore();
             if ($request->variant_product == 0) {
                 $rules = [
