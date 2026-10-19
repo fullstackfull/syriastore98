@@ -507,7 +507,23 @@ class WoocomProductController extends Controller
         $variantQuery = ProductVariant::query();
         foreach ($variants as $item) {
             $product_stock = [];
-                $existVariant = (clone $variantQuery)->where('product_id', $product->id)->where('variant', $variant_name)->first();
+                /*
+                 * STORE PREDICATE, matching this method's own convention. P1-INV-04, raised by
+                 * adversarial review as hardening rather than a hole.
+                 *
+                 * `ProductVariant` carries neither `BelongsToStore` nor an entry in
+                 * `config/tenancy.php`'s `scoped_models`, so this lookup had NO scope at all,
+                 * and the update branch below re-stamps `store_id` unconditionally. Post-fix
+                 * `$product->id` is provably the caller's, so the matched row is a variant of
+                 * their own product unless a mis-keyed row exists -- but the four attribute
+                 * lookups in `createProductAttribute()` (:556, :576, :592, :594) all carry this
+                 * predicate, and this was the one place in the file that did not.
+                 */
+                $existVariant = (clone $variantQuery)
+                    ->where('store_id', getCurrentStore())
+                    ->where('product_id', $product->id)
+                    ->where('variant', $variant_name)
+                    ->first();
                 
                 $product_stock['product_id'] = $product->id;
                

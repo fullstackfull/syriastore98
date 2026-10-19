@@ -162,12 +162,20 @@ class WoocomProductOwnershipTest extends SecurityTestCase
      * is true when `upload_woo_file()` fails, because its failure return has no `url` key. So the
      * attack S37-4 describes is latent behind a crash on any payload whose image does not upload.
      *
-     * That crash is NOT a protection and must not be mistaken for one: production has a storage
-     * setting configured and real images that download, so the write lands there. This fixture
-     * therefore reproduces the PRODUCTION precondition rather than the test environment's
-     * accident — `storage_setting = local`, a faked `theme` disk, a faked HTTP client for the
-     * HEAD, and a real local file for `file_get_contents()` to read, so nothing touches the
-     * network.
+     * That crash is NOT a protection and must not be mistaken for one.
+     *
+     * CORRECTION, FROM AN ADVERSARIAL REVIEW OF THIS FIX, AND IT MAKES THE DEFECT MORE LIVE THAN
+     * THE FIRST VERSION OF THIS COMMENT CLAIMED. I wrote that the `settings` row below is "the
+     * production precondition". It is not: `Utility::Setting()` SEEDS ITS RETURN FROM A DEFAULTS
+     * ARRAY CONTAINING `'storage_setting' => 'local'` (`app/Models/Utility.php:61`), and the
+     * no-rows fallback (`:152-154`) leaves that default intact. So `upload_woo_file()` enters its
+     * real branch — and the write lands — ON A DEFAULT INSTALL WITH NO STORAGE SETTINGS
+     * CONFIGURED AT ALL. The row inserted here is belt-and-braces, not what makes the path
+     * reachable. Verified by reading both lines.
+     *
+     * The rest of the fixture is what keeps this offline: a faked `theme` disk, a faked HTTP
+     * client for the HEAD, and a real local file for `file_get_contents()` to read, so nothing
+     * touches the network.
      */
     private function satisfyImageUpload($store): string
     {
@@ -182,8 +190,13 @@ class WoocomProductOwnershipTest extends SecurityTestCase
             '*' => \Illuminate\Support\Facades\Http::response('', 200, ['Content-Length' => '10']),
         ]);
 
-        $src = tempnam(sys_get_temp_dir(), 'woosrc') . '.jpg';
+        // tempnam() CREATES the file at the unsuffixed path, so BOTH paths need cleaning up --
+        // tracking only the suffixed one left an empty woosrc* file behind per test. Raised by
+        // review; this file already had a tearDown for exactly this class of leak.
+        $stub = tempnam(sys_get_temp_dir(), 'woosrc');
+        $src = $stub . '.jpg';
         file_put_contents($src, 'x');
+        $this->scratch[] = $stub;
         $this->scratch[] = $src;
 
         return $src;
@@ -238,6 +251,24 @@ class WoocomProductOwnershipTest extends SecurityTestCase
         $this->assertNotSame(500, $response->status(),
             'The refusal must not be a crash. Body: '
             . substr((string) $response->getContent(), 0, 300));
+        /*
+         * PIN THE REFUSAL TO THE CONTROL UNDER TEST. "before == after and not a 500" is also
+         * satisfied by a 302 from the PERMISSION branch (:287) or the CATEGORY branch (:334,
+         * :337), so without this the test would pass if the fixture ever stopped reaching the
+         * guards at all. `Product Not Found.` is produced in edit() only by the two new guards
+         * (:400, :426) and the empty-payload branch, and is distinct from both other refusals --
+         * verified by grepping every refusal string in the controller.
+         *
+         * Today the premise is also proven ELSEWHERE IN THIS FILE, because both positive tests
+         * use the same grant and the same category fixture and assert the name DID change. That
+         * is proof in the FILE, not in the TEST: delete either positive and all three negatives
+         * go vacuous silently. Raised by review as the one change worth making here.
+         */
+        $this->assertSame(__('Product Not Found.'), session('error'),
+            'The request was refused by something other than the ownership guards -- a missing '
+            . 'permission or the category precondition would satisfy every other assertion in '
+            . 'this test identically. Session error: ' . json_encode(session('error')));
+
     }
 
     /**
@@ -328,6 +359,11 @@ class WoocomProductOwnershipTest extends SecurityTestCase
         $this->assertNotSame(500, $response->status(),
             'The refusal must not be a crash. Body: '
             . substr((string) $response->getContent(), 0, 300));
+        // Pin the refusal to the control under test -- see the headline case.
+        $this->assertSame(__('Product Not Found.'), session('error'),
+            'Refused by something other than the ownership guards. Session error: '
+            . json_encode(session('error')));
+
     }
 
     /**
@@ -426,5 +462,10 @@ class WoocomProductOwnershipTest extends SecurityTestCase
         $this->assertNotSame(500, $response->status(),
             'The refusal must not be a crash. Body: '
             . substr((string) $response->getContent(), 0, 300));
+        // Pin the refusal to the control under test -- see the headline case.
+        $this->assertSame(__('Product Not Found.'), session('error'),
+            'Refused by something other than the ownership guards. Session error: '
+            . json_encode(session('error')));
+
     }
 }
