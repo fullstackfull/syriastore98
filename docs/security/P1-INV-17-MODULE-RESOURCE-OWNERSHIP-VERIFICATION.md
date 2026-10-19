@@ -162,6 +162,76 @@ take its own copy of the predicate with it.
 `RawQueryTenancyInventoryTest`'s platform-wide count is unchanged at 158: the site moved, it was
 not added.
 
+## What a second adversarial review found, after 22 green tests and a passing gate
+
+It could not find a request that makes the guard **allow** a write it should not. It found three
+defects in the surrounding work, and one of them was the kind this project keeps re-learning.
+
+### 1. The product-update test was VACUOUS — confirmed by removal check
+
+The one test covering `PUT auctionproduct/{auctionproduct}`, the entry on the **host `products`
+table**, asserted only that `name` and `store_id` were unchanged and that the response was not a
+500. **All three pass with the guard deleted**, measured:
+
+- the handler writes NULL into `products.trending` and `products.track_stock`, and SQLite refuses
+  that UPDATE — so `name` is unchanged whether or not the guard ran;
+- the handler never writes `store_id`, so that assertion could not move;
+- the whole body is wrapped in `catch (\Exception $e) { return $msg; }`
+  (`AuctionProductController.php:1494-1497`), and `QueryException` **is** an `Exception` — so the
+  failure is swallowed and the response is **HTTP 200**. `assertNotSame(500, …)` passed too.
+
+Worse: **two of my own docblocks already claimed the test asserted 403** — this file at its
+engine-hiding section, and the MySQL script in two places. The prose was right about what the test
+should do and the test did not do it. CLAUDE.md records this exact shape ("a test asserting 'the
+row didn't change' passes when the endpoint 500s for everyone"); this variant does not even 500.
+
+Fixed by asserting the status, and the fix was verified to bite: with the registration removed the
+test now fails with the handler's own `NOT NULL constraint failed: products.trending` in the
+message. The row assertions are kept as corroboration and the docblock now says so.
+
+### 2. The census ratchet was anchored on the uri, so a prefix would slip past it
+
+`test_the_guard_targets_and_the_route_table_agree`'s inverse direction matched
+`^(PUT|PATCH|DELETE) (auctionproduct|auctionsetting|auctionorder)/` — anchored at the *start of the
+uri*. A future `Route::prefix('admin')->resource('auctionproduct', …)` would register
+`PUT admin/auctionproduct/{auctionproduct}` and be invisible to it. Not hypothetical for this
+module: its own `RouteServiceProvider` already loads a second route file under `prefix('api')`. It
+is also the class `OrderDocumentAccessGuard`'s `order/{order}` entry records — **a second uri on
+the same handler**.
+
+Re-keyed on `$route->getActionName()`, which catches a prefix, a second uri *and* a rename, with a
+reachability assertion so a controller rename cannot make the scan pass vacuously. Verified to
+bite: a temporary prefixed declaration of `AuctionProductSettingController` produced all three of
+its methods as unguarded.
+
+### 3. The anonymous limb's premise was unpinned
+
+The guard refuses a null principal, and its docblock keeps that limb because "the group has `auth`
+today" is a property of a vendored file upstream may change — *which is exactly how the sibling
+guard's six routes came to be anonymous*. Nothing asserted it. The route-table test now requires
+`Authenticate` in every target's resolved stack, so losing it reddens here instead of silently
+promoting the belt-and-braces limb to the whole authentication requirement. Verified to bite by
+temporarily stripping `auth` from the module's group (vendored file restored; `git diff` clean).
+
+### 4. The MySQL script's step 3 could not fail — corrected
+
+Its probe defined a `compare()` method that was a **copy** of `storeMatches()`'s body rather than a
+call to it, under the heading "read off the guard's own predicate". Deleting the trait's
+`empty($rowStore)` limb would have left every line green. The copy is gone; step 3 now exercises
+the trait's real `usableId()` and the guard's TARGETS, asserts that **both** guards still `use` the
+trait, and states plainly that the store comparison is covered behaviourally by the suite and by
+source assertion in the inventory — not here. Steps 0-2, the engine difference and the landed
+cross-tenant rename, were always the script's value.
+
+### 5. One thing the review asked me to check, and the answer is no
+
+It flagged that the trait's operator limb normalises (`strtolower(trim(…))`) where
+`OrderPolicy::isPlatformAdmin` compares exactly, and asked whether the refactor had *widened* the
+sibling guard's limb. It had not: `git show 8c804e2f` shows the pre-refactor guard already used the
+normalised form at its `:235`, so the trait preserved it verbatim. The underlying concern — that
+`RESERVED_NAMES` is a case-sensitive list and `users.type` is written from a role name — is a
+role/user-workstream question and is being verified separately.
+
 ## What is NOT closed
 
 - **`show()` on the three resources.** The guard targets write methods only, and says so. Whether

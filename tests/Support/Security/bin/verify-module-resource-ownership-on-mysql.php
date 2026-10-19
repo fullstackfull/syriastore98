@@ -24,9 +24,12 @@
  *   2. that a NULL into `products.trending` is REFUSED by SQLite and ACCEPTED by MySQL under that
  *      mode -- the engine difference, measured rather than asserted;
  *   3. that the UPDATE the handler issues therefore lands on another store's row;
- *   4. that `App\Http\Middleware\ModuleResourceOwnershipGuard` refuses the request before the
- *      handler runs, so the write is unreachable -- read off the guard's own predicate against a
- *      real cross-tenant pair, not from the HTTP stack.
+ *   4. that the guard TARGETS the three `auctionproduct` methods against the HOST `products`
+ *      table, and that the shared id parser rejects every value MySQL would coerce to a
+ *      different row.
+ *
+ * WHAT IT DOES NOT ESTABLISH, stated because an earlier version of step 3 over-claimed it: the
+ * store comparison itself is not exercised here. See the note at step 3 for where it is.
  *
  * HOW TO RUN. Points at any throwaway MySQL you control; creates and drops its own database and
  * refuses a database name without 'verify' in it:
@@ -172,8 +175,8 @@ $out('SQLite REFUSES the same statement', $liteRefused,
 $out("SQLite leaves the victim's name unchanged", ($liteRow['name'] ?? null) === 'Victim product',
     'This is the measured reason the in-suite test asserts the 403 and not the row.');
 
-echo "\nSTEP 3 -- the guard refuses the request before the handler can issue that UPDATE.\n";
-echo "         Read off the guard's own predicate, with a real cross-tenant pair.\n";
+echo "\nSTEP 3 -- the guard targets that UPDATE, and the shared id parser is strict.\n";
+echo "         NOT the store comparison -- see the note below for why, and where that is covered.\n";
 
 $reflection = new ReflectionClass(App\Http\Middleware\ModuleResourceOwnershipGuard::class);
 $targets = $reflection->getConstant('TARGETS');
@@ -187,40 +190,54 @@ foreach (['PUT auctionproduct/{auctionproduct}', 'PATCH auctionproduct/{auctionp
         . 'table, which is what makes them a catalogue breach rather than a module one.');
 }
 
-// The store comparison itself, on the trait both guards share. A caller in store 1 against the
-// victim row in store 2.
+/*
+ * WHAT THIS STEP DOES AND DOES NOT ESTABLISH -- corrected after review.
+ *
+ * The first version of this block defined a probe class with a `compare()` method that was a
+ * COPY of storeMatches()'s body rather than a call to it, under the heading "read off the guard's
+ * own predicate". That is the vacuous-control shape: deleting the trait's `empty($rowStore)` limb
+ * would have left every line here green. The copy is gone.
+ *
+ * What is exercised below is the trait's REAL `usableId()`, called through the trait, plus the
+ * guard's TARGETS map above. `storeMatches()` itself is NOT exercised here and cannot sensibly be:
+ * it resolves the caller's store through `getCurrentStore($user->id)`, which reads the `users`
+ * table through a Cachable model, and standing that up in a throwaway schema would be testing the
+ * fixture. It is covered where it belongs:
+ *   - behaviourally by tests/Feature/Security/ModuleResourceOwnershipTest (the cross-store,
+ *     storeless-caller and NULL-store cases, each with a measured removal check), and
+ *   - by source assertion in tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest, which pins the
+ *     comparison, both fail-closed limbs and the explicit `getCurrentStore($user->id)`.
+ *
+ * This script's value is STEPS 0-2: the premise, the engine difference, and the cross-tenant
+ * rename that actually lands on MySQL and cannot land on SQLite.
+ */
 $trait = new ReflectionClass(App\Http\Middleware\Concerns\ComparesRowOwnership::class);
-$out('the ownership predicate is the shared trait', $trait->isTrait());
+$out('the ownership predicate is a shared trait, not a per-guard copy', $trait->isTrait()
+    && in_array(App\Http\Middleware\Concerns\ComparesRowOwnership::class,
+        class_uses(App\Http\Middleware\ModuleResourceOwnershipGuard::class) ?: [], true)
+    && in_array(App\Http\Middleware\Concerns\ComparesRowOwnership::class,
+        class_uses(App\Http\Middleware\ModuleOrderMutationGuard::class) ?: [], true),
+    'Both guards must USE it. One that stopped would take its own copy of the predicate with it, '
+    . 'which is the drift the shared trait exists to prevent.');
 
 $probe = new class {
     use App\Http\Middleware\Concerns\ComparesRowOwnership;
 
-    public function compare(?int $rowStore, int $callerStore): bool
-    {
-        // storeMatches() resolves the caller's store through getCurrentStore($user->id); this
-        // probe exercises the comparison with the resolved value supplied directly, so the
-        // assertion is about the predicate and not about the session.
-        if (empty($callerStore) || empty($rowStore)) {
-            return false;
-        }
-
-        return (int) $rowStore === (int) $callerStore;
-    }
-
+    /** The REAL trait method, called -- not reimplemented. */
     public function parse(mixed $value): ?int
     {
         return $this->usableId($value);
     }
 };
 
-$out('   store 1 does NOT own the victim row in store 2', $probe->compare(2, 1) === false);
-$out('   store 2 DOES own it', $probe->compare(2, 2) === true);
-$out('   a NULL-store row is owned by nobody', $probe->compare(null, 1) === false);
-$out('   and not by a storeless caller either (0 === 0 is not ownership)',
-    $probe->compare(null, 0) === false);
 $out("   `'7abc'` is not a usable id", $probe->parse('7abc') === null,
-    'MySQL would coerce it to row 7 -- see verify-module-order-mutation-id-coercion-on-mysql.php.');
+    "MySQL coerces it to row 7 -- step 1 of verify-module-order-mutation-id-coercion-on-mysql.php "
+    . 'measures exactly that -- so a guard that accepted it would authorise a row the handler then '
+    . 'resolves differently.');
 $out("   `'7'` is", $probe->parse('7') === 7);
+$out('   a negative id is not', $probe->parse('-1') === null);
+$out('   zero is not', $probe->parse('0') === null);
+$out('   an array is not', $probe->parse(['7']) === null);
 
 echo "\nSTEP 4 -- drop the throwaway database.\n";
 $pdo->exec("DROP DATABASE `{$database}`");

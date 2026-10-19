@@ -3711,6 +3711,55 @@ other 68 modules' `Route::resource` declarations remain #63's sweep.
 
 ---
 
+### S39-9 — a VACUOUS test on the most severe entry of the P1-INV-17 guard — **CLOSED**
+
+The one test covering `PUT auctionproduct/{auctionproduct}` — the entry on the **host `products`
+table**, i.e. the cross-tenant catalogue edit — asserted only that `name` and `store_id` were
+unchanged and that the response was not a 500. **All three pass with the guard deleted.** Measured
+by removal check:
+
+1. the handler writes NULL into `products.trending` and `products.track_stock`, and SQLite refuses
+   that UPDATE, so `name` is unchanged either way;
+2. the handler never writes `store_id`, so that assertion could not move;
+3. the body is wrapped in `catch (\Exception $e) { return $msg; }`
+   (`AuctionProductController.php:1494-1497`) and `QueryException` **is** an `Exception` — so the
+   failure is swallowed and the response is **HTTP 200**, which is why even the not-500 assertion
+   passed.
+
+**And two of my own docblocks already claimed the test asserted 403.** The prose described the
+test I meant to write; the test did not do it. Found by the second adversarial review, which
+quoted my own docblocks back at me.
+
+This is the shape CLAUDE.md records — "a test asserting 'the row didn't change' passes when the
+endpoint 500s for everyone" — with a new variant worth naming: **a handler that catches its own
+exception turns a crash into a 200, so even a not-500 assertion is not a liveness check.** The
+general rule this queue should carry: on a surface where the engine or a `catch` can absorb the
+write, assert the REFUSAL, never the row.
+
+Fixed by asserting the 403; the fix was verified to bite.
+
+### S39-10 — two ratchet holes that would have let the exposure return silently — **CLOSED**
+
+Both found by the second review, both latent, both cheap:
+
+- **The census was anchored on the uri.** `^(PUT|PATCH|DELETE) (auctionproduct|...)/ ` could not see
+  a prefixed declaration of the same controllers — and this module's own `RouteServiceProvider`
+  already loads a second route file under `prefix('api')`, so a prefixed resource is not
+  hypothetical. Re-keyed on `$route->getActionName()`, which catches a prefix, **a second uri on
+  the same handler** (the class `OrderDocumentAccessGuard`'s `order/{order}` entry records) and a
+  rename, with a reachability assertion so a controller rename cannot make the scan vacuous.
+  Verified by adding a temporary prefixed declaration: all three of its methods were reported.
+- **The anonymous limb's premise was unpinned.** The guard's docblock keeps that limb because "the
+  group has `auth` today" is a property of a vendored file upstream may change — *which is exactly
+  how the sibling guard's six routes came to be anonymous* — and nothing asserted it. The
+  route-table test now requires `Authenticate` in every target's stack. Verified by temporarily
+  stripping `auth` from the module group.
+
+Generalisable: **a census keyed on how a uri is spelled cannot see the declaration nobody thought
+of.** That is the third time this queue has recorded it (uri words for order documents, `Route::post`
+lines for module mutations, now the uri prefix), and each time the fix was to key on the handler
+instead.
+
 ### S39-8 — the raw-query inventory's glob was not recursive, and nearly lost a site — **CLOSED**
 
 Moving the shared ownership predicate into `app/Http/Middleware/Concerns/` took its `DB::table()`

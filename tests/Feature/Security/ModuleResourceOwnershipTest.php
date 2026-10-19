@@ -204,13 +204,35 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
 
         $after = (array) DB::table('products')->where('id', $victim)->first();
 
+        /*
+         * THE STATUS IS THE CONTROL HERE, AND THE FIRST VERSION OF THIS TEST DID NOT ASSERT IT --
+         * so it passed with the guard deleted, which a removal check measured. Three ways the row
+         * assertions fail to bite, all of them live:
+         *
+         *   1. the handler writes NULL into products.trending and products.track_stock from
+         *      unposted fields, and SQLite REFUSES that UPDATE, so `name` is unchanged whether or
+         *      not the guard ran (on production MySQL, strict => false, it is NOT unchanged --
+         *      see verify-module-resource-ownership-on-mysql.php);
+         *   2. the handler never writes store_id at all, so that assertion could not move;
+         *   3. the whole body is wrapped in `catch (\Exception $e) { return $msg; }`
+         *      (AuctionProductController.php:1494-1497), and QueryException is an Exception, so
+         *      the failure is swallowed and the response is HTTP 200 -- `assertNotSame(500, ...)`
+         *      passed too.
+         *
+         * 403 is produced by nothing in this chain but the guard: the caller holds the permission
+         * (so the Laratrust limb passes), is entitled (so PlanModuleCheck passes), and the row is
+         * another store's (so the guard reaches deny('other store') -> abort(403)). The row
+         * assertions are kept as corroboration, not as the control.
+         */
+        $this->assertSame(403, $response->status(),
+            'The guard did not refuse a cross-store product update. The row assertions below '
+            . 'CANNOT detect this -- SQLite refuses the handler\'s NULL write and its catch block '
+            . 'turns the failure into a 200. Body: '
+            . substr(strip_tags((string) $response->getContent()), 0, 300));
         $this->assertSame($before['name'], $after['name'],
             "Another store's product was renamed through the auction resource.");
         $this->assertSame((int) $before['store_id'], (int) $after['store_id'],
             "Another store's product changed store_id.");
-        $this->assertNotSame(500, $response->status(),
-            'The refusal must not be a crash. Body: '
-            . substr(strip_tags((string) $response->getContent()), 0, 300));
     }
 
     /** DEFECT 1b -- cross-tenant product DELETE. The host catalogue, by bare id. */
@@ -644,23 +666,83 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
             );
         }
 
-        // The other direction: every PUT/PATCH/DELETE the three auction resources register must
-        // be a target.
+        /*
+         * THE OTHER DIRECTION, KEYED ON THE CONTROLLER ACTION RATHER THAN THE URI.
+         *
+         * The first version matched `^(PUT|PATCH|DELETE) (auctionproduct|auctionsetting|...)/` --
+         * anchored at the start of the uri, so any future declaration of the same actions under a
+         * PREFIX was invisible to it. That is not hypothetical for this module: its own
+         * RouteServiceProvider already loads a second route file under `prefix('api')`, and a
+         * `Route::prefix('admin')->resource('auctionproduct', ...)` would register
+         * `PUT admin/auctionproduct/{auctionproduct}` and sail past the check. It is also exactly
+         * the class OrderDocumentAccessGuard's `order/{order}` entry records -- a SECOND URI ON
+         * THE SAME HANDLER.
+         *
+         * Keyed on the action, a prefix, a rename and a second uri are all caught.
+         */
+        $guardedActions = [
+            'AuctionProductController@update', 'AuctionProductController@destroy',
+            'AuctionProductSettingController@update', 'AuctionProductSettingController@destroy',
+            'AuctionOrdersController@update', 'AuctionOrdersController@destroy',
+        ];
+
         $unguarded = [];
+        $actionsSeen = [];
 
-        foreach (array_keys($registered) as $key) {
-            if (preg_match('/^(PUT|PATCH|DELETE) (auctionproduct|auctionsetting|auctionorder)\//', $key) !== 1) {
-                continue;
-            }
+        foreach (\Illuminate\Support\Facades\Route::getRoutes() as $route) {
+            $action = $route->getActionName();
 
-            if (! in_array($key, $targets, true)) {
-                $unguarded[] = $key;
+            foreach ($guardedActions as $guarded) {
+                if (! str_ends_with($action, $guarded)) {
+                    continue;
+                }
+
+                $actionsSeen[$guarded] = true;
+
+                foreach ($route->methods() as $method) {
+                    if (! in_array($method, ['PUT', 'PATCH', 'DELETE'], true)) {
+                        continue;
+                    }
+
+                    $key = $method . ' ' . $route->uri();
+
+                    if (! in_array($key, $targets, true)) {
+                        $unguarded[] = $key . '  -> ' . $action;
+                    }
+                }
             }
         }
 
         $this->assertSame([], $unguarded,
-            "An auction resource registers a mutation this guard does not target:\n  "
+            "A route reaches an auction mutation handler that this guard does not target. A "
+            . "second uri, a prefix or a rename will land here:\n  "
             . implode("\n  ", $unguarded));
+
+        // THE SCAN MUST BE REACHABLE. Six action names are listed; if a controller is renamed
+        // upstream the loop above silently matches nothing and passes vacuously.
+        $this->assertSame(
+            array_values($guardedActions),
+            array_keys($actionsSeen),
+            'The action scan no longer produces every guarded handler, so it would pass without '
+            . 'checking anything. Found: [' . implode(', ', array_keys($actionsSeen)) . ']'
+        );
+
+        /*
+         * AND THE PREMISE OF THE ANONYMOUS LIMB. The guard refuses a null principal, and its
+         * docblock keeps that limb because "the group has auth today" is a property of a vendored
+         * file upstream is free to change -- which is exactly how the sibling guard's six routes
+         * came to be anonymous. Nothing asserted that premise, so this does: if these routes ever
+         * LOSE Authenticate, this reddens and the limb stops being belt-and-braces.
+         */
+        foreach ($targets as $key) {
+            $this->assertContains(
+                \Illuminate\Auth\Middleware\Authenticate::class,
+                $registered[$key],
+                "`{$key}` no longer carries Authenticate. The guard's own anonymous limb now "
+                . 'carries the whole authentication requirement for it -- re-read the guard '
+                . 'docblock, which currently describes that limb as belt-and-braces.'
+            );
+        }
     }
 
     /**
