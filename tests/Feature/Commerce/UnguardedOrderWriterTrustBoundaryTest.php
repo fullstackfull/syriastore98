@@ -543,6 +543,34 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
         ];
     }
 
+    /**
+     * The same quantities MINUS the non-numeric one, for the handlers that price the cart from
+     * the DATABASE before any guard can look at it.
+     *
+     * NOT A CONVENIENCE -- a measured pre-existing defect, recorded here rather than papered
+     * over. `whatsapp()` reads its basket through `Cart::cart_list_cookie()`, and that model
+     * multiplies `$cart_value->qty` with no cast (app/Models/Cart.php:285, :288, :294 and nine
+     * more sites). A `carts.qty` of 'many' therefore raises
+     *
+     *     TypeError: Unsupported operand types: int * string
+     *
+     * inside the cart read at PaymentController.php:3171, BEFORE the quantity guard this package
+     * added. MEASURED with withoutExceptionHandling() against the real route.
+     *
+     * It FAILS CLOSED -- 500, no order, no stock movement -- so it is an availability defect in a
+     * shared storefront model rather than a trust-boundary hole, and fixing it means casting
+     * every one of those twelve sites in a model that every cart read on the platform goes
+     * through. That is a different change from this package and is reported, not attempted. The
+     * NMI case above DOES drive this quantity, because that handler's guard reads the stored
+     * state's cartlist rather than the database rows.
+     */
+    public static function unusableQuantitiesReachingTheCartRead(): array
+    {
+        $quantities = self::unusableQuantities();
+        unset($quantities['not a number']);
+
+        return $quantities;
+    }
 
     /**
      * A REPLAYED NMI RETURN CANNOT CHARGE THE CARD TWICE.
@@ -731,5 +759,172 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
 
         $this->assertSame($before, self::orderCount(),
             'An order was written for a basket holding another merchant\'s product.');
+    }
+
+    // =====================================================================================
+    //  WHATSAPP / TELEGRAM
+    // =====================================================================================
+
+    /** The state the WhatsApp view's own return carries. */
+    private function whatsappState($store, array $overrides = []): array
+    {
+        return array_merge([
+            'slug' => $store->slug,
+            'store_id' => $store->id,
+            'customer_id' => '',
+            'payment_type' => 'whatsapp',
+            'shipping_final_price' => 0,
+            'tax_price' => 0,
+            'cartlist_final_price' => 100.00,
+            'billing_info' => $this->billing(),
+        ], $overrides);
+    }
+
+    public function test_a_legitimate_whatsapp_order_is_still_written(): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store, 100.00, 50);
+        $sid = $this->guestCart($store, $product);
+
+        $before = self::orderCount();
+
+        $response = $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $this->whatsappState($store)])
+            ->post('/' . $store->slug . '/whatsapp', ['wts_number' => '123456789']);
+
+        $this->assertSame($before + 1, self::orderCount(),
+            'A legitimate WhatsApp order was not written (HTTP ' . $response->getStatusCode() . '), '
+            . 'so every refusal asserted below could be satisfied by a handler that refuses '
+            . 'everything. Body: ' . substr((string) $response->getContent(), 0, 400));
+
+        $order = DB::table('orders')->orderByDesc('id')->first();
+        $this->assertSame(0, (int) $order->customer_id, 'A guest order acquired an owner.');
+        $this->assertSame((int) $store->id, (int) $order->store_id, 'The order went to the wrong store.');
+        $this->assertSame(49, self::stockOf($product), 'A completed order did not consume its stock.');
+    }
+
+    /**
+     * A GUEST CANNOT CLAIM A WHATSAPP ORDER FOR ANOTHER CUSTOMER.
+     *
+     * The live defect: `$request->merge($requests_data)` sits on the authenticated arm only, so
+     * for a guest every later `$request->customer_id` was the POSTED value -- the order's owner,
+     * the `product_order_id`, and the `customer_id` of every row queued for deletion from the
+     * cart.
+     */
+    public function test_a_guest_cannot_claim_a_whatsapp_order_for_another_customer(): void
+    {
+        [, $store] = $this->tenant();
+        $victim = $this->customerIn($store, 'wa-victim');
+        $product = $this->productIn($store, 100.00, 50);
+        $sid = $this->guestCart($store, $product);
+
+        $victimCart = Cart::forceCreate([
+            'customer_id' => $victim->id, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 3, 'price' => 100.00, 'store_id' => $store->id,
+        ]);
+
+        $before = self::orderCount();
+
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $this->whatsappState($store)])
+            ->post('/' . $store->slug . '/whatsapp', [
+                'wts_number' => '123456789',
+                'customer_id' => $victim->id,
+            ]);
+
+        $this->assertSame($before + 1, self::orderCount(),
+            'No order was written, so the ownership assertion would be vacuous.');
+
+        $order = DB::table('orders')->orderByDesc('id')->first();
+        $this->assertSame(0, (int) $order->customer_id,
+            "A guest's posted customer_id became the WhatsApp order's owner.");
+
+        $this->assertNotNull(
+            Cart::withoutGlobalScopes()->find($victimCart->id),
+            "A guest's posted customer_id emptied another customer's basket."
+        );
+    }
+
+    /**
+     * ON THE DIRECT-POST PATH, THE STORE IS THE URL'S AND NOT THE BODY'S.
+     *
+     * WHICH PATH THIS DRIVES, AND WHY IT HAD TO CHANGE. My first version of this test posted
+     * `slug=<other store>` alongside a valid stored state and passed with the guard REVERTED --
+     * because with stored state present `$requests_data` IS that state, so the body's slug never
+     * reaches the slug read at all. Reverting the precedence failed nothing. MEASURED: 19 of 19
+     * still green. The test was vacuous and is rewritten here rather than kept.
+     *
+     * The precedence only decides anything on the FALLBACK path -- the direct post from the two
+     * checkout views, with no server state -- so that is what this drives: no session, a guest
+     * cart in store A, posted to store A's URL, with store B's slug and id in the body.
+     *
+     * WHAT THE HARM IS, STATED HONESTLY. This is NOT a cross-tenant breach and is not recorded as
+     * one: anyone may post to `/{storeB}/whatsapp` directly, so writing a store-B order through
+     * store-B's own slug gains an attacker nothing. What it produces is a handler that disagrees
+     * with its own URL -- ActiveTheme, themelanguage and every log line say store A while the
+     * settings read, the city rows, `orders.store_id` and the cart deletes go to store B. The fix
+     * is kept because it is correct and costs nothing, and it is reported as a consistency fix
+     * with a bite rather than as a closed vulnerability.
+     */
+    public function test_on_the_direct_post_path_the_store_is_the_urls_and_not_the_bodys(): void
+    {
+        [, $storeA] = $this->tenant();
+        [, $storeB] = $this->tenant();
+        $product = $this->productIn($storeA, 100.00, 50);
+        $sid = $this->guestCart($storeA, $product);
+
+        $before = self::orderCount();
+
+        // No withSession(): this is the checkout-page post that never passed through processOrder.
+        $this->withCookie('cart', $sid)
+            ->post('/' . $storeA->slug . '/whatsapp', [
+                'wts_number' => '123456789',
+                'slug' => $storeB->slug,
+                'store_id' => $storeB->id,
+                'payment_type' => 'whatsapp',
+                'billing_info' => $this->billing(),
+            ]);
+
+        $this->assertSame($before + 1, self::orderCount(),
+            'The direct-post path wrote no order at all, so the store assertion would be vacuous. '
+            . 'With the body preferred this is exactly what happened: the handler resolved store B, '
+            . "found no cart for this cookie there, and answered 'Cart is empty.'");
+
+        $order = DB::table('orders')->orderByDesc('id')->first();
+        $this->assertSame((int) $storeA->id, (int) $order->store_id,
+            "A posted slug wrote the order into a store other than the one whose URL was posted to.");
+        $this->assertSame(49, self::stockOf($product),
+            "The order was written but store A's stock did not move, so the stores still disagree.");
+    }
+
+    /**
+     * AN UNUSABLE LINE QUANTITY IS REFUSED ON THE WHATSAPP ORDER TOO.
+     *
+     * The non-numeric quantity is excluded and the reason is itself a finding -- see
+     * unusableQuantitiesReachingTheCartRead().
+     *
+     * @dataProvider unusableQuantitiesReachingTheCartRead
+     */
+    public function test_an_unusable_quantity_is_refused_on_the_whatsapp_order($qty): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store, 100.00, 50);
+        $sid = $this->guestCart($store, $product, $qty);
+
+        $before = self::orderCount();
+
+        $response = $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $this->whatsappState($store)])
+            ->post('/' . $store->slug . '/whatsapp', ['wts_number' => '123456789']);
+
+        $this->assertStringContainsString(
+            self::QUANTITY_REFUSAL,
+            (string) $response->getContent(),
+            'The quantity guard did not fire for qty ' . var_export($qty, true)
+        );
+        $this->assertSame($before, self::orderCount(),
+            'An unusable quantity wrote a WhatsApp order. qty ' . var_export($qty, true));
+        $this->assertSame(50, self::stockOf($product),
+            'An unusable quantity moved stock. qty ' . var_export($qty, true));
     }
 }

@@ -3011,18 +3011,107 @@ $result = app(\App\Services\StoreNotificationService::class)
 
     
 
+    /**
+     * THE WHATSAPP / TELEGRAM ORDER WRITER. P01-COMMERCE-SEC-02.
+     * =========================================================================================
+     *
+     * WHY THIS ONE KEEPS ITS `$request->all()` FALLBACK when the seven gateway returns lost
+     * theirs. It is not only a return. Three views post to this route
+     * (`POST {storeSlug?}/whatsapp` and `{storeSlug?}/telegram`, routes/customer.php:179-180):
+     * resources/views/payment/whatsapp.blade.php:42 is a genuine return with stored state, while
+     * front_end/sections/payment_list.blade.php:21 and front_end/pages/checkout.blade.php:191
+     * post from the checkout page WITHOUT passing through processOrder(), so no server state
+     * exists for them to read. Requiring stored state would refuse a live payment method, which
+     * is the one thing the preserve-first rule does not allow a security fix to do quietly.
+     *
+     * SO THE BOUNDARY IS DRAWN PER FIELD INSTEAD, and the three fields that decide WHOSE order
+     * this is, and in WHICH store, stop being the caller's:
+     *
+     *   1. THE STORE IS THE URL'S, NOT THE BODY'S. The method received `$slug` from the route and
+     *      then overwrote it with `$requests_data['slug']` -- so a POST to storeA's URL carrying
+     *      `slug=storeB` wrote storeB's order, read storeB's settings and emptied carts in
+     *      storeB. Every legitimate caller builds this URL with its own slug
+     *      (`route('user.whatsapp', $slug)` in all three views), so the route parameter is both
+     *      the authoritative value and the one already being sent. The body is consulted ONLY
+     *      when the route carries no slug -- `{storeSlug?}` is optional -- and a mismatch is
+     *      logged rather than silently preferred.
+     *
+     *   2. THE CUSTOMER IS THE PRINCIPAL'S OR THE STORED STATE'S, NEVER THE BODY'S. This is the
+     *      same defect 0eee8524 closed on the gateway returns, still live here: the
+     *      `$request->merge($requests_data)` below sits on the AUTHENTICATED arm only, so for a
+     *      guest every later `$request->customer_id` was the POSTED one -- it became
+     *      `orders.customer_id`, the `product_order_id`, and the `customer_id` of every row in
+     *      `$cartLinesToClear`. A guest could post a victim's id and write an order owned by the
+     *      victim while emptying that victim's basket in this store.
+     *
+     *   3. The shipping method was already closed one leg deeper, at the
+     *      CartController::get_shipping_method chokepoint (0ad3f7e0), so a posted `method_id`
+     *      can no longer price this checkout from another tenant's table or below zero.
+     *
+     * WHAT WAS ALREADY SAFE HERE, and is left alone: every money figure is read from the
+     * SERVER's cart (Cart::cart_list_cookie / ApiController::cart_list), the tax comes from
+     * OrderTaxResolver, the stock loop is atomic with give-back, the order row and its four
+     * children commit in one transaction, and payment_status is derived through
+     * PaymentVerificationService. Those are P01-SEC-14's, not this package's.
+     */
     public function whatsapp(Request $request, $slug)
     {
-        $requests_data = (Session::get('request_data'));
+        $storedState = Session::get('request_data');
+        $hasStoredState = is_array($storedState) && $storedState !== [];
 
-        if ($requests_data == null) {
-            $requests_data = $request->all();
+        $requests_data = $hasStoredState ? $storedState : $request->all();
+
+        /*
+         * THE ROUTE'S SLUG WINS. See point 1 in the method docblock. `$slug` is the route
+         * parameter as declared by `{storeSlug?}`; the body is the fallback for the case where
+         * the optional parameter is genuinely absent.
+         */
+        $routeSlug = is_string($slug) ? trim($slug) : '';
+        $bodySlug = !empty($requests_data['slug']) ? (string) $requests_data['slug'] : '';
+
+        if ($routeSlug !== '' && $bodySlug !== '' && $routeSlug !== $bodySlug) {
+            \Illuminate\Support\Facades\Log::warning('Whatsapp order writer: posted slug does not match the route slug; the route wins.', [
+                'route_slug' => $routeSlug,
+                'posted_slug' => $bodySlug,
+                'path' => $request->path(),
+                'ip' => $request->ip(),
+                'authenticated_customer' => optional(auth('customers')->user())->id,
+                'had_stored_state' => $hasStoredState,
+            ]);
         }
-        $slug = !empty($requests_data['slug']) ? $requests_data['slug'] : '';
+
+        $slug = $routeSlug !== '' ? $routeSlug : $bodySlug;
         $store = getStore($slug);
 
+        if (empty($store)) {
+            return $this->error(['message' => __('Store not found.')]);
+        }
+
+        /*
+         * And the state agrees with it from here on. `$requests_data['slug']` is read again lower
+         * down -- it is merged into the request for the two apply_coupon() calls -- so leaving
+         * the body's value in place would have the handler resolving one store for the order and
+         * passing another store's slug around inside it. apply_coupon() happens to scope on its
+         * own `$slug` ARGUMENT (ApiController.php:3714), which is this one, so nothing was
+         * exploitable through it; the divergence is removed rather than left for the next reader
+         * to re-derive.
+         */
+        $requests_data['slug'] = $slug;
+
         Session::forget('request_data');
-        $customer_id = $requests_data['customer_id'] ?? '';
+
+        /*
+         * THE ORDER'S OWNER. See point 2 in the method docblock. An authenticated shopper is
+         * themselves; otherwise it is whatever the SERVER stored at initiation -- '' for a real
+         * guest -- and never what arrived in the body. Pinned onto the request too, because the
+         * guest arm below reads `$request->customer_id` directly in four places and no merge
+         * runs on it.
+         */
+        $authenticatedCustomerId = optional(auth('customers')->user())->id;
+        $customer_id = $authenticatedCustomerId
+            ?? ($hasStoredState ? ($storedState['customer_id'] ?? '') : '');
+        $requests_data['customer_id'] = $customer_id;
+        $request->merge(['customer_id' => $customer_id]);
 
         if (!empty($requests_data['method_id'])) {
 
@@ -3031,9 +3120,18 @@ $result = app(\App\Services\StoreNotificationService::class)
         $user = Cache::remember('admin_details', 3600, function () {
             return User::where('type','admin')->first();
         });
-        if ($user->type == 'admin') {
+        $plan = null;
+        if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);
         }
+
+        /*
+         * `$plan->shipping_method` is read three times below and `$plan` was only ever assigned
+         * inside the `type == 'admin'` test above -- so on a platform whose admin row is missing
+         * or is not of that type, this method died on a null property read instead of saying
+         * anything. Shipping is simply off when there is no plan to read it from.
+         */
+        $planShippingMethod = $plan->shipping_method ?? 'off';
         if (!auth('customers')->user()) {
             if ($request->coupon_code != null) {
                 $coupon = Coupon::where('id', $request->coupon_info['coupon_id'])->where('store_id', $store->id)->first();
@@ -3177,7 +3275,7 @@ $result = app(\App\Services\StoreNotificationService::class)
         }
 
         $delivery_price = 0;
-        if ($plan->shipping_method == 'on') {
+        if ($planShippingMethod == 'on') {
             if (!empty($request->method_id)) {
                 $del_charge = new CartController();
                 $delivery_charge = $del_charge->get_shipping_method($request, $slug);
@@ -3201,6 +3299,25 @@ $result = app(\App\Services\StoreNotificationService::class)
             } else {
                 $tax_price = 0;
             }
+        }
+
+        /*
+         * AN UNUSABLE LINE QUANTITY REFUSES THE WHOLE BASKET, before any stock moves and before
+         * any order is priced from it. See
+         * GuardsGatewayReturn::basketHasUnusableQuantity() for the measurement behind both
+         * bounds; this handler had neither. The cart is read server-side here, but `carts.qty`
+         * itself is written straight from the request with no validation by two vendored module
+         * routes under plain `web` (BoostSales, FrequentlyProduct -- S30), and processOrder()'s
+         * own check at initiation cannot cover a row added between the checkout page and this
+         * POST.
+         *
+         * A negative line ADDS stock on every decrement it reaches and REDUCES every total it is
+         * summed into; an absurd one (2147483647) drives stock as far negative as the column
+         * goes. Refusing the basket rather than skipping the line is deliberate: skipping prices
+         * an order the shopper did not ask for.
+         */
+        if ($this->basketHasUnusableQuantity($products)) {
+            return $this->error(['message' => __('Your cart contains an invalid quantity. Please review your cart and try again.')]);
         }
 
         $settings = Setting::where('store_id', $store->id)->pluck('value', 'name')->toArray();
@@ -3455,7 +3572,7 @@ $result = app(\App\Services\StoreNotificationService::class)
         $order->delivery_price = $delivery_price;
         $order->tax_price = $tax_price;
         if (!auth('customers')->user()) {
-            if ($plan->shipping_method == "on") {
+            if ($planShippingMethod == "on") {
                 $order->final_price = $final_price + $delivery_price;
             } else {
                 $order->final_price = $final_price;
@@ -3466,13 +3583,13 @@ $result = app(\App\Services\StoreNotificationService::class)
                 $customerDetail = Customer::find($customer_id);
                 $rewardSetting = getAdminAllSetting($store->created_by, $store->id) ?? null;
                 $saveRewardPrice = ($customerDetail->total_club_point * $rewardSetting['reward_point_price'] ?? 0) / ($rewardSetting['reward_points'] ?? 0);
-                if ($plan->shipping_method == "on") {
+                if ($planShippingMethod == "on") {
                     $order->final_price = $final_price + $delivery_price - $saveRewardPrice;
                 } else {
                     $order->final_price = $final_price - $saveRewardPrice;
                 }
             } else {
-                if ($plan->shipping_method == "on") {
+                if ($planShippingMethod == "on") {
                     $order->final_price = $final_price + $delivery_price;
                 } else {
                     $order->final_price = $final_price;
