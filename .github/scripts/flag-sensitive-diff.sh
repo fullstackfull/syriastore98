@@ -46,7 +46,15 @@ if [[ -z "$CHANGED" ]]; then
   exit 0
 fi
 
-PATTERN='(^config/|/config/|routes/|Audit|audit/|Middleware/|^routes/|bootstrap/app\.php|Policies/|Permission|Role|Billing|Entitlement|Seat|Plan|Signature|Secret|Credential|Token|/config/|^\.github/)'
+# Every alternative here is a surface where a diff can remove a control without the new code looking
+# wrong. `Providers/` and `RateLimiter|Throttle` are on the list because the limiter definitions were
+# NOT: every rate limiter in the Lynomia integration lives in one service provider, and a diff
+# touching only that file -- retuning a multiple, reordering the throttle tiers -- matched nothing
+# here and cleared this gate with exit 0. That is the P0 the commerce and ingress fixes closed, so
+# the change that re-opens it has to be asked the questions. `src/app/` covers the integration's own
+# services, jobs, listeners and controllers for the same reason; its views, tests and lang files are
+# deliberately left out.
+PATTERN='(^config/|/config/|routes/|Audit|audit/|Middleware/|^routes/|bootstrap/app\.php|Policies/|Permission|Role|Billing|Entitlement|Seat|Plan|Signature|Secret|Credential|Token|/config/|^\.github/|Providers/|RateLimiter|Throttle|database/migrations/|packages/workdo/LynomiaChat/src/app/)'
 SENSITIVE="$(echo "$CHANGED" | grep -E "$PATTERN" || true)"
 
 if [[ -z "$SENSITIVE" ]]; then

@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Workdo\LynomiaChat\app\Services\AccountLinker;
 use Workdo\LynomiaChat\app\Services\AccountProvisioner;
+use Workdo\LynomiaChat\app\Services\CommerceCredential;
+use Workdo\LynomiaChat\app\Services\EventSignature;
 use Workdo\LynomiaChat\app\Services\EventSubscriptionManager;
 use Workdo\LynomiaChat\app\Services\IdentityProvisioner;
 use Workdo\LynomiaChat\app\Services\MerchantInboxGateway;
@@ -172,6 +174,76 @@ class LynomiaChatServiceProvider extends ServiceProvider
     }
 
     /**
+     * ONE NUMBER CONFIGURES THE COMMERCE BUDGETS, because two could contradict each other and
+     * did: the installation ceiling shipped below a single store's budget, which made the
+     * per-store budget unreachable and kept the cross-merchant 429 the tiers exist to stop.
+     *
+     * The ratio is fixed in code rather than configured. An installation ceiling is only
+     * meaningful relative to what one store may spend, so the thing an operator tunes is the
+     * store's budget; the ceiling follows it. Isolation across N simultaneously busy stores
+     * needs the ceiling to be at least N times the budget, so ten is the number of busy stores
+     * this installation is sized for -- raise the multiple, in code and with a reason, before
+     * the eleventh.
+     */
+    private const COMMERCE_INSTALLATION_MULTIPLE = 10;
+
+    /** What ONE verified store may spend per minute. The floor is the events limiter's. */
+    private static function commerceStoreBudget(): int
+    {
+        return max(60, (int) config('lynomia.commerce_rate_per_minute', 600));
+    }
+
+    /**
+     * THE EVENT BUDGETS, derived the same way and for the same reason as the commerce pair
+     * below -- see the note there. `lynomia-ingress` had the identical defect: 300/minute keyed
+     * on the caller IP, in front of a per-store budget of 600, on a route Lynomia delivers every
+     * merchant's events to from one egress address. No store could reach its own budget and
+     * `lynomia-events:all` was unreachable.
+     *
+     * IT IS WORSE HERE THAN IT WAS THERE, in two ways. A refused commerce read degrades a panel;
+     * a refused delivery is GONE -- an account webhook failure is swallowed by Webhooks::Trigger
+     * and never retried, as the note on registerIngressLimiter records. And `lynomia-ingress` is
+     * tier 1 for TWO routes, merchant events and the platform's own notices, so the 300 was
+     * shared between them: a busy merchant's traffic silently consumed the budget the
+     * installation needed to tell its merchants their integration was broken.
+     */
+    private const INGRESS_INSTALLATION_MULTIPLE = 10;
+
+    /** What ONE verified store may spend on deliveries per minute. */
+    private static function ingressStoreBudget(): int
+    {
+        return max(60, (int) config('lynomia.ingress_rate_per_minute', 600));
+    }
+
+    /** What the platform's own notices may spend per minute. */
+    private static function platformIngressBudget(): int
+    {
+        return max(60, (int) config('lynomia.platform_ingress_rate_per_minute', 600));
+    }
+
+    /** What ALL merchant deliveries together may spend per minute. */
+    private static function ingressEventsCeiling(): int
+    {
+        return self::ingressStoreBudget() * self::INGRESS_INSTALLATION_MULTIPLE;
+    }
+
+    /**
+     * What tier 1 allows, which has to cover BOTH tiers beneath it: `lynomia-ingress` is the
+     * first element of the merchant-events stack and of the platform-events stack, so a ceiling
+     * sized for one of them starves the other.
+     */
+    private static function ingressSharedCeiling(): int
+    {
+        return self::ingressEventsCeiling() + self::platformIngressBudget();
+    }
+
+    /** What ALL commerce traffic may spend per minute, which on one egress address is the ceiling. */
+    private static function commerceInstallationCeiling(): int
+    {
+        return self::commerceStoreBudget() * self::COMMERCE_INSTALLATION_MULTIPLE;
+    }
+
+    /**
      * A BUCKET PER STORE, BECAUSE THE INHERITED ONE WAS A BUCKET PER PLANET.
      *
      * The ingress route carried `->middleware('api')`, and bootstrap/app.php applies
@@ -196,28 +268,113 @@ class LynomiaChatServiceProvider extends ServiceProvider
      */
     protected function registerIngressLimiter(): void
     {
-        // TIER 1 -- the anonymous flood. Everyone pays this, before anything is parsed or
-        // verified, keyed on the caller. It is the only limit an UNVERIFIED request can consume,
-        // so no amount of garbage can touch a merchant's delivery budget.
+        // TIER 1 -- what a delivery pays BEFORE its signature is checked, for both ingress routes.
+        //
+        // KEYED ON THE IP, WHICH HERE MEANS KEYED ON THE WHOLE INSTALLATION, because Lynomia
+        // delivers every merchant's events from a single egress address. So this is the ceiling on
+        // all inbound deliveries there are, and it is sized as one -- see ingressSharedCeiling.
+        // It used to be 300, below one store's 600, which is why no store could reach its own
+        // budget and why a busy merchant could silently consume the allowance the platform's own
+        // notices needed.
+        //
+        // WHAT STILL BOUNDS GARBAGE CHEAPLY. A request carrying no signature header at all cannot
+        // be Lynomia, and seeing that is a header lookup -- no HMAC over the body, no key
+        // derivation, no database read. It gets its own much smaller allowance, which a real
+        // delivery never touches. A signed-but-forged delivery does reach the HMAC, bounded by the
+        // ceiling: that work is one hash, and a tight bound in front of it is shared with honest
+        // deliveries, which is the defect above.
         RateLimiter::for('lynomia-ingress', function (Request $request) {
-            return [
-                Limit::perMinute((int) config('lynomia.ingress_unverified_rate_per_minute', 300))
+            $limits = [
+                Limit::perMinute(self::ingressSharedCeiling())
                     ->by('lynomia-ingress:ip:' . $request->ip()),
             ];
+
+            if (! $request->hasHeader(EventSignature::SIGNATURE_HEADER)) {
+                $limits[] = Limit::perMinute(max(1, (int) config('lynomia.ingress_unverified_rate_per_minute', 300)))
+                    ->by('lynomia-ingress:unsigned:' . $request->ip());
+            }
+
+            return $limits;
         });
 
-        // The commerce API: per credential-bearing store, resolved from the token rather than
-        // the IP, so one merchant's adapter traffic cannot starve another's. Unauthenticated
-        // callers fall to the IP tier below because the middleware rejects them before any
-        // store is known.
+        // THE COMMERCE API, TIER 1 -- what a request pays BEFORE its credential is parsed.
+        //
+        // KEYED ON THE IP, WHICH ON THIS ROUTE MEANS KEYED ON THE WHOLE INSTALLATION. Lynomia is
+        // the only caller of this API and it reads every merchant's orders from a single egress
+        // address, so a per-IP limit here is not a per-caller limit -- it is the ceiling on all
+        // commerce traffic there is. That is why the number is the INSTALLATION ceiling and is
+        // derived from the per-store budget rather than configured beside it.
+        //
+        // THE FIRST ATTEMPT AT THIS FIX GOT IT WRONG, and the way it was wrong is worth keeping
+        // written down. Reordering the stack made the per-store budget reachable, but this tier
+        // kept the 120/minute the single shared bucket used to have -- below one store's 600 --
+        // so the binding constraint was still one 120/minute allowance for the entire
+        // installation, on the very same `lynomia-commerce:ip:` key as the defect. A store could
+        // not reach its own budget, `lynomia-commerce:all` was unreachable, and one busy
+        // merchant still returned 429 to every other merchant's panel. A per-store budget behind
+        // an installation ceiling smaller than itself is not a per-store budget.
+        //
+        // WHAT STILL BOUNDS GARBAGE CHEAPLY. A request whose Authorization header does not even
+        // carry a `lsc_`-shaped bearer token cannot be Lynomia, and recognising that is a string
+        // comparison -- no HMAC, no database read. It gets its own much smaller allowance, which
+        // honest traffic never touches. A well-formed but forged credential does reach the HMAC
+        // and the link lookup, bounded by the installation ceiling: that work is one hash and one
+        // indexed read, and the alternative -- a tight shared bound in front of it -- is the
+        // defect above.
+        RateLimiter::for('lynomia-commerce-ip', function (Request $request) {
+            $limits = [
+                Limit::perMinute(self::commerceInstallationCeiling())
+                    ->by('lynomia-commerce:ip:' . $request->ip()),
+            ];
+
+            if (! str_starts_with((string) $request->header('Authorization', ''), 'Bearer ' . CommerceCredential::PREFIX)) {
+                $limits[] = Limit::perMinute(max(1, (int) config('lynomia.commerce_unverified_rate_per_minute', 120)))
+                    ->by('lynomia-commerce:malformed:' . $request->ip());
+            }
+
+            return $limits;
+        });
+
+        // THE COMMERCE API, TIER 2 -- the real per-store budget, and ONLY a credential-verified
+        // request reaches it.
+        //
+        // THIS USED TO BE ONE TIER AND IT WAS THE IP ONE, FOR EVERY MERCHANT AT ONCE. The route
+        // listed `throttle:lynomia-commerce` BEFORE AuthenticateCommerceApi, and this limiter
+        // read the store from a request attribute that the middleware sets at the END of its
+        // handle(). Laravel resolves a named limiter when the throttle middleware runs, so the
+        // attribute was always unset, `is_int($store)` was always false, and every request --
+        // every store's -- fell to one shared bucket keyed on the caller IP. Lynomia reads every
+        // merchant's orders from one egress address, so that bucket was ONE 120/minute allowance
+        // for the entire installation: one busy merchant's agents returned 429 to every other
+        // merchant's commerce panel, and Lynomia does not retry a 429 (its Commerce::HttpClient
+        // retries only 502/503/504), so the panel degraded or went blank for a tenant who had
+        // done nothing. The per-store branch below was unreachable dead code.
+        //
+        // The route now carries the three-element stack the events ingress has carried all
+        // along -- IP ceiling, then verification, then this -- which is what makes the store id
+        // here a VERIFIED one rather than an absent one.
         RateLimiter::for('lynomia-commerce', function (Request $request) {
             $store = $request->attributes->get(
                 \Workdo\LynomiaChat\app\Http\Middleware\AuthenticateCommerceApi::STORE_ID
             );
 
-            return is_int($store)
-                ? [Limit::perMinute((int) config('lynomia.commerce_rate_per_minute', 600))->by('lynomia-commerce:store:' . $store)]
-                : [Limit::perMinute(120)->by('lynomia-commerce:ip:' . $request->ip())];
+            // Unreachable in the configured stack -- AuthenticateCommerceApi rejects an
+            // unverified request before this runs, and the store id is stamped from the
+            // credential it just verified, never from anything the caller supplied. If some
+            // future rewiring lets one through, it gets no budget at all rather than somebody
+            // else's: the same choice `lynomia-events` makes, for the same reason.
+            if (! is_int($store)) {
+                return [Limit::perMinute(1)->by('lynomia-commerce:unverified:' . $request->ip())];
+            }
+
+            return [
+                Limit::perMinute(self::commerceStoreBudget())->by('lynomia-commerce:store:' . $store),
+                // The same installation ceiling tier 1 applies, measured again behind the
+                // credential check. Redundant while Lynomia calls from one address, and not
+                // redundant the day it calls from two: tier 1's key is the address, this one's
+                // is the installation. Both read one number so they cannot drift apart.
+                Limit::perMinute(self::commerceInstallationCeiling())->by('lynomia-commerce:all'),
+            ];
         });
 
         // TIER 2 -- the real per-store budget, and ONLY a signature-verified delivery reaches
@@ -234,13 +391,11 @@ class LynomiaChatServiceProvider extends ServiceProvider
                 return [Limit::perMinute(1)->by('lynomia-events:unverified:' . $request->ip())];
             }
 
-            $perMinute = max(60, (int) config('lynomia.ingress_rate_per_minute', 600));
-
             return [
-                Limit::perMinute($perMinute)->by('lynomia-events:store:' . $store),
-                // A whole-installation ceiling, so many verified stores together still cannot
-                // saturate the host.
-                Limit::perMinute($perMinute * 10)->by('lynomia-events:all'),
+                Limit::perMinute(self::ingressStoreBudget())->by('lynomia-events:store:' . $store),
+                // Every merchant's deliveries together. Tier 1 covers this plus the platform's
+                // share; both read the same helpers, so the three numbers cannot contradict.
+                Limit::perMinute(self::ingressEventsCeiling())->by('lynomia-events:all'),
             ];
         });
 
@@ -272,8 +427,7 @@ class LynomiaChatServiceProvider extends ServiceProvider
         // there are no tenants to be fair between. Generous, because a burst of delivery
         // receipts after a queue drains is ordinary and must not look like an attack.
         RateLimiter::for('lynomia-platform-events', function (Request $request) {
-            return [Limit::perMinute((int) config('lynomia.platform_ingress_rate_per_minute', 600))
-                ->by('lynomia-platform-events')];
+            return [Limit::perMinute(self::platformIngressBudget())->by('lynomia-platform-events')];
         });
 
         // B4. Confirming a merchant's number makes a phone ring, so the budget is small and it

@@ -34,6 +34,9 @@ The `sensitive-diff-review` CI job flags a pull request when the diff touches an
 - `**/Billing*`, `**/*Entitlement*`, `**/*Seat*`, `**/*Plan*` — entitlement and quota
 - `**/*Signature*`, `**/*Secret*`, `**/*Credential*`, `**/*Token*` — provider credentials
 - `**/config/**` — configuration defaults that act as controls
+- `**/Providers/**`, `**/*RateLimiter*`, `**/*Throttle*` — rate limits and service bindings
+- `**/database/migrations/**` — schema changes that relax a constraint
+- `packages/workdo/LynomiaChat/src/app/**` — the integration's own services, jobs and controllers
 - `.github/**` — the gates themselves
 
 ## The checklist

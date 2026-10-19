@@ -601,48 +601,28 @@ jobs:
         # cannot drift from reality again without a test failing.
         run: php tests/Support/ApiContract/bin/check-auth-coverage.php
 
-      - name: Security-sensitive diff - review checklist
-        # MOVED HERE FROM `regression-gate`, AND THE MOVE IS THE POINT. That job is
-        # pull_request-only, so this checklist -- the only thing standing between a change to
-        # config/, routes/, Middleware/, Policies/, Permission, Role, Billing, Token or Secret
-        # and `main` -- ran NOWHERE on a direct push. Every commit in this repository's history
-        # but one arrived by direct push. The step needs nothing but git and bash, so it belongs
-        # in the job that runs on every event.
-        #
-        # ON A PULL REQUEST: unchanged and BLOCKING. The acknowledgement must be in the body.
-        # ON A PUSH: there is no pull request body, so the acknowledgement is looked for in the
-        # pushed commit messages, and a miss is REPORTED (a ::warning:: plus a run-summary
-        # entry) rather than enforced. That makes the bypass VISIBLE, which is what was missing;
-        # it does not make it reviewed. Enforcing it on `main` means requiring pull requests,
-        # which is branch protection -- a repository setting this file cannot assert.
-        #
-        # Deliberately NOT gated on a repository variable. `if: vars.ALLOW_COMPOSER_INSTALL`
-        # is how every PHPUnit suite here was silently disabled once already, and
-        # RequiredGateWiringTest now fails any condition that mentions `vars.`.
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          BEFORE_SHA: ${{ github.event.before }}
-          EVENT_NAME: ${{ github.event_name }}
-          # VIA THE ENVIRONMENT, NEVER INTERPOLATED INTO THE SCRIPT. ${{ }} substitution
-          # happens before the shell sees the line, so a pull request body is
-          # attacker-controlled text pasted into a command -- a body carrying a quote and a
-          # semicolon would execute.
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: |
-          set -euo pipefail
-          base="${BASE_SHA:-$BEFORE_SHA}"
-          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
-            base="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
-          fi
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            printf '%s' "$PR_BODY" > /tmp/sensitive-ack.txt
-            mode=enforce
-          else
-            git log --format=%B "${base}..HEAD" > /tmp/sensitive-ack.txt 2>/dev/null \
-              || : > /tmp/sensitive-ack.txt
-            mode=report
-          fi
-          .github/scripts/flag-sensitive-diff.sh "$base" /tmp/sensitive-ack.txt "$mode"
+      # THE SECURITY-SENSITIVE DIFF CHECKLIST IS DELIBERATELY NOT A STEP IN THIS JOB.
+      #
+      # P01-A' put it here, and the reasoning was sound: this job runs on every event, so it
+      # covered the direct push to main that the pull_request-only `regression-gate` never saw,
+      # enforcing on a pull request and reporting on a push. Independently, main moved the same
+      # step out of `regression-gate` into .github/workflows/security-attestation.yml, because
+      # that job could not be cleared by a DESCRIPTION edit -- ci.yml does not run on `edited`,
+      # so a reviewer who signed the checklist watched the gate stay red.
+      #
+      # Both fixes were right about their own hole, and keeping both would have left TWO
+      # enforcing copies of one gate -- the "duplicated incorrectly" failure, where clearing one
+      # copy still leaves the other red for a reason the reviewer cannot see. The reconciliation:
+      #
+      #   pull request  ->  .github/workflows/security-attestation.yml       ENFORCING
+      #                     (runs on `edited` too, so signing the checklist clears it)
+      #   push          ->  .github/workflows/security-attestation-push.yml  REPORT ONLY
+      #                     (no body to acknowledge in; makes the bypass visible, not reviewed)
+      #
+      # tests/Unit/Ci/SecurityAttestationWiringTest.php asserts this file never names
+      # flag-sensitive-diff.sh, which is what stops the step being reinstated here by someone
+      # fixing the push hole a third time. tests/Unit/Ci/RequiredGateWiringTest.php asserts the
+      # split above: exactly one ENFORCING workflow, and every other caller in `report` mode.
 
   # ---------------------------------------------------------------------------
   # Secret scanning. Two layers: a dependency-free screen over the diff that always
@@ -1644,11 +1624,32 @@ jobs:
             --base-ref="${{ steps.base.outputs.sha }}" \
             --official-exit="${{ steps.official.outputs.exit }}"
 
-      # THE SECURITY-SENSITIVE DIFF CHECKLIST USED TO BE THE NEXT STEP IN THIS JOB.
-      # It moved to the `static` job in P01-A', because this job is pull_request-only and the
-      # checklist therefore never ran on a direct push to main. It is not duplicated here: one
-      # implementation, in the job that runs on every event, enforcing on a pull request and
-      # reporting on a push. Nothing about this job's merge-base comparison changed.
+      # THE ATTESTATION USED TO BE THE NEXT STEP HERE. It is now in
+      # .github/workflows/security-attestation.yml, and NOTHING in this file runs
+      # flag-sensitive-diff.sh any more. Both halves of that sentence are load-bearing, and they
+      # come from two separate fixes that landed independently and were reconciled in this merge.
+      #
+      # WHY IT LEFT THIS JOB (main). It is the one check a pull request DESCRIPTION edit can
+      # change, and this workflow does not run on an edit. Leaving it here meant a reviewer who
+      # signed the checklist watched the gate stay red until somebody pushed a cosmetic commit.
+      # Moving it weakens nothing: the same script, the same marker, run on every pull request
+      # event including `edited`.
+      #
+      # WHY THIS WORKFLOW'S TRIGGER IS STILL NOT WIDENED TO INCLUDE `edited` (main). A check run
+      # is per-commit, so a job that SKIPPED on an edit would publish a "skipped" run for the same
+      # head SHA and replace the "failure" from the code run -- and a skipped required check
+      # counts as satisfied. Red tests plus a description edit would have become a green required
+      # check. The attestation lives in a workflow whose single job always runs instead.
+      #
+      # WHY IT IS NOT IN THE `static` JOB EITHER (the reconciliation). P01-A' had moved this step
+      # to `static`, to fix a DIFFERENT hole in the same control: `static` runs on every event, so
+      # it covered the direct push to main that this pull_request-only job never saw. Both fixes
+      # were right about their own hole and incompatible as written -- two enforcing copies of one
+      # gate. main's placement wins for the pull-request path because it also clears the `edited`
+      # trap, and SecurityAttestationWiringTest pins that by asserting this file never names the
+      # script. The push coverage P01-A' added is NOT dropped: it moved to
+      # .github/workflows/security-attestation-push.yml, which runs the same script in `report`
+      # mode, where it cannot trap a reviewer because it never blocks.
 
       - uses: actions/upload-artifact@v4
         if: always()

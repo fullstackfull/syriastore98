@@ -109,13 +109,54 @@ return [
      * from Lynomia rather than waiting for a re-delivery that never comes.
      */
     /**
-     * The ceiling on UNVERIFIED inbound requests, per caller IP, per minute. This is the only
-     * limit a request without a valid signature can consume -- the per-store budget below is
-     * spent exclusively by deliveries that have already proved they came from Lynomia.
+     * THE EVENT BUDGET. `ingress_rate_per_minute` is what ONE verified store may spend on
+     * deliveries, and the only knob here that scales what merchants can deliver: the ceiling over
+     * all merchants is ten times it, derived in code
+     * (LynomiaChatServiceProvider::INGRESS_INSTALLATION_MULTIPLE), and the shared pre-verification
+     * tier is that plus the platform's own budget below. Three numbers that have to agree, derived
+     * from one, because as three independent settings they did not: the shared tier shipped at 300
+     * while one store's budget was 600, so no store could reach its own and a busy merchant
+     * silently consumed the allowance the platform's notices needed.
+     *
+     * `ingress_unverified_rate_per_minute` is NOT that ceiling. It is the much smaller allowance
+     * for a request carrying no signature header at all -- a header lookup, before any HMAC over
+     * the body -- which a real delivery never pays. A signed-but-forged delivery is bounded by the
+     * shared ceiling instead, because a tight bound in front of the HMAC is shared with honest
+     * deliveries, and a refused delivery here is a destroyed one.
      */
+    'ingress_rate_per_minute' => (int) env('LYNOMIA_INGRESS_RATE_PER_MINUTE', 600),
+
     'ingress_unverified_rate_per_minute' => (int) env('LYNOMIA_INGRESS_UNVERIFIED_RATE_PER_MINUTE', 300),
 
-    'ingress_rate_per_minute' => (int) env('LYNOMIA_INGRESS_RATE_PER_MINUTE', 600),
+    /**
+     * THE COMMERCE API'S BUDGET. `commerce_rate_per_minute` is what ONE verified store may spend,
+     * and it is the only number here that scales merchant throughput: the whole-installation
+     * ceiling is derived from it in code, at ten times its value
+     * (LynomiaChatServiceProvider::COMMERCE_INSTALLATION_MULTIPLE), because a ceiling is only
+     * meaningful relative to what one store may spend and two independently configured numbers
+     * could contradict each other. They did -- the ceiling shipped BELOW one store's budget, so
+     * no store could reach its own budget and one busy merchant still returned 429 to every
+     * other merchant's panel. Raise this one knob to give every store more; there is no separate
+     * ceiling to raise with it.
+     *
+     * Higher than one inbox needs, because one panel open is several calls -- the customer
+     * lookup, the orders, the carts -- and an agent moving between conversations pays that each
+     * time. The floor is 60; below that the limiter uses 60 anyway.
+     *
+     * `commerce_unverified_rate_per_minute` is NOT that ceiling and must not be read as one. It
+     * is the much smaller allowance for a request whose Authorization header does not even carry
+     * an `lsc_`-shaped bearer token -- recognised by a string comparison, before any HMAC or
+     * database read, and never paid by Lynomia. A well-formed but forged credential is bounded
+     * by the installation ceiling instead, because a tight bound in front of the HMAC is shared
+     * with honest traffic and that is exactly how the cross-merchant defect happened.
+     *
+     * BOTH WERE READ FROM A KEY THAT DID NOT EXIST. `config('lynomia.commerce_rate_per_minute')`
+     * had no entry here, so the limiter silently used its inline default -- and could not be
+     * tuned without a code change, unlike every sibling limit on this page.
+     */
+    'commerce_rate_per_minute' => (int) env('LYNOMIA_COMMERCE_RATE_PER_MINUTE', 600),
+
+    'commerce_unverified_rate_per_minute' => (int) env('LYNOMIA_COMMERCE_UNVERIFIED_RATE_PER_MINUTE', 120),
 
     /**
      * The Automation Studio's own budget, per PERSON rather than per store.

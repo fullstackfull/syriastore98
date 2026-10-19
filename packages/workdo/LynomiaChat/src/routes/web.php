@@ -138,9 +138,20 @@ Route::post('/lynomia/platform-events', [PlatformEventIngressController::class, 
 //
 // No `web` either: no session, no CSRF, no cookies. This is server to server.
 Route::prefix('api/lynomia/commerce/v1')
+    // ORDER MATTERS, THE SAME WAY IT MATTERS ON THE EVENTS INGRESS ABOVE. The per-IP ceiling is
+    // first and is the only one an unverified caller can spend. AuthenticateCommerceApi then
+    // verifies the `lsc_` credential and stamps the store id it resolved from it. Only a
+    // verified request reaches the per-store budget, so no anonymous caller can exhaust a
+    // merchant's allowance -- and, because the stamp comes from the credential rather than from
+    // anything in the request, no merchant can spend another merchant's.
+    //
+    // This group previously carried only two of the three, with the throttle FIRST: the limiter
+    // read a store id the middleware had not stamped yet, so every merchant shared one IP-keyed
+    // bucket. See LynomiaChatServiceProvider::registerIngressLimiter.
     ->middleware([
-        'throttle:lynomia-commerce',
+        'throttle:lynomia-commerce-ip',
         \Workdo\LynomiaChat\app\Http\Middleware\AuthenticateCommerceApi::class,
+        'throttle:lynomia-commerce',
     ])
     ->name('lynomia.commerce.v1.')
     ->group(function () {
