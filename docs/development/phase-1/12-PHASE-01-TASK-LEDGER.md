@@ -10,8 +10,8 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 52 — 14 DONE, 15 READY, 8 BACKLOG, 15 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
-| Requiring an owner decision | 18 |
+| Tasks | 55 — 15 DONE, 17 READY, 8 BACKLOG, 15 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
+| Requiring an owner decision | 19 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
 A task is **not** `DONE` because code was committed — `DONE` requires its acceptance criteria verified, with the evidence recorded in its row.
@@ -43,6 +43,10 @@ graph TD
   P1_INV_08 --> P1_INV_12
   P1_INV_04 --> P1_INV_13
   P1_INV_02 --> P1_INV_14
+  P1_INV_14 --> P1_INV_16
+  P1_INV_02 --> P1_INV_16
+  P1_INV_14 --> P1_ORD_06
+  P1_INV_14 --> P1_INV_17
   P1_INV_02 --> P1_INV_15
   P1_INV_04 --> P1_OWN_07
   P1_R_01
@@ -98,36 +102,38 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 6. `P1-INV-11` — Unvalidated parent_id leaks every store's category names, and admits a tree cycle that fatals *(inventory, READY, risk medium)*
 7. `P1-INV-12` — Deleting a category deletes every product in it by FK cascade, below the application *(inventory, READY, risk high)*
 8. `P1-INV-13` — The Woo/Shopify import family: three more unscoped mapping resolves, one still carrying a store-transfer primitive *(inventory, READY, risk high)*
-9. `P1-INV-14` — URGENT: an UNAUTHENTICATED vendored route calls Order::product_return with raw request input *(inventory, READY, risk critical)*
-10. `P1-INV-15` — Order::product_return robustness: POS orders 500, no transaction, tax_price zeroed, and a double-credit across the two return endpoints *(inventory, READY, risk medium)*
-11. `P1-PAY-04` — COD settles at order time, which blocks releasing GATE F *(payments, BLOCKED, risk high)*
-12. `P1-MIG-03` — Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns *(migrations, BLOCKED, risk high)*
-13. `P1-MIG-01` — GATE F: release the six money-bearing tables *(migrations, BLOCKED, risk high)*
-14. `P1-MIG-02` — customers.password_otp is INTEGER while the web reset writes a 60-char bcrypt hash *(migrations, BLOCKED, risk high)*
-15. `P1-MIG-04` — SCHEMA-01: nine more tables live code uses with no migration *(migrations, BLOCKED, risk medium)*
-16. `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted *(orders, BACKLOG, risk high)*
-17. `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon *(orders, BACKLOG, risk high)*
-18. `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account *(orders, BLOCKED, risk high)*
-19. `P1-ORD-05` — The order read family: a forgeable encrypted id reaches any store's order, and two handlers lock out the operator *(orders, READY, risk high)*
-20. `P1-OWN-01` — BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour *(security, BLOCKED, risk high)*
-21. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
-22. `P1-OWN-03` — The compromised API log on the running server *(security, BLOCKED, risk high)*
-23. `P1-OWN-04` — Token lifetime and abilities for clients already on merchants' phones *(security, BLOCKED, risk high)*
-24. `P1-OWN-05` — Anonymous order-document access (customerpayment) and tooling decisions *(platform, BLOCKED, risk medium)*
-25. `P1-OWN-06` — Branch protection and required checks on main *(platform, BLOCKED, risk medium)*
-26. `P1-OWN-07` — Reconcile data residue from the pre-fix WooCommerce transfer primitive (read-only investigation) *(owner, READY, risk high)*
-27. `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites *(payments, READY, risk medium)*
-28. `P1-PAY-02` — Idempotency on gateway returns and order writers *(payments, BACKLOG, risk high)*
-29. `P1-PAY-03` — Gateway callback authenticity: no return proves a payment moved *(payments, BLOCKED, risk high)*
-30. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, READY, risk high)*
-31. `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites *(platform, BACKLOG, risk high)*
-32. `P1-PLT-04` — Module loading swallows every exception with no log line *(platform, BLOCKED, risk medium)*
-33. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, BACKLOG, risk medium)*
-34. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, READY, risk high)*
-35. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, READY, risk medium)*
-36. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, READY, risk medium)*
-37. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
-38. `P1-SEC-06` — Authenticated SSRF: four import handlers fetch a merchant-controlled URL and serve the response *(security, READY, risk high)*
+9. `P1-INV-15` — Order::product_return robustness: POS orders 500, no transaction, tax_price zeroed, and a double-credit across the two return endpoints *(inventory, READY, risk medium)*
+10. `P1-INV-16` — AuctionProductOrder::product_return restocks an unscoped Product, has no replay guard, and its non-variant path is a silent no-op *(inventory, READY, risk high)*
+11. `P1-INV-17` — four cross-tenant writes behind AuctionProduct's Route::resource routes, two of them on the HOST Product and one that MOVES another store's row *(inventory, READY, risk critical)*
+12. `P1-PAY-04` — COD settles at order time, which blocks releasing GATE F *(payments, BLOCKED, risk high)*
+13. `P1-MIG-03` — Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns *(migrations, BLOCKED, risk high)*
+14. `P1-MIG-01` — GATE F: release the six money-bearing tables *(migrations, BLOCKED, risk high)*
+15. `P1-MIG-02` — customers.password_otp is INTEGER while the web reset writes a 60-char bcrypt hash *(migrations, BLOCKED, risk high)*
+16. `P1-MIG-04` — SCHEMA-01: nine more tables live code uses with no migration *(migrations, BLOCKED, risk medium)*
+17. `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted *(orders, BACKLOG, risk high)*
+18. `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon *(orders, BACKLOG, risk high)*
+19. `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account *(orders, BLOCKED, risk high)*
+20. `P1-ORD-05` — The order read family: a forgeable encrypted id reaches any store's order, and two handlers lock out the operator *(orders, READY, risk high)*
+21. `P1-ORD-06` — auction-order-status-change reads the HOST orders table with an auction id and POSTs the result, PII included, to a merchant-configured URL *(orders, READY, risk high)*
+22. `P1-OWN-01` — BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour *(security, BLOCKED, risk high)*
+23. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
+24. `P1-OWN-03` — The compromised API log on the running server *(security, BLOCKED, risk high)*
+25. `P1-OWN-04` — Token lifetime and abilities for clients already on merchants' phones *(security, BLOCKED, risk high)*
+26. `P1-OWN-05` — Anonymous order-document access (customerpayment) and tooling decisions *(platform, BLOCKED, risk medium)*
+27. `P1-OWN-06` — Branch protection and required checks on main *(platform, BLOCKED, risk medium)*
+28. `P1-OWN-07` — Reconcile data residue from the pre-fix WooCommerce transfer primitive (read-only investigation) *(owner, READY, risk high)*
+29. `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites *(payments, READY, risk medium)*
+30. `P1-PAY-02` — Idempotency on gateway returns and order writers *(payments, BACKLOG, risk high)*
+31. `P1-PAY-03` — Gateway callback authenticity: no return proves a payment moved *(payments, BLOCKED, risk high)*
+32. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, READY, risk high)*
+33. `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites *(platform, BACKLOG, risk high)*
+34. `P1-PLT-04` — Module loading swallows every exception with no log line *(platform, BLOCKED, risk medium)*
+35. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, BACKLOG, risk medium)*
+36. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, READY, risk high)*
+37. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, READY, risk medium)*
+38. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, READY, risk medium)*
+39. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
+40. `P1-SEC-06` — Authenticated SSRF: four import handlers fetch a merchant-controlled URL and serve the response *(security, READY, risk high)*
 
 ---
 
@@ -854,38 +860,112 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 
 **Evidence.** 
 
-### `P1-INV-14` — URGENT: an UNAUTHENTICATED vendored route calls Order::product_return with raw request input
+### `P1-INV-14` — URGENT: SIX unauthenticated vendored admin mutations, two of them calling the host Order model and one a money write
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **DONE** |
 | Risk | critical |
 | Workstream | Inventory & Stock |
 | GitHub issue | #57 |
 | Owner decision required | no |
 | Depends on | `P1-INV-02` |
-| Scope | `app/Http/Middleware/`, `bootstrap/app.php`, `tests/Support/Security/bin/` |
-| Queue references | S37-2 |
+| Scope | `app/Http/Middleware/ModuleOrderMutationGuard.php`, `bootstrap/app.php`, `tests/Feature/Security/ModuleOrderMutationGuardTest.php`, `tests/Support/Security/bin/verify-module-order-mutation-route-cache.php`, `docs/security/P1-INV-14-MODULE-ORDER-MUTATION-VERIFICATION.md`, `tests/Support/Security/bin/verify-module-order-mutation-id-coercion-on-mysql.php`, `tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest.php`, `tests/Feature/Tenancy/RawQueryTenancyInventoryTest.php`, `tests/Feature/Tenancy/ResidualTenancyExposureTest.php` |
+| Queue references | S37-2, S38-6, S39-1, S39-4, S39-5 |
 | Database / migration | None. |
 | Compatibility impact | If the module is active and merchants use lottery returns, adding auth changes behaviour for any caller currently reaching it unauthenticated. That is the point, but it must be checked -- a storefront-side caller is conceivable given the route carries themelanguage. |
 
 **Existing implementation status.** FOUND while tracing every caller of Order::product_return for P1-INV-02, and it is worse than P1-INV-02 itself. packages/workdo/LotteryPrizes/src/routes/web.php:59 declares POST lottery-order-return inside the group opened at LINE 32 -- Route::middleware(['web']) -- NOT the ['auth','web','PlanModuleCheck:LotteryPrizes'] group at line 19 that covers the module's other routes. So the route is UNAUTHENTICATED. Its handler (LotteryOrderController.php:216-222) is a BYTE-IDENTICAL COPY of the pre-fix host handler: three request fields straight into App\Models\Order::product_return() with no ownership check and no permission check. So an anonymous caller can mark ANY order in ANY store returned and restock its inventory. WHAT P1-INV-02 COVERS AND DOES NOT: its ownership check is in OrderController::order_return, which this route does not use; its store predicate inside Order::product_return limits the restock to the inventory the ORDER names, so an arbitrary product cannot be targeted -- but it does NOT stop an anonymous caller returning any order and restocking it, because that is exactly what the order legitimately names. PRECONDITION NOT CONFIRMED: the module's routes register only if an add_on_managers row for LotteryPrizes exists -- and per the MEASURED finding in #42 that is row EXISTENCE, not is_enable, because PackageServiceProvider.php:47 plucks with no is_enable predicate. The first step is a read: SELECT module, is_enable FROM add_on_managers WHERE module = 'LotteryPrizes'. THE FIX MUST BE HOST-SIDE AND CANNOT BE A ROUTE RE-DECLARATION: module route files are required from app->booted(), i.e. AFTER routes/web.php, so the module wins the method+URI slot -- documented in docs/security/P01-SEC-2-ROUTE-CACHE-VERIFICATION.md, which solved the same problem for OrderDocumentAccessGuard with a middleware appended to the `web` group. AuctionProduct needs the same sweep: AuctionOrdersController.php:257 calls AuctionProductOrder::product_return, a DIFFERENT model, so P1-INV-02's predicate does not cover it at all.
 
 **Acceptance criteria.**
-- [ ] Establish by a READ whether an add_on_managers row for LotteryPrizes exists; no row drops this to latent
-- [ ] A host-side guard refuses an unauthenticated request to lottery-order-return, applied via the web group rather than a route re-declaration
-- [ ] The guard also requires ownership and 'Manage Order', matching what OrderController::order_return now enforces
+- [ ] The module-row question is a server read and is batched with #42; it does not gate the guard, because loadDynamicAddons() plucks modules with NO is_enable predicate -- a disabled row still registers the routes
+- [ ] A host-side guard refuses an unauthenticated request to all SIX routes, applied via the `web` group rather than a route re-declaration
+- [ ] The guard also requires ownership, and `Manage Order` on the two host-order routes
 - [ ] No file under packages/workdo/ is edited; guard-no-workdo-changes.sh exits 0
-- [ ] The same sweep is applied to AuctionProduct's AuctionProductOrder::product_return caller
+- [ ] The AuctionProduct sweep is done: four further routes found, all guarded; the residual second-row defects in AuctionProductOrder::product_return are raised as #61
 
 **Required tests.**
-- Evidence must be a STANDALONE SCRIPT, not an in-suite test: no WorkDo module loads in a test run without an add_on_managers row, so an in-process 'the route is absent' assertion cannot fail. Follow verify-backuprestore-module-gating.php -- boot in a subprocess with the row present and assert the route's registered middleware
-- Negative: an anonymous POST changes no stock and no order
-- Negative: an authenticated merchant cannot drive it against another store's order
-- Positive control: a legitimate lottery return still works
-- Removal check on the appended guard
+- Premise: without the add_on_managers rows none of the six uris is registered
+- Premise: with both modules enabled all six are anonymous and all six carry the guard
+- Negative: an anonymous POST to each of the six changes nothing (6 tests)
+- Negative: an entitled merchant cannot reach another store's order or auction setting
+- Negative: a merchant holding no Manage Order cannot use the lottery routes on their OWN order
+- Negative: a posted id cannot reach a row the url does not name (both {id} routes)
+- Positive: own-store cancel, own-store auction toggle, and the platform operator all still work
+- Fail-closed: a missing target table denies; an unknown row denies with the same body as a foreign row, so the guard is not an existence oracle
+- Inertness: a non-target route still works, including one carrying no id at all
+- Ratchet: the guard verdict matches OrderPolicy::updateStatus over a four-case matrix
+- Ratchet: every module-declared POST onto an order-mutation handler is a target or a reasoned, reachable exemption
+- Ratchet: the two auction permissions are still unseeded
+- Removal checks on all ten controls
 
-**Evidence.** 
+**Evidence.** THE ISSUE AS FILED UNDERSTATED IT: two routes, not six. The first pass followed the one route P1-INV-02's caller trace led to; a census of BOTH modules' route files, printing every POST with its enclosing middleware group, found SIX admin mutations in ['web']-only groups -- no auth, no PlanModuleCheck, no permission: lottery-order-status-change/{id} and lottery-order-return (LotteryPrizes routes/web.php:56,59, group at :32, both driving the HOST App\Models\Order), plus update-auction-status, auction-order-assign, auction-order-status-change/{id} and auction-order-return (AuctionProduct routes/web.php:28, 31-33, group at :24). The worst is lottery-order-status-change: its cancel limb writes payment_status='Unpaid', which is what OrderObserver::updated -> OrderFinancialService::syncFromOrder reacts to, so an anonymous caller could cancel any store's order AND walk back its finance record. FIX: App\Http\Middleware\ModuleOrderMutationGuard, appended to the `web` group in bootstrap/app.php -- packages/workdo/ may not be edited and a host RE-DECLARATION loses the method+uri slot, because module route files are required from app->booted() and RouteCollection keys on method+domain+uri. Inert unless the matched route's uri is one of the six. Each row id is read from the SAME request key its handler reads, BODY FIRST, because Request::__get reads all() before route parameters -- P1-ORD-04 shipped the opposite bug for one commit. THE AUCTION ROUTES CARRY NO PERMISSION LIMB BY DESIGN: 'Manage Auction Product Order' and 'Manage Auction Product' are NOT seeded by Utility::addNewData() (verified on comment-stripped source), and a permission with no row can be held by no role, so gating on it would be a permanent 403 -- the lockout FinancePermission records having been caused once already. 'Manage Order' IS seeded (Utility.php:2755, granted to the merchant admin role at :2918) and is required on the two host-order routes. EVIDENCE. (1) The existing suite was structurally blind: with no add_on_managers row none of the six uris is in the route table, so all 2880 testcases ran against a route table without them -- measured by test_without_the_modules_none_of_the_six_routes_exist. Both modules are enabled in-suite through the PRODUCTION loader. (2) 29 tests, 290 assertions, all passing. (3) REMOVAL CHECKS, scripted, each control deleted alone and the file restored: 9 of 10 isolate -- the registration 15/23 fail, the anonymous limb 6, the store comparison 6, the permission limb 1, operator-first ordering 2, body-first id resolution 2, the fail-closed try/catch 1, the uniform refusal body 1, the inertness early return 1. R9 BIT ONLY AFTER THE TEST WAS FIXED: the first version drove only /order-status-change/{id}, which a NON-inert guard allows for the same reasons the real one ignores it, so the suite stayed green with the control deleted; it now also drives an id-less route (GET /dashboard). R10 (the missing-row refusal) stayed GREEN 23/23 and is recorded as SUBSUMED, not covered: empty($row->store_id) suppresses the null-property warning and short-circuits before the cast, so a null row already denies. (4) ROUTE-CACHE VERIFICATION, exit 0: a probe process booting FROM bootstrap/cache/routes-v7.php resolves the guard into all six stacks, none of the six carries an Authenticate of its own, and a real anonymous POST through that process's HTTP kernel answers 403 on all six. The script BITES: with only the bootstrap/app.php registration removed, lottery-order-return answered 200 TO AN ANONYMOUS CALLER and the other five reached their vendored model. THE ADVERSARIAL REVIEW FOUND SIX THINGS AFTER THE FIRST GREEN SUITE AND A PASSING GATE, TWO OF THEM DEFECTS IN THIS WORK. (a) resolveId() required is_numeric() in BOTH loops, so a present-but-NON-numeric body id -- id=5abc -- was skipped by the body loop and the route-parameter loop then authorised the caller's OWN order while the handler passed the raw string on. MEASURED on MySQL 8.0.46 (tests/Support/Security/bin/verify-module-order-mutation-id-coercion-on-mysql.php): '5abc' and '5 OR 1=1' both resolve to row 5, another store's, while the old predicate authorised 42. SQLITE DOES NOT COERCE, so the suite was blind in both directions -- the same engine-hiding as P01-SEC-13 -- which is why the proof is a script. Fixed: presence in the input hands a key the decision, filter_var(FILTER_VALIDATE_INT) decides whether it is usable. (b) THE 'AUCTION PERMISSIONS ARE NOT SEEDED' PREMISE WAS FALSE. addNewData() is the only HOST mechanism, not the only one: AuctionProduct's own PermissionTableSeeder:19-51 creates all ten and grants them to the global admin role, and ModuleController runs package:seed on enable (:131,:151,:162,:182). Measured: 0 rows before, 2 after. The guard had shipped leaving a within-tenant gap on the strength of it, and the test that 'verified' the premise scanned only Utility.php -- a scan of one file answers a question about that file, never about the application. Fixed: the permission limb now fires for all six whenever a permissions row of that name exists -- conditional, because a hard gate on a missing name is the permanent 403 FinancePermission records, and with no row the OWNERSHIP limb still refuses every other tenant (asserted both ways). The auction order routes require 'Manage Auction Product Order' (what AuctionOrdersController:34 itself checks) and update-auction-status requires 'Edit Auction Setting'. (c) auction-order-return is LATENT, not live: product_json holds a single product OBJECT (Auction.php:97), so the handler's line loop reads an offset off a scalar and 500s before any write -- FIVE live, one latent, and #61's severity corrected. (d) auction-order-status-change reads the HOST orders table with the auction id and webhooks it to a merchant-configured URL -> #62. (e) the census ratchet could not see Route::resource, behind which sit FOUR cross-tenant writes including AuctionProductController::update/destroy on the host Product by bare id -> #63. (f) six test defects, all fixed: no customers/deliveryboy principal case, no query-string id case, a policy-equivalence ratchet reading any non-403 as ALLOW, and two row assertions whose comments now say the STATUS is the control. THREE CI RATCHETS TRIPPED AND WERE CORRECTED, NOT CONCEDED: the guard's raw query classified 'comparison' in OwnedPathRawQueryInventoryTest with its four controls asserted there; the platform-wide raw count app 112->113 / total 157->158 as a fifth variable-table site; and ResidualTenancyExposureTest's assertCount(23) replaced, because THIS PACKAGE CAUSED TEST POLLUTION -- loadAddons() calls $loader->addPsr4() on the process-global Composer ClassLoader, so the two modules' models resolve for the rest of the run and the count dropped to 21; it passed in isolation and failed in the full run. The replacement holds in both orders. SCOPE LIMIT, STATED NOT GLOSSED: the guard authorises the row the request NAMES; it cannot authorise a second row the vendored handler picks out of the first one's data. AuctionProductOrder::product_return does exactly that (unscoped Product restock, no replay guard, a shadowed $product making the non-variant path += null, no null guard) -- raised as #61 (latent, see above). The lottery routes are unaffected: they call the host Order::product_return, which P1-INV-02 hardened. GATES: guard-no-workdo-changes 0, guard-gate-f-containment 0, guard-test-isolation 0, guard-no-env-files 0, scan-secrets 0. guard-composer-lock-integrity exits 1 throughout on pre-existing myfatoorah vendor drift and is not claimed green.
+
+### `P1-INV-16` — AuctionProductOrder::product_return restocks an unscoped Product, has no replay guard, and its non-variant path is a silent no-op
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | high |
+| Workstream | Inventory & Stock |
+| GitHub issue | #61 |
+| Owner decision required | **yes** |
+| Depends on | `P1-INV-14`, `P1-INV-02` |
+| Scope | `app/Observers/ (or config/tenancy.php -- vehicle not yet decided)`, `tests/Feature/Security/` |
+| Queue references | S38-7 |
+| Database / migration | None. |
+| Compatibility impact | A replay guard changes behaviour for any caller that currently returns the same line twice; that is the point, but the refusal must be a refusal and not a 500. |
+
+**Existing implementation status.** FOUND while writing the P1-INV-14 guard, by reading the vendored handlers that guard protects all the way to the end. Four defects in packages/workdo/AuctionProduct/src/app/Models/AuctionProductOrder.php:285. (1) The restock pairs to nothing: Product::find($product_id) at :306 and ProductVariant::where(...) at :312 carry no store predicate, and Product has NO effective global scope -- it is absent from config/tenancy.php's scoped_models, so StoreScope::isActiveFor() short-circuits. The variant path then does a real stock write. (2) No replay guard: $product_json[$key]['return'] = 1 is unconditional and :350 recomputes final_price from the ALREADY-REDUCED total, so each call subtracts again -- the same defect measured on the host model in P1-INV-02, where a continue-style guard held the stock but final_price went 10.00 to -80.00. (3) $product is SHADOWED at :306, so :308 reads qty off the Product MODEL; there is no products.qty column (verified against every products-table migration), so the non-variant restock is += null and the stock never moves while the row is still saved. (4) No null guard on the find(), so an unknown id 500s. P1-INV-14's guard does NOT close any of these: it authorises the row the request NAMES, not a second row the handler picks out of the first one's data. The LOTTERY routes are unaffected -- they call the host Order::product_return, which P1-INV-02 hardened.
+
+**Acceptance criteria.**
+- [ ] Determine whether an auction order's product_json can reference a product outside the order's store. If it can, defect 1 is a live cross-tenant stock write and this is critical; if it cannot, it is defence-in-depth and defects 2 and 3 are the live ones
+- [ ] A replay of auction-order-return cannot reduce final_price twice
+- [ ] The non-variant path either restocks correctly or is shown to be dead -- whichever it is, it is asserted
+- [ ] No file under packages/workdo/ is edited
+
+**Required tests.**
+- Negative: a replayed return does not reduce final_price twice
+- Negative: no stock moves on a product outside the order's store
+- Positive: a legitimate auction return still restocks
+- Every assertion reads the raw row via DB::table() -- Product is Cachable and an Eloquent read can serve a mutated in-memory instance (a measured false reproduction in P1-INV-04)
+- Removal checks on each control
+
+**Evidence.** None
+
+### `P1-INV-17` — four cross-tenant writes behind AuctionProduct's Route::resource routes, two of them on the HOST Product and one that MOVES another store's row
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | critical |
+| Workstream | Inventory & Stock |
+| GitHub issue | #63 |
+| Owner decision required | no |
+| Depends on | `P1-INV-14` |
+| Scope | `app/Http/Middleware/`, `bootstrap/app.php`, `tests/Feature/Security/` |
+| Queue references | S39-7 |
+| Database / migration | None. |
+| Compatibility impact | Merchant CRUD on their own auction products, settings and orders keeps working. |
+
+**Existing implementation status.** FOUND by the adversarial review of P1-INV-14's guard, then widened by reading every update() and destroy() body behind the two modules' six Route::resource declarations. PRE-EXISTING, not introduced by P1-INV-14 -- but its census ratchet could not have found them, which is the second half of this task. Both resource groups carry auth + PlanModuleCheck and NO store predicate. (1) auctionproduct update():861 and destroy():1509 reach the HOST App\Models\Product by bare id -- cross-tenant catalogue EDIT and DELETE, with ProductImage rows and whatever products.category_id's ON DELETE CASCADE takes with it. Gated only on 'Edit Auction Product' / 'Delete Auction Product', both created by the module's own PermissionTableSeeder and granted to the global admin role every self-registered merchant holds, so the permission is no barrier to a merchant. This is P1-INV-01's defect reproduced in vendored code and is the most severe of the four. (2) auctionsetting update():115 has NO permission check at all and writes store_id = getCurrentStore(), so it MOVES another store's row into the caller's tenant -- the victim's row leaves their tenant and becomes invisible to their own store_id queries. (3) auctionsetting destroy():140 and (4) auctionorder destroy():105, both bare id, both with no permission check. The three lottery resources and auctionorder's update() are `//` stubs.
+
+**Acceptance criteria.**
+- [ ] A host-side control refuses a cross-store update or destroy on auctionproduct, auctionsetting and auctionorder. P1-INV-14's web-group middleware vehicle applies, but the id source is the ROUTE PARAMETER only, so resolveId needs the parameter name rather than a body key
+- [ ] auctionsetting update()'s store_id = getCurrentStore() write cannot move a row between tenants -- assert the victim's store_id is unchanged, not merely its name
+- [ ] The census ratchet in ModuleOrderMutationGuardTest covers Route::resource and its claim is narrowed to what it actually scans
+- [ ] A sweep of the other 68 vendored modules' Route::resource declarations for the same shape. NOTE: adding update/destroy to the ratchet's method list platform-wide was TRIED AND REVERTED -- it matched generic CRUD in seventeen modules, 19 extra uris each needing an exemption that says nothing. The sweep is real work, not a regex widening
+- [ ] No file under packages/workdo/ is edited
+
+**Required tests.**
+- Negative: a cross-store PUT /auctionproduct/{id} changes no product row and deletes no image
+- Negative: a cross-store PUT /auctionsetting/{id} leaves the victim's store_id unchanged
+- Negative: a cross-store DELETE on each of the three resources deletes nothing
+- Positive: own-store update and destroy still work on all three
+- Every assertion reads the raw row via DB::table() -- Product is Cachable
+- Removal checks on each control
+
+**Evidence.** None
 
 ### `P1-INV-15` — Order::product_return robustness: POS orders 500, no transaction, tax_price zeroed, and a double-credit across the two return endpoints
 
@@ -1215,6 +1295,34 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 - Removal check on each ownership check and each operator limb
 
 **Evidence.** 
+
+### `P1-ORD-06` — auction-order-status-change reads the HOST orders table with an auction id and POSTs the result, PII included, to a merchant-configured URL
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | high |
+| Workstream | Orders & Checkout |
+| GitHub issue | #62 |
+| Owner decision required | no |
+| Depends on | `P1-INV-14` |
+| Scope | `app/ (vehicle not yet decided -- the leak is in vendored code)`, `tests/Feature/Security/` |
+| Queue references | S39-6 |
+| Database / migration | None. |
+| Compatibility impact | A merchant whose webhook currently receives host-order payloads for auction status changes stops receiving them. That payload was the wrong row to begin with, even within one tenant. |
+
+**Existing implementation status.** FOUND by the adversarial review of P1-INV-14's guard. ONE ID, TWO TABLES WITH INDEPENDENT SEQUENCES. packages/workdo/AuctionProduct/src/app/Http/Controllers/AuctionOrdersController.php:230 calls Order::order_detail($request->id) -- the HOST App\Models\Order -- with the id the guard authorised against auction_product_orders, so orders.id = X is usually ANOTHER TENANT'S order. Utility::webhook() (app/Models/Utility.php:2072-2086) resolves the destination by the CALLER'S own store_id, so the merchant configures where it goes, and Order::order_detail() (:416-455) returns billing and delivery name, address, city, state, country, post code, EMAIL and PHONE. The P1-ORD-04 shape in READ form. NOT closable by widening P1-INV-14's guard: requiring orders.id = X to be own-store would false-deny on every id collision across the two sequences, which is frequent. Precondition not yet established: whether a merchant can create a 'Status Change' webhook row for their own store without operator involvement -- the webhook CRUD's authorization was not read.
+
+**Acceptance criteria.**
+- [ ] Establish whether a merchant can self-serve a 'Status Change' webhook row. If yes this is a live cross-tenant PII exfiltration and high; if no it needs an operator-created webhook and is medium
+- [ ] The auction status-change path no longer reads the host orders table with an auction order id
+- [ ] No file under packages/workdo/ is edited
+
+**Required tests.**
+- Negative: the webhook payload for an auction status change contains no row from another store
+- Removal check on whatever control is chosen
+
+**Evidence.** None
 
 ---
 

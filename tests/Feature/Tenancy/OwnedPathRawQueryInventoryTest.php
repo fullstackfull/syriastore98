@@ -119,6 +119,18 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             // actually true and the control it depends on is asserted at the bottom of this
             // method instead.
             'app/Http/Middleware/OrderDocumentAccessGuard.php' => 'comparison',
+            // THE SECOND 'comparison' SITE, and it is the same category for the same reason.
+            // P1-INV-14's ModuleOrderMutationGuard reads the target row by id with no tenant
+            // predicate in order to FETCH `store_id` and compare it. Six anonymous admin
+            // mutations in two vendored module route files -- two of them writing the host
+            // `orders` table, one of those a money write -- are what it refuses, and the table it
+            // reads varies per uri (`orders`, `auction_product_orders`,
+            // `auction_product_settings`), which is why the statement is `DB::table($target[...])`
+            // rather than Eloquent: two of the three models are vendored and carry no scope, and
+            // the third is Cachable, so an Eloquent read here could serve a mutated in-memory
+            // instance. Its controls are asserted at the bottom of this method alongside the
+            // sibling guard's.
+            'app/Http/Middleware/ModuleOrderMutationGuard.php' => 'comparison',
             // PLATFORM-GLOBAL BY DESIGN. The framework's own `migrations` bookkeeping table has
             // no store_id and must never acquire a tenant predicate -- XSS::handle() compares
             // on-disk migration filenames against it to decide whether the platform operator is
@@ -187,7 +199,10 @@ class OwnedPathRawQueryInventoryTest extends TestCase
 
         // The count is asserted too, so a site that DISAPPEARS is noticed as well as one that
         // appears -- a vanished predicate is as interesting as a new query.
-        $this->assertCount(10, $sites, "The owned-path raw query inventory changed:\n  "
+        //
+        // 10 -> 11 with P1-INV-14: ModuleOrderMutationGuard's `DB::table($target['table'])`
+        // read, classified 'comparison' above and its controls asserted below.
+        $this->assertCount(11, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry
@@ -252,6 +267,36 @@ class OwnedPathRawQueryInventoryTest extends TestCase
 
         $this->assertFileExists(base_path('tests/Feature/Security/OrderDocumentAccessTest.php'));
         $this->assertFileExists(base_path('tests/Feature/Security/OrderDocumentRouteResolutionTest.php'));
+
+        // THE SECOND 'comparison' SITE'S CONTROLS -- ModuleOrderMutationGuard. Pinned on the
+        // comparison and the two fail-closed limbs rather than on whole statements, for the
+        // reason the sibling's block above records at its own expense: a ratchet that reddens on
+        // a safe refactor of the code it protects teaches people to edit the ratchet.
+        $mutation = (string) file_get_contents(base_path('app/Http/Middleware/ModuleOrderMutationGuard.php'));
+
+        $this->assertStringContainsString('(int) $row->store_id !== (int) $currentStore', $mutation,
+            'ModuleOrderMutationGuard no longer compares the target row\'s store against the '
+            . "caller's, so the raw read in its handle() is now an unscoped cross-tenant fetch "
+            . "feeding six anonymous admin mutations, and the 'comparison' classification above "
+            . 'is no longer true.');
+
+        $this->assertStringContainsString('empty($row->store_id)', $mutation,
+            'ModuleOrderMutationGuard no longer fails closed on a row with no store. A row with '
+            . 'a NULL store_id is invisible to every store_id predicate in the application and '
+            . 'must not become mutable through this guard.');
+
+        $this->assertStringContainsString('getCurrentStore($user->id)', $mutation,
+            'ModuleOrderMutationGuard resolves the caller\'s store without passing the user id. '
+            . 'getCurrentStore() with no argument reads the MUTABLE default guard, which can hold '
+            . 'a Customer, and would then resolve the User whose id happens to equal the '
+            . "customer's.");
+
+        $this->assertStringContainsString("return \$this->deny(\$request, 'unreadable table')", $mutation,
+            'ModuleOrderMutationGuard no longer fails closed when the target table cannot be '
+            . 'read. A module registers its routes before its migrations have necessarily run, so '
+            . 'a missing table is a real state and must deny rather than raise past the guard.');
+
+        $this->assertFileExists(base_path('tests/Feature/Security/ModuleOrderMutationGuardTest.php'));
     }
 
     /**

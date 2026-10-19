@@ -73,6 +73,43 @@ return Application::configure(basePath: dirname(__DIR__))
         // MATCHED route is one of seventeen named uris. See the class docblock for the rule, for
         // why a Policy is not the vehicle, and for the two disclosed behaviour changes.
         $middleware->appendToGroup('web', \App\Http\Middleware\OrderDocumentAccessGuard::class);
+        // P1-INV-14. Six ANONYMOUS admin mutations, declared in `['web']`-only groups in two
+        // vendored module route files -- no `auth`, no `PlanModuleCheck`, no permission:
+        //   LotteryPrizes/src/routes/web.php:56,59  (lottery-order-status-change/{id},
+        //                                            lottery-order-return)  -> App\Models\Order
+        //   AuctionProduct/src/routes/web.php:28,31-33 (update-auction-status,
+        //                                            auction-order-assign,
+        //                                            auction-order-status-change/{id},
+        //                                            auction-order-return)
+        // The two lottery routes are the worst of the six because they drive the HOST Order
+        // model: `lottery-order-status-change` reaches the `cancel` limb that writes
+        // payment_status = 'Unpaid', which fires OrderObserver -> OrderFinancialService, so an
+        // anonymous caller could cancel any store's order AND walk back its finance record.
+        //
+        // Registered HERE for the same reasons as the two guards above -- the module route files
+        // are required from $this->app->booted() (app/Providers/PackageServiceProvider.php:35),
+        // i.e. AFTER routes/web.php, and RouteCollection keys on method+domain+uri, so a host
+        // re-declaration would LOSE the slot to the module's; and bootstrap/app.php still
+        // executes under `route:cache`, where route files do not. Editing the module is not an
+        // option: packages/workdo/ is vendored and guard-no-workdo-changes.sh enforces it.
+        //
+        // FIVE OF THE SIX ARE LIVE; `auction-order-return` is LATENT and the difference is
+        // stated rather than rounded up. Its handler iterates `product_json` as a list of order
+        // lines, but the only writer of that column on an auction order
+        // (AuctionProduct/src/app/Console/Auction.php:97) stores a single product OBJECT, so the
+        // loop reads an offset off a scalar and the route 500s before any write, for every
+        // principal. Guarding an anonymous entry point to a broken handler is still right;
+        // calling it a live hole would not be. Raised as #61.
+        //
+        // The guard is inert unless the MATCHED route is one of those six uris. See the class
+        // docblock for the uri census, for why each row id is read from the same request key the
+        // handler reads -- the BODY, because Request::__get reads all() before route parameters,
+        // and a key that is PRESENT decides even when it is unusable (an `id=5abc` that fell
+        // through to the route segment was a live cross-tenant write, measured on MySQL) -- and
+        // for why the permission limb fires only when a `permissions` row of that name exists.
+        // That last point corrects an earlier claim here that the auction permissions are not
+        // seeded: the MODULE ships its own PermissionTableSeeder and the enable path runs it.
+        $middleware->appendToGroup('web', \App\Http\Middleware\ModuleOrderMutationGuard::class);
         // SEC-R1-02 / R2-07 / NEW-throttle-bypass: the RateLimiter named 'api'
         // is defined at app/Providers/RouteServiceProvider.php:27-29 but was
         // never applied to the 'api' middleware group, so it was dead code and

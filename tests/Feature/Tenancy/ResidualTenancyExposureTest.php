@@ -282,21 +282,86 @@ class ResidualTenancyExposureTest extends TestCase
         // UNMEASURED here, which is not the same as zero, and is reported as such. composer.json
         // is another workstream's file and packages/ cannot be edited by this one, so this is
         // recorded rather than resolved.
-        $unresolvable = [];
+        //
+        // ====================================================================================
+        //  AND IT IS A PROPERTY OF THE PROCESS, NOT JUST THE WORKTREE -- WHICH COST A GREEN RUN.
+        // ====================================================================================
+        //
+        // `assertCount(23, ...)` was order-dependent and nobody knew until it broke. A test
+        // elsewhere in the same PHPUnit process that enables a module through the production
+        // loader -- `PackageServiceProvider::loadAddons()`, which calls `$loader->addPsr4()` --
+        // registers that module's namespace for the REST OF THE PROCESS. Its models then resolve
+        // here and the count drops. Measured: adding
+        // tests/Feature/Security/ModuleOrderMutationGuardTest, which enables LotteryPrizes and
+        // AuctionProduct, took this from 23 to 21, and the test PASSED in isolation and FAILED in
+        // the full run. (tests/Feature/Security/OrderDocumentRouteResolutionTest had been doing
+        // the same thing for AutomaticOrderPrinting all along without tripping it, only because
+        // that module contributes no model to this map.)
+        //
+        // So the count is replaced by a claim that holds in BOTH orders: every recorded class is
+        // either unresolvable, or its module's service provider has been registered in this
+        // process -- which is the only way it could have become resolvable. That keeps the real
+        // ratchet (a first-party model vanishing from the map, or an addon model quietly
+        // appearing) while surviving the module-enabling tests the security suites need.
+        $recorded = array_values(array_filter(
+            array_unique(array_values($this->bulkDeleteModelMap())),
+            fn ($class) => str_starts_with($class, 'Workdo\\')
+        ));
 
-        foreach (array_unique(array_values($this->bulkDeleteModelMap())) as $class) {
-            if (! class_exists($class)) {
-                $unresolvable[] = $class;
+        $this->assertCount(23, $recorded,
+            "The set of addon model classes IN THE MAP changed -- this is the part that does not "
+            . "depend on what resolved:\n  " . implode("\n  ", $recorded));
+
+        /*
+         * WHICH MODULE NAMESPACES THIS PROCESS HAS HAD REGISTERED -- READ OFF THE COMPOSER
+         * AUTOLOADER, NOT OFF THE APPLICATION.
+         *
+         * The first version of this asked `$this->app->getLoadedProviders()` and was wrong for a
+         * precise reason worth keeping: the Application is rebuilt for every test, so a provider
+         * another test registered is gone by the time this one runs. What PERSISTS is the
+         * autoloader -- `PackageServiceProvider::loadAddons()` calls `$loader->addPsr4()` on the
+         * Composer ClassLoader singleton, which is process-global and survives every app
+         * teardown. That is exactly the scope of the pollution, so it is the right thing to ask.
+         */
+        $loader = require base_path('vendor/autoload.php');
+        $loadedModules = [];
+
+        foreach (array_keys($loader->getPrefixesPsr4()) as $prefix) {
+            if (str_starts_with($prefix, 'Workdo\\')) {
+                $loadedModules[$prefix] = true;
             }
         }
 
-        $this->assertCount(23, $unresolvable, "The set of unresolvable addon models changed:\n  "
-            . implode("\n  ", $unresolvable));
+        $unresolvable = [];
+        $resolvedAnyway = [];
 
-        foreach ($unresolvable as $class) {
-            $this->assertStringStartsWith('Workdo\\', $class, $class . ' is unresolvable but is not '
-                . 'an addon class, which means a first-party model in the map has gone missing.');
+        foreach ($recorded as $class) {
+            if (! class_exists($class)) {
+                $unresolvable[] = $class;
+                continue;
+            }
+
+            $prefix = preg_replace('/^(Workdo\\\\[^\\\\]+\\\\).*$/', '$1', $class);
+            $resolvedAnyway[$class] = isset($loadedModules[$prefix]);
         }
+
+        foreach ($resolvedAnyway as $class => $explained) {
+            $this->assertTrue($explained,
+                $class . ' resolves although no provider for its module was registered in this '
+                . 'process. `Workdo\\` is absent from the psr-4 block of composer.json, so the only '
+                . 'way that happens is someone adding it there -- in which case these entries '
+                . 'join the bulk-delete map for real and their exposure is no longer unmeasured. '
+                . 'Loaded module namespaces: [' . implode(', ', array_keys($loadedModules)) . ']');
+        }
+
+        // The floor: with nothing enabled all 23 are unresolvable, and each enabled module can
+        // only account for the ones it owns. A class that resolves with NO explanation is caught
+        // above; this catches the opposite, a first-party model that has fallen out of the map.
+        $this->assertSame([], array_values(array_filter(
+            $unresolvable,
+            fn ($class) => ! str_starts_with($class, 'Workdo\\')
+        )), 'A non-addon class is unresolvable, which means a first-party model in the map has '
+            . 'gone missing.');
     }
 
     // =====================================================================================

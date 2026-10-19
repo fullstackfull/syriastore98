@@ -3526,6 +3526,166 @@ hardcoded `1` for a `super admin` with no `current_store`, `app/Helper/helper.ph
 
 ---
 
+## S39 — What the P1-INV-14 guard found by reading the vendored handlers to the end
+
+**The route census is the point of this row.** P1-INV-14 (#57) was filed as *one* unauthenticated
+route, found by following `Order::product_return`'s callers. A census of **both** modules' route
+files — every `POST`, printed with the middleware group enclosing it — found **six** admin
+mutations in `['web']`-only groups. Following the first route found would have shipped a guard
+covering a sixth of the exposure, and the census is now a ratchet
+(`test_every_module_declared_order_mutation_post_is_guarded_or_exempt`) rather than a one-time read.
+
+### S39-1 — six anonymous admin mutations, two driving the host `Order` model — **CLOSED**
+
+| route | handler | writes |
+|---|---|---|
+| `lottery-order-status-change/{id}` | `App\Models\Order::order_status_change` | `delivered_status`, `payment_status='Unpaid'` → `OrderObserver` → `OrderFinancialService` |
+| `lottery-order-return` | `App\Models\Order::product_return` | stock |
+| `auction-order-status-change/{id}` | `AuctionProductOrder::order_status_change` | `delivered_status` |
+| `auction-order-return` | `AuctionProductOrder::product_return` | stock |
+| `auction-order-assign` | `AuctionProductOrder::find` → `save` | `delivery_id` |
+| `update-auction-status` | `AuctionProductSetting::findOrFail` → `save` | `is_active` |
+
+**FIVE OF THE SIX ARE LIVE; `auction-order-return` IS LATENT** — its handler iterates
+`product_json` as a list of lines, but that column's only writer on an auction order
+(`AuctionProduct/src/app/Console/Auction.php:97`) stores a single product *object*, so the loop
+reads an offset off a scalar and the route 500s before any write for every principal. Corrected
+after the adversarial review; guarding an anonymous entry point to a broken handler is still right,
+calling it a live hole was not.
+
+Closed by `App\Http\Middleware\ModuleOrderMutationGuard`, appended to the `web` group. Full
+argument and evidence in `docs/security/P1-INV-14-MODULE-ORDER-MUTATION-VERIFICATION.md`.
+
+### S39-2 — "the module is disabled" is not containment, a second time
+
+`PackageServiceProvider::loadDynamicAddons()` does `AddOnManager::pluck('module')` with **no
+`is_enable` predicate**, so a row with the flag off still registers every one of a module's routes.
+This is the same finding S1/#42 established for `BackupRestore`, now reconfirmed on two more
+modules. **The server read `SELECT module, is_enable FROM add_on_managers WHERE module IN
+('LotteryPrizes','AuctionProduct');` batches into #42's three read-only checks** — it tells us the
+severity that *was*, not whether the guard is needed.
+
+### S39-3 — `AuctionProductOrder::product_return`: four defects the guard cannot close — **OPEN, #61 (LATENT)**
+
+Raised as **P1-INV-16**. The guard authorises the row the request *names*; it cannot authorise a
+second row the vendored handler picks out of the first one's data.
+`packages/workdo/AuctionProduct/src/app/Models/AuctionProductOrder.php:285`:
+
+1. **The restock pairs to nothing.** `Product::find($product_id)` (`:306`) and
+   `ProductVariant::where('product_id', …)` (`:312`) carry no store predicate, and `Product` has
+   **no effective global scope** — absent from `config/tenancy.php`'s `scoped_models`, so
+   `StoreScope::isActiveFor()` short-circuits. The variant path does a real stock write. Bounded by
+   what an auction order's `product_json` can hold, which is the open question #61 names first.
+2. **No replay guard.** `:350` recomputes `final_price` from the already-reduced total, so each call
+   subtracts again — the defect measured on the host model in P1-INV-02, where a `continue`-style
+   guard held the stock but `final_price` went 10.00 → **−80.00**.
+3. **`$product` is shadowed** at `:306`, so `:308` reads `qty` off the `Product` *model*. There is
+   no `products.qty` column (verified against every `*products*table*` migration), so the
+   non-variant restock is `+= null` and the stock never moves while the row is still saved. **This
+   masks defect 1 on that path**, so a reproduction driving only `variant_id = 0` will report "no
+   cross-tenant write" and be wrong about the variant path.
+4. **No null guard** on the `find()`. No longer reachable from `auction-order-return` now that the
+   guard refuses an id with no row; still reachable from any other caller.
+
+The **lottery** routes are unaffected: they call the host `Order::product_return`, which P1-INV-02
+hardened with both a store anchor and a replay guard.
+
+**LATENT, and the reason matters for whoever fixes it.** Defects 1 and 2 sit behind a loop that
+never runs: `product_json` on an auction order holds a single product *object*, not a list of
+lines, so `foreach ($product_json as $key => $product)` at `:301` yields scalars and
+`$product['product_id']` is an offset read on one — a 500 before any write. So the first question
+on #61 is no longer "can `product_json` reference a foreign product" but **"does fixing the loop
+shape arm the unscoped restock?"** Any fix must land the store predicate *before or with* the
+loop-shape fix, or correcting the obvious bug turns on the cross-tenant one.
+
+### S39-4 — the "unseeded permission" premise was FALSE, and it cost a shipped gap — **CLOSED**
+
+**This row originally said the opposite**, and it is kept in corrected form rather than quietly
+rewritten, because the mistake is the instructive part.
+
+The claim was that `Manage Auction Product Order` and `Manage Auction Product` are absent from
+`Utility::addNewData()` — true — and that `addNewData()` is therefore *the only* mechanism creating
+`Permission` rows — **false**. Each vendored module ships its own seeder, and the enable path runs
+it:
+
+- `packages/workdo/AuctionProduct/src/database/seeders/PermissionTableSeeder.php:19-51` creates all
+  ten auction permissions and grants every one to the global `admin` role.
+- `AuctionProductDatabaseSeeder.php:19` calls it; `app/Console/Commands/PackageSeed.php:75-83`
+  resolves it; `ModuleController` runs `Artisan::call('package:seed ' . $name)` at `:131`, `:151`,
+  `:162`, `:182`.
+- **Measured** against a throwaway database: 0 rows before, 2 after, merchant `admin` role holds
+  both.
+
+**What it cost.** The guard's first commit left a within-tenant privilege gap on the strength of
+it: any authenticated principal whose `current_store` matched the row — staff on a role that
+deliberately *lacks* the permission included — could cancel, confirm and return auction orders,
+reassign the driver and toggle auction settings. Found by the adversarial review, not by the test
+that "verified" the premise, which scanned only `app/Models/Utility.php`.
+
+**The general lesson, and it has now bitten twice in this queue:** a scan of one file answers a
+question about that file, never about the application. The comment-stripping was correct and
+irrelevant — the file simply was not where the answer lived.
+
+**Fixed.** The permission limb is now enforced for all six targets whenever a `permissions` row of
+that name exists — conditional rather than hard, because a hard gate on a missing name is the
+permanent 403 `FinancePermission` records, and a missing row is a real state for a module enabled
+before its seeder existed. With no row the **ownership** limb still refuses every other tenant's
+row, asserted in both directions.
+
+Whether a merchant's staff *should* hold a money-adjacent auction power is still an owner decision
+— the same reasoning `app/Models/Utility.php:2866-2876` applies to the finance six. What changed is
+that the question is now asked.
+
+### S39-5 — a present-but-unusable id fell through to the route segment — **CLOSED**
+
+`ModuleOrderMutationGuard::resolveId()` required `is_numeric()` in both of its loops, so `id=5abc`
+was skipped by the body loop and the route-parameter loop authorised the caller's **own** order
+while the handler passed the raw string on. **Measured on MySQL 8.0.46**
+(`tests/Support/Security/bin/verify-module-order-mutation-id-coercion-on-mysql.php`): `'5abc'` and
+`'5 OR 1=1'` both resolve to row 5 — another store's — while the old predicate authorised 42.
+
+**SQLite does not coerce**, so the Feature suite was structurally blind to it in both directions:
+the attack no-ops there and a green suite proves nothing. The same engine-hiding as P01-SEC-13.
+Found by the adversarial review *after* 23 green tests and a passing gate. Fixed: presence in the
+input hands a key the decision, and `filter_var(FILTER_VALIDATE_INT)` decides whether it is usable.
+
+### S39-6 — one id, two tables: the auction status change leaks host-order PII — **OPEN, #62**
+
+`AuctionOrdersController:230` calls `Order::order_detail($request->id)` — the **host** model — with
+the id this guard authorised against `auction_product_orders`. Independent id sequences, so
+`orders.id = X` is usually another tenant's. `Utility::webhook()` resolves the destination by the
+caller's own `store_id`, so the merchant configures where it goes, and `order_detail()` returns
+billing and delivery name, address, email and phone.
+
+The P1-ORD-04 shape in **read** form. Not closable by widening the guard: requiring `orders.id = X`
+to be own-store would false-deny on every id collision across the two sequences, which is frequent.
+The fix belongs where the leak is.
+
+### S39-7 — four cross-tenant writes behind `Route::resource`, and the census that could not see them — **OPEN, #63**
+
+Both modules' resource groups carry `auth` + `PlanModuleCheck` and **no store predicate**:
+
+| route | defect |
+|---|---|
+| `auctionproduct` `update():861` / `destroy():1509` | reach the **host `Product`** by bare id — cross-tenant catalogue edit and delete, with images; gated only on `Edit`/`Delete Auction Product`, which the module seeder grants every merchant |
+| `auctionsetting` `update():115` | **no permission at all**, and writes `store_id = getCurrentStore()` — it *moves* another store's row into the caller's tenant |
+| `auctionsetting` `destroy():140` | no permission at all |
+| `auctionorder` `destroy():105` | no permission at all (`update():95` is a `//` stub) |
+
+The `auctionproduct` pair is P1-INV-01's defect reproduced in vendored code, and is the most severe
+of the four.
+
+**The second half of the row is the census.** P1-INV-14's ratchet promised that "no route can be
+added to an existing mutation handler without someone answering for it here" — too broad: its regex
+needs a `Route::post(...)` line, and `Route::resource` has none. It now covers `Route::resource`
+for these two modules, with all six declarations carrying reasoned entries and three saying **OPEN,
+tracked at #63**. Widening the method list platform-wide was **tried and reverted**: it matched
+generic CRUD in seventeen other modules — 19 extra uris, each needing an exemption that would say
+nothing. The platform-wide sweep stays #63's acceptance criterion rather than being faked by a list
+of empty exemptions.
+
+---
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**

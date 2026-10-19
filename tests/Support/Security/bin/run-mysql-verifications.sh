@@ -17,6 +17,10 @@
 #     request fields. SQLite REFUSES the write, which masked a cross-store update; MySQL with
 #     `strict => false` (config/database.php:55 — the production setting) coerces and the write
 #     lands. Production was more exposed than the test database.
+#   - P1-INV-14 / S39-5: `WHERE id = '5abc'` returns row 5 on MySQL and no row on SQLite, so a
+#     guard that fell through to the route parameter on such a value authorised the caller's own
+#     order while the handler mutated another store's — and the suite no-opped the attack
+#     silently. Found by review after 23 green tests.
 #
 # USAGE
 #   tests/Support/Security/bin/run-mysql-verifications.sh
@@ -87,6 +91,15 @@ run_one verify-cart-quantity-guard-on-mysql \
 run_one verify-category-product-cascade-on-mysql \
   "CASCADE_MYSQL_SOCKET=${SOCK}" "CASCADE_MYSQL_HOST=${HOST}" "CASCADE_MYSQL_PORT=${PORT}" \
   "CASCADE_MYSQL_DATABASE=cascade_verify" "CASCADE_MYSQL_USERNAME=${USER_NAME}" "CASCADE_MYSQL_PASSWORD=${PASS}"
+
+# P1-INV-14 / S39-5. MySQL coerces a non-numeric string in an `id` comparison -- `WHERE id =
+# '5abc'` returns row 5 -- while SQLite's INTEGER affinity does not convert and returns nothing.
+# ModuleOrderMutationGuard's resolveId() originally fell through to the route parameter on such a
+# value, so it authorised the caller's own order while the handler mutated another store's. The
+# Feature suite could not see it in either direction, which is why this is here.
+run_one verify-module-order-mutation-id-coercion-on-mysql \
+  "MYSQL_SOCK=${SOCK}" "MYSQL_HOST=${HOST}" "MYSQL_PORT_NUM=${PORT}" \
+  "MYSQL_DATABASE=p1inv14_verify" "MYSQL_USER_NAME=${USER_NAME}" "MYSQL_PASS=${PASS}"
 
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
