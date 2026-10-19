@@ -69,9 +69,9 @@
                                                 $m_permissions = array_column($permissions->toArray(), 'name');
                                                 $module_list = [];
                                                 foreach ($m_permissions as $key => $value) {
-                                                    // P1-SEC-02: the policy decides, not a copy
-                                                    // of the denylist -- see the note below.
-                                                    if (!auth()->user()->can('grantPermission', [\App\Models\Role::class, $value])) {
+                                                    // P1-SEC-02: see the note below. Fails
+                                                    // closed when $grantable is absent.
+                                                    if (!in_array($value, $grantable ?? [], true)) {
                                                         continue;
                                                     }
                                                     $parts = explode(' ', $value);
@@ -97,14 +97,13 @@
                                                                     $check = strtolower($parts[1] ?? $parts[0]);
                                                                     $name = str_replace($check, '', $prermission->name);
                                                                 @endphp
-{{-- P1-SEC-02: ask the POLICY, not a copy of the denylist. `RolePolicy::grantPermission` is
-    now positive authorization (bounded by the tenant owner's own grant), so a hard-coded
-    `in_array($name, config('superadminaccess'))` here would offer the merchant checkboxes the
-    server drops -- the form and the handler would disagree by construction. This is a Gate
-    ability, not a Laratrust permission name, so `can()` really does resolve it (CLAUDE.md's
-    warning about `@can('Some Permission')` is about permission names); `filterGrantablePermissions`
-    already relies on the same call. --}}
-                                                                @if (!auth()->user()->can('grantPermission', [\App\Models\Role::class, $prermission->name]))
+{{-- P1-SEC-02: membership in the set the CONTROLLER computed from `RolePolicy::grantableNames`,
+    which shares its per-name rule with `grantPermission()` -- so the form and the write path
+    cannot disagree. NOT a Gate call per permission: that shape measured 601 GateEvaluated events
+    and 1,742 queries for one render of this modal on a 200-permission table, against 1 and 14
+    before the change. FAILS CLOSED: `$grantable ?? []` hides every checkbox if a caller forgets
+    to pass it, because an empty form is recoverable and an unfiltered one is an escalation. --}}
+                                                                @if (!in_array($prermission->name, $grantable ?? [], true))
                                                                 @continue
                                                                 @endif
                                                                 @if ($list == $check)

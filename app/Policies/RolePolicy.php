@@ -64,9 +64,34 @@ class RolePolicy
         'admin', 'Admin', 'ADMIN',
     ];
 
+    /**
+     * NORMALISED, per CLAUDE.md's prescribed form and the house pattern at
+     * `StoreController::resolveOwnedStore` and `BulkDeleteTenantGuard::handle`. P1-SEC-02.
+     *
+     * It was an exact `===`, which fails CLOSED and so was never an escalation -- but P1-SEC-02
+     * changed what failing closed COSTS here, and that is why it is being normalised now rather
+     * than left alone. Before: an operator row reading `'Super Admin'` or `' super admin'` missed
+     * the exemption and fell through to the denylist, still able to grant 187 of 200 names.
+     * After: it falls through to `tenantOwner()`, where `User::creatorId()` compares against the
+     * same exact literals and so returns `created_by` -- `null` for a root operator row -- giving
+     * `User::find(0)`, no owner, and NOTHING grantable. The operator would lose the role editor
+     * outright.
+     *
+     * Widening who matches is safe because `users.type` is not client-writable: the only writers
+     * are `UserController:154` and `:305` (both derived from a tenant-scoped role name and both
+     * behind the `RESERVED_NAMES` refusal), `StoreController:265` (inside an operator-only
+     * branch), and the registration controllers, which hardcode the value.
+     *
+     * Raised by adversarial review of P1-SEC-02 as speculative-pending-measurement. The live
+     * `users.type` values cannot be read from here, so rather than leave an availability risk
+     * resting on an unverified assumption about production data, the comparison is made
+     * insensitive to case and surrounding whitespace -- which costs nothing and is what the rest
+     * of the codebase already does.
+     */
     protected function isPlatformAdmin(?User $actor): bool
     {
-        return $actor !== null && $actor->type === self::PLATFORM_ADMIN;
+        return $actor !== null
+            && strtolower(trim((string) $actor->type)) === self::PLATFORM_ADMIN;
     }
 
     protected function ownsRole(User $actor, Role $role): bool
@@ -192,13 +217,100 @@ class RolePolicy
             return true;
         }
 
+        $owner = $this->tenantOwner($actor);
+
+        return $this->isGrantableBy($permissionName, $this->heldBy($owner));
+    }
+
+    /**
+     * The subset of $candidateNames this actor may grant — the same rules, resolved once.
+     *
+     * WHY THIS EXISTS, MEASURED. The role editor asks the question once per permission per
+     * module tab, and the first version of the P1-SEC-02 view change called the Gate each time.
+     * On a 200-permission table that measured **601 GateEvaluated events and 1,742 database
+     * queries** for one `GET /roles/create`, against **1 event and 14 queries** before the
+     * change — a 124x query regression on a modal a merchant opens routinely, and invisible to
+     * the suite because `SecurityTestCase` disables the Laratrust cache and the fixtures hold
+     * nine permissions. `Gate::resolvePolicy()` builds a fresh policy instance per call
+     * (framework `Gate.php:734`) and fires an event per call (`:457`), and for STAFF the old
+     * shape re-ran `User::find()` inside every one of them.
+     *
+     * So the bulk question resolves the tenant owner ONCE and then asks the same per-name
+     * predicate the single-name path asks. `grantPermission()` remains the one decision point
+     * for the WRITE path (`filterGrantablePermissions`, a handful of ids per request); this is
+     * the same decision for the READ path, not a second copy of it — both end in
+     * `isGrantableBy()`.
+     *
+     * @param  list<string>  $candidateNames
+     * @return list<string>
+     */
+    public function grantableNames(?User $actor, array $candidateNames): array
+    {
+        if ($actor === null) {
+            return [];
+        }
+
+        if ($this->isPlatformAdmin($actor)) {
+            return array_values($candidateNames);
+        }
+
+        $owner = $this->tenantOwner($actor);
+        $held = $this->heldBy($owner);
+
+        return array_values(array_filter(
+            $candidateNames,
+            fn (string $name): bool => $this->isGrantableBy($name, $held)
+        ));
+    }
+
+    /**
+     * The per-name rule, shared by the single-name and bulk paths so they cannot drift.
+     *
+     * Order matters and is asserted: the denylist is consulted BEFORE the positive limb, so a
+     * platform-operator name stays refused even for a tenant that somehow came to hold one.
+     */
+    private function isGrantableBy(string $permissionName, array $ownerHeld): bool
+    {
         if (in_array($permissionName, (array) config('superadminaccess', []), true)) {
             return false;
         }
 
-        $owner = $this->tenantOwner($actor);
+        return in_array($permissionName, $ownerHeld, true);
+    }
 
-        return $owner !== null && $owner->isAbleTo($permissionName);
+    /**
+     * Every permission NAME the tenant owner holds, fetched once.
+     *
+     * EXACT MEMBERSHIP RATHER THAN `isAbleTo()`, and that is a deliberate tightening.
+     * `isAbleTo($name)` resolves through `Str::is($requested, $held)` in Laratrust's checkers
+     * (`UserDefaultChecker.php:124`, `RoleDefaultChecker.php:42`) -- note the argument order:
+     * THE REQUESTED NAME IS THE PATTERN and the held name is the subject. A `permissions.name`
+     * containing `*` or `?` would therefore have matched any held permission and cleared the
+     * ceiling, while the denylist's `in_array(..., true)` above would not have caught it.
+     *
+     * Not reachable today -- nothing under `app/` creates a Permission row from request input,
+     * the only writers are `Utility::addNewData()` and the module seeders, and Laratrust's own
+     * panel is unrouted (`config/laratrust.php` `panel.register => false`) -- but a ceiling that
+     * can be cleared by a wildcard in data is not a ceiling, and exact membership costs nothing.
+     * So this closes it rather than recording it.
+     *
+     * It also makes the two paths structurally identical: one fetch, then `in_array` on both the
+     * single-name and bulk routes, so the form and the write path cannot differ in MATCHING
+     * SEMANTICS either -- not just in rules.
+     *
+     * @return list<string>
+     */
+    private function heldBy(?User $owner): array
+    {
+        if ($owner === null) {
+            return [];
+        }
+
+        return $owner->allPermissions(['name'])
+            ->pluck('name')
+            ->unique()
+            ->values()
+            ->all();
     }
 
     /**
@@ -207,6 +319,24 @@ class RolePolicy
      * `creatorId()` is the application's own answer to this question (`User::creatorId()`
      * returns `$this->id` for type `admin`/`super admin`, else `created_by`), so this follows it
      * rather than introducing a second notion of tenancy.
+     *
+     * FOR A USER THE PLATFORM OPERATOR CREATED, THE OWNER *IS* THE OPERATOR. `UserController:159`
+     * stamps `created_by = Auth::user()->id`, so a non-admin user created through the operator's
+     * own `/users` screen has the operator as its tenant owner and its ceiling is the operator's
+     * grant minus the denylist -- roughly sixteen names such as `Manage Plan`, `Manage Setting`
+     * and the Coupon and User groups. That is NOT an escalation above a tenant ceiling (the
+     * operator IS their tenant) and it is strictly NARROWER than before this change, when the
+     * same principal could grant anything not denylisted, the finance six included. It is spelled
+     * out because the sentence "no principal can exceed its tenant's ceiling" is only true if
+     * "tenant" is read as including the platform. Raised by adversarial review; deliberately NOT
+     * special-cased, because an operator-owner exception would be a wider change than the finding
+     * warrants and would break legitimate operator-side delegation.
+     *
+     * THIS CONTROL IS COUPLED TO `RESERVED_NAMES`, and the coupling should be visible. Staff at
+     * parity with their merchant inherit `Create Role` and `Edit User` -- precisely the S13-b
+     * escalation kit. It is contained only because `RESERVED_NAMES` (`:64`) refuses a
+     * tenant-authored role named `admin`; if that list regressed, owner-bounding would again let
+     * a staff member mint a tenant root. Do not relax one without re-reading the other.
      */
     private function tenantOwner(User $actor): ?User
     {

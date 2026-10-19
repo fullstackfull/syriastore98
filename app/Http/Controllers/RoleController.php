@@ -64,8 +64,34 @@ class RoleController extends Controller
         $user = \Auth::user();
         $permissions = Permission::all()->pluck('name', 'id')->toArray();
         $modules = array_merge(['General'], getshowModuleList());
-        return view('roles.create', ['permissions' => $permissions, 'modules' => $modules]);
+
+        return view('roles.create', [
+            'permissions' => $permissions,
+            'modules' => $modules,
+            'grantable' => $this->grantablePermissionNames(),
+        ]);
     }
+
+    /**
+     * The permission NAMES the signed-in actor may grant, computed once per request.
+     *
+     * P1-SEC-02. The role editor needs this per permission per module tab, and asking the Gate
+     * each time measured 601 GateEvaluated events and 1,742 queries for one `GET /roles/create`
+     * on a 200-permission table, against 1 and 14 before the change. `RolePolicy::grantableNames`
+     * answers the same question with the tenant owner resolved once, and both it and
+     * `grantPermission()` end in the same private per-name rule, so the form and the write path
+     * cannot drift -- which was the point of routing the view through the policy at all.
+     *
+     * @return list<string>
+     */
+    protected function grantablePermissionNames(): array
+    {
+        return (new RolePolicy())->grantableNames(
+            auth()->user(),
+            Permission::pluck('name')->all()
+        );
+    }
+
 
     /**
      * Store a newly created resource in storage.
@@ -191,7 +217,10 @@ class RoleController extends Controller
             $rolePermissions = $rolePermissions->merge($role1->permissions);
         }
         $rolePermissions = $rolePermissions->pluck('name', 'id')->toArray();
-        return view('roles.edit', compact('role', 'modules', 'permissions', 'rolePermissions'));
+        $grantable = $this->grantablePermissionNames();
+
+        return view('roles.edit',
+            compact('role', 'modules', 'permissions', 'rolePermissions', 'grantable'));
     }
 
     /**

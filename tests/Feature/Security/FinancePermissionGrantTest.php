@@ -113,6 +113,15 @@ class FinancePermissionGrantTest extends SecurityTestCase
 
             $carried = $role->permissions()->pluck('name')->all();
 
+            // PER-CASE PREMISE. `'permissions' => 'required'` is validated against the RAW
+            // request before the filter runs, so the role is created even when every posted
+            // permission is dropped -- `assertNotNull` above does not rule out "the filter
+            // dropped everything". Without this line a fix that refused ALL grants would satisfy
+            // the assertion below. Raised by adversarial review; the class's own positive control
+            // already covered it, but each case should stand on its own.
+            $this->assertContains('Manage Product', $carried,
+                'The ordinary permission was dropped too, so this case does not show the finance '
+                . 'name being singled out. Carried: ' . implode(', ', $carried));
             $this->assertNotContains($financeName, $carried,
                 'A merchant who does not hold "' . $financeName . '" granted it to a role they '
                 . 'created. Carried: ' . implode(', ', $carried));
@@ -182,7 +191,13 @@ class FinancePermissionGrantTest extends SecurityTestCase
 
         $role = $this->createdRole('operator-reach');
         $this->assertNotNull($role);
-        $this->assertNotContains('Manage Email Template', $role->permissions()->pluck('name')->all(),
+
+        $carried = $role->permissions()->pluck('name')->all();
+        // Per-case premise -- see the note in the finance test above.
+        $this->assertContains('Manage Product', $carried,
+            'The ordinary permission was dropped too, so this case does not show the '
+            . 'operator-only name being singled out. Carried: ' . implode(', ', $carried));
+        $this->assertNotContains('Manage Email Template', $carried,
             'A merchant granted an operator-only permission; the denylist never covered it.');
     }
 
@@ -295,5 +310,168 @@ class FinancePermissionGrantTest extends SecurityTestCase
         }
         $this->assertStringNotContainsString('Manage Email Template', $html,
             'The role form still offers an operator-only permission.');
+    }
+
+    /**
+     * THE OWNER-BOUNDING BRANCH, WHICH NOTHING ELSE EXECUTES.
+     * ==========================================================================================
+     *
+     * Raised by adversarial review and it was right: every other principal in this file is type
+     * `admin` (so `creatorId()` returns its own id and `tenantOwner()` returns early) or
+     * `super admin` (so the operator limb returns before `tenantOwner()` is reached). So
+     * `User::find($ownerId)` and the fail-closed `$owner !== null` limb had NEVER RUN, and the
+     * design decision this task turns on -- bounding by the tenant owner rather than the actor,
+     * so a merchant can still delegate role composition -- had zero regression protection. A
+     * change making `tenantOwner()` return null for staff would have locked every delegated
+     * staff member out of role composition and passed the whole suite green.
+     *
+     * Three cases, each biting a different way:
+     *   1. staff CAN grant what their merchant holds   -- actor-bounding would fail this
+     *   2. staff CANNOT grant what their merchant lacks -- the denylist would fail this
+     *   3. staff with no resolvable owner grant nothing -- the fail-closed limb
+     */
+    public function test_staff_can_grant_a_permission_their_merchant_holds(): void
+    {
+        [$merchant] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Manage Product');
+
+        $staff = $this->makeStaff($merchant);
+        $this->grantPermission($staff, 'Create Role');
+
+        $ordinaryId = $this->permissionId('Manage Product');
+
+        $this->actingAs($staff->fresh())->post('/roles', [
+            'name' => 'staff-composed',
+            'permissions' => [$ordinaryId],
+        ]);
+
+        $role = $this->createdRole('staff-composed');
+        $this->assertNotNull($role,
+            'Staff can no longer create a role at all. Session error: '
+            . json_encode(session('error')));
+        $this->assertContains('Manage Product', $role->permissions()->pluck('name')->all(),
+            'Staff cannot grant a permission their own merchant holds, so the ceiling is being '
+            . 'read from the ACTOR rather than the tenant owner -- which breaks the delegation '
+            . 'this design was chosen to preserve.');
+    }
+
+    public function test_staff_cannot_grant_a_permission_their_merchant_does_not_hold(): void
+    {
+        [$merchant] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Manage Product');
+
+        $staff = $this->makeStaff($merchant);
+        $this->grantPermission($staff, 'Create Role');
+
+        $ordinaryId = $this->permissionId('Manage Product');
+        $financeId = $this->permissionId('Add Finance Balance');
+
+        $this->actingAs($staff->fresh())->post('/roles', [
+            'name' => 'staff-escalation',
+            'permissions' => [$ordinaryId, $financeId],
+        ]);
+
+        $role = $this->createdRole('staff-escalation');
+        $this->assertNotNull($role);
+
+        $carried = $role->permissions()->pluck('name')->all();
+        $this->assertContains('Manage Product', $carried,
+            'Nothing was granted, so this case does not single out the finance name.');
+        $this->assertNotContains('Add Finance Balance', $carried,
+            'Staff granted a money-moving permission that their own merchant does not hold.');
+    }
+
+    /**
+     * FAIL CLOSED when the tenant owner cannot be resolved.
+     *
+     * `created_by = null` makes `creatorId()` return null, `(int) null === 0`, and
+     * `User::find(0)` null -- so `heldBy()` returns [] and nothing is grantable. Without the
+     * null limb this is a fatal on `null->allPermissions()`, so the test fails loudly either
+     * way; what it pins is that the answer is "grant nothing" rather than "grant everything".
+     */
+    public function test_staff_with_no_resolvable_owner_grants_nothing(): void
+    {
+        [$merchant] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Manage Product');
+
+        $staff = $this->makeStaff($merchant);
+        $this->grantPermission($staff, 'Create Role');
+        $staff->created_by = null;
+        $staff->save();
+
+        $ordinaryId = $this->permissionId('Manage Product');
+
+        $response = $this->actingAs($staff->fresh())->post('/roles', [
+            'name' => 'orphan-staff',
+            'permissions' => [$ordinaryId],
+        ]);
+
+        /*
+         * THE STATUS ASSERTION IS THE ONE THAT BITES, and the first version of this test did not
+         * have it. It read `if ($role !== null) { assertSame([], ...) }`, which is unfalsifiable:
+         * removing the null limb makes `null->allPermissions()` a fatal, Laravel answers 500, the
+         * role is never created, `$role` is null and the whole assertion is SKIPPED. Measured --
+         * the removal check passed with the control deleted, which is how it was caught.
+         *
+         * "Fail closed" means grant nothing, NOT crash. A 500 is a different defect and this
+         * separates them.
+         */
+        $this->assertNotSame(500, $response->status(),
+            'Resolving no tenant owner crashed the request instead of granting nothing. Body: '
+            . substr((string) $response->getContent(), 0, 300));
+
+        $role = $this->createdRole('orphan-staff');
+
+        // The row itself may exist -- `'permissions' => 'required'` passes on the raw request,
+        // before the filter runs -- but it must carry nothing.
+        $this->assertSame([], $role === null ? [] : $role->permissions()->pluck('name')->all(),
+            'A principal whose tenant owner cannot be resolved was granted something. The '
+            . 'ceiling must fail closed.');
+    }
+
+    /**
+     * THE EDIT VIEW, WHICH THE CREATE-VIEW TEST DOES NOT COVER.
+     *
+     * Raised by review: the agreement test rendered only `GET /roles/create`, while the third
+     * site that used to carry its own copy of the rule is `roles/edit.blade.php`. A stale copy
+     * left there would have shipped silently -- exactly the divergence the design claims to
+     * prevent.
+     */
+    public function test_the_role_edit_form_does_not_offer_a_permission_the_handler_would_drop(): void
+    {
+        [$merchant] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Create Role');
+        $this->grantPermission($merchant, 'Edit Role');
+        $this->grantPermission($merchant, 'Manage Product');
+
+        $this->permissionId('Manage Product');
+        foreach (self::FINANCE as $name) {
+            $this->permissionId($name);
+        }
+
+        $role = Role::forceCreate([
+            'name' => 'editable-role',
+            'display_name' => 'Editable Role',
+            'guard_name' => 'web',
+            'created_by' => $merchant->creatorId(),
+            'store_id' => $merchant->current_store,
+        ]);
+
+        $response = $this->actingAs($merchant->fresh())->get('/roles/' . $role->id . '/edit');
+
+        $this->assertSame(200, $response->status(),
+            'The edit form does not render, so every assertion below is vacuous. Body: '
+            . substr((string) $response->getContent(), 0, 300));
+
+        $html = (string) $response->getContent();
+
+        $this->assertStringContainsString('Manage Product', $html,
+            'The edit form offers none of the merchant\'s own permissions, so the absences '
+            . 'below measure nothing.');
+
+        foreach (self::FINANCE as $name) {
+            $this->assertStringNotContainsString($name, $html,
+                'The role EDIT form still offers "' . $name . '", which the handler will drop.');
+        }
     }
 }
