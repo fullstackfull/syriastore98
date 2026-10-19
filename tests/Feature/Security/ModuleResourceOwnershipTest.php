@@ -615,8 +615,11 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
 
         $show = $this->actingAs($merchantA->fresh())->get('/auctionsetting/' . $own);
         $this->assertNotSame(403, $show->status(),
-            'The guard refused a GET on a uri whose write methods it targets. TARGETS is keyed on '
-            . 'METHOD+uri precisely so that reads are untouched.');
+            'The guard refused GET show() on a uri whose write methods it targets. TARGETS is '
+            . 'keyed on METHOD+uri so that each method is decided separately -- show() is a '
+            . '`return view(...)` stub with no model read and is deliberately not a target. Note '
+            . 'this is NOT a claim that reads are untouched generally: `edit` IS targeted, because '
+            . 'it was a live cross-tenant read.');
 
         $dashboard = $this->actingAs($merchantA->fresh())->get('/dashboard');
         $this->assertSame(200, $dashboard->status(),
@@ -643,7 +646,8 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
                 ->getConstant('TARGETS')
         );
 
-        $this->assertCount(9, $targets);
+        // 9 writes + the two `edit` reads the second review found live.
+        $this->assertCount(11, $targets);
 
         $registered = [];
 
@@ -958,5 +962,138 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
             'Holding Edit Auction Setting conferred DELETE on the same uri. TARGETS is keyed on '
             . 'METHOD+uri precisely so that it does not.');
         $this->assertNotNull(DB::table('auction_product_settings')->where('id', $own)->first());
+    }
+
+    // =========================================================================================
+    //  THE `edit` READS -- live cross-tenant reads found by the SECOND adversarial review
+    // =========================================================================================
+
+    /**
+     * ANOTHER STORE'S PRODUCT CANNOT BE READ THROUGH THE AUCTION EDIT FORM.
+     *
+     * FOUND BY REVIEW, AFTER THIS FILE WAS ALREADY GREEN AT 22 TESTS AND THE GATE HAD PASSED, and
+     * then reproduced three times independently. `Route::resource` registers `edit` at a DIFFERENT
+     * URI -- `<base>/{param}/edit` -- so the guard's "every other method on the same uri passes
+     * through untouched" disclosure never reached it, and the only read that disclosure named was
+     * `show()`, which is a harmless `return view(...)` stub.
+     *
+     * `AuctionProductController::edit:823-853` does `Product::find($id)` with NO PERMISSION CHECK
+     * ANYWHERE IN THE METHOD and renders it through `Form::model($product, ...)`. Measured on a
+     * merchant holding NO auction permission at all: HTTP 200 carrying another store's name, slug,
+     * price, sale_price, description, specification, detail and custom_field JSON.
+     *
+     * THE ASYMMETRY IS THE WHOLE POINT: `Edit Auction Product` IS checked by `update()` on the
+     * identical uri. The write was gated and the read was not.
+     */
+    public function test_a_merchant_cannot_read_another_stores_product_through_the_auction_edit_form(): void
+    {
+        $this->enableModules();
+
+        [$merchantA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Edit Auction Product');
+        $this->entitle($merchantA);
+
+        $victim = $this->product($storeB, ['name' => 'VICTIM-PRODUCT-NAME-XYZ']);
+
+        $response = $this->actingAs($merchantA->fresh())->get('/auctionproduct/' . $victim . '/edit');
+
+        $this->assertSame(403, $response->status(),
+            'Another store\'s product is readable through the auction edit form. Status '
+            . $response->status() . '.');
+        $this->assertStringNotContainsString('VICTIM-PRODUCT-NAME-XYZ',
+            (string) $response->getContent(),
+            'The response body carries another store\'s product name.');
+    }
+
+    /** The same for the auction setting form, whose edit() also checks no permission. */
+    public function test_a_merchant_cannot_read_another_stores_auction_setting_through_the_edit_form(): void
+    {
+        $this->enableModules();
+
+        [$merchantA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Edit Auction Setting');
+        $this->entitle($merchantA);
+
+        $victim = (int) DB::table('auction_product_settings')->insertGetId([
+            'name' => 'VICTIM-SETTING-NAME-XYZ',
+            'store_id' => $storeB->id,
+            'is_active' => 1,
+            'created_by' => (int) $storeB->created_by,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->actingAs($merchantA->fresh())->get('/auctionsetting/' . $victim . '/edit');
+
+        $this->assertSame(403, $response->status(),
+            'Another store\'s auction setting is readable through its edit form. Status '
+            . $response->status() . '.');
+        $this->assertStringNotContainsString('VICTIM-SETTING-NAME-XYZ',
+            (string) $response->getContent());
+    }
+
+    /**
+     * THE OWNER STILL READS THEIR OWN EDIT FORMS. The false-denial half.
+     *
+     * The guard requires `Edit Auction Product` / `Edit Auction Setting` on these reads, which the
+     * handlers themselves do not. That is safe rather than a regression BECAUSE the module's own
+     * UI already gates both Edit buttons on exactly those names, via Laratrust's `@permission`
+     * (which resolves through hasPermission() and NOT through Laravel's Gate, so it is unaffected
+     * by this project's `permissions_as_gates => false`). So every non-operator who legitimately
+     * reaches these screens already holds the name.
+     */
+    public function test_a_merchant_can_still_read_their_own_edit_forms(): void
+    {
+        $this->enableModules();
+
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Edit Auction Product');
+        $this->grantPermission($merchantA, 'Edit Auction Setting');
+        $this->entitle($merchantA);
+
+        $own = $this->product($storeA, ['name' => 'MY-OWN-PRODUCT']);
+        $ownSetting = $this->setting($storeA);
+
+        $product = $this->actingAs($merchantA->fresh())->get('/auctionproduct/' . $own . '/edit');
+        $setting = $this->actingAs($merchantA->fresh())->get('/auctionsetting/' . $ownSetting . '/edit');
+
+        $this->assertNotSame(403, $product->status(),
+            'The guard refused the owner their own product edit form.');
+        $this->assertNotSame(403, $setting->status(),
+            'The guard refused the owner their own auction setting edit form.');
+    }
+
+    /**
+     * THE PLATFORM OPERATOR STILL READS AN EDIT FORM, which is the one principal a bare permission
+     * gate WOULD have locked out.
+     *
+     * `isAbleTo()` is false for a `super admin` -- there is no super-admin bypass in Laratrust and
+     * no role grants them these names -- so requiring the permission without checking the operator
+     * first would refuse them a page they can reach by URL today. The trait checks the operator
+     * first; this is the test that says so.
+     */
+    public function test_the_platform_operator_can_still_read_an_edit_form(): void
+    {
+        $this->enableModules();
+
+        \App\Models\Permission::firstOrCreate(
+            ['name' => 'Edit Auction Setting'],
+            ['display_name' => 'Edit Auction Setting']
+        );
+
+        $operator = $this->makePlatformAdmin();
+        [, $storeB] = $this->makeTenant();
+        $operator->current_store = $storeB->id;
+        $operator->save();
+
+        $setting = $this->setting($storeB);
+
+        $response = $this->actingAs($operator->fresh())->get('/auctionsetting/' . $setting . '/edit');
+
+        $this->assertNotSame(403, $response->status(),
+            'The platform operator was refused an edit form. isAbleTo() is false for them, so the '
+            . 'operator limb MUST come before the permission limb or this is a lockout.');
     }
 }

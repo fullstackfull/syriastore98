@@ -9,8 +9,9 @@ use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * P1-INV-17 / #63. FOUR CROSS-TENANT WRITES BEHIND AuctionProduct's `Route::resource` ROUTES,
- * TWO OF THEM ON THE HOST `products` TABLE AND ONE THAT MOVES ANOTHER STORE'S ROW.
+ * P1-INV-17 / #63. FOUR CROSS-TENANT WRITES AND TWO CROSS-TENANT READS BEHIND AuctionProduct's
+ * `Route::resource` ROUTES, THREE OF THEM ON THE HOST `products` TABLE AND ONE THAT MOVES ANOTHER
+ * STORE'S ROW.
  * =============================================================================================
  *
  * `ModuleOrderMutationGuard` is this guard's sibling: same vehicle, same shared predicate
@@ -31,6 +32,8 @@ use Symfony\Component\HttpFoundation\Response;
  * | PUT/PATCH auctionsetting/{id}       | AuctionProductSettingController::update:115 | MOVES store_id      |
  * | DELETE    auctionsetting/{id}       | AuctionProductSettingController::destroy:140 | delete             |
  * | DELETE    auctionorder/{id}         | AuctionOrdersController::destroy:105      | delete                |
+ * | GET  auctionproduct/{id}/edit        | AuctionProductController::edit:823        | HOST Product, READ    |
+ * | GET  auctionsetting/{id}/edit        | AuctionProductSettingController::edit:92  | READ, no permission   |
  *
  * THE `auctionproduct` PAIR IS THE WORST, and it is not an auction table: both resolve
  * `App\Models\Product::find($id)`, the HOST catalogue model, which carries NO EFFECTIVE GLOBAL
@@ -72,12 +75,19 @@ use Symfony\Component\HttpFoundation\Response;
  * ===========================================================================================
  *
  * `Route::resource` puts GET (show), PUT, PATCH and DELETE on the same uri. Keying on uri alone
- * would mean one entry deciding all four, and they are not the same question: the two write
- * methods need different permissions from each other, and `show()` is a read this guard does not
- * claim to have analysed. So only the methods listed below are guarded and every other method on
- * the same uri passes through untouched -- stated here so nobody reads this guard as covering the
- * resources' reads. `auctionorder`'s own `update()` is a `//` stub and is guarded anyway, because
- * a stub that upstream fills in later must not become an unguarded write.
+ * would mean one entry deciding all four, and they are not the same question: the write methods
+ * need different permissions from each other, and `show()` is a stub -- both resources' `show()`
+ * is `return view(...)` with no model read.
+ *
+ * AND THE READS ARE NOT ALL ON THAT URI, WHICH THE FIRST VERSION OF THIS DOCBLOCK MISSED. The
+ * original said "every other method on the same uri passes through untouched -- stated here so
+ * nobody reads this guard as covering the resources' reads", which was true and useless: `edit`
+ * is registered at `<base>/{param}/edit`, a DIFFERENT uri, so that sentence did not reach it, and
+ * the only read it named was the harmless one. Two of the three `edit()` handlers were live
+ * cross-tenant reads with no permission check. They are now targets -- see their entries.
+ *
+ * `auctionorder`'s own `update()` is a `//` stub and is guarded anyway, because a stub that
+ * upstream fills in later must not become an unguarded write.
  */
 class ModuleResourceOwnershipGuard
 {
@@ -125,6 +135,49 @@ class ModuleResourceOwnershipGuard
             'table' => 'auction_product_settings',
             'parameter' => 'auctionsetting',
             'permission' => 'Delete Auction Setting',
+        ],
+
+        /*
+         * --- THE `edit` READS, ADDED AFTER THE SECOND REVIEW AND VERIFIED BY EXECUTION ---
+         *
+         * `Route::resource` registers `edit` at a DIFFERENT URI -- `<base>/{param}/edit` -- so this
+         * guard's original "every other method on the same uri passes through untouched" sentence
+         * never reached them, and the only read it named was the harmless `show()` stub. Two of
+         * the three resources' edit() handlers load the target by bare id with NO PERMISSION CHECK
+         * AT ALL and render it into a Form::model() view.
+         *
+         * MEASURED, not read: a probe reproduced both. A merchant holding NO auction permission,
+         * with only the plan entitlement, got HTTP 200 and another store's product name, slug,
+         * price, sale_price, description, specification, detail, custom_field JSON, stock posture
+         * and the file paths of its cover image, downloadable product and preview asset; and
+         * another store's auction setting name and all four date/time fields.
+         *
+         * THE ASYMMETRY IS THE SHAPE OF THE HOLE: `Edit Auction Product` IS checked by update() on
+         * the identical uri, and the module's own UI gates the Edit BUTTON on it
+         * (resources/views/action.blade.php:1, Laratrust `@permission` -- which resolves through
+         * hasPermission() and NOT through Laravel's Gate, so it is unaffected by
+         * `permissions_as_gates => false`). So the write is gated and the read is not, which is
+         * the opposite of what a reviewer comparing the two methods would assume.
+         *
+         * NO FALSE DENIAL: every non-operator who legitimately reaches these screens already holds
+         * the name, because the button is gated on it. The platform operator is the one principal
+         * for whom `isAbleTo()` is false, and the trait checks the operator FIRST -- so adding a
+         * permission requirement here cannot lock them out of a page they can reach by URL today.
+         *
+         * `auctionorder/{id}/edit` is deliberately NOT a target: its handler is
+         * `return view('auction-product::auctionorder.edit');` with no model read and no id use,
+         * and that view does not exist, so it is a 500 for everyone. There is no row read to
+         * become a leak. If upstream ever writes one, the action-keyed census below produces it.
+         */
+        'GET auctionproduct/{auctionproduct}/edit' => [
+            'table' => 'products',
+            'parameter' => 'auctionproduct',
+            'permission' => 'Edit Auction Product',
+        ],
+        'GET auctionsetting/{auctionsetting}/edit' => [
+            'table' => 'auction_product_settings',
+            'parameter' => 'auctionsetting',
+            'permission' => 'Edit Auction Setting',
         ],
 
         // --- auctionorder: destroy() is live and checks nothing; update() is a `//` stub,

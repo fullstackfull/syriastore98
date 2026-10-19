@@ -958,9 +958,26 @@ class ModuleOrderMutationGuardTest extends SecurityTestCase
             'auctionproduct/{auctionproduct}' => 'OPEN -- update():861 and destroy():1509 reach the HOST Product by bare id, gated only on Edit/Delete Auction Product which the module seeder grants the merchant admin role; tracked at #63',
             'auctionsetting/{auctionsetting}' => 'OPEN -- update():115 has NO permission check and writes store_id = getCurrentStore(), so it MOVES another store\'s row into the caller\'s tenant; destroy():140 likewise; tracked at #63',
             'auctionorder/{auctionorder}' => 'OPEN -- destroy():105 deletes any store\'s auction order by bare id with no permission check (update():95 is a `//` stub); tracked at #63',
-            'lotteryproduct/{lotteryproduct}' => 'stub: LotteryPrizesController::update():165 and destroy():175 are both `//`',
-            'lotteryresult/{lotteryresult}' => 'stub: LotteryResultController::update():221 and destroy():231 are both `//`',
-            'lotteryorder/{lotteryorder}' => 'stub: LotteryOrderController::update():86 and destroy():96 are both `//`',
+            /*
+             * THESE THREE ENTRIES WERE MISLEADING AND ARE CORRECTED. Each said only that
+             * `update()` and `destroy()` are `//` stubs -- TRUE of those two methods, and FALSELY
+             * REASSURING ABOUT THE RESOURCE, because the dangerous method on `lotteryresult` is
+             * `store()`, which no entry mentioned. A completeness review found it there:
+             * LotteryResultController::store():66-193 takes `selected_codes` from request input,
+             * resolves `PurchaseTicket::whereIn('lottery_code', ...)` with NO store predicate,
+             * writes forged PAID host `orders` rows carrying another tenant's product id, and
+             * `LotteryCustomer::insert()`s rows INTO the victim's tenant -- bypassing every global
+             * scope. Raised as P1-INV-18 (#64).
+             *
+             * An exemption that is true about what it says and silent about what matters reads as
+             * coverage. The new failure mode for this file's censuses, alongside "keyed on uri
+             * words" and "keyed on Route::post lines": AN EXEMPTION SCOPED TO THE METHODS SOMEBODY
+             * HAPPENED TO LOOK AT. Each entry now states which methods were read and which were
+             * NOT.
+             */
+            'lotteryproduct/{lotteryproduct}' => 'update():165 and destroy():175 are `//` stubs. store() READ: LotteryPrizesController::store():107-124 IS store-scoped. index/show not audited.',
+            'lotteryresult/{lotteryresult}' => 'update():221 and destroy():231 are `//` stubs -- BUT store():66-193 is a LIVE cross-tenant host-order write, OPEN at #64. Listed here because this guard\'s vehicle does not cover it; it is NOT protected.',
+            'lotteryorder/{lotteryorder}' => 'update():86 and destroy():96 are `//` stubs. index():33 is store-scoped but its permission check is COMMENTED OUT at :31,:36-38 -- not this guard\'s surface; noted so it is not mistaken for audited.',
         ];
 
         // THE EXEMPTIONS MUST BE REACHABLE. Three entries in the sibling test were uris its

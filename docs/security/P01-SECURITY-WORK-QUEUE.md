@@ -3526,7 +3526,14 @@ hardcoded `1` for a `super admin` with no `current_store`, `app/Helper/helper.ph
 
 ---
 
-## S39 — What the P1-INV-14 guard found by reading the vendored handlers to the end
+## S39 — What the two module guards found, and what two adversarial reviews found in them
+
+Fourteen rows. Four are defects the guards closed, four are defects the REVIEWS found IN THE
+GUARDS' OWN WORK (a fall-through that was a live cross-tenant write, a false seeding premise, a
+vacuous test, and two censuses that could not see what they claimed to cover), three are open
+and raised as issues, and one is a review claim that did not survive verification — kept
+because the refutation is the useful part. The raw, untriaged completeness-review output is at
+`docs/security/P1-INV-14-17-COMPLETENESS-REVIEW-RAW.md`.
 
 **The route census is the point of this row.** P1-INV-14 (#57) was filed as *one* unauthenticated
 route, found by following `Order::product_return`'s callers. A census of **both** modules' route
@@ -3759,6 +3766,115 @@ Generalisable: **a census keyed on how a uri is spelled cannot see the declarati
 of.** That is the third time this queue has recorded it (uri words for order documents, `Route::post`
 lines for module mutations, now the uri prefix), and each time the fix was to key on the handler
 instead.
+
+### S39-11 — two LIVE cross-tenant READS on the auction `edit` forms, which the guard's own disclosure did not reach — **CLOSED**
+
+`Route::resource` registers `edit` at a **different uri** — `<base>/{param}/edit` — so
+`ModuleResourceOwnershipGuard`'s disclosure sentence ("every other method on the same uri passes
+through untouched … so nobody reads this guard as covering the resources' reads") was true and
+useless: it could not reach `edit`, and the only read it named was the harmless `show()` stub.
+
+Two of the three `edit()` handlers load the target by bare id with **no permission check anywhere in
+the method**:
+
+- `AuctionProductController::edit:823-853` — `Product::find($id)`, then `Form::model($product, …)`.
+  **Measured** on a merchant holding NO auction permission, with only the plan entitlement: HTTP 200
+  carrying another store's `name`, `slug`, `price`, `sale_price`, `description`, `specification`,
+  `detail`, `custom_field` JSON, stock posture, and the file paths of its cover image, downloadable
+  product and preview asset. Not leaked, stated so the finding is not overstated: the gallery
+  (`ProductImage` is store-filtered at `:836`) and `product_stock` (its block is conditional).
+- `AuctionProductSettingController::edit:92-107` — `AuctionProductSetting::find($id)`; name and all
+  four date/time fields rendered.
+
+**The asymmetry is the shape of the hole:** `Edit Auction Product` **is** checked by `update()` on
+the identical uri, and the module's UI gates the Edit *button* on it. So the write was gated and the
+read was not — the opposite of what a reviewer comparing the two methods would assume.
+
+Reproduced **four times independently**: the review's own probe, two refuters who each wrote their
+own, and the regression test, which fails with HTTP 200 and the victim's name when the guard is
+removed.
+
+`auctionorder/{id}/edit` is deliberately not a target: its handler reads no model and renders a view
+that does not exist, so it is a 500 for everyone. No row read, so nothing to leak.
+
+**No false denial**, and this was checked rather than assumed. Both buttons are gated by Laratrust's
+`@permission`, which resolves through `hasPermission()` and **not** through Laravel's Gate — so it is
+unaffected by this project's `permissions_as_gates => false`, unlike `@can`. Every non-operator who
+legitimately reaches these screens already holds the name. The one principal a bare permission gate
+*would* lock out is the platform operator, for whom `isAbleTo()` is false; the shared trait checks
+the operator first, and a test now says so.
+
+### S39-13 — `POST lotteryresult` forges PAID host orders and plants rows in the victim's tenant — **OPEN, #64**
+
+`LotteryResultController::store():66-193`, reachable from `Route::resource('lotteryresult', …)`, with
+**no permission check** (only `index():32` checks `Manage Lottery Winner`). It takes `selected_codes`
+from request input, resolves `PurchaseTicket::whereIn('lottery_code', …)` with **no store
+predicate**, then per ticket inserts a **host `App\Models\Order`** carrying the *victim's* product id
+and ticket price with `payment_status => 'Paid'` and `store_id =>` the *attacker's* store — and
+`LotteryCustomer::insert()`s rows **into the victim's tenant**, bypassing model events and every
+global scope. The inverse of the usual defect: not reading another tenant's data but planting rows
+in it.
+
+**Neither guard's census could have produced it, and that is my own mistake.** P1-INV-17's stated
+scope was "every `update()` and `destroy()` body behind the six `Route::resource` declarations" —
+`store()` was never in scope, and the write-up's "What is NOT closed" named only `show()`. Worse,
+the census exemption read *"stub: `update():221` and `destroy():231` are both `//`"* — **true of
+those two methods and falsely reassuring about the resource**, because the dangerous method is
+`store()`.
+
+**A new failure mode for this queue's censuses, and it is the fourth:** uri words (order documents),
+`Route::post` lines (module mutations), the uri prefix (resource mutations), and now **an exemption
+scoped to the methods somebody happened to look at.** An exemption that is true about what it says
+and silent about what matters reads as coverage. All three lottery entries now state which methods
+were read and which were not.
+
+### S39-14 — a customer can forge an auction bid attributed to another customer on another store's product — **OPEN, #65**
+
+`POST /{storeSlug}/product-bid` (`['web']`-only group; measured `gatherMiddleware()` is literally
+`["web"]`) →`addProductbidamount:1580-1608`. It checks `auth('customers')->user()` for **presence**
+at `:1582` and then discards the principal: `product_id`, `bid_amount`, `customer_id` **and**
+`store_id` all come from request input, and the view posts the last two as **hidden fields**.
+`AuctionProductBid` has no scope and is absent from `scoped_models`; `max('bid_amount')` at `:1568`
+and `:1635` carries no store predicate. Verified by execution by three independent agents.
+
+**The purest form of the pattern CLAUDE.md names as the most productive in this codebase** — *a
+presence test mistaken for an identity test.*
+
+Two corrections to the original claim, both verified: it is **not anonymous** (a customer account on
+any store is required, trivially obtained but not an open endpoint), and the order-creation limb is
+**latent** — `auction:order` is an unscheduled Artisan command. The live consequence is bid poisoning
+and forged attribution; scheduling that command arms the money write.
+
+### S39-12 — a review claim that did NOT survive verification, recorded because the refutation is the useful part
+
+**Claim:** `users.type` is written from a role name, and the only protection against a reserved
+spelling is `Rule::notIn(RolePolicy::RESERVED_NAMES)`, which is **case-sensitive** — so a merchant
+could create a role named `sUper admin`, assign it, and mint a platform operator for every
+normalised comparison in the codebase.
+
+**Refuted, by execution.** The claim's first half is correct: `RoleController.php:124` and `:254` use
+`Rule::notIn`, which `ValidatesAttributes.php:1463` implements as a plain `in_array` with no case
+folding, so `sUper admin` **is** a creatable role name in a merchant's own tenant. But that is not
+the only protection. **Both** writers of `users.type` carry a second, *normalised* refusal at the
+assignment site:
+
+- `UserController.php:147` (store), seven lines above the `:154` write
+- `UserController.php:302` (update), three lines above the `:305` write
+
+both `in_array(strtolower(trim((string) $role->name)), RolePolicy::RESERVED_NAMES, true)` →
+*"That role cannot be assigned."* That is the **identical expression every normalised consumer
+uses**, so the control is coextensive with the consumer predicate rather than a case-sensitive
+denylist. A probe over the live constant confirmed every candidate spelling — `' super admin'`,
+`'sUper admin'`, `'SUPER ADMIN'`, tab-separated variants — is refused at assignment.
+
+**The claim's chain stopped one step short:** it established that a reserved spelling can become a
+ROLE NAME, then asserted without checking that it becomes a `users.type`.
+
+**What is still worth knowing**, and is hardening rather than a defect: `RESERVED_NAMES`' five
+mixed-case entries are dead weight for the `UserController` check, which lowercases first and can
+only ever match the lowercase entries. They exist solely to give the case-sensitive validator a few
+extra spellings — and covering five of unbounded case permutations is not coverage.
+`RolePolicy.php:66-68` states that design intent explicitly. Belongs to the role/user workstream.
 
 ### S39-8 — the raw-query inventory's glob was not recursive, and nearly lost a site — **CLOSED**
 

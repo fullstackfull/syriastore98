@@ -10,8 +10,8 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 55 — 16 DONE, 16 READY, 8 BACKLOG, 15 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
-| Requiring an owner decision | 19 |
+| Tasks | 57 — 16 DONE, 18 READY, 8 BACKLOG, 15 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
+| Requiring an owner decision | 20 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
 A task is **not** `DONE` because code was committed — `DONE` requires its acceptance criteria verified, with the evidence recorded in its row.
@@ -47,6 +47,8 @@ graph TD
   P1_INV_02 --> P1_INV_16
   P1_INV_14 --> P1_ORD_06
   P1_INV_14 --> P1_INV_17
+  P1_INV_14 --> P1_INV_18
+  P1_INV_17 --> P1_INV_18
   P1_INV_02 --> P1_INV_15
   P1_INV_04 --> P1_OWN_07
   P1_R_01
@@ -76,6 +78,7 @@ graph TD
   P1_OWN_05
   P1_OWN_06
   P1_INV_10
+  P1_INV_19
   P1_SEC_06
 ```
 
@@ -104,35 +107,37 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 8. `P1-INV-13` — The Woo/Shopify import family: three more unscoped mapping resolves, one still carrying a store-transfer primitive *(inventory, READY, risk high)*
 9. `P1-INV-15` — Order::product_return robustness: POS orders 500, no transaction, tax_price zeroed, and a double-credit across the two return endpoints *(inventory, READY, risk medium)*
 10. `P1-INV-16` — AuctionProductOrder::product_return restocks an unscoped Product, has no replay guard, and its non-variant path is a silent no-op *(inventory, READY, risk high)*
-11. `P1-PAY-04` — COD settles at order time, which blocks releasing GATE F *(payments, BLOCKED, risk high)*
-12. `P1-MIG-03` — Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns *(migrations, BLOCKED, risk high)*
-13. `P1-MIG-01` — GATE F: release the six money-bearing tables *(migrations, BLOCKED, risk high)*
-14. `P1-MIG-02` — customers.password_otp is INTEGER while the web reset writes a 60-char bcrypt hash *(migrations, BLOCKED, risk high)*
-15. `P1-MIG-04` — SCHEMA-01: nine more tables live code uses with no migration *(migrations, BLOCKED, risk medium)*
-16. `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted *(orders, BACKLOG, risk high)*
-17. `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon *(orders, BACKLOG, risk high)*
-18. `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account *(orders, BLOCKED, risk high)*
-19. `P1-ORD-05` — The order read family: a forgeable encrypted id reaches any store's order, and two handlers lock out the operator *(orders, READY, risk high)*
-20. `P1-ORD-06` — auction-order-status-change reads the HOST orders table with an auction id and POSTs the result, PII included, to a merchant-configured URL *(orders, READY, risk high)*
-21. `P1-OWN-01` — BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour *(security, BLOCKED, risk high)*
-22. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
-23. `P1-OWN-03` — The compromised API log on the running server *(security, BLOCKED, risk high)*
-24. `P1-OWN-04` — Token lifetime and abilities for clients already on merchants' phones *(security, BLOCKED, risk high)*
-25. `P1-OWN-05` — Anonymous order-document access (customerpayment) and tooling decisions *(platform, BLOCKED, risk medium)*
-26. `P1-OWN-06` — Branch protection and required checks on main *(platform, BLOCKED, risk medium)*
-27. `P1-OWN-07` — Reconcile data residue from the pre-fix WooCommerce transfer primitive (read-only investigation) *(owner, READY, risk high)*
-28. `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites *(payments, READY, risk medium)*
-29. `P1-PAY-02` — Idempotency on gateway returns and order writers *(payments, BACKLOG, risk high)*
-30. `P1-PAY-03` — Gateway callback authenticity: no return proves a payment moved *(payments, BLOCKED, risk high)*
-31. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, READY, risk high)*
-32. `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites *(platform, BACKLOG, risk high)*
-33. `P1-PLT-04` — Module loading swallows every exception with no log line *(platform, BLOCKED, risk medium)*
-34. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, BACKLOG, risk medium)*
-35. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, READY, risk high)*
-36. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, READY, risk medium)*
-37. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, READY, risk medium)*
-38. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
-39. `P1-SEC-06` — Authenticated SSRF: four import handlers fetch a merchant-controlled URL and serve the response *(security, READY, risk high)*
+11. `P1-INV-18` — URGENT: POST lotteryresult writes forged PAID host orders from another tenant's ticket codes, and inserts rows INTO the victim's tenant *(inventory, READY, risk critical)*
+12. `P1-INV-19` — any customer can forge an auction bid attributed to another customer on another store's product; store_id and customer_id both come from request input *(inventory, READY, risk high)*
+13. `P1-PAY-04` — COD settles at order time, which blocks releasing GATE F *(payments, BLOCKED, risk high)*
+14. `P1-MIG-03` — Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns *(migrations, BLOCKED, risk high)*
+15. `P1-MIG-01` — GATE F: release the six money-bearing tables *(migrations, BLOCKED, risk high)*
+16. `P1-MIG-02` — customers.password_otp is INTEGER while the web reset writes a 60-char bcrypt hash *(migrations, BLOCKED, risk high)*
+17. `P1-MIG-04` — SCHEMA-01: nine more tables live code uses with no migration *(migrations, BLOCKED, risk medium)*
+18. `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted *(orders, BACKLOG, risk high)*
+19. `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon *(orders, BACKLOG, risk high)*
+20. `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account *(orders, BLOCKED, risk high)*
+21. `P1-ORD-05` — The order read family: a forgeable encrypted id reaches any store's order, and two handlers lock out the operator *(orders, READY, risk high)*
+22. `P1-ORD-06` — auction-order-status-change reads the HOST orders table with an auction id and POSTs the result, PII included, to a merchant-configured URL *(orders, READY, risk high)*
+23. `P1-OWN-01` — BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour *(security, BLOCKED, risk high)*
+24. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
+25. `P1-OWN-03` — The compromised API log on the running server *(security, BLOCKED, risk high)*
+26. `P1-OWN-04` — Token lifetime and abilities for clients already on merchants' phones *(security, BLOCKED, risk high)*
+27. `P1-OWN-05` — Anonymous order-document access (customerpayment) and tooling decisions *(platform, BLOCKED, risk medium)*
+28. `P1-OWN-06` — Branch protection and required checks on main *(platform, BLOCKED, risk medium)*
+29. `P1-OWN-07` — Reconcile data residue from the pre-fix WooCommerce transfer primitive (read-only investigation) *(owner, READY, risk high)*
+30. `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites *(payments, READY, risk medium)*
+31. `P1-PAY-02` — Idempotency on gateway returns and order writers *(payments, BACKLOG, risk high)*
+32. `P1-PAY-03` — Gateway callback authenticity: no return proves a payment moved *(payments, BLOCKED, risk high)*
+33. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, READY, risk high)*
+34. `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites *(platform, BACKLOG, risk high)*
+35. `P1-PLT-04` — Module loading swallows every exception with no log line *(platform, BLOCKED, risk medium)*
+36. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, BACKLOG, risk medium)*
+37. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, READY, risk high)*
+38. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, READY, risk medium)*
+39. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, READY, risk medium)*
+40. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
+41. `P1-SEC-06` — Authenticated SSRF: four import handlers fetch a merchant-controlled URL and serve the response *(security, READY, risk high)*
 
 ---
 
@@ -943,7 +948,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 | Owner decision required | no |
 | Depends on | `P1-INV-14` |
 | Scope | `app/Http/Middleware/ModuleResourceOwnershipGuard.php`, `app/Http/Middleware/Concerns/ComparesRowOwnership.php`, `app/Http/Middleware/ModuleOrderMutationGuard.php`, `bootstrap/app.php`, `tests/Feature/Security/ModuleResourceOwnershipTest.php`, `tests/Support/Security/bin/verify-module-resource-ownership-on-mysql.php`, `tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest.php`, `docs/security/P1-INV-17-MODULE-RESOURCE-OWNERSHIP-VERIFICATION.md` |
-| Queue references | S39-7, S39-8, S39-9, S39-10 |
+| Queue references | S39-7, S39-8, S39-9, S39-10, S39-11 |
 | Database / migration | None. |
 | Compatibility impact | Merchant CRUD on their own auction products, settings and orders keeps working. |
 
@@ -964,7 +969,77 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 - Every assertion reads the raw row via DB::table() -- Product is Cachable
 - Removal checks on each control
 
-**Evidence.** REPRODUCED BY EXECUTION FIRST. Four of the five writes went across tenants on the first run against unfixed code: another store's product DELETED, another store's auction setting MOVED INTO THE CALLER'S STORE (update():126 writes store_id = getCurrentStore(), so the victim's row leaves their tenant), and another store's auction setting and auction order both deleted. TWO WAYS THE FIRST ATTEMPT PROVED LESS THAN IT LOOKED LIKE IT DID, both recorded because each is a way a security test passes for the wrong reason. (a) NO PLAN ENTITLEMENT: PlanModuleCheck refuses any non-operator whose user_active_modules rows omit the module, so three of five cases 'passed' without the request reaching a handler. Entitlement is a row keyed on the OWNER (activated_modules_for_owner, app/Helper/helper.php:1360-1384) and the fixture now asserts ActivatedModule() contains the module before proceeding. (b) A VALIDATOR MISTAKEN FOR A CONTROL: the product-update case posted only `name` and the handler answered 'The category id field is required.' A validator is not an ownership check; all four required fields are attacker-supplied. THE FIFTH CASE CANNOT BE REPRODUCED IN THE SUITE AT ALL. AuctionProductController::update writes NULL into products.trending and products.track_stock from unposted request fields, so SQLITE REFUSES the statement while production MySQL (strict => false, config/database.php:55) COERCES and the cross-tenant rename LANDS. Measured on MySQL 8.0.46: name becomes 'HIJACKED-BY-AUCTION' with store_id still 2, the NULLs coerced to 0; SQLite answers 'NOT NULL constraint failed: products.trending' and leaves the victim unchanged. PRODUCTION IS MORE EXPOSED THAN THE TEST DATABASE -- the same direction and class as P1-INV-01 / S37-1. So the in-suite test asserts the REFUSAL (403, which only the guard produces) and the script establishes the write. FIX: App\Http\Middleware\ModuleResourceOwnershipGuard, appended to the `web` group. A SECOND guard rather than extending P1-INV-14's, because these routes differ in two ways that cannot be folded in: the id comes from the ROUTE PARAMETER ONLY (every handler takes $id as a method argument, the opposite of the sibling, whose handlers read $request->id) and one uri carries four methods with different permissions, so TARGETS is keyed on METHOD+uri and show() passes through untouched. THE OWNERSHIP PREDICATE IS SHARED, NOT COPIED: app/Http/Middleware/Concerns/ComparesRowOwnership holds the operator check, the existence-conditional permission check, the fail-closed row read, the store comparison and strict id parsing -- P1-INV-14's guard shipped with BOTH a false 'the permission is not seeded' premise and a resolveId() that fell through to the route segment, each found by review rather than by a test, so a second copy would have inherited whichever version was current that day. P1-INV-14's 29 tests were re-run after the refactor and all still pass, so it is behaviour-preserving. EVIDENCE: 22 tests, 111 assertions. REMOVAL CHECKS 11 of 13 isolate, and FOUR OF THE TESTS EXIST BECAUSE A CHECK FOUND THEM MISSING. R3 is the instructive one: the obvious NULL-store test did NOT isolate the limb, because (int) null === (int) 1 is 0 === 1 and the cast refuses anyway; the limb is load-bearing only when BOTH sides are absent, where the comparison becomes 0 === 0 and ALLOWS -- and both absences are real states (the auction tables declare store_id nullable; getCurrentStore() returns null for a merchant with no current_store and no store). R5 needed the operator test given a Permission ROW to check against. R8 and R10 each needed a test added. R7 is NOT ISOLATABLE HERE for a structural reason, stated: strict id parsing matters only where guard and handler could disagree about which row a value denotes, and here the handler receives the identical route-parameter string. R13 is unreachable behaviourally and is pinned by a source assertion, verified to bite. THE RAW-QUERY INVENTORY FOLLOWED THE CODE AND NEARLY DID NOT: moving the predicate into app/Http/Middleware/Concerns/ took its DB::table() read with it, and OwnedPathRawQueryInventoryTest's glob was app/Http/Middleware/*.php -- NOT RECURSIVE. The raw query would have left the inventory silently. THE SITE COUNT CAUGHT IT (11 -> 10). The glob now covers subdirectories, the trait is classified 'comparison' with its five controls asserted there, and a new assertion requires both guards to still `use ComparesRowOwnership`. The platform-wide count is unchanged at 158: the site moved, it was not added. NOT CLOSED: the show() reads on the three resources were not analysed, and the other 68 modules' Route::resource declarations remain this issue's sweep -- adding update/destroy to P1-INV-14's census ratchet platform-wide was TRIED AND REVERTED because it matched generic CRUD in seventeen modules, 19 extra uris each needing an exemption that would say nothing. A SECOND ADVERSARIAL REVIEW RAN AFTER 22 GREEN TESTS AND A PASSING GATE. It could not find a request that makes the guard ALLOW a write it should not, and it found three defects in the surrounding work. (1) THE PRODUCT-UPDATE TEST WAS VACUOUS -- the one test covering the entry on the HOST products table asserted only name/store_id unchanged and not-500, and ALL THREE PASS WITH THE GUARD DELETED: SQLite refuses the handler's NULL write so name cannot move, the handler never writes store_id, and the body is wrapped in catch (\Exception) (AuctionProductController.php:1494-1497) so the QueryException is swallowed and the response is HTTP 200 -- which is why even the not-500 assertion passed. WORSE: two of my own docblocks already claimed the test asserted 403. The prose described the test I meant to write and the test did not do it. Fixed by asserting the status; the fix was verified to bite. The rule to carry: on a surface where the engine or a catch can absorb the write, assert the REFUSAL, never the row -- a handler that catches its own exception turns a crash into a 200, so even a not-500 assertion is not a liveness check. (2) THE CENSUS RATCHET WAS ANCHORED ON THE URI, so a prefixed declaration of the same controllers was invisible to it -- not hypothetical, since this module's own RouteServiceProvider already loads a second route file under prefix('api'). Re-keyed on $route->getActionName(), which catches a prefix, a second uri on the same handler and a rename, with a reachability assertion so a controller rename cannot make the scan vacuous; verified by adding a temporary prefixed declaration, which reported all three methods. (3) THE ANONYMOUS LIMB'S PREMISE WAS UNPINNED -- the docblock keeps that limb because 'the group has auth today' is a vendored property upstream may change, which is exactly how the sibling guard's six routes came to be anonymous, and nothing asserted it. The route-table test now requires Authenticate in every target's stack; verified by temporarily stripping auth from the module group (vendored file restored, git diff clean). (4) THE MySQL SCRIPT'S STEP 3 COULD NOT FAIL -- its probe COPIED storeMatches()'s body instead of calling it, under the heading 'read off the guard's own predicate', so deleting the trait's empty($rowStore) limb would have left every line green. The copy is gone; step 3 now exercises the real usableId(), asserts BOTH guards still use the trait, and states that the store comparison is covered behaviourally and by source assertion rather than here. (5) The review asked whether the trait refactor WIDENED the sibling's normalised operator limb: it did not -- git show 8c804e2f shows the pre-refactor guard already used strtolower(trim(...)) at its :235, so the trait preserved it verbatim. The underlying RESERVED_NAMES case-sensitivity concern belongs to the role/user workstream and is verified separately. Suite now 22 tests, 121 assertions.
+**Evidence.** REPRODUCED BY EXECUTION FIRST. Four of the five writes went across tenants on the first run against unfixed code: another store's product DELETED, another store's auction setting MOVED INTO THE CALLER'S STORE (update():126 writes store_id = getCurrentStore(), so the victim's row leaves their tenant), and another store's auction setting and auction order both deleted. TWO WAYS THE FIRST ATTEMPT PROVED LESS THAN IT LOOKED LIKE IT DID, both recorded because each is a way a security test passes for the wrong reason. (a) NO PLAN ENTITLEMENT: PlanModuleCheck refuses any non-operator whose user_active_modules rows omit the module, so three of five cases 'passed' without the request reaching a handler. Entitlement is a row keyed on the OWNER (activated_modules_for_owner, app/Helper/helper.php:1360-1384) and the fixture now asserts ActivatedModule() contains the module before proceeding. (b) A VALIDATOR MISTAKEN FOR A CONTROL: the product-update case posted only `name` and the handler answered 'The category id field is required.' A validator is not an ownership check; all four required fields are attacker-supplied. THE FIFTH CASE CANNOT BE REPRODUCED IN THE SUITE AT ALL. AuctionProductController::update writes NULL into products.trending and products.track_stock from unposted request fields, so SQLITE REFUSES the statement while production MySQL (strict => false, config/database.php:55) COERCES and the cross-tenant rename LANDS. Measured on MySQL 8.0.46: name becomes 'HIJACKED-BY-AUCTION' with store_id still 2, the NULLs coerced to 0; SQLite answers 'NOT NULL constraint failed: products.trending' and leaves the victim unchanged. PRODUCTION IS MORE EXPOSED THAN THE TEST DATABASE -- the same direction and class as P1-INV-01 / S37-1. So the in-suite test asserts the REFUSAL (403, which only the guard produces) and the script establishes the write. FIX: App\Http\Middleware\ModuleResourceOwnershipGuard, appended to the `web` group. A SECOND guard rather than extending P1-INV-14's, because these routes differ in two ways that cannot be folded in: the id comes from the ROUTE PARAMETER ONLY (every handler takes $id as a method argument, the opposite of the sibling, whose handlers read $request->id) and one uri carries four methods with different permissions, so TARGETS is keyed on METHOD+uri and show() passes through untouched. THE OWNERSHIP PREDICATE IS SHARED, NOT COPIED: app/Http/Middleware/Concerns/ComparesRowOwnership holds the operator check, the existence-conditional permission check, the fail-closed row read, the store comparison and strict id parsing -- P1-INV-14's guard shipped with BOTH a false 'the permission is not seeded' premise and a resolveId() that fell through to the route segment, each found by review rather than by a test, so a second copy would have inherited whichever version was current that day. P1-INV-14's 29 tests were re-run after the refactor and all still pass, so it is behaviour-preserving. EVIDENCE: 22 tests, 111 assertions. REMOVAL CHECKS 11 of 13 isolate, and FOUR OF THE TESTS EXIST BECAUSE A CHECK FOUND THEM MISSING. R3 is the instructive one: the obvious NULL-store test did NOT isolate the limb, because (int) null === (int) 1 is 0 === 1 and the cast refuses anyway; the limb is load-bearing only when BOTH sides are absent, where the comparison becomes 0 === 0 and ALLOWS -- and both absences are real states (the auction tables declare store_id nullable; getCurrentStore() returns null for a merchant with no current_store and no store). R5 needed the operator test given a Permission ROW to check against. R8 and R10 each needed a test added. R7 is NOT ISOLATABLE HERE for a structural reason, stated: strict id parsing matters only where guard and handler could disagree about which row a value denotes, and here the handler receives the identical route-parameter string. R13 is unreachable behaviourally and is pinned by a source assertion, verified to bite. THE RAW-QUERY INVENTORY FOLLOWED THE CODE AND NEARLY DID NOT: moving the predicate into app/Http/Middleware/Concerns/ took its DB::table() read with it, and OwnedPathRawQueryInventoryTest's glob was app/Http/Middleware/*.php -- NOT RECURSIVE. The raw query would have left the inventory silently. THE SITE COUNT CAUGHT IT (11 -> 10). The glob now covers subdirectories, the trait is classified 'comparison' with its five controls asserted there, and a new assertion requires both guards to still `use ComparesRowOwnership`. The platform-wide count is unchanged at 158: the site moved, it was not added. NOT CLOSED: the show() reads on the three resources were not analysed, and the other 68 modules' Route::resource declarations remain this issue's sweep -- adding update/destroy to P1-INV-14's census ratchet platform-wide was TRIED AND REVERTED because it matched generic CRUD in seventeen modules, 19 extra uris each needing an exemption that would say nothing. A SECOND ADVERSARIAL REVIEW RAN AFTER 22 GREEN TESTS AND A PASSING GATE. It could not find a request that makes the guard ALLOW a write it should not, and it found three defects in the surrounding work. (1) THE PRODUCT-UPDATE TEST WAS VACUOUS -- the one test covering the entry on the HOST products table asserted only name/store_id unchanged and not-500, and ALL THREE PASS WITH THE GUARD DELETED: SQLite refuses the handler's NULL write so name cannot move, the handler never writes store_id, and the body is wrapped in catch (\Exception) (AuctionProductController.php:1494-1497) so the QueryException is swallowed and the response is HTTP 200 -- which is why even the not-500 assertion passed. WORSE: two of my own docblocks already claimed the test asserted 403. The prose described the test I meant to write and the test did not do it. Fixed by asserting the status; the fix was verified to bite. The rule to carry: on a surface where the engine or a catch can absorb the write, assert the REFUSAL, never the row -- a handler that catches its own exception turns a crash into a 200, so even a not-500 assertion is not a liveness check. (2) THE CENSUS RATCHET WAS ANCHORED ON THE URI, so a prefixed declaration of the same controllers was invisible to it -- not hypothetical, since this module's own RouteServiceProvider already loads a second route file under prefix('api'). Re-keyed on $route->getActionName(), which catches a prefix, a second uri on the same handler and a rename, with a reachability assertion so a controller rename cannot make the scan vacuous; verified by adding a temporary prefixed declaration, which reported all three methods. (3) THE ANONYMOUS LIMB'S PREMISE WAS UNPINNED -- the docblock keeps that limb because 'the group has auth today' is a vendored property upstream may change, which is exactly how the sibling guard's six routes came to be anonymous, and nothing asserted it. The route-table test now requires Authenticate in every target's stack; verified by temporarily stripping auth from the module group (vendored file restored, git diff clean). (4) THE MySQL SCRIPT'S STEP 3 COULD NOT FAIL -- its probe COPIED storeMatches()'s body instead of calling it, under the heading 'read off the guard's own predicate', so deleting the trait's empty($rowStore) limb would have left every line green. The copy is gone; step 3 now exercises the real usableId(), asserts BOTH guards still use the trait, and states that the store comparison is covered behaviourally and by source assertion rather than here. (5) The review asked whether the trait refactor WIDENED the sibling's normalised operator limb: it did not -- git show 8c804e2f shows the pre-refactor guard already used strtolower(trim(...)) at its :235, so the trait preserved it verbatim. The underlying RESERVED_NAMES case-sensitivity concern belongs to the role/user workstream and is verified separately. Suite now 22 tests, 121 assertions. THE SECOND REVIEW ALSO FOUND TWO LIVE CROSS-TENANT READS THE GUARD'S OWN DISCLOSURE DID NOT REACH, now CLOSED. Route::resource registers `edit` at a DIFFERENT uri -- <base>/{param}/edit -- so the docblock's 'every other method on the same uri passes through untouched' was true and useless, and the only read it named was the harmless show() stub. AuctionProductController::edit:823-853 does Product::find($id) with NO PERMISSION CHECK ANYWHERE and renders it through Form::model(); measured on a merchant holding NO auction permission with only the plan entitlement: HTTP 200 carrying another store's name, slug, price, sale_price, description, specification, detail, custom_field JSON, stock posture and the file paths of its cover image, downloadable product and preview asset. AuctionProductSettingController::edit:92-107 leaks the setting's name and all four date/time fields. THE ASYMMETRY IS THE SHAPE OF THE HOLE: 'Edit Auction Product' IS checked by update() on the identical uri, so the write was gated and the read was not. REPRODUCED FOUR TIMES INDEPENDENTLY -- the review's probe, two refuters' own probes, and the regression test, which fails with HTTP 200 and the victim's name when the guard is removed. Both are now targets; auctionorder/{id}/edit is NOT, because its handler reads no model and renders a view that does not exist (500 for everyone, nothing to leak). NO FALSE DENIAL, checked rather than assumed: both Edit buttons are gated by Laratrust @permission, which resolves through hasPermission() and NOT through Laravel's Gate, so it is unaffected by permissions_as_gates => false -- every non-operator reaching those screens already holds the name. The one principal a bare permission gate would lock out is the operator, for whom isAbleTo() is false, and the trait checks the operator first; a test now says so. Suite 26 tests, 141 assertions.
+
+### `P1-INV-18` — URGENT: POST lotteryresult writes forged PAID host orders from another tenant's ticket codes, and inserts rows INTO the victim's tenant
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | critical |
+| Workstream | Inventory & Stock |
+| GitHub issue | #64 |
+| Owner decision required | no |
+| Depends on | `P1-INV-14`, `P1-INV-17` |
+| Scope | `app/Http/Middleware/`, `bootstrap/app.php`, `tests/Feature/Security/` |
+| Queue references | S39-13 |
+| Database / migration | None. |
+| Compatibility impact | A legitimate own-store lottery draw keeps working. A draw naming codes outside the store stops, which is the point. |
+
+**Existing implementation status.** FOUND by a completeness review run AFTER both module guards were committed, and NEITHER GUARD'S CENSUS COULD HAVE PRODUCED IT -- which is my own mistake, recorded as such. packages/workdo/LotteryPrizes/src/app/Http/Controllers/LotteryResultController.php:66-193 (store(), reachable as POST lotteryresult from the resource at routes/web.php:21, inside the auth + PlanModuleCheck group) has NO PERMISSION CHECK -- only index():32 checks 'Manage Lottery Winner'. It takes `selected_codes` from request input, resolves PurchaseTicket::whereIn('lottery_code', $selectedCodes) with NO STORE PREDICATE (:86-88), then for each such ticket inserts a HOST App\Models\Order (:125-142) carrying the VICTIM'S product_id and ticket_price with payment_status => 'Paid' and store_id => the ATTACKER'S store -- a forged paid order in the host money table, and payment_status is what OrderObserver::updated reacts to. It also does LotteryCustomer::insert() (:148) with 'store_id' => $ticket->store_id, writing rows INTO THE VICTIM'S TENANT and bypassing model events and every global scope -- the inverse of the usual defect. Secondary: :79's replay guard is unscoped so one tenant's draw blocks another's codes; :151 uses $lottery_setting after the :95 loop so a code matching no ticket 500s; :144/:185 sleep(1) per ticket makes duration linear in attacker-supplied input. WHY THE CENSUSES MISSED IT: P1-INV-17's stated scope was 'every update() and destroy() body behind the six Route::resource declarations' -- store() was never in scope, and the write-up's 'What is NOT closed' named only show(). Worse, ModuleOrderMutationGuardTest's exemption read 'stub: update():221 and destroy():231 are both //' -- TRUE of those two methods and FALSELY REASSURING ABOUT THE RESOURCE. An exemption that is true about what it says and silent about what matters reads as coverage. New failure mode for this project's censuses, alongside 'keyed on uri words' and 'keyed on Route::post lines': AN EXEMPTION SCOPED TO THE METHODS SOMEBODY HAPPENED TO LOOK AT. All three lottery entries are now corrected to state which methods were read and which were not.
+
+**Acceptance criteria.**
+- [ ] PurchaseTicket resolution is paired to the caller's store, or a code outside it is refused
+- [ ] POST lotteryresult requires a permission -- 'Manage Lottery Winner' is what index() checks and the module seeds it
+- [ ] No App\Models\Order row can be created carrying a product_id from outside its own store_id
+- [ ] LotteryCustomer::insert() cannot write a row whose store_id is not the caller's
+- [ ] The replay guard at :79 is store-scoped
+- [ ] The undefined-variable 500 at :151 is fixed and the per-ticket sleep(1) is removed or bounded
+- [ ] BOTH censuses are widened to store(), and the lotteryresult exemption is corrected (done)
+- [ ] No file under packages/workdo/ is edited
+
+**Required tests.**
+- Negative: a code naming another tenant's ticket creates no order and no LotteryCustomer row
+- Negative: an authenticated principal holding no lottery permission is refused
+- Positive: a legitimate own-store draw still creates its orders
+- Every assertion reads the raw row via DB::table() -- Order and Product are both Cachable
+- Removal checks on each control
+
+**Evidence.** None
+
+### `P1-INV-19` — any customer can forge an auction bid attributed to another customer on another store's product; store_id and customer_id both come from request input
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | high |
+| Workstream | Inventory & Stock |
+| GitHub issue | #65 |
+| Owner decision required | **yes** |
+| Depends on | — |
+| Scope | `app/Http/Middleware/`, `tests/Feature/Security/` |
+| Queue references | S39-14 |
+| Database / migration | None. |
+| Compatibility impact | Legitimate bidding keeps working. A client that relied on posting its own customer_id/store_id stops being believed, which is the point. |
+
+**Existing implementation status.** FOUND by the adversarial review of P1-INV-17's guard and VERIFIED BY EXECUTION BY THREE INDEPENDENT AGENTS, each writing its own probe. packages/workdo/AuctionProduct/src/routes/web.php:26 declares POST /{storeSlug}/product-bid inside a ['web']-only group -- measured with the module loaded, the route's gatherMiddleware() is literally ["web"]. AuctionProductController::addProductbidamount:1580-1608 checks `if (!auth('customers')->user())` at :1582 and then DISCARDS the principal: product_id (:1600), bid_amount (:1601), customer_id (:1602) and store_id (:1603) ALL come from request input, and $storeSlug is used only in the failure redirect. `Product::find($request->product_id)` at :1585 is assigned and never used. The check at :1582 is a PRESENCE test, never an IDENTITY test -- the purest form of the pattern CLAUDE.md names as the most productive in this codebase. Validation: product_id and customer_id are `nullable` with no exists, bid_amount is `required` only -- no numeric, no gt, no comparison to the current max; the must-exceed rule is CLIENT-SIDE ONLY, and the view posts customer_id and store_id as HIDDEN INPUTS. AuctionProductBid declares only HasFactory, Cachable -- no BelongsToStore, no scope, absent from scoped_models -- and the group resolves no tenant with null_tenant => 'open', so nothing adds a predicate. :1568 and :1635 read max('bid_amount') with no store predicate, so the forged figure shows as store B's current highest bid. TWO CORRECTIONS TO THE ORIGINAL CLAIM, verified. (1) NOT ANONYMOUS: :1582 does refuse a null customers-guard principal and redirects to customer.login (routes/customer.php:101, a clean redirect). A merchant or driver WEB session also fails it, since `customers` is a separate session guard, and the custom.auth trap does not apply because this group has no custom.auth. A customer account on ANY store is the precondition -- trivial via storefront self-registration, not scoped to the target. (2) 'the scheduler then creates a real order' is OVERSTATED -- that limb is LATENT: `auction:order` is registered as an Artisan command and NEVER SCHEDULED. The live consequence is bid poisoning and forged attribution; the order limb arms the moment anyone schedules it, at which point Console/Auction.php picks the winner by max('bid_amount') with no store predicate.
+
+**Acceptance criteria.**
+- [ ] customer_id and store_id are derived from the authenticated principal, never from request input -- reuse ApiController::resolveStoreCustomer() rather than copying a check
+- [ ] product_id must resolve to a product in the store the slug names, and the bid's store_id must match it
+- [ ] bid_amount is validated server-side: numeric, positive, and greater than the current maximum FOR THAT STORE'S PRODUCT
+- [ ] The max('bid_amount') reads at :1568 and :1635 carry a store predicate
+- [ ] Decide whether auction:order should be scheduled at all -- scheduling it before this is fixed makes the latent order limb a live money write
+- [ ] No file under packages/workdo/ is edited
+
+**Required tests.**
+- Negative: a forged customer_id/store_id/product_id creates no bid row
+- Negative: a merchant session and a delivery-boy session are BOTH driven -- per CLAUDE.md a customer-token probe alone proves nothing about this family
+- Negative: a bid below the current maximum is refused server-side
+- Positive: a legitimate own-store bid still records, attributed to the authenticated customer
+- Removal checks on each control
+
+**Evidence.** None
 
 ### `P1-INV-15` — Order::product_return robustness: POS orders 500, no transaction, tax_price zeroed, and a double-credit across the two return endpoints
 
