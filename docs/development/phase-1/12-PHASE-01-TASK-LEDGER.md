@@ -10,7 +10,7 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 52 — 13 DONE, 15 READY, 8 BACKLOG, 15 BLOCKED, 1 IN_PROGRESS, 0 IN_REVIEW |
+| Tasks | 52 — 14 DONE, 15 READY, 8 BACKLOG, 15 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
 | Requiring an owner decision | 18 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
@@ -108,27 +108,26 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 16. `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted *(orders, BACKLOG, risk high)*
 17. `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon *(orders, BACKLOG, risk high)*
 18. `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account *(orders, BLOCKED, risk high)*
-19. `P1-ORD-04` — URGENT: order_status_change cancels any store's order with no permission and no ownership check, and it is a money write *(orders, IN_PROGRESS, risk critical)*
-20. `P1-ORD-05` — The order read family: a forgeable encrypted id reaches any store's order, and two handlers lock out the operator *(orders, READY, risk high)*
-21. `P1-OWN-01` — BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour *(security, BLOCKED, risk high)*
-22. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
-23. `P1-OWN-03` — The compromised API log on the running server *(security, BLOCKED, risk high)*
-24. `P1-OWN-04` — Token lifetime and abilities for clients already on merchants' phones *(security, BLOCKED, risk high)*
-25. `P1-OWN-05` — Anonymous order-document access (customerpayment) and tooling decisions *(platform, BLOCKED, risk medium)*
-26. `P1-OWN-06` — Branch protection and required checks on main *(platform, BLOCKED, risk medium)*
-27. `P1-OWN-07` — Reconcile data residue from the pre-fix WooCommerce transfer primitive (read-only investigation) *(owner, READY, risk high)*
-28. `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites *(payments, READY, risk medium)*
-29. `P1-PAY-02` — Idempotency on gateway returns and order writers *(payments, BACKLOG, risk high)*
-30. `P1-PAY-03` — Gateway callback authenticity: no return proves a payment moved *(payments, BLOCKED, risk high)*
-31. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, READY, risk high)*
-32. `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites *(platform, BACKLOG, risk high)*
-33. `P1-PLT-04` — Module loading swallows every exception with no log line *(platform, BLOCKED, risk medium)*
-34. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, BACKLOG, risk medium)*
-35. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, READY, risk high)*
-36. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, READY, risk medium)*
-37. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, READY, risk medium)*
-38. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
-39. `P1-SEC-06` — Authenticated SSRF: four import handlers fetch a merchant-controlled URL and serve the response *(security, READY, risk high)*
+19. `P1-ORD-05` — The order read family: a forgeable encrypted id reaches any store's order, and two handlers lock out the operator *(orders, READY, risk high)*
+20. `P1-OWN-01` — BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour *(security, BLOCKED, risk high)*
+21. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
+22. `P1-OWN-03` — The compromised API log on the running server *(security, BLOCKED, risk high)*
+23. `P1-OWN-04` — Token lifetime and abilities for clients already on merchants' phones *(security, BLOCKED, risk high)*
+24. `P1-OWN-05` — Anonymous order-document access (customerpayment) and tooling decisions *(platform, BLOCKED, risk medium)*
+25. `P1-OWN-06` — Branch protection and required checks on main *(platform, BLOCKED, risk medium)*
+26. `P1-OWN-07` — Reconcile data residue from the pre-fix WooCommerce transfer primitive (read-only investigation) *(owner, READY, risk high)*
+27. `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites *(payments, READY, risk medium)*
+28. `P1-PAY-02` — Idempotency on gateway returns and order writers *(payments, BACKLOG, risk high)*
+29. `P1-PAY-03` — Gateway callback authenticity: no return proves a payment moved *(payments, BLOCKED, risk high)*
+30. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, READY, risk high)*
+31. `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites *(platform, BACKLOG, risk high)*
+32. `P1-PLT-04` — Module loading swallows every exception with no log line *(platform, BLOCKED, risk medium)*
+33. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, BACKLOG, risk medium)*
+34. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, READY, risk high)*
+35. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, READY, risk medium)*
+36. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, READY, risk medium)*
+37. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
+38. `P1-SEC-06` — Authenticated SSRF: four import handlers fetch a merchant-controlled URL and serve the response *(security, READY, risk high)*
 
 ---
 
@@ -1157,7 +1156,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 
 | field | value |
 |---|---|
-| Status | **IN_PROGRESS** |
+| Status | **DONE** |
 | Risk | critical |
 | Workstream | Orders & Checkout |
 | GitHub issue | #58 |
@@ -1184,7 +1183,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 - Negative: the body id cannot override the route segment to reach a different order
 - Positive control: an own-store change still works, including the finance sync; removal check per control
 
-**Evidence.** 
+**Evidence.** order_status_change had NO permission check of any kind -- the route carries only the auth group, and index()'s isAbleTo('Manage Order') guards the LISTING -- and no ownership predicate: $request->id went into Order::order_status_change(), a bare Order::find() on a model with no global scope. THE CANCEL LIMB IS A MONEY WRITE: payment_status = 'Unpaid' (Order.php:546-554) is exactly what OrderObserver::updated -> OrderFinancialService::syncFromOrder reacts to, so cancelling walks back the order's wallet record. REPRODUCED BY EXECUTION -- four failures against unfixed code: cross-store cancel; a merchant with NO order permission cancelling their own order; the posted id overriding the route segment; and a 500 on an absent id. Two passed pre-fix (own-store cancel, anonymous refusal), so the destructive path demonstrably runs. THE FIX: resolve, null-guard, authorize('updateStatus') -- which via OrderPolicy::allow is operator-first, then the seeded 'Manage Order', then sameStore -- and the id taken from $request->route('id') rather than the body, since Request::__get reads all() before the route parameters. ALL SINKS use the route id, which the first version did NOT. TESTS: tests/Feature/Security/OrderStatusChangeOwnershipTest.php -- 9 tests / 32 assertions. GATES AT THE DELIVERED TREE: Feature 2880 testcases, 2 declared failures, 17 declared skips, 0 errors, exit 0; Security + Tenancy + Commerce 2027 passed / 17 skipped / 0 failures. THE CORRECTION THAT MATTERED, found by adversarial review BEFORE this shipped: pinning the id for the authorization and the write LEFT TWO SINKS ON THE POSTED VALUE, and one was a LIVE CROSS-TENANT PII EXFILTRATION. :1042 called Order::order_detail($request->id) for the WEBHOOK payload -- so a merchant creates a 'Status Change' webhook pointing at their own URL (WebhookController::store has no permission check and forces store_id to the caller's own), POSTs their own order id in the URL with the victim's in the body, and the VICTIM'S order detail is JSON-encoded and POSTed to the attacker: name, street, city, country, postcode, EMAIL, PHONE, every line and total; one request per id enumerates the platform's order book. :1023 wrote the order NOTE against the posted id too -- lower impact, since order_notes.order_id is a nullable FK and note reads are store-filtered, so litter in another tenant's id space rather than a disclosure. My comment had claimed the pinning 'removes the ambiguity'; it removed it for two of four sinks. The fix did not survive its own promise. COVERAGE, INCLUDING WHERE IT IS NOT POSSIBLE: the note sink is asserted behaviourally (a cross-store POST writes a note against the ROUTE order and none against the victim's, with a premise assertion that a note was written at all). The WEBHOOK sink CANNOT BE DRIVEN -- Utility::WebhookCall uses raw cURL (Utility.php:2089-2097), not Laravel's HTTP client, so Http::fake() does not intercept it and the payload cannot be captured in-process. It is covered by a COMMENT-PROOF ratchet asserting no code line in the method reads $request->id, carrying its own premise assertion that the window contains the method. SIX REMOVAL CHECKS, and TWO RECORDED AS SUBSUMED rather than claimed: drop authorize() -> 2 fail; revert the note sink -> the note test fails; revert the webhook sink -> the ratchet fails; a comment mentioning the posted id does NOT satisfy the ratchet; reverting the id pinning leaves the CROSS-STORE override case passing (authorize refuses the victim anyway), so a same-store case was added to isolate what the pinning is actually for, and that one fails; and the null guard fails nothing, subsumed by authorize() denying on a null model. MY COUNTING SCRIPT WALKED INTO THE COMMENT TRAP MID-FIX -- it counted $request->id including my own comment text, the assertion failed and nothing was written. Re-run comment-stripped. Third instance this session: a CI ratchet, an analysis script, now an edit script. TWO TEST-QUALITY FIXES from review: the absent-id test could not fail for what it names (assertNotSame(500) is satisfied by the 403 the null-guard removal produces), so it now also asserts 200 and {status:false}, which is the contract the shipped toast reads; and the posted-id override test ISOLATES NOTHING on its own, which its docblock now states. #57 EXTENDED, not duplicated: a SECOND unauthenticated vendored route, LotteryPrizes/src/routes/web.php:56 lottery-order-status-change/{id}, imports App\Models\Order and hits this same cancel limb anonymously. One host-side middleware covers both that and lottery-order-return. Corrected there too: the AuctionProduct twin drives AuctionProductOrder, a different model and table, so it is not the same severity. RECORDED, NOT CHANGED: an order-existence oracle (a nonexistent id answers 200 {status:false}, a foreign id 403 -- the API side deliberately made these indistinguishable, the web side deliberately did not, and collapsing them changes the shipped toast); the admin AJAX shows an error toast AND THEN a success toast on a refusal, because complete: fires show_toastr('Success') unconditionally, and the status dropdown is not permission-gated in the view; and OrderPolicy::isPlatformAdmin compares type strictly where CLAUDE.md and the host's own fileExport normalise. COMPATIBILITY, stated plainly: the boundary added is the one order_payment_status, order_assign, order_return and order_return_request already enforce, and the shared global admin role is granted 'Manage Order' on every login. A tenant owner with NO role, or a staff role lacking it, is now refused -- there is no owner bypass in isAbleTo. Intended, not accidental.
 
 ### `P1-ORD-05` — The order read family: a forgeable encrypted id reaches any store's order, and two handlers lock out the operator
 
