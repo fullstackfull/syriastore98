@@ -708,7 +708,7 @@
       "title": "WoocomProductController::edit overwrites a foreign product and reassigns its store_id",
       "workstream": "inventory",
       "risk": "high",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "issue": 30,
       "scope": [
         "app/Http/Controllers/WoocomProductController.php",
@@ -727,7 +727,7 @@
       ],
       "compatibility": "WooCommerce import keeps working for its owner.",
       "db": "None.",
-      "evidence": "S37-4; WoocomProductController.php:369-389 vs ShopifyProductController.php:533",
+      "evidence": "REPRODUCED BY EXECUTION, which the acceptance criteria required and which no previous session had achieved -- S37-4 was the one site of the four recorded as code-verified only. Measured: store B's product had store_id moved 2 -> 1, and was renamed, restocked, re-priced and re-attributed to merchant A. Driving it needed a WooCommerce API response; Product::find($id) at edit():309 is Codexshaper\\WooCommerce\\Facades\\Product, the remote SDK, not the local model (the handler uses fully-qualified \\App\\Models\\Product for the local row), and both are Laravel facades so the path runs with no network call. THE FIX: the store predicate the category lookup eleven lines above and the Shopify twin both already carried; a null guard, newly load-bearing because scoping makes a FOREIGN id resolve to null too and the refusal must be explicit or a denial surfaces as the 500 that ->original_id on null already produced; an ownership check on the RESOLVED PRODUCT, because woocommerce_conections.original_id is a bare integer with no foreign key so a store-scoped mapping row can still point elsewhere; the store predicate added to createProductVariant's lookup, the one place in the file not following the file's own convention; and store_id/created_by REMOVED from the update path per the second acceptance criterion. show() was checked and is a CREATE path. TESTS: tests/Feature/Security/WoocomProductOwnershipTest.php -- 5 tests / 28 assertions, every assertion through DB::table('products'). FOUR REMOVAL CHECKS, EACH ISOLATING ONE CONTROL: both predicates dropped -> the headline case fails (store_id 2 -> 1); product guard only -> 'store-scoped mapping pointing at a foreign product' fails, which the store predicate cannot see; store predicate only -> 'foreign mapping pointing at the caller's own product' fails, which the product guard cannot see; created_by rewrite restored -> 'staff import re-attributed the product from the merchant (1) to the importer (2)'. The headline case needs BOTH predicates removed, which is what defence in depth means and is recorded as that rather than as three independent proofs. GATES AT THE DELIVERED TREE: Feature 2861 testcases, 2 declared failures, 17 declared skips, 0 errors, nothing undeclared, exit 0. Security + Tenancy 1576 passed / 10 skipped / 0 failures. Four CI guards exit 0. CORRECTIONS RECORDED: (1) MY FIRST REPRODUCTION WAS FALSE. The test read the victim through Product::withoutGlobalScopes()->findOrFail() and reported the hijack while the RAW row was unchanged and the response was 500 -- Product is Cachable, the handler had mutated its in-memory instance and crashed before save(), and the model read served that mutation back. CLAUDE.md names this trap as having caused two earlier false readings; this was the third. (2) MY FIRST THREE REMOVAL CHECKS ALL PASSED, so none bit: the store predicate and the product guard each catch the headline attack alone. Two cases added to separate them. (3) One of those re-runs was itself INVALID -- a first-occurrence string replace put the created_by line into show() (line 208) instead of edit() (line 461), the same mistake as P1-INV-08's R1. (4) MY OWN COMMENT UNDERSTATED THE DEFECT: I wrote that the fixture's settings row was the production precondition for the write, but Utility::Setting() defaults storage_setting to 'local' (Utility.php:61) and the no-rows fallback preserves it, so the write landed on a DEFAULT INSTALL WITH NO STORAGE CONFIGURED. (5) The three negatives asserted only 'before == after and not a 500', which a permission or category refusal satisfies identically; each now pins session('error') to 'Product Not Found.'. (6) The fixture leaked a tempnam stub file per test. A BUG FIXED AS A SIDE EFFECT, verified: products.created_by keys User::countProducts() (the PLAN QUOTA counter, used by show():102-106), Api\\DashboardController:6401 (the API quota counter) and the Campaigns product picker. A staff import set created_by = the staff id, and a staff member's creatorId() is their merchant, so created_by no longer equalled creatorId() and the product SILENTLY DROPPED OUT OF ALL THREE -- quota evasion. Removing the line restores all three, which is a stronger justification than the authorship argument in the comment. DELIBERATELY NOT WIDENED, each raised instead: the attribute inserts, quota debit and upload run BEFORE the guard, but all three write into the CALLER'S OWN tenant, so the only residual is a merchant exhausting their own plan storage by replaying a refusal (self-DoS, hardening). The sibling controllers are P1-INV-13 (#54) -- WoocomCouponController::edit still carries this task's transfer primitive on a money-adjacent object. The SSRF in four import handlers is P1-SEC-06 (#55). The data residue this forward-looking fix cannot undo is P1-OWN-07 (#56), owner-gated. UNMEASURED AND SAID SO: nothing in this suite exercises createProductVariant or createProductAttribute -- the stub sends empty attributes and variations, so the variant branch never runs and the predicate added there is unmeasured. THE FIX INHERITS R4-03'S PREMISE: it rests on getCurrentStore(), i.e. users.current_store, whose writers are constrained (StoreController::changeStore refuses a store the caller does not own) and which has no mass-assignment route, but that is a dependency rather than a property of this change.",
       "queue_refs": [
         "S37",
         "S37-4"
@@ -1499,7 +1499,7 @@
       "title": "The Woo/Shopify import family: three more unscoped mapping resolves, one still carrying a store-transfer primitive",
       "workstream": "inventory",
       "risk": "high",
-      "status": "BACKLOG",
+      "status": "READY",
       "issue": 54,
       "scope": [
         "app/Http/Controllers/WoocomCouponController.php",
@@ -1579,7 +1579,7 @@
       "title": "Reconcile data residue from the pre-fix WooCommerce transfer primitive (read-only investigation)",
       "workstream": "owner",
       "risk": "high",
-      "status": "BACKLOG",
+      "status": "READY",
       "issue": 56,
       "scope": [
         "docs/security/"

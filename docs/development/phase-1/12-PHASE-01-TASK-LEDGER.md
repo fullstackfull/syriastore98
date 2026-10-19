@@ -10,7 +10,7 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 48 — 11 DONE, 11 READY, 10 BACKLOG, 15 BLOCKED, 1 IN_PROGRESS, 0 IN_REVIEW |
+| Tasks | 48 — 12 DONE, 13 READY, 8 BACKLOG, 15 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
 | Requiring an owner decision | 17 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
@@ -88,41 +88,40 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 
 1. `P1-INV-02` — OrderController::order_return restocks and marks returned on any store's order *(inventory, READY, risk high)*
 2. `P1-INV-03` — PosController::store writes product_stock to an absolute value from the POS session *(inventory, BACKLOG, risk high)*
-3. `P1-INV-04` — WoocomProductController::edit overwrites a foreign product and reassigns its store_id *(inventory, IN_PROGRESS, risk high)*
-4. `P1-INV-05` — Concurrency and overselling: reservation semantics across the nine writers *(inventory, BACKLOG, risk medium)*
-5. `P1-INV-06` — Two vendored module cart writers can still plant an unvalidated cart row *(inventory, BLOCKED, risk medium)*
-6. `P1-INV-09` — Stored media paths are expanded as glob patterns and unlinked with no uploads-root containment *(inventory, BACKLOG, risk medium)*
-7. `P1-INV-10` — The catalogue cluster: two endpoints that cannot work, an unscoped option lookup, and the missing permission limbs *(inventory, READY, risk low)*
-8. `P1-INV-11` — Unvalidated parent_id leaks every store's category names, and admits a tree cycle that fatals *(inventory, READY, risk medium)*
-9. `P1-INV-12` — Deleting a category deletes every product in it by FK cascade, below the application *(inventory, READY, risk high)*
-10. `P1-INV-13` — The Woo/Shopify import family: three more unscoped mapping resolves, one still carrying a store-transfer primitive *(inventory, BACKLOG, risk high)*
-11. `P1-PAY-04` — COD settles at order time, which blocks releasing GATE F *(payments, BLOCKED, risk high)*
-12. `P1-MIG-03` — Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns *(migrations, BLOCKED, risk high)*
-13. `P1-MIG-01` — GATE F: release the six money-bearing tables *(migrations, BLOCKED, risk high)*
-14. `P1-MIG-02` — customers.password_otp is INTEGER while the web reset writes a 60-char bcrypt hash *(migrations, BLOCKED, risk high)*
-15. `P1-MIG-04` — SCHEMA-01: nine more tables live code uses with no migration *(migrations, BLOCKED, risk medium)*
-16. `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted *(orders, BACKLOG, risk high)*
-17. `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon *(orders, BACKLOG, risk high)*
-18. `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account *(orders, BLOCKED, risk high)*
-19. `P1-OWN-01` — BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour *(security, BLOCKED, risk high)*
-20. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
-21. `P1-OWN-03` — The compromised API log on the running server *(security, BLOCKED, risk high)*
-22. `P1-OWN-04` — Token lifetime and abilities for clients already on merchants' phones *(security, BLOCKED, risk high)*
-23. `P1-OWN-05` — Anonymous order-document access (customerpayment) and tooling decisions *(platform, BLOCKED, risk medium)*
-24. `P1-OWN-06` — Branch protection and required checks on main *(platform, BLOCKED, risk medium)*
-25. `P1-OWN-07` — Reconcile data residue from the pre-fix WooCommerce transfer primitive (read-only investigation) *(owner, BACKLOG, risk high)*
-26. `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites *(payments, READY, risk medium)*
-27. `P1-PAY-02` — Idempotency on gateway returns and order writers *(payments, BACKLOG, risk high)*
-28. `P1-PAY-03` — Gateway callback authenticity: no return proves a payment moved *(payments, BLOCKED, risk high)*
-29. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, READY, risk high)*
-30. `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites *(platform, BACKLOG, risk high)*
-31. `P1-PLT-04` — Module loading swallows every exception with no log line *(platform, BLOCKED, risk medium)*
-32. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, BACKLOG, risk medium)*
-33. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, READY, risk high)*
-34. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, READY, risk medium)*
-35. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, READY, risk medium)*
-36. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
-37. `P1-SEC-06` — Authenticated SSRF: four import handlers fetch a merchant-controlled URL and serve the response *(security, READY, risk high)*
+3. `P1-INV-05` — Concurrency and overselling: reservation semantics across the nine writers *(inventory, BACKLOG, risk medium)*
+4. `P1-INV-06` — Two vendored module cart writers can still plant an unvalidated cart row *(inventory, BLOCKED, risk medium)*
+5. `P1-INV-09` — Stored media paths are expanded as glob patterns and unlinked with no uploads-root containment *(inventory, BACKLOG, risk medium)*
+6. `P1-INV-10` — The catalogue cluster: two endpoints that cannot work, an unscoped option lookup, and the missing permission limbs *(inventory, READY, risk low)*
+7. `P1-INV-11` — Unvalidated parent_id leaks every store's category names, and admits a tree cycle that fatals *(inventory, READY, risk medium)*
+8. `P1-INV-12` — Deleting a category deletes every product in it by FK cascade, below the application *(inventory, READY, risk high)*
+9. `P1-INV-13` — The Woo/Shopify import family: three more unscoped mapping resolves, one still carrying a store-transfer primitive *(inventory, READY, risk high)*
+10. `P1-PAY-04` — COD settles at order time, which blocks releasing GATE F *(payments, BLOCKED, risk high)*
+11. `P1-MIG-03` — Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns *(migrations, BLOCKED, risk high)*
+12. `P1-MIG-01` — GATE F: release the six money-bearing tables *(migrations, BLOCKED, risk high)*
+13. `P1-MIG-02` — customers.password_otp is INTEGER while the web reset writes a 60-char bcrypt hash *(migrations, BLOCKED, risk high)*
+14. `P1-MIG-04` — SCHEMA-01: nine more tables live code uses with no migration *(migrations, BLOCKED, risk medium)*
+15. `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted *(orders, BACKLOG, risk high)*
+16. `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon *(orders, BACKLOG, risk high)*
+17. `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account *(orders, BLOCKED, risk high)*
+18. `P1-OWN-01` — BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour *(security, BLOCKED, risk high)*
+19. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
+20. `P1-OWN-03` — The compromised API log on the running server *(security, BLOCKED, risk high)*
+21. `P1-OWN-04` — Token lifetime and abilities for clients already on merchants' phones *(security, BLOCKED, risk high)*
+22. `P1-OWN-05` — Anonymous order-document access (customerpayment) and tooling decisions *(platform, BLOCKED, risk medium)*
+23. `P1-OWN-06` — Branch protection and required checks on main *(platform, BLOCKED, risk medium)*
+24. `P1-OWN-07` — Reconcile data residue from the pre-fix WooCommerce transfer primitive (read-only investigation) *(owner, READY, risk high)*
+25. `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites *(payments, READY, risk medium)*
+26. `P1-PAY-02` — Idempotency on gateway returns and order writers *(payments, BACKLOG, risk high)*
+27. `P1-PAY-03` — Gateway callback authenticity: no return proves a payment moved *(payments, BLOCKED, risk high)*
+28. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, READY, risk high)*
+29. `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites *(platform, BACKLOG, risk high)*
+30. `P1-PLT-04` — Module loading swallows every exception with no log line *(platform, BLOCKED, risk medium)*
+31. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, BACKLOG, risk medium)*
+32. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, READY, risk high)*
+33. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, READY, risk medium)*
+34. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, READY, risk medium)*
+35. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
+36. `P1-SEC-06` — Authenticated SSRF: four import handlers fetch a merchant-controlled URL and serve the response *(security, READY, risk high)*
 
 ---
 
@@ -540,7 +539,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 
 | field | value |
 |---|---|
-| Status | **IN_PROGRESS** |
+| Status | **DONE** |
 | Risk | high |
 | Workstream | Inventory & Stock |
 | GitHub issue | #30 |
@@ -562,7 +561,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 - Negative: a foreign woocom product cannot be edited or re-owned
 - A stubbed WooCommerce response drives the path (no live API call)
 
-**Evidence.** S37-4; WoocomProductController.php:369-389 vs ShopifyProductController.php:533
+**Evidence.** REPRODUCED BY EXECUTION, which the acceptance criteria required and which no previous session had achieved -- S37-4 was the one site of the four recorded as code-verified only. Measured: store B's product had store_id moved 2 -> 1, and was renamed, restocked, re-priced and re-attributed to merchant A. Driving it needed a WooCommerce API response; Product::find($id) at edit():309 is Codexshaper\WooCommerce\Facades\Product, the remote SDK, not the local model (the handler uses fully-qualified \App\Models\Product for the local row), and both are Laravel facades so the path runs with no network call. THE FIX: the store predicate the category lookup eleven lines above and the Shopify twin both already carried; a null guard, newly load-bearing because scoping makes a FOREIGN id resolve to null too and the refusal must be explicit or a denial surfaces as the 500 that ->original_id on null already produced; an ownership check on the RESOLVED PRODUCT, because woocommerce_conections.original_id is a bare integer with no foreign key so a store-scoped mapping row can still point elsewhere; the store predicate added to createProductVariant's lookup, the one place in the file not following the file's own convention; and store_id/created_by REMOVED from the update path per the second acceptance criterion. show() was checked and is a CREATE path. TESTS: tests/Feature/Security/WoocomProductOwnershipTest.php -- 5 tests / 28 assertions, every assertion through DB::table('products'). FOUR REMOVAL CHECKS, EACH ISOLATING ONE CONTROL: both predicates dropped -> the headline case fails (store_id 2 -> 1); product guard only -> 'store-scoped mapping pointing at a foreign product' fails, which the store predicate cannot see; store predicate only -> 'foreign mapping pointing at the caller's own product' fails, which the product guard cannot see; created_by rewrite restored -> 'staff import re-attributed the product from the merchant (1) to the importer (2)'. The headline case needs BOTH predicates removed, which is what defence in depth means and is recorded as that rather than as three independent proofs. GATES AT THE DELIVERED TREE: Feature 2861 testcases, 2 declared failures, 17 declared skips, 0 errors, nothing undeclared, exit 0. Security + Tenancy 1576 passed / 10 skipped / 0 failures. Four CI guards exit 0. CORRECTIONS RECORDED: (1) MY FIRST REPRODUCTION WAS FALSE. The test read the victim through Product::withoutGlobalScopes()->findOrFail() and reported the hijack while the RAW row was unchanged and the response was 500 -- Product is Cachable, the handler had mutated its in-memory instance and crashed before save(), and the model read served that mutation back. CLAUDE.md names this trap as having caused two earlier false readings; this was the third. (2) MY FIRST THREE REMOVAL CHECKS ALL PASSED, so none bit: the store predicate and the product guard each catch the headline attack alone. Two cases added to separate them. (3) One of those re-runs was itself INVALID -- a first-occurrence string replace put the created_by line into show() (line 208) instead of edit() (line 461), the same mistake as P1-INV-08's R1. (4) MY OWN COMMENT UNDERSTATED THE DEFECT: I wrote that the fixture's settings row was the production precondition for the write, but Utility::Setting() defaults storage_setting to 'local' (Utility.php:61) and the no-rows fallback preserves it, so the write landed on a DEFAULT INSTALL WITH NO STORAGE CONFIGURED. (5) The three negatives asserted only 'before == after and not a 500', which a permission or category refusal satisfies identically; each now pins session('error') to 'Product Not Found.'. (6) The fixture leaked a tempnam stub file per test. A BUG FIXED AS A SIDE EFFECT, verified: products.created_by keys User::countProducts() (the PLAN QUOTA counter, used by show():102-106), Api\DashboardController:6401 (the API quota counter) and the Campaigns product picker. A staff import set created_by = the staff id, and a staff member's creatorId() is their merchant, so created_by no longer equalled creatorId() and the product SILENTLY DROPPED OUT OF ALL THREE -- quota evasion. Removing the line restores all three, which is a stronger justification than the authorship argument in the comment. DELIBERATELY NOT WIDENED, each raised instead: the attribute inserts, quota debit and upload run BEFORE the guard, but all three write into the CALLER'S OWN tenant, so the only residual is a merchant exhausting their own plan storage by replaying a refusal (self-DoS, hardening). The sibling controllers are P1-INV-13 (#54) -- WoocomCouponController::edit still carries this task's transfer primitive on a money-adjacent object. The SSRF in four import handlers is P1-SEC-06 (#55). The data residue this forward-looking fix cannot undo is P1-OWN-07 (#56), owner-gated. UNMEASURED AND SAID SO: nothing in this suite exercises createProductVariant or createProductAttribute -- the stub sends empty attributes and variations, so the variant branch never runs and the predicate added there is unmeasured. THE FIX INHERITS R4-03'S PREMISE: it rests on getCurrentStore(), i.e. users.current_store, whose writers are constrained (StoreController::changeStore refuses a store the caller does not own) and which has no mass-assignment route, but that is a dependency rather than a property of this change.
 
 ### `P1-INV-05` — Concurrency and overselling: reservation semantics across the nine writers
 
@@ -819,7 +818,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 
 | field | value |
 |---|---|
-| Status | **BACKLOG** |
+| Status | **READY** |
 | Risk | high |
 | Workstream | Inventory & Stock |
 | GitHub issue | #54 |
