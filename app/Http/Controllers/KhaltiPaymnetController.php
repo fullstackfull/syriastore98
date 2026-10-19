@@ -440,7 +440,7 @@ class KhaltiPaymnetController extends Controller
 
                                 if($ProductStock->stock <= $ProductStock->low_stock_threshold)
                                 {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock",json_decode($settings['notification'])))
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock",json_decode($settings['notification'] ?? '[]')))
                                     {
                                         if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                         {
@@ -449,9 +449,9 @@ class KhaltiPaymnetController extends Controller
 
                                     }
                                 }
-                                if($ProductStock->stock <= $settings['out_of_stock_threshold'])
+                                if($ProductStock->stock <= ($settings['out_of_stock_threshold'] ?? '0'))
                                 {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock",json_decode($settings['notification'])))
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock",json_decode($settings['notification'] ?? '[]')))
                                     {
                                         if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                         {
@@ -467,7 +467,7 @@ class KhaltiPaymnetController extends Controller
                                 $datas->save();
                                 if($datas->product_stock <= $datas->low_stock_threshold)
                                 {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock",json_decode($settings['notification'])))
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock",json_decode($settings['notification'] ?? '[]')))
                                     {
                                         if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                         {
@@ -476,9 +476,9 @@ class KhaltiPaymnetController extends Controller
 
                                     }
                                 }
-                                if($datas->product_stock <= $settings['out_of_stock_threshold'])
+                                if($datas->product_stock <= ($settings['out_of_stock_threshold'] ?? '0'))
                                 {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock",json_decode($settings['notification'])))
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock",json_decode($settings['notification'] ?? '[]')))
                                     {
                                         if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                         {
@@ -486,7 +486,7 @@ class KhaltiPaymnetController extends Controller
                                         }
                                     }
                                 }
-                                if($datas->product_stock <= $settings['out_of_stock_threshold'] && $datas->stock_order_status == 'notify_customer')
+                                if($datas->product_stock <= ($settings['out_of_stock_threshold'] ?? '0') && $datas->stock_order_status == 'notify_customer')
                                 {
                                     //Stock Mail
                                     $order_email = $billing['email'];
@@ -532,7 +532,7 @@ class KhaltiPaymnetController extends Controller
                             $Product->save();
                             if($Product->product_stock <= $Product->low_stock_threshold)
                             {
-                                if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock",json_decode($settings['notification'])))
+                                if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock",json_decode($settings['notification'] ?? '[]')))
                                 {
                                     if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                     {
@@ -541,9 +541,9 @@ class KhaltiPaymnetController extends Controller
                                 }
                             }
 
-                            if($Product->product_stock <= $settings['out_of_stock_threshold'])
+                            if($Product->product_stock <= ($settings['out_of_stock_threshold'] ?? '0'))
                             {
-                                if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock",json_decode($settings['notification'])))
+                                if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock",json_decode($settings['notification'] ?? '[]')))
                                 {
                                     if(isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] =="on")
                                     {
@@ -552,7 +552,7 @@ class KhaltiPaymnetController extends Controller
                                 }
                             }
 
-                            if($Product->product_stock <= $settings['out_of_stock_threshold'] && $Product->stock_order_status == 'notify_customer')
+                            if($Product->product_stock <= ($settings['out_of_stock_threshold'] ?? '0') && $Product->stock_order_status == 'notify_customer')
                             {
                                 //Stock Mail
                                 $order_email = $billing['email'];

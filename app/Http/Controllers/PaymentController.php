@@ -2217,15 +2217,15 @@ public function handlePaymeraTrigger00($orderId)
                                 }
 
                                 if ($ProductStock->stock <= $ProductStock->low_stock_threshold) {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                             Utility::variant_low_stock_threshold($product, $ProductStock, $settings);
                                         }
 
                                     }
                                 }
-                                if ($ProductStock->stock <= $settings['out_of_stock_threshold']) {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock", json_decode($settings['notification']))) {
+                                if ($ProductStock->stock <= ($settings['out_of_stock_threshold'] ?? '0')) {
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                             Utility::variant_out_of_stock($product, $ProductStock, $settings);
                                         }
@@ -2241,21 +2241,21 @@ public function handlePaymeraTrigger00($orderId)
                                     return $this->error($stockFailure);
                                 }
                                 if ($datas->product_stock <= $datas->low_stock_threshold) {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                             Utility::variant_low_stock_threshold($product, $datas, $settings);
                                         }
 
                                     }
                                 }
-                                if ($datas->product_stock <= $settings['out_of_stock_threshold']) {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock", json_decode($settings['notification']))) {
+                                if ($datas->product_stock <= ($settings['out_of_stock_threshold'] ?? '0')) {
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                             Utility::variant_out_of_stock($product, $datas, $settings);
                                         }
                                     }
                                 }
-                                if ($datas->product_stock <= $settings['out_of_stock_threshold'] && $datas->stock_order_status == 'notify_customer') {
+                                if ($datas->product_stock <= ($settings['out_of_stock_threshold'] ?? '0') && $datas->stock_order_status == 'notify_customer') {
                                     //Stock Mail
                                     $order_email = $billing['email'];
                                     $owner = User::find($store->created_by);
@@ -2298,22 +2298,22 @@ public function handlePaymeraTrigger00($orderId)
                                 return $this->error($stockFailure);
                             }
                             if ($Product->product_stock <= $Product->low_stock_threshold) {
-                                if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
+                                if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                     if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                         Utility::low_stock_threshold($Product, $settings);
                                     }
                                 }
                             }
 
-                            if ($Product->product_stock <= $settings['out_of_stock_threshold']) {
-                                if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock", json_decode($settings['notification']))) {
+                            if ($Product->product_stock <= ($settings['out_of_stock_threshold'] ?? '0')) {
+                                if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock", json_decode($settings['notification'] ?? '[]'))) {
                                     if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                         Utility::out_of_stock($Product, $settings);
                                     }
                                 }
                             }
 
-                            if ($Product->product_stock <= $settings['out_of_stock_threshold'] && $Product->stock_order_status == 'notify_customer') {
+                            if ($Product->product_stock <= ($settings['out_of_stock_threshold'] ?? '0') && $Product->stock_order_status == 'notify_customer') {
                                 //Stock Mail
                                 $order_email = $billing['email'];
                                 $owner = User::find($store->created_by);
@@ -3354,15 +3354,15 @@ $result = app(\App\Services\StoreNotificationService::class)
                                 }
 
                                 if ($ProductStock->stock <= $ProductStock->low_stock_threshold) {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                             Utility::variant_low_stock_threshold($product, $ProductStock, $settings);
                                         }
 
                                     }
                                 }
-                                if ($ProductStock->stock <= $settings['out_of_stock_threshold']) {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock", json_decode($settings['notification']))) {
+                                if ($ProductStock->stock <= ($settings['out_of_stock_threshold'] ?? '0')) {
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                             Utility::variant_out_of_stock($product, $ProductStock, $settings);
                                         }
@@ -3378,21 +3378,21 @@ $result = app(\App\Services\StoreNotificationService::class)
                                     return $this->error($stockFailure);
                                 }
                                 if ($datas->product_stock <= $datas->low_stock_threshold) {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                             Utility::variant_low_stock_threshold($product, $datas, $settings);
                                         }
 
                                     }
                                 }
-                                if ($datas->product_stock <= $settings['out_of_stock_threshold']) {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock", json_decode($settings['notification']))) {
+                                if ($datas->product_stock <= ($settings['out_of_stock_threshold'] ?? '0')) {
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                             Utility::variant_out_of_stock($product, $datas, $settings);
                                         }
                                     }
                                 }
-                                if ($datas->product_stock <= $settings['out_of_stock_threshold'] && $datas->stock_order_status == 'notify_customer') {
+                                if ($datas->product_stock <= ($settings['out_of_stock_threshold'] ?? '0') && $datas->stock_order_status == 'notify_customer') {
                                     //Stock Mail
                                     $order_email = $billing['email'];
                                     $owner = User::find($store->created_by);
@@ -3435,22 +3435,22 @@ $result = app(\App\Services\StoreNotificationService::class)
                                 return $this->error($stockFailure);
                             }
                             if ($Product->product_stock <= $Product->low_stock_threshold) {
-                                if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
+                                if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                     if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                         Utility::low_stock_threshold($Product, $settings);
                                     }
                                 }
                             }
 
-                            if ($Product->product_stock <= $settings['out_of_stock_threshold']) {
-                                if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock", json_decode($settings['notification']))) {
+                            if ($Product->product_stock <= ($settings['out_of_stock_threshold'] ?? '0')) {
+                                if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock", json_decode($settings['notification'] ?? '[]'))) {
                                     if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                         Utility::out_of_stock($Product, $settings);
                                     }
                                 }
                             }
 
-                            if ($Product->product_stock <= $settings['out_of_stock_threshold'] && $Product->stock_order_status == 'notify_customer') {
+                            if ($Product->product_stock <= ($settings['out_of_stock_threshold'] ?? '0') && $Product->stock_order_status == 'notify_customer') {
                                 //Stock Mail
                                 $order_email = $billing['email'];
                                 $owner = User::find($store->created_by);

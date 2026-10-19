@@ -6,6 +6,7 @@ use App\Events\AddRewardClubPoint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use App\Events\AddAdditionalFields;
+use App\Events\CinetPayPayment;
 use App\Http\Controllers\Api\ApiController;
 use App\Models\ActivityLog;
 use App\Models\Cart;
@@ -583,15 +584,15 @@ class CinetPayController extends Controller
                                     $ProductStock->save();
 
                                     if ($ProductStock->stock <= $ProductStock->low_stock_threshold) {
-                                        if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
+                                        if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                             if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                                 Utility::variant_low_stock_threshold($product, $ProductStock, $settings);
                                             }
 
                                         }
                                     }
-                                    if ($ProductStock->stock <= $settings['out_of_stock_threshold']) {
-                                        if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock", json_decode($settings['notification']))) {
+                                    if ($ProductStock->stock <= ($settings['out_of_stock_threshold'] ?? '0')) {
+                                        if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock", json_decode($settings['notification'] ?? '[]'))) {
                                             if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                                 Utility::variant_out_of_stock($product, $ProductStock, $settings);
                                             }
@@ -602,21 +603,21 @@ class CinetPayController extends Controller
                                     $datas->product_stock = $remain_stock;
                                     $datas->save();
                                     if ($datas->product_stock <= $datas->low_stock_threshold) {
-                                        if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
+                                        if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                             if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                                 Utility::variant_low_stock_threshold($product, $datas, $settings);
                                             }
 
                                         }
                                     }
-                                    if ($datas->product_stock <= $settings['out_of_stock_threshold']) {
-                                        if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock", json_decode($settings['notification']))) {
+                                    if ($datas->product_stock <= ($settings['out_of_stock_threshold'] ?? '0')) {
+                                        if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock", json_decode($settings['notification'] ?? '[]'))) {
                                             if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                                 Utility::variant_out_of_stock($product, $datas, $settings);
                                             }
                                         }
                                     }
-                                    if ($datas->product_stock <= $settings['out_of_stock_threshold'] && $datas->stock_order_status == 'notify_customer') {
+                                    if ($datas->product_stock <= ($settings['out_of_stock_threshold'] ?? '0') && $datas->stock_order_status == 'notify_customer') {
                                         //Stock Mail
                                         $order_email = $billing['email'];
                                         $owner = User::find($store->created_by);
@@ -654,22 +655,22 @@ class CinetPayController extends Controller
                                 $Product->product_stock = $remain_stock;
                                 $Product->save();
                                 if ($Product->product_stock <= $Product->low_stock_threshold) {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_low_stock", json_decode($settings['notification']))) {
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_low_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                             Utility::low_stock_threshold($Product, $settings);
                                         }
                                     }
                                 }
 
-                                if ($Product->product_stock <= $settings['out_of_stock_threshold']) {
-                                    if (!empty(json_decode($settings['notification'])) && in_array("enable_out_of_stock", json_decode($settings['notification']))) {
+                                if ($Product->product_stock <= ($settings['out_of_stock_threshold'] ?? '0')) {
+                                    if (!empty(json_decode($settings['notification'] ?? '[]')) && in_array("enable_out_of_stock", json_decode($settings['notification'] ?? '[]'))) {
                                         if (isset($settings['twilio_setting_enabled']) && $settings['twilio_setting_enabled'] == "on") {
                                             Utility::out_of_stock($Product, $settings);
                                         }
                                     }
                                 }
 
-                                if ($Product->product_stock <= $settings['out_of_stock_threshold'] && $Product->stock_order_status == 'notify_customer') {
+                                if ($Product->product_stock <= ($settings['out_of_stock_threshold'] ?? '0') && $Product->stock_order_status == 'notify_customer') {
                                     //Stock Mail
                                     $order_email = $billing['email'];
                                     $owner = User::find($store->created_by);
