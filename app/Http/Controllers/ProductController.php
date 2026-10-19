@@ -1953,14 +1953,137 @@ $Product->cost_price = $request->cost_price;
         return $result;
     }
 
+    /**
+     * Is this product outside the store the signed-in user is working in?
+     *
+     * P1-INV-07. The ownership decision `update()`, `edit()`, `show()` and `destroy()` each make
+     * inline, extracted once for the three sites this task guards rather than copied a fifth,
+     * sixth and seventh time. The four existing copies are left alone deliberately: changing them
+     * would be a refactor of working, removal-checked code, and this task is a security fix.
+     *
+     * A MISSING PRODUCT IS OUTSIDE. `ProductImage` and `ProductVariant` both carry a nullable
+     * `store_id` of their own, and neither is in config/tenancy.php's `scoped_models`, so the
+     * authoritative tie is through the PRODUCT -- the same reasoning as S35/S36: scoping the
+     * product does not scope the variant, and the variant's own column cannot be trusted to carry
+     * the answer. If the product cannot be resolved there is nothing to own, and refusing is the
+     * fail-closed direction.
+     *
+     * THE PLATFORM OPERATOR IS EXEMPT, matching `destroy()` and `OrderPolicy::allow`. Note that in
+     * methods wrapped in `isAbleTo(...)` that exemption cannot fire at all -- Laratrust has no
+     * super-admin bypass (CLAUDE.md), measured in
+     * tests/Support/Security/bin/verify-product-ownership-on-mysql.php. These three methods have
+     * no permission wrapper, so here it is live.
+     */
+    private function productIsOutsideCurrentStore($product): bool
+    {
+        $actor = auth()->user();
+
+        if ($actor !== null && $actor->type === \App\Policies\UserPolicy::PLATFORM_ADMIN) {
+            return false;
+        }
+
+        $currentStore = getCurrentStore();
+
+        return empty($product)
+            || empty($currentStore)
+            || empty($product->store_id)
+            || (int) $product->store_id !== (int) $currentStore;
+    }
+
+    /**
+     * Is this path inside the application's own uploads directory?
+     *
+     * P1-INV-07. `file_delete()` passes a DATABASE STRING to `File::delete(base_path(...))`. The
+     * ownership check above is what stops another store's row being chosen, but a stored path is
+     * still untrusted input to the filesystem: a value containing `..` would resolve outside the
+     * uploads tree, and `File::delete()` would follow it. Ownership and path safety are two
+     * different questions and the owner's instruction asks for both.
+     *
+     * `realpath()` resolves `..` and symlinks before the comparison, and returns false for a path
+     * that does not exist -- so a missing file is "not inside" and simply is not unlinked. The
+     * trailing separator on the root matters: without it, `/app/uploads-evil` would pass a plain
+     * prefix test against `/app/uploads`.
+     */
+    private function isInsideUploadsRoot(string $absolutePath): bool
+    {
+        $root = realpath(base_path('uploads'));
+        $real = realpath($absolutePath);
+
+        if ($root === false || $real === false) {
+            return false;
+        }
+
+        return $real === $root || str_starts_with($real, $root . DIRECTORY_SEPARATOR);
+    }
+
     public function file_delete($id)
     {
 
         $product_img_id = ProductImage::find($id);
         if ($product_img_id) {
-            if (File::exists(base_path($product_img_id->image_path))) {
-                File::delete(base_path($product_img_id->image_path));
+            /*
+             * OWNERSHIP BEFORE ANYTHING LEAVES THE DISK. P1-INV-07.
+             *
+             * This method had NO permission check and NO ownership check, and it unlinks a file:
+             * `ProductImage::find($id)` took any id, and `File::delete(base_path(...))` removed
+             * another store's uploaded media IRREVERSIBLY. Reported live by an adversarial review
+             * of P1-INV-01, which asked whether that fix had guarded one door and left another
+             * open. It had.
+             *
+             * The tie is through the product, not through `product_images.store_id`: that column
+             * is nullable and the model is not in `scoped_models`, so it cannot be trusted to
+             * carry the answer.
+             */
+            $owner = Product::find($product_img_id->product_id);
+
+            if ($this->productIsOutsideCurrentStore($owner)) {
+                \Illuminate\Support\Facades\Log::warning(
+                    'product image delete refused: the image belongs to another store',
+                    [
+                        'image_id' => $product_img_id->id,
+                        'product_id' => $product_img_id->product_id,
+                        'product_store_id' => $owner->store_id ?? null,
+                        'current_store' => getCurrentStore(),
+                        'user_id' => optional(auth()->user())->id,
+                    ]
+                );
+
+                /*
+                 * 403, not a 200 with an error body. The caller
+                 * (resources/views/product/edit.blade.php:851-856) hides the thumbnail inside its
+                 * `success` handler REGARDLESS of the payload, so a 200 would tell the user the
+                 * image was deleted when it was not. No 401 is introduced -- that is the code the
+                 * shipped Flutter app force-logs-out on, and this is a web route besides.
+                 */
+                return response()->json([
+                    'flag' => 'error',
+                    'msg' => __('Permission denied.'),
+                ], 403);
             }
+
+            /*
+             * AND THE PATH MUST BE INSIDE THE UPLOADS TREE. `image_path` is a database string
+             * handed to the filesystem; ownership says WHOSE row this is, not WHERE the string
+             * points. A path containing `..` would resolve outside the uploads directory and
+             * `File::delete()` would follow it. See isInsideUploadsRoot(): a path that does not
+             * resolve, or resolves outside, is not unlinked -- the row is still removed, which is
+             * the user's actual intent, and nothing outside `uploads/` is ever touched.
+             */
+            $absolute = base_path((string) $product_img_id->image_path);
+
+            if ($this->isInsideUploadsRoot($absolute)) {
+                File::delete(realpath($absolute));
+            } elseif (! empty($product_img_id->image_path)) {
+                \Illuminate\Support\Facades\Log::warning(
+                    'product image row deleted but the file was not unlinked: the stored path is'
+                    . ' outside the uploads directory',
+                    [
+                        'image_id' => $product_img_id->id,
+                        'image_path' => (string) $product_img_id->image_path,
+                    ]
+                );
+            }
+
             $product_img_id->delete();
         }
 
@@ -1972,6 +2095,29 @@ $Product->cost_price = $request->cost_price;
     public function attribute_combination_edit(Request $request)
     {
         $product = Product::find($request->id);
+
+        /*
+         * OWNERSHIP ON A PRODUCT NAMED BY REQUEST INPUT. P1-INV-07.
+         *
+         * `$request->id` -- not a route-model binding -- so P1-INV-01's guard on `update()`,
+         * `edit()` and `show()` does not apply here, and nothing else did: the foreign product was
+         * passed straight into the view. The same read leak those three closed, through a
+         * different parameter.
+         */
+        if ($this->productIsOutsideCurrentStore($product)) {
+            \Illuminate\Support\Facades\Log::warning(
+                'attribute combination edit refused: the product belongs to another store',
+                [
+                    'product_id' => $request->id,
+                    'product_store_id' => $product->store_id ?? null,
+                    'current_store' => getCurrentStore(),
+                    'user_id' => optional(auth()->user())->id,
+                ]
+            );
+
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         $options = array();
         $product_name = !empty($request->sku) ? $request->sku : '';
         $unit_price = !empty($request->price) ? $request->price : 0;
@@ -2000,6 +2146,42 @@ $Product->cost_price = $request->cost_price;
     public function product_attribute_delete($id)
     {
         $attribute = ProductVariant::findOrFail($id);
+
+        /*
+         * OWNERSHIP BEFORE A DESTRUCTIVE WRITE. P1-INV-07.
+         *
+         * This method had no permission check and no ownership check: `findOrFail($id)` took any
+         * variant id and deleted it -- another store's variant row AND the stock it carries.
+         * `ProductVariant` carries no StoreScope and is not in `scoped_models`, so nothing
+         * narrowed it. `findOrFail` is kept so a genuinely missing id still answers 404 rather
+         * than being reported as a permission problem.
+         *
+         * Resolved through the variant's PRODUCT, for the reason S36 recorded: the variant's own
+         * nullable `store_id` is not the authority on who owns it.
+         */
+        $owner = Product::find($attribute->product_id);
+
+        if ($this->productIsOutsideCurrentStore($owner)) {
+            \Illuminate\Support\Facades\Log::warning(
+                'product variant delete refused: the variant belongs to another store',
+                [
+                    'variant_id' => $attribute->id,
+                    'product_id' => $attribute->product_id,
+                    'product_store_id' => $owner->store_id ?? null,
+                    'current_store' => getCurrentStore(),
+                    'user_id' => optional(auth()->user())->id,
+                ]
+            );
+
+            /*
+             * 403 rather than a body. The caller
+             * (resources/views/product/attribute_combinations_edit.blade.php:317-321) announces
+             * "Variant Deleted Successfully!" and removes the row from the DOM on ANY 2xx, without
+             * reading the response, so returning "false" with a 200 would lie to the user.
+             */
+            return response()->json(['message' => __('Permission denied.')], 403);
+        }
+
         $attribute->delete();
 
         return "true";

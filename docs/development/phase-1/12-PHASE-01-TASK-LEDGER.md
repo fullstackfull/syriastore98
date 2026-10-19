@@ -10,8 +10,8 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 40 — 7 DONE, 9 READY, 8 BACKLOG, 15 BLOCKED, 0 IN_PROGRESS, 1 IN_REVIEW |
-| Requiring an owner decision | 16 |
+| Tasks | 40 — 8 DONE, 10 READY, 7 BACKLOG, 14 BLOCKED, 0 IN_PROGRESS, 1 IN_REVIEW |
+| Requiring an owner decision | 15 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
 A task is **not** `DONE` because code was committed — `DONE` requires its acceptance criteria verified, with the evidence recorded in its row.
@@ -79,39 +79,38 @@ Most Phase 01 work is genuinely independent; the real couplings are few, and the
 
 The directive's priority order, applied: (1) critical reachable security, (2) cross-tenant financial and stock integrity, (3) order and payment correctness, (4) migration prerequisites, (5) shared architecture, (6) observability and acceptance.
 
-1. `P1-INV-01` — ProductController::update lets a merchant rewrite and restock any store's product *(inventory, IN_REVIEW, risk high)*
-2. `P1-INV-02` — OrderController::order_return restocks and marks returned on any store's order *(inventory, READY, risk high)*
-3. `P1-INV-03` — PosController::store writes product_stock to an absolute value from the POS session *(inventory, BACKLOG, risk high)*
-4. `P1-INV-04` — WoocomProductController::edit overwrites a foreign product and reassigns its store_id *(inventory, READY, risk high)*
-5. `P1-INV-05` — Concurrency and overselling: reservation semantics across the nine writers *(inventory, BACKLOG, risk medium)*
-6. `P1-INV-06` — Two vendored module cart writers can still plant an unvalidated cart row *(inventory, BLOCKED, risk medium)*
-7. `P1-INV-07` — Three more unchecked ProductController routes: media delete, variant delete, and a request-id read leak *(inventory, BACKLOG, risk high)*
-8. `P1-PAY-04` — COD settles at order time, which blocks releasing GATE F *(payments, BLOCKED, risk high)*
-9. `P1-MIG-03` — Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns *(migrations, BLOCKED, risk high)*
-10. `P1-MIG-01` — GATE F: release the six money-bearing tables *(migrations, BLOCKED, risk high)*
-11. `P1-MIG-02` — customers.password_otp is INTEGER while the web reset writes a 60-char bcrypt hash *(migrations, BLOCKED, risk high)*
-12. `P1-MIG-04` — SCHEMA-01: nine more tables live code uses with no migration *(migrations, BLOCKED, risk medium)*
-13. `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted *(orders, BACKLOG, risk high)*
-14. `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon *(orders, BACKLOG, risk high)*
-15. `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account *(orders, BLOCKED, risk high)*
-16. `P1-OWN-01` — BackupRestore: is the module active on the server? *(security, BLOCKED, risk high)*
-17. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
-18. `P1-OWN-03` — The compromised API log on the running server *(security, BLOCKED, risk high)*
-19. `P1-OWN-04` — Token lifetime and abilities for clients already on merchants' phones *(security, BLOCKED, risk high)*
-20. `P1-OWN-05` — Anonymous order-document access (customerpayment) and tooling decisions *(platform, BLOCKED, risk medium)*
-21. `P1-OWN-06` — Branch protection and required checks on main *(platform, BLOCKED, risk medium)*
-22. `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites *(payments, READY, risk medium)*
-23. `P1-PAY-02` — Idempotency on gateway returns and order writers *(payments, BACKLOG, risk high)*
-24. `P1-PAY-03` — Gateway callback authenticity: no return proves a payment moved *(payments, BLOCKED, risk high)*
-25. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, READY, risk high)*
-26. `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites *(platform, BACKLOG, risk high)*
-27. `P1-PLT-04` — Module loading swallows every exception with no log line *(platform, BLOCKED, risk medium)*
-28. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, BACKLOG, risk medium)*
-29. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, READY, risk high)*
-30. `P1-SEC-02` — A merchant with Create Role can grant the six finance permissions they do not hold *(security, READY, risk high)*
-31. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, READY, risk medium)*
-32. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, READY, risk medium)*
-33. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
+1. `P1-INV-02` — OrderController::order_return restocks and marks returned on any store's order *(inventory, READY, risk high)*
+2. `P1-INV-03` — PosController::store writes product_stock to an absolute value from the POS session *(inventory, BACKLOG, risk high)*
+3. `P1-INV-04` — WoocomProductController::edit overwrites a foreign product and reassigns its store_id *(inventory, READY, risk high)*
+4. `P1-INV-05` — Concurrency and overselling: reservation semantics across the nine writers *(inventory, BACKLOG, risk medium)*
+5. `P1-INV-06` — Two vendored module cart writers can still plant an unvalidated cart row *(inventory, BLOCKED, risk medium)*
+6. `P1-INV-07` — Three more unchecked ProductController routes: media delete, variant delete, and a request-id read leak *(inventory, IN_REVIEW, risk high)*
+7. `P1-PAY-04` — COD settles at order time, which blocks releasing GATE F *(payments, BLOCKED, risk high)*
+8. `P1-MIG-03` — Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns *(migrations, BLOCKED, risk high)*
+9. `P1-MIG-01` — GATE F: release the six money-bearing tables *(migrations, BLOCKED, risk high)*
+10. `P1-MIG-02` — customers.password_otp is INTEGER while the web reset writes a 60-char bcrypt hash *(migrations, BLOCKED, risk high)*
+11. `P1-MIG-04` — SCHEMA-01: nine more tables live code uses with no migration *(migrations, BLOCKED, risk medium)*
+12. `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted *(orders, BACKLOG, risk high)*
+13. `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon *(orders, BACKLOG, risk high)*
+14. `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account *(orders, BLOCKED, risk high)*
+15. `P1-OWN-01` — BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour *(security, READY, risk high)*
+16. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
+17. `P1-OWN-03` — The compromised API log on the running server *(security, BLOCKED, risk high)*
+18. `P1-OWN-04` — Token lifetime and abilities for clients already on merchants' phones *(security, BLOCKED, risk high)*
+19. `P1-OWN-05` — Anonymous order-document access (customerpayment) and tooling decisions *(platform, BLOCKED, risk medium)*
+20. `P1-OWN-06` — Branch protection and required checks on main *(platform, BLOCKED, risk medium)*
+21. `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites *(payments, READY, risk medium)*
+22. `P1-PAY-02` — Idempotency on gateway returns and order writers *(payments, BACKLOG, risk high)*
+23. `P1-PAY-03` — Gateway callback authenticity: no return proves a payment moved *(payments, BLOCKED, risk high)*
+24. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, READY, risk high)*
+25. `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites *(platform, BACKLOG, risk high)*
+26. `P1-PLT-04` — Module loading swallows every exception with no log line *(platform, BLOCKED, risk medium)*
+27. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, BACKLOG, risk medium)*
+28. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, READY, risk high)*
+29. `P1-SEC-02` — A merchant with Create Role can grant the six finance permissions they do not hold *(security, READY, risk high)*
+30. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, READY, risk medium)*
+31. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, READY, risk medium)*
+32. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
 
 ---
 
@@ -287,32 +286,35 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 
 **Evidence.** S11; packages/workdo/AutomaticOrderPrinting/src/routes/web.php:24-28
 
-### `P1-OWN-01` — BackupRestore: is the module active on the server?
+### `P1-OWN-01` — BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour
 
 | field | value |
 |---|---|
-| Status | **BLOCKED** |
+| Status | **READY** |
 | Risk | high |
 | Workstream | Security & Identity |
 | GitHub issue | #42 |
-| Owner decision required | **yes** |
-| Blocked on | Owner must answer whether the module is enabled. Nothing else in this task can start first. |
+| Owner decision required | no |
 | Depends on | — |
 | Scope | `packages/workdo/BackupRestore/` |
 | Queue references | S1 |
 | Database / migration | None (containment is host-side only). |
 | Compatibility impact | If active, this is an incident, not a backlog row. |
 
-**Existing implementation status.** OPEN, URGENT IF ACTIVE. An unauthenticated route to the whole database and .env.
+**Existing implementation status.** OWNER CONFIRMED 2026-10-19: the BackupRestore module is DISABLED on the Store Syria server. The IMMEDIATE ACTIVATION RISK IS THEREFORE MITIGATED -- the unauthenticated route to the whole database and .env is not reachable while the module is not loaded. The row is NOT closed: the owner's confirmation is about the server's current state, not about what the code does, and two things remain verifiable here without touching the server or enabling anything -- whether a disabled module really registers no routes, and what the loader does with a module whose state changes. Previously BLOCKED on exactly the question the owner has now answered.
 
 **Acceptance criteria.**
-- [ ] The owner answers SELECT module, is_enable FROM add_on_managers
-- [ ] If active: host-side containment lands the same day and the incident is treated as one
+- [ ] A regression test asserts the BackupRestore routes are NOT registered when the module is not enabled
+- [ ] The route-registration path is read and documented: what `add_on_managers.is_enable` actually gates, and what module_is_active() answers for each of its three disagreeing sources
+- [ ] The exposure that WOULD exist if the module were enabled is written up with its exact routes and middleware, so the owner can decide before ever enabling it
+- [ ] The host-side containment steps are specified and ready to apply (deny storage/ and *_Backup in the document root, artefacts out of the web root, no chmod 0777, DB password off the command line) -- specified, NOT applied to any server
+- [ ] No module file is edited (packages/workdo/ is vendored) and the module is not enabled
 
 **Required tests.**
-- A containment test proving the artefacts are not reachable from the document root
+- Negative: with no add_on_managers row, the BackupRestore routes resolve to nothing (404), asserted against the real route table
+- Premise test: the same assertion would FAIL if the module were loaded -- so the test is not vacuous (see CLAUDE.md on module loading in tests)
 
-**Evidence.** S1; BackupRestore/src/routes/web.php:17-19
+**Evidence.** Owner confirmation 2026-10-19 that the module is DISABLED. Code evidence: packages/workdo/BackupRestore/src/routes/web.php:17-19 (auth + PlanModuleCheck only); app/Providers/PackageServiceProvider.php:54-57 (the loader's silent catch). Verification pending.
 
 ### `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets
 
@@ -404,7 +406,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 
 | field | value |
 |---|---|
-| Status | **IN_REVIEW** |
+| Status | **DONE** |
 | Risk | high |
 | Workstream | Inventory & Stock |
 | GitHub issue | #27 |
@@ -427,7 +429,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 - Positive: own-store update still works
 - MySQL: verified on a real MySQL, because SQLite MASKS this through a NOT NULL column the handler writes as NULL
 
-**Evidence.** f522feaf. REPRODUCED BY EXECUTION first: a store-A merchant with Edit Products sent PUT /product/{store B id} and renamed the victim and set product_stock 50->7. Guard copied from destroy()'s shape into update(), edit() and show(). Tests: tests/Feature/Security/MerchantProductOwnershipTest.php, 5 tests / 11 assertions. THREE REMOVAL CHECKS, ALL BITE, each failing exactly its own case. MYSQL: tests/Support/Security/bin/verify-product-ownership-on-mysql.php, 15 checks / 0 failures on 8.0.46 -- establishes that SQLite REFUSES the NULL that update() writes into three NOT NULL columns (masking the defect) while MySQL with strict=>false COERCES it and the write lands, so production was more exposed than the test database. Also measured: update()'s operator exemption is unreachable (Laratrust refuses the operator) and show()/edit()'s is live. Feature/Security + Feature/Tenancy 1,540 passed / 10 skipped / 0 failures; Unit 278; Contract 26; five CI guards exit 0. Adversarial review: two corrections applied (vacuous read-route assertions; an incomplete docblock), three LIVE sites raised as P1-INV-07. IN_REVIEW pending the full Feature suite and its known-outcome gate.
+**Evidence.** f522feaf. REPRODUCED BY EXECUTION first: a store-A merchant with Edit Products sent PUT /product/{store B id} and renamed the victim and set product_stock 50->7. Guard copied from destroy()'s shape into update(), edit() and show(). Tests: tests/Feature/Security/MerchantProductOwnershipTest.php, 5 tests / 11 assertions. THREE REMOVAL CHECKS, ALL BITE, each failing exactly its own case. MYSQL: tests/Support/Security/bin/verify-product-ownership-on-mysql.php, 15 checks / 0 failures on 8.0.46 -- establishes that SQLite REFUSES the NULL that update() writes into three NOT NULL columns (masking the defect) while MySQL with strict=>false COERCES it and the write lands, so production was more exposed than the test database. Also measured: update()'s operator exemption is unreachable (Laratrust refuses the operator) and show()/edit()'s is live. Feature/Security + Feature/Tenancy 1,540 passed / 10 skipped / 0 failures; Unit 278; Contract 26; five CI guards exit 0. Adversarial review: two corrections applied (vacuous read-route assertions; an incomplete docblock), three LIVE sites raised as P1-INV-07. FULL FEATURE SUITE on this head: 2,825 testcases -- 2,806 passed, 18,233 assertions, 2 declared failures, 17 declared skips, 0 errors; known-outcome gate EXIT 0 with 17/17 skip reasons parsed ("the observed outcome set matches the manifest exactly"). All acceptance criteria verified.
 
 ### `P1-INV-02` — OrderController::order_return restocks and marks returned on any store's order
 
@@ -574,7 +576,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 
 | field | value |
 |---|---|
-| Status | **BACKLOG** |
+| Status | **IN_REVIEW** |
 | Risk | high |
 | Workstream | Inventory & Stock |
 | GitHub issue | #48 |
@@ -600,7 +602,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 - Positive control per route: the owner's own media/variant/product still works
 - Removal check on each guard
 
-**Evidence.** Pending. Reviewer evidence: ProductController.php:1956-1969, :2000-2005, :1972-1997; routes/web.php:903, :905, :909.
+**Evidence.** Three guards plus path containment. Tests: tests/Feature/Security/MerchantProductOwnershipTest.php -- 12 passed / 28 assertions (7 new), each route with a cross-tenant negative AND a positive control. FOUR REMOVAL CHECKS, ALL BITE: file_delete ownership; file_delete path containment (replacing it with an unconditional File::delete() DELETES a file outside uploads/ -- traversal proven by execution); product_attribute_delete ownership; attribute_combination_edit ownership. Both deletes answer 403, not a 200 with an error body, because both callers act optimistically on any 2xx and ignore the payload. Feature/Security + Feature/Tenancy 1,547 passed / 10 skipped / 0 failures; five CI guards exit 0. CORRECTION RECORDED: the path-containment check bit the first time only because an earlier test had leaked uploads/{id}/; a tearDown now cleans up (uploads/ is not gitignored) and the traversal test creates that directory itself, so the control is the only thing between the request and the file. IN_REVIEW pending the adversarial review and the full Feature gate.
 
 ---
 

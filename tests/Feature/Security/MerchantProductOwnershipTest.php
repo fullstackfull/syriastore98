@@ -49,6 +49,39 @@ class MerchantProductOwnershipTest extends SecurityTestCase
 {
     use RefreshDatabase;
 
+    /**
+     * Absolute paths this test wrote, removed in tearDown WHATEVER the outcome.
+     *
+     * These tests have to write real files: `file_delete()` resolves `base_path($image_path)` and
+     * unlinks it, so a fixture under /tmp would not exercise the handler. `uploads/` is NOT
+     * gitignored, so a failing assertion that skipped an inline cleanup left junk in the working
+     * tree -- which it did, until this was added.
+     *
+     * @var list<string>
+     */
+    private array $scratchFiles = [];
+
+    /** Directories this test created, pruned only if empty. @var list<string> */
+    private array $scratchDirs = [];
+
+    protected function tearDown(): void
+    {
+        foreach ($this->scratchFiles as $path) {
+            if (is_file($path)) {
+                @unlink($path);
+            }
+        }
+        foreach ($this->scratchDirs as $dir) {
+            if (is_dir($dir)) {
+                @rmdir($dir);
+            }
+        }
+        $this->scratchFiles = [];
+        $this->scratchDirs = [];
+
+        parent::tearDown();
+    }
+
     /** A category in the given store, because `category_id` is a required field. */
     private function categoryIn($store): int
     {
@@ -200,5 +233,222 @@ class MerchantProductOwnershipTest extends SecurityTestCase
         $this->assertStringContainsString('own-visible-name', (string) $response->getContent(),
             'The form rendered without the product in it, so the 200 does not prove the owner can '
             . 'actually read their own product.');
+    }
+    // =====================================================================================
+    //  P1-INV-07 — three more unchecked routes on this controller, found by the adversarial
+    //  review of P1-INV-01. Two of them DELETE, and one of those deletes from disk.
+    // =====================================================================================
+
+    /** An image row for $product, with a real file on disk under uploads/. */
+    private function imageFor(Product $product, string $marker): array
+    {
+        $dir = base_path('uploads/' . $product->store_id);
+        $dirExisted = is_dir($dir);
+        @mkdir($dir, 0775, true);
+        $relative = 'uploads/' . $product->store_id . '/' . $marker . '-' . uniqid() . '.txt';
+        file_put_contents(base_path($relative), 'pixels');
+        $this->scratchFiles[] = base_path($relative);
+        if (! $dirExisted) {
+            $this->scratchDirs[] = $dir;
+        }
+
+        $id = DB::table('product_images')->insertGetId([
+            'product_id' => $product->id, 'image_path' => $relative,
+            'image_url' => '/' . $relative, 'store_id' => $product->store_id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        return [$id, $relative];
+    }
+
+    private function variantFor(Product $product): int
+    {
+        return DB::table('product_variants')->insertGetId([
+            'product_id' => $product->id, 'variant' => 'red', 'sku' => 'v-' . uniqid(),
+            'price' => 10, 'stock' => 50, 'store_id' => $product->store_id,
+            'variation_option' => 'manage_stock', 'stock_status' => 'in_stock',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    /**
+     * A MERCHANT CANNOT UNLINK ANOTHER STORE'S MEDIA FROM DISK.
+     *
+     * `file_delete` had no permission check and no ownership check, and it calls
+     * `File::delete(base_path($image->image_path))`. This asserts the FILE as well as the row,
+     * because the file is the part that cannot be undone.
+     */
+    public function test_a_merchant_cannot_delete_another_stores_product_image(): void
+    {
+        [$merchantA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Edit Products');
+
+        $victim = $this->productIn($storeB, 'victim-img-owner', 50);
+        [$imageId, $relative] = $this->imageFor($victim, 'victim');
+
+        $response = $this->actingAs($merchantA)->delete('/products/' . $imageId . '/delete');
+
+        $this->assertSame(403, $response->status(),
+            'The refusal must be a non-2xx: the caller hides the thumbnail inside its success '
+            . 'handler regardless of the payload, so a 200 would tell the user it was deleted.');
+        $this->assertFileExists(base_path($relative),
+            "Another store's uploaded file was unlinked from disk — the irreversible half.");
+        $this->assertDatabaseHas('product_images', ['id' => $imageId]);
+
+    }
+
+    /** THE POSITIVE CONTROL: the owner can still delete their own image, row and file. */
+    public function test_a_merchant_can_delete_their_own_product_image(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Edit Products');
+
+        $own = $this->productIn($storeA, 'own-img-owner', 50);
+        [$imageId, $relative] = $this->imageFor($own, 'own');
+
+        $response = $this->actingAs($merchantA)->delete('/products/' . $imageId . '/delete');
+
+        $this->assertSame(200, $response->status(),
+            'A merchant can no longer delete their own product image, so the refusal test above '
+            . 'proves nothing. Body: ' . substr($response->getContent(), 0, 200));
+        $this->assertFileDoesNotExist(base_path($relative), 'The owner\'s file was not unlinked.');
+        $this->assertDatabaseMissing('product_images', ['id' => $imageId]);
+    }
+
+    /**
+     * A STORED PATH THAT POINTS OUTSIDE `uploads/` IS NOT FOLLOWED.
+     *
+     * Ownership says whose row this is; it says nothing about where the stored string points.
+     * `image_path` is database input handed to the filesystem, so a value containing `..` would
+     * resolve outside the uploads tree and `File::delete()` would follow it. The row is still
+     * removed — that is the user's actual intent — and nothing outside `uploads/` is touched.
+     */
+    public function test_an_image_path_outside_the_uploads_tree_is_not_unlinked(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Edit Products');
+
+        $own = $this->productIn($storeA, 'own-traversal', 50);
+
+        // A file that must survive, outside uploads/, reached by traversal from inside it.
+        $outside = base_path('storage/app/p1inv07-must-survive-' . uniqid() . '.txt');
+        @mkdir(dirname($outside), 0775, true);
+        file_put_contents($outside, 'do not delete me');
+        $this->scratchFiles[] = $outside;
+
+        /*
+         * THE INTERMEDIATE DIRECTORY MUST EXIST, and this is not pedantry: `unlink()` resolves
+         * `uploads/{id}/../../storage/app/x` through the real filesystem, so if `uploads/{id}` is
+         * absent the call fails with ENOENT and the outside file survives FOR THE WRONG REASON.
+         *
+         * Measured: this test's removal check bit the first time only because an earlier test in
+         * the file had left `uploads/{id}/` behind. Once that leak was fixed by tearDown, removing
+         * the containment guard stopped failing the test -- the traversal could no longer resolve.
+         * Creating the directory here makes the control the only thing standing between the
+         * request and the file.
+         */
+        $uploadDir = base_path('uploads/' . $storeA->id);
+        $uploadDirExisted = is_dir($uploadDir);
+        @mkdir($uploadDir, 0775, true);
+        if (! $uploadDirExisted) {
+            $this->scratchDirs[] = $uploadDir;
+        }
+
+        $traversal = 'uploads/' . $storeA->id . '/../../storage/app/' . basename($outside);
+        $imageId = DB::table('product_images')->insertGetId([
+            'product_id' => $own->id, 'image_path' => $traversal,
+            'store_id' => $storeA->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->assertFileExists($outside, 'fixture: the outside file should exist before the call');
+
+        $response = $this->actingAs($merchantA)->delete('/products/' . $imageId . '/delete');
+
+        $this->assertSame(200, $response->status(),
+            'The owner\'s own row should still be removable. Body: '
+            . substr($response->getContent(), 0, 200));
+        $this->assertFileExists($outside,
+            'A path escaping uploads/ was followed and a file outside the uploads tree was '
+            . 'unlinked.');
+        $this->assertDatabaseMissing('product_images', ['id' => $imageId]);
+
+    }
+
+    /** A MERCHANT CANNOT DELETE ANOTHER STORE'S VARIANT — or the stock it carries. */
+    public function test_a_merchant_cannot_delete_another_stores_variant(): void
+    {
+        [$merchantA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Edit Products');
+
+        $victim = $this->productIn($storeB, 'victim-variant-owner', 50);
+        $variantId = $this->variantFor($victim);
+
+        $response = $this->actingAs($merchantA)->delete('/product-attribute-delete/' . $variantId);
+
+        $this->assertSame(403, $response->status(),
+            'The refusal must be a non-2xx: the caller announces "Variant Deleted Successfully!" '
+            . 'and removes the row on any 2xx without reading the body.');
+        $this->assertDatabaseHas('product_variants', ['id' => $variantId]);
+    }
+
+    /** THE POSITIVE CONTROL for the variant delete. */
+    public function test_a_merchant_can_delete_their_own_variant(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Edit Products');
+
+        $own = $this->productIn($storeA, 'own-variant-owner', 50);
+        $variantId = $this->variantFor($own);
+
+        $response = $this->actingAs($merchantA)->delete('/product-attribute-delete/' . $variantId);
+
+        $this->assertSame(200, $response->status(),
+            'A merchant can no longer delete their own variant, so the refusal test above proves '
+            . 'nothing. Body: ' . substr($response->getContent(), 0, 200));
+        $this->assertDatabaseMissing('product_variants', ['id' => $variantId]);
+    }
+
+    /**
+     * AND THE REQUEST-INPUT READ LEAK.
+     *
+     * `attribute_combination_edit` resolves `Product::find($request->id)` — not a route-model
+     * binding — so P1-INV-01's guard does not apply to it, and the foreign product went straight
+     * into the view.
+     */
+    public function test_a_merchant_cannot_open_another_stores_attribute_combination(): void
+    {
+        [$merchantA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Edit Products');
+
+        $victim = $this->productIn($storeB, 'victim-combination-secret', 50);
+
+        $response = $this->actingAs($merchantA)
+            ->put('/products/attribute_combination/edit', ['id' => $victim->id, 'attribute_no' => []]);
+
+        $this->assertSame(302, $response->status(),
+            'The refusal must be the handler\'s own redirect, not a 500. Body: '
+            . substr($response->getContent(), 0, 200));
+        $this->assertStringNotContainsString('victim-combination-secret',
+            (string) $response->getContent(),
+            'Another store\'s product name leaked into the response.');
+    }
+
+    /** THE POSITIVE CONTROL: the owner's own combination screen still answers. */
+    public function test_a_merchant_can_open_their_own_attribute_combination(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Edit Products');
+
+        $own = $this->productIn($storeA, 'own-combination', 50);
+
+        $response = $this->actingAs($merchantA)
+            ->put('/products/attribute_combination/edit', ['id' => $own->id, 'attribute_no' => []]);
+
+        $this->assertNotSame(302, $response->status(),
+            'The owner is being redirected away from their own product, so the refusal test above '
+            . 'proves nothing. Session error: ' . json_encode(session('error')));
     }
 }

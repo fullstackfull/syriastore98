@@ -607,7 +607,7 @@
    "title": "ProductController::update lets a merchant rewrite and restock any store's product",
    "workstream": "inventory",
    "risk": "high",
-   "status": "IN_REVIEW",
+   "status": "DONE",
    "issue": 27,
    "scope": [
     "app/Http/Controllers/ProductController.php"
@@ -626,7 +626,7 @@
    ],
    "compatibility": "Merchant product management must keep working; the refusal must not be a 401.",
    "db": "None. But the MySQL caveat means the test needs the tests/Support/Security/bin pattern.",
-   "evidence": "f522feaf. REPRODUCED BY EXECUTION first: a store-A merchant with Edit Products sent PUT /product/{store B id} and renamed the victim and set product_stock 50->7. Guard copied from destroy()'s shape into update(), edit() and show(). Tests: tests/Feature/Security/MerchantProductOwnershipTest.php, 5 tests / 11 assertions. THREE REMOVAL CHECKS, ALL BITE, each failing exactly its own case. MYSQL: tests/Support/Security/bin/verify-product-ownership-on-mysql.php, 15 checks / 0 failures on 8.0.46 -- establishes that SQLite REFUSES the NULL that update() writes into three NOT NULL columns (masking the defect) while MySQL with strict=>false COERCES it and the write lands, so production was more exposed than the test database. Also measured: update()'s operator exemption is unreachable (Laratrust refuses the operator) and show()/edit()'s is live. Feature/Security + Feature/Tenancy 1,540 passed / 10 skipped / 0 failures; Unit 278; Contract 26; five CI guards exit 0. Adversarial review: two corrections applied (vacuous read-route assertions; an incomplete docblock), three LIVE sites raised as P1-INV-07. IN_REVIEW pending the full Feature suite and its known-outcome gate.",
+   "evidence": "f522feaf. REPRODUCED BY EXECUTION first: a store-A merchant with Edit Products sent PUT /product/{store B id} and renamed the victim and set product_stock 50->7. Guard copied from destroy()'s shape into update(), edit() and show(). Tests: tests/Feature/Security/MerchantProductOwnershipTest.php, 5 tests / 11 assertions. THREE REMOVAL CHECKS, ALL BITE, each failing exactly its own case. MYSQL: tests/Support/Security/bin/verify-product-ownership-on-mysql.php, 15 checks / 0 failures on 8.0.46 -- establishes that SQLite REFUSES the NULL that update() writes into three NOT NULL columns (masking the defect) while MySQL with strict=>false COERCES it and the write lands, so production was more exposed than the test database. Also measured: update()'s operator exemption is unreachable (Laratrust refuses the operator) and show()/edit()'s is live. Feature/Security + Feature/Tenancy 1,540 passed / 10 skipped / 0 failures; Unit 278; Contract 26; five CI guards exit 0. Adversarial review: two corrections applied (vacuous read-route assertions; an incomplete docblock), three LIVE sites raised as P1-INV-07. FULL FEATURE SUITE on this head: 2,825 testcases -- 2,806 passed, 18,233 assertions, 2 declared failures, 17 declared skips, 0 errors; known-outcome gate EXIT 0 with 17/17 skip reasons parsed (\"the observed outcome set matches the manifest exactly\"). All acceptance criteria verified.",
    "queue_refs": [
     "S37",
     "S37-1"
@@ -1082,31 +1082,35 @@
   },
   {
    "id": "P1-OWN-01",
-   "title": "BackupRestore: is the module active on the server?",
+   "title": "BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour",
    "workstream": "security",
    "risk": "high",
-   "status": "BLOCKED",
+   "status": "READY",
    "issue": 42,
    "scope": [
     "packages/workdo/BackupRestore/"
    ],
-   "existing_status": "OPEN, URGENT IF ACTIVE. An unauthenticated route to the whole database and .env.",
+   "existing_status": "OWNER CONFIRMED 2026-10-19: the BackupRestore module is DISABLED on the Store Syria server. The IMMEDIATE ACTIVATION RISK IS THEREFORE MITIGATED -- the unauthenticated route to the whole database and .env is not reachable while the module is not loaded. The row is NOT closed: the owner's confirmation is about the server's current state, not about what the code does, and two things remain verifiable here without touching the server or enabling anything -- whether a disabled module really registers no routes, and what the loader does with a module whose state changes. Previously BLOCKED on exactly the question the owner has now answered.",
    "depends_on": [],
    "acceptance": [
-    "The owner answers SELECT module, is_enable FROM add_on_managers",
-    "If active: host-side containment lands the same day and the incident is treated as one"
+    "A regression test asserts the BackupRestore routes are NOT registered when the module is not enabled",
+    "The route-registration path is read and documented: what `add_on_managers.is_enable` actually gates, and what module_is_active() answers for each of its three disagreeing sources",
+    "The exposure that WOULD exist if the module were enabled is written up with its exact routes and middleware, so the owner can decide before ever enabling it",
+    "The host-side containment steps are specified and ready to apply (deny storage/ and *_Backup in the document root, artefacts out of the web root, no chmod 0777, DB password off the command line) -- specified, NOT applied to any server",
+    "No module file is edited (packages/workdo/ is vendored) and the module is not enabled"
    ],
    "tests": [
-    "A containment test proving the artefacts are not reachable from the document root"
+    "Negative: with no add_on_managers row, the BackupRestore routes resolve to nothing (404), asserted against the real route table",
+    "Premise test: the same assertion would FAIL if the module were loaded -- so the test is not vacuous (see CLAUDE.md on module loading in tests)"
    ],
    "compatibility": "If active, this is an incident, not a backlog row.",
    "db": "None (containment is host-side only).",
-   "evidence": "S1; BackupRestore/src/routes/web.php:17-19",
+   "evidence": "Owner confirmation 2026-10-19 that the module is DISABLED. Code evidence: packages/workdo/BackupRestore/src/routes/web.php:17-19 (auth + PlanModuleCheck only); app/Providers/PackageServiceProvider.php:54-57 (the loader's silent catch). Verification pending.",
    "queue_refs": [
     "S1"
    ],
-   "owner_decision": true,
-   "blocked_on": "Owner must answer whether the module is enabled. Nothing else in this task can start first."
+   "owner_decision": false,
+   "blocked_on": null
   },
   {
    "id": "P1-OWN-02",
@@ -1264,7 +1268,7 @@
    "title": "Three more unchecked ProductController routes: media delete, variant delete, and a request-id read leak",
    "workstream": "inventory",
    "risk": "high",
-   "status": "BACKLOG",
+   "status": "IN_REVIEW",
    "issue": 48,
    "scope": [
     "app/Http/Controllers/ProductController.php",
@@ -1289,7 +1293,7 @@
    ],
    "compatibility": "Merchant media and variant management must keep working; refusal shape matches the controller's existing redirect convention.",
    "db": "None.",
-   "evidence": "Pending. Reviewer evidence: ProductController.php:1956-1969, :2000-2005, :1972-1997; routes/web.php:903, :905, :909.",
+   "evidence": "Three guards plus path containment. Tests: tests/Feature/Security/MerchantProductOwnershipTest.php -- 12 passed / 28 assertions (7 new), each route with a cross-tenant negative AND a positive control. FOUR REMOVAL CHECKS, ALL BITE: file_delete ownership; file_delete path containment (replacing it with an unconditional File::delete() DELETES a file outside uploads/ -- traversal proven by execution); product_attribute_delete ownership; attribute_combination_edit ownership. Both deletes answer 403, not a 200 with an error body, because both callers act optimistically on any 2xx and ignore the payload. Feature/Security + Feature/Tenancy 1,547 passed / 10 skipped / 0 failures; five CI guards exit 0. CORRECTION RECORDED: the path-containment check bit the first time only because an earlier test had leaked uploads/{id}/; a tearDown now cleans up (uploads/ is not gitignored) and the traversal test creates that directory itself, so the control is the only thing between the request and the file. IN_REVIEW pending the adversarial review and the full Feature gate.",
    "queue_refs": [
     "S37-1"
    ],
