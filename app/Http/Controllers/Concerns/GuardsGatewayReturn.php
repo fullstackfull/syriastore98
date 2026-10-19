@@ -281,6 +281,52 @@ trait GuardsGatewayReturn
     }
 
     /**
+     * The SERVER-PRICED BASKET held inside the stored checkout state.
+     *
+     * WHY A HANDLER NEEDS THIS AND NOT THE ONE IT WAS POSTED. PaymentService::getNMIProductview()
+     * does two things with the same array: it stores the priced cart in the session as part of
+     * `request_data`, AND it prints it into the payment form as
+     *
+     *     <input type="hidden" name="response_data" value="{{ json_encode($response) }}">
+     *
+     * (resources/views/front_end/payment/nmi-payment.blade.php:98). The handler on the way back
+     * then read the HIDDEN FIELD -- `json_decode($request->input('response_data'), true)` -- for
+     * the product list, the line quantities, `total_final_price` and `total_sub_price`. So the
+     * server computed the basket, handed it to the browser, and believed it back: the whole cart
+     * and every total in it were the caller's to rewrite, on the SUCCESS path, with a valid
+     * session. That is not the "no session cookie" defect storedCheckoutState() closes; the
+     * stored state was present and correct the entire time and simply was not the thing being
+     * read.
+     *
+     * The two arrays are the same array at initiation, so reading this one changes nothing for a
+     * genuine shopper and removes the round trip for everyone else.
+     *
+     * NORMALISED TO NESTED ARRAYS. The session may hold stdClass (it is serialised through
+     * json_decode(json_encode(...)) at several initiation sites), while the handlers index their
+     * cart lines as arrays -- `$product['product_id']`. One json round trip makes the shape
+     * predictable instead of leaving each caller to guess, and it is what getCartData() already
+     * does at PaymentController.php:1528.
+     *
+     * Returns an empty array when the state carries no cartlist, so the caller can refuse rather
+     * than price a guess.
+     *
+     * @param  array<string, mixed>  $state
+     * @return array<string, mixed>
+     */
+    protected function storedCheckoutCartList(array $state): array
+    {
+        $cartlist = $state['cartlist'] ?? null;
+
+        if (empty($cartlist)) {
+            return [];
+        }
+
+        $normalised = json_decode(json_encode($cartlist), true);
+
+        return is_array($normalised) ? $normalised : [];
+    }
+
+    /**
      * Does this basket hold a line whose quantity is not a positive integer?
      *
      * WHY A GATEWAY RETURN NEEDS ITS OWN CHECK, when PaymentController::processOrder already

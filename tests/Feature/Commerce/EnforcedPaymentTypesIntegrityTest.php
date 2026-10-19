@@ -229,14 +229,30 @@ class EnforcedPaymentTypesIntegrityTest extends TestCase
          * strictly stronger than a line pin, and it still fails if a tenth literal appears in any
          * surveyed file.
          */
+        /*
+         * THREE -> TWO. P01-COMMERCE-SEC-02 wired the NMI literal to the resolver, and this row
+         * moves from $sites to $wired rather than being deleted -- which is what the failure
+         * message this assertion prints asks the next agent to do.
+         *
+         * NMI IS THE FIRST OF THE NINE WITH A REAL VERIFICATION BEHIND IT. The docblock above
+         * records "no verification call of any kind in the file. ... No seam to extend." That was
+         * true of the FILE and not of the HANDLER: getNMIProductStatus() makes the capture itself
+         * and its order write was already nested inside NMI's own `response == 1`. So the seam
+         * was the success test, and the fix was to RECORD that answer through
+         * PaymentVerificationService::recordVerification() before deriving the status from it.
+         * The derived status is still 'Paid' today -- 'nmi' is not in ENFORCED_PAYMENT_TYPES --
+         * but it is the first one that is attributable to a gateway rather than asserted.
+         *
+         * PosController and the vendored LotteryPrizes one are unchanged and still out of scope:
+         * neither is a gateway path at all, and the second is under the WorkDo modification guard.
+         */
         // file => how many literal `payment_status = 'Paid'` writes it is surveyed to hold.
         $sites = [
-            'app/Http/Controllers/NMIPayController.php' => 1,
             'app/Http/Controllers/PosController.php' => 1,
             'packages/workdo/LotteryPrizes/src/app/Http/Controllers/LotteryResultController.php' => 1,
         ];
 
-        // The six now wired to the resolver must hold NO literal write at all.
+        // The ones now wired to the resolver must hold NO literal write at all.
         $wired = [
             'app/Http/Controllers/AuthorizeNetPaymnetController.php',
             'app/Http/Controllers/PayUPaymentController.php',
@@ -244,10 +260,11 @@ class EnforcedPaymentTypesIntegrityTest extends TestCase
             'app/Http/Controllers/EasebuzzController.php',
             'app/Http/Controllers/PaiementProPaymentController.php',
             'app/Http/Controllers/CinetPayController.php',
+            'app/Http/Controllers/NMIPayController.php',
         ];
 
-        $this->assertCount(3, $sites, 'three surveyed sites remain outside this package');
-        $this->assertSame(3, array_sum($sites), 'three literal Paid writes remain');
+        $this->assertCount(2, $sites, 'two surveyed sites remain outside this package');
+        $this->assertSame(2, array_sum($sites), 'two literal Paid writes remain');
 
         $pattern = "/payment_status['\"]?\s*(=>|=)\s*['\"]Paid['\"]/";
 

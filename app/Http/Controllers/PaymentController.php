@@ -47,6 +47,13 @@ use App\Http\Controllers\Concerns\GuardsGatewayReturn;
 class PaymentController extends Controller
 {
     use ApiResponser;
+
+    /*
+     * P01-COMMERCE-SEC-02. The stock decrement/give-back pair moved verbatim to a Concern so a
+     * fourth order writer (NMIPayController) could use it instead of a second copy. No body
+     * changed; see App\Http\Controllers\Concerns\AppliesCartStockChanges.
+     */
+    use \App\Http\Controllers\Concerns\AppliesCartStockChanges;
     use GuardsGatewayReturn;
     protected $paymentService;
 
@@ -62,9 +69,6 @@ class PaymentController extends Controller
 
     /** Derives an order's payment_status from a verification result. */
     private ?\App\Services\PaymentVerificationService $paymentVerifier = null;
-
-    /** Atomic stock decrement, replacing the read-modify-write pattern. */
-    private ?\App\Services\ProductStockService $stockService = null;
 
     public function __construct(PaymentService $paymentService)
     {
@@ -88,97 +92,6 @@ class PaymentController extends Controller
     private function paymentVerifier(): \App\Services\PaymentVerificationService
     {
         return $this->paymentVerifier ??= new \App\Services\PaymentVerificationService();
-    }
-
-    private function stockService(): \App\Services\ProductStockService
-    {
-        return $this->stockService ??= new \App\Services\ProductStockService();
-    }
-
-    /**
-     * Decrement stock atomically, remembering it so it can be given back.
-     *
-     * One copy for all three order paths in this controller
-     * (getProductStatus, getWhatsappUrl, whatsapp), which each carried an
-     * identical read-modify-write decrement.
-     *
-     * @param  array  $applied  Accumulator of applied decrements, by reference.
-     * @param  string $kind     'variant' or 'product'.
-     * @param  mixed  $model    The loaded ProductVariant or Product.
-     * @param  mixed  $qty      The cart quantity.
-     * @return array|null  null on success; a `['message' => ...]` payload when
-     *                     the caller must abandon the order. Any decrements
-     *                     already applied in this cart are given back first.
-     */
-    private function decrementStockOrFail(
-        array &$applied,
-        string $kind,
-        $model,
-        $qty,
-        bool $rejectOnShortfall = true
-    ): ?array {
-        $result = $kind === 'variant'
-            ? $this->stockService()->decrementVariantStock($model, $qty)
-            : $this->stockService()->decrementProductStock($model, $qty);
-
-        if ($result['applied']) {
-            $applied[] = [
-                'kind' => $kind,
-                'id' => $model->id,
-                'quantity' => $result['quantity'],
-            ];
-
-            return null;
-        }
-
-        if ($result['reason'] !== \App\Services\ProductStockService::INSUFFICIENT) {
-            // Nothing to decrement (no quantity, or no row). Previously this
-            // subtracted zero and saved, so carrying on matches the old
-            // behaviour exactly.
-            return null;
-        }
-
-        // PAST THE POINT OF NO RETURN.
-        //
-        // $rejectOnShortfall is false in every writer that has already done
-        // irreversible work by the time this line runs. In those methods the cart
-        // rows of the lines processed BEFORE this one have already been deleted,
-        // `new Order()` has not been reached yet, and no transaction wraps any of
-        // it -- and on the payment-return paths the gateway has already captured
-        // the money. Returning an error there abandoned the checkout with no order
-        // row, a partly destroyed cart and nothing refunded.
-        //
-        // The pre-existing code had no availability test at all on these paths: it
-        // simply subtracted and saved, so stock could go negative. Overselling and
-        // reporting it is therefore the SAME outcome the platform always had, and
-        // strictly better than losing the order. The shortfall is a merchant
-        // operations problem, not a reason to discard a paid basket.
-        if (!$rejectOnShortfall) {
-            $forced = $kind === 'variant'
-                ? $this->stockService()->decrementVariantStock($model, $qty, true)
-                : $this->stockService()->decrementProductStock($model, $qty, true);
-
-            if ($forced['applied']) {
-                $applied[] = [
-                    'kind' => $kind,
-                    'id' => $model->id,
-                    'quantity' => $forced['quantity'],
-                ];
-            }
-
-            \Illuminate\Support\Facades\Log::critical('Insufficient stock on an order path that cannot refuse; order kept, stock oversold', [
-                'kind' => $kind,
-                'model_id' => $model->id ?? null,
-                'requested_quantity' => $qty,
-                'outcome' => $forced['reason'] ?? null,
-            ]);
-
-            return null;
-        }
-
-        $this->restoreStockDecrements($applied);
-
-        return ['message' => __('Insufficient stock. Please review your cart and try again.')];
     }
 
     /**
@@ -421,17 +334,7 @@ class PaymentController extends Controller
         return empty($name) ? $message : $message . ' (' . $name . ')';
     }
 
-    /** Give back every decrement recorded by {@see decrementStockOrFail()}. */
-    private function restoreStockDecrements(array $applied): void
-    {
-        foreach ($applied as $change) {
-            if (($change['kind'] ?? null) === 'variant') {
-                $this->stockService()->restoreVariantStock($change['id'], $change['quantity']);
-            } else {
-                $this->stockService()->restoreProductStock($change['id'], $change['quantity']);
-            }
-        }
-    }
+
 
 
 
