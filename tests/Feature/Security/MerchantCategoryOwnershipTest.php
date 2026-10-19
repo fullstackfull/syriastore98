@@ -64,6 +64,20 @@ class MerchantCategoryOwnershipTest extends SecurityTestCase
     /** @var list<string> */
     private array $scratchDirs = [];
 
+    /**
+     * `uploads/<store_id>` directories whose contents were snapshotted, keyed by absolute path.
+     *
+     * Swept in `tearDown()` rather than inline, because PHPUnit ABORTS A TEST METHOD AT THE FIRST
+     * FAILED ASSERTION -- so inline cleanup placed after the assertions never runs on the one
+     * occasion it is needed. The first version of this did exactly that: the removal check for
+     * the upload-path guard failed on an earlier assertion and still leaked
+     * `uploads/1/87_1792428601_attacker.jpg` into the tracked tree. Caught by re-running the
+     * removal check and then reading `git status`, not by reading the code.
+     *
+     * @var array<string, list<string>>
+     */
+    private array $uploadBaselines = [];
+
     protected function tearDown(): void
     {
         foreach ($this->scratchFiles as $path) {
@@ -71,6 +85,19 @@ class MerchantCategoryOwnershipTest extends SecurityTestCase
                 @unlink($path);
             }
         }
+        // Anything the HANDLER wrote into a snapshotted upload directory. Runs whatever the
+        // outcome, which is the whole point -- see $uploadBaselines.
+        foreach ($this->uploadBaselines as $dir => $before) {
+            foreach (array_diff($this->snapshotOf($dir), $before) as $path) {
+                if (is_file($path)) {
+                    @unlink($path);
+                }
+            }
+            if (is_dir($dir) && $this->snapshotOf($dir) === []) {
+                @rmdir($dir);
+            }
+        }
+
         foreach ($this->scratchDirs as $dir) {
             if (is_dir($dir)) {
                 @rmdir($dir);
@@ -78,6 +105,7 @@ class MerchantCategoryOwnershipTest extends SecurityTestCase
         }
         $this->scratchFiles = [];
         $this->scratchDirs = [];
+        $this->uploadBaselines = [];
 
         parent::tearDown();
     }
@@ -122,6 +150,51 @@ class MerchantCategoryOwnershipTest extends SecurityTestCase
         $this->scratchFiles[] = $absolute;
 
         return [$relative, $absolute];
+    }
+
+    /**
+     * Absolute paths currently inside `uploads/<store_id>` — the directory `update()` uploads to.
+     *
+     * This exists because MY OWN REMOVAL CHECK LEAKED A FILE INTO THE TRACKED TREE. With the
+     * update guard disabled, `update()` wrote `uploads/1/71_1792427832_attacker.jpg` and the
+     * test's cleanup never saw it, because `$scratchFiles` only tracks files the TEST created,
+     * not files the HANDLER created. `uploads/` is tracked and holds 407 real files, so that is a
+     * working-tree leak, not just untidiness.
+     *
+     * Snapshotting turns the hygiene problem into a better assertion: "no file appeared in the
+     * caller's upload directory" is a stronger claim than "the victim's file still exists", and
+     * it is the claim that actually distinguishes a refusal from an upload that happened to
+     * target a different path.
+     *
+     * @return list<string>
+     */
+    private function uploadDirSnapshot($store): array
+    {
+        $dir = base_path('uploads/' . $store->id);
+        $before = $this->snapshotOf($dir);
+
+        // Register it so tearDown can sweep whatever the handler adds, even when an assertion
+        // placed before the comparison aborts the method.
+        $this->uploadBaselines[$dir] = $before;
+
+        return $before;
+    }
+
+    /** The absolute paths directly inside $dir, or [] if it does not exist. @return list<string> */
+    private function snapshotOf(string $dir): array
+    {
+        if (!is_dir($dir)) {
+            return [];
+        }
+
+        $entries = scandir($dir);
+
+        return $entries === false
+            ? []
+            : array_values(array_map(
+                static fn (string $name): string => $dir . DIRECTORY_SEPARATOR . $name,
+                array_filter($entries, static fn (string $n): bool => $n !== '.' && $n !== '..')
+            ));
     }
 
     /**
@@ -468,6 +541,7 @@ class MerchantCategoryOwnershipTest extends SecurityTestCase
 
         $quotaBefore = \App\Models\User::withoutGlobalScopes()
             ->findOrFail($merchantA->id)->storage_limit;
+        $callerUploadsBefore = $this->uploadDirSnapshot($storeA);
 
         $response = $this->actingAs($merchantA)->put('/category/' . $victim->id, [
             'name' => 'HIJACKED-WITH-ART',
@@ -489,6 +563,28 @@ class MerchantCategoryOwnershipTest extends SecurityTestCase
             \App\Models\User::withoutGlobalScopes()->findOrFail($merchantA->id)->storage_limit,
             'The caller\'s storage quota moved, so Utility::updateStorageLimit ran before the '
             . 'refusal -- the guard is placed too late.');
+
+        /*
+         * NO FILE REACHED THE CALLER'S OWN UPLOAD DIRECTORY EITHER.
+         *
+         * `update()` uploads into `uploads/' . getCurrentStore()`, so a refusal that arrived
+         * after `Utility::upload_file` would leave the attacker's image sitting in their own
+         * media tree even though the victim's row was untouched. Asserted on the directory rather
+         * than on a filename, because the handler names the file
+         * `rand(10,100).'_'.time().'_'.$originalName` and the test cannot predict it.
+         *
+         * Cleanup is in tearDown, NOT here: an assertion above this one aborts the method, and
+         * the first version of this test cleaned up inline and leaked on exactly that path.
+         */
+        $appeared = array_values(array_diff(
+            $this->snapshotOf(base_path('uploads/' . $storeA->id)),
+            $callerUploadsBefore
+        ));
+        $this->assertSame([], $appeared,
+            'A cross-store update wrote ' . count($appeared) . ' file(s) into the caller\'s own '
+            . 'upload directory, so Utility::upload_file ran before the refusal. Paths: '
+            . implode(', ', $appeared));
+
         $this->assertSame(302, $response->status());
     }
 
