@@ -107,6 +107,10 @@ recorded rather than patched:
 
 ## 5. What to check on the server — read-only, nothing to change
 
+**An operator-ready runbook for these three checks, with the exact commands, what to record,
+what not to touch, and the incident trigger, is
+`docs/security/P1-OWN-01-SERVER-VERIFICATION-RUNBOOK.md`.**
+
 None of this requires enabling the module, reading a backup's contents, or altering configuration.
 
 1. `SELECT module, is_enable FROM add_on_managers WHERE module = 'BackupRestore';`
