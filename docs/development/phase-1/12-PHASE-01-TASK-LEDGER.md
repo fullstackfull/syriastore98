@@ -10,7 +10,7 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 52 — 13 DONE, 16 READY, 8 BACKLOG, 15 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
+| Tasks | 52 — 13 DONE, 15 READY, 8 BACKLOG, 15 BLOCKED, 1 IN_PROGRESS, 0 IN_REVIEW |
 | Requiring an owner decision | 18 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
@@ -108,7 +108,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 16. `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted *(orders, BACKLOG, risk high)*
 17. `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon *(orders, BACKLOG, risk high)*
 18. `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account *(orders, BLOCKED, risk high)*
-19. `P1-ORD-04` — URGENT: order_status_change cancels any store's order with no permission and no ownership check, and it is a money write *(orders, READY, risk critical)*
+19. `P1-ORD-04` — URGENT: order_status_change cancels any store's order with no permission and no ownership check, and it is a money write *(orders, IN_PROGRESS, risk critical)*
 20. `P1-ORD-05` — The order read family: a forgeable encrypted id reaches any store's order, and two handlers lock out the operator *(orders, READY, risk high)*
 21. `P1-OWN-01` — BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour *(security, BLOCKED, risk high)*
 22. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
@@ -1157,13 +1157,13 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_PROGRESS** |
 | Risk | critical |
 | Workstream | Orders & Checkout |
 | GitHub issue | #58 |
 | Owner decision required | no |
 | Depends on | `P1-INV-02` |
-| Scope | `app/Http/Controllers/OrderController.php`, `app/Models/Order.php` |
+| Scope | `app/Http/Controllers/OrderController.php`, `tests/Feature/Security/OrderStatusChangeOwnershipTest.php` |
 | Queue references | S37-2 |
 | Database / migration | None. |
 | Compatibility impact | Merchant order management keeps working. Adds a permission requirement where there was none, so merchant roles must be confirmed to hold 'Manage Order' first -- the seeded merchant role does (Utility.php:2755). |

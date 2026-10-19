@@ -898,8 +898,50 @@ public function store(Request $request)
 
     public function order_status_change(Request $request)
     {
+        /*
+         * OWNERSHIP AND PERMISSION. P1-ORD-04.
+         *
+         * This method had NO permission check of any kind -- the route (routes/web.php:1179)
+         * carries only the `auth` group, and `index()`'s isAbleTo('Manage Order') guards the
+         * LISTING, not this -- and no ownership predicate: `$request->id` went straight into
+         * Order::order_status_change(), which does a bare `Order::find()` (Order.php:537) on a
+         * model with no global scope and no `scoped_models` entry.
+         *
+         * AND THE CANCEL LIMB IS A MONEY WRITE, which is why this outranks a status tweak. It
+         * sets `payment_status = 'Unpaid'` and saves (Order.php:546-554), and
+         * OrderObserver::updated fires OrderFinancialService::syncFromOrder on exactly that
+         * column changing (OrderObserver.php:32-38) -- so cancelling walks back the order's
+         * wallet record. The finance half is invisible to the test suite because
+         * `store_order_financials` is a GATE F table created by no migration, so the regression
+         * test pins the order columns that trigger it and says so.
+         *
+         * Same three lines as order_return, and the same reasoning: `updateStatus` via
+         * OrderPolicy::allow checks isPlatformAdmin BEFORE isAbleTo (so the operator keeps the
+         * support workflow on a database where no role holds 'Manage Order'), then requires the
+         * seeded 'Manage Order', then sameStore.
+         *
+         * THE ID COMES FROM THE ROUTE, NOT THE BODY. `Request::__get` reads `all()` before the
+         * route parameters, so a posted `id` previously WON over the URL segment -- measured: a
+         * POST to /order-status-change/<own id> carrying `id=<victim id>` acted on the victim.
+         * The route declares `{id}`, so the segment is always present, and the shipped caller
+         * (resources/views/order/view.blade.php:655-662) sends both with the same value. Reading
+         * the segment removes the ambiguity rather than leaving the authorization and the write
+         * free to disagree about which order they mean.
+         */
+        $orderId = $request->route('id');
 
-        $data['order_id'] = $request->id;
+        $order = Order::find($orderId);
+
+        if (empty($order)) {
+            return response()->json([
+                'status' => false,
+                'message' => __('Something was wrong.'),
+            ]);
+        }
+
+        $this->authorize('updateStatus', $order);
+
+        $data['order_id'] = $orderId;
         $data['order_status'] = $request->delivered;
         $responce = Order::order_status_change($data);
         $order = Order::order_detail($data['order_id']);

@@ -483,11 +483,11 @@
       "title": "URGENT: order_status_change cancels any store's order with no permission and no ownership check, and it is a money write",
       "workstream": "orders",
       "risk": "critical",
-      "status": "READY",
+      "status": "IN_PROGRESS",
       "issue": 58,
       "scope": [
         "app/Http/Controllers/OrderController.php",
-        "app/Models/Order.php"
+        "tests/Feature/Security/OrderStatusChangeOwnershipTest.php"
       ],
       "existing_status": "LIVE AND KNOWN-BUT-OPEN. Found by the adversarial review of P1-INV-02 as the thing to open next, and confirmed by reading. It is the SAME defect P1-INV-02 just closed on order_return, one method away, WITH A MONEY LIMB AND NO PERMISSION CHECK AT ALL. OrderController:899-906 passes $request->id and $request->delivered straight into Order::order_status_change with no authorize, no predicate and no null guard; the route (routes/web.php:1179) is inside the auth group and nothing else, and index()'s isAbleTo('Manage Order') guards the LISTING, not this. Order::order_status_change does a bare Order::find() (Order.php:537) on a model with no scope. THE CANCEL LIMB IS A MONEY WRITE: it sets payment_status = 'Unpaid' and fires OrderPaymentStatus (Order.php:546-554), and OrderObserver::updated -> OrderFinancialService::syncFromOrder reacts to exactly that column (OrderObserver.php:32-38). PATH: a merchant holding NO order permission POSTs /order-status-change/1 with body id=<victim order id>&delivered=cancel -- the BODY WINS over the route segment, since Request::__get reads all() first -- and any store's order is cancelled and its finance record walked back. delivered=return sets delivered_status=3/return_status=1 on any order. An absent id is a 500 at :961. docs/development/phase-1/02-P0-SECURITY-REVALIDATION.md:905 lists this route with middleware 'none' from the pre-GATE-C census, so it is known-but-open rather than closed, and no test drives it.",
       "depends_on": [
