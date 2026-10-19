@@ -101,6 +101,14 @@ run_one verify-module-order-mutation-id-coercion-on-mysql \
   "MYSQL_SOCK=${SOCK}" "MYSQL_HOST=${HOST}" "MYSQL_PORT_NUM=${PORT}" \
   "MYSQL_DATABASE=p1inv14_verify" "MYSQL_USER_NAME=${USER_NAME}" "MYSQL_PASS=${PASS}"
 
+# P1-INV-17 / S39-7. AuctionProductController::update writes NULL into products.trending and
+# products.track_stock from unposted request fields. SQLite REFUSES the statement; production
+# MySQL (strict => false) COERCES and the cross-tenant product rename LANDS. Same direction and
+# same class as P1-INV-01 below: production is more exposed than the test database.
+run_one verify-module-resource-ownership-on-mysql \
+  "MYSQL_SOCK=${SOCK}" "MYSQL_HOST=${HOST}" "MYSQL_PORT_NUM=${PORT}" \
+  "MYSQL_DATABASE=p1inv17_verify" "MYSQL_USER_NAME=${USER_NAME}" "MYSQL_PASS=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

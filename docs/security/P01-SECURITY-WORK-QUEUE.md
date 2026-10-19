@@ -3661,7 +3661,7 @@ The P1-ORD-04 shape in **read** form. Not closable by widening the guard: requir
 to be own-store would false-deny on every id collision across the two sequences, which is frequent.
 The fix belongs where the leak is.
 
-### S39-7 — four cross-tenant writes behind `Route::resource`, and the census that could not see them — **OPEN, #63**
+### S39-7 — four cross-tenant writes behind `Route::resource`, and the census that could not see them — **CLOSED**
 
 Both modules' resource groups carry `auth` + `PlanModuleCheck` and **no store predicate**:
 
@@ -3678,13 +3678,53 @@ of the four.
 **The second half of the row is the census.** P1-INV-14's ratchet promised that "no route can be
 added to an existing mutation handler without someone answering for it here" — too broad: its regex
 needs a `Route::post(...)` line, and `Route::resource` has none. It now covers `Route::resource`
-for these two modules, with all six declarations carrying reasoned entries and three saying **OPEN,
-tracked at #63**. Widening the method list platform-wide was **tried and reverted**: it matched
-generic CRUD in seventeen other modules — 19 extra uris, each needing an exemption that would say
-nothing. The platform-wide sweep stays #63's acceptance criterion rather than being faked by a list
-of empty exemptions.
+for these two modules, with all six declarations carrying reasoned entries. Widening the method list
+platform-wide was **tried and reverted**: it matched generic CRUD in seventeen other modules — 19
+extra uris, each needing an exemption that would say nothing. The platform-wide sweep stays #63's
+acceptance criterion rather than being faked by a list of empty exemptions.
+
+**CLOSED** by `App\Http\Middleware\ModuleResourceOwnershipGuard`, appended to the `web` group, with
+the ownership predicate now SHARED with P1-INV-14's guard rather than copied
+(`app/Http/Middleware/Concerns/ComparesRowOwnership.php`) — that guard shipped with two defects in
+its own predicate, each found by review rather than by a test, so a second copy would have inherited
+whichever version was current that day. Full argument and evidence in
+`docs/security/P1-INV-17-MODULE-RESOURCE-OWNERSHIP-VERIFICATION.md`.
+
+Four of the five writes reproduced by execution. **The fifth could not be reproduced in the suite at
+all:** `AuctionProductController::update` writes NULL into `products.trending` and
+`products.track_stock` from unposted request fields, so SQLite REFUSES the statement while
+production MySQL (`strict => false`, `config/database.php:55`) COERCES and the cross-tenant product
+rename LANDS. Measured on MySQL 8.0.46. **Production is more exposed than the test database** — the
+same direction and class as P1-INV-01 / S37-1.
+
+Two further things are worth carrying forward from the work:
+
+- **`PlanModuleCheck` is a real gate here**, and omitting it from a fixture makes a test pass
+  without reaching a handler. Three of five cases "passed" that way on the first run. Entitlement
+  is a `user_active_modules` row keyed on the OWNER (`activated_modules_for_owner`,
+  `app/Helper/helper.php:1360-1384`).
+- **A validator is not an ownership control.** The product-update case was refused by
+  `category_id required` and looked green. All four required fields are attacker-supplied.
+
+**Still open from this row:** the `show()` reads on the three resources were not analysed, and the
+other 68 modules' `Route::resource` declarations remain #63's sweep.
 
 ---
+
+### S39-8 — the raw-query inventory's glob was not recursive, and nearly lost a site — **CLOSED**
+
+Moving the shared ownership predicate into `app/Http/Middleware/Concerns/` took its `DB::table()`
+read with it, and `OwnedPathRawQueryInventoryTest`'s glob was `app/Http/Middleware/*.php` — **not
+recursive**. The raw query would have left the inventory silently, which is exactly the escape that
+file exists to prevent. **The site count caught it** (11 → 10) rather than anything noticing the
+directory. The glob now covers subdirectories, the trait is classified `'comparison'` with its five
+controls asserted there, and a new assertion requires both module guards to still
+`use ComparesRowOwnership`.
+
+Worth generalising: an inventory keyed on a flat glob answers a question about that directory, not
+about the codebase. It is the same shape as S39-4's "a scan of one file answers a question about
+that file".
+
 
 ## Cross-repository row, carried over
 

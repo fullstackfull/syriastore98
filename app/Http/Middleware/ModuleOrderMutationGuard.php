@@ -2,8 +2,7 @@
 
 namespace App\Http\Middleware;
 
-use App\Models\Permission;
-use App\Policies\OrderPolicy;
+use App\Http\Middleware\Concerns\ComparesRowOwnership;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -146,6 +145,18 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class ModuleOrderMutationGuard
 {
+    /*
+     * THE OWNERSHIP PREDICATE IS SHARED WITH ModuleResourceOwnershipGuard, not copied. The trait
+     * holds the operator check, the existence-conditional permission check, the fail-closed row
+     * read, the store comparison and strict id parsing. This guard shipped with a false
+     * "permission is not seeded" premise AND a resolveId() that fell through to the route
+     * segment, and BOTH were found by review rather than by a test -- a second copy would have
+     * inherited whichever version was current the day it was written. Id RESOLUTION stays here,
+     * because "which request key does the handler read" is the one question that genuinely
+     * differs per route, and the two guards answer it differently.
+     */
+    use ComparesRowOwnership;
+
     /**
      * uri => [table, request keys in precedence order, required permission or null].
      *
@@ -232,7 +243,7 @@ class ModuleOrderMutationGuard
         // The platform operator, first -- as OrderPolicy::allow does, and for the same reason:
         // on a database built from source no role holds 'Manage Order', so checking the
         // permission first would lock the operator out of the support workflow.
-        if (strtolower(trim((string) $user->type)) === OrderPolicy::PLATFORM_ADMIN) {
+        if ($this->isPlatformOperator($user)) {
             return $next($request);
         }
 
@@ -248,87 +259,29 @@ class ModuleOrderMutationGuard
         }
 
         /*
-         * FAIL CLOSED ON A BROKEN READ, NEVER OPEN. A module's table exists whenever its routes
-         * do -- the same module registers both -- but "in practice" is not a control, and the
-         * sibling guard found this branch for real: the auction tables are absent from the test
-         * schema because module migrations do not run until the module is enabled. A missing
-         * table must deny rather than raise a QueryException into the exception handler, which
-         * would reach the unguarded handler by whatever route that handler takes.
+         * THE ROW READ AND THE STORE COMPARISON LIVE IN
+         * App\Http\Middleware\Concerns\ComparesRowOwnership, shared with
+         * ModuleResourceOwnershipGuard. Four things that used to be inline here are documented
+         * there instead, and all four are load-bearing: the read FAILS CLOSED on an unreadable
+         * table (module migrations do not run until the module is enabled, so a missing table is
+         * a real state and must deny rather than raise past this guard); a null row and a null
+         * store_id are both treated as "no store", so a row invisible to every store_id
+         * predicate in the application does not become mutable here; and getCurrentStore() is
+         * called WITH the user id, because with no argument it reads the mutable default guard.
          */
-        try {
-            $row = DB::table($target['table'])->where('id', $rowId)->first(['store_id']);
-        } catch (\Throwable $e) {
-            return $this->deny($request, 'unreadable table');
+        [$status, $rowStore] = $this->readRowStore($target['table'], $rowId);
+
+        if ($status !== 'ok') {
+            // 'unreadable table' or 'no row'. The response body is identical either way -- see
+            // deny() -- so the guard is not an existence oracle over another tenant's id space.
+            return $this->deny($request, $status);
         }
 
-        /*
-         * SUBSUMED, AND KEPT ANYWAY -- measured, not assumed. A removal check deleted this limb
-         * and the suite stayed green 23/23: `empty($row->store_id)` below is a language construct
-         * that suppresses the "Attempt to read property on null" warning, and it short-circuits
-         * before the `(int)` cast, so a null $row already denies as 'other store'. (Without that
-         * suppression it would be an ErrorException, because
-         * Illuminate\Foundation\Bootstrap\HandleExceptions::handleError throws on any warning
-         * inside error_reporting() -- a 500 rather than a refusal.)
-         *
-         * The explicit check stays for two reasons: it names the case in the log instead of
-         * mislabelling a non-existent row as another store's, and it does not depend on empty()'s
-         * suppression semantics surviving someone rewriting that condition. Recorded here as
-         * defence in depth rather than presented as an isolated control.
-         */
-        if ($row === null) {
-            return $this->deny($request, 'no row');
-        }
-
-        /*
-         * PASS THE USER ID EXPLICITLY. getCurrentStore() with no argument reads auth()->user()
-         * on the MUTABLE DEFAULT guard (app/Helper/helper.php:392) -- the same trap as the
-         * principal lookup above, and the sibling guard records it at its :402. If the default
-         * has been pointed at `customers`, a no-argument call would resolve a Customer, return
-         * null, and this branch would fail closed for a merchant who is in fact entitled.
-         * Passing the id makes the store lookup independent of the default guard, and makes it
-         * resolve the SAME principal the authorization above was taken from.
-         */
-        $currentStore = getCurrentStore($user->id);
-
-        if (empty($currentStore)
-            || empty($row->store_id)
-            || (int) $row->store_id !== (int) $currentStore) {
+        if (! $this->storeMatches($user, $rowStore)) {
             return $this->deny($request, 'other store');
         }
 
         return $next($request);
-    }
-
-    /**
-     * Is this permission one we may actually require?
-     *
-     * Only when a `permissions` row of that name exists. See the docblock: a hard gate on a name
-     * with no row is a permanent 403 for every principal, the operator included, and a missing
-     * row is a real state for a module enabled before its seeder ran. With the row gone the
-     * ownership limb still refuses every other tenant's row, so the degraded state is
-     * "authenticated and same-store", never "open".
-     *
-     * One query, and only on the six target uris -- the guard has already returned early for
-     * every other route in the application by the time this is reached.
-     */
-    private function permissionIsEnforceable(?string $permission): bool
-    {
-        if ($permission === null) {
-            return false;
-        }
-
-        try {
-            return Permission::where('name', $permission)->exists();
-        } catch (\Throwable $e) {
-            /*
-             * FAIL TOWARDS THE OWNERSHIP LIMB, NOT PAST IT. An unreadable `permissions` table
-             * (it does exist whenever the application runs, but "in practice" is not a control)
-             * must not become a 403 for everyone, and must not skip the store comparison either
-             * -- which it does not: this method's answer only decides whether the PERMISSION is
-             * checked. Ownership is enforced below regardless.
-             */
-            return false;
-        }
     }
 
     /**
@@ -376,26 +329,18 @@ class ModuleOrderMutationGuard
                 continue;
             }
 
-            // Present. From here the answer is this key's, or it is nothing.
-            if (! is_scalar($value)) {
-                return null;
-            }
-
-            $id = filter_var((string) $value, FILTER_VALIDATE_INT);
-
-            return ($id === false || $id <= 0) ? null : $id;
+            // PRESENT. From here the answer is this key's, or it is nothing: the trait's
+            // usableId() returns null for anything that does not denote the row the guard would
+            // then compare -- which is what `'5abc'` did not.
+            return $this->usableId($value);
         }
 
         foreach ($keys as $key) {
-            $value = $route->parameter($key);
+            $id = $this->usableId($route->parameter($key));
 
-            if ($value === null || $value === '' || ! is_scalar($value)) {
-                continue;
+            if ($id !== null) {
+                return $id;
             }
-
-            $id = filter_var((string) $value, FILTER_VALIDATE_INT);
-
-            return ($id === false || $id <= 0) ? null : $id;
         }
 
         return null;

@@ -110,6 +110,34 @@ return Application::configure(basePath: dirname(__DIR__))
         // That last point corrects an earlier claim here that the auction permissions are not
         // seeded: the MODULE ships its own PermissionTableSeeder and the enable path runs it.
         $middleware->appendToGroup('web', \App\Http\Middleware\ModuleOrderMutationGuard::class);
+        // P1-INV-17. FOUR CROSS-TENANT WRITES BEHIND AuctionProduct's Route::resource routes,
+        // and two of them are not auction tables at all: AuctionProductController::update:861
+        // and destroy:1509 resolve App\Models\Product::find($id) -- the HOST catalogue model,
+        // which carries NO effective global scope (absent from config/tenancy.php's
+        // scoped_models) -- so any entitled merchant could edit or DELETE another store's
+        // product, its images, and whatever products.category_id's ON DELETE CASCADE takes with
+        // it. P1-INV-01 closed the same defect on the host ProductController; this is a separate
+        // copy in vendored code it could not reach.
+        //
+        // AuctionProductSettingController::update:115 is the subtlest of the four: it writes
+        // store_id = getCurrentStore(), so it does not merely modify another store's row -- it
+        // MOVES it into the caller's tenant, where the victim can no longer see it and the
+        // attacker can.
+        //
+        // These are NOT anonymous -- the module's resource group carries auth +
+        // PlanModuleCheck:AuctionProduct -- so they need a plan carrying the module. Reproduced
+        // by execution: four of the five cases wrote across tenants on the first run. The fifth,
+        // the product UPDATE, writes NULL into NOT NULL columns from unposted fields, so SQLite
+        // REFUSES it while production MySQL (config/database.php:55, strict => false) coerces and
+        // the write lands -- the P1-INV-01 engine-hiding again, proven in a MySQL script rather
+        // than claimed.
+        //
+        // Registered HERE for the same reasons as the three guards above. The guard is inert
+        // unless the matched route's METHOD+uri is one of nine entries -- keyed on method+uri
+        // because Route::resource puts GET, PUT, PATCH and DELETE on one uri and those are not
+        // the same question. The id comes from the ROUTE PARAMETER only, the opposite of the
+        // guard above, because these handlers take $id as a method argument.
+        $middleware->appendToGroup('web', \App\Http\Middleware\ModuleResourceOwnershipGuard::class);
         // SEC-R1-02 / R2-07 / NEW-throttle-bypass: the RateLimiter named 'api'
         // is defined at app/Providers/RouteServiceProvider.php:27-29 but was
         // never applied to the 'api' middleware group, so it was dead code and

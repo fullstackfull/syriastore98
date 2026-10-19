@@ -47,6 +47,14 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             ],
             glob(base_path('app/Policies/*.php')) ?: [],
             glob(base_path('app/Http/Middleware/*.php')) ?: [],
+            // SUBDIRECTORIES TOO, and this was not pedantry: P1-INV-17 moved the ownership
+            // predicate shared by the two module guards into
+            // app/Http/Middleware/Concerns/ComparesRowOwnership.php, taking its `DB::table()`
+            // read with it -- and a non-recursive glob would have let the raw query leave this
+            // inventory silently, which is precisely the escape this file exists to prevent. The
+            // site count caught it (11 -> 10). Any future Concerns/, Traits/ or similar folder
+            // under Middleware is covered by this.
+            glob(base_path('app/Http/Middleware/*/*.php')) ?: [],
             glob(base_path('routes/*.php')) ?: []
         );
 
@@ -130,7 +138,21 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             // the third is Cachable, so an Eloquent read here could serve a mutated in-memory
             // instance. Its controls are asserted at the bottom of this method alongside the
             // sibling guard's.
-            'app/Http/Middleware/ModuleOrderMutationGuard.php' => 'comparison',
+            // THE PREDICATE ITSELF, shared by ModuleOrderMutationGuard (P1-INV-14, six anonymous
+            // module mutations) and ModuleResourceOwnershipGuard (P1-INV-17, four cross-tenant
+            // writes behind Route::resource, two of them on the HOST products table). Same
+            // 'comparison' category and the same reason: the read deliberately carries no store
+            // predicate BECAUSE it exists to fetch `store_id` so the caller's tenant can be
+            // compared against it and the request refused. Writing
+            // `->where('store_id', getCurrentStore())` here would collapse "another merchant's
+            // row" into "no such row" and remove the guards' ability to tell a cross-tenant
+            // request from a malformed id.
+            //
+            // It lives in one place rather than two on purpose: ModuleOrderMutationGuard shipped
+            // with BOTH a false "the permission is not seeded" premise and a resolveId() that
+            // fell through to the route segment, each found by review rather than by a test, so a
+            // second copy would have inherited whichever version was current that day.
+            'app/Http/Middleware/Concerns/ComparesRowOwnership.php' => 'comparison',
             // PLATFORM-GLOBAL BY DESIGN. The framework's own `migrations` bookkeeping table has
             // no store_id and must never acquire a tenant predicate -- XSS::handle() compares
             // on-disk migration filenames against it to decide whether the platform operator is
@@ -268,34 +290,61 @@ class OwnedPathRawQueryInventoryTest extends TestCase
         $this->assertFileExists(base_path('tests/Feature/Security/OrderDocumentAccessTest.php'));
         $this->assertFileExists(base_path('tests/Feature/Security/OrderDocumentRouteResolutionTest.php'));
 
-        // THE SECOND 'comparison' SITE'S CONTROLS -- ModuleOrderMutationGuard. Pinned on the
-        // comparison and the two fail-closed limbs rather than on whole statements, for the
-        // reason the sibling's block above records at its own expense: a ratchet that reddens on
-        // a safe refactor of the code it protects teaches people to edit the ratchet.
-        $mutation = (string) file_get_contents(base_path('app/Http/Middleware/ModuleOrderMutationGuard.php'));
+        // THE SECOND 'comparison' SITE'S CONTROLS -- the shared trait, which is where the raw
+        // read and the store comparison now live for BOTH module guards. Pinned on the
+        // comparison and the fail-closed limbs rather than on whole statements, for the reason
+        // the sibling's block above records at its own expense: a ratchet that reddens on a safe
+        // refactor of the code it protects teaches people to edit the ratchet.
+        $shared = (string) file_get_contents(
+            base_path('app/Http/Middleware/Concerns/ComparesRowOwnership.php')
+        );
 
-        $this->assertStringContainsString('(int) $row->store_id !== (int) $currentStore', $mutation,
-            'ModuleOrderMutationGuard no longer compares the target row\'s store against the '
-            . "caller's, so the raw read in its handle() is now an unscoped cross-tenant fetch "
-            . "feeding six anonymous admin mutations, and the 'comparison' classification above "
-            . 'is no longer true.');
+        $this->assertStringContainsString('(int) $rowStore === (int) $currentStore', $shared,
+            'ComparesRowOwnership no longer compares the row\'s store against the caller\'s, so '
+            . "the raw read in readRowStore() is now an unscoped cross-tenant fetch feeding both "
+            . "module guards, and the 'comparison' classification above is no longer true.");
 
-        $this->assertStringContainsString('empty($row->store_id)', $mutation,
-            'ModuleOrderMutationGuard no longer fails closed on a row with no store. A row with '
-            . 'a NULL store_id is invisible to every store_id predicate in the application and '
-            . 'must not become mutable through this guard.');
+        $this->assertStringContainsString('empty($currentStore) || empty($rowStore)', $shared,
+            'ComparesRowOwnership no longer fails closed when either side has no store. Without '
+            . 'it, a caller with no resolvable store and a row with a NULL store_id compare as '
+            . '`0 === 0` -- two absences matching, which is not ownership. Both states are real: '
+            . 'the auction tables declare store_id nullable, and getCurrentStore() returns null '
+            . 'for a merchant with no current_store and no store of their own.');
 
-        $this->assertStringContainsString('getCurrentStore($user->id)', $mutation,
-            'ModuleOrderMutationGuard resolves the caller\'s store without passing the user id. '
+        $this->assertStringContainsString('getCurrentStore($user->id)', $shared,
+            'ComparesRowOwnership resolves the caller\'s store without passing the user id. '
             . 'getCurrentStore() with no argument reads the MUTABLE default guard, which can hold '
             . 'a Customer, and would then resolve the User whose id happens to equal the '
-            . "customer's.");
+            . "customer's. This assertion is the ONLY coverage that control has -- no behavioural "
+            . 'test can reach it, because the guards deny a non-User principal before this line.');
 
-        $this->assertStringContainsString("return \$this->deny(\$request, 'unreadable table')", $mutation,
-            'ModuleOrderMutationGuard no longer fails closed when the target table cannot be '
-            . 'read. A module registers its routes before its migrations have necessarily run, so '
-            . 'a missing table is a real state and must deny rather than raise past the guard.');
+        $this->assertStringContainsString("return ['unreadable table', null];", $shared,
+            'ComparesRowOwnership no longer fails closed when the target table cannot be read. A '
+            . 'module registers its routes before its migrations have necessarily run, so a '
+            . 'missing table is a real state and must deny rather than raise past the guard.');
 
+        $this->assertStringContainsString('filter_var((string) $value, FILTER_VALIDATE_INT)', $shared,
+            'ComparesRowOwnership no longer parses ids strictly. `is_numeric` accepts \'5.9\' and '
+            . 'rejects \'5abc\', while MySQL coerces \'5abc\' to row 5 and rejects \'5.9\' -- so the '
+            . 'loose form let a guard authorise one row while the handler mutated another. '
+            . 'Measured in tests/Support/Security/bin/'
+            . 'verify-module-order-mutation-id-coercion-on-mysql.php.');
+
+        // BOTH GUARDS MUST STILL USE IT. A guard that stopped using the trait would take its own
+        // copy of the predicate with it, which is the drift this arrangement exists to prevent.
+        foreach ([
+            'app/Http/Middleware/ModuleOrderMutationGuard.php',
+            'app/Http/Middleware/ModuleResourceOwnershipGuard.php',
+        ] as $guardFile) {
+            $this->assertStringContainsString(
+                'use ComparesRowOwnership;',
+                (string) file_get_contents(base_path($guardFile)),
+                $guardFile . ' no longer uses the shared ownership trait, so it now carries its '
+                . 'own copy of the predicate and the two can drift.'
+            );
+        }
+
+        $this->assertFileExists(base_path('tests/Feature/Security/ModuleResourceOwnershipTest.php'));
         $this->assertFileExists(base_path('tests/Feature/Security/ModuleOrderMutationGuardTest.php'));
     }
 
