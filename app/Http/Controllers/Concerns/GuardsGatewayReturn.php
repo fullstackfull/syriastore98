@@ -408,6 +408,98 @@ trait GuardsGatewayReturn
     }
 
     /**
+     * Does this basket name a product that provably belongs to a DIFFERENT store?
+     *
+     * WHY THIS IS A PRE-FLIGHT AND NOT A CHECK INSIDE THE STOCK LOOP. The loop is the wrong
+     * place for two reasons that only became visible once the loop could refuse at all:
+     *
+     *   1. ON A CARD CHARGE THE MONEY IS ALREADY GONE BY THEN.
+     *      NMIPayController::getNMIProductStatus posts the sale itself, so a refusal from inside
+     *      its stock loop leaves a shopper charged, with no order row, reading "Product not
+     *      found". The guard that was added one leg deeper created exactly the outcome this
+     *      trait's own quantity guard is positioned to avoid -- and an adversarial review of
+     *      that change said so. Refusing before the capture is the only placement that is
+     *      honest about which failures cost money.
+     *
+     *   2. THE LOOP HAS TWO BRANCHES AND A PER-BRANCH CHECK COVERED ONE.
+     *      A store-scoped `Product` lookup returns NULL for a foreign product, and the handler's
+     *      variant branch resolves its row through
+     *      `ProductVariant::where('id', $variant_id)->where('product_id', $product_id)` instead
+     *      -- a predicate built entirely from the caller's own two values. `ProductVariant`
+     *      carries no StoreScope and is NOT in config/tenancy.php's `scoped_models`, so for a
+     *      line naming another merchant's product AND their matching variant, that merchant's
+     *      `product_variants.stock` moved anyway. The product-level check here covers both
+     *      branches at once, because the variant predicate requires the variant to belong to
+     *      the product this method has already judged.
+     *
+     * A NULL `store_id` IS ACCEPTED, and only a PROVABLE mismatch is refused -- the same rule
+     * and the same reasoning as 0ad3f7e0 applied to ShippingMethod. The column is nullable,
+     * legacy rows may not carry it, and refusing those would hide a merchant's own product,
+     * which is a broken storefront rather than a fix. A product id that resolves to NO row is
+     * also left to the loop, which already has a "Product not found" path for it.
+     *
+     * `withoutGlobalScopes()` because `Product` adds no predicate for anybody anyway (that is
+     * the defect) and because an assertion about another tenant's row must not be answered by
+     * whichever tenant happens to be resolved -- the false-reading trap CLAUDE.md records.
+     *
+     * @param  iterable<mixed>|null  $products  the cart list's product_list, objects or arrays
+     * @param  mixed  $store  the store this checkout belongs to
+     */
+    protected function basketHasForeignProduct($products, $store): bool
+    {
+        if (empty($products) || empty($store) || empty($store->id)) {
+            return false;
+        }
+
+        foreach ($products as $line) {
+            $productId = is_array($line)
+                ? ($line['product_id'] ?? null)
+                : (is_object($line) ? ($line->product_id ?? null) : null);
+
+            if (empty($productId) || ! is_numeric($productId)) {
+                continue;
+            }
+
+            $owner = \App\Models\Product::withoutGlobalScopes()
+                ->whereKey($productId)
+                ->value('store_id');
+
+            // No row, or a legacy row with no store: not a provable mismatch.
+            if ($owner === null) {
+                continue;
+            }
+
+            if ((int) $owner !== (int) $store->id) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * What a handler returns when the basket names another merchant's product.
+     *
+     * Its own text, separate from the quantity and state refusals, so a log line or a support
+     * conversation can tell which of the three fired -- and so the regression tests can assert
+     * it rather than inferring it from an absent order.
+     */
+    protected function gatewayReturnForeignProductRefusal(Request $request, string $gateway)
+    {
+        Log::warning('Gateway return refused: basket names a product from another store.', [
+            'gateway' => $gateway,
+            'path' => $request->path(),
+            'ip' => $request->ip(),
+            'authenticated_customer' => optional(auth('customers')->user())->id,
+        ]);
+
+        return redirect()->back()->with(
+            'error',
+            __('Your cart contains an item this store does not sell. Your payment has not been applied to an order — please contact the store.')
+        );
+    }
+
+    /**
      * What a handler returns when a basket cannot be priced.
      *
      * Separate text from the state refusal so a log or a support conversation can tell the two

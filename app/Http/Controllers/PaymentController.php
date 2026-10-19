@@ -3098,6 +3098,33 @@ $result = app(\App\Services\StoreNotificationService::class)
          */
         $requests_data['slug'] = $slug;
 
+        /*
+         * AND ON THE FALLBACK PATH THE CALLER DOES NOT SET THE SHIPPING FIGURE THE CART IS
+         * PRICED WITH. Traced end to end by an adversarial review of this package:
+         *
+         *   $requests_data = $request->all()                          (no stored state)
+         *     -> Cart::cart_list_cookie($requests_data, $store->id)
+         *     -> app/Models/Cart.php:199  $shipping_price = (int) ($data['shipping_final_price'] ?? 0)
+         *     -> Cart.php:621             $final_total = ... + $shipping_price + ...
+         *     -> Cart.php:635             $cart_array['total_sub_price'] = SetNumber($final_total)
+         *     -> $final_sub_total_price   -> $order->product_price
+         *
+         * So one extra field on the direct checkout post moved `orders.product_price` to any
+         * value the caller liked. `orders.final_price` is NOT affected -- it is built from
+         * `total_final_price`, which excludes the shipping term -- so this is a recorded-total
+         * defect rather than a payable one, and it is reported as that.
+         *
+         * ZEROED ONLY WHEN THERE IS NO STORED STATE. On the stored-state arm the value is the
+         * server's own, written by prepareFinalRequestData() (:1716-1758) from processShipping();
+         * zeroing it unconditionally would change `orders.product_price` for every legitimate
+         * WhatsApp return. This is the same one-line pattern processOrder() already uses at
+         * :1082, for the same reason, with the same comment: it removes only the caller's.
+         */
+        if (! $hasStoredState) {
+            $requests_data['shipping_final_price'] = 0;
+            $request->merge(['shipping_final_price' => 0]);
+        }
+
         Session::forget('request_data');
 
         /*

@@ -2221,6 +2221,316 @@ amount binding, and the unverified-`'Paid'` posture.
 
 ---
 
+---
+
+## S33 — The two order writers S32 could not close, and what closing them cost
+
+P01-COMMERCE-SEC-01 closed seven of the nine order writers its own census found. The two it left
+are not two more of the same: one is a card charge with no guard of any kind, the other is the only
+writer on the platform that is both a gateway return and a direct order-placement entry. S32
+recorded both as the next package and named the precondition for each. This section records what
+P01-COMMERCE-SEC-02 did with them, what it measured, what two adversarial reviews then found in the
+work itself, and what is still open.
+
+### 1 — `NMIPayController::getNMIProductStatus` — the other card charge
+
+`Route::any {storeSlug?}/get-payment-NMI` (`routes/customer.php:355`), in the group whose only
+middleware is `[web, ActiveTheme, themelanguage]`: no authentication, no authorization, no throttle,
+and `any`, so it answers GET without a CSRF token. The card number, expiry and CVV arrive in the
+request and the handler posts the `sale` itself.
+
+S32 described it as carrying "every shape this package set out to remove". It carried one more that
+no other handler has:
+
+**THE SERVER PRINTED THE PRICED CART INTO THE PAYMENT FORM AND BELIEVED IT BACK.**
+`PaymentService::getNMIProductview()` (`PaymentService.php:4228-4236`) hands one `$cartList` to two
+places — `Session::put('request_data', ...)` and the view — and the view renders it as
+
+```blade
+<input type="hidden" class="hiden" name="response_data" value="{{ json_encode($response) }}">
+```
+
+(`resources/views/front_end/payment/nmi-payment.blade.php:98`). On the way back the handler read
+**the hidden field**:
+
+```php
+$response        = json_decode($request->input('response_data'), true);
+$products        = $response['product_list'];        // the product ids AND the line quantities
+$product_price   = $response['total_final_price'];   // orders.product_price
+$final_price     = $response['total_final_price'];
+$total_sub_price = $response['total_sub_price'];
+```
+
+and `$products` drives every stock decrement below it. This is not the "omit the session cookie"
+defect the previous package closed: it is the **success** path, with a correct server state sitting
+unread. A caller edited one hidden input and chose the basket, the quantities and the recorded
+totals.
+
+| | was | now |
+|---|---|---|
+| the state | `Session::get('request_data')` → `json_encode($request->response_data)` | `storedCheckoutState()`, refuse when absent |
+| the basket and its totals | the hidden `response_data` field | `storedCheckoutCartList()` — the state's own `cartlist` |
+| the amount charged to the card | `$requests_data['cartlist_final_price']`, raw | `serverPayableAmount()` |
+| line quantities | nothing | `basketHasUnusableQuantity()`, **before the charge** |
+| the basket's store | nothing | `basketHasForeignProduct()`, **before the charge** |
+| the order's owner | `$request->customer_id` | `adoptStoredCheckoutState()` |
+| replay | nothing | `Session::forget()` immediately before the charge, restored on every path that took no money |
+| stock | three read-modify-writes, no give-back | `ProductStockService` via a shared Concern, with give-back |
+| `payment_status` | the literal `'Paid'` | `gatewayReturnPaymentStatus()` over a recorded verification |
+| `orders.final_price` with shipping on | `$final_sub_total_price` — **a variable the method never assigns** | the amount the card was charged |
+
+**THE ORDER TOTAL WAS 0.00 ON A CHARGED CARD.** `$order->final_price = $final_sub_total_price` at
+three sites and nothing in the file ever assigns that name. PHP 8 warns and evaluates it as null, so
+on any store whose plan has `shipping_method = 'on'` the order recorded **0.00** while the card was
+charged the real amount. A reporting and merchant-wallet defect, not an attack, and the kind of
+thing only a *reachable* order writer reveals.
+
+**NMI IS THE FIRST OF THE NINE WITH A VERIFICATION BEHIND ITS `Paid`.** S32's survey, and
+`EnforcedPaymentTypesIntegrityTest`'s docblock, record "no verification call of any kind in the
+file ... No seam to extend". True of the **file**, false of the **handler**: the order write has
+always been nested inside NMI's `response == 1`, which is the gateway's answer to a capture this
+handler made. The seam was the success test. That answer is now recorded through
+`PaymentVerificationService::recordVerification()` and the status derived from it. The status is the
+same `'Paid'` — `'nmi'` is not in `ENFORCED_PAYMENT_TYPES` — but it is attributable, and the survey
+row moved from `$sites` to `$wired` as that test's failure message instructs.
+
+#### How S32's precondition was met without touching a gateway
+
+S32 stopped at reporting because "shipping guards I cannot execute even once to a live card-charge
+path is the thing the brief forbids". The handler built its own `new Client()` inline — the one
+statement no test can get past, and it sat **above** every guard the writer needs. The call moved to
+the already-injected `App\Services\NMIService::chargeSale()`: same endpoint, same form fields, same
+parse. A test substitutes the service and supplies the gateway's **answer**, which makes the order
+writer reachable for the first time. **That is a seam for the writer's guards and is not evidence
+about NMI.** No test sends a card number anywhere and none claims a payment was verified.
+
+### 2 — `PaymentController::whatsapp` — the writer that must keep its fallback
+
+S32 recorded that this handler keeps its `$request->all()` fallback **and must**, because two
+checkout views post to it without passing through `processOrder`. That holds, so this half of the
+package draws the boundary **per field**. Its money was already server-derived by P01-SEC-14. What
+was still the caller's:
+
+1. **A guest could write an order owned by any customer.** `$request->merge($requests_data)` sits on
+   the authenticated arm only, so for a guest every later `$request->customer_id` was the posted
+   one: `orders.customer_id`, the `product_order_id`, and the `customer_id` of every row queued into
+   `$cartLinesToClear`. Same family as `0eee8524`, still live here.
+2. **A posted shipping figure moved `orders.product_price`.** Found by adversarial review, then
+   driven: `$requests_data = $request->all()` → `Cart::cart_list_cookie` → `Cart.php:199`
+   `$shipping_price = (int) ($data['shipping_final_price'] ?? 0)` → `:621` folded into
+   `$final_total` → `:635` `total_sub_price` → `$order->product_price`. `orders.final_price` is
+   unaffected (built from `total_final_price`, which excludes the term), so it is a recorded-total
+   defect, not a payable one. Zeroed **only when there is no stored state**, the same one-line
+   pattern `processOrder` already uses at `:1082`.
+3. **The posted slug beat the route's.** Recorded as a **consistency fix, not a breach**: anyone may
+   post to `/{storeB}/whatsapp` directly, so writing a store-B order through store-B's own slug
+   gains an attacker nothing. What it produced was a handler disagreeing with its own URL. The route
+   now wins, a mismatch is logged, and the state's `slug` is pinned to the resolved one.
+4. **No quantity bound**, and **`$plan` could be undefined** — both closed.
+
+### 3 — The two pre-existing crashes swept with them
+
+Both named in S32 as belonging to this package, and both **500 every legitimate order** in a store
+that happens to lack a row.
+
+- **`out_of_stock_threshold` / `notification`** — swept across all seven payment controllers to the
+  shape P01-SEC-14 C3 already used in `ordersave`.
+- **`event(new CinetPayPayment(...))`** — `CinetPayController.php:1008` dispatched a class that
+  existed nowhere, so it resolved to `App\Http\Controllers\CinetPayPayment` and raised an uncaught
+  `Error` **after** the order row, the stock decrements and the cart deletes had committed. Fixed by
+  adding the missing class and its import, not a `class_exists()` guard: every sibling gateway fires
+  the same shape and nothing listens to any of them.
+
+### 4 — One shared Concern, and why it is not a second copy
+
+`App\Http\Controllers\Concerns\AppliesCartStockChanges` holds `stockService()`,
+`decrementStockOrFail()` and `restoreStockDecrements()`, moved **verbatim** out of
+`PaymentController`. S32 item 8 records what copies have cost here: five gateway handlers with three
+read-modify-write decrements each and zero uses of `ProductStockService`, because nothing shared
+existed to wire them to. One correction to the commit message: `getWhatsappUrl` no longer calls
+`decrementStockOrFail` at all, so the trait serves **two** writers in `PaymentController`, not three.
+
+### 5 — What the two adversarial reviews found in this package's own work
+
+Two independent reviews ran against the committed change. **They converged on five defects the work
+had introduced or left, and one of them invalidated this file's own positive control.** Every claim
+below was re-verified by reading or executing before being accepted.
+
+1. **THE NMI POSITIVE CONTROL WAS PASSING THROUGH AN HTTP 500.** MEASURED by printing the status:
+   `500`, while all seven of its database assertions passed. `if ($response['tax_id'])` is a bare
+   index and the fixture's `cartlist` omitted the key — which the real `Cart::cart_list*` always sets
+   (`Cart.php:633`) — so Laravel's warning-to-`ErrorException` promotion threw **after**
+   `$order->save()`. The order existed; the journey did not. Every refusal assertion in the file
+   leans on that control. Fixed three ways: the fixture now matches what the cart reader produces,
+   the handler's read is `!empty()`, and both positive controls now assert the **response** as well
+   as the row.
+2. **THE STORE PREDICATE COVERED ONE OF THE STOCK LOOP'S TWO BRANCHES.** The variant branch resolves
+   its row with `ProductVariant::where('id', $variant_id)->where('product_id', $product_id)` — a
+   predicate built entirely from the caller's own two values. `ProductVariant` carries no
+   `StoreScope` and is **not** in `config/tenancy.php`'s `scoped_models` (verified directly). So a
+   line naming another merchant's product *and* their matching variant moved that merchant's
+   `product_variants.stock` anyway. **Every fixture in the file hard-coded `variant_id => 0`**, so
+   no test could see it.
+3. **AND IT WAS IN THE WRONG PLACE: it could only refuse after the capture.** The predicate sat
+   inside the loop, so a basket naming a foreign product produced a charged card, no order row, and
+   "Product not found" — which the package's own docblock forbids three paragraphs above the guard
+   that caused it. Both findings are closed by one change: `basketHasForeignProduct()`, before the
+   charge, covering both branches because the variant predicate requires the variant to belong to
+   the product already judged.
+4. **`Session::forget()` BEFORE THE GUARDS DESTROYED A DECLINED SHOPPER'S CHECKOUT.** A mistyped CVV
+   — a routine few percent of card traffic — wiped the stored state, and the next submit met *"We
+   could not confirm your checkout details ... please contact the store"*. The state is now consumed
+   immediately before the charge and **put back on every path that took no money**.
+5. **THE REWARD DISCOUNT WAS SUBTRACTED TWICE.** `processRewardPoints()` (`:1520-1530`) already
+   subtracts it at initiation and `prepareFinalRequestData()` composes `cartlist_final_price` from
+   that — so the card is charged net of reward points. Assigning `$final_sub_total_price` then fed
+   `$order->final_price = $final_sub_total_price - $saveRewardPrice`, below the captured amount.
+   **Introduced by the fix for the 0.00 defect**: before it, the same line evaluated to
+   `0 - $saveRewardPrice`. Corrected to the payable.
+6. **`chargeSale()` did not catch the failure its comment named.** In Guzzle 7
+   `ConnectException extends TransferException` and is **not** a `RequestException` (verified in the
+   vendored source). DNS failure, connection refused, TLS handshake failure and connect timeout
+   would have escaped exactly as before. Now `catch (TransferException $e)`.
+7. **THE VERIFICATION LOG SAID THE OPPOSITE OF WHAT HAPPENED.** `resolveOrderPaymentStatus()`
+   short-circuits for a type outside `ENFORCED_PAYMENT_TYPES` **without reading** `$verification`,
+   and logged *"No server-side verification seam exists for this payment type"* over the top of a
+   write that had just recorded one. The service now reports a matching record as what it is. The
+   status is identical either way; only the log changes — which is the entire point of a log that
+   exists to measure the residual.
+8. **The `$plan`/`$user` null-guard was applied to `whatsapp` and not to NMI in the same diff** —
+   and on NMI that 500 lands after the capture. Fixed.
+
+Three smaller review findings were accepted and fixed: the replay test asserted only that nothing
+happened (a 500 would have satisfied it, so it now asserts the refusal); the identity **pin** was
+not isolated by any fixture, because every state here *sets* `customer_id` and a bare merge
+suffices — `test_the_nmi_identity_pin_covers_a_key_the_state_omits` now unsets it, exactly as
+`GatewayReturnTrustBoundaryTest` had to; and the "a guest cannot claim" docblock overclaimed in the
+way S32 finding 1 already forced the previous package to narrow, so it now says *by posting the id
+on the return*.
+
+**One review finding was traced and rejected.** Both reviews flagged `$cartlist_final_price` being
+reassigned after the charge. Traced: after the coupon branch the variable is never read again —
+`$order->final_price` is built from `$final_sub_total_price`, `$final_price` or the state — so the
+reassignment is dead and cannot reach the order. Not changed.
+
+### 6 — Evidence
+
+`tests/Feature/Commerce/UnguardedOrderWriterTrustBoundaryTest.php` — **34 tests, 135 assertions**.
+
+**THE POSITIVE CONTROLS ARE WHAT STOP THE REST BEING VACUOUS**, and after finding 5.1 they assert
+the response as well as the row. `test_a_legitimate_nmi_charge_still_writes_its_order` drives a
+genuine guest checkout to `order.complete` — the first time any test has executed this order writer
+at all — and `test_a_legitimate_whatsapp_order_is_still_written` does the same for the other.
+
+Every guard removed and re-measured:
+
+| guard removed | result |
+|---|---|
+| the NMI state guard → the old caller fallback | **1 fails** |
+| the basket read from the state → the hidden field | **9 fail** — the dedicated hidden-field test carries the weight; the other eight are noise, because reverting it leaves tests posting no `response_data` and the handler dies |
+| `serverPayableAmount()` | **5 fail** (every unusable-total data set) |
+| the NMI quantity guard | **4 fail** |
+| `basketHasForeignProduct()` | **2 fail** (the plain-product and the variant line) |
+| `Session::forget()` before the charge | **1 fails** (replay) |
+| putting the state back on a decline | **1 fails** (the retry) |
+| `adoptStoredCheckoutState()` | **2 fail** (the claim test and the pin test) |
+| `$final_sub_total_price = $serverPayableAmount` | **1 fails** |
+| the settings defaults | **1 fails** |
+| the `tax_id` guard | **1 fails** |
+| the `$plan` guard | **1 fails** |
+| the `empty($ProductStock)` guard | **1 fails** |
+| the stock give-back | **1 fails** |
+| the whatsapp shipping-figure zeroing | **3 fail** |
+| the whatsapp customer pin | **1 fails** |
+| the whatsapp route-slug precedence | **1 fails** |
+| the whatsapp quantity guard | **3 fail** |
+| **the in-loop product store predicate** | **nothing fails — subsumed** |
+| **the in-loop `empty($Product)` guard** | **nothing fails — subsumed** |
+
+**THREE GUARDS WERE NOT ISOLATED BY ANY TEST ON THE FIRST ATTEMPT, and a fourth group only became
+provable after new tests were written.** Recorded because it is the project's own "a test must bite"
+rule turned on its author:
+
+| guard | first attempt | after the test was rewritten or added |
+|---|---|---|
+| the NMI state guard | **19 of 19 still passed** — the forged body carried no `cartlist`, so the empty-basket check produced the same refusal | the body now carries a complete `cartlist`; **1 fails** |
+| `serverPayableAmount()` | **19 of 19 still passed** — with a well-formed state it returns the number the raw read did | a data-provider test drives absent / empty / non-numeric / zero / negative; **5 fail** |
+| the whatsapp route-slug precedence | **19 of 19 still passed** — with stored state present the body's slug never reaches the slug read | the test drives the **fallback** path; **1 fails** |
+| the `tax_id`, `$plan` and `empty($ProductStock)` guards | **34 of 34 passed** — the fixture was too tidy to reach any of them | `test_a_charged_card_does_not_end_in_a_crash` drives all three; **1 fails each** |
+
+**The last two guards in the table are subsumed and are recorded as unproven rather than claimed.**
+`basketHasForeignProduct()` refuses the same basket one leg earlier and better placed, so the
+in-loop predicate and its null guard now fail nothing. They are kept as defence in depth at zero
+cost — the only protection left if the pre-flight is bypassed or a new caller reaches that loop
+directly — exactly as S32 kept the `method_id` pin after `0ad3f7e0` subsumed it.
+
+**Per-data-set vacuity, disclosed rather than implied** (the omission S32 finding 7 records for the
+previous package): in both quantity tests the *stock* assertions are structurally dead for the
+`negative`, `fractional` and `not a number` sets, because `ProductStockService::normaliseQuantity()`
+refuses the decrement either way. Only `absurd` would move stock without the guard. The load-bearing
+assertions there are the refusal message, the gateway call count and the order count, and the
+docblocks now say so.
+
+**What none of this proves:** that NMI, or any other gateway here, verified a payment.
+
+**One testing fact worth keeping, because it cost a debugging session and fails silently.**
+`Illuminate\Routing\Route::getController()` **caches its controller instance**, and the
+RouteCollection lives for the whole test rather than one request. So a second
+`$this->app->instance(NMIService::class, $other)` mid-test rebinds the container and changes nothing
+the handler sees — the route keeps charging the first double while `app(NMIService::class)` returns
+the new one. MEASURED: the decline-and-retry test incremented the *first* double's call count and
+failed claiming the retry never reached the gateway. Anything needing two different gateway answers
+in one test must queue them on one instance; `fakeNmiSequence()` does, and its docblock records why.
+
+### 7 — What this package did NOT close
+
+1. **`ProductVariant` is unscoped everywhere, and only NMI now has the product-level guard.** The
+   same variant gap exists in all five sibling gateway controllers and in
+   `PaymentController::getProductStatus` / `whatsapp`, none of which has any `Product` store
+   predicate at all. NMI is now the only one of the nine that does, which closes the handler this
+   package owns and leaves the family **inconsistent** — the clearest single follow-up, and
+   `basketHasForeignProduct()` is already shared so wiring the others is a small change per handler.
+   Reachability is the same as S32 item 5: the add-to-cart chokepoints are store-scoped, so a
+   foreign line enters through the two vendored module writers (`BoostSales`,
+   `FrequentlyProduct`), which write `product_id` and `variant_id` straight from the request. Not
+   driven here — no module loads in any test run.
+2. **A non-numeric cart quantity crashes before any guard can see it** on every handler that prices
+   its cart from the database. `app/Models/Cart.php` multiplies `$cart_value->qty` with no cast at
+   twelve sites, so `carts.qty = 'many'` raises `TypeError: Unsupported operand types: int * string`
+   inside the cart read — `PaymentController.php:3171` for `whatsapp`. MEASURED with
+   `withoutExceptionHandling()`. **It fails closed** (500, no order, no stock), so it is an
+   availability defect in a shared storefront model, and fixing it means casting twelve sites in a
+   model every cart read goes through. The NMI guard *does* refuse that quantity, because it reads
+   the stored state rather than the rows.
+3. **The five gateway controllers still have no atomic decrement and no give-back.** S32 item 8,
+   unchanged. The Concern they would use now exists.
+4. **`$settings['stock_management'] ?? '' == 'on'` is still a precedence bug** in eight files. `??`
+   binds looser than `==`, so the key's value becomes the condition whenever it exists and a store
+   with stock management **off** still has its stock decremented. **Deliberately left**, honouring
+   the decision already recorded at `PaymentController::stockManagementIsOn()`: correcting it stops
+   inventory being consumed for every merchant who has the setting off, which is a merchant-facing
+   behaviour change. **Owner decision.**
+5. **`orders.delivery_price` is still untested on a real shipping figure.** Every state in this file
+   carries `shipping_final_price => 0`, so the `get_shipping_method()` arm and the DECIMAL column are
+   never driven. S32 item 6 records that a real figure is a *formatted currency string* which MySQL
+   stores as `0.00`; that needs a MySQL script under `tests/Support/Security/bin/`, not a Feature
+   test. **Nothing here says anything about `orders.delivery_price` in production.**
+6. **The coupon branches remain as S32 left them**, gated on **S24**: `cartlist_final_price` carries
+   no coupon discount when `coupon_info` is set, the two coupon branches read two different keys
+   (`coupon_discount_amount` vs `coupon_final_amount`), and the shipping-off reward branch drops
+   `$coupon_price`. Not drivable while `apply_coupon` refuses every non-`fixed product discount`
+   coupon, so a test could not bite.
+7. **Negative stock is still reachable by design.** `ProductStockService` applies a `>=` predicate
+   only where `stock_order_status === 'not_allow'`, and `MAX_SANE_LINE_QUANTITY` is 1,000,000 — so
+   one accepted line can take a 50-unit product to −999,950. The ceiling bounds the blast radius; it
+   is not a floor. Pre-existing and covered by `OrderStockConcurrencyTest`, not by this file.
+8. **There is still no idempotency key.** Replay is blocked only because the stored state is single
+   use — now on NMI too, where a replay was a second *card charge*. Unchanged from S32 item 2.
+9. **Nothing here proves a payment.** Unchanged from S32 item 1. **Owner decision.**
+10. **`orders.product_price` means different things on different writers** — `total_final_price` on
+    NMI, `total_sub_price` on `whatsapp`. Noted, not reconciled; it is a reporting question for the
+    owner, not a defect either handler can settle alone.
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**
@@ -2255,7 +2565,7 @@ Keeping these apart is the point; each is independently reviewable and independe
 | **P01-SEC-14** | **S20** + **S22** + **S23** + **S25**, and the amount half of **S21** | ~~Identity and payment trust boundaries~~ **DONE.** Six commits (A, B, C, D, E, F). Provider tokens verified server-side; the amount OWED — on the card path and on COD alike — proof against a posted price, currency, coupon code, shipping price or negative quantity; `notify_user` failed closed; four coupon lookups store-scoped; the order's discount and ledger columns taken from the server. E and F are the two adversarial reviews' own findings — see S27 and S28; F closed a HIGH that bypassed E's guard through COD, and G closed S29, the `1234` password on eight vendored social-login modules that S18 had recorded as harmless. No new 401 on any path a shipped client calls. H closed S31's web half — a payer setting `orders.final_price`, the COD cash amount — and S31 carries the six gateway controllers with the same defect as a prepared design awaiting approval |
 | *(owner decision, not a package)* | **S21** calculation rows, **S24**, **S26** | Each changes money or deletes history. Answer before the next commerce package |
 | **P01-COMMERCE-SEC-01** | **S32**, and the gateway half of **S31** + **S30** | ~~Payment-return integrity and server-authoritative totals~~ **DONE.** Five commits. The `$request->all()` fallback is gone from all six gateway returns and from a seventh S31 did not name (`PaymentController::getProductStatus`, PayU's real writer); the AuthorizeNet capture amount is the server's; a non-positive quantity is refused before any stock row moves; `'Paid'` is derived rather than asserted. Testing the guard then found three more: a guest return claimable for another customer, the browser choosing the shipping price from any tenant's methods, and an unproven cart-delete predicate that was reverted rather than shipped. 38 tests, 124 assertions; every guard removed and re-measured. **Five items left open, four of them owner decisions — see S32** |
-| **P01-COMMERCE-SEC-02** *(next, recommended)* | **S32's two unguarded writers** | `NMIPayController::getNMIProductStatus` (a live `Route::any`, the other card charge, no guards at all — needs NMI credentials or a stub first) and `PaymentController::whatsapp` (server-side pricing on the WhatsApp/Telegram entry, which takes its whole checkout from `$request->all()` because two checkout views bypass `processOrder`). Sweep the `out_of_stock_threshold`/`notification` crash and the CinetPay `CinetPayPayment` fatal with them. Host-side only; no contract change |
+| **P01-COMMERCE-SEC-02** | **S32's two unguarded writers**, and **S33** | ~~The last two order writers~~ **DONE.** Five commits. The NMI card charge no longer takes its basket, its line quantities or its totals back out of a hidden form field; the amount captured, the basket's store and an unusable quantity are all settled BEFORE the card is charged; the state is single-use and restored on every path that took no money; stock is atomic with give-back; `'Paid'` is derived over a recorded gateway verification, the first of the nine. `whatsapp` keeps its `$request->all()` fallback — two checkout views need it — so its boundary is per field: the order's owner, its store and a posted shipping figure that reached `orders.product_price`. Both pre-existing crashes swept. **Two adversarial reviews then found five defects in the work itself, including a positive control that was passing through an HTTP 500 and a store predicate that covered one of the stock loop's two branches and could only refuse after the capture — all fixed, all recorded in S33.** 34 tests, 135 assertions; 18 guards removed and re-measured, 2 recorded as subsumed. **Ten items left open — see S33 §7** |
 | *(owner decision, not a package)* | **S32 items 1–2** | Guest-order attribution by posted e-mail, and Khalti amount binding. Each changes behaviour a real shopper depends on, or needs credentials this environment does not have |
 | **P01-SEC-12** | S15-B row 8 | `config/superadminaccess.php` denylist vs the finance permissions. No API impact |
 | **P01-SEC-3** | S4 + the `larabug` blacklist review | Independent; no contract impact |

@@ -231,12 +231,6 @@ class NMIPayController extends Controller
             return $this->gatewayReturnRefusal();
         }
 
-        /*
-         * SINGLE USE. Read, then consume -- before the card is charged, so a replayed return
-         * cannot reach the gateway a second time rather than merely failing afterwards.
-         */
-        \Session::forget(self::CHECKOUT_STATE_KEY);
-
         $this->adoptStoredCheckoutState($request, $requests_data);
 
         $storedCartList = $this->storedCheckoutCartList($requests_data);
@@ -248,6 +242,18 @@ class NMIPayController extends Controller
 
         if ($this->basketHasUnusableQuantity($storedProducts)) {
             return $this->gatewayReturnQuantityRefusal($request, 'nmi');
+        }
+
+        /*
+         * AND THE BASKET MUST BE THIS STORE'S, decided BEFORE the capture rather than inside
+         * the stock loop. See GuardsGatewayReturn::basketHasForeignProduct() for why the
+         * per-line check this replaced was in the wrong place on both counts: it could only
+         * refuse after the card had been charged, and it covered one of the loop's two branches
+         * -- the variant branch resolves its row through a predicate built from the caller's own
+         * `variant_id` and `product_id`, and `ProductVariant` is scoped by nothing at all.
+         */
+        if ($this->basketHasForeignProduct($storedProducts, $store)) {
+            return $this->gatewayReturnForeignProductRefusal($request, 'nmi');
         }
 
         $cartlist_final_price = $this->serverPayableAmount($requests_data);
@@ -279,6 +285,19 @@ class NMIPayController extends Controller
         [$year, $month] = $expirationParts;
         $expiration_date = $month . substr($year, 2);
         $orderID = ($requests_data['customer_id'] ?? '') . date('YmdHis');
+
+        /*
+         * SINGLE USE, AND NOT ONE STEP EARLIER. Consuming the state is what stops a replayed
+         * return reaching the gateway twice, so it has to happen before the charge -- but it
+         * used to happen before the GUARDS, which made every refusal above, and every decline
+         * below, destroy the checkout. A shopper who mistyped a CVV got
+         * "We could not confirm your checkout details" on their next attempt instead of
+         * another try. Declines are a routine few percent of card traffic, not an edge case.
+         *
+         * So: consumed here, and PUT BACK on every path that did not take money. A failed
+         * charge re-opens nothing, because nothing was captured.
+         */
+        \Session::forget(self::CHECKOUT_STATE_KEY);
 
         $parsedResponse = $this->nmiService->chargeSale([
             'security_key' => $nmi_api_private_key,
@@ -319,10 +338,21 @@ class NMIPayController extends Controller
             $user = Cache::remember('admin_details', 3600, function () {
                 return User::where('type','admin')->first();
             });
-            if ($user->type == 'admin') {
+            $plan = null;
+            if ($user && $user->type == 'admin') {
                 $plan = Plan::find($user->plan_id);
             }
-            
+
+            /*
+             * `$plan->shipping_method` is read four times below and `$plan` was only ever
+             * assigned inside the `type == 'admin'` test above -- so on a platform whose admin
+             * row is missing, is `super admin`, or whose `plan_id` no longer resolves, this
+             * method died on a null property read. On THIS handler that 500 lands after the
+             * card has been charged, which is why it is fixed here and not only in the sibling
+             * `whatsapp()` that the same package guarded.
+             */
+            $planShippingMethod = $plan->shipping_method ?? 'off';
+
             if (module_is_active('PartialPayments')) {
                 if($plan && strpos($plan->modules, 'PartialPayments') !== false && \Auth::guard('customers')->user())
                 {
@@ -473,7 +503,7 @@ class NMIPayController extends Controller
                 }
             }
             $delivery_price = 0;
-            if ($plan->shipping_method == 'on') {
+            if ($planShippingMethod == 'on') {
                 if (isset($requests_data['shipping_final_price'])) {
                     $delivery_price = $requests_data['shipping_final_price'];
                 } else {
@@ -530,6 +560,16 @@ class NMIPayController extends Controller
                      * may not carry one; refusing those would hide a merchant's own product and
                      * break a live catalogue. What is refused is a PROVABLE mismatch -- the same
                      * rule and the same reasoning as 0ad3f7e0 applied to ShippingMethod.
+                     *
+                     * SUBSUMED, AND RECORDED AS UNPROVEN RATHER THAN CLAIMED AS A GUARD.
+                     * basketHasForeignProduct() now refuses the same basket BEFORE the card is
+                     * charged, which is strictly better placed, and a removal check confirms
+                     * this predicate now fails no test: 34 of 34 still pass with it reverted to
+                     * a bare `Product::where('id', $product_id)`. It is kept as defence in depth
+                     * at zero cost -- the only protection left if the pre-flight is ever bypassed
+                     * or a new caller reaches this loop directly. Same honesty S32 applied to the
+                     * `method_id` pin once 0ad3f7e0 subsumed it: a later fix can stop an earlier
+                     * guard from biting, and nothing re-checks it unless someone looks.
                      */
                     $Product = Product::where('id', $product_id)
                         ->where(function ($q) use ($store) {
@@ -540,7 +580,48 @@ class NMIPayController extends Controller
                     if(isset($settings['stock_management']) && $settings['stock_management'] == 'on')
                     {
                         if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
+                            /*
+                             * DEFENCE IN DEPTH BEHIND basketHasForeignProduct(). The pre-flight
+                             * refuses a foreign product before the card is charged, so `$Product`
+                             * should never be null here. If it ever is, this branch must not
+                             * proceed: `ProductVariant`'s only predicate is the caller's own
+                             * `variant_id` and `product_id` -- the model carries no StoreScope and
+                             * is not in config/tenancy.php's `scoped_models` -- so it would
+                             * decrement whatever that pair resolves to, and `$datas` (= `$Product`)
+                             * is dereferenced below on the no-manage-stock leg. The sibling
+                             * `elseif` branch has always had this guard; this one never did.
+                             *
+                             * SUBSUMED LIKE THE PREDICATE ABOVE, and recorded the same way: with
+                             * basketHasForeignProduct() running before the charge, a removal
+                             * check shows this `empty($Product)` test fails nothing (34 of 34
+                             * pass without it). The `empty($ProductStock)` test below is a
+                             * DIFFERENT guard and does bite -- see the 'missing variant row'
+                             * case of test_a_charged_card_does_not_end_in_a_crash.
+                             */
+                            if (empty($Product)) {
+                                $this->restoreStockDecrements($appliedStockChanges);
+
+                                return $this->error(['message' => __('Product not found .')]);
+                            }
+
                             $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();
+
+                            /*
+                             * And `$ProductStock` is tested BEFORE it is dereferenced. `explode()`
+                             * on `$ProductStock->variation_option` ran first and
+                             * `if (!empty($ProductStock))` came after it, so a line naming a
+                             * variant id that does not exist for its product raised a null
+                             * property read instead of reaching the handler's own "Product not
+                             * found" path. Pre-existing and shared with the five sibling gateway
+                             * handlers; fixed here because this one has already taken the money by
+                             * the time it throws.
+                             */
+                            if (empty($ProductStock)) {
+                                $this->restoreStockDecrements($appliedStockChanges);
+
+                                return $this->error(['message' => __('Product not found .')]);
+                            }
+
                             $variationOptions = explode(',', $ProductStock->variation_option);
                             $option = in_array('manage_stock', $variationOptions);
                             if (!empty($ProductStock)) {
@@ -774,7 +855,7 @@ class NMIPayController extends Controller
             $order->delivery_price = $delivery_price;
             $order->tax_price = $tax_price;
             if (!auth('customers')->user()) {
-                if ($plan->shipping_method == "on") {
+                if ($planShippingMethod == "on") {
                     $order->final_price = $final_sub_total_price;
                 } else {
                     $order->final_price = $final_price + $tax_price - $coupon_price;
@@ -788,13 +869,33 @@ class NMIPayController extends Controller
                     $customerDetail = Customer::find($customer_id);
                     $rewardSetting = getAdminAllSetting($store->created_by,$store->id) ?? null;
                     $saveRewardPrice = ($customerDetail->total_club_point * $rewardSetting['reward_point_price'] ?? 0) / ($rewardSetting['reward_points'] ?? 0);
-                    if ($plan->shipping_method == "on") {
-                        $order->final_price = $final_sub_total_price - $saveRewardPrice;
+                    if ($planShippingMethod == "on") {
+                        /*
+                         * NOT `- $saveRewardPrice`. The reward discount is ALREADY inside this
+                         * figure: PaymentController::processRewardPoints() (:1520-1530)
+                         * subtracts it from the cart's `final_price` at initiation, and
+                         * prepareFinalRequestData() then composes `cartlist_final_price` from
+                         * that -- which is what serverPayableAmount() returns and what the card
+                         * was charged. Subtracting it again recorded an order total BELOW the
+                         * amount captured.
+                         *
+                         * This was introduced by assigning `$final_sub_total_price` at all:
+                         * before that the variable was unassigned, so the line evaluated to
+                         * `0 - $saveRewardPrice` -- a negative total, broken differently. The
+                         * order now records the amount the card was charged, as the
+                         * non-reward branch below it does.
+                         *
+                         * The shipping-OFF branches are deliberately untouched: they build from
+                         * `total_final_price`, which processRewardPoints() does not adjust, and
+                         * their dropping of `$coupon_price` is the pre-existing item S32
+                         * records for all six gateway handlers, gated on S24.
+                         */
+                        $order->final_price = $final_sub_total_price;
                     } else {
                         $order->final_price = $final_price + $tax_price - $saveRewardPrice;
                     }
                 } else {
-                    if ($plan->shipping_method == "on") {
+                    if ($planShippingMethod == "on") {
                         $order->final_price = $final_sub_total_price;
                     } else {
                         $order->final_price = $final_price + $tax_price - $coupon_price;
@@ -976,7 +1077,14 @@ class NMIPayController extends Controller
                 $order_array['coupon']['price'] = SetNumber($coupon_data['coupon_final_amount'] ?? 0.00);
             }
             // add in Order Coupon Detail table end
-            if($response['tax_id']){
+            /*
+             * `!empty()` rather than a bare read. Same family as the `out_of_stock_threshold` /
+             * `notification` sweep: a raw array index with no default, where a state that does
+             * not carry the key raises "Undefined array key" -- which Laravel promotes to an
+             * ErrorException -- AFTER `$order->save()` has committed. Behaviour is identical for
+             * every value the cart reader actually produces (it writes `$tax_id ?? null`).
+             */
+            if(!empty($response['tax_id'])){
                 $taxes = TaxMethod::where('tax_id',$response['tax_id'])->where('store_id', $store->id)->orderBy('priority', 'asc')->get();
                 $other_info = is_string($requests_data['billing_info']) ? (array) json_decode($requests_data['billing_info']) : $requests_data['billing_info'];
                 $country = !empty($other_info->delivery_country) ? $other_info->delivery_country :$other_info['delivery_country'];
@@ -1109,8 +1217,23 @@ class NMIPayController extends Controller
                 return $this->error(['message' => __('Somthing went wrong.')]);
             }
         } else {
-            // Payment failed
-            return redirect()->back()->with('error',__($parsedResponse['responsetext']));
+            /*
+             * THE CARD WAS DECLINED, OR THE REQUEST NEVER GOT AN ANSWER -- so no money moved and
+             * the checkout must survive. The state was consumed before the charge to stop a
+             * replay reaching the gateway twice; it goes back here, because a shopper who
+             * mistyped a CVV or hit an NMI outage has to be able to try again. Without this they
+             * met "We could not confirm your checkout details. ... please contact the store" on
+             * their second attempt, which is a dead checkout for an entirely ordinary event.
+             *
+             * `chargeSale()` returns [] when the request itself failed, so that case lands here
+             * too and is restored the same way.
+             */
+            \Session::put(self::CHECKOUT_STATE_KEY, $requests_data);
+
+            return redirect()->back()->with(
+                'error',
+                __($parsedResponse['responsetext'] ?? 'The payment could not be completed. Please try again.')
+            );
         }
     }
 }

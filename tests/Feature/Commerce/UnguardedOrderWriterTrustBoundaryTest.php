@@ -196,6 +196,18 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
                 'total_final_price' => 100.00,
                 'total_sub_price' => 100.00,
                 'total_tax_price' => 0,
+                /*
+                 * `tax_id` IS NOT OPTIONAL IN THIS FIXTURE, and leaving it out cost a real false
+                 * reading. `Cart::cart_list_cookie()` always sets it (app/Models/Cart.php:633,
+                 * `$cart_array['tax_id'] = $tax_id ?? null`), so a production state always
+                 * carries the key -- but the handler reads it bare, and Laravel promotes the
+                 * resulting "Undefined array key" warning to an ErrorException. MEASURED: the
+                 * positive control below was answering **HTTP 500** while every one of its
+                 * database assertions passed, because the crash lands AFTER `$order->save()`.
+                 * The fixture now matches what the cart reader produces, the handler's read is
+                 * `!empty()`, and both positive controls assert the response as well as the row.
+                 */
+                'tax_id' => null,
                 'product_list' => [
                     [
                         'product_id' => $product->id,
@@ -219,24 +231,53 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
      */
     private function fakeNmi(array $answer = ['response' => 1, 'transactionid' => 'T-1', 'amount' => '100.00'])
     {
-        $fake = new class($answer) extends NMIService {
+        return $this->fakeNmiSequence([$answer]);
+    }
+
+    /**
+     * The same double, answering a DIFFERENT thing on each successive charge.
+     *
+     * WHY A QUEUE AND NOT A SECOND `fakeNmi()` CALL, recorded because it cost a real debugging
+     * session and the failure mode is silent. `Illuminate\Routing\Route::getController()`
+     * CACHES its controller instance:
+     *
+     *     if (! $this->controller) { $this->controller = $this->container->make($class); }
+     *
+     * and the RouteCollection lives for the whole test, not for one request. So the controller
+     * -- and the NMIService injected into its constructor -- is built once, on the FIRST request
+     * to that route. A later `$this->app->instance(NMIService::class, $other)` rebinds the
+     * container and changes nothing the handler sees: `app(NMIService::class)` returns the new
+     * double while the route keeps charging the old one. MEASURED: the retry in
+     * test_a_declined_card_leaves_the_checkout_retryable incremented the FIRST double's call
+     * count, and the test failed claiming the retry never reached the gateway.
+     *
+     * Anything in this file that needs two different gateway answers in one test must therefore
+     * queue them on one instance. The last answer repeats once the queue is exhausted.
+     *
+     * @param  array<int, array<string, mixed>>  $answers
+     */
+    private function fakeNmiSequence(array $answers)
+    {
+        $fake = new class($answers) extends NMIService {
             /** @var array<int, array<string, mixed>> */
             public array $calls = [];
 
-            /** @var array<string, mixed> */
-            private array $answer;
+            /** @var array<int, array<string, mixed>> */
+            private array $answers;
 
-            public function __construct(array $answer)
+            public function __construct(array $answers)
             {
                 parent::__construct();
-                $this->answer = $answer;
+                $this->answers = array_values($answers);
             }
 
             public function chargeSale(array $formParams): array
             {
                 $this->calls[] = $formParams;
 
-                return $this->answer;
+                $index = min(count($this->calls), count($this->answers)) - 1;
+
+                return $this->answers[$index] ?? [];
             }
         };
 
@@ -287,6 +328,15 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
             'The handler never reached the gateway, so this is not a positive control. Response: '
             . $response->getStatusCode());
 
+        /*
+         * THE RESPONSE, NOT ONLY THE ROW. Without this assertion this control passed while the
+         * route answered 500 -- the order committed and the journey then died on a later line. A
+         * control that tolerates a 500 cannot support the twenty-three refusal assertions that
+         * lean on it, which is this project's "a test must bite" rule applied to the control
+         * itself.
+         */
+        $response->assertRedirect(route('order.complete', $store->slug));
+
         $this->assertSame($before + 1, self::orderCount(),
             'A legitimate NMI charge wrote no order, so every refusal asserted in this file could '
             . 'be satisfied by a handler that refuses everything.');
@@ -308,6 +358,13 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
      * and with no stored state at all that key came from the caller. Here the state is present
      * and correct and the POST carries the attacker's figures for every money field the handler
      * reads -- the amount handed to the gateway must still be the state's 100.00.
+     *
+     * A REGRESSION FENCE, NOT PROOF OF A GUARD, and the difference was measured: with a
+     * well-formed state present, reverting serverPayableAmount() to the raw read leaves this
+     * test green, because the two return the same number and nothing on this path consults
+     * `$request` for money at all. What that helper alone decides is the MALFORMED state --
+     * see test_a_state_with_no_usable_total_charges_nothing, which does fail when it goes.
+     * Kept because this structure is what a future edit could break silently.
      */
     public function test_the_amount_charged_to_the_card_is_the_servers(): void
     {
@@ -505,6 +562,16 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
      * The ordering matters and is asserted: refusing AFTER a capture would leave a shopper
      * charged with no order.
      *
+     * WHICH ASSERTION CARRIES THE WEIGHT, PER DATA SET -- stated because three of the four
+     * stock assertions here are STRUCTURALLY DEAD and an adversarial review was right to say
+     * so. `ProductStockService::normaliseQuantity()` returns null for anything that is not a
+     * positive integer, so for `negative`, `fractional` and `not a number` the decrement is
+     * never issued and `assertSame(50, …)` cannot move whether or not this guard exists. Only
+     * `absurd` (2147483647) would really move stock without it. The load-bearing assertions for
+     * the other three are the refusal message, `assertCount(0, $gateway->calls)` and the order
+     * count. This is the same per-data-set vacuity S32 finding 7 records for the previous
+     * package, disclosed here rather than left implied.
+     *
      * @dataProvider unusableQuantities
      */
     public function test_an_unusable_quantity_is_refused_before_the_nmi_card_is_charged($qty): void
@@ -603,13 +670,31 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
 
         $this->assertSame($before + 1, self::orderCount(), 'A replayed NMI return wrote a second order.');
         $this->assertCount(1, $gateway->calls, 'A replayed NMI return charged the card a second time.');
+
+        /*
+         * AND THE REFUSAL NAMES ITSELF. Without this the test asserts only that nothing
+         * happened, which a 500 would satisfy just as well as the guard does -- the trap this
+         * project's own records call "tests that pass merely because the route crashes".
+         */
+        $this->assertStringContainsString(self::REFUSAL, (string) session('error'),
+            'The replay was not refused by the state guard; something else stopped it.');
     }
 
     /**
-     * A GUEST CANNOT CLAIM AN NMI ORDER FOR ANOTHER CUSTOMER.
+     * A GUEST CANNOT CLAIM AN NMI ORDER FOR ANOTHER CUSTOMER BY POSTING THE ID ON THE RETURN.
      *
-     * `$order->customer_id` read `$request->customer_id`, and the merge that reconciles the two
-     * ran on the authenticated arm only. Same family as 0eee8524 on the gateway returns.
+     * `$order->customer_id` read `$request->customer_id` and this handler had no merge at all,
+     * so the posted value became the order's owner and the subject of the cart delete. Same
+     * family as 0eee8524 on the gateway returns.
+     *
+     * THE TITLE IS NARROWED ON PURPOSE, as S32 finding 1 already forced the previous package to
+     * narrow its equivalent: a guest can still have an order attributed to a victim through the
+     * E-MAIL, at initiation -- `handleCustomerRegistration` does
+     * `Customer::where('email', $billing['email'])->first()` (PaymentController.php:1310),
+     * find-or-create by a posted address with no proof of control, and that id becomes the
+     * state's `customer_id`, which adoptStoredCheckoutState() then faithfully restores. That is
+     * an owner decision recorded in S32, not something this test covers. What it proves is
+     * exactly its name.
      */
     public function test_a_guest_cannot_claim_an_nmi_order_for_another_customer(): void
     {
@@ -639,6 +724,46 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
             Cart::withoutGlobalScopes()->find($victimCart->id),
             "A guest's posted customer_id emptied another customer's basket."
         );
+    }
+
+    /**
+     * THE IDENTITY PIN COVERS A KEY THE STATE OMITS -- the case `merge()` cannot reach.
+     *
+     * WHY THIS TEST EXISTS, and it is the same reason GatewayReturnTrustBoundaryTest needed its
+     * equivalent. Every state built by `nmiCheckoutState()` SETS `customer_id` (to `''`), so a
+     * plain `$request->merge($state)` already overwrites a posted victim id and the test above
+     * passes with `adoptStoredCheckoutState()` reduced to that bare merge. `Request::merge()`
+     * can only overwrite a key the array actually carries -- and a guest state is precisely the
+     * case that omits it, because there was no customer to record.
+     *
+     * So this is the only fixture in the file that isolates the PIN rather than the merge, and
+     * without it the pin would re-enter the record as an unproven guard. An adversarial review
+     * of this package caught that it was missing.
+     */
+    public function test_the_nmi_identity_pin_covers_a_key_the_state_omits(): void
+    {
+        [, $store] = $this->tenant();
+        $victim = $this->customerIn($store, 'pin-victim');
+        $product = $this->productIn($store, 100.00, 50);
+        $sid = $this->guestCart($store, $product);
+        $gateway = $this->fakeNmi();
+
+        $state = $this->nmiCheckoutState($store, $product);
+        unset($state['customer_id']);
+
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state])
+            ->post('/' . $store->slug . '/get-payment-NMI', array_merge($this->nmiCardFields(), [
+                'customer_id' => $victim->id,
+            ]));
+
+        $this->assertCount(1, $gateway->calls, 'The charge never happened, so this proves nothing.');
+
+        $order = DB::table('orders')->orderByDesc('id')->first();
+        $this->assertNotNull($order, 'No order was written, so the ownership assertion is vacuous.');
+        $this->assertSame(0, (int) $order->customer_id,
+            'With `customer_id` absent from the stored state, the POSTED id became the order\'s '
+            . 'owner -- which is exactly what a bare merge cannot prevent.');
     }
 
     /**
@@ -674,6 +799,106 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
     }
 
     /**
+     * THREE WAYS A CHARGED CARD USED TO END IN A 500, and the reason they are one test each.
+     *
+     * All three share a shape that makes them worse than an ordinary crash: they throw AFTER
+     * `chargeSale()` has captured the money. The shopper is debited and sees a stack trace, and
+     * on two of the three the order row does not exist either. Laravel promotes every PHP
+     * warning to an `ErrorException`, so "Undefined array key" and "Attempt to read property on
+     * null" are 500s in this application, not silent nulls.
+     *
+     * None of these is an attack. They are reachability defects in state a real shopper can
+     * have, and each was found by a guard-removal check reporting that the fix it was supposed
+     * to prove failed NOTHING -- i.e. the fixture was too tidy to reach it.
+     *
+     * @dataProvider postChargeCrashCases
+     */
+    public function test_a_charged_card_does_not_end_in_a_crash(string $case): void
+    {
+        [$merchant, $store] = $this->tenant();
+        $product = $this->productIn($store, 100.00, 50);
+        $sid = $this->guestCart($store, $product);
+        $gateway = $this->fakeNmi();
+
+        $state = $this->nmiCheckoutState($store, $product);
+
+        if ($case === 'state carries no tax_id') {
+            /*
+             * `if ($response['tax_id'])` was a bare index. Production states always carry the key
+             * (Cart.php:633 writes `$tax_id ?? null`), so this is robustness rather than a live
+             * path -- but it is the exact omission that was MEASURED hiding an HTTP 500 behind
+             * this file's own positive control, which is why it is pinned.
+             */
+            unset($state['cartlist']['tax_id']);
+        }
+
+        if ($case === 'variant line whose variant row is gone') {
+            /*
+             * A cart row naming a variant that no longer exists for its product. The handler did
+             * `explode(',', $ProductStock->variation_option)` BEFORE `if (!empty($ProductStock))`,
+             * so this was a null property read rather than the handler's own "Product not found"
+             * path -- and the five sibling gateway controllers still have it that way round.
+             */
+            $state['cartlist']['product_list'][0]['variant_id'] =
+                ((int) DB::table('product_variants')->max('id')) + 500;
+        }
+
+        if ($case === 'platform has no plan to read shipping from') {
+            /*
+             * `$plan` was only assigned inside `if ($user->type == 'admin')` and
+             * `$plan->shipping_method` was then read four times. A platform whose admin row is
+             * `super admin`, or whose `plan_id` no longer resolves, died on a null property read
+             * -- after the capture. The sibling `whatsapp()` was guarded for this in the same
+             * package; this handler was not until the removal check said the guard proved
+             * nothing.
+             */
+            $merchant->plan_id = ((int) DB::table('plans')->max('id')) + 500;
+            $merchant->save();
+            Cache::forget('admin_details');
+        }
+
+        $before = self::orderCount();
+
+        $response = $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state])
+            ->post('/' . $store->slug . '/get-payment-NMI', $this->nmiCardFields());
+
+        $this->assertCount(1, $gateway->calls,
+            'The charge never happened, so this case says nothing about a charged card. Case: ' . $case);
+
+        $this->assertNotSame(500, $response->getStatusCode(),
+            'A captured card ended in a 500. Case: ' . $case);
+
+        if ($case === 'variant line whose variant row is gone') {
+            /*
+             * This one is REFUSED rather than completed, and that is the correct outcome: the
+             * line cannot be fulfilled. What matters is that it is the handler's own refusal
+             * instead of a crash, and that the stock it had already taken comes back.
+             */
+            $this->assertSame($before, self::orderCount(),
+                'An order was written for a line whose variant does not exist.');
+            $this->assertSame(50, self::stockOf($product),
+                'The abandoned line kept the stock it had taken.');
+
+            return;
+        }
+
+        $this->assertSame($before + 1, self::orderCount(),
+            'A legitimate charge wrote no order. Case: ' . $case);
+        $this->assertSame(49, self::stockOf($product),
+            'The order completed but its stock did not move. Case: ' . $case);
+    }
+
+    public static function postChargeCrashCases(): array
+    {
+        return [
+            'no tax_id' => ['state carries no tax_id'],
+            'missing variant row' => ['variant line whose variant row is gone'],
+            'no plan' => ['platform has no plan to read shipping from'],
+        ];
+    }
+
+    /**
      * THE PRE-EXISTING SETTINGS CRASH: a store that has never saved its stock-notification
      * settings can complete an order.
      *
@@ -703,32 +928,34 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
     }
 
     /**
-     * ANOTHER MERCHANT'S STOCK CANNOT BE DECREMENTED THROUGH THIS STORE'S NMI CHECKOUT -- AND
-     * THE LINES ALREADY TAKEN ARE GIVEN BACK.
+     * ANOTHER MERCHANT'S PRODUCT IS REFUSED BEFORE THE CARD IS CHARGED -- on both of the stock
+     * loop's branches.
      *
-     * TWO guards in one journey, because the second only exists because of the first.
+     * WHY THIS TEST CHANGED SHAPE, recorded rather than quietly rewritten. Its first version
+     * drove the refusal from INSIDE the stock loop, where a store-scoped `Product::where()`
+     * returns null, and asserted "card charged, no order, stock given back" as the correct
+     * outcome. Two independent adversarial reviews said that is the wrong outcome and they were
+     * right on both counts:
      *
-     *   1. THE STORE PREDICATE. `Product` is NOT in config/tenancy.php's `scoped_models`, so
-     *      StoreScope adds no predicate for anybody and `Product::find($id)` reached every
-     *      tenant's catalogue. The handler resolved its cart lines that way and decremented
-     *      whatever came back. Same family as the S19/S32 cross-tenant stock drain.
+     *   1. The capture had already happened, so the fix produced a shopper who was charged, had
+     *      no order, and read "Product not found". The package's own docblock forbids exactly
+     *      that ordering three paragraphs above the guard that caused it.
+     *   2. The per-line check covered one of the loop's TWO branches. The variant branch
+     *      resolves its row with `ProductVariant::where('id', $variant_id)->where('product_id',
+     *      $product_id)` -- a predicate built from the caller's own two values -- and
+     *      `ProductVariant` carries no StoreScope and is not in config/tenancy.php's
+     *      `scoped_models`. So for a line naming another merchant's product AND their matching
+     *      variant, that merchant's `product_variants.stock` moved anyway. EVERY fixture in this
+     *      file hard-coded `variant_id => 0`, so no test could see it.
      *
-     *      THE FOREIGN LINE IS IN THE SERVER'S OWN STORED STATE here, not posted -- which is the
-     *      case that matters and the one the hidden-field test above cannot reach. `carts.qty`
-     *      and `carts.product_id` are both written straight from the request by two vendored
-     *      module routes under plain `web` (BoostSales, FrequentlyProduct -- S30), so a foreign
-     *      product id can still enter this store's cart there and be priced into the state by an
-     *      otherwise ordinary checkout.
+     * The guard is now `basketHasForeignProduct()`, before the charge, and this test drives both
+     * branches: `variant_id => 0` reaches the product leg, a real variant row reaches the one
+     * that was never covered. Nothing may move on either, and the gateway must not be called at
+     * all.
      *
-     *   2. THE GIVE-BACK. Refusing the foreign line means the handler returns mid-loop -- and the
-     *      OWN line before it has already been decremented. The pre-existing code had no
-     *      give-back path at all (`$appliedStockChanges` appeared zero times), so on a card
-     *      charge the merchant lost that stock with no order to account for it. The own product's
-     *      stock must come back to 50.
-     *
-     * The line ORDER is deliberate: own product first, so there is something to give back.
+     * @dataProvider foreignProductLines
      */
-    public function test_a_foreign_product_in_the_state_cannot_drain_its_merchants_stock(): void
+    public function test_a_foreign_product_in_the_state_is_refused_before_the_charge(bool $withVariant): void
     {
         [, $storeA] = $this->tenant();
         [, $storeB] = $this->tenant();
@@ -737,28 +964,155 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
         $sid = $this->guestCart($storeA, $mine);
         $gateway = $this->fakeNmi();
 
+        $foreignVariantId = 0;
+
+        if ($withVariant) {
+            $foreignVariantId = DB::table('product_variants')->insertGetId([
+                'product_id' => $foreign->id,
+                'variant' => 'red',
+                'sku' => 'uow-' . uniqid(),
+                'price' => 100.00,
+                'stock' => 90,
+                'store_id' => $storeB->id,
+                'variation_option' => 'manage_stock',
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
         $state = $this->nmiCheckoutState($storeA, $mine);
         $state['cartlist']['product_list'][] = [
-            'product_id' => $foreign->id, 'variant_id' => 0, 'qty' => 7, 'price' => 100.00,
+            'product_id' => $foreign->id, 'variant_id' => $foreignVariantId,
+            'qty' => 7, 'price' => 100.00,
+        ];
+
+        $before = self::orderCount();
+        session()->forget('error');
+
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state])
+            ->post('/' . $storeA->slug . '/get-payment-NMI', $this->nmiCardFields());
+
+        $this->assertCount(0, $gateway->calls,
+            'A card was charged for a basket naming another merchant\'s product, which the '
+            . 'handler then refused.');
+
+        $this->assertStringContainsString('item this store does not sell', (string) session('error'),
+            'The foreign-product guard did not fire; its own refusal is the only observable that '
+            . 'distinguishes it from the state and quantity guards.');
+
+        $this->assertSame(90, self::stockOf($foreign),
+            "Another merchant's product stock moved through this store's NMI checkout.");
+
+        if ($withVariant) {
+            $this->assertSame(90, (int) DB::table('product_variants')->where('id', $foreignVariantId)->value('stock'),
+                "Another merchant's VARIANT stock moved -- the branch the per-line product "
+                . 'predicate could not see.');
+        }
+
+        $this->assertSame(50, self::stockOf($mine),
+            "This store's own stock moved for a basket that was refused.");
+
+        $this->assertSame($before, self::orderCount(),
+            'An order was written for a basket holding another merchant\'s product.');
+    }
+
+    public static function foreignProductLines(): array
+    {
+        return [
+            'plain product line' => [false],
+            'variant line' => [true],
+        ];
+    }
+
+    /**
+     * THE GIVE-BACK STILL WORKS, measured on the one path that can still abandon the loop.
+     *
+     * The foreign-product guard above now runs before the charge, which removes the most likely
+     * mid-loop abandonment -- so without this test the give-back added to this handler would be
+     * carried by nothing. A product id that resolves to NO ROW AT ALL is deliberately left to
+     * the loop (`basketHasForeignProduct()` refuses only a PROVABLE mismatch, and a missing row
+     * proves nothing), and the loop's own "Product not found" path is what it reaches.
+     *
+     * Line order is deliberate: the real product first, so there is a decrement to give back.
+     */
+    public function test_an_abandoned_nmi_loop_gives_back_the_stock_it_took(): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store, 100.00, 50);
+        $sid = $this->guestCart($store, $product);
+        $gateway = $this->fakeNmi();
+
+        $missingProductId = ((int) DB::table('products')->max('id')) + 500;
+
+        $state = $this->nmiCheckoutState($store, $product);
+        $state['cartlist']['product_list'][] = [
+            'product_id' => $missingProductId, 'variant_id' => 0, 'qty' => 2, 'price' => 100.00,
         ];
 
         $before = self::orderCount();
 
         $this->withCookie('cart', $sid)
             ->withSession(['request_data' => $state])
-            ->post('/' . $storeA->slug . '/get-payment-NMI', $this->nmiCardFields());
+            ->post('/' . $store->slug . '/get-payment-NMI', $this->nmiCardFields());
 
         $this->assertCount(1, $gateway->calls,
-            'The charge never happened, so the stock assertions below would be vacuous.');
-
-        $this->assertSame(90, self::stockOf($foreign),
-            "Another merchant's stock was decremented through this store's NMI checkout.");
-
-        $this->assertSame(50, self::stockOf($mine),
-            'The abandoned checkout kept the stock it had already taken: the give-back did not run.');
+            'The charge never happened, so the give-back assertion below would be vacuous: the '
+            . 'loop is only reached after the capture.');
 
         $this->assertSame($before, self::orderCount(),
-            'An order was written for a basket holding another merchant\'s product.');
+            'An order was written for a basket holding a product that does not exist.');
+
+        $this->assertSame(50, self::stockOf($product),
+            'The abandoned checkout kept the stock it had already taken: the give-back did not run.');
+    }
+
+    /**
+     * A DECLINED CARD DOES NOT DESTROY THE CHECKOUT.
+     *
+     * A PRESERVE-FIRST REGRESSION THIS PACKAGE INTRODUCED AND AN ADVERSARIAL REVIEW CAUGHT.
+     * `Session::forget()` was placed at the top of the handler, above every guard and above the
+     * charge, so a shopper who mistyped a CVV -- a routine few percent of card traffic -- had
+     * their stored checkout destroyed by the attempt. Their next submit met
+     * "We could not confirm your checkout details ... please contact the store", which is a dead
+     * checkout for an ordinary event.
+     *
+     * The state is now consumed immediately before the charge and PUT BACK on every path that
+     * took no money. Both halves are asserted: the decline must not write an order, and the
+     * retry must succeed.
+     */
+    public function test_a_declined_card_leaves_the_checkout_retryable(): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store, 100.00, 50);
+        $sid = $this->guestCart($store, $product);
+        $gateway = $this->fakeNmiSequence([
+            ['response' => 2, 'responsetext' => 'DECLINE'],
+            ['response' => 1, 'transactionid' => 'T-2', 'amount' => '100.00'],
+        ]);
+
+        $before = self::orderCount();
+        $state = $this->nmiCheckoutState($store, $product);
+
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state])
+            ->post('/' . $store->slug . '/get-payment-NMI', $this->nmiCardFields());
+
+        $this->assertCount(1, $gateway->calls, 'The declined attempt never reached the gateway.');
+        $this->assertSame($before, self::orderCount(), 'A declined card wrote an order.');
+        $this->assertSame(50, self::stockOf($product), 'A declined card moved stock.');
+        $this->assertStringNotContainsString(self::REFUSAL, (string) session('error'),
+            'A declined card was reported as a missing checkout state.');
+
+        // The retry, on the state the server put back, with a card that now succeeds.
+        $retry = $this->withCookie('cart', $sid)
+            ->post('/' . $store->slug . '/get-payment-NMI', $this->nmiCardFields());
+
+        $this->assertCount(2, $gateway->calls,
+            'The retry after a decline never reached the gateway, so the declined attempt had '
+            . 'destroyed the stored checkout state. Retry answered HTTP '
+            . $retry->getStatusCode() . ' with error ' . var_export(session('error'), true));
+        $this->assertSame($before + 1, self::orderCount(),
+            'The retry after a decline wrote no order.');
     }
 
     // =====================================================================================
@@ -796,6 +1150,16 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
             'A legitimate WhatsApp order was not written (HTTP ' . $response->getStatusCode() . '), '
             . 'so every refusal asserted below could be satisfied by a handler that refuses '
             . 'everything. Body: ' . substr((string) $response->getContent(), 0, 400));
+
+        /*
+         * THE RESPONSE, NOT ONLY THE ROW -- for the same reason as the NMI control, where the
+         * omission was MEASURED to be hiding an HTTP 500 after a committed order. This handler
+         * answers its AJAX caller with a `status: success` envelope rather than a redirect.
+         */
+        $response->assertOk();
+        $this->assertStringContainsString('success', (string) $response->getContent(),
+            'The WhatsApp order committed but the journey did not complete. Body: '
+            . substr((string) $response->getContent(), 0, 400));
 
         $order = DB::table('orders')->orderByDesc('id')->first();
         $this->assertSame(0, (int) $order->customer_id, 'A guest order acquired an owner.');
@@ -898,10 +1262,79 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
     }
 
     /**
+     * A POSTED SHIPPING FIGURE DOES NOT MOVE `orders.product_price` ON THE DIRECT-POST PATH.
+     *
+     * TRACED BY AN ADVERSARIAL REVIEW OF THIS PACKAGE, then driven here. The chain is four hops
+     * and every one of them is in a different file, which is why neither this package's first
+     * pass nor the one before it saw it:
+     *
+     *     $requests_data = $request->all()                       (no stored state)
+     *       -> Cart::cart_list_cookie($requests_data, $store->id)
+     *       -> app/Models/Cart.php:199   $shipping_price = (int) ($data['shipping_final_price'] ?? 0)
+     *       -> Cart.php:621              $final_total = ... + $shipping_price + ...
+     *       -> Cart.php:635              $cart_array['total_sub_price'] = SetNumber($final_total)
+     *       -> $final_sub_total_price    -> $order->product_price
+     *
+     * `orders.final_price` is NOT affected -- it is built from `total_final_price`, which
+     * excludes the shipping term -- so this is a recorded-total defect and not a payable one.
+     * It is still one of the fields the package brief names, and it was live.
+     *
+     * Both directions, because they are different attacks: inflate (a merchant's reporting shows
+     * revenue nobody paid) and deflate (the reverse). `SetNumber()` takes the absolute value of
+     * a negative, so the deflating case does not even arrive as a negative -- which is a second
+     * reason to assert the figure rather than its sign.
+     *
+     * @dataProvider postedShippingFigures
+     */
+    public function test_a_posted_shipping_figure_does_not_move_the_whatsapp_product_price($posted): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store, 100.00, 50);
+        $sid = $this->guestCart($store, $product);
+
+        $before = self::orderCount();
+
+        // No withSession(): the direct checkout post, which is the arm that keeps the fallback.
+        $this->withCookie('cart', $sid)
+            ->post('/' . $store->slug . '/whatsapp', [
+                'wts_number' => '123456789',
+                'payment_type' => 'whatsapp',
+                'billing_info' => $this->billing(),
+                'shipping_final_price' => $posted,
+            ]);
+
+        $this->assertSame($before + 1, self::orderCount(),
+            'No order was written, so the total assertion would be vacuous. Posted: '
+            . var_export($posted, true));
+
+        $order = DB::table('orders')->orderByDesc('id')->first();
+        $this->assertSame(100.00, round((float) $order->product_price, 2),
+            'A posted shipping figure moved the order\'s recorded product price. Posted: '
+            . var_export($posted, true));
+    }
+
+    public static function postedShippingFigures(): array
+    {
+        return [
+            'inflated' => [500],
+            'negative' => [-9999],
+            'string' => ['500'],
+        ];
+    }
+
+    /**
      * AN UNUSABLE LINE QUANTITY IS REFUSED ON THE WHATSAPP ORDER TOO.
      *
      * The non-numeric quantity is excluded and the reason is itself a finding -- see
      * unusableQuantitiesReachingTheCartRead().
+     *
+     * SAME PER-DATA-SET VACUITY AS THE NMI TEST ABOVE: for `negative` and `fractional` the
+     * stock assertion cannot move, because normaliseQuantity() refuses the decrement either
+     * way. What carries the weight is the refusal message and the order count -- and those are
+     * genuinely carried by this guard: the pre-flight `assertCartAvailable()` does NOT
+     * short-circuit first, because `assertStockAvailable()` returns null both for
+     * `$quantity <= 0` and for any product whose `stock_order_status` is not 'not_allow', which
+     * this fixture never sets (the column is nullable with no default).
      *
      * @dataProvider unusableQuantitiesReachingTheCartRead
      */

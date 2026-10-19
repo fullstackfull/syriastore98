@@ -203,11 +203,40 @@ class PaymentVerificationService
         }
 
         if (!in_array($type, self::ENFORCED_PAYMENT_TYPES, true)) {
-            // No verification seam for this gateway yet. Behaviour is preserved
-            // rather than changed, because recording every gateway order as
-            // Pending would stop merchant wallets being credited for 51 live
-            // payment methods — a business change, not a security fix. The write
-            // is logged so the residual exposure is measurable.
+            /*
+             * Behaviour is preserved rather than changed, because recording every gateway order
+             * as Pending would stop merchant wallets being credited for 51 live payment methods
+             * — a business change, not a security fix. The write is logged so the residual
+             * exposure is measurable.
+             *
+             * BUT THE LOG MUST SAY WHICH OF THE TWO CASES IT IS. P01-COMMERCE-SEC-02 wired the
+             * first gateway that genuinely records a verification for a type that is not
+             * enforced: NMIPayController::getNMIProductStatus makes the capture itself and
+             * records NMI's own `response == 1` through recordVerification(). This branch then
+             * logged 'No server-side verification seam exists for this payment type' over the
+             * top of it — the exact opposite of what had happened — and an adversarial review
+             * caught the contradiction between that line and the package's own claim.
+             *
+             * So a matching record is now reported as what it is. The STATUS is identical
+             * either way; only the log changes, which is the whole point of a log that exists
+             * to measure the residual.
+             */
+            if (is_array($verification) && ($verification['payment_type'] ?? null) === $type) {
+                Log::info('Order recorded as Paid, backed by a recorded gateway verification', [
+                    'site' => $site,
+                    'payment_type' => $type,
+                    'expected_total' => (string) $expectedTotal,
+                    'captured_amount' => $verification['captured_amount'] ?? null,
+                    'verified_at' => $verification['verified_at'] ?? null,
+                    'reason' => $verification['reason'] ?? null,
+                    'note' => 'Not in ENFORCED_PAYMENT_TYPES, so the amount is NOT compared and'
+                        . ' a missing record would NOT withhold Paid. Enforcing this type is a'
+                        . ' one-line change in ENFORCED_PAYMENT_TYPES.',
+                ]);
+
+                return self::STATUS_PAID;
+            }
+
             Log::warning('Order recorded as Paid without gateway verification', [
                 'site' => $site,
                 'payment_type' => $type,

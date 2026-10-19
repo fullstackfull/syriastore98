@@ -247,6 +247,34 @@ still honoured.
 
 ---
 
+## P01-COMMERCE-SEC-02 — the last two order writers  ·  **DELIVERED**
+
+> **Done.** Five commits. The full record, including what two adversarial reviews found in the work
+> itself, is [`S33`](../../security/P01-SECURITY-WORK-QUEUE.md) — this entry is the summary.
+>
+> | | |
+> |---|---|
+> | `NMIPayController::getNMIProductStatus` | the platform's second card charge, previously unguarded. Its basket, line quantities and totals came back out of a **hidden form field**; the captured amount, the basket's store and an unusable quantity are now all settled **before** the card is charged; single-use state, restored on every path that took no money; atomic stock with give-back; `'Paid'` derived over a **recorded** gateway verification — the first of the nine |
+> | `PaymentController::whatsapp` | keeps its `$request->all()` fallback (two checkout views need it), so the boundary is per field: the order's owner, its store, and a posted shipping figure that reached `orders.product_price` |
+> | swept with them | the `out_of_stock_threshold`/`notification` crash across seven controllers, and the missing `App\Events\CinetPayPayment` class that 500'd **every legitimate CinetPay return after committing the order** |
+> | shared | `AppliesCartStockChanges` — the stock decrement/give-back pair moved verbatim out of `PaymentController` so a fourth writer could use it rather than a second copy |
+>
+> **34 tests, 135 assertions. 18 guards removed and re-measured; 2 recorded as subsumed rather than
+> claimed.** Three guards were not isolated by any test on the first attempt and a fourth group only
+> became provable after new tests were written — both are recorded in S33, because this is the
+> project's own "a test must bite" rule turned on its author.
+>
+> **The single most important finding came from adversarial review, not from the suite: this file's
+> own NMI positive control was passing through an HTTP 500.** The order row committed and the
+> journey then died on a bare `$response['tax_id']` read, and every refusal assertion in the file
+> leaned on that control. Both positive controls now assert the response as well as the row.
+>
+> **Ten items remain open and are listed in S33 §7.** The clearest follow-up: `ProductVariant` is
+> scoped by nothing anywhere, and NMI is now the only one of the nine handlers with a product-level
+> store predicate — so the family is inconsistent, and `basketHasForeignProduct()` is already shared.
+
+---
+
 ## Still owed before Phase 01 acceptance
 
 Unchanged from [`09-SINGLE-DEVELOPER-TRANSITION.md`](09-SINGLE-DEVELOPER-TRANSITION.md), plus:

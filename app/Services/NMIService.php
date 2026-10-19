@@ -4,6 +4,7 @@ namespace App\Services;
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
+use GuzzleHttp\Exception\TransferException;
 
 class NMIService
 {
@@ -47,6 +48,15 @@ class NMIService
      * `security_key`, which the controller reads per store, not with the platform-wide
      * username/password processPayment() uses.
      *
+     * A NOTE ON THE `use` STATEMENT ADDED WITH THIS METHOD, so it is not mistaken later for a
+     * live behaviour change: processPayment() below already had `catch (RequestException $e)`
+     * with NO import, so it resolved to `App\Services\RequestException`, matched nothing, and
+     * let every exception escape. The import makes that catch do what its body plainly intends.
+     * It changes nothing in practice because processPayment() HAS NO CALLERS -- grepped across
+     * app/ and packages/workdo/: the plan-payment path builds its own client in
+     * NMIPayController::planPayWithNMI(). It is left as the narrower class rather than widened
+     * with chargeSale()'s, because widening dead code is not this package's to decide.
+     *
      * @param  array<string, mixed>  $formParams
      * @return array<string, mixed>  NMI's URL-encoded response, parsed. `response == 1` is
      *                               success; an empty array means the request itself failed.
@@ -61,12 +71,21 @@ class NMIService
             parse_str($response->getBody()->getContents(), $parsed);
 
             return is_array($parsed) ? $parsed : [];
-        } catch (RequestException $e) {
+        } catch (TransferException $e) {
             /*
              * A transport failure is NOT a successful sale. Returning an empty array makes the
              * caller's `response == 1` test false, which is the fail-closed direction: no order
              * is written and no stock moves. The previous inline call let the exception escape as
              * a 500 mid-charge instead.
+             *
+             * `TransferException`, NOT `RequestException`, and the difference is the whole point:
+             * in Guzzle 7 `ConnectException extends TransferException`
+             * (vendor/guzzlehttp/guzzle/src/Exception/ConnectException.php:13) and is NOT a
+             * `RequestException` (:14, also a sibling under TransferException). So DNS failure,
+             * connection refused, TLS handshake failure and connect timeout -- the actual
+             * transport failures this comment names -- would have escaped a `RequestException`
+             * catch exactly as before, leaving only non-2xx ANSWERS caught. An adversarial
+             * review of this change caught the mismatch between the comment and the class.
              */
             \Illuminate\Support\Facades\Log::error('NMI sale request failed before any answer was read.', [
                 'reason' => $e->getMessage(),
