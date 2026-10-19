@@ -1020,7 +1020,12 @@ public function store(Request $request)
 
         OrderNote::order_note_data([
             'customer_id' => $d_order->customer_id,
-            'order_id' => $request->id,
+            // P1-ORD-04: the ROUTE order, not the posted one. `order_notes.order_id` is a
+            // NULLABLE FK, so the body's value attached a note row to ANY order id on the
+            // platform while carrying the attacker's store_id. Litter in another tenant's id
+            // space rather than a disclosure -- order-note reads are store-filtered -- but it is
+            // the same one-token mistake as the webhook sink below.
+            'order_id' => $orderId,
             'status' => 'Order status change',
             'changeble_status' => $request->delivered,
             'store_id' => $d_order->store_id
@@ -1039,7 +1044,26 @@ public function store(Request $request)
             $store = Store::find(getCurrentStore());
             $webhook = Utility::webhook($module, $store->id);
             if ($webhook) {
-                $order = Order::order_detail($request->id);
+                /*
+                 * THE WEBHOOK PAYLOAD READS THE ROUTE ORDER. P1-ORD-04, and this sink was a LIVE
+                 * CROSS-TENANT PII EXFILTRATION THAT THE FIRST VERSION OF THIS FIX DID NOT STOP.
+                 *
+                 * Pinning the id for the authorization and the write left this read on the POSTED
+                 * value, and `Order::order_detail()` is a bare `Order::find()` on a model with no
+                 * global scope. So: a merchant creates a `Status Change` webhook pointing at
+                 * their own URL (WebhookController::store has no permission check and forces
+                 * store_id to the caller's own), then POSTs
+                 * /order-status-change/<their own order> with the victim's id in the body. The
+                 * authorization passes on their own order, the status change succeeds -- and then
+                 * the VICTIM's order detail is JSON-encoded and POSTed to the attacker's
+                 * endpoint: customer name, street, city, country, postcode, EMAIL, PHONE, every
+                 * line item and total. One request per id enumerates the platform's order book.
+                 *
+                 * Found by an adversarial review of this fix, which observed that the comment
+                 * above claimed the pinning "removes the ambiguity" when it had removed it for
+                 * the authorize and the write only. The fix did not survive its own promise.
+                 */
+                $order = Order::order_detail($orderId);
                 $parameter = json_encode($order);
 
                 // 1 parameter is  URL , 2 parameter is data , 3 parameter is method
