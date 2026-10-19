@@ -229,13 +229,25 @@ class RoleEscalationTest extends SecurityTestCase
     {
         [$merchant] = $this->makeTenant();
         $this->grantPermission($merchant, 'Create Role');
+        // P1-SEC-02 CHANGED WHAT "ORDINARY" MEANS, so this fixture now grants the merchant the
+        // permission it asserts is grantable. `RolePolicy::grantPermission` is no longer a
+        // denylist; it is positive authorization bounded by the tenant owner's own grant. In
+        // PRODUCTION a merchant does hold `Manage Order` -- measured: `Utility::addNewData()`
+        // seeds 200 permission rows and grants 181 to the merchant role, `Manage Order` among
+        // them -- but a TEST database leaves the roles `admin`/`super admin`/`company` ABSENT, so
+        // the seeded merchant holds ZERO and nothing is grantable without an explicit grant.
+        //
+        // THE CLAIM OF THIS TEST IS UNCHANGED and is not weakened: a permission within the
+        // merchant's own grant must still reach the role. The fixture simply now reflects the
+        // production precondition it always assumed.
+        $this->grantPermission($merchant, 'Manage Order');
 
         $ordinary = Permission::firstOrCreate(
             ['name' => 'Manage Order'],
             ['display_name' => 'Manage Order', 'guard_name' => 'web']
         );
 
-        $this->actingAs($merchant)->post('/roles', [
+        $this->actingAs($merchant->fresh())->post('/roles', [
             'name' => 'ordinary-role',
             'permissions' => [$ordinary->id],
         ]);
@@ -306,6 +318,14 @@ class RoleEscalationTest extends SecurityTestCase
     {
         [$merchant] = $this->makeTenant();
         $super = $this->makePlatformAdmin();
+
+        // P1-SEC-02: the policy is now positive authorization, so "an ordinary permission stays
+        // grantable" holds only for a permission the tenant actually has. Granted explicitly
+        // because a test database seeds no roles -- see the note in
+        // test_role_create_still_grants_an_ordinary_permission. The three assertions below are
+        // unchanged.
+        $this->grantPermission($merchant, 'Manage Order');
+        $merchant = $merchant->fresh();
 
         $restrictedName = config('superadminaccess')[0] ?? 'Create Plan';
 
@@ -389,6 +409,10 @@ class RoleEscalationTest extends SecurityTestCase
     {
         [$merchant] = $this->makeTenant();
         $this->grantPermission($merchant, 'Create Role');
+        // P1-SEC-02: see test_role_create_still_grants_an_ordinary_permission. The valid half of
+        // the request has to be within the merchant's own grant for "the valid half is honoured"
+        // to mean anything under positive authorization.
+        $this->grantPermission($merchant, 'Manage Order');
 
         $ordinary = Permission::firstOrCreate(
             ['name' => 'Manage Order'],
