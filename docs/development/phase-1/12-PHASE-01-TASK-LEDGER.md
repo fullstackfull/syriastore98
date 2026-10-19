@@ -10,7 +10,7 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 40 — 6 DONE, 11 READY, 8 BACKLOG, 15 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
+| Tasks | 40 — 7 DONE, 9 READY, 8 BACKLOG, 15 BLOCKED, 0 IN_PROGRESS, 1 IN_REVIEW |
 | Requiring an owner decision | 16 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
@@ -79,7 +79,7 @@ Most Phase 01 work is genuinely independent; the real couplings are few, and the
 
 The directive's priority order, applied: (1) critical reachable security, (2) cross-tenant financial and stock integrity, (3) order and payment correctness, (4) migration prerequisites, (5) shared architecture, (6) observability and acceptance.
 
-1. `P1-INV-01` — ProductController::update lets a merchant rewrite and restock any store's product *(inventory, READY, risk high)*
+1. `P1-INV-01` — ProductController::update lets a merchant rewrite and restock any store's product *(inventory, IN_REVIEW, risk high)*
 2. `P1-INV-02` — OrderController::order_return restocks and marks returned on any store's order *(inventory, READY, risk high)*
 3. `P1-INV-03` — PosController::store writes product_stock to an absolute value from the POS session *(inventory, BACKLOG, risk high)*
 4. `P1-INV-04` — WoocomProductController::edit overwrites a foreign product and reassigns its store_id *(inventory, READY, risk high)*
@@ -89,30 +89,29 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 8. `P1-PAY-04` — COD settles at order time, which blocks releasing GATE F *(payments, BLOCKED, risk high)*
 9. `P1-MIG-03` — Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns *(migrations, BLOCKED, risk high)*
 10. `P1-MIG-01` — GATE F: release the six money-bearing tables *(migrations, BLOCKED, risk high)*
-11. `P1-PLT-01` — MySQL validation harness for schema-sensitive evidence *(platform, READY, risk high)*
-12. `P1-MIG-02` — customers.password_otp is INTEGER while the web reset writes a 60-char bcrypt hash *(migrations, BLOCKED, risk high)*
-13. `P1-MIG-04` — SCHEMA-01: nine more tables live code uses with no migration *(migrations, BLOCKED, risk medium)*
-14. `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted *(orders, BACKLOG, risk high)*
-15. `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon *(orders, BACKLOG, risk high)*
-16. `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account *(orders, BLOCKED, risk high)*
-17. `P1-OWN-01` — BackupRestore: is the module active on the server? *(security, BLOCKED, risk high)*
-18. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
-19. `P1-OWN-03` — The compromised API log on the running server *(security, BLOCKED, risk high)*
-20. `P1-OWN-04` — Token lifetime and abilities for clients already on merchants' phones *(security, BLOCKED, risk high)*
-21. `P1-OWN-05` — Anonymous order-document access (customerpayment) and tooling decisions *(platform, BLOCKED, risk medium)*
-22. `P1-OWN-06` — Branch protection and required checks on main *(platform, BLOCKED, risk medium)*
-23. `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites *(payments, READY, risk medium)*
-24. `P1-PAY-02` — Idempotency on gateway returns and order writers *(payments, BACKLOG, risk high)*
-25. `P1-PAY-03` — Gateway callback authenticity: no return proves a payment moved *(payments, BLOCKED, risk high)*
-26. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, READY, risk high)*
-27. `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites *(platform, BACKLOG, risk high)*
-28. `P1-PLT-04` — Module loading swallows every exception with no log line *(platform, BLOCKED, risk medium)*
-29. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, BACKLOG, risk medium)*
-30. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, READY, risk high)*
-31. `P1-SEC-02` — A merchant with Create Role can grant the six finance permissions they do not hold *(security, READY, risk high)*
-32. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, READY, risk medium)*
-33. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, READY, risk medium)*
-34. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
+11. `P1-MIG-02` — customers.password_otp is INTEGER while the web reset writes a 60-char bcrypt hash *(migrations, BLOCKED, risk high)*
+12. `P1-MIG-04` — SCHEMA-01: nine more tables live code uses with no migration *(migrations, BLOCKED, risk medium)*
+13. `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted *(orders, BACKLOG, risk high)*
+14. `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon *(orders, BACKLOG, risk high)*
+15. `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account *(orders, BLOCKED, risk high)*
+16. `P1-OWN-01` — BackupRestore: is the module active on the server? *(security, BLOCKED, risk high)*
+17. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
+18. `P1-OWN-03` — The compromised API log on the running server *(security, BLOCKED, risk high)*
+19. `P1-OWN-04` — Token lifetime and abilities for clients already on merchants' phones *(security, BLOCKED, risk high)*
+20. `P1-OWN-05` — Anonymous order-document access (customerpayment) and tooling decisions *(platform, BLOCKED, risk medium)*
+21. `P1-OWN-06` — Branch protection and required checks on main *(platform, BLOCKED, risk medium)*
+22. `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites *(payments, READY, risk medium)*
+23. `P1-PAY-02` — Idempotency on gateway returns and order writers *(payments, BACKLOG, risk high)*
+24. `P1-PAY-03` — Gateway callback authenticity: no return proves a payment moved *(payments, BLOCKED, risk high)*
+25. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, READY, risk high)*
+26. `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites *(platform, BACKLOG, risk high)*
+27. `P1-PLT-04` — Module loading swallows every exception with no log line *(platform, BLOCKED, risk medium)*
+28. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, BACKLOG, risk medium)*
+29. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, READY, risk high)*
+30. `P1-SEC-02` — A merchant with Create Role can grant the six finance permissions they do not hold *(security, READY, risk high)*
+31. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, READY, risk medium)*
+32. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, READY, risk medium)*
+33. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
 
 ---
 
@@ -405,7 +404,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | high |
 | Workstream | Inventory & Stock |
 | GitHub issue | #27 |
@@ -428,7 +427,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 - Positive: own-store update still works
 - MySQL: verified on a real MySQL, because SQLite MASKS this through a NOT NULL column the handler writes as NULL
 
-**Evidence.** S37-1; ProductController.php:965 with no store_id comparison in the method
+**Evidence.** f522feaf. REPRODUCED BY EXECUTION first: a store-A merchant with Edit Products sent PUT /product/{store B id} and renamed the victim and set product_stock 50->7. Guard copied from destroy()'s shape into update(), edit() and show(). Tests: tests/Feature/Security/MerchantProductOwnershipTest.php, 5 tests / 11 assertions. THREE REMOVAL CHECKS, ALL BITE, each failing exactly its own case. MYSQL: tests/Support/Security/bin/verify-product-ownership-on-mysql.php, 15 checks / 0 failures on 8.0.46 -- establishes that SQLite REFUSES the NULL that update() writes into three NOT NULL columns (masking the defect) while MySQL with strict=>false COERCES it and the write lands, so production was more exposed than the test database. Also measured: update()'s operator exemption is unreachable (Laratrust refuses the operator) and show()/edit()'s is live. Feature/Security + Feature/Tenancy 1,540 passed / 10 skipped / 0 failures; Unit 278; Contract 26; five CI guards exit 0. Adversarial review: two corrections applied (vacuous read-route assertions; an incomplete docblock), three LIVE sites raised as P1-INV-07. IN_REVIEW pending the full Feature suite and its known-outcome gate.
 
 ### `P1-INV-02` — OrderController::order_return restocks and marks returned on any store's order
 
@@ -898,7 +897,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **DONE** |
 | Risk | high |
 | Workstream | Platform Foundation |
 | GitHub issue | #33 |
@@ -920,7 +919,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 - The harness refuses to run against a non-throwaway database
 - P1-INV-01's cross-store update is verified through it
 
-**Evidence.** CLAUDE.md §3; tests/Support/Security/bin/verify-sec13-migration-on-mysql.php
+**Evidence.** f522feaf. This container had NO MySQL server or client, so the four *-on-mysql.php scripts the repository already carried had never been executed here. MySQL 8.0.46 provisioned; tests/Support/Security/bin/run-mysql-verifications.sh runs all of them against one throwaway server: PASSED 4 / FAILED 0 (sec13 31 checks, product-ownership 15, coupon 6, cart-quantity all). Refusal verified by execution: a database name without 'verify'/'sec13' exits 2. After the run the server holds only the four default schemas. Pointing phpunit at MySQL was TRIED and correctly ABORTED by tests/Support/TestDatabaseGuard.php (RefreshDatabase would drop every table) -- which is why this project uses standalone scripts; recorded so the next session does not repeat it. The server is ephemeral and is NOT wired into CI (an owner runtime decision).
 
 ### `P1-PLT-02` — Two order writers persist a NULL store_id
 
@@ -1172,7 +1171,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 **Required tests.**
 - tests/Support/Security/bin/verify-sec13-migration-on-mysql.php, run and recorded
 
-**Evidence.** P01-SEC-13; docs/security/P01-OTP-LENGTH-COMPATIBILITY.md
+**Evidence.** P01-SEC-13; docs/security/P01-OTP-LENGTH-COMPATIBILITY.md UPDATE (f522feaf): now VERIFIED ON REAL MYSQL 8.0.46 -- verify-sec13-migration-on-mysql.php, 31 checks / 0 failures, covering the coercion, the widening, data survival through up()+down(), and that the web reset can complete. The evidence gap is closed; APPLICATION remains owner-gated and nothing was applied to any persistent database.
 
 ### `P1-MIG-03` — Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns
 

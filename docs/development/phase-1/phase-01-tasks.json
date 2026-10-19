@@ -607,7 +607,7 @@
    "title": "ProductController::update lets a merchant rewrite and restock any store's product",
    "workstream": "inventory",
    "risk": "high",
-   "status": "READY",
+   "status": "IN_REVIEW",
    "issue": 27,
    "scope": [
     "app/Http/Controllers/ProductController.php"
@@ -626,7 +626,7 @@
    ],
    "compatibility": "Merchant product management must keep working; the refusal must not be a 401.",
    "db": "None. But the MySQL caveat means the test needs the tests/Support/Security/bin pattern.",
-   "evidence": "S37-1; ProductController.php:965 with no store_id comparison in the method",
+   "evidence": "f522feaf. REPRODUCED BY EXECUTION first: a store-A merchant with Edit Products sent PUT /product/{store B id} and renamed the victim and set product_stock 50->7. Guard copied from destroy()'s shape into update(), edit() and show(). Tests: tests/Feature/Security/MerchantProductOwnershipTest.php, 5 tests / 11 assertions. THREE REMOVAL CHECKS, ALL BITE, each failing exactly its own case. MYSQL: tests/Support/Security/bin/verify-product-ownership-on-mysql.php, 15 checks / 0 failures on 8.0.46 -- establishes that SQLite REFUSES the NULL that update() writes into three NOT NULL columns (masking the defect) while MySQL with strict=>false COERCES it and the write lands, so production was more exposed than the test database. Also measured: update()'s operator exemption is unreachable (Laratrust refuses the operator) and show()/edit()'s is live. Feature/Security + Feature/Tenancy 1,540 passed / 10 skipped / 0 failures; Unit 278; Contract 26; five CI guards exit 0. Adversarial review: two corrections applied (vacuous read-route assertions; an incomplete docblock), three LIVE sites raised as P1-INV-07. IN_REVIEW pending the full Feature suite and its known-outcome gate.",
    "queue_refs": [
     "S37",
     "S37-1"
@@ -802,7 +802,7 @@
    "title": "MySQL validation harness for schema-sensitive evidence",
    "workstream": "platform",
    "risk": "high",
-   "status": "READY",
+   "status": "DONE",
    "issue": 33,
    "scope": [
     "tests/Support/Security/bin/",
@@ -821,7 +821,7 @@
    ],
    "compatibility": "Test tooling only.",
    "db": "Creates and drops its OWN database. Never touches a persistent one.",
-   "evidence": "CLAUDE.md §3; tests/Support/Security/bin/verify-sec13-migration-on-mysql.php",
+   "evidence": "f522feaf. This container had NO MySQL server or client, so the four *-on-mysql.php scripts the repository already carried had never been executed here. MySQL 8.0.46 provisioned; tests/Support/Security/bin/run-mysql-verifications.sh runs all of them against one throwaway server: PASSED 4 / FAILED 0 (sec13 31 checks, product-ownership 15, coupon 6, cart-quantity all). Refusal verified by execution: a database name without 'verify'/'sec13' exits 2. After the run the server holds only the four default schemas. Pointing phpunit at MySQL was TRIED and correctly ABORTED by tests/Support/TestDatabaseGuard.php (RefreshDatabase would drop every table) -- which is why this project uses standalone scripts; recorded so the next session does not repeat it. The server is ephemeral and is NOT wired into CI (an owner runtime decision).",
    "queue_refs": [
     "MONEY-01",
     "SCHEMA-08"
@@ -1011,7 +1011,7 @@
    ],
    "compatibility": "Password reset must keep working for existing OTPs — see docs/security/P01-OTP-LENGTH-COMPATIBILITY.md.",
    "db": "A real migration. Owner approval required before it is applied anywhere persistent.",
-   "evidence": "P01-SEC-13; docs/security/P01-OTP-LENGTH-COMPATIBILITY.md",
+   "evidence": "P01-SEC-13; docs/security/P01-OTP-LENGTH-COMPATIBILITY.md UPDATE (f522feaf): now VERIFIED ON REAL MYSQL 8.0.46 -- verify-sec13-migration-on-mysql.php, 31 checks / 0 failures, covering the coercion, the widening, data survival through up()+down(), and that the web reset can complete. The evidence gap is closed; APPLICATION remains owner-gated and nothing was applied to any persistent database.",
    "queue_refs": [
     "S13",
     "P01-SEC-13"
