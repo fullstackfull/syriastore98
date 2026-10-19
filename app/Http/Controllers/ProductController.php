@@ -2174,10 +2174,14 @@ $Product->cost_price = $request->cost_price;
             );
 
             /*
-             * 403 rather than a body. The caller
-             * (resources/views/product/attribute_combinations_edit.blade.php:317-321) announces
-             * "Variant Deleted Successfully!" and removes the row from the DOM on ANY 2xx, without
+             * 403 rather than a body. BOTH callers
+             * (resources/views/product/attribute_combinations_edit.blade.php:319-324 and
+             * resources/views/product/attribute_combinations_data.blade.php:389-394) announce
+             * "Variant Deleted Successfully!" and remove the row from the DOM on ANY 2xx, without
              * reading the response, so returning "false" with a 200 would lie to the user.
+             *
+             * Line numbers and the second caller corrected by an adversarial review of this fix:
+             * the first version cited one caller at the wrong lines.
              */
             return response()->json(['message' => __('Permission denied.')], 403);
         }

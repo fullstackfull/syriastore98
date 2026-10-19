@@ -44,6 +44,15 @@ use Illuminate\Support\Facades\DB;
  *
  * The third field set was named by an adversarial review of this file: the first version of this
  * docblock said "these three" and listed two.
+ *
+ * `grantPermission(..., 'Edit Products')` IS LOAD-BEARING FOR ONLY THREE OF THESE ROUTES.
+ * `update()`, `edit()` and `show()` call `isAbleTo('Edit Products')`, so without the grant they
+ * refuse before ownership is ever consulted and every cross-store assertion below would pass
+ * vacuously. The P1-INV-07 routes -- `file_delete`, `product_attribute_delete` and
+ * `attribute_combination_edit` -- call `isAbleTo` NOWHERE (verified: zero occurrences in all
+ * three method bodies), which is itself a finding (queued separately: the missing permission
+ * limbs). The grant is kept in those tests only so the principal is identical across the file;
+ * removing it there changes no outcome, so do not read it as the control.
  */
 class MerchantProductOwnershipTest extends SecurityTestCase
 {
@@ -103,6 +112,37 @@ class MerchantProductOwnershipTest extends SecurityTestCase
         ]);
     }
 
+    /**
+     * Distinctive variant stock values, asserted on by BOTH combination tests.
+     *
+     * The combination screen echoes the resolved variant's stock into a form field
+     * (attribute_combinations_edit.blade.php:204) and its prices at :129 and :137. A value that
+     * appears nowhere else in the rendered page is what makes "the victim's data did not leak"
+     * a real measurement rather than a tautology.
+     */
+    private const VICTIM_VARIANT_STOCK = 987654;
+    private const OWN_VARIANT_STOCK = 123456;
+
+    /**
+     * The form post that makes `attribute_combination_edit` produce ONE combination named $option.
+     *
+     * `attribute_no` names the attribute, `for_variation_<no>` must be 1 or the option is
+     * skipped entirely, and `attribute_options_<no>` must be an array. Drop any one of the three
+     * and `$combinations[0]` is empty, the view's guard at line 2 renders nothing, and a
+     * "the victim's stock is absent" assertion passes against a blank page.
+     */
+    private function combinationRequest(int $productId, string $option = 'Red'): array
+    {
+        return [
+            'id' => $productId,
+            'attribute_no' => ['7'],
+            'for_variation_7' => 1,
+            'attribute_options_7' => [$option],
+            'price' => 100.00,
+            'sku' => 'combo',
+        ];
+    }
+
     /** The payload the product edit form posts for a non-variant product. */
     private function payload(int $categoryId, string $name, int $stock): array
     {
@@ -117,11 +157,14 @@ class MerchantProductOwnershipTest extends SecurityTestCase
             'product_stock' => $stock,
             'track_stock' => 1,
             'trending' => 0,
-            // `update()` writes these three straight through to NOT NULL columns
-            // (:1066 stock_status, :1127 trending). Omitting them makes the SAVE FAIL on SQLite
-            // with a constraint violation -- which would make the refusal test above pass because
-            // the write died, not because it was refused. MySQL with `strict => false` coerces the
-            // NULLs, so production is MORE exposed than this test database. Measured, both ways.
+            // `track_stock` above and `stock_status` below are two of the three columns
+            // `update()` writes STRAIGHT THROUGH from request input into NOT NULL columns:
+            // stock_status (ProductController.php:1146), trending (:1207) and track_stock
+            // (:1211/:1215) -- all three are in this payload. Omit one and the save FAILS on
+            // SQLite with a constraint violation, which would make the refusal test above pass
+            // because the write died, not because it was refused. MySQL with `strict => false`
+            // coerces the NULLs, so production is MORE exposed than this test database.
+            // Measured, both ways, in verify-product-ownership-on-mysql.php.
             'stock_status' => 'in_stock',
         ];
     }
@@ -261,12 +304,23 @@ class MerchantProductOwnershipTest extends SecurityTestCase
         return [$id, $relative];
     }
 
-    private function variantFor(Product $product): int
+    /**
+     * A variant row. The defaults are what the DELETE tests want; the combination tests pass
+     * both arguments because the view RESOLVES a variant by name and echoes its stock.
+     *
+     * `Product::ProductVariant($str)` matches on `product_variants.variant` (Product.php:131) and
+     * the view builds `$str` from the posted attribute option names -- so for a combination test
+     * `$variant` must equal the option name posted by `combinationRequest()`. Without that
+     * pairing the view renders the accordion with `$ProductVariantData === null` and echoes no
+     * variant data at all, which is how the first version of the combination test came to assert
+     * on a string the page could never have contained whether the fix was present or not.
+     */
+    private function variantFor(Product $product, string $variant = 'red', int $stock = 50): int
     {
         return DB::table('product_variants')->insertGetId([
-            'product_id' => $product->id, 'variant' => 'red', 'sku' => 'v-' . uniqid(),
-            'price' => 10, 'stock' => 50, 'store_id' => $product->store_id,
-            'variation_option' => 'manage_stock', 'stock_status' => 'in_stock',
+            'product_id' => $product->id, 'variant' => $variant, 'sku' => 'v-' . uniqid(),
+            'price' => 10, 'stock' => $stock, 'store_id' => $product->store_id,
+            'variation_option' => 'enabled,manage_stock', 'stock_status' => 'in_stock',
             'created_at' => now(), 'updated_at' => now(),
         ]);
     }
@@ -424,16 +478,23 @@ class MerchantProductOwnershipTest extends SecurityTestCase
         $this->grantPermission($merchantA, 'Edit Products');
 
         $victim = $this->productIn($storeB, 'victim-combination-secret', 50);
+        $this->variantFor($victim, 'Red', self::VICTIM_VARIANT_STOCK);
 
         $response = $this->actingAs($merchantA)
-            ->put('/products/attribute_combination/edit', ['id' => $victim->id, 'attribute_no' => []]);
+            ->put('/products/attribute_combination/edit', $this->combinationRequest($victim->id));
 
+        // THE LEAK ASSERTION GOES FIRST, DELIBERATELY. With the guard removed the handler
+        // answers 200 and renders the victim's variant, so a status assertion placed first
+        // fails and PHPUnit never reaches the assertion that states the actual security claim.
+        // Ordered this way, the removal check reports "another store's variant stock leaked",
+        // which is the defect; the status assertion below still catches a 500 pretending to be
+        // a refusal.
+        $this->assertStringNotContainsString((string) self::VICTIM_VARIANT_STOCK,
+            (string) $response->getContent(),
+            'Another store\'s variant stock leaked into the response.');
         $this->assertSame(302, $response->status(),
             'The refusal must be the handler\'s own redirect, not a 500. Body: '
-            . substr($response->getContent(), 0, 200));
-        $this->assertStringNotContainsString('victim-combination-secret',
-            (string) $response->getContent(),
-            'Another store\'s product name leaked into the response.');
+            . substr((string) $response->getContent(), 0, 200));
     }
 
     /** THE POSITIVE CONTROL: the owner's own combination screen still answers. */
@@ -443,12 +504,18 @@ class MerchantProductOwnershipTest extends SecurityTestCase
         $this->grantPermission($merchantA, 'Edit Products');
 
         $own = $this->productIn($storeA, 'own-combination', 50);
+        $this->variantFor($own, 'Red', self::OWN_VARIANT_STOCK);
 
         $response = $this->actingAs($merchantA)
-            ->put('/products/attribute_combination/edit', ['id' => $own->id, 'attribute_no' => []]);
+            ->put('/products/attribute_combination/edit', $this->combinationRequest($own->id));
 
-        $this->assertNotSame(302, $response->status(),
-            'The owner is being redirected away from their own product, so the refusal test above '
-            . 'proves nothing. Session error: ' . json_encode(session('error')));
+        $this->assertSame(200, $response->status(),
+            'The owner is no longer served their own combination screen, so the refusal test '
+            . 'above proves nothing. Session error: ' . json_encode(session('error'))
+            . ' Body: ' . substr((string) $response->getContent(), 0, 200));
+        $this->assertStringContainsString((string) self::OWN_VARIANT_STOCK,
+            (string) $response->getContent(),
+            'The owner\'s own variant stock is not in their own combination screen, so the '
+            . 'cross-store assertion on that same value measures nothing.');
     }
 }

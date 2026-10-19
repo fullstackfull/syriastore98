@@ -3318,6 +3318,149 @@ conditionally-skipped test would break the declared-skip set:
 
 ---
 
+## S38 — What P1-INV-07 and its adversarial review left behind on the catalogue surface
+
+**OPEN.** P1-INV-01 closed `ProductController::update`, `edit` and `show`; P1-INV-07 closed the
+three sibling routes that took their target from request input instead of a route binding
+(`file_delete`, `product_attribute_delete`, `attribute_combination_edit`). Writing and reviewing
+those two packages surfaced the rows below. **Every row here was re-verified in this session by
+reading the code named — the provenance of each claim is stated, and where a review's claim did
+not survive verification that is said too.**
+
+### S38-1 — `CategoryController::destroy` destroys another store's product media, variants and carts
+
+**CRITICAL. Verified by reading the whole call chain. The most severe row on this queue's
+merchant surface, and more severe than the three sites P1-INV-07 closed.**
+
+`app/Http/Controllers/CategoryController.php:271` (`Route::resource('category', …)`,
+`routes/web.php:846`, so `DELETE /category/{id}`):
+
+```php
+if (auth()->user() && auth()->user()->isAbleTo('Delete Product Category')) {
+    $mainCategory = Category::find($id);          // NO store predicate
+    ...
+    $hasChild = Category::where('parent_id', $category->id)
+                        ->where('store_id', getCurrentStore())->exists();
+    if ($hasChild) { return ...; }                 // the ONLY getCurrentStore() in the method
+    Category::categoryImageDelete($category);
+    $products = $mainCategory->product_details;    // hasMany(Product::class, 'category_id')
+    foreach ($products as $product) {
+        Product::productImageDelete($product);
+    }
+    ...
+    $category->delete();
+}
+```
+
+`Category` is **not** in `config/tenancy.php`'s `scoped_models` (`grep -c "Category::class"
+config/tenancy.php` → **0**) and the model registers no global scope, so `Category::find($id)`
+reaches every tenant's categories. `product_details` is a plain
+`hasMany(Product::class, 'category_id', 'id')` (`app/Models/Category.php:43`) on a model that is
+likewise unscoped, so the loop iterates the **victim store's** products.
+
+`Product::productImageDelete` (`app/Models/Product.php:628-677`) then, per product:
+
+- unlinks every `product_images.image_path` from disk (`:650`),
+- passes the merged list — image paths plus `cover_image_path`, `downloadable_product` and the
+  `preview_content` video — to `Utility::changeproductStorageLimit`, which **also** unlinks every
+  one (`app/Models/Utility.php:878-884`),
+- deletes all `product_images` rows (`:655`) and all `product_variants` rows **and the stock they
+  carry** (`:657`) — neither model carries `BelongsToStore` and neither is allowlisted, so nothing
+  narrows those two deletes,
+- unlinks the `other_description_api` photo-upload files (`:669`).
+
+**CORRECTION, made before this row was acted on.** The first draft of this entry also claimed the
+`Cart::where('product_id', …)->delete()` at `:659` destroys the victim's shoppers' live baskets.
+**It does not, in this request context.** `App\Models\Cart` carries `BelongsToStore`
+(`app/Models/Cart.php:17`) *and* is allowlisted in `config/tenancy.php:298`, so in an authenticated
+merchant web request — where `getCurrentStore()` resolves to the attacker's store — `StoreScope`
+compiles `AND store_id = <attacker>` and the delete matches **no victim row**. The one scoped model
+in the chain is the one thing that holds.
+
+It holds *only* because a tenant resolves. `StoreScope` **fails open** on a null tenant by design
+(`null_tenant => 'open'`), so the same `productImageDelete()` reached from a context where
+`getCurrentStore()` returns null — a queued job, a scheduled command, or an operator whose
+`users.current_store` is unset — deletes **every** store's cart rows for that product. That is a
+second, narrower exposure on the same line, and it is the reason the fix belongs in `destroy()`'s
+own predicate rather than in trusting the scope.
+
+**The one store predicate in the method makes the attack more likely to proceed, not less.** The
+`$hasChild` guard asks whether any category with `parent_id = <victim category>` belongs to
+**`getCurrentStore()`** — the attacker's store. For a foreign category that is false even when the
+victim's category has children, so the guard waves it through and the victim's child categories
+are orphaned.
+
+`Utility::changeproductStorageLimit` also debits **the attacker's** `storage_limit`
+(`User::find(\Auth::user()->creatorId())`, `:874-877`) — the one artefact the attack leaves on the
+attacker's own side, and a detection signal worth keeping in mind for the server.
+
+The `products` rows themselves survive; everything that makes them a sellable catalogue does not.
+Disk unlinking is not recoverable from the application, which is why this outranks a cross-tenant
+*write*.
+
+The required predicate is the one `ProductController` now carries: platform operator exempt via
+`UserPolicy::PLATFORM_ADMIN`, then `getCurrentStore()` against `$category->store_id` — before
+`categoryImageDelete`, which is the first destructive call. The same controller's `update`/`edit`/
+`show` need checking in the same pass; this row records `destroy` because it is the one verified.
+
+### S38-2 — stored media paths are expanded as GLOB PATTERNS and every match is unlinked
+
+**OPEN, containment missing, reachability latent. Verified by reading; the review's severity
+claim did not survive verification and the honest reading is recorded here instead.**
+
+`Utility::changeproductStorageLimit` (`app/Models/Utility.php:857-886`) does not treat a stored
+path as a path:
+
+```php
+$pattern = base_path($file_p);
+$files1  = \File::glob($pattern);          // the stored value is a GLOB PATTERN
+...
+foreach ($files as $file) { \File::delete($file); }   // every match, no containment
+```
+
+There is no uploads-root containment on any of it, and the same absence holds in the five
+read-and-delete loops over `other_description_api`
+(`app/Models/Product.php:667`, `app/Http/Controllers/ProductController.php:1817`,
+`app/Http/Controllers/Api/DashboardController.php:2183`, and two vendored copies in
+`packages/workdo/AuctionProduct` and `packages/workdo/DigitalProduct`), each of which does
+`\File::delete(base_path($value['value']))` on a value out of stored JSON.
+
+**What an adversarial review claimed and what is actually true.** The review called this a
+merchant-reachable arbitrary file delete. It is not, on the code in this repository:
+
+- `other_description_api` has **no writer anywhere in this repository** — five sites read and
+  delete from it, zero write it (`grep -rn other_description app/ resources/ packages/`). It can
+  only hold a value through a DB-level write or an upstream module version not vendored here.
+- `image_path`, `cover_image_path`, `downloadable_product` and `preview_content` are written from
+  `$path['url']` returned by the upload helper (`ProductController.php:240`, `:422`, `:527`,
+  `:699`, `:1131`, `:1294`) — server-generated, not raw request input.
+
+So the primitive exists and the containment is missing, but no shipped host write path plants a
+traversing or globbing value in it today. It is queued as **hardening with a latent trigger**, not
+as a live breach, and the fix is cheap: `ProductController::isInsideUploadsRoot()` already exists
+from P1-INV-07 and wants promoting to a shared helper that both `productImageDelete` and
+`changeproductStorageLimit` call. A glob metacharacter in a stored path should additionally be
+refused rather than expanded.
+
+### S38-3 — the cluster P1-INV-07 found around it, each verified, none a cross-tenant breach
+
+| # | site | what is wrong | verified how |
+|---|---|---|---|
+| **S38-3a** | `Api\DashboardController::AddVariant` (`:1695`), routed `POST api/admin/addvariant` (`routes/api.php:206`, `custom.auth`) | writes `$ProductVariant->name` and `->type`; `product_variants` has **neither column** (`2024_01_01_104858_create_product_variants_table.php`), and the NOT-NULL `product_id` and `sku` are never set — **the endpoint cannot succeed for anyone**. Same class as CLAUDE.md's `delivery_boys` note | read the migration against the handler |
+| **S38-3b** | `routes/web.php:906` `PUT products/sku_combination/edit` → `ProductController::sku_combination_edit` | **the method does not exist** (`grep -rn "function sku_combination_edit" app/` → 0 matches). A live route that 500s on call. Not a security gap; the twin of `addToCartVariant` recorded in S36 | grep, zero matches |
+| **S38-3c** | `ProductController::attribute_combination:1879` | `ProductAttributeOption::where('id', $id)->first()` carries **no store predicate**, while its own sibling `ProductAttributeOptionController.php:56` does (`->where('store_id', $store)`). Leaks another tenant's option **terms** into the combination builder | read both, side by side |
+| **S38-3d** | `Api\DashboardController::DeleteProduct_backup:2143` | unrouted dead code (`grep -rn DeleteProduct_backup routes/` → 0) carrying no ownership guard. Harmless until something routes it; a removal candidate, not a fix | grep, zero matches |
+| **S38-3e** | `file_delete`, `product_attribute_delete`, `attribute_combination_edit` | none of the three calls `isAbleTo` **at all** — P1-INV-07 gave them ownership, not permission. Adding a permission limb is correct but is **not** a substitute: per CLAUDE.md there is no super-admin bypass, so an `isAbleTo`-only limb would refuse the platform operator | counted occurrences in all three method bodies: 0 |
+| **S38-3f** | `StoreController` store-deletion loop | an adversarial review attributed a no-op in this loop to the P1-INV-01 commit. **It did not come from there**: `git log -S "A super admin is exempt, matching OrderPolicy::allow"` returns **`e71da912`**, a pre-existing commit. Recorded so the next reader does not re-litigate it | `git log -S` |
+
+**S38-3e is the general shape worth carrying forward.** The missing-permission and
+missing-ownership limbs are different defects with different failure modes, and in this codebase
+the permission limb is the one that can lock out the operator. Any pass that adds `isAbleTo` to
+these routes must add the `PLATFORM_ADMIN` exemption in the same edit, or it will close a hole and
+open an outage.
+
+---
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**

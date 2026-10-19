@@ -10,7 +10,7 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 40 — 8 DONE, 10 READY, 7 BACKLOG, 14 BLOCKED, 0 IN_PROGRESS, 1 IN_REVIEW |
+| Tasks | 43 — 9 DONE, 12 READY, 8 BACKLOG, 14 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
 | Requiring an owner decision | 15 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
@@ -36,6 +36,8 @@ graph TD
   P1_MIG_03 --> P1_MIG_01
   P1_PLT_01 --> P1_MIG_02
   P1_INV_01 --> P1_INV_07
+  P1_INV_07 --> P1_INV_08
+  P1_INV_08 --> P1_INV_09
   P1_R_01
   P1_R_02
   P1_R_03
@@ -62,6 +64,7 @@ graph TD
   P1_OWN_04
   P1_OWN_05
   P1_OWN_06
+  P1_INV_10
 ```
 
 Most Phase 01 work is genuinely independent; the real couplings are few, and they are stated here rather than left implicit in the diagram:
@@ -84,33 +87,35 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 3. `P1-INV-04` — WoocomProductController::edit overwrites a foreign product and reassigns its store_id *(inventory, READY, risk high)*
 4. `P1-INV-05` — Concurrency and overselling: reservation semantics across the nine writers *(inventory, BACKLOG, risk medium)*
 5. `P1-INV-06` — Two vendored module cart writers can still plant an unvalidated cart row *(inventory, BLOCKED, risk medium)*
-6. `P1-INV-07` — Three more unchecked ProductController routes: media delete, variant delete, and a request-id read leak *(inventory, IN_REVIEW, risk high)*
-7. `P1-PAY-04` — COD settles at order time, which blocks releasing GATE F *(payments, BLOCKED, risk high)*
-8. `P1-MIG-03` — Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns *(migrations, BLOCKED, risk high)*
-9. `P1-MIG-01` — GATE F: release the six money-bearing tables *(migrations, BLOCKED, risk high)*
-10. `P1-MIG-02` — customers.password_otp is INTEGER while the web reset writes a 60-char bcrypt hash *(migrations, BLOCKED, risk high)*
-11. `P1-MIG-04` — SCHEMA-01: nine more tables live code uses with no migration *(migrations, BLOCKED, risk medium)*
-12. `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted *(orders, BACKLOG, risk high)*
-13. `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon *(orders, BACKLOG, risk high)*
-14. `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account *(orders, BLOCKED, risk high)*
-15. `P1-OWN-01` — BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour *(security, READY, risk high)*
-16. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
-17. `P1-OWN-03` — The compromised API log on the running server *(security, BLOCKED, risk high)*
-18. `P1-OWN-04` — Token lifetime and abilities for clients already on merchants' phones *(security, BLOCKED, risk high)*
-19. `P1-OWN-05` — Anonymous order-document access (customerpayment) and tooling decisions *(platform, BLOCKED, risk medium)*
-20. `P1-OWN-06` — Branch protection and required checks on main *(platform, BLOCKED, risk medium)*
-21. `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites *(payments, READY, risk medium)*
-22. `P1-PAY-02` — Idempotency on gateway returns and order writers *(payments, BACKLOG, risk high)*
-23. `P1-PAY-03` — Gateway callback authenticity: no return proves a payment moved *(payments, BLOCKED, risk high)*
-24. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, READY, risk high)*
-25. `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites *(platform, BACKLOG, risk high)*
-26. `P1-PLT-04` — Module loading swallows every exception with no log line *(platform, BLOCKED, risk medium)*
-27. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, BACKLOG, risk medium)*
-28. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, READY, risk high)*
-29. `P1-SEC-02` — A merchant with Create Role can grant the six finance permissions they do not hold *(security, READY, risk high)*
-30. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, READY, risk medium)*
-31. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, READY, risk medium)*
-32. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
+6. `P1-INV-08` — CategoryController destroys and rewrites another store's categories, product media, variants and live carts *(inventory, READY, risk critical)*
+7. `P1-INV-09` — Stored media paths are expanded as glob patterns and unlinked with no uploads-root containment *(inventory, BACKLOG, risk medium)*
+8. `P1-INV-10` — The catalogue cluster: two endpoints that cannot work, an unscoped option lookup, and the missing permission limbs *(inventory, READY, risk low)*
+9. `P1-PAY-04` — COD settles at order time, which blocks releasing GATE F *(payments, BLOCKED, risk high)*
+10. `P1-MIG-03` — Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns *(migrations, BLOCKED, risk high)*
+11. `P1-MIG-01` — GATE F: release the six money-bearing tables *(migrations, BLOCKED, risk high)*
+12. `P1-MIG-02` — customers.password_otp is INTEGER while the web reset writes a 60-char bcrypt hash *(migrations, BLOCKED, risk high)*
+13. `P1-MIG-04` — SCHEMA-01: nine more tables live code uses with no migration *(migrations, BLOCKED, risk medium)*
+14. `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted *(orders, BACKLOG, risk high)*
+15. `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon *(orders, BACKLOG, risk high)*
+16. `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account *(orders, BLOCKED, risk high)*
+17. `P1-OWN-01` — BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour *(security, READY, risk high)*
+18. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
+19. `P1-OWN-03` — The compromised API log on the running server *(security, BLOCKED, risk high)*
+20. `P1-OWN-04` — Token lifetime and abilities for clients already on merchants' phones *(security, BLOCKED, risk high)*
+21. `P1-OWN-05` — Anonymous order-document access (customerpayment) and tooling decisions *(platform, BLOCKED, risk medium)*
+22. `P1-OWN-06` — Branch protection and required checks on main *(platform, BLOCKED, risk medium)*
+23. `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites *(payments, READY, risk medium)*
+24. `P1-PAY-02` — Idempotency on gateway returns and order writers *(payments, BACKLOG, risk high)*
+25. `P1-PAY-03` — Gateway callback authenticity: no return proves a payment moved *(payments, BLOCKED, risk high)*
+26. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, READY, risk high)*
+27. `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites *(platform, BACKLOG, risk high)*
+28. `P1-PLT-04` — Module loading swallows every exception with no log line *(platform, BLOCKED, risk medium)*
+29. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, BACKLOG, risk medium)*
+30. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, READY, risk high)*
+31. `P1-SEC-02` — A merchant with Create Role can grant the six finance permissions they do not hold *(security, READY, risk high)*
+32. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, READY, risk medium)*
+33. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, READY, risk medium)*
+34. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
 
 ---
 
@@ -576,7 +581,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 
 | field | value |
 |---|---|
-| Status | **IN_REVIEW** |
+| Status | **DONE** |
 | Risk | high |
 | Workstream | Inventory & Stock |
 | GitHub issue | #48 |
@@ -602,7 +607,108 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 - Positive control per route: the owner's own media/variant/product still works
 - Removal check on each guard
 
-**Evidence.** Three guards plus path containment. Tests: tests/Feature/Security/MerchantProductOwnershipTest.php -- 12 passed / 28 assertions (7 new), each route with a cross-tenant negative AND a positive control. FOUR REMOVAL CHECKS, ALL BITE: file_delete ownership; file_delete path containment (replacing it with an unconditional File::delete() DELETES a file outside uploads/ -- traversal proven by execution); product_attribute_delete ownership; attribute_combination_edit ownership. Both deletes answer 403, not a 200 with an error body, because both callers act optimistically on any 2xx and ignore the payload. Feature/Security + Feature/Tenancy 1,547 passed / 10 skipped / 0 failures; five CI guards exit 0. CORRECTION RECORDED: the path-containment check bit the first time only because an earlier test had leaked uploads/{id}/; a tearDown now cleans up (uploads/ is not gitignored) and the traversal test creates that directory itself, so the control is the only thing between the request and the file. IN_REVIEW pending the adversarial review and the full Feature gate.
+**Evidence.** Three guards plus path containment, in ProductController::file_delete, ::product_attribute_delete and ::attribute_combination_edit, resolved through the variant's PRODUCT rather than the variant's own nullable store_id. Tests: tests/Feature/Security/MerchantProductOwnershipTest.php -- 12 passed / 29 assertions, each route with a cross-tenant negative AND a positive control. FIVE REMOVAL CHECKS, ALL BITE: file_delete ownership; file_delete path containment (replacing it with an unconditional File::delete() DELETES a file outside uploads/ -- traversal proven by execution); product_attribute_delete ownership; attribute_combination_edit ownership; and the combination READ LEAK itself (with the guard disabled, the victim's variant stock 987654 is rendered into the attacker's response -- measured). Both deletes answer 403, not a 200 with an error body, because BOTH callers (attribute_combinations_edit.blade.php:319-324 and attribute_combinations_data.blade.php:389-394) act optimistically on any 2xx and ignore the payload. FULL FEATURE GATE PASSED at this tree: 2832 testcases, 2 declared failures, 17 declared skips, 0 errors, nothing undeclared, assert-known-test-outcomes exit 0. CORRECTIONS RECORDED, all three from adversarial review of this package's own work: (1) the path-containment check bit the first time only because an earlier test had leaked uploads/{id}/ -- a tearDown now cleans up (uploads/ is not gitignored) and the traversal test creates that directory itself. (2) the combination negative asserted on a product name the view never echoes, so it could not fail either way; it now builds a RESOLVING variant and asserts on the stock the view does echo, with the leak assertion placed BEFORE the status assertion so the removal check reports the security claim rather than a status mismatch. (3) the positive control asserted only assertNotSame(302), which a 500 satisfies; it now asserts 200 AND that the owner's own variant stock is present -- proven load-bearing by posting a non-matching option name, which fails it. Also recorded: grantPermission('Edit Products') is INERT for these three routes (isAbleTo appears 0 times in all three bodies), so it is not the control here; the missing permission limbs are queued as P1-INV-10.
+
+### `P1-INV-08` — CategoryController destroys and rewrites another store's categories, product media, variants and live carts
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | critical |
+| Workstream | Inventory & Stock |
+| GitHub issue | #49 |
+| Owner decision required | no |
+| Depends on | `P1-INV-07` |
+| Scope | `app/Http/Controllers/CategoryController.php`, `app/Models/Category.php` |
+| Queue references | S38-1 |
+| Database / migration | None. |
+| Compatibility impact | Merchant category management must keep working unchanged; refusal uses the controller's existing redirect-with-error convention. |
+
+**Existing implementation status.** LIVE AND VERIFIED BY READING THE WHOLE CALL CHAIN in this session, raised out of the P1-INV-07 work. `DELETE /category/{id}` (Route::resource, routes/web.php:846) resolves `Category::find($id)` with no store predicate -- `Category` is absent from config/tenancy.php's scoped_models (grep -c "Category::class" -> 0) and the model registers no global scope. It then iterates `$mainCategory->product_details`, a plain hasMany(Product::class,'category_id') on the equally unscoped Product, and calls Product::productImageDelete() on each: that UNLINKS FROM DISK every product image, the cover image, the downloadable product and the preview video, and DELETES all product_images rows and all product_variants rows (and the stock they carry) -- neither model carries BelongsToStore and neither is allowlisted, so nothing narrows those two deletes. CORRECTION, made before acting on this row: the first draft also claimed the Cart delete at Product.php:659 destroys the victim's shoppers' baskets. IT DOES NOT in this request context -- App\Models\Cart carries BelongsToStore (Cart.php:17) AND is allowlisted (config/tenancy.php:298), so with the attacker's tenant resolved StoreScope compiles `AND store_id = <attacker>` and that delete matches no victim row. It holds only because a tenant resolves: StoreScope fails open on a null tenant by design, so the same call reached from a queued job, a scheduled command, or an operator with no users.current_store deletes EVERY store's cart rows for that product -- a second, narrower exposure on the same line, and the reason the fix belongs in destroy()'s own predicate rather than in trusting the scope. The only getCurrentStore() in the method is the child-category guard, which asks whether the VICTIM category's children belong to the ATTACKER's store; for a foreign category that is false, so the guard waves the deletion through and orphans the victim's child categories. More severe than the three sites P1-INV-07 closed, because disk unlinking is not recoverable from the application. SECOND LIVE SITE IN THE SAME CONTROLLER, read in the same pass: `update()` (:174, PUT category/{category}) is route-model-bound with `isAbleTo('Edit Product Category')` as its only authorization -- the exact shape P1-INV-01 closed on ProductController. It renames a foreign category, rewrites its slug, `parent_id` (so a foreign category can be reparented under one of the attacker's own), `trending` and `status`, and on an image upload calls `Utility::changeStorageLimit(\Auth::user()->creatorId(), $file_path)` which UNLINKS the victim's existing image from disk and debits the attacker's quota, then writes the replacement into `$dir = 'uploads/' . getCurrentStore()` -- the ATTACKER's upload directory. The other two resource methods were checked and are NOT defects: `edit($id)` already scopes with `Category::where('store_id', getCurrentStore())->find($id)`, and `show(Category $category)` has an empty body.
+
+**Acceptance criteria.**
+- [ ] destroy() refuses a category belonging to another store BEFORE Category::categoryImageDelete(), which is the first destructive call
+- [ ] update() refuses a foreign category before any write and before any File unlink
+- [ ] The platform operator is exempt via UserPolicy::PLATFORM_ADMIN in both, as in ProductController::destroy
+- [ ] The child-category guard in destroy() is store-correct: it must ask about the category's OWN store, not getCurrentStore()
+- [ ] edit() and show() are left alone, with the reason recorded: edit() already scopes its lookup and show() has an empty body
+- [ ] No change to the refusal shape a merchant already sees for their own categories
+- [ ] The Cart delete inside productImageDelete is covered by destroy()'s own predicate, not left to StoreScope -- which fails open when no tenant resolves
+
+**Required tests.**
+- destroy negative: a store-A merchant WITH 'Delete Product Category' deleting store B's category changes nothing -- assert the FILES still exist on disk, and that product_images, product_variants and carts rows survive, all through withoutGlobalScopes()
+- destroy negative: the child-category guard does not become a bypass -- a victim category WITH children is still refused
+- update negative: a cross-store PUT changes no column on the victim category and unlinks no file
+- Positive control per method: the owner's own category still deletes and still updates, media included
+- Removal check on each guard and on the child-guard correction, separately
+- destroy negative: assert through withoutGlobalScopes() that the victim's carts rows survive, so the claim rests on the new predicate rather than on StoreScope
+
+**Evidence.** 
+
+### `P1-INV-09` — Stored media paths are expanded as glob patterns and unlinked with no uploads-root containment
+
+| field | value |
+|---|---|
+| Status | **BACKLOG** |
+| Risk | medium |
+| Workstream | Inventory & Stock |
+| GitHub issue | #50 |
+| Owner decision required | no |
+| Depends on | `P1-INV-08` |
+| Scope | `app/Models/Utility.php`, `app/Models/Product.php`, `app/Http/Controllers/ProductController.php`, `app/Http/Controllers/Api/DashboardController.php` |
+| Queue references | S38-2 |
+| Database / migration | None. |
+| Compatibility impact | No contract change. Legitimate media deletion must keep working, including the storage-limit debit. |
+
+**Existing implementation status.** HARDENING WITH A LATENT TRIGGER, not a live breach -- and that correction is the point of this row. Utility::changeproductStorageLimit (app/Models/Utility.php:857-886) does `$pattern = base_path($file_p); \File::glob($pattern)` and then unlinks EVERY match, so a stored path is treated as a glob pattern, with no containment. The same absence of containment holds in five read-and-delete loops over other_description_api (Product.php:667, ProductController.php:1817, Api/DashboardController.php:2183, and vendored copies in AuctionProduct and DigitalProduct). An adversarial review called this a merchant-reachable arbitrary file delete; VERIFICATION DID NOT SUPPORT THAT on the code in this repository: other_description_api has FIVE readers and ZERO writers anywhere in the repo, and image_path/cover_image_path/downloadable_product/preview_content are all written from the upload helper's generated `$path['url']`, never from raw request input. So the primitive and the missing containment are real; no shipped host write path plants a traversing or globbing value today.
+
+**Acceptance criteria.**
+- [ ] A single shared containment helper -- promoted from ProductController::isInsideUploadsRoot(), added by P1-INV-07 -- is the only thing that authorises an unlink of a stored media path
+- [ ] Product::productImageDelete and Utility::changeproductStorageLimit both go through it
+- [ ] A stored value containing a glob metacharacter is refused rather than expanded
+- [ ] A refused path still removes its database row, as P1-INV-07 established, so a bad stored value cannot make a product undeletable
+- [ ] The storage-limit accounting still debits the correct user for the files actually removed
+
+**Required tests.**
+- Negative: a planted ../ path outside uploads/ is not unlinked; the file still exists after the call
+- Negative: a planted '*' pattern unlinks nothing, and specifically does not unlink a sibling file the pattern would match
+- Positive control: a normal uploads/ path is still unlinked and still debited
+- Removal check on the containment helper and on the metacharacter refusal, separately
+
+**Evidence.** 
+
+### `P1-INV-10` — The catalogue cluster: two endpoints that cannot work, an unscoped option lookup, and the missing permission limbs
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | low |
+| Workstream | Inventory & Stock |
+| GitHub issue | #51 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `app/Http/Controllers/Api/DashboardController.php`, `app/Http/Controllers/ProductController.php`, `routes/web.php` |
+| Queue references | S38-3 |
+| Database / migration | None. |
+| Compatibility impact | (e) adds a refusal where there was none, so the permission grant on existing merchant roles must be confirmed before it ships, or working merchants lose media and variant management. |
+
+**Existing implementation status.** FIVE SMALL ITEMS, each verified individually this session, none a cross-tenant breach -- grouped because separately each is smaller than its own package. (a) Api\DashboardController::AddVariant (:1695), routed POST api/admin/addvariant, writes $ProductVariant->name and ->type; product_variants has NEITHER column and its NOT-NULL product_id and sku are never set, so the endpoint cannot succeed for anyone -- the same class as CLAUDE.md's delivery_boys note. (b) routes/web.php:906 points PUT products/sku_combination/edit at ProductController::sku_combination_edit, which does not exist (grep: 0 matches) -- a live route that 500s, the twin of S36's addToCartVariant. (c) ProductController::attribute_combination:1879 does ProductAttributeOption::where('id',$id)->first() with no store predicate while its own sibling ProductAttributeOptionController.php:56 has one, leaking another tenant's option terms. (d) Api\DashboardController::DeleteProduct_backup:2143 is unrouted dead code with no ownership guard -- a removal candidate, not a fix. (e) file_delete, product_attribute_delete and attribute_combination_edit call isAbleTo NOWHERE (0 occurrences in all three bodies): P1-INV-07 gave them ownership, not permission.
+
+**Acceptance criteria.**
+- [ ] (a) AddVariant either writes columns that exist or is refused with a clear error; the admin app's behaviour on that endpoint is stated either way
+- [ ] (b) the dead route is removed or pointed at a method that exists; whichever, a request to it no longer 500s
+- [ ] (c) the option lookup carries the store predicate its sibling already has
+- [ ] (d) the unrouted backup method is removed, or kept with a recorded reason
+- [ ] (e) each of the three P1-INV-07 routes gains its permission limb WITH the UserPolicy::PLATFORM_ADMIN exemption in the same edit -- per CLAUDE.md there is no super-admin bypass, so an isAbleTo-only limb would lock out the platform operator
+
+**Required tests.**
+- (a) the endpoint's response is asserted, whichever way it is resolved
+- (b) a request to the route no longer raises BadMethodCallException
+- (c) negative: another tenant's option id contributes no terms; positive control: the owner's own options still build combinations
+- (e) negative: a merchant without the permission is refused; POSITIVE CONTROL: the platform operator is still served -- this is the control that catches the lockout
+- Removal check on (c) and on each (e) limb
+
+**Evidence.** 
 
 ---
 

@@ -1,1304 +1,1421 @@
 {
- "phase": "01",
- "phase_title": "Foundation & Stability",
- "milestone": 1,
- "branch": "claude/store-syria-p01a-ci-foundation",
- "pr": 3,
- "baseline_head": "a430d7f5",
- "main_at": "1eebc721",
- "ledger": "docs/development/phase-1/12-PHASE-01-TASK-LEDGER.md",
- "status_values": [
-  "BACKLOG",
-  "READY",
-  "IN_PROGRESS",
-  "BLOCKED",
-  "IN_REVIEW",
-  "DONE"
- ],
- "tasks": [
-  {
-   "id": "P1-R-01",
-   "title": "CI foundation, regression gates and the known-outcome manifest",
-   "workstream": "platform",
-   "risk": "medium",
-   "status": "DONE",
-   "issue": 9,
-   "scope": [
-    ".github/workflows/",
-    "..github/scripts/",
-    "phpunit.xml",
-    ".github/known-test-outcomes.json"
-   ],
-   "existing_status": "Delivered as P01-A' and reconciled afterwards with main's own attestation workflow.",
-   "depends_on": [],
-   "acceptance": [
-    "Every gate runs on both event classes or is explicitly report-only",
-    "The known-outcome gate asserts the outcome SET in both directions",
-    "AUDIT_CEILING and the manifest are unmodified by later packages"
-   ],
-   "tests": [
-    "Feature/CI gate-wiring tests (3, each removal-checked)",
-    "assert-known-test-outcomes.php EXIT 0"
-   ],
-   "compatibility": "No application behaviour. CI only.",
-   "db": "None.",
-   "evidence": "Commits in 1eebc721..a430d7f5 under P01-A'; CI green on a430d7f5 (9/9 checks)",
-   "queue_refs": [
-    "PR #3 §1-§2"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-R-02",
-   "title": "Tenant isolation and API authorization (the customer_id-from-request family)",
-   "workstream": "security",
-   "risk": "high",
-   "status": "DONE",
-   "issue": 10,
-   "scope": [
-    "app/Http/Controllers/Api/ApiController.php",
-    "app/Http/Middleware/",
-    "app/Policies/"
-   ],
-   "existing_status": "Delivered as P01-SEC-11/S19 (26 handlers), P01-SEC-2/S3 (order documents), S12(a)(b), S13, S14, S16.",
-   "depends_on": [],
-   "acceptance": [
-    "No storefront handler derives its subject from request input",
-    "One shared predicate (ApiController::resolveStoreCustomer) carries the decision",
-    "No new 401 on any path a shipped client calls"
-   ],
-   "tests": [
-    "tests/Feature/Security/* (the S19 and SEC-2 suites)",
-    "tests/Feature/Tenancy/* 400 passing"
-   ],
-   "compatibility": "403 used as the refusal code throughout; the Flutter app force-logs-out on 401, so 401 was avoided.",
-   "db": "None.",
-   "evidence": "PR #3 §3; S19, S12, S13, S14, S16 in the security queue",
-   "queue_refs": [
-    "S3",
-    "S12",
-    "S13",
-    "S14",
-    "S16",
-    "S19"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-R-03",
-   "title": "Password recovery and the credential boundary",
-   "workstream": "security",
-   "risk": "high",
-   "status": "DONE",
-   "issue": 11,
-   "scope": [
-    "app/Http/Controllers/Customer/Auth/",
-    "app/Http/Controllers/Auth/",
-    "bootstrap/app.php"
-   ],
-   "existing_status": "Delivered as P01-SEC-10/S15-A and the eleven follow-ups; two OTP POSTs gained throttle:auth.",
-   "depends_on": [],
-   "acceptance": [
-    "Anonymous admin-reset takeover closed",
-    "Both OTP endpoints rate-limited",
-    "API log redaction in place for both loggers"
-   ],
-   "tests": [
-    "tests/Feature/Security/CustomerPasswordResetAdversarialTest.php",
-    "CredentialBoundaryTest.php"
-   ],
-   "compatibility": "No client contract change.",
-   "db": "P01-SEC-13 migration PREPARED and NOT applied — see P1-MIG-02.",
-   "evidence": "PR #3 §4; S15-A, S13 in the security queue",
-   "queue_refs": [
-    "S15-A",
-    "S13",
-    "S4"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-R-04",
-   "title": "Design System foundation (imported from Claude B) and the contrast gate",
-   "workstream": "design-system",
-   "risk": "low",
-   "status": "DONE",
-   "issue": 12,
-   "scope": [
-    "docs/design-system/",
-    "public/css/store-syria-ds.css",
-    "resources/views/"
-   ],
-   "existing_status": "Imported foundation plus one pilot screen; check-contrast.py wired into CI.",
-   "depends_on": [],
-   "acceptance": [
-    "40 token pairs pass WCAG 2.1 in light and dark",
-    "The auto scope cannot drift from dark without failing CI"
-   ],
-   "tests": [
-    "python3 docs/design-system/tools/check-contrast.py (CI, blocking)"
-   ],
-   "compatibility": "Phase 02 owns the interface redesign. This task is foundation maintenance only.",
-   "db": "None.",
-   "evidence": "PR #3 §5; docs/design-system/README.md",
-   "queue_refs": [
-    "DS-*"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-R-05",
-   "title": "Commerce and payment trust boundaries (SEC-14 A-H, COMMERCE-SEC-01/02/03 and follow-up)",
-   "workstream": "payments",
-   "risk": "high",
-   "status": "DONE",
-   "issue": 13,
-   "scope": [
-    "app/Http/Controllers/*Payment*",
-    "app/Services/PaymentService.php",
-    "app/Http/Controllers/Concerns/GuardsGatewayReturn.php",
-    "app/Http/Controllers/Api/ApiController.php"
-   ],
-   "existing_status": "Seven gateway returns, nine order writers, the stock_management precedence bug, the cart-to-order chain and twelve follow-up findings.",
-   "depends_on": [],
-   "acceptance": [
-    "No order writer takes its store, customer, price, shipping or quantity from caller input unchecked",
-    "No basket reaches a stock write without an ownership pre-flight",
-    "Every control removal-checked, and subsumption recorded where a control does not bite alone"
-   ],
-   "tests": [
-    "tests/Feature/Commerce/* (4 files)",
-    "tests/Feature/Security/ForeignProductCartChainTest.php (33)",
-    "tests/Feature/Security/AdminApiOrderStockOwnershipTest.php (3)"
-   ],
-   "compatibility": "Response shapes preserved; ApiResponser::error() stays HTTP 200 with status:0.",
-   "db": "None.",
-   "evidence": "PR #3 §6, §10, §11; S31-S36 in the security queue; CI green on a430d7f5",
-   "queue_refs": [
-    "S30",
-    "S31",
-    "S32",
-    "S33",
-    "S34",
-    "S35",
-    "S36"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-R-06",
-   "title": "Schema containment: GATE F stays unrunnable until released",
-   "workstream": "migrations",
-   "risk": "high",
-   "status": "DONE",
-   "issue": 14,
-   "scope": [
-    "database/migrations/_gate_f_pending/",
-    "database/migrations/_sec13_pending/",
-    ".github/scripts/guard-gate-f-containment.sh"
-   ],
-   "existing_status": "Six money tables parked as non-runnable drafts behind a CI guard that fails if any becomes discoverable.",
-   "depends_on": [],
-   "acceptance": [
-    "guard-gate-f-containment.sh exits 0: 0 of 6 tables created by any discoverable migration",
-    "All six still have a parked draft"
-   ],
-   "tests": [
-    "guard-gate-f-containment.sh (CI, blocking)"
-   ],
-   "compatibility": "None while parked.",
-   "db": "This task is the containment, not the release. Release is P1-MIG-01.",
-   "evidence": "docs/GATE-F-SCHEMA-EXPORT.md; database/migrations/_gate_f_pending/README.md; CI green",
-   "queue_refs": [
-    "GATE F"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-SEC-01",
-   "title": "Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering",
-   "workstream": "security",
-   "risk": "high",
-   "status": "READY",
-   "issue": 15,
-   "scope": [
-    "app/Http/Controllers/Customer/Auth/CustomerLoginController.php",
-    "config/session.php",
-    "bootstrap/app.php"
-   ],
-   "existing_status": "NOT STARTED. The session half of S5 is independent of the token half and needs no owner decision.",
-   "depends_on": [],
-   "acceptance": [
-    "Customer logout invalidates and regenerates the session, symmetric with the web guard",
-    "Session id regenerated on customer login",
-    "SESSION_SAME_SITE has an explicit default rather than null",
-    "The /login CSRF exemption is not satisfied by a prefixed or localised path",
-    "MFA is dispatched after authenticate() and regenerate()"
-   ],
-   "tests": [
-    "Negative: a session id captured before login is not valid after it",
-    "Negative: a prefixed/localised login path is not CSRF-exempt",
-    "Positive: an ordinary customer login and logout still work in both locales"
-   ],
-   "compatibility": "Storefront session behaviour. No API contract change. Logout/login flows must keep working in Arabic and English.",
-   "db": "None.",
-   "evidence": "S5 rows 1-6; CustomerLoginController.php:751 has no invalidate/regenerate (verified)",
-   "queue_refs": [
-    "S5"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-SEC-02",
-   "title": "A merchant with Create Role can grant the six finance permissions they do not hold",
-   "workstream": "security",
-   "risk": "high",
-   "status": "READY",
-   "issue": 16,
-   "scope": [
-    "config/superadminaccess.php",
-    "app/Http/Controllers/RoleController.php",
-    "app/Policies/RolePolicy.php"
-   ],
-   "existing_status": "NOT STARTED. S15-B row 8. The denylist has 13 names and omits the money-moving finance permissions.",
-   "depends_on": [],
-   "acceptance": [
-    "A merchant cannot grant a permission they do not themselves hold",
-    "The platform operator is unaffected",
-    "The denylist is not the only control (positive authorization, not a name blocklist)"
-   ],
-   "tests": [
-    "Negative: merchant with Create Role cannot mint a role carrying each of the six finance permissions",
-    "Positive: a merchant can still create an ordinary role within their own grants"
-   ],
-   "compatibility": "Merchant role management UI keeps working; only the permitted set narrows.",
-   "db": "None.",
-   "evidence": "S15-B row 8; config/superadminaccess.php:3",
-   "queue_refs": [
-    "S15-B"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-SEC-03",
-   "title": "Verify and classify the four unverified order-adjacent surfaces",
-   "workstream": "security",
-   "risk": "medium",
-   "status": "READY",
-   "issue": 17,
-   "scope": [
-    "app/Http/Controllers/OrderController.php",
-    "routes/customer.php"
-   ],
-   "existing_status": "RECORDED, UNVERIFIED. S14 holds four rows with no severity assigned because none was driven to a measurement.",
-   "depends_on": [],
-   "acceptance": [
-    "Each of the four rows is either reproduced with a measurement or refuted in writing",
-    "Anything reproduced gets a severity and either a fix in this task or its own task"
-   ],
-   "tests": [
-    "One driven test per reproduced row; a written refutation per row that does not reproduce"
-   ],
-   "compatibility": "Unknown until verified — that is the point of the task.",
-   "db": "None.",
-   "evidence": "S14; OrderController:563 (order-complete) among them",
-   "queue_refs": [
-    "S14"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-SEC-04",
-   "title": "Route-census gate: module routes classified public vs administrative",
-   "workstream": "security",
-   "risk": "medium",
-   "status": "READY",
-   "issue": 18,
-   "scope": [
-    ".github/scripts/",
-    "routes/",
-    "packages/workdo/*/src/routes/"
-   ],
-   "existing_status": "NOT STARTED. S11 asks for a gate, not more document rows: ['web']-only groups are a pattern across the module tree.",
-   "depends_on": [],
-   "acceptance": [
-    "A script enumerates the resolved route table with modules enabled",
-    "Every route is classified public-storefront or administrative",
-    "An administrative route with no auth middleware fails the gate",
-    "The gate has a non-vacuity floor (a minimum route count)"
-   ],
-   "tests": [
-    "The gate fails on a deliberately ungated administrative route (removal check)",
-    "The gate passes on the current tree"
-   ],
-   "compatibility": "CI only. No application behaviour.",
-   "db": "Needs modules enabled to enumerate: see the add_on_managers premise pattern in CLAUDE.md.",
-   "evidence": "S11; packages/workdo/AutomaticOrderPrinting/src/routes/web.php:24-28",
-   "queue_refs": [
-    "S11"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-SEC-05",
-   "title": "Secret-scanner coverage and the three artefacts that should not be tracked",
-   "workstream": "platform",
-   "risk": "medium",
-   "status": "READY",
-   "issue": 19,
-   "scope": [
-    ".github/scripts/scan-secrets.sh",
-    ".gitignore"
-   ],
-   "existing_status": "NOT STARTED. S9 and S10. The scanner's key list misses the shapes PHP array syntax produces.",
-   "depends_on": [],
-   "acceptance": [
-    "The scanner detects a secret written in PHP array syntax (key not adjacent to the operator)",
-    "The three tracked artefacts are removed from the index and ignored",
-    "error_log is no longer tracked"
-   ],
-   "tests": [
-    "A planted PHP-array secret fails the scanner (removal check)",
-    "The scanner still exits 0 on the current tree"
-   ],
-   "compatibility": "CI only.",
-   "db": "None.",
-   "evidence": "S9, S10",
-   "queue_refs": [
-    "S9",
-    "S10"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-ORD-01",
-   "title": "total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon",
-   "workstream": "orders",
-   "risk": "high",
-   "status": "BACKLOG",
-   "issue": 20,
-   "scope": [
-    "app/Http/Controllers/Api/ApiController.php",
-    "app/Models/Cart.php",
-    "app/Services/OrderTotalReconciler.php"
-   ],
-   "existing_status": "MEASURED, NOT FIXED. S21 and S24. The brace move is small; three things must move with it or fixing this opens them.",
-   "depends_on": [
-    "P1-ORD-02"
-   ],
-   "acceptance": [
-    "A coupon reduces the charged total on every writer that prints it",
-    "apply_coupon honours all coupon types it claims to support",
-    "final_sub_total is overwritten with the server's figure wherever sub_total already is",
-    "No writer charges full price while printing a discount"
-   ],
-   "tests": [
-    "Positive: each coupon type reduces the charged total by the stated amount",
-    "Negative: a caller-supplied sub_total or final_sub_total cannot change the charge",
-    "Regression: place_order and ordersave agree on the same basket"
-   ],
-   "compatibility": "CHANGES CHARGED AMOUNTS. Needs the owner's explicit acceptance of the behaviour change before it ships.",
-   "db": "None.",
-   "evidence": "S21 (four measured defects), S24",
-   "queue_refs": [
-    "S21",
-    "S24"
-   ],
-   "owner_decision": true,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-ORD-02",
-   "title": "Order-total architecture: one server-authoritative total, asserted",
-   "workstream": "orders",
-   "risk": "high",
-   "status": "BACKLOG",
-   "issue": 21,
-   "scope": [
-    "app/Services/OrderTotalReconciler.php",
-    "app/Services/OrderTaxResolver.php"
-   ],
-   "existing_status": "PARTIAL. The reconciler and tax resolver exist and are used on the paths SEC-14 and COMMERCE-SEC-01 touched.",
-   "depends_on": [],
-   "acceptance": [
-    "Every order writer derives its total through one seam",
-    "A posted money field cannot reach a persisted total on any writer",
-    "The reconciler's exact-decimal assertion covers all nine writers"
-   ],
-   "tests": [
-    "A survey test that fails when a writer bypasses the seam (the EnforcedPaymentTypes pattern)"
-   ],
-   "compatibility": "No response-shape change.",
-   "db": "None.",
-   "evidence": "S21; app/Services/OrderTotalReconciler.php",
-   "queue_refs": [
-    "S21"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-ORD-03",
-   "title": "user_delete hard-deletes orders while soft-deleting the account",
-   "workstream": "orders",
-   "risk": "high",
-   "status": "BLOCKED",
-   "issue": 22,
-   "scope": [
-    "app/Http/Controllers/UserController.php",
-    "app/Models/Order.php"
-   ],
-   "existing_status": "VERIFIED, DELIBERATELY NOT ACTED ON by P01-SEC-14 C.",
-   "depends_on": [],
-   "acceptance": [
-    "Deleting a merchant account cannot destroy order history",
-    "Financial rows are not orphaned"
-   ],
-   "tests": [
-    "Negative: a merchant delete leaves orders and financial rows intact and attributable"
-   ],
-   "compatibility": "Changes what account deletion does — and financial retention policy is the owner's call.",
-   "db": "Touches order retention; interacts with GATE F's store_order_financials.",
-   "evidence": "S26 item 1",
-   "queue_refs": [
-    "S26"
-   ],
-   "owner_decision": true,
-   "blocked_on": "Owner decision: financial/order retention policy on account deletion."
-  },
-  {
-   "id": "P1-PAY-01",
-   "title": "The seven remaining explode()-before-empty() crash sites",
-   "workstream": "payments",
-   "risk": "medium",
-   "status": "READY",
-   "issue": 23,
-   "scope": [
-    "app/Services/PaymentService.php",
-    "app/Http/Controllers/PaymentController.php",
-    "app/Http/Controllers/KhaltiPaymnetController.php",
-    "app/Http/Controllers/EasebuzzController.php",
-    "app/Http/Controllers/PaiementProPaymentController.php",
-    "app/Http/Controllers/CinetPayController.php"
-   ],
-   "existing_status": "RECORDED, NOT FIXED. S36-9 fixed the one post-capture copy; seven reachable copies remain.",
-   "depends_on": [],
-   "acceptance": [
-    "Each site tests emptiness before dereferencing",
-    "Each answers its handler's own refusal rather than HTTP 500",
-    "No site's refusal message is new to a shipped client"
-   ],
-   "tests": [
-    "One driven test per site where the state fixture can reach it; a written reason where it cannot"
-   ],
-   "compatibility": "Turns 500s into existing refusals. No new response shape.",
-   "db": "None.",
-   "evidence": "S36-9 residual list with line numbers",
-   "queue_refs": [
-    "S36-9"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-PAY-02",
-   "title": "Idempotency on gateway returns and order writers",
-   "workstream": "payments",
-   "risk": "high",
-   "status": "BACKLOG",
-   "issue": 24,
-   "scope": [
-    "app/Http/Controllers/Concerns/GuardsGatewayReturn.php",
-    "app/Services/"
-   ],
-   "existing_status": "NOT STARTED. No idempotency key exists anywhere; replay is blocked only because the stored state is single-use.",
-   "depends_on": [],
-   "acceptance": [
-    "A replayed gateway return cannot produce a second order or a second charge",
-    "The control does not depend on session state alone",
-    "Replay is refused idempotently, not by crashing"
-   ],
-   "tests": [
-    "Negative: the same return replayed twice yields one order",
-    "Negative: two concurrent returns for one checkout yield one order"
-   ],
-   "compatibility": "No client change if the second call returns the first result.",
-   "db": "May need a table for keys — if so it is a GATE-F-class schema decision and this task splits.",
-   "evidence": "PR #3 §7 'No idempotency key on any return'",
-   "queue_refs": [
-    "S32"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-PAY-03",
-   "title": "Gateway callback authenticity: no return proves a payment moved",
-   "workstream": "payments",
-   "risk": "high",
-   "status": "BLOCKED",
-   "issue": 25,
-   "scope": [
-    "app/Services/PaymentVerificationService.php",
-    "app/Http/Controllers/*Payment*"
-   ],
-   "existing_status": "SEAM BUILT, POSTURE UNCHANGED. 'Paid' is derived through PaymentVerificationService and every unverified write is logged; NMI is the only writer backed by a recorded verification.",
-   "depends_on": [],
-   "acceptance": [
-    "Each enabled gateway's return is verified server-side against the provider, or its writer refuses",
-    "Khalti's amount-unbound verification is bound to its minor-unit convention"
-   ],
-   "tests": [
-    "Per-gateway verification tests against recorded provider fixtures"
-   ],
-   "compatibility": "ENFORCING THIS STOPS MERCHANT WALLETS BEING CREDITED FOR 51 LIVE PAYMENT METHODS until each is verified.",
-   "db": "None.",
-   "evidence": "S32 item 1; PR #3 §7",
-   "queue_refs": [
-    "S32"
-   ],
-   "owner_decision": true,
-   "blocked_on": "Owner decision: which gateways to enforce first, plus provider credentials for verification. Khalti is credential-blocked."
-  },
-  {
-   "id": "P1-PAY-04",
-   "title": "COD settles at order time, which blocks releasing GATE F",
-   "workstream": "payments",
-   "risk": "high",
-   "status": "BLOCKED",
-   "issue": 26,
-   "scope": [
-    "config/services.php",
-    "app/Services/PaymentService.php"
-   ],
-   "existing_status": "PARTIAL. The hardcoded 'Paid' is fixed; COD still settles at order time by default.",
-   "depends_on": [],
-   "acceptance": [
-    "COD settlement timing is explicit and configurable per store",
-    "The default does not credit a wallet before cash is collected"
-   ],
-   "tests": [
-    "Positive: a COD order credits the merchant only at the configured point",
-    "Negative: an unpaid COD order does not produce a wallet credit"
-   ],
-   "compatibility": "Changes when merchants see money. Owner's call.",
-   "db": "PRECONDITION for GATE F: _gate_f_pending/README.md warns that releasing the money tables with this default makes the ledger actively wrong.",
-   "evidence": "config/services.php:157; _gate_f_pending/README.md",
-   "queue_refs": [
-    "GATE F",
-    "S32"
-   ],
-   "owner_decision": true,
-   "blocked_on": "Owner decision on COD settlement timing. Blocks P1-MIG-01."
-  },
-  {
-   "id": "P1-INV-01",
-   "title": "ProductController::update lets a merchant rewrite and restock any store's product",
-   "workstream": "inventory",
-   "risk": "high",
-   "status": "DONE",
-   "issue": 27,
-   "scope": [
-    "app/Http/Controllers/ProductController.php"
-   ],
-   "existing_status": "CONFIRMED BY EXECUTION in this session: a store-A merchant renamed store B's product and set its stock 50 -> 7.",
-   "depends_on": [],
-   "acceptance": [
-    "The bound Product must belong to the caller's store on update, store and destroy",
-    "isAbleTo('Edit Products') is no longer the only check",
-    "A merchant's own product edit is unaffected"
-   ],
-   "tests": [
-    "Negative: cross-store PUT is refused and changes nothing",
-    "Positive: own-store update still works",
-    "MySQL: verified on a real MySQL, because SQLite MASKS this through a NOT NULL column the handler writes as NULL"
-   ],
-   "compatibility": "Merchant product management must keep working; the refusal must not be a 401.",
-   "db": "None. But the MySQL caveat means the test needs the tests/Support/Security/bin pattern.",
-   "evidence": "f522feaf. REPRODUCED BY EXECUTION first: a store-A merchant with Edit Products sent PUT /product/{store B id} and renamed the victim and set product_stock 50->7. Guard copied from destroy()'s shape into update(), edit() and show(). Tests: tests/Feature/Security/MerchantProductOwnershipTest.php, 5 tests / 11 assertions. THREE REMOVAL CHECKS, ALL BITE, each failing exactly its own case. MYSQL: tests/Support/Security/bin/verify-product-ownership-on-mysql.php, 15 checks / 0 failures on 8.0.46 -- establishes that SQLite REFUSES the NULL that update() writes into three NOT NULL columns (masking the defect) while MySQL with strict=>false COERCES it and the write lands, so production was more exposed than the test database. Also measured: update()'s operator exemption is unreachable (Laratrust refuses the operator) and show()/edit()'s is live. Feature/Security + Feature/Tenancy 1,540 passed / 10 skipped / 0 failures; Unit 278; Contract 26; five CI guards exit 0. Adversarial review: two corrections applied (vacuous read-route assertions; an incomplete docblock), three LIVE sites raised as P1-INV-07. FULL FEATURE SUITE on this head: 2,825 testcases -- 2,806 passed, 18,233 assertions, 2 declared failures, 17 declared skips, 0 errors; known-outcome gate EXIT 0 with 17/17 skip reasons parsed (\"the observed outcome set matches the manifest exactly\"). All acceptance criteria verified.",
-   "queue_refs": [
-    "S37",
-    "S37-1"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-INV-02",
-   "title": "OrderController::order_return restocks and marks returned on any store's order",
-   "workstream": "inventory",
-   "risk": "high",
-   "status": "READY",
-   "issue": 28,
-   "scope": [
-    "app/Http/Controllers/OrderController.php",
-    "app/Models/Order.php"
-   ],
-   "existing_status": "CONFIRMED BY EXECUTION: moved store B's variant stock 50 -> 59 and marked B's order returned, then 500'd after the writes landed.",
-   "depends_on": [],
-   "acceptance": [
-    "order_return refuses an order the caller's store does not own",
-    "Order::product_return's unscoped Product/ProductVariant lookups are paired to the order",
-    "The route carries a permission check, not just the auth group"
-   ],
-   "tests": [
-    "Negative: cross-store return is refused, no stock moves, the victim's order is unchanged",
-    "Positive: an own-store return still restocks correctly"
-   ],
-   "compatibility": "Merchant returns keep working.",
-   "db": "None.",
-   "evidence": "S37-2; OrderController.php:651, Order.php:637-666",
-   "queue_refs": [
-    "S37",
-    "S37-2"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-INV-03",
-   "title": "PosController::store writes product_stock to an absolute value from the POS session",
-   "workstream": "inventory",
-   "risk": "high",
-   "status": "BACKLOG",
-   "issue": 29,
-   "scope": [
-    "app/Http/Controllers/PosController.php",
-    "app/Http/Controllers/ProductController.php"
-   ],
-   "existing_status": "CONFIRMED BY EXECUTION: seeding the POS session with store B's product moved B's product_stock 50 -> 49. Held at BACKLOG rather than READY because it depends on P1-INV-01: both change ProductController, and the directive forbids two agents editing the same working file.",
-   "depends_on": [
-    "P1-INV-01"
-   ],
-   "acceptance": [
-    "The POS sale cannot write a product the caller's store does not own",
-    "Both session feeders (addToCart, updateCart) resolve products store-scoped",
-    "updateCart bounds its quantity (its current guard compares a bool to a number)",
-    "An absolute stock write is replaced by a decrement, or justified in writing"
-   ],
-   "tests": [
-    "Negative: a seeded foreign product cannot be sold through POS",
-    "Negative: an unbounded updateCart quantity is refused",
-    "Positive: an ordinary POS sale still decrements correctly"
-   ],
-   "compatibility": "POS must keep working for merchants who use it.",
-   "db": "None.",
-   "evidence": "S37-3; PosController.php:205, ProductController.php:2597 and updateCart",
-   "queue_refs": [
-    "S37",
-    "S37-3"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-INV-04",
-   "title": "WoocomProductController::edit overwrites a foreign product and reassigns its store_id",
-   "workstream": "inventory",
-   "risk": "high",
-   "status": "READY",
-   "issue": 30,
-   "scope": [
-    "app/Http/Controllers/WoocomProductController.php"
-   ],
-   "existing_status": "CODE-VERIFIED ONLY. The only one of the four S37 sites not confirmed by execution; the most destructive on paper because it moves ownership.",
-   "depends_on": [],
-   "acceptance": [
-    "The WoocommerceConection lookup carries a store predicate, like its category sibling and the Shopify twin",
-    "No code path reassigns an existing product's store_id",
-    "Reproduced or refuted by execution before the fix is called proven"
-   ],
-   "tests": [
-    "Negative: a foreign woocom product cannot be edited or re-owned",
-    "A stubbed WooCommerce response drives the path (no live API call)"
-   ],
-   "compatibility": "WooCommerce import keeps working for its owner.",
-   "db": "None.",
-   "evidence": "S37-4; WoocomProductController.php:369-389 vs ShopifyProductController.php:533",
-   "queue_refs": [
-    "S37",
-    "S37-4"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-INV-05",
-   "title": "Concurrency and overselling: reservation semantics across the nine writers",
-   "workstream": "inventory",
-   "risk": "medium",
-   "status": "BACKLOG",
-   "issue": 31,
-   "scope": [
-    "app/Services/ProductStockService.php",
-    "app/Http/Controllers/Concerns/AppliesCartStockChanges.php"
-   ],
-   "existing_status": "PARTIAL. ProductStockService is the only atomic primitive and the nine decrement sites use it; several restock paths are still read-modify-write.",
-   "depends_on": [
-    "P1-INV-02"
-   ],
-   "acceptance": [
-    "Every stock mutation goes through the atomic primitive",
-    "Two concurrent checkouts of the last unit cannot both succeed",
-    "Cancellation and return restore exactly what the order took"
-   ],
-   "tests": [
-    "A concurrency test driving two simultaneous checkouts",
-    "Positive: cancel then re-order returns the stock to its starting value"
-   ],
-   "compatibility": "No contract change.",
-   "db": "None (SQLite cannot prove the concurrency half; needs the MySQL harness).",
-   "evidence": "ProductStockService.php:107,189,237,248; Order::product_return read-modify-write",
-   "queue_refs": [
-    "S36",
-    "S37-2"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-INV-06",
-   "title": "Two vendored module cart writers can still plant an unvalidated cart row",
-   "workstream": "inventory",
-   "risk": "medium",
-   "status": "BLOCKED",
-   "issue": 32,
-   "scope": [
-    "packages/workdo/BoostSales/",
-    "packages/workdo/FrequentlyProduct/",
-    "routes/"
-   ],
-   "existing_status": "RECORDED. Both write Product::find() unscoped with a raw variant_id and qty. The reader-side pre-flights are what contain them today.",
-   "depends_on": [],
-   "acceptance": [
-    "Either an upstream fix, or a host route middleware over the two module cart routes",
-    "No packages/workdo/ file is edited"
-   ],
-   "tests": [
-    "Negative: the two module cart routes refuse a foreign product and an unusable quantity"
-   ],
-   "compatibility": "Module behaviour for stores that have them enabled.",
-   "db": "None.",
-   "evidence": "S30 remaining rows; BoostSalesController.php:83-92, FrequentlyProductController.php:205",
-   "queue_refs": [
-    "S30"
-   ],
-   "owner_decision": true,
-   "blocked_on": "Owner decision: upstream module fix vs a host route middleware over vendored routes."
-  },
-  {
-   "id": "P1-PLT-01",
-   "title": "MySQL validation harness for schema-sensitive evidence",
-   "workstream": "platform",
-   "risk": "high",
-   "status": "DONE",
-   "issue": 33,
-   "scope": [
-    "tests/Support/Security/bin/",
-    "docs/development/phase-1/"
-   ],
-   "existing_status": "PARTIAL. verify-sec13-migration-on-mysql.php shows the pattern; nothing generalises it.",
-   "depends_on": [],
-   "acceptance": [
-    "A documented, repeatable way to run a schema-sensitive test against a real MySQL",
-    "It creates and drops its own throwaway database and states its preconditions",
-    "At least one existing SQLite-masked finding is re-verified through it"
-   ],
-   "tests": [
-    "The harness refuses to run against a non-throwaway database",
-    "P1-INV-01's cross-store update is verified through it"
-   ],
-   "compatibility": "Test tooling only.",
-   "db": "Creates and drops its OWN database. Never touches a persistent one.",
-   "evidence": "f522feaf. This container had NO MySQL server or client, so the four *-on-mysql.php scripts the repository already carried had never been executed here. MySQL 8.0.46 provisioned; tests/Support/Security/bin/run-mysql-verifications.sh runs all of them against one throwaway server: PASSED 4 / FAILED 0 (sec13 31 checks, product-ownership 15, coupon 6, cart-quantity all). Refusal verified by execution: a database name without 'verify'/'sec13' exits 2. After the run the server holds only the four default schemas. Pointing phpunit at MySQL was TRIED and correctly ABORTED by tests/Support/TestDatabaseGuard.php (RefreshDatabase would drop every table) -- which is why this project uses standalone scripts; recorded so the next session does not repeat it. The server is ephemeral and is NOT wired into CI (an owner runtime decision).",
-   "queue_refs": [
-    "MONEY-01",
-    "SCHEMA-08"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-PLT-02",
-   "title": "Two order writers persist a NULL store_id",
-   "workstream": "platform",
-   "risk": "high",
-   "status": "READY",
-   "issue": 34,
-   "scope": [
-    "app/Http/Controllers/MercadoPaymentController.php",
-    "app/Http/Controllers/SkrillPaymentController.php"
-   ],
-   "existing_status": "IDENTIFIED, NOT FIXED. S6's load-bearing first step: these two writers must stop creating NULL-store rows before any tightening of null_tenant can be considered.",
-   "depends_on": [],
-   "acceptance": [
-    "Neither writer can persist an order with a NULL store_id",
-    "Existing NULL-store rows are COUNTED and reported (not modified)"
-   ],
-   "tests": [
-    "Negative: each writer refuses or resolves a store rather than writing NULL",
-    "A reporting script counts existing NULL-store rows without changing them"
-   ],
-   "compatibility": "No contract change.",
-   "db": "READ-ONLY on live data: counting only. Reconciling existing rows is a separate owner-gated task.",
-   "evidence": "S6; MercadoPaymentController.php:86, SkrillPaymentController.php:106",
-   "queue_refs": [
-    "S6"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-PLT-03",
-   "title": "Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites",
-   "workstream": "platform",
-   "risk": "high",
-   "status": "BACKLOG",
-   "issue": 35,
-   "scope": [
-    "config/tenancy.php",
-    "app/Models/Concerns/BelongsToStore.php"
-   ],
-   "existing_status": "PARTIAL. 10 of 93 models enforced; null_tenant is 'open' and the helpers that must precede tightening it are unused.",
-   "depends_on": [
-    "P1-PLT-02"
-   ],
-   "acceptance": [
-    "The cross-tenant escape hatches are used explicitly wherever a query must cross tenants",
-    "A documented inventory of which models are scoped and which are deliberately not",
-    "null_tenant tightening is a separate, evidence-backed proposal"
-   ],
-   "tests": [
-    "Tenancy suite stays green",
-    "A test that fails if a scoped model gains an implicit cross-tenant read"
-   ],
-   "compatibility": "Tightening the scope wrongly empties the storefront and stops every job — that is why this is staged.",
-   "db": "None.",
-   "evidence": "S6; config/tenancy.php:391",
-   "queue_refs": [
-    "S6"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-PLT-04",
-   "title": "Module loading swallows every exception with no log line",
-   "workstream": "platform",
-   "risk": "medium",
-   "status": "BLOCKED",
-   "issue": 36,
-   "scope": [
-    "app/Providers/PackageServiceProvider.php",
-    "app/Helper/helper.php"
-   ],
-   "existing_status": "VERIFIED. 'catch (\\Exception $e) { // Handle silently }' at PackageServiceProvider.php:54-57, plus three disagreeing entitlement sources.",
-   "depends_on": [],
-   "acceptance": [
-    "A broken module install reports instead of disappearing",
-    "module_is_active() answers from one source of truth"
-   ],
-   "tests": [
-    "A deliberately broken module produces a log line and does not take the app down"
-   ],
-   "compatibility": "Makes a broken install start reporting — a visible change in what a deployment does.",
-   "db": "None.",
-   "evidence": "S7; PackageServiceProvider.php:54-57; helper.php:1277-1343",
-   "queue_refs": [
-    "S7"
-   ],
-   "owner_decision": true,
-   "blocked_on": "Owner decision: log-and-continue vs per-module catch (both change deployment behaviour)."
-  },
-  {
-   "id": "P1-PLT-05",
-   "title": "Observability: unverified-payment and refusal logging reaches somewhere an operator looks",
-   "workstream": "platform",
-   "risk": "medium",
-   "status": "BACKLOG",
-   "issue": 37,
-   "scope": [
-    "app/Services/PaymentVerificationService.php",
-    "config/larabug.php",
-    "config/logging.php"
-   ],
-   "existing_status": "PARTIAL. Refusals and unverified 'Paid' writes are logged; nothing asserts an operator can see them, and larabug's 5-name blacklist is unreviewed.",
-   "depends_on": [],
-   "acceptance": [
-    "The security-relevant log lines added across Phase 01 are enumerated in one place",
-    "A documented channel/retention expectation for them",
-    "larabug's blacklist reviewed before anyone enables it"
-   ],
-   "tests": [
-    "A test that the refusal paths emit their line with store, customer and path"
-   ],
-   "compatibility": "No user-visible change.",
-   "db": "None.",
-   "evidence": "S4 item 4; config/larabug.php:99-111",
-   "queue_refs": [
-    "S4"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-MIG-01",
-   "title": "GATE F: release the six money-bearing tables",
-   "workstream": "migrations",
-   "risk": "high",
-   "status": "BLOCKED",
-   "issue": 38,
-   "scope": [
-    "database/migrations/_gate_f_pending/"
-   ],
-   "existing_status": "CONTAINED. Six money tables created by no migration; 15 of the suite's 17 accepted skips name one of them.",
-   "depends_on": [
-    "P1-PAY-04",
-    "P1-MIG-03"
-   ],
-   "acceptance": [
-    "Each of the six tables has a runnable, reviewed migration",
-    "products.cost_price and the two delivery_boys columns exist first (P1-MIG-03)",
-    "COD settlement timing is settled first (P1-PAY-04)",
-    "The 15 blocked skips become real assertions",
-    "An approved recovery plan exists before anything is applied anywhere"
-   ],
-   "tests": [
-    "The 15 currently-skipped financial tests run and pass",
-    "guard-gate-f-containment.sh is updated deliberately, not bypassed"
-   ],
-   "compatibility": "Creating these tables makes a silently dead subsystem start working: wallets, ledgers, payouts, P&L, FX, courier commission.",
-   "db": "THIS IS THE MIGRATION TASK. No migration is applied to any persistent database without owner approval and a recovery plan.",
-   "evidence": "docs/GATE-F-SCHEMA-EXPORT.md; _gate_f_pending/README.md; known-test-outcomes.json (15 skips)",
-   "queue_refs": [
-    "GATE F",
-    "S8"
-   ],
-   "owner_decision": true,
-   "blocked_on": "Owner approval to release GATE F, plus P1-PAY-04 (COD timing) and P1-MIG-03 (cost inputs). Applying it is also gated on an approved recovery plan."
-  },
-  {
-   "id": "P1-MIG-02",
-   "title": "customers.password_otp is INTEGER while the web reset writes a 60-char bcrypt hash",
-   "workstream": "migrations",
-   "risk": "high",
-   "status": "BLOCKED",
-   "issue": 39,
-   "scope": [
-    "database/migrations/_sec13_pending/"
-   ],
-   "existing_status": "MIGRATION PREPARED AND NOT APPLIED. SQLite's type affinity hides it; this is the defect that proves the MySQL caveat.",
-   "depends_on": [
-    "P1-PLT-01"
-   ],
-   "acceptance": [
-    "The column holds the value the reset writes, on MySQL",
-    "Verified by the MySQL harness, not by SQLite"
-   ],
-   "tests": [
-    "tests/Support/Security/bin/verify-sec13-migration-on-mysql.php, run and recorded"
-   ],
-   "compatibility": "Password reset must keep working for existing OTPs — see docs/security/P01-OTP-LENGTH-COMPATIBILITY.md.",
-   "db": "A real migration. Owner approval required before it is applied anywhere persistent.",
-   "evidence": "P01-SEC-13; docs/security/P01-OTP-LENGTH-COMPATIBILITY.md UPDATE (f522feaf): now VERIFIED ON REAL MYSQL 8.0.46 -- verify-sec13-migration-on-mysql.php, 31 checks / 0 failures, covering the coercion, the widening, data survival through up()+down(), and that the web reset can complete. The evidence gap is closed; APPLICATION remains owner-gated and nothing was applied to any persistent database.",
-   "queue_refs": [
-    "S13",
-    "P01-SEC-13"
-   ],
-   "owner_decision": true,
-   "blocked_on": "Owner approval to apply a migration; the draft is .php.draft so Laravel cannot load it today."
-  },
-  {
-   "id": "P1-MIG-03",
-   "title": "Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns",
-   "workstream": "migrations",
-   "risk": "high",
-   "status": "BLOCKED",
-   "issue": 40,
-   "scope": [
-    "database/migrations/",
-    "app/Models/DeliveryBoy.php",
-    "app/Models/Product.php"
-   ],
-   "existing_status": "UNDECLARED. cost_price is read and written as money; the two delivery_boys columns are fillable and written, and both write sites are gated on is_commission_enabled, so two handlers 500 for everyone.",
-   "depends_on": [],
-   "acceptance": [
-    "Each column has a reviewed migration draft",
-    "Declaring cost_price precedes store_order_financials, or the P&L is all-margin",
-    "The two 500ing handlers are reachable once the columns exist"
-   ],
-   "tests": [
-    "The two commission handlers stop 500ing",
-    "A P&L row computed with a real cost input"
-   ],
-   "compatibility": "Two merchant-facing handlers currently fail for everyone; fixing the schema makes them live.",
-   "db": "Drafts only in this task. Application is owner-gated with P1-MIG-01.",
-   "evidence": "SCHEMA-GAP rows; OrderController.php:1315, DashboardController.php:8329",
-   "queue_refs": [
-    "GATE F",
-    "SCHEMA-GAP"
-   ],
-   "owner_decision": true,
-   "blocked_on": "Owner approval, together with P1-MIG-01."
-  },
-  {
-   "id": "P1-MIG-04",
-   "title": "SCHEMA-01: nine more tables live code uses with no migration",
-   "workstream": "migrations",
-   "risk": "medium",
-   "status": "BLOCKED",
-   "issue": 41,
-   "scope": [
-    "database/migrations/"
-   ],
-   "existing_status": "UNDECLARED, MOSTLY NOT DRAFTED. otp_integrations, delivery_boy_devices, delivery_boy_notifications, zid_stores, zid_orders, zid_events, newsletters.user_id, and two retired chatwoot tables.",
-   "depends_on": [],
-   "acceptance": [
-    "Each table is either drafted with a reviewed migration or recorded as deliberately retired",
-    "zid_orders and newsletters.user_id unblock their two declared test skips"
-   ],
-   "tests": [
-    "The two skips blocked on these become real assertions"
-   ],
-   "compatibility": "zid_* holds integration credentials and is written by an unauthenticated ingress — see the Lynomia contract rows.",
-   "db": "Drafts only. Owner-gated application.",
-   "evidence": "SCHEMA-01 rows; known-test-outcomes.json skips 8 and 9",
-   "queue_refs": [
-    "SCHEMA-01"
-   ],
-   "owner_decision": true,
-   "blocked_on": "Owner approval; also needs a decision on the two retired chatwoot tables (retain or drop)."
-  },
-  {
-   "id": "P1-OWN-01",
-   "title": "BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour",
-   "workstream": "security",
-   "risk": "high",
-   "status": "READY",
-   "issue": 42,
-   "scope": [
-    "packages/workdo/BackupRestore/"
-   ],
-   "existing_status": "OWNER CONFIRMED 2026-10-19: the BackupRestore module is DISABLED on the Store Syria server. The IMMEDIATE ACTIVATION RISK IS THEREFORE MITIGATED -- the unauthenticated route to the whole database and .env is not reachable while the module is not loaded. The row is NOT closed: the owner's confirmation is about the server's current state, not about what the code does, and two things remain verifiable here without touching the server or enabling anything -- whether a disabled module really registers no routes, and what the loader does with a module whose state changes. Previously BLOCKED on exactly the question the owner has now answered.",
-   "depends_on": [],
-   "acceptance": [
-    "A regression test asserts the BackupRestore routes are NOT registered when the module is not enabled",
-    "The route-registration path is read and documented: what `add_on_managers.is_enable` actually gates, and what module_is_active() answers for each of its three disagreeing sources",
-    "The exposure that WOULD exist if the module were enabled is written up with its exact routes and middleware, so the owner can decide before ever enabling it",
-    "The host-side containment steps are specified and ready to apply (deny storage/ and *_Backup in the document root, artefacts out of the web root, no chmod 0777, DB password off the command line) -- specified, NOT applied to any server",
-    "No module file is edited (packages/workdo/ is vendored) and the module is not enabled"
-   ],
-   "tests": [
-    "Negative: with no add_on_managers row, the BackupRestore routes resolve to nothing (404), asserted against the real route table",
-    "Premise test: the same assertion would FAIL if the module were loaded -- so the test is not vacuous (see CLAUDE.md on module loading in tests)"
-   ],
-   "compatibility": "If active, this is an incident, not a backlog row.",
-   "db": "None (containment is host-side only).",
-   "evidence": "Owner confirmation 2026-10-19 that the module is DISABLED. Code evidence: packages/workdo/BackupRestore/src/routes/web.php:17-19 (auth + PlanModuleCheck only); app/Providers/PackageServiceProvider.php:54-57 (the loader's silent catch). Verification pending.",
-   "queue_refs": [
-    "S1"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  },
-  {
-   "id": "P1-OWN-02",
-   "title": "Secret rotation: APP_KEY and four tracked config secrets",
-   "workstream": "security",
-   "risk": "high",
-   "status": "BLOCKED",
-   "issue": 43,
-   "scope": [
-    "config/services.php",
-    "config/myfatoorah.php",
-    "config/jwt.php"
-   ],
-   "existing_status": "OPEN. APP_KEY is in git history and unrotated, so Crypt::encrypt() is an encoding, not a control.",
-   "depends_on": [],
-   "acceptance": [
-    "Rotation executed per docs/security/SECRET-ROTATION-CHECKLIST.md",
-    "The Zid secret is provisioned in the environment BEFORE it is moved out of config",
-    "An APP_KEY rotation is preceded by an inventory of every encrypted-cast column"
-   ],
-   "tests": [
-    "A test that no tracked config file holds a literal secret"
-   ],
-   "compatibility": "Rotating APP_KEY without re-encrypting breaks every encrypted column.",
-   "db": "Re-encryption pass if APP_KEY rotates.",
-   "evidence": "S2; docs/security/SECRET-ROTATION-CHECKLIST.md",
-   "queue_refs": [
-    "S2"
-   ],
-   "owner_decision": true,
-   "blocked_on": "Owner operation: rotation needs live credentials. Out of this session's authority."
-  },
-  {
-   "id": "P1-OWN-03",
-   "title": "The compromised API log on the running server",
-   "workstream": "security",
-   "risk": "high",
-   "status": "BLOCKED",
-   "issue": 44,
-   "scope": [
-    "storage/logs/"
-   ],
-   "existing_status": "REDACTION LANDED; the existing material is untouched.",
-   "depends_on": [],
-   "acceptance": [
-    "Up to 15 days of plaintext passwords, OTPs and bearer tokens are treated as compromised",
-    "A retention decision is recorded for API request/response bodies"
-   ],
-   "tests": [
-    "None — this is an operations task, not a code task."
-   ],
-   "compatibility": "Rotation of anything found there is customer-visible.",
-   "db": "None.",
-   "evidence": "S4 item 1",
-   "queue_refs": [
-    "S4"
-   ],
-   "owner_decision": true,
-   "blocked_on": "Owner only: requires access to the running server. Past malicious use cannot be determined from the repository."
-  },
-  {
-   "id": "P1-OWN-04",
-   "title": "Token lifetime and abilities for clients already on merchants' phones",
-   "workstream": "security",
-   "risk": "high",
-   "status": "BLOCKED",
-   "issue": 45,
-   "scope": [
-    "config/",
-    "app/Http/Middleware/CustomAuth.php"
-   ],
-   "existing_status": "OPEN. Sanctum tokens never expire, all carry ['*'], CheckAbilities is imported and never used, and there is no refresh path for any client.",
-   "depends_on": [],
-   "acceptance": [
-    "A decision on expiry and abilities, with a compatibility window for shipped binaries",
-    "Api\\AuthController::login is routed, or its absence is recorded as intended"
-   ],
-   "tests": [
-    "Negative: an expired token is refused with 403, not 401 (401 force-logs-out the Flutter app)"
-   ],
-   "compatibility": "BREAKS CLIENTS ALREADY INSTALLED unless staged. The Flutter app force-logs-out on any 401.",
-   "db": "None.",
-   "evidence": "S4 item 2; docs/security/P01-TOKEN-EXPIRY-PROPOSAL.md",
-   "queue_refs": [
-    "S4",
-    "S5"
-   ],
-   "owner_decision": true,
-   "blocked_on": "Owner decision plus a client release window."
-  },
-  {
-   "id": "P1-OWN-05",
-   "title": "Anonymous order-document access (customerpayment) and tooling decisions",
-   "workstream": "platform",
-   "risk": "medium",
-   "status": "BLOCKED",
-   "issue": 46,
-   "scope": [
-    "routes/customer.php",
-    "pint.json",
-    "docs/design-system/tools/"
-   ],
-   "existing_status": "OPEN. Three separate owner choices grouped so they do not each sit as a stale task: the anonymous customerpayment document (S12-c), laravel/pint adoption, and the unwired browser half of the design-system checks.",
-   "depends_on": [],
-   "acceptance": [
-    "S12-c: a scoped expiring document token, or link-bearer access accepted in writing",
-    "pint: a pint.json codifying the existing style, or an authorised reformatting pass",
-    "browser checks: wired with Playwright in CI, or left a documented manual run"
-   ],
-   "tests": [
-    "S12-c: a negative test for an unauthenticated document fetch once the decision is made"
-   ],
-   "compatibility": "S12-c affects customer-facing document links. pint would touch every file.",
-   "db": "None.",
-   "evidence": "S12-c; PR #3 §1 and §7",
-   "queue_refs": [
-    "S12-c",
-    "DS-13",
-    "DS-21",
-    "DS-23"
-   ],
-   "owner_decision": true,
-   "blocked_on": "Three owner decisions. No implementation can be chosen without them."
-  },
-  {
-   "id": "P1-OWN-06",
-   "title": "Branch protection and required checks on main",
-   "workstream": "platform",
-   "risk": "medium",
-   "status": "BLOCKED",
-   "issue": 47,
-   "scope": [
-    ".github/"
-   ],
-   "existing_status": "OPEN. What enforces the sensitive-diff checklist on a push is branch protection requiring pull requests — a repository setting no workflow can assert.",
-   "depends_on": [],
-   "acceptance": [
-    "main requires a pull request",
-    "The required checks include both Tests jobs, the merge-base gate and the attestation"
-   ],
-   "tests": [
-    "None — a repository setting."
-   ],
-   "compatibility": "None.",
-   "db": "None.",
-   "evidence": "PR #3 §2 'Reporting is not reviewing'",
-   "queue_refs": [
-    "S9"
-   ],
-   "owner_decision": true,
-   "blocked_on": "Repository owner setting. Cannot be scripted from a session."
-  },
-  {
-   "id": "P1-INV-07",
-   "title": "Three more unchecked ProductController routes: media delete, variant delete, and a request-id read leak",
-   "workstream": "inventory",
-   "risk": "high",
-   "status": "IN_REVIEW",
-   "issue": 48,
-   "scope": [
-    "app/Http/Controllers/ProductController.php",
-    "routes/web.php"
-   ],
-   "existing_status": "LIVE, found by the adversarial authz review of P1-INV-01, which was asked whether that fix had guarded one door and left another open. `file_delete` (:1956) unlinks another store's media from DISK with no permission and no ownership check; `product_attribute_delete` (:2000) deletes another store's variant and its stock; `attribute_combination_edit` (:1972) resolves `Product::find($request->id)` from REQUEST INPUT, so route-model binding and P1-INV-01's guard do not apply, and renders the foreign product.",
-   "depends_on": [
-    "P1-INV-01"
-   ],
-   "acceptance": [
-    "Each of the three refuses an object belonging to another store, before any read or write",
-    "file_delete cannot unlink another store's file, and the decision is made before File::delete()",
-    "product_attribute_delete cannot delete another store's variant or its stock",
-    "attribute_combination_edit resolves its product with a store predicate despite the id coming from request input",
-    "Each gains the permission limb its siblings have, or the omission is recorded with a reason",
-    "The platform operator is handled as in update()/destroy()"
-   ],
-   "tests": [
-    "Negative per route: a cross-store id changes nothing -- for file_delete, the file still exists on disk",
-    "Positive control per route: the owner's own media/variant/product still works",
-    "Removal check on each guard"
-   ],
-   "compatibility": "Merchant media and variant management must keep working; refusal shape matches the controller's existing redirect convention.",
-   "db": "None.",
-   "evidence": "Three guards plus path containment. Tests: tests/Feature/Security/MerchantProductOwnershipTest.php -- 12 passed / 28 assertions (7 new), each route with a cross-tenant negative AND a positive control. FOUR REMOVAL CHECKS, ALL BITE: file_delete ownership; file_delete path containment (replacing it with an unconditional File::delete() DELETES a file outside uploads/ -- traversal proven by execution); product_attribute_delete ownership; attribute_combination_edit ownership. Both deletes answer 403, not a 200 with an error body, because both callers act optimistically on any 2xx and ignore the payload. Feature/Security + Feature/Tenancy 1,547 passed / 10 skipped / 0 failures; five CI guards exit 0. CORRECTION RECORDED: the path-containment check bit the first time only because an earlier test had leaked uploads/{id}/; a tearDown now cleans up (uploads/ is not gitignored) and the traversal test creates that directory itself, so the control is the only thing between the request and the file. IN_REVIEW pending the adversarial review and the full Feature gate.",
-   "queue_refs": [
-    "S37-1"
-   ],
-   "owner_decision": false,
-   "blocked_on": null
-  }
- ]
+  "phase": "01",
+  "phase_title": "Foundation & Stability",
+  "milestone": 1,
+  "branch": "claude/store-syria-p01a-ci-foundation",
+  "pr": 3,
+  "baseline_head": "a430d7f5",
+  "main_at": "1eebc721",
+  "ledger": "docs/development/phase-1/12-PHASE-01-TASK-LEDGER.md",
+  "status_values": [
+    "BACKLOG",
+    "READY",
+    "IN_PROGRESS",
+    "BLOCKED",
+    "IN_REVIEW",
+    "DONE"
+  ],
+  "tasks": [
+    {
+      "id": "P1-R-01",
+      "title": "CI foundation, regression gates and the known-outcome manifest",
+      "workstream": "platform",
+      "risk": "medium",
+      "status": "DONE",
+      "issue": 9,
+      "scope": [
+        ".github/workflows/",
+        "..github/scripts/",
+        "phpunit.xml",
+        ".github/known-test-outcomes.json"
+      ],
+      "existing_status": "Delivered as P01-A' and reconciled afterwards with main's own attestation workflow.",
+      "depends_on": [],
+      "acceptance": [
+        "Every gate runs on both event classes or is explicitly report-only",
+        "The known-outcome gate asserts the outcome SET in both directions",
+        "AUDIT_CEILING and the manifest are unmodified by later packages"
+      ],
+      "tests": [
+        "Feature/CI gate-wiring tests (3, each removal-checked)",
+        "assert-known-test-outcomes.php EXIT 0"
+      ],
+      "compatibility": "No application behaviour. CI only.",
+      "db": "None.",
+      "evidence": "Commits in 1eebc721..a430d7f5 under P01-A'; CI green on a430d7f5 (9/9 checks)",
+      "queue_refs": [
+        "PR #3 §1-§2"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-R-02",
+      "title": "Tenant isolation and API authorization (the customer_id-from-request family)",
+      "workstream": "security",
+      "risk": "high",
+      "status": "DONE",
+      "issue": 10,
+      "scope": [
+        "app/Http/Controllers/Api/ApiController.php",
+        "app/Http/Middleware/",
+        "app/Policies/"
+      ],
+      "existing_status": "Delivered as P01-SEC-11/S19 (26 handlers), P01-SEC-2/S3 (order documents), S12(a)(b), S13, S14, S16.",
+      "depends_on": [],
+      "acceptance": [
+        "No storefront handler derives its subject from request input",
+        "One shared predicate (ApiController::resolveStoreCustomer) carries the decision",
+        "No new 401 on any path a shipped client calls"
+      ],
+      "tests": [
+        "tests/Feature/Security/* (the S19 and SEC-2 suites)",
+        "tests/Feature/Tenancy/* 400 passing"
+      ],
+      "compatibility": "403 used as the refusal code throughout; the Flutter app force-logs-out on 401, so 401 was avoided.",
+      "db": "None.",
+      "evidence": "PR #3 §3; S19, S12, S13, S14, S16 in the security queue",
+      "queue_refs": [
+        "S3",
+        "S12",
+        "S13",
+        "S14",
+        "S16",
+        "S19"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-R-03",
+      "title": "Password recovery and the credential boundary",
+      "workstream": "security",
+      "risk": "high",
+      "status": "DONE",
+      "issue": 11,
+      "scope": [
+        "app/Http/Controllers/Customer/Auth/",
+        "app/Http/Controllers/Auth/",
+        "bootstrap/app.php"
+      ],
+      "existing_status": "Delivered as P01-SEC-10/S15-A and the eleven follow-ups; two OTP POSTs gained throttle:auth.",
+      "depends_on": [],
+      "acceptance": [
+        "Anonymous admin-reset takeover closed",
+        "Both OTP endpoints rate-limited",
+        "API log redaction in place for both loggers"
+      ],
+      "tests": [
+        "tests/Feature/Security/CustomerPasswordResetAdversarialTest.php",
+        "CredentialBoundaryTest.php"
+      ],
+      "compatibility": "No client contract change.",
+      "db": "P01-SEC-13 migration PREPARED and NOT applied — see P1-MIG-02.",
+      "evidence": "PR #3 §4; S15-A, S13 in the security queue",
+      "queue_refs": [
+        "S15-A",
+        "S13",
+        "S4"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-R-04",
+      "title": "Design System foundation (imported from Claude B) and the contrast gate",
+      "workstream": "design-system",
+      "risk": "low",
+      "status": "DONE",
+      "issue": 12,
+      "scope": [
+        "docs/design-system/",
+        "public/css/store-syria-ds.css",
+        "resources/views/"
+      ],
+      "existing_status": "Imported foundation plus one pilot screen; check-contrast.py wired into CI.",
+      "depends_on": [],
+      "acceptance": [
+        "40 token pairs pass WCAG 2.1 in light and dark",
+        "The auto scope cannot drift from dark without failing CI"
+      ],
+      "tests": [
+        "python3 docs/design-system/tools/check-contrast.py (CI, blocking)"
+      ],
+      "compatibility": "Phase 02 owns the interface redesign. This task is foundation maintenance only.",
+      "db": "None.",
+      "evidence": "PR #3 §5; docs/design-system/README.md",
+      "queue_refs": [
+        "DS-*"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-R-05",
+      "title": "Commerce and payment trust boundaries (SEC-14 A-H, COMMERCE-SEC-01/02/03 and follow-up)",
+      "workstream": "payments",
+      "risk": "high",
+      "status": "DONE",
+      "issue": 13,
+      "scope": [
+        "app/Http/Controllers/*Payment*",
+        "app/Services/PaymentService.php",
+        "app/Http/Controllers/Concerns/GuardsGatewayReturn.php",
+        "app/Http/Controllers/Api/ApiController.php"
+      ],
+      "existing_status": "Seven gateway returns, nine order writers, the stock_management precedence bug, the cart-to-order chain and twelve follow-up findings.",
+      "depends_on": [],
+      "acceptance": [
+        "No order writer takes its store, customer, price, shipping or quantity from caller input unchecked",
+        "No basket reaches a stock write without an ownership pre-flight",
+        "Every control removal-checked, and subsumption recorded where a control does not bite alone"
+      ],
+      "tests": [
+        "tests/Feature/Commerce/* (4 files)",
+        "tests/Feature/Security/ForeignProductCartChainTest.php (33)",
+        "tests/Feature/Security/AdminApiOrderStockOwnershipTest.php (3)"
+      ],
+      "compatibility": "Response shapes preserved; ApiResponser::error() stays HTTP 200 with status:0.",
+      "db": "None.",
+      "evidence": "PR #3 §6, §10, §11; S31-S36 in the security queue; CI green on a430d7f5",
+      "queue_refs": [
+        "S30",
+        "S31",
+        "S32",
+        "S33",
+        "S34",
+        "S35",
+        "S36"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-R-06",
+      "title": "Schema containment: GATE F stays unrunnable until released",
+      "workstream": "migrations",
+      "risk": "high",
+      "status": "DONE",
+      "issue": 14,
+      "scope": [
+        "database/migrations/_gate_f_pending/",
+        "database/migrations/_sec13_pending/",
+        ".github/scripts/guard-gate-f-containment.sh"
+      ],
+      "existing_status": "Six money tables parked as non-runnable drafts behind a CI guard that fails if any becomes discoverable.",
+      "depends_on": [],
+      "acceptance": [
+        "guard-gate-f-containment.sh exits 0: 0 of 6 tables created by any discoverable migration",
+        "All six still have a parked draft"
+      ],
+      "tests": [
+        "guard-gate-f-containment.sh (CI, blocking)"
+      ],
+      "compatibility": "None while parked.",
+      "db": "This task is the containment, not the release. Release is P1-MIG-01.",
+      "evidence": "docs/GATE-F-SCHEMA-EXPORT.md; database/migrations/_gate_f_pending/README.md; CI green",
+      "queue_refs": [
+        "GATE F"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-SEC-01",
+      "title": "Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering",
+      "workstream": "security",
+      "risk": "high",
+      "status": "READY",
+      "issue": 15,
+      "scope": [
+        "app/Http/Controllers/Customer/Auth/CustomerLoginController.php",
+        "config/session.php",
+        "bootstrap/app.php"
+      ],
+      "existing_status": "NOT STARTED. The session half of S5 is independent of the token half and needs no owner decision.",
+      "depends_on": [],
+      "acceptance": [
+        "Customer logout invalidates and regenerates the session, symmetric with the web guard",
+        "Session id regenerated on customer login",
+        "SESSION_SAME_SITE has an explicit default rather than null",
+        "The /login CSRF exemption is not satisfied by a prefixed or localised path",
+        "MFA is dispatched after authenticate() and regenerate()"
+      ],
+      "tests": [
+        "Negative: a session id captured before login is not valid after it",
+        "Negative: a prefixed/localised login path is not CSRF-exempt",
+        "Positive: an ordinary customer login and logout still work in both locales"
+      ],
+      "compatibility": "Storefront session behaviour. No API contract change. Logout/login flows must keep working in Arabic and English.",
+      "db": "None.",
+      "evidence": "S5 rows 1-6; CustomerLoginController.php:751 has no invalidate/regenerate (verified)",
+      "queue_refs": [
+        "S5"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-SEC-02",
+      "title": "A merchant with Create Role can grant the six finance permissions they do not hold",
+      "workstream": "security",
+      "risk": "high",
+      "status": "READY",
+      "issue": 16,
+      "scope": [
+        "config/superadminaccess.php",
+        "app/Http/Controllers/RoleController.php",
+        "app/Policies/RolePolicy.php"
+      ],
+      "existing_status": "NOT STARTED. S15-B row 8. The denylist has 13 names and omits the money-moving finance permissions.",
+      "depends_on": [],
+      "acceptance": [
+        "A merchant cannot grant a permission they do not themselves hold",
+        "The platform operator is unaffected",
+        "The denylist is not the only control (positive authorization, not a name blocklist)"
+      ],
+      "tests": [
+        "Negative: merchant with Create Role cannot mint a role carrying each of the six finance permissions",
+        "Positive: a merchant can still create an ordinary role within their own grants"
+      ],
+      "compatibility": "Merchant role management UI keeps working; only the permitted set narrows.",
+      "db": "None.",
+      "evidence": "S15-B row 8; config/superadminaccess.php:3",
+      "queue_refs": [
+        "S15-B"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-SEC-03",
+      "title": "Verify and classify the four unverified order-adjacent surfaces",
+      "workstream": "security",
+      "risk": "medium",
+      "status": "READY",
+      "issue": 17,
+      "scope": [
+        "app/Http/Controllers/OrderController.php",
+        "routes/customer.php"
+      ],
+      "existing_status": "RECORDED, UNVERIFIED. S14 holds four rows with no severity assigned because none was driven to a measurement.",
+      "depends_on": [],
+      "acceptance": [
+        "Each of the four rows is either reproduced with a measurement or refuted in writing",
+        "Anything reproduced gets a severity and either a fix in this task or its own task"
+      ],
+      "tests": [
+        "One driven test per reproduced row; a written refutation per row that does not reproduce"
+      ],
+      "compatibility": "Unknown until verified — that is the point of the task.",
+      "db": "None.",
+      "evidence": "S14; OrderController:563 (order-complete) among them",
+      "queue_refs": [
+        "S14"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-SEC-04",
+      "title": "Route-census gate: module routes classified public vs administrative",
+      "workstream": "security",
+      "risk": "medium",
+      "status": "READY",
+      "issue": 18,
+      "scope": [
+        ".github/scripts/",
+        "routes/",
+        "packages/workdo/*/src/routes/"
+      ],
+      "existing_status": "NOT STARTED. S11 asks for a gate, not more document rows: ['web']-only groups are a pattern across the module tree.",
+      "depends_on": [],
+      "acceptance": [
+        "A script enumerates the resolved route table with modules enabled",
+        "Every route is classified public-storefront or administrative",
+        "An administrative route with no auth middleware fails the gate",
+        "The gate has a non-vacuity floor (a minimum route count)"
+      ],
+      "tests": [
+        "The gate fails on a deliberately ungated administrative route (removal check)",
+        "The gate passes on the current tree"
+      ],
+      "compatibility": "CI only. No application behaviour.",
+      "db": "Needs modules enabled to enumerate: see the add_on_managers premise pattern in CLAUDE.md.",
+      "evidence": "S11; packages/workdo/AutomaticOrderPrinting/src/routes/web.php:24-28",
+      "queue_refs": [
+        "S11"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-SEC-05",
+      "title": "Secret-scanner coverage and the three artefacts that should not be tracked",
+      "workstream": "platform",
+      "risk": "medium",
+      "status": "READY",
+      "issue": 19,
+      "scope": [
+        ".github/scripts/scan-secrets.sh",
+        ".gitignore"
+      ],
+      "existing_status": "NOT STARTED. S9 and S10. The scanner's key list misses the shapes PHP array syntax produces.",
+      "depends_on": [],
+      "acceptance": [
+        "The scanner detects a secret written in PHP array syntax (key not adjacent to the operator)",
+        "The three tracked artefacts are removed from the index and ignored",
+        "error_log is no longer tracked"
+      ],
+      "tests": [
+        "A planted PHP-array secret fails the scanner (removal check)",
+        "The scanner still exits 0 on the current tree"
+      ],
+      "compatibility": "CI only.",
+      "db": "None.",
+      "evidence": "S9, S10",
+      "queue_refs": [
+        "S9",
+        "S10"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-ORD-01",
+      "title": "total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon",
+      "workstream": "orders",
+      "risk": "high",
+      "status": "BACKLOG",
+      "issue": 20,
+      "scope": [
+        "app/Http/Controllers/Api/ApiController.php",
+        "app/Models/Cart.php",
+        "app/Services/OrderTotalReconciler.php"
+      ],
+      "existing_status": "MEASURED, NOT FIXED. S21 and S24. The brace move is small; three things must move with it or fixing this opens them.",
+      "depends_on": [
+        "P1-ORD-02"
+      ],
+      "acceptance": [
+        "A coupon reduces the charged total on every writer that prints it",
+        "apply_coupon honours all coupon types it claims to support",
+        "final_sub_total is overwritten with the server's figure wherever sub_total already is",
+        "No writer charges full price while printing a discount"
+      ],
+      "tests": [
+        "Positive: each coupon type reduces the charged total by the stated amount",
+        "Negative: a caller-supplied sub_total or final_sub_total cannot change the charge",
+        "Regression: place_order and ordersave agree on the same basket"
+      ],
+      "compatibility": "CHANGES CHARGED AMOUNTS. Needs the owner's explicit acceptance of the behaviour change before it ships.",
+      "db": "None.",
+      "evidence": "S21 (four measured defects), S24",
+      "queue_refs": [
+        "S21",
+        "S24"
+      ],
+      "owner_decision": true,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-ORD-02",
+      "title": "Order-total architecture: one server-authoritative total, asserted",
+      "workstream": "orders",
+      "risk": "high",
+      "status": "BACKLOG",
+      "issue": 21,
+      "scope": [
+        "app/Services/OrderTotalReconciler.php",
+        "app/Services/OrderTaxResolver.php"
+      ],
+      "existing_status": "PARTIAL. The reconciler and tax resolver exist and are used on the paths SEC-14 and COMMERCE-SEC-01 touched.",
+      "depends_on": [],
+      "acceptance": [
+        "Every order writer derives its total through one seam",
+        "A posted money field cannot reach a persisted total on any writer",
+        "The reconciler's exact-decimal assertion covers all nine writers"
+      ],
+      "tests": [
+        "A survey test that fails when a writer bypasses the seam (the EnforcedPaymentTypes pattern)"
+      ],
+      "compatibility": "No response-shape change.",
+      "db": "None.",
+      "evidence": "S21; app/Services/OrderTotalReconciler.php",
+      "queue_refs": [
+        "S21"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-ORD-03",
+      "title": "user_delete hard-deletes orders while soft-deleting the account",
+      "workstream": "orders",
+      "risk": "high",
+      "status": "BLOCKED",
+      "issue": 22,
+      "scope": [
+        "app/Http/Controllers/UserController.php",
+        "app/Models/Order.php"
+      ],
+      "existing_status": "VERIFIED, DELIBERATELY NOT ACTED ON by P01-SEC-14 C.",
+      "depends_on": [],
+      "acceptance": [
+        "Deleting a merchant account cannot destroy order history",
+        "Financial rows are not orphaned"
+      ],
+      "tests": [
+        "Negative: a merchant delete leaves orders and financial rows intact and attributable"
+      ],
+      "compatibility": "Changes what account deletion does — and financial retention policy is the owner's call.",
+      "db": "Touches order retention; interacts with GATE F's store_order_financials.",
+      "evidence": "S26 item 1",
+      "queue_refs": [
+        "S26"
+      ],
+      "owner_decision": true,
+      "blocked_on": "Owner decision: financial/order retention policy on account deletion."
+    },
+    {
+      "id": "P1-PAY-01",
+      "title": "The seven remaining explode()-before-empty() crash sites",
+      "workstream": "payments",
+      "risk": "medium",
+      "status": "READY",
+      "issue": 23,
+      "scope": [
+        "app/Services/PaymentService.php",
+        "app/Http/Controllers/PaymentController.php",
+        "app/Http/Controllers/KhaltiPaymnetController.php",
+        "app/Http/Controllers/EasebuzzController.php",
+        "app/Http/Controllers/PaiementProPaymentController.php",
+        "app/Http/Controllers/CinetPayController.php"
+      ],
+      "existing_status": "RECORDED, NOT FIXED. S36-9 fixed the one post-capture copy; seven reachable copies remain.",
+      "depends_on": [],
+      "acceptance": [
+        "Each site tests emptiness before dereferencing",
+        "Each answers its handler's own refusal rather than HTTP 500",
+        "No site's refusal message is new to a shipped client"
+      ],
+      "tests": [
+        "One driven test per site where the state fixture can reach it; a written reason where it cannot"
+      ],
+      "compatibility": "Turns 500s into existing refusals. No new response shape.",
+      "db": "None.",
+      "evidence": "S36-9 residual list with line numbers",
+      "queue_refs": [
+        "S36-9"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-PAY-02",
+      "title": "Idempotency on gateway returns and order writers",
+      "workstream": "payments",
+      "risk": "high",
+      "status": "BACKLOG",
+      "issue": 24,
+      "scope": [
+        "app/Http/Controllers/Concerns/GuardsGatewayReturn.php",
+        "app/Services/"
+      ],
+      "existing_status": "NOT STARTED. No idempotency key exists anywhere; replay is blocked only because the stored state is single-use.",
+      "depends_on": [],
+      "acceptance": [
+        "A replayed gateway return cannot produce a second order or a second charge",
+        "The control does not depend on session state alone",
+        "Replay is refused idempotently, not by crashing"
+      ],
+      "tests": [
+        "Negative: the same return replayed twice yields one order",
+        "Negative: two concurrent returns for one checkout yield one order"
+      ],
+      "compatibility": "No client change if the second call returns the first result.",
+      "db": "May need a table for keys — if so it is a GATE-F-class schema decision and this task splits.",
+      "evidence": "PR #3 §7 'No idempotency key on any return'",
+      "queue_refs": [
+        "S32"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-PAY-03",
+      "title": "Gateway callback authenticity: no return proves a payment moved",
+      "workstream": "payments",
+      "risk": "high",
+      "status": "BLOCKED",
+      "issue": 25,
+      "scope": [
+        "app/Services/PaymentVerificationService.php",
+        "app/Http/Controllers/*Payment*"
+      ],
+      "existing_status": "SEAM BUILT, POSTURE UNCHANGED. 'Paid' is derived through PaymentVerificationService and every unverified write is logged; NMI is the only writer backed by a recorded verification.",
+      "depends_on": [],
+      "acceptance": [
+        "Each enabled gateway's return is verified server-side against the provider, or its writer refuses",
+        "Khalti's amount-unbound verification is bound to its minor-unit convention"
+      ],
+      "tests": [
+        "Per-gateway verification tests against recorded provider fixtures"
+      ],
+      "compatibility": "ENFORCING THIS STOPS MERCHANT WALLETS BEING CREDITED FOR 51 LIVE PAYMENT METHODS until each is verified.",
+      "db": "None.",
+      "evidence": "S32 item 1; PR #3 §7",
+      "queue_refs": [
+        "S32"
+      ],
+      "owner_decision": true,
+      "blocked_on": "Owner decision: which gateways to enforce first, plus provider credentials for verification. Khalti is credential-blocked."
+    },
+    {
+      "id": "P1-PAY-04",
+      "title": "COD settles at order time, which blocks releasing GATE F",
+      "workstream": "payments",
+      "risk": "high",
+      "status": "BLOCKED",
+      "issue": 26,
+      "scope": [
+        "config/services.php",
+        "app/Services/PaymentService.php"
+      ],
+      "existing_status": "PARTIAL. The hardcoded 'Paid' is fixed; COD still settles at order time by default.",
+      "depends_on": [],
+      "acceptance": [
+        "COD settlement timing is explicit and configurable per store",
+        "The default does not credit a wallet before cash is collected"
+      ],
+      "tests": [
+        "Positive: a COD order credits the merchant only at the configured point",
+        "Negative: an unpaid COD order does not produce a wallet credit"
+      ],
+      "compatibility": "Changes when merchants see money. Owner's call.",
+      "db": "PRECONDITION for GATE F: _gate_f_pending/README.md warns that releasing the money tables with this default makes the ledger actively wrong.",
+      "evidence": "config/services.php:157; _gate_f_pending/README.md",
+      "queue_refs": [
+        "GATE F",
+        "S32"
+      ],
+      "owner_decision": true,
+      "blocked_on": "Owner decision on COD settlement timing. Blocks P1-MIG-01."
+    },
+    {
+      "id": "P1-INV-01",
+      "title": "ProductController::update lets a merchant rewrite and restock any store's product",
+      "workstream": "inventory",
+      "risk": "high",
+      "status": "DONE",
+      "issue": 27,
+      "scope": [
+        "app/Http/Controllers/ProductController.php"
+      ],
+      "existing_status": "CONFIRMED BY EXECUTION in this session: a store-A merchant renamed store B's product and set its stock 50 -> 7.",
+      "depends_on": [],
+      "acceptance": [
+        "The bound Product must belong to the caller's store on update, store and destroy",
+        "isAbleTo('Edit Products') is no longer the only check",
+        "A merchant's own product edit is unaffected"
+      ],
+      "tests": [
+        "Negative: cross-store PUT is refused and changes nothing",
+        "Positive: own-store update still works",
+        "MySQL: verified on a real MySQL, because SQLite MASKS this through a NOT NULL column the handler writes as NULL"
+      ],
+      "compatibility": "Merchant product management must keep working; the refusal must not be a 401.",
+      "db": "None. But the MySQL caveat means the test needs the tests/Support/Security/bin pattern.",
+      "evidence": "f522feaf. REPRODUCED BY EXECUTION first: a store-A merchant with Edit Products sent PUT /product/{store B id} and renamed the victim and set product_stock 50->7. Guard copied from destroy()'s shape into update(), edit() and show(). Tests: tests/Feature/Security/MerchantProductOwnershipTest.php, 5 tests / 11 assertions. THREE REMOVAL CHECKS, ALL BITE, each failing exactly its own case. MYSQL: tests/Support/Security/bin/verify-product-ownership-on-mysql.php, 15 checks / 0 failures on 8.0.46 -- establishes that SQLite REFUSES the NULL that update() writes into three NOT NULL columns (masking the defect) while MySQL with strict=>false COERCES it and the write lands, so production was more exposed than the test database. Also measured: update()'s operator exemption is unreachable (Laratrust refuses the operator) and show()/edit()'s is live. Feature/Security + Feature/Tenancy 1,540 passed / 10 skipped / 0 failures; Unit 278; Contract 26; five CI guards exit 0. Adversarial review: two corrections applied (vacuous read-route assertions; an incomplete docblock), three LIVE sites raised as P1-INV-07. FULL FEATURE SUITE on this head: 2,825 testcases -- 2,806 passed, 18,233 assertions, 2 declared failures, 17 declared skips, 0 errors; known-outcome gate EXIT 0 with 17/17 skip reasons parsed (\"the observed outcome set matches the manifest exactly\"). All acceptance criteria verified.",
+      "queue_refs": [
+        "S37",
+        "S37-1"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-INV-02",
+      "title": "OrderController::order_return restocks and marks returned on any store's order",
+      "workstream": "inventory",
+      "risk": "high",
+      "status": "READY",
+      "issue": 28,
+      "scope": [
+        "app/Http/Controllers/OrderController.php",
+        "app/Models/Order.php"
+      ],
+      "existing_status": "CONFIRMED BY EXECUTION: moved store B's variant stock 50 -> 59 and marked B's order returned, then 500'd after the writes landed.",
+      "depends_on": [],
+      "acceptance": [
+        "order_return refuses an order the caller's store does not own",
+        "Order::product_return's unscoped Product/ProductVariant lookups are paired to the order",
+        "The route carries a permission check, not just the auth group"
+      ],
+      "tests": [
+        "Negative: cross-store return is refused, no stock moves, the victim's order is unchanged",
+        "Positive: an own-store return still restocks correctly"
+      ],
+      "compatibility": "Merchant returns keep working.",
+      "db": "None.",
+      "evidence": "S37-2; OrderController.php:651, Order.php:637-666",
+      "queue_refs": [
+        "S37",
+        "S37-2"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-INV-03",
+      "title": "PosController::store writes product_stock to an absolute value from the POS session",
+      "workstream": "inventory",
+      "risk": "high",
+      "status": "BACKLOG",
+      "issue": 29,
+      "scope": [
+        "app/Http/Controllers/PosController.php",
+        "app/Http/Controllers/ProductController.php"
+      ],
+      "existing_status": "CONFIRMED BY EXECUTION: seeding the POS session with store B's product moved B's product_stock 50 -> 49. Held at BACKLOG rather than READY because it depends on P1-INV-01: both change ProductController, and the directive forbids two agents editing the same working file.",
+      "depends_on": [
+        "P1-INV-01"
+      ],
+      "acceptance": [
+        "The POS sale cannot write a product the caller's store does not own",
+        "Both session feeders (addToCart, updateCart) resolve products store-scoped",
+        "updateCart bounds its quantity (its current guard compares a bool to a number)",
+        "An absolute stock write is replaced by a decrement, or justified in writing"
+      ],
+      "tests": [
+        "Negative: a seeded foreign product cannot be sold through POS",
+        "Negative: an unbounded updateCart quantity is refused",
+        "Positive: an ordinary POS sale still decrements correctly"
+      ],
+      "compatibility": "POS must keep working for merchants who use it.",
+      "db": "None.",
+      "evidence": "S37-3; PosController.php:205, ProductController.php:2597 and updateCart",
+      "queue_refs": [
+        "S37",
+        "S37-3"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-INV-04",
+      "title": "WoocomProductController::edit overwrites a foreign product and reassigns its store_id",
+      "workstream": "inventory",
+      "risk": "high",
+      "status": "READY",
+      "issue": 30,
+      "scope": [
+        "app/Http/Controllers/WoocomProductController.php"
+      ],
+      "existing_status": "CODE-VERIFIED ONLY. The only one of the four S37 sites not confirmed by execution; the most destructive on paper because it moves ownership.",
+      "depends_on": [],
+      "acceptance": [
+        "The WoocommerceConection lookup carries a store predicate, like its category sibling and the Shopify twin",
+        "No code path reassigns an existing product's store_id",
+        "Reproduced or refuted by execution before the fix is called proven"
+      ],
+      "tests": [
+        "Negative: a foreign woocom product cannot be edited or re-owned",
+        "A stubbed WooCommerce response drives the path (no live API call)"
+      ],
+      "compatibility": "WooCommerce import keeps working for its owner.",
+      "db": "None.",
+      "evidence": "S37-4; WoocomProductController.php:369-389 vs ShopifyProductController.php:533",
+      "queue_refs": [
+        "S37",
+        "S37-4"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-INV-05",
+      "title": "Concurrency and overselling: reservation semantics across the nine writers",
+      "workstream": "inventory",
+      "risk": "medium",
+      "status": "BACKLOG",
+      "issue": 31,
+      "scope": [
+        "app/Services/ProductStockService.php",
+        "app/Http/Controllers/Concerns/AppliesCartStockChanges.php"
+      ],
+      "existing_status": "PARTIAL. ProductStockService is the only atomic primitive and the nine decrement sites use it; several restock paths are still read-modify-write.",
+      "depends_on": [
+        "P1-INV-02"
+      ],
+      "acceptance": [
+        "Every stock mutation goes through the atomic primitive",
+        "Two concurrent checkouts of the last unit cannot both succeed",
+        "Cancellation and return restore exactly what the order took"
+      ],
+      "tests": [
+        "A concurrency test driving two simultaneous checkouts",
+        "Positive: cancel then re-order returns the stock to its starting value"
+      ],
+      "compatibility": "No contract change.",
+      "db": "None (SQLite cannot prove the concurrency half; needs the MySQL harness).",
+      "evidence": "ProductStockService.php:107,189,237,248; Order::product_return read-modify-write",
+      "queue_refs": [
+        "S36",
+        "S37-2"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-INV-06",
+      "title": "Two vendored module cart writers can still plant an unvalidated cart row",
+      "workstream": "inventory",
+      "risk": "medium",
+      "status": "BLOCKED",
+      "issue": 32,
+      "scope": [
+        "packages/workdo/BoostSales/",
+        "packages/workdo/FrequentlyProduct/",
+        "routes/"
+      ],
+      "existing_status": "RECORDED. Both write Product::find() unscoped with a raw variant_id and qty. The reader-side pre-flights are what contain them today.",
+      "depends_on": [],
+      "acceptance": [
+        "Either an upstream fix, or a host route middleware over the two module cart routes",
+        "No packages/workdo/ file is edited"
+      ],
+      "tests": [
+        "Negative: the two module cart routes refuse a foreign product and an unusable quantity"
+      ],
+      "compatibility": "Module behaviour for stores that have them enabled.",
+      "db": "None.",
+      "evidence": "S30 remaining rows; BoostSalesController.php:83-92, FrequentlyProductController.php:205",
+      "queue_refs": [
+        "S30"
+      ],
+      "owner_decision": true,
+      "blocked_on": "Owner decision: upstream module fix vs a host route middleware over vendored routes."
+    },
+    {
+      "id": "P1-PLT-01",
+      "title": "MySQL validation harness for schema-sensitive evidence",
+      "workstream": "platform",
+      "risk": "high",
+      "status": "DONE",
+      "issue": 33,
+      "scope": [
+        "tests/Support/Security/bin/",
+        "docs/development/phase-1/"
+      ],
+      "existing_status": "PARTIAL. verify-sec13-migration-on-mysql.php shows the pattern; nothing generalises it.",
+      "depends_on": [],
+      "acceptance": [
+        "A documented, repeatable way to run a schema-sensitive test against a real MySQL",
+        "It creates and drops its own throwaway database and states its preconditions",
+        "At least one existing SQLite-masked finding is re-verified through it"
+      ],
+      "tests": [
+        "The harness refuses to run against a non-throwaway database",
+        "P1-INV-01's cross-store update is verified through it"
+      ],
+      "compatibility": "Test tooling only.",
+      "db": "Creates and drops its OWN database. Never touches a persistent one.",
+      "evidence": "f522feaf. This container had NO MySQL server or client, so the four *-on-mysql.php scripts the repository already carried had never been executed here. MySQL 8.0.46 provisioned; tests/Support/Security/bin/run-mysql-verifications.sh runs all of them against one throwaway server: PASSED 4 / FAILED 0 (sec13 31 checks, product-ownership 15, coupon 6, cart-quantity all). Refusal verified by execution: a database name without 'verify'/'sec13' exits 2. After the run the server holds only the four default schemas. Pointing phpunit at MySQL was TRIED and correctly ABORTED by tests/Support/TestDatabaseGuard.php (RefreshDatabase would drop every table) -- which is why this project uses standalone scripts; recorded so the next session does not repeat it. The server is ephemeral and is NOT wired into CI (an owner runtime decision).",
+      "queue_refs": [
+        "MONEY-01",
+        "SCHEMA-08"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-PLT-02",
+      "title": "Two order writers persist a NULL store_id",
+      "workstream": "platform",
+      "risk": "high",
+      "status": "READY",
+      "issue": 34,
+      "scope": [
+        "app/Http/Controllers/MercadoPaymentController.php",
+        "app/Http/Controllers/SkrillPaymentController.php"
+      ],
+      "existing_status": "IDENTIFIED, NOT FIXED. S6's load-bearing first step: these two writers must stop creating NULL-store rows before any tightening of null_tenant can be considered.",
+      "depends_on": [],
+      "acceptance": [
+        "Neither writer can persist an order with a NULL store_id",
+        "Existing NULL-store rows are COUNTED and reported (not modified)"
+      ],
+      "tests": [
+        "Negative: each writer refuses or resolves a store rather than writing NULL",
+        "A reporting script counts existing NULL-store rows without changing them"
+      ],
+      "compatibility": "No contract change.",
+      "db": "READ-ONLY on live data: counting only. Reconciling existing rows is a separate owner-gated task.",
+      "evidence": "S6; MercadoPaymentController.php:86, SkrillPaymentController.php:106",
+      "queue_refs": [
+        "S6"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-PLT-03",
+      "title": "Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites",
+      "workstream": "platform",
+      "risk": "high",
+      "status": "BACKLOG",
+      "issue": 35,
+      "scope": [
+        "config/tenancy.php",
+        "app/Models/Concerns/BelongsToStore.php"
+      ],
+      "existing_status": "PARTIAL. 10 of 93 models enforced; null_tenant is 'open' and the helpers that must precede tightening it are unused.",
+      "depends_on": [
+        "P1-PLT-02"
+      ],
+      "acceptance": [
+        "The cross-tenant escape hatches are used explicitly wherever a query must cross tenants",
+        "A documented inventory of which models are scoped and which are deliberately not",
+        "null_tenant tightening is a separate, evidence-backed proposal"
+      ],
+      "tests": [
+        "Tenancy suite stays green",
+        "A test that fails if a scoped model gains an implicit cross-tenant read"
+      ],
+      "compatibility": "Tightening the scope wrongly empties the storefront and stops every job — that is why this is staged.",
+      "db": "None.",
+      "evidence": "S6; config/tenancy.php:391",
+      "queue_refs": [
+        "S6"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-PLT-04",
+      "title": "Module loading swallows every exception with no log line",
+      "workstream": "platform",
+      "risk": "medium",
+      "status": "BLOCKED",
+      "issue": 36,
+      "scope": [
+        "app/Providers/PackageServiceProvider.php",
+        "app/Helper/helper.php"
+      ],
+      "existing_status": "VERIFIED. 'catch (\\Exception $e) { // Handle silently }' at PackageServiceProvider.php:54-57, plus three disagreeing entitlement sources.",
+      "depends_on": [],
+      "acceptance": [
+        "A broken module install reports instead of disappearing",
+        "module_is_active() answers from one source of truth"
+      ],
+      "tests": [
+        "A deliberately broken module produces a log line and does not take the app down"
+      ],
+      "compatibility": "Makes a broken install start reporting — a visible change in what a deployment does.",
+      "db": "None.",
+      "evidence": "S7; PackageServiceProvider.php:54-57; helper.php:1277-1343",
+      "queue_refs": [
+        "S7"
+      ],
+      "owner_decision": true,
+      "blocked_on": "Owner decision: log-and-continue vs per-module catch (both change deployment behaviour)."
+    },
+    {
+      "id": "P1-PLT-05",
+      "title": "Observability: unverified-payment and refusal logging reaches somewhere an operator looks",
+      "workstream": "platform",
+      "risk": "medium",
+      "status": "BACKLOG",
+      "issue": 37,
+      "scope": [
+        "app/Services/PaymentVerificationService.php",
+        "config/larabug.php",
+        "config/logging.php"
+      ],
+      "existing_status": "PARTIAL. Refusals and unverified 'Paid' writes are logged; nothing asserts an operator can see them, and larabug's 5-name blacklist is unreviewed.",
+      "depends_on": [],
+      "acceptance": [
+        "The security-relevant log lines added across Phase 01 are enumerated in one place",
+        "A documented channel/retention expectation for them",
+        "larabug's blacklist reviewed before anyone enables it"
+      ],
+      "tests": [
+        "A test that the refusal paths emit their line with store, customer and path"
+      ],
+      "compatibility": "No user-visible change.",
+      "db": "None.",
+      "evidence": "S4 item 4; config/larabug.php:99-111",
+      "queue_refs": [
+        "S4"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-MIG-01",
+      "title": "GATE F: release the six money-bearing tables",
+      "workstream": "migrations",
+      "risk": "high",
+      "status": "BLOCKED",
+      "issue": 38,
+      "scope": [
+        "database/migrations/_gate_f_pending/"
+      ],
+      "existing_status": "CONTAINED. Six money tables created by no migration; 15 of the suite's 17 accepted skips name one of them.",
+      "depends_on": [
+        "P1-PAY-04",
+        "P1-MIG-03"
+      ],
+      "acceptance": [
+        "Each of the six tables has a runnable, reviewed migration",
+        "products.cost_price and the two delivery_boys columns exist first (P1-MIG-03)",
+        "COD settlement timing is settled first (P1-PAY-04)",
+        "The 15 blocked skips become real assertions",
+        "An approved recovery plan exists before anything is applied anywhere"
+      ],
+      "tests": [
+        "The 15 currently-skipped financial tests run and pass",
+        "guard-gate-f-containment.sh is updated deliberately, not bypassed"
+      ],
+      "compatibility": "Creating these tables makes a silently dead subsystem start working: wallets, ledgers, payouts, P&L, FX, courier commission.",
+      "db": "THIS IS THE MIGRATION TASK. No migration is applied to any persistent database without owner approval and a recovery plan.",
+      "evidence": "docs/GATE-F-SCHEMA-EXPORT.md; _gate_f_pending/README.md; known-test-outcomes.json (15 skips)",
+      "queue_refs": [
+        "GATE F",
+        "S8"
+      ],
+      "owner_decision": true,
+      "blocked_on": "Owner approval to release GATE F, plus P1-PAY-04 (COD timing) and P1-MIG-03 (cost inputs). Applying it is also gated on an approved recovery plan."
+    },
+    {
+      "id": "P1-MIG-02",
+      "title": "customers.password_otp is INTEGER while the web reset writes a 60-char bcrypt hash",
+      "workstream": "migrations",
+      "risk": "high",
+      "status": "BLOCKED",
+      "issue": 39,
+      "scope": [
+        "database/migrations/_sec13_pending/"
+      ],
+      "existing_status": "MIGRATION PREPARED AND NOT APPLIED. SQLite's type affinity hides it; this is the defect that proves the MySQL caveat.",
+      "depends_on": [
+        "P1-PLT-01"
+      ],
+      "acceptance": [
+        "The column holds the value the reset writes, on MySQL",
+        "Verified by the MySQL harness, not by SQLite"
+      ],
+      "tests": [
+        "tests/Support/Security/bin/verify-sec13-migration-on-mysql.php, run and recorded"
+      ],
+      "compatibility": "Password reset must keep working for existing OTPs — see docs/security/P01-OTP-LENGTH-COMPATIBILITY.md.",
+      "db": "A real migration. Owner approval required before it is applied anywhere persistent.",
+      "evidence": "P01-SEC-13; docs/security/P01-OTP-LENGTH-COMPATIBILITY.md UPDATE (f522feaf): now VERIFIED ON REAL MYSQL 8.0.46 -- verify-sec13-migration-on-mysql.php, 31 checks / 0 failures, covering the coercion, the widening, data survival through up()+down(), and that the web reset can complete. The evidence gap is closed; APPLICATION remains owner-gated and nothing was applied to any persistent database.",
+      "queue_refs": [
+        "S13",
+        "P01-SEC-13"
+      ],
+      "owner_decision": true,
+      "blocked_on": "Owner approval to apply a migration; the draft is .php.draft so Laravel cannot load it today."
+    },
+    {
+      "id": "P1-MIG-03",
+      "title": "Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns",
+      "workstream": "migrations",
+      "risk": "high",
+      "status": "BLOCKED",
+      "issue": 40,
+      "scope": [
+        "database/migrations/",
+        "app/Models/DeliveryBoy.php",
+        "app/Models/Product.php"
+      ],
+      "existing_status": "UNDECLARED. cost_price is read and written as money; the two delivery_boys columns are fillable and written, and both write sites are gated on is_commission_enabled, so two handlers 500 for everyone.",
+      "depends_on": [],
+      "acceptance": [
+        "Each column has a reviewed migration draft",
+        "Declaring cost_price precedes store_order_financials, or the P&L is all-margin",
+        "The two 500ing handlers are reachable once the columns exist"
+      ],
+      "tests": [
+        "The two commission handlers stop 500ing",
+        "A P&L row computed with a real cost input"
+      ],
+      "compatibility": "Two merchant-facing handlers currently fail for everyone; fixing the schema makes them live.",
+      "db": "Drafts only in this task. Application is owner-gated with P1-MIG-01.",
+      "evidence": "SCHEMA-GAP rows; OrderController.php:1315, DashboardController.php:8329",
+      "queue_refs": [
+        "GATE F",
+        "SCHEMA-GAP"
+      ],
+      "owner_decision": true,
+      "blocked_on": "Owner approval, together with P1-MIG-01."
+    },
+    {
+      "id": "P1-MIG-04",
+      "title": "SCHEMA-01: nine more tables live code uses with no migration",
+      "workstream": "migrations",
+      "risk": "medium",
+      "status": "BLOCKED",
+      "issue": 41,
+      "scope": [
+        "database/migrations/"
+      ],
+      "existing_status": "UNDECLARED, MOSTLY NOT DRAFTED. otp_integrations, delivery_boy_devices, delivery_boy_notifications, zid_stores, zid_orders, zid_events, newsletters.user_id, and two retired chatwoot tables.",
+      "depends_on": [],
+      "acceptance": [
+        "Each table is either drafted with a reviewed migration or recorded as deliberately retired",
+        "zid_orders and newsletters.user_id unblock their two declared test skips"
+      ],
+      "tests": [
+        "The two skips blocked on these become real assertions"
+      ],
+      "compatibility": "zid_* holds integration credentials and is written by an unauthenticated ingress — see the Lynomia contract rows.",
+      "db": "Drafts only. Owner-gated application.",
+      "evidence": "SCHEMA-01 rows; known-test-outcomes.json skips 8 and 9",
+      "queue_refs": [
+        "SCHEMA-01"
+      ],
+      "owner_decision": true,
+      "blocked_on": "Owner approval; also needs a decision on the two retired chatwoot tables (retain or drop)."
+    },
+    {
+      "id": "P1-OWN-01",
+      "title": "BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour",
+      "workstream": "security",
+      "risk": "high",
+      "status": "READY",
+      "issue": 42,
+      "scope": [
+        "packages/workdo/BackupRestore/"
+      ],
+      "existing_status": "OWNER CONFIRMED 2026-10-19: the BackupRestore module is DISABLED on the Store Syria server. The IMMEDIATE ACTIVATION RISK IS THEREFORE MITIGATED -- the unauthenticated route to the whole database and .env is not reachable while the module is not loaded. The row is NOT closed: the owner's confirmation is about the server's current state, not about what the code does, and two things remain verifiable here without touching the server or enabling anything -- whether a disabled module really registers no routes, and what the loader does with a module whose state changes. Previously BLOCKED on exactly the question the owner has now answered.",
+      "depends_on": [],
+      "acceptance": [
+        "A regression test asserts the BackupRestore routes are NOT registered when the module is not enabled",
+        "The route-registration path is read and documented: what `add_on_managers.is_enable` actually gates, and what module_is_active() answers for each of its three disagreeing sources",
+        "The exposure that WOULD exist if the module were enabled is written up with its exact routes and middleware, so the owner can decide before ever enabling it",
+        "The host-side containment steps are specified and ready to apply (deny storage/ and *_Backup in the document root, artefacts out of the web root, no chmod 0777, DB password off the command line) -- specified, NOT applied to any server",
+        "No module file is edited (packages/workdo/ is vendored) and the module is not enabled"
+      ],
+      "tests": [
+        "Negative: with no add_on_managers row, the BackupRestore routes resolve to nothing (404), asserted against the real route table",
+        "Premise test: the same assertion would FAIL if the module were loaded -- so the test is not vacuous (see CLAUDE.md on module loading in tests)"
+      ],
+      "compatibility": "If active, this is an incident, not a backlog row.",
+      "db": "None (containment is host-side only).",
+      "evidence": "Owner confirmation 2026-10-19 that the module is DISABLED. Code evidence: packages/workdo/BackupRestore/src/routes/web.php:17-19 (auth + PlanModuleCheck only); app/Providers/PackageServiceProvider.php:54-57 (the loader's silent catch). Verification pending.",
+      "queue_refs": [
+        "S1"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-OWN-02",
+      "title": "Secret rotation: APP_KEY and four tracked config secrets",
+      "workstream": "security",
+      "risk": "high",
+      "status": "BLOCKED",
+      "issue": 43,
+      "scope": [
+        "config/services.php",
+        "config/myfatoorah.php",
+        "config/jwt.php"
+      ],
+      "existing_status": "OPEN. APP_KEY is in git history and unrotated, so Crypt::encrypt() is an encoding, not a control.",
+      "depends_on": [],
+      "acceptance": [
+        "Rotation executed per docs/security/SECRET-ROTATION-CHECKLIST.md",
+        "The Zid secret is provisioned in the environment BEFORE it is moved out of config",
+        "An APP_KEY rotation is preceded by an inventory of every encrypted-cast column"
+      ],
+      "tests": [
+        "A test that no tracked config file holds a literal secret"
+      ],
+      "compatibility": "Rotating APP_KEY without re-encrypting breaks every encrypted column.",
+      "db": "Re-encryption pass if APP_KEY rotates.",
+      "evidence": "S2; docs/security/SECRET-ROTATION-CHECKLIST.md",
+      "queue_refs": [
+        "S2"
+      ],
+      "owner_decision": true,
+      "blocked_on": "Owner operation: rotation needs live credentials. Out of this session's authority."
+    },
+    {
+      "id": "P1-OWN-03",
+      "title": "The compromised API log on the running server",
+      "workstream": "security",
+      "risk": "high",
+      "status": "BLOCKED",
+      "issue": 44,
+      "scope": [
+        "storage/logs/"
+      ],
+      "existing_status": "REDACTION LANDED; the existing material is untouched.",
+      "depends_on": [],
+      "acceptance": [
+        "Up to 15 days of plaintext passwords, OTPs and bearer tokens are treated as compromised",
+        "A retention decision is recorded for API request/response bodies"
+      ],
+      "tests": [
+        "None — this is an operations task, not a code task."
+      ],
+      "compatibility": "Rotation of anything found there is customer-visible.",
+      "db": "None.",
+      "evidence": "S4 item 1",
+      "queue_refs": [
+        "S4"
+      ],
+      "owner_decision": true,
+      "blocked_on": "Owner only: requires access to the running server. Past malicious use cannot be determined from the repository."
+    },
+    {
+      "id": "P1-OWN-04",
+      "title": "Token lifetime and abilities for clients already on merchants' phones",
+      "workstream": "security",
+      "risk": "high",
+      "status": "BLOCKED",
+      "issue": 45,
+      "scope": [
+        "config/",
+        "app/Http/Middleware/CustomAuth.php"
+      ],
+      "existing_status": "OPEN. Sanctum tokens never expire, all carry ['*'], CheckAbilities is imported and never used, and there is no refresh path for any client.",
+      "depends_on": [],
+      "acceptance": [
+        "A decision on expiry and abilities, with a compatibility window for shipped binaries",
+        "Api\\AuthController::login is routed, or its absence is recorded as intended"
+      ],
+      "tests": [
+        "Negative: an expired token is refused with 403, not 401 (401 force-logs-out the Flutter app)"
+      ],
+      "compatibility": "BREAKS CLIENTS ALREADY INSTALLED unless staged. The Flutter app force-logs-out on any 401.",
+      "db": "None.",
+      "evidence": "S4 item 2; docs/security/P01-TOKEN-EXPIRY-PROPOSAL.md",
+      "queue_refs": [
+        "S4",
+        "S5"
+      ],
+      "owner_decision": true,
+      "blocked_on": "Owner decision plus a client release window."
+    },
+    {
+      "id": "P1-OWN-05",
+      "title": "Anonymous order-document access (customerpayment) and tooling decisions",
+      "workstream": "platform",
+      "risk": "medium",
+      "status": "BLOCKED",
+      "issue": 46,
+      "scope": [
+        "routes/customer.php",
+        "pint.json",
+        "docs/design-system/tools/"
+      ],
+      "existing_status": "OPEN. Three separate owner choices grouped so they do not each sit as a stale task: the anonymous customerpayment document (S12-c), laravel/pint adoption, and the unwired browser half of the design-system checks.",
+      "depends_on": [],
+      "acceptance": [
+        "S12-c: a scoped expiring document token, or link-bearer access accepted in writing",
+        "pint: a pint.json codifying the existing style, or an authorised reformatting pass",
+        "browser checks: wired with Playwright in CI, or left a documented manual run"
+      ],
+      "tests": [
+        "S12-c: a negative test for an unauthenticated document fetch once the decision is made"
+      ],
+      "compatibility": "S12-c affects customer-facing document links. pint would touch every file.",
+      "db": "None.",
+      "evidence": "S12-c; PR #3 §1 and §7",
+      "queue_refs": [
+        "S12-c",
+        "DS-13",
+        "DS-21",
+        "DS-23"
+      ],
+      "owner_decision": true,
+      "blocked_on": "Three owner decisions. No implementation can be chosen without them."
+    },
+    {
+      "id": "P1-OWN-06",
+      "title": "Branch protection and required checks on main",
+      "workstream": "platform",
+      "risk": "medium",
+      "status": "BLOCKED",
+      "issue": 47,
+      "scope": [
+        ".github/"
+      ],
+      "existing_status": "OPEN. What enforces the sensitive-diff checklist on a push is branch protection requiring pull requests — a repository setting no workflow can assert.",
+      "depends_on": [],
+      "acceptance": [
+        "main requires a pull request",
+        "The required checks include both Tests jobs, the merge-base gate and the attestation"
+      ],
+      "tests": [
+        "None — a repository setting."
+      ],
+      "compatibility": "None.",
+      "db": "None.",
+      "evidence": "PR #3 §2 'Reporting is not reviewing'",
+      "queue_refs": [
+        "S9"
+      ],
+      "owner_decision": true,
+      "blocked_on": "Repository owner setting. Cannot be scripted from a session."
+    },
+    {
+      "id": "P1-INV-07",
+      "title": "Three more unchecked ProductController routes: media delete, variant delete, and a request-id read leak",
+      "workstream": "inventory",
+      "risk": "high",
+      "status": "DONE",
+      "issue": 48,
+      "scope": [
+        "app/Http/Controllers/ProductController.php",
+        "routes/web.php"
+      ],
+      "existing_status": "LIVE, found by the adversarial authz review of P1-INV-01, which was asked whether that fix had guarded one door and left another open. `file_delete` (:1956) unlinks another store's media from DISK with no permission and no ownership check; `product_attribute_delete` (:2000) deletes another store's variant and its stock; `attribute_combination_edit` (:1972) resolves `Product::find($request->id)` from REQUEST INPUT, so route-model binding and P1-INV-01's guard do not apply, and renders the foreign product.",
+      "depends_on": [
+        "P1-INV-01"
+      ],
+      "acceptance": [
+        "Each of the three refuses an object belonging to another store, before any read or write",
+        "file_delete cannot unlink another store's file, and the decision is made before File::delete()",
+        "product_attribute_delete cannot delete another store's variant or its stock",
+        "attribute_combination_edit resolves its product with a store predicate despite the id coming from request input",
+        "Each gains the permission limb its siblings have, or the omission is recorded with a reason",
+        "The platform operator is handled as in update()/destroy()"
+      ],
+      "tests": [
+        "Negative per route: a cross-store id changes nothing -- for file_delete, the file still exists on disk",
+        "Positive control per route: the owner's own media/variant/product still works",
+        "Removal check on each guard"
+      ],
+      "compatibility": "Merchant media and variant management must keep working; refusal shape matches the controller's existing redirect convention.",
+      "db": "None.",
+      "evidence": "Three guards plus path containment, in ProductController::file_delete, ::product_attribute_delete and ::attribute_combination_edit, resolved through the variant's PRODUCT rather than the variant's own nullable store_id. Tests: tests/Feature/Security/MerchantProductOwnershipTest.php -- 12 passed / 29 assertions, each route with a cross-tenant negative AND a positive control. FIVE REMOVAL CHECKS, ALL BITE: file_delete ownership; file_delete path containment (replacing it with an unconditional File::delete() DELETES a file outside uploads/ -- traversal proven by execution); product_attribute_delete ownership; attribute_combination_edit ownership; and the combination READ LEAK itself (with the guard disabled, the victim's variant stock 987654 is rendered into the attacker's response -- measured). Both deletes answer 403, not a 200 with an error body, because BOTH callers (attribute_combinations_edit.blade.php:319-324 and attribute_combinations_data.blade.php:389-394) act optimistically on any 2xx and ignore the payload. FULL FEATURE GATE PASSED at this tree: 2832 testcases, 2 declared failures, 17 declared skips, 0 errors, nothing undeclared, assert-known-test-outcomes exit 0. CORRECTIONS RECORDED, all three from adversarial review of this package's own work: (1) the path-containment check bit the first time only because an earlier test had leaked uploads/{id}/ -- a tearDown now cleans up (uploads/ is not gitignored) and the traversal test creates that directory itself. (2) the combination negative asserted on a product name the view never echoes, so it could not fail either way; it now builds a RESOLVING variant and asserts on the stock the view does echo, with the leak assertion placed BEFORE the status assertion so the removal check reports the security claim rather than a status mismatch. (3) the positive control asserted only assertNotSame(302), which a 500 satisfies; it now asserts 200 AND that the owner's own variant stock is present -- proven load-bearing by posting a non-matching option name, which fails it. Also recorded: grantPermission('Edit Products') is INERT for these three routes (isAbleTo appears 0 times in all three bodies), so it is not the control here; the missing permission limbs are queued as P1-INV-10.",
+      "queue_refs": [
+        "S37-1"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-INV-08",
+      "title": "CategoryController destroys and rewrites another store's categories, product media, variants and live carts",
+      "workstream": "inventory",
+      "risk": "critical",
+      "status": "READY",
+      "issue": 49,
+      "scope": [
+        "app/Http/Controllers/CategoryController.php",
+        "app/Models/Category.php"
+      ],
+      "existing_status": "LIVE AND VERIFIED BY READING THE WHOLE CALL CHAIN in this session, raised out of the P1-INV-07 work. `DELETE /category/{id}` (Route::resource, routes/web.php:846) resolves `Category::find($id)` with no store predicate -- `Category` is absent from config/tenancy.php's scoped_models (grep -c \"Category::class\" -> 0) and the model registers no global scope. It then iterates `$mainCategory->product_details`, a plain hasMany(Product::class,'category_id') on the equally unscoped Product, and calls Product::productImageDelete() on each: that UNLINKS FROM DISK every product image, the cover image, the downloadable product and the preview video, and DELETES all product_images rows and all product_variants rows (and the stock they carry) -- neither model carries BelongsToStore and neither is allowlisted, so nothing narrows those two deletes. CORRECTION, made before acting on this row: the first draft also claimed the Cart delete at Product.php:659 destroys the victim's shoppers' baskets. IT DOES NOT in this request context -- App\\Models\\Cart carries BelongsToStore (Cart.php:17) AND is allowlisted (config/tenancy.php:298), so with the attacker's tenant resolved StoreScope compiles `AND store_id = <attacker>` and that delete matches no victim row. It holds only because a tenant resolves: StoreScope fails open on a null tenant by design, so the same call reached from a queued job, a scheduled command, or an operator with no users.current_store deletes EVERY store's cart rows for that product -- a second, narrower exposure on the same line, and the reason the fix belongs in destroy()'s own predicate rather than in trusting the scope. The only getCurrentStore() in the method is the child-category guard, which asks whether the VICTIM category's children belong to the ATTACKER's store; for a foreign category that is false, so the guard waves the deletion through and orphans the victim's child categories. More severe than the three sites P1-INV-07 closed, because disk unlinking is not recoverable from the application. SECOND LIVE SITE IN THE SAME CONTROLLER, read in the same pass: `update()` (:174, PUT category/{category}) is route-model-bound with `isAbleTo('Edit Product Category')` as its only authorization -- the exact shape P1-INV-01 closed on ProductController. It renames a foreign category, rewrites its slug, `parent_id` (so a foreign category can be reparented under one of the attacker's own), `trending` and `status`, and on an image upload calls `Utility::changeStorageLimit(\\Auth::user()->creatorId(), $file_path)` which UNLINKS the victim's existing image from disk and debits the attacker's quota, then writes the replacement into `$dir = 'uploads/' . getCurrentStore()` -- the ATTACKER's upload directory. The other two resource methods were checked and are NOT defects: `edit($id)` already scopes with `Category::where('store_id', getCurrentStore())->find($id)`, and `show(Category $category)` has an empty body.",
+      "depends_on": [
+        "P1-INV-07"
+      ],
+      "acceptance": [
+        "destroy() refuses a category belonging to another store BEFORE Category::categoryImageDelete(), which is the first destructive call",
+        "update() refuses a foreign category before any write and before any File unlink",
+        "The platform operator is exempt via UserPolicy::PLATFORM_ADMIN in both, as in ProductController::destroy",
+        "The child-category guard in destroy() is store-correct: it must ask about the category's OWN store, not getCurrentStore()",
+        "edit() and show() are left alone, with the reason recorded: edit() already scopes its lookup and show() has an empty body",
+        "No change to the refusal shape a merchant already sees for their own categories",
+        "The Cart delete inside productImageDelete is covered by destroy()'s own predicate, not left to StoreScope -- which fails open when no tenant resolves"
+      ],
+      "tests": [
+        "destroy negative: a store-A merchant WITH 'Delete Product Category' deleting store B's category changes nothing -- assert the FILES still exist on disk, and that product_images, product_variants and carts rows survive, all through withoutGlobalScopes()",
+        "destroy negative: the child-category guard does not become a bypass -- a victim category WITH children is still refused",
+        "update negative: a cross-store PUT changes no column on the victim category and unlinks no file",
+        "Positive control per method: the owner's own category still deletes and still updates, media included",
+        "Removal check on each guard and on the child-guard correction, separately",
+        "destroy negative: assert through withoutGlobalScopes() that the victim's carts rows survive, so the claim rests on the new predicate rather than on StoreScope"
+      ],
+      "compatibility": "Merchant category management must keep working unchanged; refusal uses the controller's existing redirect-with-error convention.",
+      "db": "None.",
+      "evidence": "",
+      "queue_refs": [
+        "S38-1"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-INV-09",
+      "title": "Stored media paths are expanded as glob patterns and unlinked with no uploads-root containment",
+      "workstream": "inventory",
+      "risk": "medium",
+      "status": "BACKLOG",
+      "issue": 50,
+      "scope": [
+        "app/Models/Utility.php",
+        "app/Models/Product.php",
+        "app/Http/Controllers/ProductController.php",
+        "app/Http/Controllers/Api/DashboardController.php"
+      ],
+      "existing_status": "HARDENING WITH A LATENT TRIGGER, not a live breach -- and that correction is the point of this row. Utility::changeproductStorageLimit (app/Models/Utility.php:857-886) does `$pattern = base_path($file_p); \\File::glob($pattern)` and then unlinks EVERY match, so a stored path is treated as a glob pattern, with no containment. The same absence of containment holds in five read-and-delete loops over other_description_api (Product.php:667, ProductController.php:1817, Api/DashboardController.php:2183, and vendored copies in AuctionProduct and DigitalProduct). An adversarial review called this a merchant-reachable arbitrary file delete; VERIFICATION DID NOT SUPPORT THAT on the code in this repository: other_description_api has FIVE readers and ZERO writers anywhere in the repo, and image_path/cover_image_path/downloadable_product/preview_content are all written from the upload helper's generated `$path['url']`, never from raw request input. So the primitive and the missing containment are real; no shipped host write path plants a traversing or globbing value today.",
+      "depends_on": [
+        "P1-INV-08"
+      ],
+      "acceptance": [
+        "A single shared containment helper -- promoted from ProductController::isInsideUploadsRoot(), added by P1-INV-07 -- is the only thing that authorises an unlink of a stored media path",
+        "Product::productImageDelete and Utility::changeproductStorageLimit both go through it",
+        "A stored value containing a glob metacharacter is refused rather than expanded",
+        "A refused path still removes its database row, as P1-INV-07 established, so a bad stored value cannot make a product undeletable",
+        "The storage-limit accounting still debits the correct user for the files actually removed"
+      ],
+      "tests": [
+        "Negative: a planted ../ path outside uploads/ is not unlinked; the file still exists after the call",
+        "Negative: a planted '*' pattern unlinks nothing, and specifically does not unlink a sibling file the pattern would match",
+        "Positive control: a normal uploads/ path is still unlinked and still debited",
+        "Removal check on the containment helper and on the metacharacter refusal, separately"
+      ],
+      "compatibility": "No contract change. Legitimate media deletion must keep working, including the storage-limit debit.",
+      "db": "None.",
+      "evidence": "",
+      "queue_refs": [
+        "S38-2"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-INV-10",
+      "title": "The catalogue cluster: two endpoints that cannot work, an unscoped option lookup, and the missing permission limbs",
+      "workstream": "inventory",
+      "risk": "low",
+      "status": "READY",
+      "issue": 51,
+      "scope": [
+        "app/Http/Controllers/Api/DashboardController.php",
+        "app/Http/Controllers/ProductController.php",
+        "routes/web.php"
+      ],
+      "existing_status": "FIVE SMALL ITEMS, each verified individually this session, none a cross-tenant breach -- grouped because separately each is smaller than its own package. (a) Api\\DashboardController::AddVariant (:1695), routed POST api/admin/addvariant, writes $ProductVariant->name and ->type; product_variants has NEITHER column and its NOT-NULL product_id and sku are never set, so the endpoint cannot succeed for anyone -- the same class as CLAUDE.md's delivery_boys note. (b) routes/web.php:906 points PUT products/sku_combination/edit at ProductController::sku_combination_edit, which does not exist (grep: 0 matches) -- a live route that 500s, the twin of S36's addToCartVariant. (c) ProductController::attribute_combination:1879 does ProductAttributeOption::where('id',$id)->first() with no store predicate while its own sibling ProductAttributeOptionController.php:56 has one, leaking another tenant's option terms. (d) Api\\DashboardController::DeleteProduct_backup:2143 is unrouted dead code with no ownership guard -- a removal candidate, not a fix. (e) file_delete, product_attribute_delete and attribute_combination_edit call isAbleTo NOWHERE (0 occurrences in all three bodies): P1-INV-07 gave them ownership, not permission.",
+      "depends_on": [],
+      "acceptance": [
+        "(a) AddVariant either writes columns that exist or is refused with a clear error; the admin app's behaviour on that endpoint is stated either way",
+        "(b) the dead route is removed or pointed at a method that exists; whichever, a request to it no longer 500s",
+        "(c) the option lookup carries the store predicate its sibling already has",
+        "(d) the unrouted backup method is removed, or kept with a recorded reason",
+        "(e) each of the three P1-INV-07 routes gains its permission limb WITH the UserPolicy::PLATFORM_ADMIN exemption in the same edit -- per CLAUDE.md there is no super-admin bypass, so an isAbleTo-only limb would lock out the platform operator"
+      ],
+      "tests": [
+        "(a) the endpoint's response is asserted, whichever way it is resolved",
+        "(b) a request to the route no longer raises BadMethodCallException",
+        "(c) negative: another tenant's option id contributes no terms; positive control: the owner's own options still build combinations",
+        "(e) negative: a merchant without the permission is refused; POSITIVE CONTROL: the platform operator is still served -- this is the control that catches the lockout",
+        "Removal check on (c) and on each (e) limb"
+      ],
+      "compatibility": "(e) adds a refusal where there was none, so the permission grant on existing merchant roles must be confirmed before it ships, or working merchants lose media and variant management.",
+      "db": "None.",
+      "evidence": "",
+      "queue_refs": [
+        "S38-3"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    }
+  ]
 }
