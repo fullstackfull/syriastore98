@@ -650,6 +650,41 @@ public function store(Request $request)
 
     public function order_return(Request $request)
     {
+        /*
+         * OWNERSHIP AND PERMISSION, WHICH THIS END OF THE WORKFLOW NEVER HAD. P1-INV-02 / S37-2.
+         *
+         * This method sat in the `auth` group and nothing else: three request fields went
+         * straight into Order::product_return(), which resolves `Order::find($order_id)` on a
+         * model that is NOT in config/tenancy.php's `scoped_models` and so reaches every tenant.
+         * MEASURED by a prior session: a store-A merchant posting store B's order_id moved B's
+         * variant stock 50 -> 59 and marked B's order returned, then 500'd AFTER the writes
+         * landed.
+         *
+         * Its own sibling eighteen lines below, order_return_request(), already carries exactly
+         * this check from GATE C. The two ends of one workflow diverged, and that divergence is
+         * the whole defect.
+         *
+         * `updateStatus` is reused rather than inventing a permission name: OrderPolicy::allow
+         * checks isPlatformAdmin BEFORE isAbleTo (so the operator is not locked out, since on a
+         * from-source database no role holds 'Manage Order'), then requires the seeded
+         * 'Manage Order', then sameStore. That is all three of this task's acceptance criteria in
+         * one call.
+         *
+         * The null guard comes first because `authorize()` needs a model, and because
+         * product_return() itself read `$Order->delivered_status` on the result of find() with no
+         * check -- an absent id was a 500.
+         */
+        $order = Order::find($request->order_id);
+
+        if (empty($order)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => __('Something was wrong.'),
+            ]);
+        }
+
+        $this->authorize('updateStatus', $order);
+
         $data['product_id'] = $request->product_id;
         $data['variant_id'] = $request->variant_id;
         $data['order_id'] = $request->order_id;

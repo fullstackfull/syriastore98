@@ -641,6 +641,19 @@ if ($order_status == 'cancel') {
         $order_id   = $date['order_id'];
 
         $Order = Order::find($order_id);
+
+        /*
+         * NULL GUARD. P1-INV-02. `$Order->delivered_status` on a missing id raised "Attempt to
+         * read property on null" -- a 500 on bad input. The callers also check, but this method
+         * is static and reachable from anywhere, so it refuses on its own account.
+         */
+        if (empty($Order)) {
+            return [
+                'status' => 'error',
+                'message' => __('Something was wrong.'),
+            ];
+        }
+
         if ($Order->delivered_status != 1) {
             $return['status'] = 'error';
             $return['message'] = __('The product has not been delivered. Therefore you cannot return the product.');
@@ -654,14 +667,64 @@ if ($order_status == 'cancel') {
                 if ($product['product_id'] == $product_id && $product['variant_id'] == $variant_id) {
                     $product_json[$key]['return'] = 1;
 
-                    if ($variant_id == 0 || empty($variant_id)) {
-                        $product = Product::find($product_id);
-                        if (!empty($product)) {
-                            $product->product_stock += $product['qty'];
-                            $product->save();
+                    /*
+                     * THE RESTOCKED ROW IS PAIRED TO THE ORDER'S STORE. P1-INV-02, acceptance
+                     * criterion 2.
+                     *
+                     * `$product_id` and `$variant_id` arrive as REQUEST INPUT, and neither
+                     * `Product` nor `ProductVariant` is in config/tenancy.php's `scoped_models`,
+                     * so both lookups reached every tenant. The caller's ownership of the ORDER
+                     * is now checked by OrderController::order_return, but that cannot see this:
+                     * an order in the caller's own store whose line names another store's
+                     * product would still have restocked that product. Measured as its own
+                     * case in OrderReturnOwnershipTest.
+                     *
+                     * SCOPED TO THE ORDER'S STORE, NOT THE CALLER'S. The order is the authority
+                     * on which inventory its lines belong to, and this method is static and
+                     * reachable from contexts where getCurrentStore() resolves to nothing.
+                     *
+                     * AN ORDER WITH NO store_id RESTOCKS NOTHING, and that is deliberate rather
+                     * than overlooked: `orders.store_id` is nullable and P1-PLT-02 (#34) records
+                     * two writers that persist it as NULL, so such rows exist. An order that
+                     * does not say which store it belongs to cannot say whose inventory to
+                     * credit, and guessing from the caller is what this fix exists to stop. The
+                     * refusal is logged so it is visible rather than silent, and #34 is what
+                     * makes these orders returnable again.
+                     */
+                    $orderStoreId = $Order->store_id;
+
+                    if (empty($orderStoreId)) {
+                        \Illuminate\Support\Facades\Log::warning(
+                            'order return restocked nothing: the order carries no store_id',
+                            ['order_id' => $Order->id, 'product_id' => $product_id]
+                        );
+                    } elseif ($variant_id == 0 || empty($variant_id)) {
+                        /*
+                         * `$line` rather than reassigning `$product`. The original wrote
+                         * `$product = Product::find(...)` and then read `$product['qty']` -- by
+                         * which point `$product` was the MODEL, so `qty` resolved as an
+                         * attribute and `products` has no such column. The non-variant branch
+                         * therefore added null and restocked NOTHING, which is why the measured
+                         * cross-tenant reproduction moved a VARIANT's stock rather than a
+                         * product's. Keeping the shadowing would leave this branch broken; the
+                         * behaviour change it implies for legitimate non-variant returns is
+                         * recorded as its own row rather than smuggled in here, so this branch
+                         * reads the quantity from the line and is otherwise unchanged.
+                         */
+                        $line = $product_json[$key];
+                        $stockProduct = Product::where('id', $product_id)
+                            ->where('store_id', $orderStoreId)
+                            ->first();
+
+                        if (!empty($stockProduct)) {
+                            $stockProduct->product_stock += $line['qty'];
+                            $stockProduct->save();
                         }
                     } else {
-                        $ProductStock = ProductVariant::where('product_id', $product_id)->where('id', $variant_id)->first();
+                        $ProductStock = ProductVariant::where('product_id', $product_id)
+                            ->where('id', $variant_id)
+                            ->where('store_id', $orderStoreId)
+                            ->first();
                         if (!empty($ProductStock)) {
                             $ProductStock->stock += $product['qty'];
                             $ProductStock->save();

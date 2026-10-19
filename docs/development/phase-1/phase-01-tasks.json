@@ -640,11 +640,12 @@
       "title": "OrderController::order_return restocks and marks returned on any store's order",
       "workstream": "inventory",
       "risk": "high",
-      "status": "READY",
+      "status": "IN_PROGRESS",
       "issue": 28,
       "scope": [
         "app/Http/Controllers/OrderController.php",
-        "app/Models/Order.php"
+        "app/Models/Order.php",
+        "tests/Feature/Security/OrderReturnOwnershipTest.php"
       ],
       "existing_status": "CONFIRMED BY EXECUTION: moved store B's variant stock 50 -> 59 and marked B's order returned, then 500'd after the writes landed.",
       "depends_on": [],
@@ -1531,6 +1532,45 @@
       "evidence": "",
       "queue_refs": [
         "S37-4"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-INV-14",
+      "title": "URGENT: an UNAUTHENTICATED vendored route calls Order::product_return with raw request input",
+      "workstream": "inventory",
+      "risk": "critical",
+      "status": "BACKLOG",
+      "issue": 57,
+      "scope": [
+        "app/Http/Middleware/",
+        "bootstrap/app.php",
+        "tests/Support/Security/bin/"
+      ],
+      "existing_status": "FOUND while tracing every caller of Order::product_return for P1-INV-02, and it is worse than P1-INV-02 itself. packages/workdo/LotteryPrizes/src/routes/web.php:59 declares POST lottery-order-return inside the group opened at LINE 32 -- Route::middleware(['web']) -- NOT the ['auth','web','PlanModuleCheck:LotteryPrizes'] group at line 19 that covers the module's other routes. So the route is UNAUTHENTICATED. Its handler (LotteryOrderController.php:216-222) is a BYTE-IDENTICAL COPY of the pre-fix host handler: three request fields straight into App\\Models\\Order::product_return() with no ownership check and no permission check. So an anonymous caller can mark ANY order in ANY store returned and restock its inventory. WHAT P1-INV-02 COVERS AND DOES NOT: its ownership check is in OrderController::order_return, which this route does not use; its store predicate inside Order::product_return limits the restock to the inventory the ORDER names, so an arbitrary product cannot be targeted -- but it does NOT stop an anonymous caller returning any order and restocking it, because that is exactly what the order legitimately names. PRECONDITION NOT CONFIRMED: the module's routes register only if an add_on_managers row for LotteryPrizes exists -- and per the MEASURED finding in #42 that is row EXISTENCE, not is_enable, because PackageServiceProvider.php:47 plucks with no is_enable predicate. The first step is a read: SELECT module, is_enable FROM add_on_managers WHERE module = 'LotteryPrizes'. THE FIX MUST BE HOST-SIDE AND CANNOT BE A ROUTE RE-DECLARATION: module route files are required from app->booted(), i.e. AFTER routes/web.php, so the module wins the method+URI slot -- documented in docs/security/P01-SEC-2-ROUTE-CACHE-VERIFICATION.md, which solved the same problem for OrderDocumentAccessGuard with a middleware appended to the `web` group. AuctionProduct needs the same sweep: AuctionOrdersController.php:257 calls AuctionProductOrder::product_return, a DIFFERENT model, so P1-INV-02's predicate does not cover it at all.",
+      "depends_on": [
+        "P1-INV-02"
+      ],
+      "acceptance": [
+        "Establish by a READ whether an add_on_managers row for LotteryPrizes exists; no row drops this to latent",
+        "A host-side guard refuses an unauthenticated request to lottery-order-return, applied via the web group rather than a route re-declaration",
+        "The guard also requires ownership and 'Manage Order', matching what OrderController::order_return now enforces",
+        "No file under packages/workdo/ is edited; guard-no-workdo-changes.sh exits 0",
+        "The same sweep is applied to AuctionProduct's AuctionProductOrder::product_return caller"
+      ],
+      "tests": [
+        "Evidence must be a STANDALONE SCRIPT, not an in-suite test: no WorkDo module loads in a test run without an add_on_managers row, so an in-process 'the route is absent' assertion cannot fail. Follow verify-backuprestore-module-gating.php -- boot in a subprocess with the row present and assert the route's registered middleware",
+        "Negative: an anonymous POST changes no stock and no order",
+        "Negative: an authenticated merchant cannot drive it against another store's order",
+        "Positive control: a legitimate lottery return still works",
+        "Removal check on the appended guard"
+      ],
+      "compatibility": "If the module is active and merchants use lottery returns, adding auth changes behaviour for any caller currently reaching it unauthenticated. That is the point, but it must be checked -- a storefront-side caller is conceivable given the route carries themelanguage.",
+      "db": "None.",
+      "evidence": "",
+      "queue_refs": [
+        "S37-2"
       ],
       "owner_decision": false,
       "blocked_on": null
