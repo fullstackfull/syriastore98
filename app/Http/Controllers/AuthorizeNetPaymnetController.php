@@ -307,6 +307,45 @@ class AuthorizeNetPaymnetController extends Controller
 
             return $this->gatewayReturnRefusal();
         }
+
+        /*
+         * OWNERSHIP IS DECIDED BEFORE THE CARD IS CHARGED, P01-COMMERCE-SEC-03 FOLLOW-UP.
+         *
+         * This handler had the quantity pre-flight and NOT the ownership one, and it is the
+         * storefront's second card charge: it builds the `authCaptureTransaction` itself
+         * (:325-341 below), so a refusal from any later point leaves a shopper charged with no
+         * order row. See GuardsGatewayReturn::basketHasForeignProduct() -- its own docblock
+         * argues exactly this case, and this file was the one site it was not wired into.
+         *
+         * THE BASKET HAS TO COME FROM THE STORED STATE, not from `$cartlist`. The handler does
+         * not build `$products` until :413/:430, which is AFTER the capture, so a guard reading
+         * that variable could not run before the money moved. storedCheckoutCartList() derives
+         * the same basket from the state this handler already trusts for its payable amount --
+         * the shape NMIPayController uses for the same reason.
+         *
+         * The post-charge quantity guard at :517 is left exactly where it is: it is now
+         * defence in depth behind the pre-charge copy here, and removing it would be a second
+         * behaviour change in a file this change set is otherwise only adding to.
+         */
+        $storedCartList = $this->storedCheckoutCartList($requests_data);
+        /*
+         * `['product_list']`, NOT the cart list itself. storedCheckoutCartList() returns
+         * `$state['cartlist']`, whose LINES live under `product_list` -- iterating the cart list
+         * directly walks its top-level keys (`product_list`, `final_price`, `tax_id`, ...), none
+         * of which carries a `product_id`, so the guard would read nothing and refuse nothing.
+         * A silent no-op guard is worse than none, because the test still passes. Same
+         * dereference as NMIPayController:237.
+         */
+        $storedProducts = $storedCartList['product_list'] ?? [];
+
+        if ($this->basketHasForeignProduct($storedProducts, $store)) {
+            return $this->gatewayReturnForeignProductRefusal($request, 'authorizenet');
+        }
+
+        if ($this->basketHasUnusableQuantity($storedProducts)) {
+            return $this->gatewayReturnQuantityRefusal($request, 'authorizenet');
+        }
+
         $admin_payment_setting = getAdminAllSetting(null,$store->id);
 
         try {

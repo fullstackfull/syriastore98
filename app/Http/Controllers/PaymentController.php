@@ -1119,6 +1119,41 @@ public function handlePaymeraTrigger00($orderId)
             return redirect()->back()->with('error', $this->stockErrorMessage($unavailable));
         }
 
+        /*
+         * AND THE BASKET MUST BELONG TO THIS STORE, P01-COMMERCE-SEC-03 FOLLOW-UP.
+         *
+         * This is the WEB checkout's single entry point: PaymentService::processPayment() below
+         * dispatches every payment type from here, and two of them -- `cod` and `bank_transfer`
+         * (PaymentService:316,318) -- write the order and decrement stock inline in
+         * PaymentService::getProductStatus(), whose product lookup is
+         * `Product::where('id', $product_id)->first()` (:2320) with NO store predicate and whose
+         * plain-product arm decrements `Product::find($product_id)` (:2331). Neither pre-flight
+         * existed on that path: it was the only live host-app order writer the six-site wiring in
+         * 611357e6 missed, found by an adversarial review of that commit.
+         *
+         * Placed HERE rather than in the service because this is the one place that covers all
+         * of them at once, and because it sits where the two sibling pre-flights already are --
+         * before a cart row is deleted, before an order row exists, and before the shopper is
+         * handed to a gateway. The service carries its own copy as defence in depth, for the same
+         * reason the gateway returns each carry one: the state can be re-entered there.
+         */
+        if ($this->basketHasForeignProduct($cartData['products'] ?? null, $store)) {
+            /*
+             * The shared gatewayReturnForeignProductRefusal() is deliberately NOT used here.
+             * Its message tells the shopper their payment "has not been applied to an order",
+             * which is true on a gateway RETURN and false here: nothing has been charged yet.
+             * Same refusal, same log, honest wording -- matching the non-positive-quantity
+             * refusal immediately below, which is the sibling of this one on this path.
+             */
+            \Illuminate\Support\Facades\Log::warning('checkout: refused, basket names a product from another store', [
+                'store_id' => $store->id ?? null,
+                'customer_id' => $customer->id ?? null,
+                'path' => $request->path(),
+            ]);
+
+            return redirect()->back()->with('error', __('Your cart contains an item this store does not sell.'));
+        }
+
         // P01-SEC-14 G. A NON-POSITIVE LINE QUANTITY IS NOT A PAYABLE BASKET -- the WEB checkout's
         // copy of the guard the API order writers got in F, and the fourth and last money path.
         //

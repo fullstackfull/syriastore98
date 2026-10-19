@@ -2906,6 +2906,176 @@ the route 404'd**. Fixed before anything was concluded from them.
    in an empty `catch` before its stock loop, the second is unrouted dead code. Neither is
    verifiable by execution here, and a guard nothing can fail is not a guard.
 
+## S36 — What an adversarial review of S35 found: the pair that was checked was not the pair that was written
+
+**CLOSED by the P01-COMMERCE-SEC-03 FOLLOW-UP**, except for the residuals listed at the end, which
+are recorded rather than changed and say why.
+
+S35 closed the cart entry, the two API order writers and six checkout writers. A
+`tenant-authz-reviewer` pass over that commit, briefed to assume nothing it had just been told,
+found **five** things wrong with it. All five were re-verified here by reading the code, and four
+turned out to be real. A completeness sweep of the order writers then found a **sixth** site that no
+part of S35 or of the review had named, on the prefix the shipped admin app calls.
+
+### S36-1 — `addtocart` stored the variant the caller posted, not the one it validated
+
+`ApiController::addtocart`'s `attribute_id` branch resolves
+`ProductVariant::where('id', $request->attribute_id)->where('product_id', $request->product_id)`
+and refuses a mismatch — and then never assigned `$product_stock_datas`. The shared assignment
+after all the branches is
+
+```php
+$variant_id = isset($product_stock_datas->id) ? $product_stock_datas->id : $request->variant_id;
+```
+
+so it fell through to **raw request input**, and `$cart->variant_id` was written from that. The row
+therefore paired this store's product with whatever variant id the caller sent. S35's own docblock
+at that branch claimed the pairing "is what makes the chain sound"; it was the pairing of the
+checked values, not of the stored one. That docblock is corrected in place.
+
+Two more copies of the same fall-through on the same handler:
+
+- the **non-`attribute_id`** arm resolved `ProductVariant::find($request->variant_id)` **unpaired**,
+  so a foreign variant came back non-empty, skipped the paired re-resolution below it, became
+  `$variant_id`, and was set as `variantId` on `$product` — which made `$product->final_price`
+  price the cart line from **another tenant's `variation_price`**;
+- the **plain-product** arm (`variant_product == 0`) validates no variant at all and wrote whatever
+  arrived verbatim.
+
+**Fixed** by handing the validated variant to the shared assignment, pairing the unpaired lookup,
+and **one gate on the pair about to be persisted**, which covers every branch including the six
+module arms this project cannot test. Removal-checked: the first bites
+`test_add_to_cart_stores_the_variant_it_validated_not_the_one_posted`; the gate bites
+`test_add_to_cart_refuses_a_stray_variant_on_a_plain_product`. The paired lookup and the gate are
+**mutually subsuming** for the foreign-variant payload — each alone refuses it, so neither alone
+bites that test. Recorded as measured, not claimed.
+
+### S36-2 — The web `cod` / `bank_transfer` order writer had no ownership check at all
+
+`App\Services\PaymentService::getProductStatus` is the storefront's cash-on-delivery and
+bank-transfer order writer, reached from `PaymentController::processOrder`
+(`routes/customer.php:177`, **no auth middleware** — a guest reaches it through the registration
+arm). Its product lookup is `Product::where('id', $product_id)->first()` with **no store
+predicate**; its plain-product arm decrements `Product::find($product_id)`. Neither pre-flight was
+wired into it: it is the one **live host-app order writer** S35's six-site sweep missed.
+
+**Fixed twice, deliberately:** once in `processOrder` beside the two pre-flights already there
+(covering every payment type `processPayment` dispatches), and once inside the writer against the
+`$store` it will actually write with. Removal-checked: **each alone still refuses**; removing
+**both** moves another merchant's stock, which is the measurement that proves the pair.
+
+### S36-3 — The Authorize.Net capture had the quantity guard and not the ownership one
+
+`AuthorizeNetPaymnetController::getOrderPaymentStatus` (`routes/customer.php:186`) builds the
+`authCaptureTransaction` itself, so a refusal from any later point leaves a shopper **charged with
+no order row** — the outcome `basketHasForeignProduct()`'s own docblock argues against, in the one
+file it was not wired into.
+
+The basket has to come from the **stored state**: the handler does not build `$products` until
+after the capture. **Fixed** with `storedCheckoutCartList($state)['product_list']` before the
+charge, plus the quantity guard pre-charge as well (the post-charge copy is kept as defence in
+depth).
+
+**A no-op was caught here by reading, not by the test.** The first version of this guard passed
+`storedCheckoutCartList($state)` directly — which returns `$state['cartlist']`, whose *lines* live
+under `product_list`. Iterating the cart list walks its top-level keys, none of which carries a
+`product_id`, so the guard would have refused nothing while every test passed. Both the guard and
+the dereference are removal-checked independently.
+
+### S36-4 — An orphan decrement: a poisoned second basket line left the first line's stock deducted
+
+`place_order` and `ordersave` kept their ownership refusal **inside** the stock loop, and the
+decrement is a bare `->save()` with no transaction around it. A two-line basket whose first
+processed line is legitimate and whose second is foreign **decremented the first, refused on the
+second, and wrote no order** — an orphan deduction against this store's own merchant, repeatable at
+will.
+
+**Fixed** by hoisting a single basket pre-flight above both loops; the in-loop refusals are kept as
+defence in depth (they also cover a product id that resolves to no row, which the pre-flight
+deliberately treats as "not a provable mismatch").
+
+**ORDER OF INSERTION IS LOAD-BEARING IN THE TEST, and the first version had it wrong.** The cart
+list is served **newest row first**, so the line inserted LAST is processed FIRST. With the foreign
+row created second the loop refused on its first iteration, nothing had been decremented, and the
+test passed with the fix reverted. Measured both ways: with the rows the right way round, reverting
+the hoist takes the legitimate variant 50 → 47 with no order written.
+
+### S36-5 — `ordersave`'s dead guard, and the crash that is NOT it
+
+`ordersave` ran `explode(',', $ProductStock->variation_option)` **before**
+`if (!empty($ProductStock))`, so a line whose variant did not pair with its product raised a null
+property read — HTTP 500 — and the handler's own refusal below was unreachable. `place_order` got
+this correction in S35; its twin did not. **Fixed**, and now **defence in depth behind S36-4's
+pre-flight**: removal-checked as *subsumed* (it bites only when the pre-flight is removed as well).
+
+**A separate crash was measured on the way and is NOT fixed:** a cart row naming a variant id that
+does not exist at all dies earlier, in the cart-list builder, at
+`ApiController.php:654` — *"Attempt to read property `discount_price` on null"*. It is a 500 on
+one's own basket, not a cross-tenant write, and the new `addtocart` gate stops such a row being
+created through the host app. **Recorded, not changed.**
+
+### S36-6 — The merchant API's own order writer: the site nobody had named
+
+`Api\DashboardController::createOrderViaApi`, routed at `POST api/admin/createOrderViaApi`
+(`routes/api.php:240`, `custom.auth`) — **the prefix the shipped admin Flutter app calls**:
+
+- `resolveOwnedStore($storeId)` proves the caller owns the **store**;
+- `products.*.product_id => exists:products,id` proves the product **exists**;
+- **nothing tied the two together.** `Product::find()` and `ProductVariant::find()` are scoped by
+  nothing, so a merchant who owns store A could post their own `store_id` with another merchant's
+  `product_id` and the loop decremented **that merchant's** `products.product_stock` — or their
+  variant's `stock` — while the order was written under store A. The same shape as S19, one surface
+  over. The sibling merchant-web writer `OrderController::store` already carries the predicate.
+
+**Fixed** with a store predicate on the product and a `product_id` predicate on the variant. Both
+removal-checked, with a positive control that a merchant's own order still writes and still
+decrements (50 → 47).
+
+**And one leak closed because the fix made it reachable:** four early returns inside this handler's
+`\DB::beginTransaction()` returned without a rollback. Harmless under FPM, a held transaction on a
+long-lived worker — and previously unreachable on the variant path, because `find()` always
+resolved a row. `\DB::rollBack()` added before each.
+
+### Refuted, and corrected against the reviewer
+
+- **`confirm_order` is not a stock mutator.** The block labelled "Order stock decrease start/end"
+  contains no assignment and no `save()`. What it does carry is a cross-tenant **existence probe**
+  (`Product::where('id', $product_id)->first()`, no store predicate) — a read, recorded below.
+- **The API order writers do have quantity guards.** A sweep reported "no quantity pre-flight" on
+  `place_order` and `ordersave`; they carry their own inline refusal (*"Your cart contains an
+  invalid quantity."*). What they lack is the *shared helper*, not the control.
+- **A pin I added and then removed.** I read `PaymentService::getProductStatus` taking `slug` and
+  `customer_id` from request input and added a pin for both in `processOrder`. The removal check
+  showed it was **redundant**: `processBillingInfo()` already merges
+  `['customer_id' => $customerId, 'slug' => $store->slug, 'store_id' => $store->id]`
+  unconditionally before `processPayment()` is reached. The pin was removed again. The test stays,
+  because nothing pinned that existing control, and it bites when that merge is deleted.
+
+### Residuals — recorded, not changed
+
+| site | shape | why not here |
+|---|---|---|
+| `PosController::store:205` + `ProductController::addToCart:2593` | writes `products.product_stock` to an **absolute** value from a session-held `originalQuantity`, no store predicate | merchant POS surface, different chain; the basket rows are plain arrays keyed `id`/`quantity`, so the shared helper cannot be dropped in unchanged |
+| `ProductController::update` (and `WoocomProductController::edit`) | route-model-bound `Product $product` with `isAbleTo('Edit Products')` and **no store predicate** read in the lines inspected | a merchant-admin IDOR family, not the cart→order chain; **unverified** beyond the binding — needs its own package |
+| `Order::product_return:660,666` | `+=` restock through unscoped `Product::find` / `ProductVariant::find` | callers not fully traced; restock rather than drain |
+| `addtocart`'s six module arms | each carries its own `: $request->variant_id` fall-through | **no WorkDo module loads in any test run** — a change there cannot be proven by removal. The new gate before the write covers them anyway |
+| `Cart.php:736`, `AuthorizeNetPaymnetController:535`, `PaymentService:2335` | the same dead-guard shape as S36-5 | not reachable past the pre-flights now wired ahead of them |
+| `PayUPaymentController::getProductStatus` | ~690 lines of order writer, no ownership predicate, `$request->all()` fallback | **unrouted** — one route declaration away from being live; a landmine, not a gap |
+| `ApiController.php:654` | 500 on a cart row naming a non-existent variant | see S36-5 |
+| `confirm_order:6639` | cross-tenant product **existence probe** | a read, no write; lowest severity on this list |
+
+### Owner decisions this package did not take
+
+- **The NULL `store_id` question is still open** and one query answers it:
+  `SELECT COUNT(*) FROM products WHERE store_id IS NULL;` and the same for `product_variants`. The
+  hard predicate is now on **five** paths (`add-cart`, `place_order`, `ordersave`, the admin API
+  writer, and the gate before the cart write) while the shared helper stays nullable-tolerant.
+- **`Product` and `ProductVariant` remain globally unscoped.** What ships is containment at the
+  caller, now on nine writers. Adding them to `config/tenancy.php`'s `scoped_models` remains a
+  platform-wide compatibility decision.
+
+---
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**

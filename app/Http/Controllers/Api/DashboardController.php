@@ -5567,6 +5567,19 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
         $store = $this->resolveOwnedStore($storeId);
 
         if (!$store) {
+            /*
+             * ROLL BACK BEFORE RETURNING. These early returns sit inside the
+             * `\DB::beginTransaction()` opened above and left it open: nothing
+             * rolls it back, so the request ends holding a transaction (harmless
+             * under FPM, where the connection closes, and a leaked lock on a
+             * long-lived worker). Reported here because the store-ownership
+             * predicate added in P01-COMMERCE-SEC-03 FOLLOW-UP makes the variant
+             * refusal below REACHABLE where `find()` previously always resolved a
+             * row -- the leak was pre-existing and unreachable on that path, and
+             * closing it is part of making that refusal safe.
+             */
+            \DB::rollBack();
+
             return response()->json([
                 'status' => 'error',
                 'message' => 'Unauthorized: You do not have permission to create orders for this store.'
@@ -5574,7 +5587,27 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
         }
 
         foreach ($validated['products'] as $item) {
-            $product = \App\Models\Product::find($item['product_id']);
+            /*
+             * THE PRODUCT MUST BELONG TO THE STORE THIS ORDER IS BEING WRITTEN FOR.
+             * P01-COMMERCE-SEC-03 FOLLOW-UP, found by a completeness sweep of the order writers
+             * after the storefront chain was closed.
+             *
+             * This was `Product::find($item['product_id'])`. `resolveOwnedStore()` above proves
+             * the caller owns the STORE, and the validator proves the product id EXISTS -- but
+             * `Product` carries no StoreScope and is not in config/tenancy.php's `scoped_models`
+             * (CLAUDE.md), so `find()` reaches every tenant's catalogue and nothing tied the two
+             * together. A merchant who owns store A could post their own `store_id` with another
+             * merchant's `product_id` and the loop below decremented THAT merchant's
+             * `products.product_stock`, or their variant's `stock`, while the order was written
+             * under store A. The same cross-tenant stock drain as S19, on the prefix the shipped
+             * admin app calls (`api/admin/...`).
+             *
+             * The sibling merchant-web writer OrderController::store already carries this
+             * predicate; this API twin did not.
+             */
+            $product = \App\Models\Product::where('id', $item['product_id'])
+                ->where('store_id', $store->id)
+                ->first();
 
             if (!$product || $product->status != 1) {
                 throw new \Exception("Product not found or inactive: ID {$item['product_id']}");
@@ -5586,8 +5619,19 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
             $totalProductPrice += $lineTotal;
 
             if (!empty($item['variant_id']) && $item['variant_id'] > 0) {
-                $variant = \App\Models\ProductVariant::find($item['variant_id']);
+                /*
+                 * AND THE VARIANT MUST BELONG TO THAT PRODUCT. Scoping the product does not
+                 * scope the variant: `ProductVariant` is scoped by nothing either, so
+                 * `find()` reached any tenant's variant row and the decrement below landed on
+                 * it. `product_id`, not `store_id`, because `product_variants.store_id` is
+                 * nullable -- the product predicate above already settled the tenancy.
+                 */
+                $variant = \App\Models\ProductVariant::where('id', $item['variant_id'])
+                    ->where('product_id', $product->id)
+                    ->first();
                 if (!$variant) {
+                    \DB::rollBack();
+
                     return response()->json([
                         'status' => 'error',
                         'message' => "Product variant not found: ID {$item['variant_id']}"
@@ -5596,6 +5640,8 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
 
                 if ($product->track_stock == 1) {
                     if ($variant->stock < $qty) {
+                        \DB::rollBack();
+
                         return response()->json([
                             'status' => 'error',
                             'message' => "Insufficient stock for variant: {$variant->name}. Available: {$variant->stock}, Requested: {$qty}"
@@ -5620,6 +5666,8 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
             } else {
                 if ($product->track_stock == 1) {
                     if ($product->product_stock < $qty) {
+                        \DB::rollBack();
+
                         return response()->json([
                             'status' => 'error',
                             'message' => "Insufficient stock for product: {$product->name}. Available: {$product->product_stock}, Requested: {$qty}"

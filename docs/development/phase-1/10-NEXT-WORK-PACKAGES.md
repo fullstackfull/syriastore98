@@ -315,6 +315,53 @@ still honoured.
 > codebase should keep), `confirm_order` and `PaymentService::getProductStatus` (both mutate stock
 > with no store predicate and no preflight), and the global-scope question this package was told
 > not to take.
+>
+> **Two of those were closed by the FOLLOW-UP package below**: `PaymentService::getProductStatus`
+> now carries the pre-flight twice (S36-2), and `confirm_order` turned out **not** to mutate stock
+> at all — the block labelled "Order stock decrease" contains no write; what it does carry is a
+> cross-tenant existence probe, recorded in S36's residuals.
+
+---
+
+## P01-COMMERCE-SEC-03 FOLLOW-UP — what the review of SEC-03 found  ·  **DELIVERED**
+
+An independent `tenant-authz-reviewer` pass over SEC-03's own commit, briefed to assume nothing it
+had just been told. It reported five findings; four were real on re-reading, and a completeness
+sweep of the order writers found a sixth site that neither SEC-03 nor the review had named.
+Full record in [`../../security/P01-SECURITY-WORK-QUEUE.md`](../../security/P01-SECURITY-WORK-QUEUE.md),
+section **S36**.
+
+| # | What | Status |
+|---|---|---|
+| S36-1 | `addtocart` validated `attribute_id` and then stored raw `$request->variant_id` — "the pair that is checked is not the pair that is written". Two sibling fall-throughs on the same handler, one of which priced a cart line from another tenant's `variation_price` | **closed** at source plus one gate on the pair about to be persisted |
+| S36-2 | The web `cod` / `bank_transfer` order writer (`PaymentService::getProductStatus`) had **no** ownership check — the one live host-app order writer SEC-03's six-site wiring missed | **closed** twice: caller and writer |
+| S36-3 | The Authorize.Net capture had the quantity guard and not the ownership one, and it charges the card itself | **closed** pre-charge, from the stored state |
+| S36-4 | An **orphan decrement**: a poisoned second basket line left the first line's stock deducted with no order | **closed** by hoisting the pre-flight above both API stock loops |
+| S36-5 | `ordersave`'s dead guard (`explode()` before the emptiness test) — the twin SEC-03 corrected on `place_order` only | **closed**, and recorded as *subsumed* defence in depth |
+| S36-6 | `Api\DashboardController::createOrderViaApi` — **`api/admin/createOrderViaApi`, the prefix the shipped admin app calls** — proved store ownership and product existence and never tied them together | **closed** with a store predicate and a variant pairing |
+
+> **Three measurements worth carrying forward, because each was a control or a test that proved
+> nothing until it was measured:**
+>
+> 1. **A guard that read the wrong level.** The Authorize.Net pre-flight first passed
+>    `storedCheckoutCartList($state)` — the cart list — where the *lines* live under
+>    `product_list`. It would have refused nothing while every test passed. Caught by reading the
+>    one sibling call site, not by the suite.
+> 2. **A fixture whose insertion order decided the result.** The orphan-decrement test passed with
+>    the fix reverted, because the cart list is served **newest row first**, so the poisoned line
+>    was processed first and nothing had been decremented yet. The rows had to be inserted the
+>    other way round.
+> 3. **A fix of mine that was redundant.** I pinned `slug` and `customer_id` in `processOrder`
+>    against a writer that reads both from input — and the removal check showed
+>    `processBillingInfo()` already merges both from the server-resolved values, unconditionally.
+>    The pin was removed again; the test stayed, because nothing had pinned that existing control.
+>
+> **Still open after this package** (in S36's residuals table, with the reason each was not taken):
+> `PosController::store`'s absolute `product_stock` write, the merchant-admin `ProductController::update`
+> binding, `Order::product_return`'s unscoped restock, the six module arms of `addtocart`, the
+> unrouted `PayUPaymentController` writer, a 500 in the cart-list builder at `ApiController:654`,
+> and `confirm_order`'s cross-tenant existence probe. The NULL `store_id` query and the
+> `scoped_models` question remain **owner decisions**.
 
 ---
 

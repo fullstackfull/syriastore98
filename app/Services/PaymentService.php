@@ -63,6 +63,17 @@ class PaymentService
 {
     use ApiResponser;
 
+    /*
+     * THE SHARED BASKET-OWNERSHIP SEAM, P01-COMMERCE-SEC-03 FOLLOW-UP.
+     *
+     * Used for basketHasForeignProduct() only -- the same predicate the seven checkout writers
+     * in app/Http/Controllers/ run, rather than a ninth copy of it here. The trait's members do
+     * not collide with anything in this class (verified member by member: this class's own
+     * payment verifier is paymentVerifier(), the trait's is gatewayReturnVerifier()), and the
+     * gateway-return helpers it also carries are simply unused on this path.
+     */
+    use \App\Http\Controllers\Concerns\GuardsGatewayReturn;
+
     /**
      * Server-authoritative tax resolution. See App\Services\OrderTaxResolver:
      * the tax component of a charged total is derived from the existing cart and
@@ -2195,6 +2206,38 @@ private function processPaymera00000($request, $slug)
         );
         $billing = is_string($request->billing_info) ? (array) json_decode($request->billing_info) : $request->billing_info;
         $products = $response['product_list'];
+
+        /*
+         * THIS BASKET MUST BELONG TO THE STORE THIS ORDER IS BEING WRITTEN INTO.
+         * P01-COMMERCE-SEC-03 FOLLOW-UP. This is the `cod` and `bank_transfer` order writer and
+         * it had no ownership check of any kind: its product lookup is
+         * `Product::where('id', $product_id)->first()` (no store predicate), its variant lookup
+         * is built from the caller's own two values, and its plain-product arm decrements
+         * `Product::find($product_id)`. A cart line naming another merchant's product moved that
+         * merchant's `products.product_stock` and wrote the order here.
+         *
+         * `$store` IS THE ONE THIS METHOD WILL ACTUALLY WRITE WITH -- resolved at the top of this
+         * method from the request's own `slug`, not from the route. PaymentController::processOrder
+         * now pins that `slug` to the route's store before calling, and this check is what makes
+         * the pin self-enforcing: if the pin were ever removed, a basket from store A arriving
+         * with `slug` for store B is refused HERE, because the products would not belong to the
+         * store named. That is why this is not redundant with the caller's copy.
+         *
+         * The refusal is written out rather than delegated to
+         * GuardsGatewayReturn::gatewayReturnForeignProductRefusal() because that message tells
+         * the shopper their payment has not been applied to an order -- on a cash-on-delivery or
+         * bank-transfer checkout nothing has been charged, so it would be false.
+         */
+        if ($this->basketHasForeignProduct($products, $store)) {
+            Log::warning('cod/bank_transfer order writer refused: basket names a product from another store', [
+                'store_id' => $store->id ?? null,
+                'customer_id' => $customer_id ?: null,
+                'payment_type' => $requests_data['payment_type'] ?? null,
+            ]);
+
+            return redirect()->back()->with('error', __('Your cart contains an item this store does not sell.'));
+        }
+
         $coupon_price = 0;
         // coupon api call
         if (!empty($requests_data['coupon_code'])) {

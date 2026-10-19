@@ -51,6 +51,15 @@ class ApiController extends Controller
 {
     use ApiResponser;
 
+    /*
+     * THE SHARED BASKET-OWNERSHIP SEAM. Used for basketHasForeignProduct() only -- the same
+     * predicate the seven checkout writers in app/Http/Controllers/ run, rather than an eighth
+     * copy of it here. Verified member by member against this class: no name collides (this
+     * class's payment verifier is paymentVerifier(), the trait's is gatewayReturnVerifier()),
+     * and the gateway-return helpers it also carries are unused on the API paths.
+     */
+    use \App\Http\Controllers\Concerns\GuardsGatewayReturn;
+
     /** @var \App\Services\PaymentVerificationService|null */
     private $paymentVerifierInstance = null;
 
@@ -1493,7 +1502,14 @@ public function saveStoreFcmToken(Request $request)
             if ( !empty( $request->attribute_id ) || $request->attribute_id != 0 ) {
                 /*
                  * The variant must belong to THIS product, which the guard above has already
-                 * established belongs to THIS store. That pairing is what makes the chain sound:
+                 * established belongs to THIS store.
+                 *
+                 * THIS DOCBLOCK USED TO CLAIM THAT THIS PAIRING "is what makes the chain sound".
+                 * It was the pairing of the values that were CHECKED, and not of the value that
+                 * was STORED -- see the assignment of `$product_stock_datas` below, and the gate
+                 * before `$cart->save()`. Corrected in the P01-COMMERCE-SEC-03 FOLLOW-UP after an
+                 * adversarial review read this comment against the code it describes.
+                 *
                  * `product_variants.store_id` is nullable, so a hard store predicate here would
                  * drop legitimate legacy variant rows -- requiring the store-scoped `$product`
                  * instead reaches the same conclusion without that cost.
@@ -1515,6 +1531,25 @@ public function saveStoreFcmToken(Request $request)
                     return $this->error(['message' => __('Product not found.')], __('Product not found.'));
                 }
 
+                /*
+                 * THE PAIR THAT IS CHECKED MUST BE THE PAIR THAT IS STORED.
+                 * P01-COMMERCE-SEC-03 FOLLOW-UP, found by an adversarial review of 611357e6.
+                 *
+                 * This branch validated `attribute_id` against the product and then never
+                 * assigned `$product_stock_datas`, so the shared assignment after all the
+                 * branches --
+                 *
+                 *     $variant_id = isset($product_stock_datas->id) ? $product_stock_datas->id
+                 *                                                   : $request->variant_id;
+                 *
+                 * -- fell through to RAW REQUEST INPUT, and `$cart->variant_id` was written from
+                 * it. So the row paired this store's product with whatever variant id the caller
+                 * sent: the guard above checked `attribute_id` and the row stored `variant_id`.
+                 * The docblock above this branch claimed the pairing "is what makes the chain
+                 * sound"; it was the pairing of the checked values, not of the stored ones.
+                 */
+                $product_stock_datas = $ProductVariant;
+
                 $variationOptions = explode(',', $ProductVariant->variation_option);
                 $option = in_array('manage_stock', $variationOptions);
                 if ($option  == true) {
@@ -1531,7 +1566,22 @@ public function saveStoreFcmToken(Request $request)
                         if ($products_data) {
                             $product_stock_datas = ProductVariant::where('variant', $products_data->terms)->where('product_id', $request->product_id)->first();
                         } else {
-                            $product_stock_datas = ProductVariant::find($request->variant_id);
+                            /*
+                             * PAIRED. This was `ProductVariant::find($request->variant_id)` with
+                             * no `product_id` predicate -- and `ProductVariant` carries no
+                             * StoreScope and is not in config/tenancy.php's `scoped_models`, so
+                             * `find()` reaches every tenant's variants. A foreign variant id came
+                             * back non-empty, which SKIPPED the paired re-resolution three lines
+                             * below, became `$variant_id`, and was then set as `variantId` on
+                             * `$product` so that `$product->final_price` priced the cart line
+                             * from ANOTHER tenant's `variation_price`. P01-COMMERCE-SEC-03
+                             * FOLLOW-UP. The paired re-resolution below is now a no-op for this
+                             * path rather than a repair of it, and is left in place because the
+                             * `$products_data` arm above can still return null.
+                             */
+                            $product_stock_datas = ProductVariant::where('id', $request->variant_id)
+                                ->where('product_id', $request->product_id)
+                                ->first();
                         }
                         if (empty($product_stock_datas)) {
                             $product_stock_datas = ProductVariant::where('id', $request->variant_id)->where('product_id', $request->product_id)->first();
@@ -1574,6 +1624,45 @@ public function saveStoreFcmToken(Request $request)
             }
         }
         $variant_id = isset($product_stock_datas->id) ? $product_stock_datas->id : $request->variant_id;
+
+        /*
+         * AND THE PAIR ABOUT TO BE PERSISTED IS VALIDATED ONCE, FOR EVERY BRANCH.
+         * P01-COMMERCE-SEC-03 FOLLOW-UP.
+         *
+         * The assignment above has SEVEN copies in this method -- one per module arm
+         * (WholesaleProduct x3, SizeGuideline x3) plus this shared one -- and every copy ends in
+         * the same `: $request->variant_id` fallback. The two reachable-in-a-test branches are
+         * corrected at source above; the module arms cannot be: no WorkDo module loads in any
+         * test run (CLAUDE.md), so a change inside one could not be proven by removal and is
+         * recorded in docs/security/P01-SECURITY-WORK-QUEUE.md instead.
+         *
+         * This gate makes the written row sound regardless of which branch produced the value:
+         * a non-zero variant id must belong to THIS product, which the store-scoped `$product`
+         * lookup at the top of this method has already established belongs to THIS store. It
+         * also covers the plain-product case, where nothing validated a variant at all and a
+         * stray id was persisted verbatim.
+         *
+         * `product_id`, not `store_id`, for the reason the shared helper gives:
+         * `product_variants.store_id` is nullable, so a hard store predicate would drop
+         * legitimate legacy variant rows. Requiring the variant to belong to a product this
+         * store owns reaches the same conclusion without that cost.
+         *
+         * The message is one this handler already returns on its variant paths, so no client
+         * sees a new response shape -- `ApiResponser::error()` is HTTP 200 with `status: 0`.
+         */
+        if (!empty($variant_id) && (int) $variant_id !== 0) {
+            $variantBelongsToProduct = ProductVariant::where('id', $variant_id)
+                ->where('product_id', $request->product_id)
+                ->exists();
+
+            if (! $variantBelongsToProduct) {
+                return $this->error(
+                    ['message' => __('Please Select a variant in a product.')],
+                    __('Please Select a variant in a product.')
+                );
+            }
+        }
+
         $qty = $request->qty;
         if (module_is_active('SizeGuideline') && isset($request->size_data)) {
             $cart = Cart::where( 'customer_id', $customer_id )
@@ -3288,6 +3377,27 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             }
         }
 
+        /*
+         * NO LINE IS DECREMENTED UNTIL EVERY LINE IS OWNED. P01-COMMERCE-SEC-03 FOLLOW-UP.
+         *
+         * The ownership refusal below sits INSIDE the loop, and the decrement is a bare
+         * `->save()` with no transaction around it. So a two-line basket whose first line is
+         * legitimate and whose second names another store's product decremented the first
+         * line's stock, refused on the second, and wrote no order -- an orphan deduction
+         * against this store's own merchant, repeatable. The in-loop refusals are kept as
+         * defence in depth (they also cover a product id that resolves to no row at all, which
+         * this pre-flight deliberately treats as "not a provable mismatch"), but the question is
+         * now answered for the WHOLE basket before anything moves.
+         *
+         * This is the placement GuardsGatewayReturn::basketHasForeignProduct()'s own docblock
+         * argues for, and `place_order` was carrying the shape it rejects.
+         *
+         * `$products ?? null` because the assignment above is inside a conditional and the loop
+         * below guards with `empty()`; the helper treats a null basket as nothing to refuse.
+         */
+        if ($this->basketHasForeignProduct($products ?? null, $store)) {
+            return $this->error(['message' => __('Product not found .')]);
+        }
         // Order stock decrease start
         $prodduct_id_array = [];
         if (!empty($products)) {
@@ -8116,6 +8226,27 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             }
         }
 
+        /*
+         * NO LINE IS DECREMENTED UNTIL EVERY LINE IS OWNED. P01-COMMERCE-SEC-03 FOLLOW-UP.
+         *
+         * The ownership refusal below sits INSIDE the loop, and the decrement is a bare
+         * `->save()` with no transaction around it. So a two-line basket whose first line is
+         * legitimate and whose second names another store's product decremented the first
+         * line's stock, refused on the second, and wrote no order -- an orphan deduction
+         * against this store's own merchant, repeatable. The in-loop refusals are kept as
+         * defence in depth (they also cover a product id that resolves to no row at all, which
+         * this pre-flight deliberately treats as "not a provable mismatch"), but the question is
+         * now answered for the WHOLE basket before anything moves.
+         *
+         * This is the placement GuardsGatewayReturn::basketHasForeignProduct()'s own docblock
+         * argues for, and `ordersave` was carrying the shape it rejects.
+         *
+         * `$products ?? null` because the assignment above is inside a conditional and the loop
+         * below guards with `empty()`; the helper treats a null basket as nothing to refuse.
+         */
+        if ($this->basketHasForeignProduct($products ?? null, $store)) {
+            return $this->error(['message' => 'Product not found .']);
+        }
         // Order stock decrease start
         $prodduct_id_array = [];
         if (!empty($products)) {
@@ -8158,13 +8289,16 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                  * message from the same condition. A managed store reaches the identical refusal
                  * either way.
                  *
-                 * NOT MIRRORED ONTO `place_order`, deliberately. That handler's expression was
-                 * ALREADY correct (`== 'on'` over Utility::Setting()'s defaults-backed array), so
-                 * an unmanaged store there has always skipped the arm and never had this refusal
-                 * -- hoisting it would be a NEW refusal, not a restoration. And it would be a
-                 * risky one: the predicate above is a HARD `store_id` match, not the
-                 * nullable-tolerant rule used elsewhere, so a legitimate legacy product with a
-                 * NULL `store_id` would start being refused. Recorded for P01-COMMERCE-SEC-03.
+                 * IT WAS SUBSEQUENTLY MIRRORED ONTO `place_order` -- this paragraph used to say
+                 * it deliberately was not, and that is no longer true. The reasoning it gave was
+                 * sound at the time (that handler's expression was already correct, so hoisting
+                 * the refusal there would be a NEW refusal rather than a restoration, and the
+                 * predicate is a HARD `store_id` match that would start refusing a legitimate
+                 * legacy product with a NULL `store_id`). P01-COMMERCE-SEC-03 took the
+                 * fail-closed direction anyway, consistently on both handlers, and the NULL
+                 * `store_id` question is recorded as an OWNER DECISION in
+                 * docs/development/phase-1/11-NEXT-PACKAGE-PRODUCTVARIANT-TENANCY.md with the one
+                 * query that answers it.
                  */
                 if (!empty($product_id) && $product_id != 0 && empty($Product)) {
                     return $this->error(['message' => 'Product not found .']);
@@ -8173,6 +8307,28 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 if (($settings['stock_management'] ?? null) === 'on') {
                     if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
                         $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();
+
+                        /*
+                         * `$ProductStock` IS TESTED BEFORE IT IS DEREFERENCED, which it was not.
+                         * `explode(',', $ProductStock->variation_option)` was the first statement
+                         * after the lookup and `if (!empty($ProductStock))` came after it, so a
+                         * line naming a variant that does not belong to its product raised a null
+                         * property read -- which Laravel's HandleExceptions promotes to an
+                         * ErrorException, i.e. HTTP 500 -- instead of this handler's own refusal,
+                         * and the `else` refusal below (:8267) could never be reached at all.
+                         *
+                         * This is the correction `place_order` received in P01-COMMERCE-SEC-03 and
+                         * this twin did not; found by an adversarial review of that commit, which
+                         * went looking for the sites the sweep had claimed and missed. Same
+                         * dead-guard shape as `Cart.php:717` and the six module arms of
+                         * `addtocart`, which are recorded in the queue rather than changed here:
+                         * no WorkDo module loads in a test run, so a change there could not be
+                         * proven by removal.
+                         */
+                        if (empty($ProductStock)) {
+                            return $this->error(['message' => 'Product not found .']);
+                        }
+
                         $variationOptions = explode(',', $ProductStock->variation_option);
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductStock)) {

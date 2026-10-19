@@ -35,6 +35,15 @@ use Illuminate\Support\Facades\Mail;
  * `ProductVariant` carries no `StoreScope` and is not in `config/tenancy.php`'s `scoped_models`,
  * so scoping the PRODUCT does not scope the VARIANT. That is the whole defect.
  *
+ * WHAT THIS HEADER DESCRIBED AND WHAT IT MISSED. The account above is the defect as the
+ * package found it, and the first four tests below close it. An adversarial review of that
+ * commit then found the other half: the `attribute_id` branch DID pair the variant it checked,
+ * and then stored `$request->variant_id` anyway, because the shared assignment after the
+ * branches fell through to raw input. "The pair that is checked is not the pair that is
+ * written." The follow-up tests at the end of this file cover that, the two order writers the
+ * wiring missed (the web `cod`/`bank_transfer` writer and the Authorize.Net capture), and the
+ * orphan decrement a poisoned second basket line left behind.
+ *
  * AND THE ROW SURVIVES THE 500. `$cart->save()` happens before the handler dereferences the null
  * `$product`, and nothing wraps the two in a transaction — so the caller gets an error response
  * and the poisoned row stays. Partial persistence is part of the attack, not a side effect, which
@@ -698,5 +707,366 @@ class ForeignProductCartChainTest extends SecurityTestCase
             'An unmanaged store refused a legitimate order.');
         $this->assertSame(50, self::productStock($product),
             'An unmanaged store deducted stock.');
+    }
+    // =====================================================================================
+    //  P01-COMMERCE-SEC-03 FOLLOW-UP — what an adversarial review of 611357e6 found
+    //
+    //  Five controls, each measured by removal. The review's own framing is the one worth
+    //  keeping: "the pair the guard checks is not the pair the handler writes", and two live
+    //  order writers that mutate stock were never wired to the pre-flight at all.
+    // =====================================================================================
+
+    /** Numeric geo ids: the WEB checkout inserts a `cities` row and 'Testland' is not an id. */
+    private function webBilling(): array
+    {
+        return array_merge($this->billing(), [
+            'billing_country' => '101', 'billing_state' => '1', 'billing_city' => '1',
+            'delivery_country' => '101', 'delivery_state' => '1', 'delivery_city' => '1',
+        ]);
+    }
+
+    /** The storefront WEB checkout — PaymentController::processOrder, payment_type `cod`. */
+    private function webCheckout($store, Customer $customer, int $shippingId, array $extra = [])
+    {
+        $billing = $this->webBilling();
+
+        return $this->actingAs($customer, 'customers')
+            ->post('/' . $store->slug . '/process-order', array_merge([
+                'payment_type' => 'cod',
+                'delivery_id' => $shippingId,
+                'method_id' => $shippingId,
+                'billing_info' => $billing,
+            ] + $billing, $extra));
+    }
+
+    private function cartRow($store, Customer $customer, int $productId, int $variantId, int $qty = 1, float $price = 10.00): void
+    {
+        Cart::forceCreate([
+            'customer_id' => $customer->id, 'product_id' => $productId,
+            'variant_id' => $variantId, 'qty' => $qty, 'price' => $price * $qty,
+            'store_id' => $store->id,
+        ]);
+    }
+
+    /**
+     * THE ROW CARRIES THE VARIANT THAT WAS CHECKED, NOT THE ONE THAT WAS POSTED.
+     *
+     * `addtocart`'s `attribute_id` branch validated the variant against the product and then
+     * never assigned `$product_stock_datas`, so the shared assignment fell through to raw
+     * `$request->variant_id` and THAT is what `$cart->variant_id` was written from. Both ids
+     * below belong to this store, so nothing in the tenant story refuses this: the defect is
+     * purely that the checked pair and the stored pair were different pairs.
+     */
+    public function test_add_to_cart_stores_the_variant_it_validated_not_the_one_posted(): void
+    {
+        [, $store] = $this->tenant('on');
+        $customer = $this->customerIn($store, 'pinned');
+        [$own, $ownVariantId] = $this->variantProductIn($store);
+        [, $otherVariantId] = $this->variantProductIn($store);
+
+        $response = $this->addToCart($store, $customer, [
+            'product_id' => $own->id,
+            'attribute_id' => $ownVariantId,
+            'variant_id' => $otherVariantId,
+            'qty' => 1,
+        ]);
+
+        $this->assertNotSame(500, $response->status(),
+            'add-cart crashed, so this test would prove nothing either way: ' . $response->getContent());
+
+        $rows = self::cartRowsFor($customer);
+
+        $this->assertCount(1, $rows,
+            'The legitimate half of this request (product + its own variant) was refused, so the '
+            . 'assertion below could pass against a handler that simply refuses everything. '
+            . 'Response: ' . $response->getContent());
+        $this->assertSame((int) $ownVariantId, (int) $rows->first()->variant_id,
+            'The cart row carries the POSTED variant_id rather than the attribute_id the handler '
+            . 'validated against this product.');
+    }
+
+    /**
+     * A PLAIN PRODUCT CANNOT CARRY A STRAY VARIANT EITHER.
+     *
+     * The `variant_product == 0` arm validates no variant at all, so the shared assignment wrote
+     * whatever `variant_id` arrived. Nothing downstream can use such a row — every order writer
+     * takes its variant branch on a non-zero `variant_id` and then fails to pair it — so this is
+     * the one case the gate before the write is the only control for.
+     */
+    public function test_add_to_cart_refuses_a_stray_variant_on_a_plain_product(): void
+    {
+        [, $store] = $this->tenant('on');
+        $customer = $this->customerIn($store, 'stray');
+        $plain = $this->plainProductIn($store);
+        [, $unrelatedVariantId] = $this->variantProductIn($store);
+
+        $response = $this->addToCart($store, $customer, [
+            'product_id' => $plain->id,
+            'variant_id' => $unrelatedVariantId,
+            'qty' => 1,
+        ]);
+
+        $this->assertNotSame(500, $response->status(),
+            'add-cart crashed rather than refusing: ' . $response->getContent());
+        $this->assertCount(0, self::cartRowsFor($customer),
+            'A cart row was persisted pairing a plain product with an unrelated variant.');
+
+        // Positive control: the same product with no variant is still addable.
+        $ok = $this->addToCart($store, $customer, [
+            'product_id' => $plain->id, 'variant_id' => 0, 'qty' => 1,
+        ]);
+        $this->assertCount(1, self::cartRowsFor($customer),
+            'The guard refuses a legitimate plain-product add as well, which would be a '
+            . 'regression rather than a fix. Response: ' . $ok->getContent());
+    }
+
+    /**
+     * A FOREIGN VARIANT ON A VARIANT PRODUCT IS REFUSED, and the row is not written.
+     *
+     * Two controls cover this payload — the paired lookup inside the branch and the gate before
+     * the write — and the removal harness records that each alone still refuses it. It is kept
+     * because it is the shape the review reported, and because the two controls are only
+     * equivalent while both the branch and the gate exist.
+     */
+    public function test_add_to_cart_refuses_another_products_variant_without_attribute_id(): void
+    {
+        [, $storeA] = $this->tenant('on');
+        [, $storeB] = $this->tenant('on');
+        $customer = $this->customerIn($storeA, 'nonattr');
+        [$ownVariantProduct] = $this->variantProductIn($storeA);
+        [, $foreignVariantId] = $this->variantProductIn($storeB);
+
+        $response = $this->addToCart($storeA, $customer, [
+            'product_id' => $ownVariantProduct->id,
+            'variant_id' => $foreignVariantId,
+            'qty' => 1,
+        ]);
+
+        $this->assertNotSame(500, $response->status(),
+            'add-cart crashed rather than refusing: ' . $response->getContent());
+        $this->assertCount(0, self::cartRowsFor($customer),
+            'A cart row was persisted naming another store\'s variant.');
+        $this->assertSame(0, (int) DB::table('carts')->count(),
+            'A cart row leaked under a different owner.');
+    }
+
+    /**
+     * NO LINE IS DECREMENTED UNTIL EVERY LINE IS OWNED.
+     *
+     * The ownership refusal sat inside the stock loop and the decrement is a bare `save()` with
+     * no transaction, so a basket whose SECOND line is foreign left the FIRST line's stock
+     * deducted with no order written — an orphan deduction against this store's own merchant,
+     * repeatable at will. This asserts the legitimate line's stock, not the foreign one's.
+     */
+    public function test_a_poisoned_second_line_does_not_deduct_the_first(): void
+    {
+        [, $storeA, $shippingId] = $this->tenant('on');
+        [, $storeB] = $this->tenant('on');
+        $customer = $this->customerIn($storeA, 'orphan');
+        [$legit, $legitVariantId] = $this->variantProductIn($storeA, 50, 50);
+        [$foreign, $foreignVariantId] = $this->variantProductIn($storeB, 50, 50);
+
+        /*
+         * ORDER OF INSERTION IS LOAD-BEARING, and the first version of this test had it wrong.
+         * The cart list is served NEWEST ROW FIRST, so the line inserted LAST is the line the
+         * stock loop processes FIRST. With the foreign row created second, the loop refused on
+         * its first iteration and nothing had been decremented yet -- the test passed with the
+         * pre-flight removed and proved nothing. Measured both ways: foreign row first,
+         * legitimate row second, and with the hoist reverted the legitimate variant goes
+         * 50 -> 47 with no order written.
+         */
+        $this->cartRow($storeA, $customer, $foreign->id, $foreignVariantId, 3);
+        $this->cartRow($storeA, $customer, $legit->id, $legitVariantId, 3);
+
+        $ordersBefore = (int) DB::table('orders')->count();
+        $response = $this->placeOrder($storeA, $customer, $shippingId, 'place-order');
+
+        $this->assertNotSame(500, $response->status(),
+            'place-order crashed, so "no stock moved" would be true for the wrong reason: '
+            . $response->getContent());
+        $this->assertSame(50, self::variantStock($legitVariantId),
+            'The first, legitimate line was decremented before the basket was refused on the '
+            . 'second — an orphan deduction with no order to account for it.');
+        $this->assertSame(50, self::variantStock($foreignVariantId),
+            'The foreign line moved another merchant\'s stock.');
+        $this->assertSame($ordersBefore, (int) DB::table('orders')->count(),
+            'An order was written for a basket that was refused.');
+    }
+
+    /**
+     * `ordersave` REFUSES A MISMATCHED PAIR WHERE IT USED TO ANSWER 500 — and before the loop.
+     *
+     * Two corrections meet here and the measurement is worth stating precisely, because the
+     * first one alone is no longer observable:
+     *
+     *   1. `explode(',', $ProductStock->variation_option)` ran BEFORE `if (!empty($ProductStock))`,
+     *      so a line whose variant did not pair with its product raised a null property read --
+     *      which Laravel promotes to an ErrorException -- and the handler's own refusal was
+     *      unreachable. `place_order` got this correction in 611357e6; its twin did not.
+     *   2. The basket pre-flight now answers the same question BEFORE the loop runs at all.
+     *
+     * So (1) is now defence in depth behind (2), and the removal harness records it as such: it
+     * bites only when (2) is removed as well. Labelled rather than claimed, which is this
+     * project's own rule.
+     *
+     * A NON-EXISTENT variant id does NOT drive this: the cart-list builder dereferences the
+     * variant first and dies at ApiController:654 ("Attempt to read property discount_price on
+     * null") -- a separate pre-existing crash, measured here and recorded in the work queue
+     * rather than claimed as fixed.
+     */
+    public function test_ordersave_refuses_a_mismatched_variant_pair_without_crashing(): void
+    {
+        [, $store, $shippingId] = $this->tenant('on');
+        $customer = $this->customerIn($store, 'mismatch');
+        [$product] = $this->variantProductIn($store, 50, 50);
+        [, $otherVariantId] = $this->variantProductIn($store, 50, 50);
+
+        // Both rows are this store's. The pair is what is wrong, not the tenancy.
+        $this->cartRow($store, $customer, $product->id, $otherVariantId, 2);
+
+        $ordersBefore = (int) DB::table('orders')->count();
+        $response = $this->placeOrder($store, $customer, $shippingId, 'order-save');
+
+        $this->assertNotSame(500, $response->status(),
+            'ordersave crashed on a mismatched variant pair instead of refusing: '
+            . $response->getContent());
+        $this->assertSame(50, self::productStock($product),
+            'Stock moved on a line whose variant belongs to a different product.');
+        $this->assertSame(50, self::variantStock($otherVariantId),
+            'The unrelated variant\'s own stock moved.');
+        $this->assertSame($ordersBefore, (int) DB::table('orders')->count(),
+            'An order was written for a line whose variant belongs to a different product.');
+    }
+
+    /**
+     * THE WEB CHECKOUT — `cod` and `bank_transfer` — REFUSES A FOREIGN BASKET.
+     *
+     * PaymentService::getProductStatus is the storefront's cash-on-delivery and bank-transfer
+     * order writer. Its product lookup carries no store predicate and its plain-product arm
+     * decrements `Product::find($product_id)`, and it had neither pre-flight: it is the one live
+     * host-app order writer the six-site wiring in 611357e6 missed. Two controls now cover it
+     * (the caller's pre-flight and the writer's own); the removal harness records what each
+     * alone does, and what happens when both are removed.
+     */
+    public function test_the_web_cod_checkout_refuses_a_foreign_product(): void
+    {
+        [, $storeA, $shippingId] = $this->tenant('on');
+        [, $storeB] = $this->tenant('on');
+        $customer = $this->customerIn($storeA, 'webcod');
+        $foreign = $this->plainProductIn($storeB, 50);
+
+        $this->cartRow($storeA, $customer, $foreign->id, 0, 2);
+
+        $ordersBefore = (int) DB::table('orders')->count();
+        session()->forget('error');
+        $this->webCheckout($storeA, $customer, $shippingId);
+
+        $this->assertStringContainsString('item this store does not sell', (string) session('error'),
+            'The web checkout did not refuse with the ownership guard. Session error: '
+            . json_encode(session('error')));
+        $this->assertSame(50, self::productStock($foreign),
+            'The web cash-on-delivery writer decremented another merchant\'s stock.');
+        $this->assertSame($ordersBefore, (int) DB::table('orders')->count(),
+            'An order was written for a basket naming another store\'s product.');
+    }
+
+    /**
+     * THE ORDER IS WRITTEN FOR THE STORE IN THE URL AND THE CUSTOMER WHO IS SIGNED IN.
+     *
+     * A CORRECTION TO MY OWN WORK, recorded rather than quietly dropped. I read
+     * PaymentService::getProductStatus -- the `cod` and `bank_transfer` order writer -- taking
+     * both identifiers from request input:
+     *
+     *     $slug  = !empty($requests_data['slug']) ? $requests_data['slug'] : '';
+     *     $store = getStore($slug);
+     *     $order->customer_id = !empty($request->customer_id) ? $request->customer_id : 0;
+     *
+     * and added a pin for them in processOrder. The removal check then showed the pin was
+     * REDUNDANT: `PaymentController::processBillingInfo()` already merges
+     * `['customer_id' => $customerId, 'slug' => $store->slug, 'store_id' => $store->id]` from
+     * the server-resolved values, unconditionally, before processPayment() is reached. So the
+     * body values never arrive at the writer on this path and there was nothing to close. The
+     * pin was removed again; this test stays, because nothing pinned that existing control.
+     *
+     * Verified by removing the control it actually tests: delete `customer_id` and `slug` from
+     * processBillingInfo()'s `$param` and this test fails -- the order is then written into the
+     * store named in the body, as that customer.
+     *
+     * It is also the positive control for the two web-checkout tests above: it proves this
+     * fixture writes an order at all, so "no order" there means refused and not broken.
+     */
+    public function test_the_web_checkout_pins_the_store_and_the_customer(): void
+    {
+        [, $storeA, $shippingId] = $this->tenant('on');
+        [, $storeB] = $this->tenant('on');
+        $customer = $this->customerIn($storeA, 'pinweb');
+        $victim = $this->customerIn($storeA, 'victimweb');
+        $product = $this->plainProductIn($storeA, 50);
+
+        $this->cartRow($storeA, $customer, $product->id, 0, 2);
+
+        session()->forget('error');
+        $this->webCheckout($storeA, $customer, $shippingId, [
+            'slug' => $storeB->slug,
+            'customer_id' => $victim->id,
+        ]);
+
+        $order = \App\Models\Order::withoutGlobalScopes()->latest('id')->first();
+
+        $this->assertNotNull($order,
+            'The web checkout wrote no order for a legitimate basket, so every assertion here '
+            . 'and in the two tests above would be vacuous. Session error: '
+            . json_encode(session('error')));
+        $this->assertSame((int) $storeA->id, (int) $order->store_id,
+            'The order was written into the store named in the request body rather than the one '
+            . 'in the URL whose cart and prices it was computed from.');
+        $this->assertSame((int) $customer->id, (int) $order->customer_id,
+            'The order was written as the customer named in the request body rather than the '
+            . 'authenticated one.');
+    }
+
+    /**
+     * THE AUTHORIZE.NET CAPTURE REFUSES A FOREIGN BASKET BEFORE IT CHARGES THE CARD.
+     *
+     * This handler builds the `authCaptureTransaction` itself, so a refusal from any later point
+     * leaves a shopper charged with no order row — the exact outcome
+     * GuardsGatewayReturn::basketHasForeignProduct()'s docblock argues against, in the one file
+     * it was not wired into. It had the quantity pre-flight and not the ownership one.
+     *
+     * The basket has to be read from the STORED STATE, because this handler does not build
+     * `$products` until after the capture. No card credentials are involved: the guard returns
+     * before the gateway SDK is touched, which is the whole point of the placement.
+     */
+    public function test_the_authorizenet_capture_refuses_a_foreign_basket_before_charging(): void
+    {
+        [, $storeA] = $this->tenant('on');
+        [, $storeB] = $this->tenant('on');
+        [$foreign, $foreignVariantId] = $this->variantProductIn($storeB, 50, 50);
+
+        $state = $this->checkoutState($storeA);
+        $state['payment_type'] = 'authorizenet';
+        $state['cartlist'] = [
+            'product_list' => [[
+                'product_id' => $foreign->id, 'variant_id' => $foreignVariantId,
+                'qty' => 2, 'price' => 10.00,
+            ]],
+            'final_price' => 20.00,
+        ];
+
+        $ordersBefore = (int) DB::table('orders')->count();
+        session()->forget('error');
+
+        $this->withSession(['request_data' => $state])
+            ->post('/' . $storeA->slug . '/authorizenet-status', [
+                'cardNumber' => '4111111111111111', 'month' => '12', 'year' => '2030', 'cvv' => '123',
+            ]);
+
+        $this->assertStringContainsString('item this store does not sell', (string) session('error'),
+            'The Authorize.Net return did not refuse before the capture. Session error: '
+            . json_encode(session('error')));
+        $this->assertSame(50, self::variantStock($foreignVariantId),
+            'Another merchant\'s variant stock moved through the Authorize.Net return.');
+        $this->assertSame($ordersBefore, (int) DB::table('orders')->count(),
+            'An order was written for a foreign basket.');
     }
 }
