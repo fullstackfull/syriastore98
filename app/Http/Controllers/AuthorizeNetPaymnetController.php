@@ -571,6 +571,40 @@ class AuthorizeNetPaymnetController extends Controller
                             {
                                 if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
                                     $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();
+
+                                    /*
+                                     * TESTED BEFORE IT IS DEREFERENCED, AND THIS ONE IS
+                                     * POST-CAPTURE. P01-COMMERCE-SEC-03 FOLLOW-UP.
+                                     *
+                                     * `explode(',', $ProductStock->variation_option)` ran first
+                                     * and `if (!empty($ProductStock))` came after, so a line
+                                     * naming a variant that resolves to NO ROW raised a null
+                                     * property read -- an ErrorException, HTTP 500 -- and the
+                                     * `else` refusal below was unreachable. The capture at
+                                     * :380-384 has ALREADY HAPPENED by this point, so that crash
+                                     * left the shopper CHARGED WITH NO ORDER ROW.
+                                     *
+                                     * The ownership pre-flight added above does NOT cover it:
+                                     * basketHasForeignProduct() `continue`s when the variant
+                                     * resolves to no row, because a missing row is not a provable
+                                     * mismatch. Found by a completeness critic reading the two
+                                     * controls against each other.
+                                     *
+                                     * NOT PROVEN BY A TEST, and that is stated rather than
+                                     * glossed: reaching this loop requires a successful
+                                     * Authorize.Net capture, so every request that gets here in
+                                     * this environment dies at the SDK with no credentials and no
+                                     * network. The change is the same reorder `ordersave` and
+                                     * `place_order` carry, where it IS removal-checked. The seven
+                                     * remaining copies of this shape are listed in S36.
+                                     */
+                                    if (empty($ProductStock)) {
+                                        return redirect()->back()->with(
+                                            'error',
+                                            __('Your cart contains an item this store does not sell. Your payment has not been applied to an order — please contact the store.')
+                                        );
+                                    }
+
                                     $variationOptions = explode(',', $ProductStock->variation_option);
                                     $option = in_array('manage_stock', $variationOptions);
                                     if (!empty($ProductStock)) {

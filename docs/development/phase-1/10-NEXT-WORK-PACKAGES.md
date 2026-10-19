@@ -339,6 +339,9 @@ section **S36**.
 | S36-4 | An **orphan decrement**: a poisoned second basket line left the first line's stock deducted with no order | **closed** by hoisting the pre-flight above both API stock loops |
 | S36-5 | `ordersave`'s dead guard (`explode()` before the emptiness test) — the twin SEC-03 corrected on `place_order` only | **closed**, and recorded as *subsumed* defence in depth |
 | S36-6 | `Api\DashboardController::createOrderViaApi` — **`api/admin/createOrderViaApi`, the prefix the shipped admin app calls** — proved store ownership and product existence and never tied them together | **closed** with a store predicate and a variant pairing |
+| S36-7 | the **web** cart writer `CartController::product_cartlist` had the same unpaired variant on its authenticated arm — and, with the checkout guards now refusing such baskets, a shopper could poison their own cart and be unable to check out | **closed**: paired, plus the same gate before the write |
+| S36-8 | the quantity **ceiling** was missing from all three cash-on-delivery writers. Measured: qty `2147483647` drove stock 50 → **−2,147,483,597** and wrote a **`Paid`** order for **21,474,836,470** on `process-order`, `place-order` and `order-save` alike | **closed** with the shared helper at all three; **and it corrects a refutation of mine** — I had answered the same finding by naming their `qty <= 0` floor |
+| S36-9 | the `explode()`-before-`empty()` shape in **8** reachable methods, one of them **post-capture** (`AuthorizeNetPaymnetController:574`) where the crash left the card charged with no order row | the post-capture copy **closed** (not test-provable here — the SDK is unreachable); the other seven **recorded** |
 
 > **Three measurements worth carrying forward, because each was a control or a test that proved
 > nothing until it was measured:**
@@ -362,6 +365,39 @@ section **S36**.
 > unrouted `PayUPaymentController` writer, a 500 in the cart-list builder at `ApiController:654`,
 > and `confirm_order`'s cross-tenant existence probe. The NULL `store_id` query and the
 > `scoped_models` question remain **owner decisions**.
+
+---
+
+## P01-MERCHANT-SEC-01 — the merchant surface  ·  **RECOMMENDED NEXT**
+
+Four cross-tenant writes that are **not** the cart → order chain, three of them confirmed by
+execution. Full evidence, with line numbers and the measured movements, in
+[`../../security/P01-SECURITY-WORK-QUEUE.md`](../../security/P01-SECURITY-WORK-QUEUE.md) section
+**S37**.
+
+The shape is one sentence: **a permission check standing in for an ownership check**, on models that
+no global scope filters. `isAbleTo('Edit Products')` answers *may this user edit products* and never
+*may this user edit THIS product*.
+
+| # | site | measured |
+|---|---|---|
+| S37-1 | `ProductController::update` — route-model-bound `Product $product`, no `store_id` comparison in the method | a store-A merchant renamed store B's product and set its stock 50 → 7 |
+| S37-2 | `OrderController::order_return` → `Order::product_return` — `order_id` from request input, no permission check, no ownership predicate | moved store B's variant stock 50 → 59 and marked B's order returned |
+| S37-3 | `PosController::store` — an **absolute** `product_stock` write from the POS session, fed by two unscoped `Product::find()` resolvers | moved store B's `product_stock` 50 → 49 |
+| S37-4 | `WoocomProductController::edit` — overwrites a foreign product's stock and then **reassigns its `store_id`** to the caller | code-verified only |
+
+**Take S37-1 first:** the simplest predicate, it reaches both the catalogue and inventory, and
+S37-3's feeder (`ProductController::addToCart`) is in the same file.
+
+**Verify S37-1 against a real MySQL.** The probe found SQLite *masking* it through a `NOT NULL`
+column the handler writes as NULL; MySQL with `strict => false` coerces it, so **production is more
+exposed than the test database** — the reverse of the direction this project has been bitten in
+before. The pattern is in `tests/Support/Security/bin/`.
+
+**Scope note for whoever takes it:** none of the shared basket pre-flights applies here — no shopper
+principal is involved — and S37-3 in particular *cannot* reuse `basketHasForeignProduct()`, because
+POS rows are plain arrays keyed `id`/`quantity`/`originalquantity` rather than the cart-row shape the
+helper walks.
 
 ---
 

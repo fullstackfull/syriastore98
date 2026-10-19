@@ -3398,6 +3398,34 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         if ($this->basketHasForeignProduct($products ?? null, $store)) {
             return $this->error(['message' => __('Product not found .')]);
         }
+
+        /*
+         * AND NO LINE QUANTITY IS ABSURD. P01-COMMERCE-SEC-03 FOLLOW-UP.
+         *
+         * THIS HANDLER HAD A FLOOR AND NO CEILING, and I said otherwise. Answering a sweep that
+         * reported "no quantity pre-flight" here, I pointed at the `qty <= 0` refusal above and
+         * called the finding refuted. It was half right: the floor is real, the CEILING was
+         * missing, and a completeness critic then MEASURED what that costs --
+         *
+         *     qty 2147483647 on a 50-unit product:
+         *         products.product_stock   50 -> -2147483597
+         *         order written, product_price = final_price = 21474836470.0, status 'Paid'
+         *
+         * -- on this route, on `order-save`, and on the web `process-order`. The same shape
+         * P01-COMMERCE-SEC-01 closed on the gateway returns, still open on the three writers that
+         * take cash on delivery. `GuardsGatewayReturn::MAX_SANE_LINE_QUANTITY` existed and was
+         * wired into none of them.
+         *
+         * The shared helper is used rather than a fourth copy of the rule: it refuses
+         * non-positive, fractional, non-numeric and above-ceiling quantities alike. The message is
+         * this handler's own, so no client sees a new response shape.
+         */
+        if ($this->basketHasUnusableQuantity($products ?? null)) {
+            return $this->error(
+                ['message' => __('Your cart contains an invalid quantity.')],
+                __('Your cart contains an invalid quantity.')
+            );
+        }
         // Order stock decrease start
         $prodduct_id_array = [];
         if (!empty($products)) {
@@ -8246,6 +8274,34 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
          */
         if ($this->basketHasForeignProduct($products ?? null, $store)) {
             return $this->error(['message' => 'Product not found .']);
+        }
+
+        /*
+         * AND NO LINE QUANTITY IS ABSURD. P01-COMMERCE-SEC-03 FOLLOW-UP.
+         *
+         * THIS HANDLER HAD A FLOOR AND NO CEILING, and I said otherwise. Answering a sweep that
+         * reported "no quantity pre-flight" here, I pointed at the `qty <= 0` refusal above and
+         * called the finding refuted. It was half right: the floor is real, the CEILING was
+         * missing, and a completeness critic then MEASURED what that costs --
+         *
+         *     qty 2147483647 on a 50-unit product:
+         *         products.product_stock   50 -> -2147483597
+         *         order written, product_price = final_price = 21474836470.0, status 'Paid'
+         *
+         * -- on this route, on `order-save`, and on the web `process-order`. The same shape
+         * P01-COMMERCE-SEC-01 closed on the gateway returns, still open on the three writers that
+         * take cash on delivery. `GuardsGatewayReturn::MAX_SANE_LINE_QUANTITY` existed and was
+         * wired into none of them.
+         *
+         * The shared helper is used rather than a fourth copy of the rule: it refuses
+         * non-positive, fractional, non-numeric and above-ceiling quantities alike. The message is
+         * this handler's own, so no client sees a new response shape.
+         */
+        if ($this->basketHasUnusableQuantity($products ?? null)) {
+            return $this->error(
+                ['message' => __('Your cart contains an invalid quantity.')],
+                __('Your cart contains an invalid quantity.')
+            );
         }
         // Order stock decrease start
         $prodduct_id_array = [];

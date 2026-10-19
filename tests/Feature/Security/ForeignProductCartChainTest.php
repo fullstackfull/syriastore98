@@ -1171,4 +1171,84 @@ class ForeignProductCartChainTest extends SecurityTestCase
             'The gate refuses a legitimate plain-product add through the web cart as well, which '
             . 'would be a regression rather than a fix. Response: ' . $ok->getContent());
     }
+    /**
+     * THE QUANTITY CEILING, ON THE THREE WRITERS THAT TAKE CASH ON DELIVERY.
+     *
+     * AND A CORRECTION TO MY OWN REFUTATION. A sweep reported "no quantity pre-flight" on
+     * `place_order` and `ordersave`; I pointed at their `qty <= 0` refusal and called it refuted.
+     * Half right — the FLOOR is real, the CEILING was missing — and a completeness critic then
+     * measured what that costs:
+     *
+     *     qty 2147483647, product seeded 50:
+     *       WEB  /{slug}/process-order  status 302, no error, stock 50 -> -2147483597, order written
+     *       API  /{slug}/place-order    status 500,            stock 50 -> -2147483597, order written
+     *       API  /{slug}/order-save     status 500,            stock 50 -> -2147483597, order written
+     *       the order: product_price = final_price = 21474836470.0, payment_status 'Paid'
+     *
+     * This is the same defect P01-COMMERCE-SEC-01 closed on the gateway returns, left open on the
+     * three cash-on-delivery writers: `GuardsGatewayReturn::MAX_SANE_LINE_QUANTITY` existed and
+     * was wired into none of them. Not a SQLite artefact — `carts.qty`,
+     * `products.product_stock` and `product_variants.stock` are all signed integers in MySQL too.
+     *
+     * @dataProvider codWriterProvider
+     */
+    public function test_an_overflowing_quantity_is_refused_by_every_cod_writer(string $surface): void
+    {
+        [, $store, $shippingId] = $this->tenant('on');
+        $customer = $this->customerIn($store, 'ceil' . substr(md5($surface), 0, 6));
+        $product = $this->plainProductIn($store, 50);
+
+        $this->cartRow($store, $customer, $product->id, 0, 2147483647, 10.00);
+
+        $ordersBefore = (int) DB::table('orders')->count();
+        session()->forget('error');
+
+        $response = $surface === 'web'
+            ? $this->webCheckout($store, $customer, $shippingId)
+            : $this->placeOrder($store, $customer, $shippingId, $surface);
+
+        $this->assertSame(50, self::productStock($product),
+            'An overflowing line quantity moved stock on the ' . $surface . ' writer. Response: '
+            . $response->getContent());
+        $this->assertSame($ordersBefore, (int) DB::table('orders')->count(),
+            'An order was written for an overflowing line quantity on the ' . $surface . ' writer.');
+    }
+
+    public static function codWriterProvider(): array
+    {
+        return [
+            'web process-order' => ['web'],
+            'api place-order' => ['place-order'],
+            'api order-save' => ['order-save'],
+        ];
+    }
+
+    /**
+     * THE POSITIVE CONTROL FOR THE CEILING, on the same three writers.
+     *
+     * Without this, the three tests above would be satisfied by writers that refuse every basket
+     * — and the web one in particular refuses for several unrelated reasons in a bare fixture.
+     *
+     * @dataProvider codWriterProvider
+     */
+    public function test_an_ordinary_quantity_still_completes_on_every_cod_writer(string $surface): void
+    {
+        [, $store, $shippingId] = $this->tenant('on');
+        $customer = $this->customerIn($store, 'okqty' . substr(md5($surface), 0, 6));
+        $product = $this->plainProductIn($store, 50);
+
+        $this->cartRow($store, $customer, $product->id, 0, 2, 10.00);
+
+        session()->forget('error');
+        $response = $surface === 'web'
+            ? $this->webCheckout($store, $customer, $shippingId)
+            : $this->placeOrder($store, $customer, $shippingId, $surface);
+
+        $this->assertSame(48, self::productStock($product),
+            'A legitimate quantity of 2 no longer decrements on the ' . $surface . ' writer, so the '
+            . 'ceiling tests above would prove nothing. Response: ' . $response->getContent()
+            . ' Session error: ' . json_encode(session('error')));
+        $this->assertSame(1, (int) DB::table('orders')->count(),
+            'A legitimate order was refused on the ' . $surface . ' writer.');
+    }
 }

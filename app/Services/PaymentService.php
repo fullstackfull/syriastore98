@@ -2238,6 +2238,24 @@ private function processPaymera00000($request, $slug)
             return redirect()->back()->with('error', __('Your cart contains an item this store does not sell.'));
         }
 
+        /*
+         * AND NO LINE QUANTITY IS ABSURD -- the same correction, measured on this writer too.
+         * `PaymentController::processOrder` refuses `qty <= 0` before dispatching here, which is a
+         * FLOOR and not a CEILING: a line of 2147483647 drove a 50-unit product to
+         * -2147483597 and wrote an order for 21474836470.0 marked 'Paid', HTTP 302, no error.
+         * GuardsGatewayReturn::MAX_SANE_LINE_QUANTITY existed and was wired into none of the three
+         * cash-on-delivery writers. The message matches the one processOrder already uses for the
+         * floor, so nothing new reaches the shopper.
+         */
+        if ($this->basketHasUnusableQuantity($products)) {
+            Log::warning('cod/bank_transfer order writer refused: basket holds an unusable quantity', [
+                'store_id' => $store->id ?? null,
+                'customer_id' => $customer_id ?: null,
+            ]);
+
+            return redirect()->back()->with('error', __('Your cart contains an invalid quantity.'));
+        }
+
         $coupon_price = 0;
         // coupon api call
         if (!empty($requests_data['coupon_code'])) {

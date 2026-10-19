@@ -3063,14 +3063,68 @@ Re-measured after the correction: the paired lookup alone is **subsumed** by the
 check was then run against `addtocart`'s pair and bites there too, which retires the open question
 left by the first harness run.
 
+### S36-8 — The quantity CEILING was missing from all three cash-on-delivery writers
+
+**MEASURED, by a completeness critic, against the committed code** — qty `2147483647` on a product
+seeded with 50 units:
+
+| writer | response | stock | order |
+|---|---|---|---|
+| `POST {slug}/process-order` (web, `cod`) | **302, no error** | 50 → **−2,147,483,597** | written |
+| `POST api/{slug}/place-order` | 500 | 50 → **−2,147,483,597** | written |
+| `POST api/{slug}/order-save` | 500 | 50 → **−2,147,483,597** | written |
+
+The order so written carried `product_price = final_price = 21,474,836,470.0` and
+`payment_status = 'Paid'`. Controls from the same probe: qty `-5` was refused (*"Your cart contains
+an invalid quantity."*) with stock unmoved, and qty `2` completed normally — so the floor works and
+only the ceiling was absent. Not a SQLite artefact: `carts.qty`, `products.product_stock` and
+`product_variants.stock` are signed integers on MySQL too.
+
+This is the **same defect P01-COMMERCE-SEC-01 closed on the gateway returns** (recorded there as
+*"the quantity guard had a floor and no ceiling"*), left open on the three writers that take cash on
+delivery. `GuardsGatewayReturn::MAX_SANE_LINE_QUANTITY` existed, and was wired into **none** of
+them.
+
+**AND I HAD REFUTED THIS FINDING.** Asked about a sweep's claim of "no quantity pre-flight" on
+these handlers, I found their `qty <= 0` refusal and called the claim wrong. It was half right. The
+lesson is narrow and worth keeping: *naming a control is not checking its bound.*
+
+**Fixed** with `basketHasUnusableQuantity()` — the shared helper, not a fourth copy of the rule — at
+all three writers, each keeping its own refusal wording so no client sees a new response shape.
+Removal-checked: each of the three bites its own data-provider case, with positive controls proving
+all three writers still complete an ordinary order (stock 50 → 48).
+
+### S36-9 — The `explode()`-before-`empty()` shape, and the one copy that is POST-CAPTURE
+
+S36-5 fixed `ordersave`'s. A completeness critic then established that the ownership pre-flight does
+**not** cover this shape — `basketHasForeignProduct()` `continue`s when a variant resolves to no row,
+because a missing row is not a provable mismatch — and that **8 reachable copies** remain.
+
+One is materially worse than the rest and is **fixed here**:
+`AuthorizeNetPaymnetController:574` sits **after the card capture**, so a line naming a nonexistent
+`variant_id` left the shopper **charged with no order row**. The reorder is the same one
+`place_order` and `ordersave` carry. **It is not proven by a test, and that is stated rather than
+glossed:** reaching that loop requires a successful Authorize.Net capture, so every request that
+gets there in this environment dies at the SDK with no credentials and no network.
+
+The remaining seven are **recorded, not changed** — `PaymentService:2378`,
+`PaymentController:2174` and `:3465`, `KhaltiPaymnetController:453`, `EasebuzzController:493`,
+`PaiementProPaymentController:494`, `CinetPayController:599`. Each produces a 500 rather than a
+cross-tenant write, each sits behind an ownership pre-flight that already refuses the mismatched
+case, and the residual case (a variant id that resolves to nothing) reaches them only from a cart
+row the host-app writers can no longer create.
+
 ### Refuted, and corrected against the reviewer
 
 - **`confirm_order` is not a stock mutator.** The block labelled "Order stock decrease start/end"
   contains no assignment and no `save()`. What it does carry is a cross-tenant **existence probe**
   (`Product::where('id', $product_id)->first()`, no store predicate) — a read, recorded below.
-- **The API order writers do have quantity guards.** A sweep reported "no quantity pre-flight" on
-  `place_order` and `ordersave`; they carry their own inline refusal (*"Your cart contains an
-  invalid quantity."*). What they lack is the *shared helper*, not the control.
+- **The API order writers do have quantity guards — and I was HALF WRONG about it, which S36-8
+  below records in full.** A sweep reported "no quantity pre-flight" on `place_order` and
+  `ordersave`; I pointed at their inline *"Your cart contains an invalid quantity."* refusal and
+  called the finding refuted. The floor is real; **the ceiling was missing**, and a completeness
+  critic measured what that costs. Refuting a finding by naming a control is not the same as
+  checking what the control covers.
 - **A pin I added and then removed.** I read `PaymentService::getProductStatus` taking `slug` and
   `customer_id` from request input and added a pin for both in `processOrder`. The removal check
   showed it was **redundant**: `processBillingInfo()` already merges
@@ -3101,6 +3155,59 @@ left by the first harness run.
 - **`Product` and `ProductVariant` remain globally unscoped.** What ships is containment at the
   caller, now on nine writers. Adding them to `config/tenancy.php`'s `scoped_models` remains a
   platform-wide compatibility decision.
+
+## S37 — The merchant surface: four cross-tenant writes outside the cart → order chain
+
+**OPEN. Recommended as the next Phase 01 security package.** Found by a completeness critic run
+against the P01-COMMERCE-SEC-03 FOLLOW-UP, which was asked what the plan was missing. Three of the
+four were **confirmed by execution** in this session (its probe scripts are named at the end of this
+section); the fourth is code-verified only. I re-read the two headline sites myself before writing
+this and they are as described.
+
+These are **not** the cart → order chain. They are the merchant's own admin surface, and the shape
+is the one `Product`'s missing global scope makes available everywhere: a route-model binding or a
+bare `find()` on a model that no scope filters, with a *permission* check standing in for an
+*ownership* check. `isAbleTo('Edit Products')` answers "may this user edit products" and never "may
+this user edit THIS product".
+
+| # | site | what moves | authorization present | measured |
+|---|---|---|---|---|
+| **S37-1** | `ProductController::update` (`app/Http/Controllers/ProductController.php:965`, `routes/web.php:848` `PUT product/{product}`) | `products.product_stock` from request input (`:1232`, `:1449`), `product_variants.stock` (`:1437`, `:1563`), and the whole catalogue row | `isAbleTo('Edit Products')` only — **no `store_id` comparison anywhere in the method**; the target is a route-model-bound `Product $product` on a model with no global scope | **executed**: a store-A merchant `PUT /product/{store B id}` renamed the victim's product to `HIJACKED` and set `product_stock` 50 → 7 |
+| **S37-2** | `OrderController::order_return` (`app/Http/Controllers/OrderController.php:651`, `routes/web.php:1263` `POST order-return`) → `Order::product_return` (`app/Models/Order.php:637`) | `product_variants.stock` **increments** (`:666`), and the victim's `orders.product_json` gains `"return":1` | auth group only — **no permission check and no ownership predicate**; `order_id`, `product_id` and `variant_id` come straight from the request | **executed**: a store-A merchant posting store B's `order_id` moved B's variant stock 50 → 59 and marked B's order returned, then 500'd *after* the writes landed |
+| **S37-3** | `PosController::store:205` (`routes/web.php:1087`/`:1096`), fed by `ProductController::addToCart:2597` (`:1092`) and `ProductController::updateCart` (`:1093`) | `products.product_stock` **written to an absolute value** out of the POS session, not decremented | `isAbleTo('Create Pos')` only; both session feeders resolve `Product::find($id)` unscoped, and `updateCart` takes an unbounded `quantity` | **executed**: seeding the POS session with store B's product then posting the sale moved B's `product_stock` 50 → 49 |
+| **S37-4** | `WoocomProductController::edit:369-389` (`routes/web.php:928`) | overwrites a foreign `products.product_stock` and then **reassigns `store_id` to the caller's store** | `isAbleTo('Edit Woocommerce Product')`; the `WoocommerceConection` lookup carries **no `store_id` predicate** while its own category sibling (`:326`) and the Shopify twin (`ShopifyProductController:533`) both do | code-verified only — driving it needs a WooCommerce API response |
+
+**Why these were not taken in the follow-up package.** Each needs its own ownership predicate and
+its own regression test, and `ProductController` is a ~1,600-line resource controller whose `store`,
+`update` and `destroy` paths all share the binding — that is a package, not a drive-by, and the
+brief for the follow-up was explicit about not expanding into another rewrite. They are also a
+different family from the cart → order chain: no shopper principal is involved, so none of the
+shared basket pre-flights applies. **S37-3 in particular cannot reuse `basketHasForeignProduct()`**
+— POS rows are plain arrays keyed `id`/`quantity`/`originalquantity`, not the cart-row shape the
+helper walks.
+
+**Sequencing note.** S37-1 is the one to take first: it is the simplest predicate, it reaches both
+the catalogue and inventory, and `ProductController::addToCart:2597` — S37-3's feeder — is in the
+same file.
+
+**One SQLite caveat that makes production MORE exposed than the test database**, recorded because
+this project has been bitten by the reverse: the probe found SQLite initially masking S37-1 through
+a `NOT NULL` column the handler writes as NULL. MySQL with `strict => false` coerces it, so the
+write succeeds there where it failed here. Any test for S37-1 should be verified against a real
+MySQL by the pattern in `tests/Support/Security/bin/`.
+
+Two adjacent, lower-severity observations from the same sweep, recorded so the surface is closed
+out: `ProductController::updateCart`'s own overflow guard is structurally dead — it compares
+`isset(...)`, a **bool**, against a quantity — and `routes/web.php:1100` points at
+`ProductController::addToCartVariant`, which **does not exist anywhere in `app/`** (a dead route
+that 500s on call, not a security gap).
+
+Probe scripts from the session that measured these, kept out of the repository because a
+conditionally-skipped test would break the declared-skip set:
+`QtyCeilingProbeTest.php`, `GapProbeTest.php`, `ProductUpdateProbeTest.php`,
+`OrderReturnProbeTest.php` — run with
+`vendor/bin/phpunit --configuration phpunit.xml <abs path>`, each extending
+`Tests\Feature\Security\SecurityTestCase` with `RefreshDatabase`.
 
 ---
 
