@@ -1,0 +1,1228 @@
+# Phase 01 — Task Ledger  ·  Foundation & Stability
+
+> **GENERATED FILE — do not hand-edit.** The source of truth is [`phase-01-tasks.json`](phase-01-tasks.json); regenerate with
+> `python3 docs/development/phase-1/tools/render-ledger.py`, then commit both files.
+> GitHub Issues carry the same records and must agree with this ledger.
+
+| | |
+|---|---|
+| Phase | **01 — Foundation & Stability** (milestone #1) |
+| Branch | `claude/store-syria-p01a-ci-foundation` |
+| Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
+| Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
+| Tasks | 39 — 6 DONE, 11 READY, 7 BACKLOG, 15 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
+| Requiring an owner decision | 16 |
+
+**Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
+A task is **not** `DONE` because code was committed — `DONE` requires its acceptance criteria verified, with the evidence recorded in its row.
+
+## How a future session picks up this phase
+
+1. Read this file and `phase-01-tasks.json`.
+2. `gh issue list --milestone "Phase 01 — Foundation & Stability" --state open` for live state.
+3. Take the first task whose status is `READY` and whose dependencies are all `DONE`.
+4. Follow the execution loop in [`13-PHASE-01-EXECUTION-PROTOCOL.md`](13-PHASE-01-EXECUTION-PROTOCOL.md).
+5. Never start a `BLOCKED` task: its `blocked_on` names what must happen first, and owner silence is not approval.
+
+## Dependency graph
+
+```mermaid
+graph TD
+  P1_ORD_02 --> P1_ORD_01
+  P1_INV_01 --> P1_INV_03
+  P1_INV_02 --> P1_INV_05
+  P1_PLT_02 --> P1_PLT_03
+  P1_PAY_04 --> P1_MIG_01
+  P1_MIG_03 --> P1_MIG_01
+  P1_PLT_01 --> P1_MIG_02
+  P1_R_01
+  P1_R_02
+  P1_R_03
+  P1_R_04
+  P1_R_05
+  P1_R_06
+  P1_SEC_01
+  P1_SEC_02
+  P1_SEC_03
+  P1_SEC_04
+  P1_SEC_05
+  P1_ORD_03
+  P1_PAY_01
+  P1_PAY_02
+  P1_PAY_03
+  P1_INV_04
+  P1_INV_06
+  P1_PLT_04
+  P1_PLT_05
+  P1_MIG_04
+  P1_OWN_01
+  P1_OWN_02
+  P1_OWN_03
+  P1_OWN_04
+  P1_OWN_05
+  P1_OWN_06
+```
+
+Most Phase 01 work is genuinely independent; the real couplings are few, and they are stated here rather than left implicit in the diagram:
+
+| dependency | why |
+|---|---|
+| `P1-INV-03` ← `P1-INV-01` | both change `ProductController`; serialised so two agents never edit the same working file |
+| `P1-INV-05` ← `P1-INV-02` | reservation semantics need the return path settled first |
+| `P1-ORD-01` ← `P1-ORD-02` | the coupon fix must land on one server-authoritative total, not four |
+| `P1-PLT-03` ← `P1-PLT-02` | tightening tenant scope before the NULL-store writers are fixed empties the storefront |
+| `P1-MIG-01` ← `P1-PAY-04`, `P1-MIG-03` | releasing the money tables while COD settles at order time, or with no cost input, makes the ledger actively wrong |
+| `P1-MIG-02` ← `P1-PLT-01` | the defect is invisible on SQLite; it needs the MySQL harness to be provable |
+
+## Execution order
+
+The directive's priority order, applied: (1) critical reachable security, (2) cross-tenant financial and stock integrity, (3) order and payment correctness, (4) migration prerequisites, (5) shared architecture, (6) observability and acceptance.
+
+1. `P1-INV-01` — ProductController::update lets a merchant rewrite and restock any store's product *(inventory, READY, risk high)*
+2. `P1-INV-02` — OrderController::order_return restocks and marks returned on any store's order *(inventory, READY, risk high)*
+3. `P1-INV-03` — PosController::store writes product_stock to an absolute value from the POS session *(inventory, BACKLOG, risk high)*
+4. `P1-INV-04` — WoocomProductController::edit overwrites a foreign product and reassigns its store_id *(inventory, READY, risk high)*
+5. `P1-INV-05` — Concurrency and overselling: reservation semantics across the nine writers *(inventory, BACKLOG, risk medium)*
+6. `P1-INV-06` — Two vendored module cart writers can still plant an unvalidated cart row *(inventory, BLOCKED, risk medium)*
+7. `P1-PAY-04` — COD settles at order time, which blocks releasing GATE F *(payments, BLOCKED, risk high)*
+8. `P1-MIG-03` — Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns *(migrations, BLOCKED, risk high)*
+9. `P1-MIG-01` — GATE F: release the six money-bearing tables *(migrations, BLOCKED, risk high)*
+10. `P1-PLT-01` — MySQL validation harness for schema-sensitive evidence *(platform, READY, risk high)*
+11. `P1-MIG-02` — customers.password_otp is INTEGER while the web reset writes a 60-char bcrypt hash *(migrations, BLOCKED, risk high)*
+12. `P1-MIG-04` — SCHEMA-01: nine more tables live code uses with no migration *(migrations, BLOCKED, risk medium)*
+13. `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted *(orders, BACKLOG, risk high)*
+14. `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon *(orders, BACKLOG, risk high)*
+15. `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account *(orders, BLOCKED, risk high)*
+16. `P1-OWN-01` — BackupRestore: is the module active on the server? *(security, BLOCKED, risk high)*
+17. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
+18. `P1-OWN-03` — The compromised API log on the running server *(security, BLOCKED, risk high)*
+19. `P1-OWN-04` — Token lifetime and abilities for clients already on merchants' phones *(security, BLOCKED, risk high)*
+20. `P1-OWN-05` — Anonymous order-document access (customerpayment) and tooling decisions *(platform, BLOCKED, risk medium)*
+21. `P1-OWN-06` — Branch protection and required checks on main *(platform, BLOCKED, risk medium)*
+22. `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites *(payments, READY, risk medium)*
+23. `P1-PAY-02` — Idempotency on gateway returns and order writers *(payments, BACKLOG, risk high)*
+24. `P1-PAY-03` — Gateway callback authenticity: no return proves a payment moved *(payments, BLOCKED, risk high)*
+25. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, READY, risk high)*
+26. `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites *(platform, BACKLOG, risk high)*
+27. `P1-PLT-04` — Module loading swallows every exception with no log line *(platform, BLOCKED, risk medium)*
+28. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, BACKLOG, risk medium)*
+29. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, READY, risk high)*
+30. `P1-SEC-02` — A merchant with Create Role can grant the six finance permissions they do not hold *(security, READY, risk high)*
+31. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, READY, risk medium)*
+32. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, READY, risk medium)*
+33. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
+
+---
+
+## Security & Identity
+
+### `P1-R-02` — Tenant isolation and API authorization (the customer_id-from-request family)
+
+| field | value |
+|---|---|
+| Status | **DONE** |
+| Risk | high |
+| Workstream | Security & Identity |
+| GitHub issue | #10 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `app/Http/Controllers/Api/ApiController.php`, `app/Http/Middleware/`, `app/Policies/` |
+| Queue references | S3, S12, S13, S14, S16, S19 |
+| Database / migration | None. |
+| Compatibility impact | 403 used as the refusal code throughout; the Flutter app force-logs-out on 401, so 401 was avoided. |
+
+**Existing implementation status.** Delivered as P01-SEC-11/S19 (26 handlers), P01-SEC-2/S3 (order documents), S12(a)(b), S13, S14, S16.
+
+**Acceptance criteria.**
+- [ ] No storefront handler derives its subject from request input
+- [ ] One shared predicate (ApiController::resolveStoreCustomer) carries the decision
+- [ ] No new 401 on any path a shipped client calls
+
+**Required tests.**
+- tests/Feature/Security/* (the S19 and SEC-2 suites)
+- tests/Feature/Tenancy/* 400 passing
+
+**Evidence.** PR #3 §3; S19, S12, S13, S14, S16 in the security queue
+
+### `P1-R-03` — Password recovery and the credential boundary
+
+| field | value |
+|---|---|
+| Status | **DONE** |
+| Risk | high |
+| Workstream | Security & Identity |
+| GitHub issue | #11 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `app/Http/Controllers/Customer/Auth/`, `app/Http/Controllers/Auth/`, `bootstrap/app.php` |
+| Queue references | S15-A, S13, S4 |
+| Database / migration | P01-SEC-13 migration PREPARED and NOT applied — see P1-MIG-02. |
+| Compatibility impact | No client contract change. |
+
+**Existing implementation status.** Delivered as P01-SEC-10/S15-A and the eleven follow-ups; two OTP POSTs gained throttle:auth.
+
+**Acceptance criteria.**
+- [ ] Anonymous admin-reset takeover closed
+- [ ] Both OTP endpoints rate-limited
+- [ ] API log redaction in place for both loggers
+
+**Required tests.**
+- tests/Feature/Security/CustomerPasswordResetAdversarialTest.php
+- CredentialBoundaryTest.php
+
+**Evidence.** PR #3 §4; S15-A, S13 in the security queue
+
+### `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | high |
+| Workstream | Security & Identity |
+| GitHub issue | #15 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php`, `config/session.php`, `bootstrap/app.php` |
+| Queue references | S5 |
+| Database / migration | None. |
+| Compatibility impact | Storefront session behaviour. No API contract change. Logout/login flows must keep working in Arabic and English. |
+
+**Existing implementation status.** NOT STARTED. The session half of S5 is independent of the token half and needs no owner decision.
+
+**Acceptance criteria.**
+- [ ] Customer logout invalidates and regenerates the session, symmetric with the web guard
+- [ ] Session id regenerated on customer login
+- [ ] SESSION_SAME_SITE has an explicit default rather than null
+- [ ] The /login CSRF exemption is not satisfied by a prefixed or localised path
+- [ ] MFA is dispatched after authenticate() and regenerate()
+
+**Required tests.**
+- Negative: a session id captured before login is not valid after it
+- Negative: a prefixed/localised login path is not CSRF-exempt
+- Positive: an ordinary customer login and logout still work in both locales
+
+**Evidence.** S5 rows 1-6; CustomerLoginController.php:751 has no invalidate/regenerate (verified)
+
+### `P1-SEC-02` — A merchant with Create Role can grant the six finance permissions they do not hold
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | high |
+| Workstream | Security & Identity |
+| GitHub issue | #16 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `config/superadminaccess.php`, `app/Http/Controllers/RoleController.php`, `app/Policies/RolePolicy.php` |
+| Queue references | S15-B |
+| Database / migration | None. |
+| Compatibility impact | Merchant role management UI keeps working; only the permitted set narrows. |
+
+**Existing implementation status.** NOT STARTED. S15-B row 8. The denylist has 13 names and omits the money-moving finance permissions.
+
+**Acceptance criteria.**
+- [ ] A merchant cannot grant a permission they do not themselves hold
+- [ ] The platform operator is unaffected
+- [ ] The denylist is not the only control (positive authorization, not a name blocklist)
+
+**Required tests.**
+- Negative: merchant with Create Role cannot mint a role carrying each of the six finance permissions
+- Positive: a merchant can still create an ordinary role within their own grants
+
+**Evidence.** S15-B row 8; config/superadminaccess.php:3
+
+### `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | medium |
+| Workstream | Security & Identity |
+| GitHub issue | #17 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `app/Http/Controllers/OrderController.php`, `routes/customer.php` |
+| Queue references | S14 |
+| Database / migration | None. |
+| Compatibility impact | Unknown until verified — that is the point of the task. |
+
+**Existing implementation status.** RECORDED, UNVERIFIED. S14 holds four rows with no severity assigned because none was driven to a measurement.
+
+**Acceptance criteria.**
+- [ ] Each of the four rows is either reproduced with a measurement or refuted in writing
+- [ ] Anything reproduced gets a severity and either a fix in this task or its own task
+
+**Required tests.**
+- One driven test per reproduced row; a written refutation per row that does not reproduce
+
+**Evidence.** S14; OrderController:563 (order-complete) among them
+
+### `P1-SEC-04` — Route-census gate: module routes classified public vs administrative
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | medium |
+| Workstream | Security & Identity |
+| GitHub issue | #18 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `.github/scripts/`, `routes/`, `packages/workdo/*/src/routes/` |
+| Queue references | S11 |
+| Database / migration | Needs modules enabled to enumerate: see the add_on_managers premise pattern in CLAUDE.md. |
+| Compatibility impact | CI only. No application behaviour. |
+
+**Existing implementation status.** NOT STARTED. S11 asks for a gate, not more document rows: ['web']-only groups are a pattern across the module tree.
+
+**Acceptance criteria.**
+- [ ] A script enumerates the resolved route table with modules enabled
+- [ ] Every route is classified public-storefront or administrative
+- [ ] An administrative route with no auth middleware fails the gate
+- [ ] The gate has a non-vacuity floor (a minimum route count)
+
+**Required tests.**
+- The gate fails on a deliberately ungated administrative route (removal check)
+- The gate passes on the current tree
+
+**Evidence.** S11; packages/workdo/AutomaticOrderPrinting/src/routes/web.php:24-28
+
+### `P1-OWN-01` — BackupRestore: is the module active on the server?
+
+| field | value |
+|---|---|
+| Status | **BLOCKED** |
+| Risk | high |
+| Workstream | Security & Identity |
+| GitHub issue | #42 |
+| Owner decision required | **yes** |
+| Blocked on | Owner must answer whether the module is enabled. Nothing else in this task can start first. |
+| Depends on | — |
+| Scope | `packages/workdo/BackupRestore/` |
+| Queue references | S1 |
+| Database / migration | None (containment is host-side only). |
+| Compatibility impact | If active, this is an incident, not a backlog row. |
+
+**Existing implementation status.** OPEN, URGENT IF ACTIVE. An unauthenticated route to the whole database and .env.
+
+**Acceptance criteria.**
+- [ ] The owner answers SELECT module, is_enable FROM add_on_managers
+- [ ] If active: host-side containment lands the same day and the incident is treated as one
+
+**Required tests.**
+- A containment test proving the artefacts are not reachable from the document root
+
+**Evidence.** S1; BackupRestore/src/routes/web.php:17-19
+
+### `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets
+
+| field | value |
+|---|---|
+| Status | **BLOCKED** |
+| Risk | high |
+| Workstream | Security & Identity |
+| GitHub issue | #43 |
+| Owner decision required | **yes** |
+| Blocked on | Owner operation: rotation needs live credentials. Out of this session's authority. |
+| Depends on | — |
+| Scope | `config/services.php`, `config/myfatoorah.php`, `config/jwt.php` |
+| Queue references | S2 |
+| Database / migration | Re-encryption pass if APP_KEY rotates. |
+| Compatibility impact | Rotating APP_KEY without re-encrypting breaks every encrypted column. |
+
+**Existing implementation status.** OPEN. APP_KEY is in git history and unrotated, so Crypt::encrypt() is an encoding, not a control.
+
+**Acceptance criteria.**
+- [ ] Rotation executed per docs/security/SECRET-ROTATION-CHECKLIST.md
+- [ ] The Zid secret is provisioned in the environment BEFORE it is moved out of config
+- [ ] An APP_KEY rotation is preceded by an inventory of every encrypted-cast column
+
+**Required tests.**
+- A test that no tracked config file holds a literal secret
+
+**Evidence.** S2; docs/security/SECRET-ROTATION-CHECKLIST.md
+
+### `P1-OWN-03` — The compromised API log on the running server
+
+| field | value |
+|---|---|
+| Status | **BLOCKED** |
+| Risk | high |
+| Workstream | Security & Identity |
+| GitHub issue | #44 |
+| Owner decision required | **yes** |
+| Blocked on | Owner only: requires access to the running server. Past malicious use cannot be determined from the repository. |
+| Depends on | — |
+| Scope | `storage/logs/` |
+| Queue references | S4 |
+| Database / migration | None. |
+| Compatibility impact | Rotation of anything found there is customer-visible. |
+
+**Existing implementation status.** REDACTION LANDED; the existing material is untouched.
+
+**Acceptance criteria.**
+- [ ] Up to 15 days of plaintext passwords, OTPs and bearer tokens are treated as compromised
+- [ ] A retention decision is recorded for API request/response bodies
+
+**Required tests.**
+- None — this is an operations task, not a code task.
+
+**Evidence.** S4 item 1
+
+### `P1-OWN-04` — Token lifetime and abilities for clients already on merchants' phones
+
+| field | value |
+|---|---|
+| Status | **BLOCKED** |
+| Risk | high |
+| Workstream | Security & Identity |
+| GitHub issue | #45 |
+| Owner decision required | **yes** |
+| Blocked on | Owner decision plus a client release window. |
+| Depends on | — |
+| Scope | `config/`, `app/Http/Middleware/CustomAuth.php` |
+| Queue references | S4, S5 |
+| Database / migration | None. |
+| Compatibility impact | BREAKS CLIENTS ALREADY INSTALLED unless staged. The Flutter app force-logs-out on any 401. |
+
+**Existing implementation status.** OPEN. Sanctum tokens never expire, all carry ['*'], CheckAbilities is imported and never used, and there is no refresh path for any client.
+
+**Acceptance criteria.**
+- [ ] A decision on expiry and abilities, with a compatibility window for shipped binaries
+- [ ] Api\AuthController::login is routed, or its absence is recorded as intended
+
+**Required tests.**
+- Negative: an expired token is refused with 403, not 401 (401 force-logs-out the Flutter app)
+
+**Evidence.** S4 item 2; docs/security/P01-TOKEN-EXPIRY-PROPOSAL.md
+
+---
+
+## Inventory & Stock
+
+### `P1-INV-01` — ProductController::update lets a merchant rewrite and restock any store's product
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | high |
+| Workstream | Inventory & Stock |
+| GitHub issue | #27 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `app/Http/Controllers/ProductController.php` |
+| Queue references | S37, S37-1 |
+| Database / migration | None. But the MySQL caveat means the test needs the tests/Support/Security/bin pattern. |
+| Compatibility impact | Merchant product management must keep working; the refusal must not be a 401. |
+
+**Existing implementation status.** CONFIRMED BY EXECUTION in this session: a store-A merchant renamed store B's product and set its stock 50 -> 7.
+
+**Acceptance criteria.**
+- [ ] The bound Product must belong to the caller's store on update, store and destroy
+- [ ] isAbleTo('Edit Products') is no longer the only check
+- [ ] A merchant's own product edit is unaffected
+
+**Required tests.**
+- Negative: cross-store PUT is refused and changes nothing
+- Positive: own-store update still works
+- MySQL: verified on a real MySQL, because SQLite MASKS this through a NOT NULL column the handler writes as NULL
+
+**Evidence.** S37-1; ProductController.php:965 with no store_id comparison in the method
+
+### `P1-INV-02` — OrderController::order_return restocks and marks returned on any store's order
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | high |
+| Workstream | Inventory & Stock |
+| GitHub issue | #28 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `app/Http/Controllers/OrderController.php`, `app/Models/Order.php` |
+| Queue references | S37, S37-2 |
+| Database / migration | None. |
+| Compatibility impact | Merchant returns keep working. |
+
+**Existing implementation status.** CONFIRMED BY EXECUTION: moved store B's variant stock 50 -> 59 and marked B's order returned, then 500'd after the writes landed.
+
+**Acceptance criteria.**
+- [ ] order_return refuses an order the caller's store does not own
+- [ ] Order::product_return's unscoped Product/ProductVariant lookups are paired to the order
+- [ ] The route carries a permission check, not just the auth group
+
+**Required tests.**
+- Negative: cross-store return is refused, no stock moves, the victim's order is unchanged
+- Positive: an own-store return still restocks correctly
+
+**Evidence.** S37-2; OrderController.php:651, Order.php:637-666
+
+### `P1-INV-03` — PosController::store writes product_stock to an absolute value from the POS session
+
+| field | value |
+|---|---|
+| Status | **BACKLOG** |
+| Risk | high |
+| Workstream | Inventory & Stock |
+| GitHub issue | #29 |
+| Owner decision required | no |
+| Depends on | `P1-INV-01` |
+| Scope | `app/Http/Controllers/PosController.php`, `app/Http/Controllers/ProductController.php` |
+| Queue references | S37, S37-3 |
+| Database / migration | None. |
+| Compatibility impact | POS must keep working for merchants who use it. |
+
+**Existing implementation status.** CONFIRMED BY EXECUTION: seeding the POS session with store B's product moved B's product_stock 50 -> 49. Held at BACKLOG rather than READY because it depends on P1-INV-01: both change ProductController, and the directive forbids two agents editing the same working file.
+
+**Acceptance criteria.**
+- [ ] The POS sale cannot write a product the caller's store does not own
+- [ ] Both session feeders (addToCart, updateCart) resolve products store-scoped
+- [ ] updateCart bounds its quantity (its current guard compares a bool to a number)
+- [ ] An absolute stock write is replaced by a decrement, or justified in writing
+
+**Required tests.**
+- Negative: a seeded foreign product cannot be sold through POS
+- Negative: an unbounded updateCart quantity is refused
+- Positive: an ordinary POS sale still decrements correctly
+
+**Evidence.** S37-3; PosController.php:205, ProductController.php:2597 and updateCart
+
+### `P1-INV-04` — WoocomProductController::edit overwrites a foreign product and reassigns its store_id
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | high |
+| Workstream | Inventory & Stock |
+| GitHub issue | #30 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `app/Http/Controllers/WoocomProductController.php` |
+| Queue references | S37, S37-4 |
+| Database / migration | None. |
+| Compatibility impact | WooCommerce import keeps working for its owner. |
+
+**Existing implementation status.** CODE-VERIFIED ONLY. The only one of the four S37 sites not confirmed by execution; the most destructive on paper because it moves ownership.
+
+**Acceptance criteria.**
+- [ ] The WoocommerceConection lookup carries a store predicate, like its category sibling and the Shopify twin
+- [ ] No code path reassigns an existing product's store_id
+- [ ] Reproduced or refuted by execution before the fix is called proven
+
+**Required tests.**
+- Negative: a foreign woocom product cannot be edited or re-owned
+- A stubbed WooCommerce response drives the path (no live API call)
+
+**Evidence.** S37-4; WoocomProductController.php:369-389 vs ShopifyProductController.php:533
+
+### `P1-INV-05` — Concurrency and overselling: reservation semantics across the nine writers
+
+| field | value |
+|---|---|
+| Status | **BACKLOG** |
+| Risk | medium |
+| Workstream | Inventory & Stock |
+| GitHub issue | #31 |
+| Owner decision required | no |
+| Depends on | `P1-INV-02` |
+| Scope | `app/Services/ProductStockService.php`, `app/Http/Controllers/Concerns/AppliesCartStockChanges.php` |
+| Queue references | S36, S37-2 |
+| Database / migration | None (SQLite cannot prove the concurrency half; needs the MySQL harness). |
+| Compatibility impact | No contract change. |
+
+**Existing implementation status.** PARTIAL. ProductStockService is the only atomic primitive and the nine decrement sites use it; several restock paths are still read-modify-write.
+
+**Acceptance criteria.**
+- [ ] Every stock mutation goes through the atomic primitive
+- [ ] Two concurrent checkouts of the last unit cannot both succeed
+- [ ] Cancellation and return restore exactly what the order took
+
+**Required tests.**
+- A concurrency test driving two simultaneous checkouts
+- Positive: cancel then re-order returns the stock to its starting value
+
+**Evidence.** ProductStockService.php:107,189,237,248; Order::product_return read-modify-write
+
+### `P1-INV-06` — Two vendored module cart writers can still plant an unvalidated cart row
+
+| field | value |
+|---|---|
+| Status | **BLOCKED** |
+| Risk | medium |
+| Workstream | Inventory & Stock |
+| GitHub issue | #32 |
+| Owner decision required | **yes** |
+| Blocked on | Owner decision: upstream module fix vs a host route middleware over vendored routes. |
+| Depends on | — |
+| Scope | `packages/workdo/BoostSales/`, `packages/workdo/FrequentlyProduct/`, `routes/` |
+| Queue references | S30 |
+| Database / migration | None. |
+| Compatibility impact | Module behaviour for stores that have them enabled. |
+
+**Existing implementation status.** RECORDED. Both write Product::find() unscoped with a raw variant_id and qty. The reader-side pre-flights are what contain them today.
+
+**Acceptance criteria.**
+- [ ] Either an upstream fix, or a host route middleware over the two module cart routes
+- [ ] No packages/workdo/ file is edited
+
+**Required tests.**
+- Negative: the two module cart routes refuse a foreign product and an unusable quantity
+
+**Evidence.** S30 remaining rows; BoostSalesController.php:83-92, FrequentlyProductController.php:205
+
+---
+
+## Payments & Financial Integrity
+
+### `P1-R-05` — Commerce and payment trust boundaries (SEC-14 A-H, COMMERCE-SEC-01/02/03 and follow-up)
+
+| field | value |
+|---|---|
+| Status | **DONE** |
+| Risk | high |
+| Workstream | Payments & Financial Integrity |
+| GitHub issue | #13 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `app/Http/Controllers/*Payment*`, `app/Services/PaymentService.php`, `app/Http/Controllers/Concerns/GuardsGatewayReturn.php`, `app/Http/Controllers/Api/ApiController.php` |
+| Queue references | S30, S31, S32, S33, S34, S35, S36 |
+| Database / migration | None. |
+| Compatibility impact | Response shapes preserved; ApiResponser::error() stays HTTP 200 with status:0. |
+
+**Existing implementation status.** Seven gateway returns, nine order writers, the stock_management precedence bug, the cart-to-order chain and twelve follow-up findings.
+
+**Acceptance criteria.**
+- [ ] No order writer takes its store, customer, price, shipping or quantity from caller input unchecked
+- [ ] No basket reaches a stock write without an ownership pre-flight
+- [ ] Every control removal-checked, and subsumption recorded where a control does not bite alone
+
+**Required tests.**
+- tests/Feature/Commerce/* (4 files)
+- tests/Feature/Security/ForeignProductCartChainTest.php (33)
+- tests/Feature/Security/AdminApiOrderStockOwnershipTest.php (3)
+
+**Evidence.** PR #3 §6, §10, §11; S31-S36 in the security queue; CI green on a430d7f5
+
+### `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | medium |
+| Workstream | Payments & Financial Integrity |
+| GitHub issue | #23 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `app/Services/PaymentService.php`, `app/Http/Controllers/PaymentController.php`, `app/Http/Controllers/KhaltiPaymnetController.php`, `app/Http/Controllers/EasebuzzController.php`, `app/Http/Controllers/PaiementProPaymentController.php`, `app/Http/Controllers/CinetPayController.php` |
+| Queue references | S36-9 |
+| Database / migration | None. |
+| Compatibility impact | Turns 500s into existing refusals. No new response shape. |
+
+**Existing implementation status.** RECORDED, NOT FIXED. S36-9 fixed the one post-capture copy; seven reachable copies remain.
+
+**Acceptance criteria.**
+- [ ] Each site tests emptiness before dereferencing
+- [ ] Each answers its handler's own refusal rather than HTTP 500
+- [ ] No site's refusal message is new to a shipped client
+
+**Required tests.**
+- One driven test per site where the state fixture can reach it; a written reason where it cannot
+
+**Evidence.** S36-9 residual list with line numbers
+
+### `P1-PAY-02` — Idempotency on gateway returns and order writers
+
+| field | value |
+|---|---|
+| Status | **BACKLOG** |
+| Risk | high |
+| Workstream | Payments & Financial Integrity |
+| GitHub issue | #24 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php`, `app/Services/` |
+| Queue references | S32 |
+| Database / migration | May need a table for keys — if so it is a GATE-F-class schema decision and this task splits. |
+| Compatibility impact | No client change if the second call returns the first result. |
+
+**Existing implementation status.** NOT STARTED. No idempotency key exists anywhere; replay is blocked only because the stored state is single-use.
+
+**Acceptance criteria.**
+- [ ] A replayed gateway return cannot produce a second order or a second charge
+- [ ] The control does not depend on session state alone
+- [ ] Replay is refused idempotently, not by crashing
+
+**Required tests.**
+- Negative: the same return replayed twice yields one order
+- Negative: two concurrent returns for one checkout yield one order
+
+**Evidence.** PR #3 §7 'No idempotency key on any return'
+
+### `P1-PAY-03` — Gateway callback authenticity: no return proves a payment moved
+
+| field | value |
+|---|---|
+| Status | **BLOCKED** |
+| Risk | high |
+| Workstream | Payments & Financial Integrity |
+| GitHub issue | #25 |
+| Owner decision required | **yes** |
+| Blocked on | Owner decision: which gateways to enforce first, plus provider credentials for verification. Khalti is credential-blocked. |
+| Depends on | — |
+| Scope | `app/Services/PaymentVerificationService.php`, `app/Http/Controllers/*Payment*` |
+| Queue references | S32 |
+| Database / migration | None. |
+| Compatibility impact | ENFORCING THIS STOPS MERCHANT WALLETS BEING CREDITED FOR 51 LIVE PAYMENT METHODS until each is verified. |
+
+**Existing implementation status.** SEAM BUILT, POSTURE UNCHANGED. 'Paid' is derived through PaymentVerificationService and every unverified write is logged; NMI is the only writer backed by a recorded verification.
+
+**Acceptance criteria.**
+- [ ] Each enabled gateway's return is verified server-side against the provider, or its writer refuses
+- [ ] Khalti's amount-unbound verification is bound to its minor-unit convention
+
+**Required tests.**
+- Per-gateway verification tests against recorded provider fixtures
+
+**Evidence.** S32 item 1; PR #3 §7
+
+### `P1-PAY-04` — COD settles at order time, which blocks releasing GATE F
+
+| field | value |
+|---|---|
+| Status | **BLOCKED** |
+| Risk | high |
+| Workstream | Payments & Financial Integrity |
+| GitHub issue | #26 |
+| Owner decision required | **yes** |
+| Blocked on | Owner decision on COD settlement timing. Blocks P1-MIG-01. |
+| Depends on | — |
+| Scope | `config/services.php`, `app/Services/PaymentService.php` |
+| Queue references | GATE F, S32 |
+| Database / migration | PRECONDITION for GATE F: _gate_f_pending/README.md warns that releasing the money tables with this default makes the ledger actively wrong. |
+| Compatibility impact | Changes when merchants see money. Owner's call. |
+
+**Existing implementation status.** PARTIAL. The hardcoded 'Paid' is fixed; COD still settles at order time by default.
+
+**Acceptance criteria.**
+- [ ] COD settlement timing is explicit and configurable per store
+- [ ] The default does not credit a wallet before cash is collected
+
+**Required tests.**
+- Positive: a COD order credits the merchant only at the configured point
+- Negative: an unpaid COD order does not produce a wallet credit
+
+**Evidence.** config/services.php:157; _gate_f_pending/README.md
+
+---
+
+## Orders & Checkout
+
+### `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon
+
+| field | value |
+|---|---|
+| Status | **BACKLOG** |
+| Risk | high |
+| Workstream | Orders & Checkout |
+| GitHub issue | #20 |
+| Owner decision required | **yes** |
+| Depends on | `P1-ORD-02` |
+| Scope | `app/Http/Controllers/Api/ApiController.php`, `app/Models/Cart.php`, `app/Services/OrderTotalReconciler.php` |
+| Queue references | S21, S24 |
+| Database / migration | None. |
+| Compatibility impact | CHANGES CHARGED AMOUNTS. Needs the owner's explicit acceptance of the behaviour change before it ships. |
+
+**Existing implementation status.** MEASURED, NOT FIXED. S21 and S24. The brace move is small; three things must move with it or fixing this opens them.
+
+**Acceptance criteria.**
+- [ ] A coupon reduces the charged total on every writer that prints it
+- [ ] apply_coupon honours all coupon types it claims to support
+- [ ] final_sub_total is overwritten with the server's figure wherever sub_total already is
+- [ ] No writer charges full price while printing a discount
+
+**Required tests.**
+- Positive: each coupon type reduces the charged total by the stated amount
+- Negative: a caller-supplied sub_total or final_sub_total cannot change the charge
+- Regression: place_order and ordersave agree on the same basket
+
+**Evidence.** S21 (four measured defects), S24
+
+### `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted
+
+| field | value |
+|---|---|
+| Status | **BACKLOG** |
+| Risk | high |
+| Workstream | Orders & Checkout |
+| GitHub issue | #21 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `app/Services/OrderTotalReconciler.php`, `app/Services/OrderTaxResolver.php` |
+| Queue references | S21 |
+| Database / migration | None. |
+| Compatibility impact | No response-shape change. |
+
+**Existing implementation status.** PARTIAL. The reconciler and tax resolver exist and are used on the paths SEC-14 and COMMERCE-SEC-01 touched.
+
+**Acceptance criteria.**
+- [ ] Every order writer derives its total through one seam
+- [ ] A posted money field cannot reach a persisted total on any writer
+- [ ] The reconciler's exact-decimal assertion covers all nine writers
+
+**Required tests.**
+- A survey test that fails when a writer bypasses the seam (the EnforcedPaymentTypes pattern)
+
+**Evidence.** S21; app/Services/OrderTotalReconciler.php
+
+### `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account
+
+| field | value |
+|---|---|
+| Status | **BLOCKED** |
+| Risk | high |
+| Workstream | Orders & Checkout |
+| GitHub issue | #22 |
+| Owner decision required | **yes** |
+| Blocked on | Owner decision: financial/order retention policy on account deletion. |
+| Depends on | — |
+| Scope | `app/Http/Controllers/UserController.php`, `app/Models/Order.php` |
+| Queue references | S26 |
+| Database / migration | Touches order retention; interacts with GATE F's store_order_financials. |
+| Compatibility impact | Changes what account deletion does — and financial retention policy is the owner's call. |
+
+**Existing implementation status.** VERIFIED, DELIBERATELY NOT ACTED ON by P01-SEC-14 C.
+
+**Acceptance criteria.**
+- [ ] Deleting a merchant account cannot destroy order history
+- [ ] Financial rows are not orphaned
+
+**Required tests.**
+- Negative: a merchant delete leaves orders and financial rows intact and attributable
+
+**Evidence.** S26 item 1
+
+---
+
+## Platform Foundation
+
+### `P1-R-01` — CI foundation, regression gates and the known-outcome manifest
+
+| field | value |
+|---|---|
+| Status | **DONE** |
+| Risk | medium |
+| Workstream | Platform Foundation |
+| GitHub issue | #9 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `.github/workflows/`, `..github/scripts/`, `phpunit.xml`, `.github/known-test-outcomes.json` |
+| Queue references | PR #3 §1-§2 |
+| Database / migration | None. |
+| Compatibility impact | No application behaviour. CI only. |
+
+**Existing implementation status.** Delivered as P01-A' and reconciled afterwards with main's own attestation workflow.
+
+**Acceptance criteria.**
+- [ ] Every gate runs on both event classes or is explicitly report-only
+- [ ] The known-outcome gate asserts the outcome SET in both directions
+- [ ] AUDIT_CEILING and the manifest are unmodified by later packages
+
+**Required tests.**
+- Feature/CI gate-wiring tests (3, each removal-checked)
+- assert-known-test-outcomes.php EXIT 0
+
+**Evidence.** Commits in 1eebc721..a430d7f5 under P01-A'; CI green on a430d7f5 (9/9 checks)
+
+### `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | medium |
+| Workstream | Platform Foundation |
+| GitHub issue | #19 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `.github/scripts/scan-secrets.sh`, `.gitignore` |
+| Queue references | S9, S10 |
+| Database / migration | None. |
+| Compatibility impact | CI only. |
+
+**Existing implementation status.** NOT STARTED. S9 and S10. The scanner's key list misses the shapes PHP array syntax produces.
+
+**Acceptance criteria.**
+- [ ] The scanner detects a secret written in PHP array syntax (key not adjacent to the operator)
+- [ ] The three tracked artefacts are removed from the index and ignored
+- [ ] error_log is no longer tracked
+
+**Required tests.**
+- A planted PHP-array secret fails the scanner (removal check)
+- The scanner still exits 0 on the current tree
+
+**Evidence.** S9, S10
+
+### `P1-PLT-01` — MySQL validation harness for schema-sensitive evidence
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | high |
+| Workstream | Platform Foundation |
+| GitHub issue | #33 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `tests/Support/Security/bin/`, `docs/development/phase-1/` |
+| Queue references | MONEY-01, SCHEMA-08 |
+| Database / migration | Creates and drops its OWN database. Never touches a persistent one. |
+| Compatibility impact | Test tooling only. |
+
+**Existing implementation status.** PARTIAL. verify-sec13-migration-on-mysql.php shows the pattern; nothing generalises it.
+
+**Acceptance criteria.**
+- [ ] A documented, repeatable way to run a schema-sensitive test against a real MySQL
+- [ ] It creates and drops its own throwaway database and states its preconditions
+- [ ] At least one existing SQLite-masked finding is re-verified through it
+
+**Required tests.**
+- The harness refuses to run against a non-throwaway database
+- P1-INV-01's cross-store update is verified through it
+
+**Evidence.** CLAUDE.md §3; tests/Support/Security/bin/verify-sec13-migration-on-mysql.php
+
+### `P1-PLT-02` — Two order writers persist a NULL store_id
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | high |
+| Workstream | Platform Foundation |
+| GitHub issue | #34 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `app/Http/Controllers/MercadoPaymentController.php`, `app/Http/Controllers/SkrillPaymentController.php` |
+| Queue references | S6 |
+| Database / migration | READ-ONLY on live data: counting only. Reconciling existing rows is a separate owner-gated task. |
+| Compatibility impact | No contract change. |
+
+**Existing implementation status.** IDENTIFIED, NOT FIXED. S6's load-bearing first step: these two writers must stop creating NULL-store rows before any tightening of null_tenant can be considered.
+
+**Acceptance criteria.**
+- [ ] Neither writer can persist an order with a NULL store_id
+- [ ] Existing NULL-store rows are COUNTED and reported (not modified)
+
+**Required tests.**
+- Negative: each writer refuses or resolves a store rather than writing NULL
+- A reporting script counts existing NULL-store rows without changing them
+
+**Evidence.** S6; MercadoPaymentController.php:86, SkrillPaymentController.php:106
+
+### `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites
+
+| field | value |
+|---|---|
+| Status | **BACKLOG** |
+| Risk | high |
+| Workstream | Platform Foundation |
+| GitHub issue | #35 |
+| Owner decision required | no |
+| Depends on | `P1-PLT-02` |
+| Scope | `config/tenancy.php`, `app/Models/Concerns/BelongsToStore.php` |
+| Queue references | S6 |
+| Database / migration | None. |
+| Compatibility impact | Tightening the scope wrongly empties the storefront and stops every job — that is why this is staged. |
+
+**Existing implementation status.** PARTIAL. 10 of 93 models enforced; null_tenant is 'open' and the helpers that must precede tightening it are unused.
+
+**Acceptance criteria.**
+- [ ] The cross-tenant escape hatches are used explicitly wherever a query must cross tenants
+- [ ] A documented inventory of which models are scoped and which are deliberately not
+- [ ] null_tenant tightening is a separate, evidence-backed proposal
+
+**Required tests.**
+- Tenancy suite stays green
+- A test that fails if a scoped model gains an implicit cross-tenant read
+
+**Evidence.** S6; config/tenancy.php:391
+
+### `P1-PLT-04` — Module loading swallows every exception with no log line
+
+| field | value |
+|---|---|
+| Status | **BLOCKED** |
+| Risk | medium |
+| Workstream | Platform Foundation |
+| GitHub issue | #36 |
+| Owner decision required | **yes** |
+| Blocked on | Owner decision: log-and-continue vs per-module catch (both change deployment behaviour). |
+| Depends on | — |
+| Scope | `app/Providers/PackageServiceProvider.php`, `app/Helper/helper.php` |
+| Queue references | S7 |
+| Database / migration | None. |
+| Compatibility impact | Makes a broken install start reporting — a visible change in what a deployment does. |
+
+**Existing implementation status.** VERIFIED. 'catch (\Exception $e) { // Handle silently }' at PackageServiceProvider.php:54-57, plus three disagreeing entitlement sources.
+
+**Acceptance criteria.**
+- [ ] A broken module install reports instead of disappearing
+- [ ] module_is_active() answers from one source of truth
+
+**Required tests.**
+- A deliberately broken module produces a log line and does not take the app down
+
+**Evidence.** S7; PackageServiceProvider.php:54-57; helper.php:1277-1343
+
+### `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks
+
+| field | value |
+|---|---|
+| Status | **BACKLOG** |
+| Risk | medium |
+| Workstream | Platform Foundation |
+| GitHub issue | #37 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `app/Services/PaymentVerificationService.php`, `config/larabug.php`, `config/logging.php` |
+| Queue references | S4 |
+| Database / migration | None. |
+| Compatibility impact | No user-visible change. |
+
+**Existing implementation status.** PARTIAL. Refusals and unverified 'Paid' writes are logged; nothing asserts an operator can see them, and larabug's 5-name blacklist is unreviewed.
+
+**Acceptance criteria.**
+- [ ] The security-relevant log lines added across Phase 01 are enumerated in one place
+- [ ] A documented channel/retention expectation for them
+- [ ] larabug's blacklist reviewed before anyone enables it
+
+**Required tests.**
+- A test that the refusal paths emit their line with store, customer and path
+
+**Evidence.** S4 item 4; config/larabug.php:99-111
+
+### `P1-OWN-05` — Anonymous order-document access (customerpayment) and tooling decisions
+
+| field | value |
+|---|---|
+| Status | **BLOCKED** |
+| Risk | medium |
+| Workstream | Platform Foundation |
+| GitHub issue | #46 |
+| Owner decision required | **yes** |
+| Blocked on | Three owner decisions. No implementation can be chosen without them. |
+| Depends on | — |
+| Scope | `routes/customer.php`, `pint.json`, `docs/design-system/tools/` |
+| Queue references | S12-c, DS-13, DS-21, DS-23 |
+| Database / migration | None. |
+| Compatibility impact | S12-c affects customer-facing document links. pint would touch every file. |
+
+**Existing implementation status.** OPEN. Three separate owner choices grouped so they do not each sit as a stale task: the anonymous customerpayment document (S12-c), laravel/pint adoption, and the unwired browser half of the design-system checks.
+
+**Acceptance criteria.**
+- [ ] S12-c: a scoped expiring document token, or link-bearer access accepted in writing
+- [ ] pint: a pint.json codifying the existing style, or an authorised reformatting pass
+- [ ] browser checks: wired with Playwright in CI, or left a documented manual run
+
+**Required tests.**
+- S12-c: a negative test for an unauthenticated document fetch once the decision is made
+
+**Evidence.** S12-c; PR #3 §1 and §7
+
+### `P1-OWN-06` — Branch protection and required checks on main
+
+| field | value |
+|---|---|
+| Status | **BLOCKED** |
+| Risk | medium |
+| Workstream | Platform Foundation |
+| GitHub issue | #47 |
+| Owner decision required | **yes** |
+| Blocked on | Repository owner setting. Cannot be scripted from a session. |
+| Depends on | — |
+| Scope | `.github/` |
+| Queue references | S9 |
+| Database / migration | None. |
+| Compatibility impact | None. |
+
+**Existing implementation status.** OPEN. What enforces the sensitive-diff checklist on a push is branch protection requiring pull requests — a repository setting no workflow can assert.
+
+**Acceptance criteria.**
+- [ ] main requires a pull request
+- [ ] The required checks include both Tests jobs, the merge-base gate and the attestation
+
+**Required tests.**
+- None — a repository setting.
+
+**Evidence.** PR #3 §2 'Reporting is not reviewing'
+
+---
+
+## Schema & Migration Readiness
+
+### `P1-R-06` — Schema containment: GATE F stays unrunnable until released
+
+| field | value |
+|---|---|
+| Status | **DONE** |
+| Risk | high |
+| Workstream | Schema & Migration Readiness |
+| GitHub issue | #14 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `database/migrations/_gate_f_pending/`, `database/migrations/_sec13_pending/`, `.github/scripts/guard-gate-f-containment.sh` |
+| Queue references | GATE F |
+| Database / migration | This task is the containment, not the release. Release is P1-MIG-01. |
+| Compatibility impact | None while parked. |
+
+**Existing implementation status.** Six money tables parked as non-runnable drafts behind a CI guard that fails if any becomes discoverable.
+
+**Acceptance criteria.**
+- [ ] guard-gate-f-containment.sh exits 0: 0 of 6 tables created by any discoverable migration
+- [ ] All six still have a parked draft
+
+**Required tests.**
+- guard-gate-f-containment.sh (CI, blocking)
+
+**Evidence.** docs/GATE-F-SCHEMA-EXPORT.md; database/migrations/_gate_f_pending/README.md; CI green
+
+### `P1-MIG-01` — GATE F: release the six money-bearing tables
+
+| field | value |
+|---|---|
+| Status | **BLOCKED** |
+| Risk | high |
+| Workstream | Schema & Migration Readiness |
+| GitHub issue | #38 |
+| Owner decision required | **yes** |
+| Blocked on | Owner approval to release GATE F, plus P1-PAY-04 (COD timing) and P1-MIG-03 (cost inputs). Applying it is also gated on an approved recovery plan. |
+| Depends on | `P1-PAY-04`, `P1-MIG-03` |
+| Scope | `database/migrations/_gate_f_pending/` |
+| Queue references | GATE F, S8 |
+| Database / migration | THIS IS THE MIGRATION TASK. No migration is applied to any persistent database without owner approval and a recovery plan. |
+| Compatibility impact | Creating these tables makes a silently dead subsystem start working: wallets, ledgers, payouts, P&L, FX, courier commission. |
+
+**Existing implementation status.** CONTAINED. Six money tables created by no migration; 15 of the suite's 17 accepted skips name one of them.
+
+**Acceptance criteria.**
+- [ ] Each of the six tables has a runnable, reviewed migration
+- [ ] products.cost_price and the two delivery_boys columns exist first (P1-MIG-03)
+- [ ] COD settlement timing is settled first (P1-PAY-04)
+- [ ] The 15 blocked skips become real assertions
+- [ ] An approved recovery plan exists before anything is applied anywhere
+
+**Required tests.**
+- The 15 currently-skipped financial tests run and pass
+- guard-gate-f-containment.sh is updated deliberately, not bypassed
+
+**Evidence.** docs/GATE-F-SCHEMA-EXPORT.md; _gate_f_pending/README.md; known-test-outcomes.json (15 skips)
+
+### `P1-MIG-02` — customers.password_otp is INTEGER while the web reset writes a 60-char bcrypt hash
+
+| field | value |
+|---|---|
+| Status | **BLOCKED** |
+| Risk | high |
+| Workstream | Schema & Migration Readiness |
+| GitHub issue | #39 |
+| Owner decision required | **yes** |
+| Blocked on | Owner approval to apply a migration; the draft is .php.draft so Laravel cannot load it today. |
+| Depends on | `P1-PLT-01` |
+| Scope | `database/migrations/_sec13_pending/` |
+| Queue references | S13, P01-SEC-13 |
+| Database / migration | A real migration. Owner approval required before it is applied anywhere persistent. |
+| Compatibility impact | Password reset must keep working for existing OTPs — see docs/security/P01-OTP-LENGTH-COMPATIBILITY.md. |
+
+**Existing implementation status.** MIGRATION PREPARED AND NOT APPLIED. SQLite's type affinity hides it; this is the defect that proves the MySQL caveat.
+
+**Acceptance criteria.**
+- [ ] The column holds the value the reset writes, on MySQL
+- [ ] Verified by the MySQL harness, not by SQLite
+
+**Required tests.**
+- tests/Support/Security/bin/verify-sec13-migration-on-mysql.php, run and recorded
+
+**Evidence.** P01-SEC-13; docs/security/P01-OTP-LENGTH-COMPATIBILITY.md
+
+### `P1-MIG-03` — Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns
+
+| field | value |
+|---|---|
+| Status | **BLOCKED** |
+| Risk | high |
+| Workstream | Schema & Migration Readiness |
+| GitHub issue | #40 |
+| Owner decision required | **yes** |
+| Blocked on | Owner approval, together with P1-MIG-01. |
+| Depends on | — |
+| Scope | `database/migrations/`, `app/Models/DeliveryBoy.php`, `app/Models/Product.php` |
+| Queue references | GATE F, SCHEMA-GAP |
+| Database / migration | Drafts only in this task. Application is owner-gated with P1-MIG-01. |
+| Compatibility impact | Two merchant-facing handlers currently fail for everyone; fixing the schema makes them live. |
+
+**Existing implementation status.** UNDECLARED. cost_price is read and written as money; the two delivery_boys columns are fillable and written, and both write sites are gated on is_commission_enabled, so two handlers 500 for everyone.
+
+**Acceptance criteria.**
+- [ ] Each column has a reviewed migration draft
+- [ ] Declaring cost_price precedes store_order_financials, or the P&L is all-margin
+- [ ] The two 500ing handlers are reachable once the columns exist
+
+**Required tests.**
+- The two commission handlers stop 500ing
+- A P&L row computed with a real cost input
+
+**Evidence.** SCHEMA-GAP rows; OrderController.php:1315, DashboardController.php:8329
+
+### `P1-MIG-04` — SCHEMA-01: nine more tables live code uses with no migration
+
+| field | value |
+|---|---|
+| Status | **BLOCKED** |
+| Risk | medium |
+| Workstream | Schema & Migration Readiness |
+| GitHub issue | #41 |
+| Owner decision required | **yes** |
+| Blocked on | Owner approval; also needs a decision on the two retired chatwoot tables (retain or drop). |
+| Depends on | — |
+| Scope | `database/migrations/` |
+| Queue references | SCHEMA-01 |
+| Database / migration | Drafts only. Owner-gated application. |
+| Compatibility impact | zid_* holds integration credentials and is written by an unauthenticated ingress — see the Lynomia contract rows. |
+
+**Existing implementation status.** UNDECLARED, MOSTLY NOT DRAFTED. otp_integrations, delivery_boy_devices, delivery_boy_notifications, zid_stores, zid_orders, zid_events, newsletters.user_id, and two retired chatwoot tables.
+
+**Acceptance criteria.**
+- [ ] Each table is either drafted with a reviewed migration or recorded as deliberately retired
+- [ ] zid_orders and newsletters.user_id unblock their two declared test skips
+
+**Required tests.**
+- The two skips blocked on these become real assertions
+
+**Evidence.** SCHEMA-01 rows; known-test-outcomes.json skips 8 and 9
+
+---
+
+## Design System (foundation only)
+
+### `P1-R-04` — Design System foundation (imported from Claude B) and the contrast gate
+
+| field | value |
+|---|---|
+| Status | **DONE** |
+| Risk | low |
+| Workstream | Design System (foundation only) |
+| GitHub issue | #12 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `docs/design-system/`, `public/css/store-syria-ds.css`, `resources/views/` |
+| Queue references | DS-* |
+| Database / migration | None. |
+| Compatibility impact | Phase 02 owns the interface redesign. This task is foundation maintenance only. |
+
+**Existing implementation status.** Imported foundation plus one pilot screen; check-contrast.py wired into CI.
+
+**Acceptance criteria.**
+- [ ] 40 token pairs pass WCAG 2.1 in light and dark
+- [ ] The auto scope cannot drift from dark without failing CI
+
+**Required tests.**
+- python3 docs/design-system/tools/check-contrast.py (CI, blocking)
+
+**Evidence.** PR #3 §5; docs/design-system/README.md
+
