@@ -89,7 +89,14 @@
                                                                                 $prermission->name,
                                                                             );
                                                                         @endphp
-                                                                        @if (auth()->user()->type != 'super admin' && in_array($prermission->name, config('superadminaccess')))
+{{-- P1-SEC-02: ask the POLICY, not a copy of the denylist. `RolePolicy::grantPermission` is
+    now positive authorization (bounded by the tenant owner's own grant), so a hard-coded
+    `in_array($name, config('superadminaccess'))` here would offer the merchant checkboxes the
+    server drops -- the form and the handler would disagree by construction. This is a Gate
+    ability, not a Laratrust permission name, so `can()` really does resolve it (CLAUDE.md's
+    warning about `@can('Some Permission')` is about permission names); `filterGrantablePermissions`
+    already relies on the same call. --}}
+                                                                        @if (!auth()->user()->can('grantPermission', [\App\Models\Role::class, $prermission->name]))
                                                                         @continue
                                                                         @endif
                                                                         @if ($list == $check)

@@ -10,7 +10,7 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 45 — 10 DONE, 12 READY, 8 BACKLOG, 15 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
+| Tasks | 45 — 10 DONE, 11 READY, 8 BACKLOG, 15 BLOCKED, 1 IN_PROGRESS, 0 IN_REVIEW |
 | Requiring an owner decision | 16 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
@@ -115,7 +115,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 29. `P1-PLT-04` — Module loading swallows every exception with no log line *(platform, BLOCKED, risk medium)*
 30. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, BACKLOG, risk medium)*
 31. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, READY, risk high)*
-32. `P1-SEC-02` — A merchant with Create Role can grant the six finance permissions they do not hold *(security, READY, risk high)*
+32. `P1-SEC-02` — A merchant with Create Role can grant the six finance permissions they do not hold *(security, IN_PROGRESS, risk high)*
 33. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, READY, risk medium)*
 34. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, READY, risk medium)*
 35. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
@@ -215,13 +215,13 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_PROGRESS** |
 | Risk | high |
 | Workstream | Security & Identity |
 | GitHub issue | #16 |
 | Owner decision required | no |
 | Depends on | — |
-| Scope | `config/superadminaccess.php`, `app/Http/Controllers/RoleController.php`, `app/Policies/RolePolicy.php` |
+| Scope | `app/Policies/RolePolicy.php`, `resources/views/roles/create.blade.php`, `resources/views/roles/edit.blade.php`, `tests/Feature/Security/FinancePermissionGrantTest.php` |
 | Queue references | S15-B |
 | Database / migration | None. |
 | Compatibility impact | Merchant role management UI keeps working; only the permitted set narrows. |

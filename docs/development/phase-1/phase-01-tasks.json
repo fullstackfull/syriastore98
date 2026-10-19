@@ -260,12 +260,13 @@
       "title": "A merchant with Create Role can grant the six finance permissions they do not hold",
       "workstream": "security",
       "risk": "high",
-      "status": "READY",
+      "status": "IN_PROGRESS",
       "issue": 16,
       "scope": [
-        "config/superadminaccess.php",
-        "app/Http/Controllers/RoleController.php",
-        "app/Policies/RolePolicy.php"
+        "app/Policies/RolePolicy.php",
+        "resources/views/roles/create.blade.php",
+        "resources/views/roles/edit.blade.php",
+        "tests/Feature/Security/FinancePermissionGrantTest.php"
       ],
       "existing_status": "NOT STARTED. S15-B row 8. The denylist has 13 names and omits the money-moving finance permissions.",
       "depends_on": [],

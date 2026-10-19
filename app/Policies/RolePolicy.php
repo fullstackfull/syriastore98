@@ -145,13 +145,46 @@ class RolePolicy
     }
 
     /**
-     * May the actor grant this permission name?
+     * May the actor grant this permission name? P1-SEC-02 / S15-B row 8.
      *
-     * config/superadminaccess.php lists the platform-operator permissions
-     * (Create Plan, Manage Country, Manage Module, Manage currency, ...). They
-     * were filtered ONLY in Blade (roles/create.blade.php:72,98 and
-     * roles/edit.blade.php:92) and never server-side, so a crafted POST granted
-     * them to any role.
+     * THIS WAS A DENYLIST AND IS NOW POSITIVE AUTHORIZATION. The previous body was
+     * `!in_array($permissionName, config('superadminaccess'))` -- thirteen platform-operator
+     * names. A denylist answers *is this name forbidden* and never *is this actor entitled to
+     * hand it out*, so every name nobody thought to list was grantable by anybody holding
+     * `Create Role`.
+     *
+     * WHAT IT MISSED, measured against the application's own seeder rather than assumed.
+     * `Utility::addNewData()` is the only mechanism that creates Permission rows; it seeds 200,
+     * grants 181 to the merchant role and 29 to the operator role. Nineteen are outside a
+     * merchant's own grant and the denylist covered only twelve. The seven it did not:
+     *
+     *   Add Finance Balance, Deduct Finance Balance, Edit Finance Payment Status,
+     *   Request Finance Withdrawal, View Finance Dashboard, View Finance Withdrawal Requests
+     *       -- the six money-moving finance permissions. Their rows exist and NO SEEDED ROLE
+     *          HOLDS THEM, deliberately: Utility.php:2866-2876 records that which role holds a
+     *          money power is "a privilege decision for the owner, not something to infer from a
+     *          route file". A merchant ticking the box made that decision for them.
+     *   Manage Email Template
+     *       -- operator-only, and simply absent from the list.
+     *
+     * BOUNDED BY THE TENANT OWNER, NOT BY THE ACTOR, AND THE DIFFERENCE IS DELIBERATE.
+     * `User::creatorId()` returns the actor's own id when `users.type` is `admin`, so for a
+     * MERCHANT the two readings are identical and the rule reads exactly as the requirement does:
+     * a merchant cannot grant a permission they do not themselves hold. They diverge only for
+     * STAFF, where bounding by the actor would also forbid a merchant delegating role
+     * composition to a staff member -- a working feature, and this project's standing instruction
+     * is to prefer the narrowest change that closes the defect. Bounding by the owner closes the
+     * escalation (no principal can exceed its tenant's ceiling) and leaves that delegation
+     * intact. The residual -- staff composing a role up to parity with their own merchant --
+     * stays inside one tenant, is strictly narrower than what this closes, and is recorded as
+     * its own queue row rather than quietly chosen here.
+     *
+     * THE DENYLIST IS KEPT, as defence in depth rather than as the control: a platform-operator
+     * name stays refused even if a tenant somehow came to hold one. Note that one of its
+     * thirteen entries, `Delete Plan`, matches no Permission row at all, so the list is not a
+     * reliable enumeration of anything -- another reason not to let it be the control.
+     *
+     * FAILS CLOSED. An actor whose tenant owner cannot be resolved grants nothing.
      */
     public function grantPermission(User $actor, string $permissionName): bool
     {
@@ -159,6 +192,30 @@ class RolePolicy
             return true;
         }
 
-        return !in_array($permissionName, (array) config('superadminaccess', []), true);
+        if (in_array($permissionName, (array) config('superadminaccess', []), true)) {
+            return false;
+        }
+
+        $owner = $this->tenantOwner($actor);
+
+        return $owner !== null && $owner->isAbleTo($permissionName);
+    }
+
+    /**
+     * The root of the actor's tenant: themselves for a merchant, their merchant for staff.
+     *
+     * `creatorId()` is the application's own answer to this question (`User::creatorId()`
+     * returns `$this->id` for type `admin`/`super admin`, else `created_by`), so this follows it
+     * rather than introducing a second notion of tenancy.
+     */
+    private function tenantOwner(User $actor): ?User
+    {
+        $ownerId = (int) $actor->creatorId();
+
+        if ($ownerId === (int) $actor->id) {
+            return $actor;
+        }
+
+        return User::find($ownerId);
     }
 }
