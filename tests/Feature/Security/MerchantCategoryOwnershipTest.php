@@ -14,8 +14,12 @@ use Illuminate\Support\Facades\DB;
  * `CategoryController::destroy` is the most destructive cross-tenant route found on this
  * milestone, and it is destructive in a way a database rollback cannot undo.
  *
- * `Category` is absent from `config/tenancy.php`'s `scoped_models` and carries no
- * `BelongsToStore`, so `Category::find($id)` reaches every tenant. The method's only
+ * `Category` DOES carry `BelongsToStore` (`app/Models/Category.php:14`) but is ABSENT from
+ * `config/tenancy.php`'s `scoped_models`, and absence from the allowlist is the half that
+ * decides: `StoreScope::isActiveFor()` short-circuits for an unlisted model, so the trait adds no
+ * predicate for any principal and `Category::find($id)` reaches every tenant. CLAUDE.md insists
+ * on both halves of that check for exactly this reason -- an earlier draft of this docblock said
+ * the model carries no trait, which is false. The method's only
  * authorization was `isAbleTo('Delete Product Category')` — *may this user delete categories*,
  * never *may this user delete THIS category*. It then iterated `$mainCategory->product_details`
  * (a plain `hasMany(Product::class, 'category_id')` on the equally unscoped `Product`) and called
@@ -101,13 +105,18 @@ class MerchantCategoryOwnershipTest extends SecurityTestCase
      */
     private function fileFor($store, string $label): array
     {
-        $dir = base_path('uploads/' . $store->id);
+        // A DIRECTORY NAME NO REAL STORE CAN OWN. `productImageDelete()` reads the path out of
+        // the row, so it need not be the real `uploads/<store_id>`: using the real one meant a
+        // crashed run left scratch files in `uploads/1/`, and `uploads/` is tracked. Raised by an
+        // adversarial review of this file.
+        $dir = base_path('uploads/p1inv08-' . $store->id . '-' . uniqid());
         if (!is_dir($dir)) {
             mkdir($dir, 0777, true);
             $this->scratchDirs[] = $dir;
         }
 
-        $relative = 'uploads/' . $store->id . '/' . $label . '-' . uniqid() . '.jpg';
+        $relative = str_replace(base_path() . DIRECTORY_SEPARATOR, '', $dir)
+            . '/' . $label . '-' . uniqid() . '.jpg';
         $absolute = base_path($relative);
         file_put_contents($absolute, 'x');
         $this->scratchFiles[] = $absolute;
@@ -338,5 +347,230 @@ class MerchantCategoryOwnershipTest extends SecurityTestCase
             Category::withoutGlobalScopes()->findOrFail($own->id)->name,
             'The owner can no longer rename their own category, so the refusal test above proves '
             . 'nothing. Session error: ' . json_encode(session('error')));
+    }
+
+    /**
+     * THE PLATFORM OPERATOR IS THE ONLY PRINCIPAL FOR WHOM THE CHILD GUARD'S STORE IS LIVE.
+     * ==========================================================================================
+     *
+     * Named by an adversarial review of this file, and it is the finding that mattered most about
+     * the tests: `test_a_victim_category_with_children_is_still_refused` CANNOT bite the
+     * child-guard change as shipped, because the ownership guard returns first and `:376` is
+     * never reached. Reverting the child guard alone leaves all six tests above green. The
+     * removal check that found it needed TWO mutations — ownership off AND the guard reverted —
+     * which proves defence in depth but does NOT prove the child guard's store value is covered.
+     *
+     * The operator is the gap. `categoryIsOutsideCurrentStore()` exempts them, so they are the
+     * one principal who reaches `:376` with `$category->store_id != getCurrentStore()`. And the
+     * values really do differ for them: `getCurrentStore()` returns a HARDCODED 1 for a
+     * `super admin` with no `current_store` (`app/Helper/helper.php:403-404`), whichever store
+     * they are administering.
+     *
+     * So this test measures the change's only live behavioural effect. OLD code: children were
+     * sought in the operator's store, none were found, the deletion proceeded and store B's
+     * children were orphaned. NEW code: children are sought in store B, found, and the delete is
+     * refused with the child-category message. A NARROWING for the operator — recorded in the
+     * ledger and the issue as a deliberate behaviour change, with "delete the leaves first" as
+     * the workaround.
+     *
+     * `grantPermission` IS load-bearing here, unlike on the P1-INV-07 routes: `Utility::addNewData`
+     * grants the seeded `super admin` role a list that does NOT include the category permissions
+     * (they go to `admin`), so without the grant the outer check refuses and this measures
+     * nothing. `SecurityTestCase::setUp` already calls `satisfyUpdaterGate()`, which is what
+     * stops XSS::handle redirecting a super admin before the controller runs.
+     */
+    public function test_the_operator_is_refused_on_a_foreign_category_with_children(): void
+    {
+        $operator = $this->makePlatformAdmin();
+        // STORE 1 MUST NOT BE THE VICTIM. getCurrentStore() returns a hardcoded 1 for a super
+        // admin with no current_store, and under RefreshDatabase the first store created IS id 1
+        // -- so without this throwaway tenant the victim store and the operator's resolved store
+        // are the same row and the test measures nothing. The premise assertion below caught
+        // exactly that on the first run of this test.
+        $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $this->grantPermission($operator, 'Delete Product Category');
+
+        $victimParent = $this->categoryIn($storeB, 'operator-victim-parent');
+        $victimChild = $this->categoryIn($storeB, 'operator-victim-child', $victimParent->id);
+        $fixture = $this->productWithEverything($storeB, $victimParent, 'operatorprod');
+
+        // The premise this test rests on: the two store values genuinely differ for the operator,
+        // so `:376` is being asked a different question than it was before the change. Asserted
+        // rather than assumed -- if a future change made getCurrentStore() resolve to store B for
+        // this principal, every assertion below would pass while measuring nothing.
+        $this->assertNotSame((int) $storeB->id, (int) getCurrentStore($operator->id),
+            'getCurrentStore() already resolves to the victim store for this operator, so the '
+            . 'child guard is being asked the same question either way and this test is vacuous.');
+
+        $response = $this->actingAs($operator)->delete('/category/' . $victimParent->id);
+
+        $this->assertVictimIntact($fixture, $victimParent,
+            'The operator destroyed a foreign category that HAS children');
+        $this->assertNotNull(Category::withoutGlobalScopes()->find($victimChild->id),
+            'The operator orphaned the victim\'s child category -- which is exactly what the old '
+            . 'child guard allowed, because it looked for children in the operator\'s own store.');
+        $this->assertSame(302, $response->status());
+    }
+
+    /**
+     * THE OPERATOR'S POSITIVE CONTROL: the exemption still works.
+     *
+     * Without this, the test above is satisfied by an operator who is refused for the WRONG
+     * reason -- by the ownership guard rather than the child guard. A leaf category in the same
+     * foreign store must still delete.
+     */
+    public function test_the_operator_can_still_delete_a_foreign_leaf_category(): void
+    {
+        $operator = $this->makePlatformAdmin();
+        $this->makeTenant(); // see the test above: store 1 must not be the victim
+        [, $storeB] = $this->makeTenant();
+        $this->grantPermission($operator, 'Delete Product Category');
+
+        $leaf = $this->categoryIn($storeB, 'operator-leaf');
+        $fixture = $this->productWithEverything($storeB, $leaf, 'operatorleafprod');
+
+        $this->assertNotSame((int) $storeB->id, (int) getCurrentStore($operator->id),
+            'The victim store is the operator\'s resolved store, so this control would pass even '
+            . 'without the exemption.');
+
+        $response = $this->actingAs($operator)->delete('/category/' . $leaf->id);
+
+        $this->assertSame(302, $response->status());
+        $this->assertNull(Category::withoutGlobalScopes()->find($leaf->id),
+            'The operator exemption is not working, so the refusal test above proves only that '
+            . 'the OWNERSHIP guard refused -- not that the child guard did. Session error: '
+            . json_encode(session('error')));
+        $this->assertNull(
+            DB::table('product_variants')->where('id', $fixture['variant_id'])->first(),
+            'The destructive path did not run for the operator.');
+    }
+
+    /**
+     * THE UPLOAD PATH IS GATED TOO, AND MEASURED RATHER THAN READ.
+     *
+     * Raised by review: the cross-store update test sends no file, so
+     * `Utility::updateStorageLimit` (which writes `users.storage_limit`),
+     * `Utility::changeStorageLimit` (which File::globs and File::deletes the victim's EXISTING
+     * image) and `Utility::upload_file` never executed — moving the guard below them would have
+     * failed nothing. This drives the same request WITH a file.
+     */
+    public function test_a_cross_store_update_with_an_image_unlinks_nothing_and_debits_nobody(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Edit Product Category');
+
+        [$victimRel, $victimAbs] = $this->fileFor($storeB, 'victim-category-art');
+        $victim = $this->categoryIn($storeB, 'victim-with-art');
+        $victim->image_path = $victimRel;
+        $victim->save();
+
+        $quotaBefore = \App\Models\User::withoutGlobalScopes()
+            ->findOrFail($merchantA->id)->storage_limit;
+
+        $response = $this->actingAs($merchantA)->put('/category/' . $victim->id, [
+            'name' => 'HIJACKED-WITH-ART',
+            'parent_id' => 0,
+            'trending' => 1,
+            'status' => 1,
+            'image' => \Illuminate\Http\UploadedFile::fake()->image('attacker.jpg'),
+        ]);
+
+        $this->assertFileExists($victimAbs,
+            'Another store\'s category artwork was unlinked from disk by a cross-store update.');
+        $this->assertSame('victim-with-art',
+            Category::withoutGlobalScopes()->findOrFail($victim->id)->name,
+            'Another store\'s category was renamed on the upload path.');
+        $this->assertSame($victimRel,
+            Category::withoutGlobalScopes()->findOrFail($victim->id)->image_path,
+            'Another store\'s category image_path was repointed into the caller\'s media tree.');
+        $this->assertSame($quotaBefore,
+            \App\Models\User::withoutGlobalScopes()->findOrFail($merchantA->id)->storage_limit,
+            'The caller\'s storage quota moved, so Utility::updateStorageLimit ran before the '
+            . 'refusal -- the guard is placed too late.');
+        $this->assertSame(302, $response->status());
+    }
+
+    /**
+     * A FOREIGN PRODUCT SHARING THE CALLER'S CATEGORY IS NOT SWEPT UP.
+     *
+     * Raised by review as LATENT, and tested as latent rather than claimed as exploitable: the
+     * `product_details` relation filters by `category_id` only, so after the ownership guard the
+     * category is the caller's but the products are not necessarily. There is no shipped write
+     * path that plants such a row today -- the one that could re-tenant a product,
+     * `WoocomProductController::edit`, is an open task (#30) -- so this fixture writes the row
+     * directly, which is the honest way to test a latent exposure: it measures the predicate,
+     * not a reachable attack.
+     */
+    public function test_a_foreign_product_in_the_callers_category_keeps_its_media(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Delete Product Category');
+
+        $own = $this->categoryIn($storeA, 'shared-category');
+
+        // The caller's own product in their own category: must still be cleaned up.
+        $mine = $this->productWithEverything($storeA, $own, 'mineinshared');
+
+        // A store-B product pointed at store A's category. Anomalous by construction.
+        $foreign = $this->productWithEverything($storeB, $own, 'foreigninshared');
+        \Illuminate\Support\Facades\DB::table('products')
+            ->where('id', $foreign['product']->id)
+            ->update(['category_id' => $own->id, 'store_id' => $storeB->id]);
+
+        $response = $this->actingAs($merchantA)->delete('/category/' . $own->id);
+
+        $this->assertSame(302, $response->status());
+
+        // The premise: the delete really ran, so "the foreign row survived" is not just a refusal.
+        $this->assertNull(Category::withoutGlobalScopes()->find($own->id),
+            'The category was not deleted, so this test shows a refusal rather than a narrowed '
+            . 'loop. Session error: ' . json_encode(session('error')));
+        $this->assertNull(DB::table('product_variants')->where('id', $mine['variant_id'])->first(),
+            'The caller\'s own product was not cleaned up, so the loop did not run at all.');
+        foreach ($mine['files'] as $path) {
+            $this->assertFileDoesNotExist($path,
+                'The caller\'s own media was not unlinked, so the loop did not reach the '
+                . 'filesystem and the assertion below measures nothing.');
+        }
+
+        // WHAT THE PREDICATE BUYS: the foreign product's FILES are still on disk. That is the
+        // irreversible half, and it is the half the loop controls.
+        foreach ($foreign['files'] as $path) {
+            $this->assertFileExists($path,
+                'Another store\'s product media was unlinked by a legitimate own-category '
+                . 'delete: ' . $path);
+        }
+
+        /*
+         * AND WHAT IT CANNOT BUY, PINNED HERE SO IT IS NOT MISTAKEN FOR SAFETY.
+         *
+         * `products.category_id` is declared `ON DELETE CASCADE` against `categories.id`
+         * (`database/migrations/..._create_products_table.php:55`), and
+         * `product_variants.product_id` cascades again off `products`. So `$category->delete()`
+         * removes EVERY product row in the category and every variant under it, whatever the
+         * store, below the application entirely — no predicate in this controller can reach it.
+         *
+         * Verified on the real engine, not inferred from SQLite:
+         * tests/Support/Security/bin/verify-category-product-cascade-on-mysql.php — 3 checks, 0
+         * failures on MySQL 8.0.46, including `information_schema.REFERENTIAL_CONSTRAINTS`
+         * reporting DELETE_RULE = CASCADE.
+         *
+         * These two assertions therefore pin a KNOWN-BAD behaviour rather than a control, which
+         * is why they are labelled: if a later change makes the cascade stop firing, this test
+         * fails and the next reader is sent here instead of discovering it in production. The
+         * cascade is raised as its own task — it also means an earlier draft of S38-1 and of #49
+         * was WRONG to say "the products rows themselves survive"; they do not.
+         */
+        $this->assertNull(
+            Product::withoutGlobalScopes()->find($foreign['product']->id),
+            'The FK cascade no longer removes a foreign product when its category is deleted. '
+            . 'That is an IMPROVEMENT, not a regression — but it changes a documented limit, so '
+            . 'update this test, the S38-1 queue entry and the cascade task before going green.');
+        $this->assertNull(
+            DB::table('product_variants')->where('id', $foreign['variant_id'])->first(),
+            'The product_variants cascade off products no longer fires. Same note as above.');
     }
 }

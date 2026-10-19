@@ -301,12 +301,53 @@ class BulkDeleteAuthorizationTest extends SecurityTestCase
             $this->assertFileExists($file);
             $body = (string) file_get_contents($file);
             $destroy = substr($body, (int) strpos($body, 'function destroy'));
+            $window = substr($destroy, 0, 1200);
+            $needle = "isAbleTo('{$permission}')";
+
             $this->assertStringContainsString(
-                "isAbleTo('{$permission}')",
-                substr($destroy, 0, 1200),
+                $needle,
+                $window,
                 "{$controller}::destroy no longer requires '{$permission}', so the bulk path would "
                 . 'be demanding a permission the single-record path does not.'
             );
+
+            /*
+             * A COMMENT MUST NOT BE ABLE TO SATISFY THE ASSERTION ABOVE. P1-INV-08.
+             *
+             * MEASURED, not hypothesised: a P1-INV-08 docblock in CategoryController::destroy
+             * quoted `$needle` verbatim inside this window, and with the controller's REAL
+             * permission check deleted this file still passed 23/23 -- the ratchet had become
+             * satisfiable by prose. Exactly the "a ratchet matching a comment that quotes the
+             * defect it scans for" failure CLAUDE.md names.
+             *
+             * Two independent conditions, because either alone can be evaded: the needle must
+             * appear exactly ONCE in the window, and the line carrying it must be code rather
+             * than a comment. A controller that legitimately needs the string twice should hoist
+             * its check instead of relaxing this.
+             */
+            $occurrences = substr_count($window, $needle);
+            $this->assertSame(1, $occurrences,
+                "{$controller}::destroy contains the literal \"{$needle}\" {$occurrences} times "
+                . 'in the first 1200 bytes. A second occurrence -- in a docblock quoting the '
+                . 'permission, typically -- would keep this test green after the real check was '
+                . 'deleted. Reword the comment to name the permission without its call syntax.');
+
+            $codeLines = array_values(array_filter(
+                explode("\n", $window),
+                static function (string $line) use ($needle): bool {
+                    if (!str_contains($line, $needle)) {
+                        return false;
+                    }
+                    $trimmed = ltrim($line);
+
+                    return !str_starts_with($trimmed, '*')
+                        && !str_starts_with($trimmed, '//')
+                        && !str_starts_with($trimmed, '/*');
+                }
+            ));
+            $this->assertNotEmpty($codeLines,
+                "{$controller}::destroy mentions '{$permission}' only inside a comment, so this "
+                . 'guard is measuring prose rather than an authorization check.');
         }
     }
 

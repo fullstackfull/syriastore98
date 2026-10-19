@@ -294,9 +294,15 @@ class CategoryController extends Controller
     /**
      * Does this category belong to someone other than the signed-in merchant? P1-INV-08.
      *
-     * `Category` is absent from `config/tenancy.php`'s `scoped_models` and carries no
-     * `BelongsToStore`, so `Category::find($id)` reaches every tenant and nothing in this
-     * controller narrowed it. The shape is `ProductController`'s, deliberately: platform operator
+     * `Category` DOES carry `BelongsToStore` (`app/Models/Category.php:14`) but is ABSENT from
+     * `config/tenancy.php`'s `scoped_models`, and absence from the allowlist is the half that
+     * decides: `StoreScope::isActiveFor()` short-circuits for a model that is not listed, so the
+     * trait adds no predicate for any principal and `Category::find($id)` reaches every tenant.
+     * CLAUDE.md insists on both halves of that check for exactly this reason -- an earlier draft
+     * of this docblock said the model carries no trait, which is false and would have sent the
+     * next reader to a model that contradicts the comment.
+     *
+     * The shape is `ProductController`'s, deliberately: platform operator
      * exempt by `users.type`, then `getCurrentStore()` against the row's own `store_id`. Per
      * CLAUDE.md there is no super-admin bypass in Laratrust, so the operator has to be named
      * explicitly or this guard would lock them out of every store's categories.
@@ -309,6 +315,13 @@ class CategoryController extends Controller
     {
         $actor = auth()->user();
 
+        /*
+         * Exact-case, matching `ProductController`'s predicate rather than
+         * `StoreController::resolveOwnedStore`, which normalises with `strtolower(trim(...))`.
+         * Kept exact here so the two catalogue controllers read identically, and it FAILS SAFE:
+         * a hypothetical `'Super Admin'` row is treated as a merchant and refused, never
+         * exempted. Named so the next copier inherits the choice knowingly, not silently.
+         */
         if ($actor !== null && $actor->type === \App\Policies\UserPolicy::PLATFORM_ADMIN) {
             return false;
         }
@@ -338,7 +351,7 @@ class CategoryController extends Controller
                 /*
                  * OWNERSHIP BEFORE THE FIRST DESTRUCTIVE CALL. P1-INV-08.
                  *
-                 * `isAbleTo('Delete Product Category')` answers *may this user delete
+                 * The `Delete Product Category` permission answers *may this user delete
                  * categories* and never *may this user delete THIS category*. With no predicate
                  * here, a merchant posting another store's id reached
                  * `Product::productImageDelete()` for every product in that category, which
@@ -347,6 +360,13 @@ class CategoryController extends Controller
                  * `product_variants` rows -- the stock with them. Disk unlinking is not
                  * recoverable from the application, which is why this check sits above
                  * `categoryImageDelete()`, the first call that touches a file.
+                 *
+                 * THE PERMISSION NAME IS WRITTEN WITHOUT ITS CALL SYNTAX ON PURPOSE.
+                 * BulkDeleteAuthorizationTest greps the first 1200 bytes after `function
+                 * destroy` for the literal permission check, and the first draft of this comment
+                 * quoted it verbatim -- which MEASURABLY DEGRADED that ratchet: with the real
+                 * check at :333 deleted, the suite still passed 23/23 on the comment alone.
+                 * Do not quote a permission check inside this window.
                  */
                 if ($this->categoryIsOutsideCurrentStore($category)) {
                     \Illuminate\Support\Facades\Log::warning(
@@ -380,7 +400,31 @@ class CategoryController extends Controller
                 
                 Category::categoryImageDelete($category);
 
-                $products = $mainCategory->product_details;
+                /*
+                 * THE PRODUCT LOOP CARRIES ITS OWN PREDICATE. P1-INV-08, raised by review.
+                 *
+                 * `product_details` is `hasMany(Product::class, 'category_id')` on a model
+                 * `config/tenancy.php` does not allowlist, so it filters by category only. After
+                 * the guard above the CATEGORY is the caller's; a `products` row with
+                 * `store_id = B` and `category_id = <the caller's category>` would still have its
+                 * media unlinked from disk by an entirely legitimate delete.
+                 *
+                 * LATENT, NOT A HOLE -- stated precisely because the distinction matters: every
+                 * product write path checked sets `store_id` from a resolved store or carries the
+                 * P1-INV-01/07 ownership guard. The one path that can re-tenant a product is
+                 * `WoocomProductController::edit`, which resolves `WoocommerceConection` with no
+                 * store predicate and rewrites a foreign product's `store_id` to the caller's --
+                 * an OPEN task (P1-INV-04, #30). This predicate is one line and removes the
+                 * dependency on that fix landing correctly, which is worth more than the
+                 * dependency.
+                 *
+                 * A NULL-store product sharing the category is deliberately NOT cleaned up here:
+                 * narrowing is the safe direction for an irreversible disk operation, and such a
+                 * row is already an anomaly rather than something a merchant created.
+                 */
+                $products = $mainCategory->product_details()
+                    ->where('store_id', $category->store_id)
+                    ->get();
                 foreach ($products as $product) {
                     Product::productImageDelete($product);
                 }

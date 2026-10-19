@@ -3394,9 +3394,25 @@ are orphaned.
 (`User::find(\Auth::user()->creatorId())`, `:874-877`) — the one artefact the attack leaves on the
 attacker's own side, and a detection signal worth keeping in mind for the server.
 
-The `products` rows themselves survive; everything that makes them a sellable catalogue does not.
-Disk unlinking is not recoverable from the application, which is why this outranks a cross-tenant
-*write*.
+**SECOND CORRECTION, and it raises the severity.** The first draft of this entry said "the
+`products` rows themselves survive; everything that makes them a sellable catalogue does not."
+**They do not survive.** `products.category_id` is declared `ON DELETE CASCADE` against
+`categories.id` (`database/migrations/2023_12_25_*_create_products_table.php:55`), and
+`product_variants.product_id` cascades again off `products`, so `$category->delete()` removes
+**every product row in the category and every variant under it, for every store**, below the
+application entirely — no controller predicate can reach it.
+
+Found by a regression test failing: the P1-INV-08 test asserting that a foreign product sharing
+the caller's category kept its rows went red, and the row was gone. Verified on the real engine
+rather than inferred from SQLite —
+`tests/Support/Security/bin/verify-category-product-cascade-on-mysql.php`, **3 checks, 0 failures
+on MySQL 8.0.46**, including `information_schema.REFERENTIAL_CONSTRAINTS` reporting
+`DELETE_RULE = CASCADE`.
+
+So the pre-fix exposure was not "a store's catalogue media and variants" but **a store's
+catalogue**. Disk unlinking is still the part that cannot be undone from the application, which
+is why this outranks a cross-tenant *write*; the cascade is why it outranks the first draft of
+itself.
 
 The required predicate is the one `ProductController` now carries: platform operator exempt via
 `UserPolicy::PLATFORM_ADMIN`, then `getCurrentStore()` against `$category->store_id` — before
@@ -3458,6 +3474,55 @@ missing-ownership limbs are different defects with different failure modes, and 
 the permission limb is the one that can lock out the operator. Any pass that adds `isAbleTo` to
 these routes must add the `PLATFORM_ADMIN` exemption in the same edit, or it will close a hole and
 open an outage.
+
+### S38-4 — unvalidated `parent_id` leaks every store's category names, and admits a cycle that fatals
+
+**OPEN, LIVE, verified by reading all three files. Raised as P1-INV-11.** Found by the adversarial
+review of P1-INV-08, and P1-INV-08's guard cannot see it: the row being written is the caller's
+**own**, so `categoryIsOutsideCurrentStore()` correctly returns false.
+
+`CategoryController` writes `parent_id` straight from request input in both writers — `:123`
+(`store`) and `:281` (`update`), identical lines — with no `exists` rule and no store predicate.
+The only validation rule in either method is `'name' => 'required'` (`:58`, `:209`). The value is
+then rendered back through an **unscoped** relation: `Category::parent_category()` is a plain
+`belongsTo` (`app/Models/Category.php:111-114`) and `CategoryDataTable` renders
+`optional($category->parent_category)->name` (`:58-60`).
+
+So merchant A PUTs **their own** category with `parent_id=N`, loads `/category`, and the "Parent
+Category" column shows **store B's** category name. Incrementing `N` enumerates the platform's
+whole catalogue taxonomy, one name per request. The create/edit dropdown *is* store-scoped, so the
+UI never offers a foreign id — obscurity, not a control, and the POST is hand-craftable.
+
+The same missing rule admits `parent_id = <own id>` or a two-category cycle, which makes
+`buildCategoryTree` (`app/Helper/helper.php:2538-2551`, unconditional recursion, no visited-set)
+recurse until it fatals — a 500 on the caller's own create and edit pages. Self-inflicted and
+own-store only, but it is a denial of the merchant's own screens from the same unvalidated write.
+
+### S38-5 — what the adversarial review of P1-INV-08 got wrong, and what my own fix got wrong
+
+Recorded because both directions are worth keeping.
+
+**My fix degraded a CI ratchet, and the review caught it.** The P1-INV-08 docblock in
+`CategoryController::destroy` quoted `isAbleTo('Delete Product Category')` verbatim, inside the
+1200-byte window `BulkDeleteAuthorizationTest:303-309` greps for exactly that string. **Measured:
+two matches in the window, and with the controller's real permission check deleted the suite still
+passed 23/23** — the ratchet had become satisfiable by prose, which is precisely the failure
+CLAUDE.md names. Fixed by rewording, and the ratchet is now **strengthened**: it requires exactly
+one occurrence and rejects a comment-only match, so it fails when the real check is removed. A
+sweep of all 21 ratcheted controllers found no other instance.
+
+**My fix also stated a false reason.** Both new files said `Category` "carries no
+`BelongsToStore`". It does (`app/Models/Category.php:14`). The operative fact is absence from
+`scoped_models` — the other half of the two-part check CLAUDE.md insists on, and the half that
+decides, since `StoreScope::isActiveFor()` short-circuits for an unlisted model.
+
+**And the review was wrong about one thing, usefully.** It called S38-2's missing containment a
+merchant-reachable arbitrary file delete; verification found `other_description_api` has five
+readers and zero writers in this repository, so it is hardening with a latent trigger. It was also
+right that my child-guard removal check needed **two** mutations and therefore did not cover the
+guard's store value — closed by adding the platform-operator tests, since the operator is the only
+principal who reaches that line with the two store values differing (`getCurrentStore()` returns a
+hardcoded `1` for a `super admin` with no `current_store`, `app/Helper/helper.php:403-404`).
 
 ---
 

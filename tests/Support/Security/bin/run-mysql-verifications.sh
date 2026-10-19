@@ -84,6 +84,10 @@ run_one verify-cart-quantity-guard-on-mysql \
   "MYSQL_SOCKET=${SOCK}" "MYSQL_HOST=${HOST}" "MYSQL_PORT=${PORT}" \
   "MYSQL_USER=${USER_NAME}" "MYSQL_PASSWORD=${PASS}"
 
+run_one verify-category-product-cascade-on-mysql \
+  "CASCADE_MYSQL_SOCKET=${SOCK}" "CASCADE_MYSQL_HOST=${HOST}" "CASCADE_MYSQL_PORT=${PORT}" \
+  "CASCADE_MYSQL_DATABASE=cascade_verify" "CASCADE_MYSQL_USERNAME=${USER_NAME}" "CASCADE_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

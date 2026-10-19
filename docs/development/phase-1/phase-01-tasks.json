@@ -1416,6 +1416,79 @@
       ],
       "owner_decision": false,
       "blocked_on": null
+    },
+    {
+      "id": "P1-INV-11",
+      "title": "Unvalidated parent_id leaks every store's category names, and admits a tree cycle that fatals",
+      "workstream": "inventory",
+      "risk": "medium",
+      "status": "READY",
+      "issue": 52,
+      "scope": [
+        "app/Http/Controllers/CategoryController.php",
+        "app/Helper/helper.php"
+      ],
+      "existing_status": "LIVE. Found by the adversarial review of P1-INV-08 and confirmed by reading the three files involved. P1-INV-08's guard cannot see it, because the row being written is the caller's OWN: categoryIsOutsideCurrentStore() correctly returns false. CategoryController writes parent_id straight from request input in both writers (:123 store, :281 update) with no `exists` rule and no store predicate -- the only validation rule in either is 'name' => 'required'. The value is rendered back through an UNSCOPED relation: Category::parent_category() is a plain belongsTo (Category.php:111-114) and CategoryDataTable renders optional($category->parent_category)->name (:58-60). So a merchant PUTs their own category with parent_id=N, loads /category, and the Parent Category column shows store B's category name -- incrementing N enumerates the platform's whole catalogue taxonomy, one name per request. The create/edit dropdown IS store-scoped, so the UI never offers a foreign id, but that is obscurity and the POST is hand-craftable. Second effect from the same missing rule: parent_id = own id, or any cycle, makes buildCategoryTree (helper.php:2538-2551, unconditional recursion with no visited-set) recurse until it fatals -- a 500 on the caller's own create and edit pages.",
+      "depends_on": [
+        "P1-INV-08"
+      ],
+      "acceptance": [
+        "parent_id must be 0, or the id of a category in the caller's own store, in BOTH store() and update()",
+        "The platform operator is handled consistently with P1-INV-08's predicate",
+        "A cycle (parent_id = own id, or any loop) is refused rather than stored",
+        "The refusal is the controller's existing redirect-with-error, not a 500",
+        "A visited-set in buildCategoryTree is considered as defence in depth, since other writers reach it"
+      ],
+      "tests": [
+        "Negative: a cross-store parent_id is refused and the caller's category keeps its previous parent_id",
+        "Negative: the foreign category's NAME does not appear in the /category listing response -- asserted on rendered output, since the write is only half the defect",
+        "Negative: parent_id = own id is refused and the edit page still renders 200 rather than fatalling",
+        "Positive control: a legitimate own-store parent_id is still accepted and still renders in the parent column",
+        "Removal check on the validation rule and on the cycle check, separately"
+      ],
+      "compatibility": "Adds a refusal where any value was previously accepted. The UI only ever offers own-store ids, so no legitimate merchant workflow changes -- but any API or import path that sets parent_id must be checked before it ships.",
+      "db": "None.",
+      "evidence": "",
+      "queue_refs": [
+        "S38-4"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-INV-12",
+      "title": "Deleting a category deletes every product in it by FK cascade, below the application",
+      "workstream": "inventory",
+      "risk": "high",
+      "status": "READY",
+      "issue": 53,
+      "scope": [
+        "database/migrations/2023_12_25_093024_create_categories_table.php",
+        "app/Http/Controllers/CategoryController.php"
+      ],
+      "existing_status": "FOUND BY A REGRESSION TEST FAILING, and it CORRECTS A CLAIM THIS PROJECT HAD ALREADY PUBLISHED. The P1-INV-08 test asserting that a foreign product sharing the caller's own category kept its rows went red: the row was gone. products.category_id is declared ON DELETE CASCADE against categories.id (create_products_table.php:55) and product_variants.product_id cascades again off products, so $category->delete() removes EVERY product row in the category and every variant under it, for every store, below the application -- no controller predicate can reach it. The first drafts of S38-1 and of issue #49 both said 'the products rows themselves survive'; they do not, so the pre-fix P1-INV-08 exposure was another store's CATALOGUE, not merely its catalogue media. VERIFIED ON THE REAL ENGINE, not inferred from SQLite: tests/Support/Security/bin/verify-category-product-cascade-on-mysql.php, 3 checks 0 failures on MySQL 8.0.46, including information_schema.REFERENTIAL_CONSTRAINTS reporting DELETE_RULE = CASCADE. WHAT P1-INV-08 CLOSED: the cross-tenant path, so a merchant can no longer reach the cascade across a tenant boundary. WHAT IS STILL OPEN: (1) a merchant deleting their OWN category silently destroys every product in it, with no warning and no product count -- the UI says only 'Category delete successfully'; (2) the latent cross-tenant case cannot be closed in the controller, so a foreign product sharing the caller's category keeps its FILES (P1-INV-08's loop predicate) but loses its row and variants, which a regression test now pins deliberately and labels as pinning known-bad behaviour; (3) whether the LIVE schema carries this constraint is unverified and unverifiable from here -- GATE F records 15 tables that live code reads with no migration at all.",
+      "depends_on": [
+        "P1-INV-08"
+      ],
+      "acceptance": [
+        "The live schema's actual DELETE_RULE for products_category_id_foreign is established on the server, read-only, no DDL",
+        "A decision is recorded on the intended behaviour: cascade, SET NULL with an uncategorised bucket, or refuse-while-non-empty as the child-category guard already does for subcategories",
+        "If the behaviour changes, the deletion path warns with a product count before destroying anything",
+        "The pinning assertions in MerchantCategoryOwnershipTest are updated in the same change, not left to fail"
+      ],
+      "tests": [
+        "Whatever behaviour is chosen, asserted on both engines -- the SQLite suite plus the MySQL script, since this is exactly the class of defect SQLite can mask",
+        "Negative: a merchant cannot destroy products they did not intend to; the warning or refusal is measured",
+        "Removal check on whatever control replaces the cascade"
+      ],
+      "compatibility": "The alternatives are NOT equivalent for merchants: a cascade loses products, SET NULL orphans them into an uncategorised state, and refuse-while-non-empty blocks a workflow merchants use today. That is why it is an owner decision.",
+      "db": "YES, and deliberately not drafted. Any change alters an FK on `products`, a money-adjacent table holding live catalogue data. Needs the owner's decision and an approved recovery plan first.",
+      "evidence": "",
+      "queue_refs": [
+        "S38-1"
+      ],
+      "owner_decision": true,
+      "blocked_on": null
     }
   ]
 }
