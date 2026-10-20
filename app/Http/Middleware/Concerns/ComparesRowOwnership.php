@@ -8,7 +8,10 @@ use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
 /**
- * The ownership predicate shared by the two `web`-group guards over vendored module routes.
+ * The ownership predicate shared by the `web`-group guards over vendored module routes -- five of
+ * them now: ModuleOrderMutationGuard, ModuleResourceOwnershipGuard, LotteryDrawOwnershipGuard,
+ * LotteryRefundOwnershipGuard and LotterySettingProductOwnershipGuard. (This line said "the two"
+ * until the count was checked.)
  *
  * WHY THIS EXISTS AT ALL. `ModuleOrderMutationGuard`'s own docblock argues that "a guard whose
  * mechanism changes per table is the drift this guard exists to prevent" -- and then

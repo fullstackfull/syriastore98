@@ -251,11 +251,20 @@ return Application::configure(basePath: dirname(__DIR__))
         // no store predicate and `Product` in no scoped_models list, then `:537-539` matches the
         // setting on (store_id, lottery_products) -- so the forged row makes the attacker's own
         // storefront sell tickets for the victim's product at the attacker's price, and the draw
-        // awards the victim's product. The guard asks the one question store() never asks. It
-        // PASSES THE OPERATOR THROUGH on purpose: `:92`'s isAbleTo has no operator limb and this
-        // codebase has no super-admin bypass, so the handler already refuses them -- that is item
-        // 3, a vendored fail-closed defect, and a second lockout here would only make the eventual
-        // upstream fix land on a route we had independently closed.
+        // awards the victim's product. The guard asks the one question store() never asks.
+        //
+        // IT DOES NOT PASS THE OPERATOR THROUGH, and this comment used to say it did. That was
+        // wrong, and it was the most dangerous thing in the change: it described the guard's FIRST
+        // version -- the one removal check R8 withdrew -- at the registration site a future reader
+        // consults, so following it would have re-opened the gap R8 found. The three guards that do
+        // pass the operator through are ModuleOrderMutationGuard, ModuleResourceOwnershipGuard and
+        // LotteryDrawOwnershipGuard, and they are right to, because THEIR handlers let the operator
+        // in. This one does not: `:92`'s isAbleTo has no operator limb, so the handler refuses a
+        // bare super admin anyway (item 3, a vendored fail-closed defect). A pass-through would
+        // therefore have changed nothing observable while leaving a hole for the moment item 3 is
+        // fixed -- and that hole is reachable today, because a super admin GRANTED a role carrying
+        // the permission does pass isAbleTo. The operator is subject to the ownership rule like
+        // anyone else; LotterySettingProductOwnershipTest asserts it twice.
         $middleware->appendToGroup('web', \App\Http\Middleware\LotterySettingProductOwnershipGuard::class);
         // P1-INV-19. `POST /{storeSlug}/product-bid` writes ALL FOUR of its columns from request
         // input, so any customer with a session on ANY store can forge a bid attributed to another

@@ -38,48 +38,60 @@ use Illuminate\Support\Facades\Schema;
  *
  * THREE THINGS THIS SUITE PINS THAT ARE NOT THE HEADLINE:
  *
- *   THE OPERATOR IS PASSED THROUGH ON PURPOSE. `store():92` is `isAbleTo('Edit Lottery Setting')`
- *   with no operator limb, and this codebase has no super-admin bypass -- measured, a `super admin`
- *   returns FALSE. The handler therefore refuses the platform operator outright (#70 item 3, a
- *   vendored fail-closed defect). A second lockout here would make the eventual upstream fix land
- *   on a route we had independently closed, so the guard defers and the handler's own refusal
- *   stands. Asserted, so nobody "fixes" the guard into a second lockout.
+ *   THE OPERATOR IS **NOT** PASSED THROUGH, AND THE EARLIER TEXT HERE SAID THE OPPOSITE. This
+ *   paragraph used to read "THE OPERATOR IS PASSED THROUGH ON PURPOSE ... the guard defers and the
+ *   handler's own refusal stands", which described the FIRST version of the guard -- the one
+ *   removal check R8 withdrew. The shipped guard has no `isPlatformOperator` call, and the two
+ *   operator tests below assert that the ownership rule binds the operator too. Six independent
+ *   verification agents each flagged this contradiction unprompted; a reader following the old text
+ *   would have re-added the pass-through and re-opened the gap R8 found. Why the departure is right
+ *   is in the guard's own docblock.
  *
- *   AN EMPTY REPEATER IS ALLOWED THROUGH. `[]` is how a merchant CLEARS their lotteries: `:127-131`
- *   deletes every existing row not named in the post, over rows `:107` already scoped to the
- *   caller's store. Refusing it would be the regression `LotteryRefundOwnershipGuard` shipped and
- *   had to withdraw -- closing a working feature to close nothing.
+ *   AN EMPTY REPEATER IS ALLOWED THROUGH -- BUT IT IS NOT THE MERCHANT'S CLEAR-ALL, which is what
+ *   the earlier text here claimed. MEASURED: `[]` has no urlencoded representation
+ *   (`http_build_query(['lottery_repeater_basic' => []]) === ''`) and the jquery.repeater form
+ *   cannot send it; deleting every row submits only `_token`, i.e. NO key, which this guard refuses
+ *   as 'no settings'. So the UI clear-all has never worked -- without this guard the same request
+ *   is `foreach (null)` at `LotteryPrizesController:95` and a 500, measured with only the
+ *   registration line removed. The `[]` pass-through is reachable only by a hand-crafted JSON or
+ *   ParameterBag caller; it is kept because refusing it closes nothing while breaking the one
+ *   caller shape that works. `test_an_empty_repeater_still_clears_...` below therefore exercises a
+ *   transport no browser produces, and says so.
  *
  *   THE RESOURCE'S OTHER VERBS WERE READ, NOT ASSUMED. `update():165` and `destroy():175` are both
  *   `//`. Asserted, because an exemption scoped to the methods somebody happened to look at is the
  *   fourth distinct way a census here has missed what it claimed.
  *
  * REMOVAL CHECKS, AS MEASURED (scripted; each control deleted or weakened ALONE, the suite re-run,
- * the file restored byte-for-byte and verified identical). 7 of 9 isolate:
+ * the file restored byte-for-byte and verified identical). 9 of 10 isolate:
  *
- *   R1 the appendToGroup registration ......... 5 fail
- *   R2 the ownership predicate ................ 3 fail
- *   R3 the TARGETS method+uri key ............. 5 fail
- *   R4 the nested subkey extraction ........... 3 fail   <- taking the row instead of its
+ *   R1 the appendToGroup registration ......... 8 fail
+ *   R2 the ownership predicate ................ 4 fail
+ *   R3 the TARGETS method+uri key ............. 8 fail
+ *   R4 the nested subkey extraction ........... 8 fail   <- taking the row instead of its
  *                                                           lottery_products value
  *   R5 the non-array refusal .................. 1 fail
+ *   R6 refuse-not-skip an unreadable value .... 2 fail
+ *   R8 RE-ADDING the operator pass-through .... 1 fail   <- the control here is its ABSENCE; the
+ *                                                           first version of this guard had the
+ *                                                           pass-through
  *   R9 the clear-all pass-through ............. 1 fail
- *   R8 RE-ADDING the operator pass-through .... 1 fail   <- the control here is its ABSENCE, and
- *                                                           the first version of this guard had
- *                                                           the pass-through. See the operator
- *                                                           section below.
+ *   R10 the per-reason deny() messages ........ 4 fail
  *
- *   R6 the no-usable-product refusal .......... GREEN -- SUBSUMED, measured: with it gone, an empty
- *                                               $values reaches the trait, whose set predicate
- *                                               returns false on an empty set, so the request is
- *                                               refused anyway as 'product outside store'. Kept
- *                                               because it gives the accurate reason, not because
- *                                               it is load-bearing.
  *   R7 the permission check ................... GREEN -- SUBSUMED BY THE HANDLER: store():92 makes
  *                                               the same check, so no test can tell the two apart.
  *                                               Kept as defence in depth and for consistency with
- *                                               the two sibling guards: if upstream ever drops
- *                                               :92's check, this one still holds.
+ *                                               the sibling guards: if upstream ever drops :92's
+ *                                               check, this one still holds.
+ *
+ * TWO OF THESE CHANGED AFTER AN ADVERSARIAL REVIEW, AND THE CHANGE IS THE POINT. R6 USED TO BE
+ * GREEN and was labelled subsumed -- correctly as far as it went: the limb only SKIPPED a value it
+ * could not read, and an all-skipped post reached the trait's empty-set refusal anyway. What the
+ * labelling missed is that the skip was invisible ONLY when every row was unreadable; with one
+ * valid row alongside, the unreadable row was written unexamined. The limb now refuses, and R6
+ * bites. R10 is new with the per-reason messages, which R6 also depended on: while every reason
+ * produced the identical string, deleting a reason-specific limb changed nothing observable. A
+ * subsumption label is a claim about today's controls, not a permanent property.
  */
 class LotterySettingProductOwnershipTest extends SecurityTestCase
 {
@@ -520,21 +532,35 @@ class LotterySettingProductOwnershipTest extends SecurityTestCase
      *  THE GUARD'S OWN SHAPE
      * ---------------------------------------------------------------------------------------- */
 
-    /** Inert everywhere else. A sibling module's resource store must be unaffected. */
-    public function test_the_guard_is_inert_on_another_route(): void
+    /**
+     * INERT ON THE SAME URI UNDER A DIFFERENT METHOD. `TARGETS` is keyed on `METHOD . ' ' . uri`, so
+     * `GET lotteryproduct` -- the settings screen -- must not be inspected.
+     *
+     * THIS TEST USED `get()` AND COULD NOT FAIL FOR THE REASON ITS NAME GAVE. `deny()` aborts 403
+     * ONLY when `expectsJson()`, and a plain `get()` is not a JSON request, so a guard refusal on
+     * that route would have been a 302 and `assertNotSame(403, ...)` would have stayed green under
+     * a uri-only key -- verified by actually re-keying the guard and re-running it. `getJson()`
+     * makes `expectsJson()` true, so a refusal IS the 403 this asserts against. Measured: 302 today,
+     * 403 under a uri-only key.
+     *
+     * (Its docblock also used to promise "a sibling module's resource store", which it never
+     * exercised -- the body requests this same module's resource. The suite has no cross-module
+     * route test; the claim was removed rather than left advertising coverage that does not exist.)
+     */
+    public function test_the_guard_is_inert_on_the_same_uri_under_a_different_method(): void
     {
         $this->enableModule();
 
-        [$merchant, $store, $own] = $this->merchantWithProduct('OWN', 10.0);
+        [$merchant, $store] = $this->merchantWithProduct('OWN', 10.0);
         $this->grantPermission($merchant, self::PERMISSION);
         $merchant->refresh();
         Cache::flush();
 
-        // The listing verb of the same resource carries the same uri but a different method.
-        $response = $this->actingAs($merchant)->get('/lotteryproduct');
+        $response = $this->actingAs($merchant)->getJson('/lotteryproduct');
 
         $this->assertNotSame(403, $response->getStatusCode(),
-            'The guard is keyed on METHOD + uri; GET must be untouched.');
+            'A 403 on this route means the guard ran on a GET. It is keyed on METHOD + uri, so a '
+            . "refusal here would be deny()'s JSON limb -- which is exactly what this detects.");
         $this->assertSame([], $this->settingsFor($store->id));
     }
 
@@ -551,7 +577,10 @@ class LotterySettingProductOwnershipTest extends SecurityTestCase
         foreach ([[], ['lottery_repeater_basic' => 'not-an-array']] as $payload) {
             $response = $this->actingAs($merchant)->from('/x')->post('/lotteryproduct', $payload);
 
-            $response->assertSessionHas('error', 'Permission denied.');
+            // NOT 'Permission denied.' -- this caller has the permission. The empty payload is what
+            // the shipped form sends when every row is deleted, and telling a merchant they lack
+            // permission for a missing field was a live defect the per-reason messages fixed.
+            $response->assertSessionHas('error', 'Add at least one lottery setting.');
             $this->assertNotSame(500, $response->getStatusCode(),
                 'store():95 does foreach() on this value, so a non-array is a 500 without the '
                 . 'guard. Refusing is strictly better.');
@@ -574,7 +603,70 @@ class LotterySettingProductOwnershipTest extends SecurityTestCase
             'lottery_repeater_basic' => [$this->repeaterRow('', 7.0)],
         ]);
 
-        $response->assertSessionHas('error', 'Permission denied.');
+        // A MISSING FIELD IS NOT A PERMISSION FAILURE, and this is the live path: the
+        // `lottery_products` select is the ONLY control in the repeater row without `required` and
+        // renders `<option value="">` selected, so a merchant who forgets the product reaches here
+        // by ordinary mistake. `ConvertEmptyStringsToNull` is global, so the value arrives as null.
+        $response->assertSessionHas('error', 'Select a product for each lottery setting.');
+        $this->assertSame([], $this->settingsFor($store->id));
+    }
+
+    /**
+     * THE WIDENED LIMB. A value the guard cannot read is REFUSED, not skipped -- and the case that
+     * forced the change is reachable from the shipped form: fill one row, leave a second row's
+     * product blank.
+     *
+     * MEASURED against the first form of the loop, which skipped such a value: the predicate was
+     * satisfied by row one alone and the handler wrote a NULL-product lottery the guard had never
+     * examined. A NULL `lottery_products` is invisible to every `where('lottery_products', ...)`
+     * predicate, so that row can never sell a ticket -- a silent junk write reported as success.
+     */
+    public function test_a_second_row_with_a_blank_product_refuses_the_whole_post(): void
+    {
+        $this->enableModule();
+
+        [$merchant, $store, $own] = $this->merchantWithProduct('OWN', 10.0);
+        $this->grantPermission($merchant, self::PERMISSION);
+        $merchant->refresh();
+        Cache::flush();
+
+        $response = $this->actingAs($merchant)->from('/x')->post('/lotteryproduct', [
+            'lottery_repeater_basic' => [
+                $this->repeaterRow($own, 5.0),      // valid
+                $this->repeaterRow('', 7.0),        // blank select -> null
+            ],
+        ]);
+
+        $response->assertSessionHas('error', 'Select a product for each lottery setting.');
+        $this->assertSame([], $this->settingsFor($store->id),
+            'The VALID row must not be written either -- the rule is ALL or nothing, and a skip '
+            . 'would have let the blank row through on the valid row\'s authority.');
+    }
+
+    /**
+     * The same widening covers a value that is not a scalar at all. Measured against the first form
+     * of the loop: `lottery_repeater_basic[1][lottery_products][]=<id>` was skipped, row one was
+     * written, and the handler then 500'd binding an array into the insert.
+     */
+    public function test_an_array_valued_product_refuses_the_whole_post(): void
+    {
+        $this->enableModule();
+
+        [$merchant, $store, $own] = $this->merchantWithProduct('OWN', 10.0);
+        $this->grantPermission($merchant, self::PERMISSION);
+        $merchant->refresh();
+        Cache::flush();
+
+        $response = $this->actingAs($merchant)->from('/x')->post('/lotteryproduct', [
+            'lottery_repeater_basic' => [
+                $this->repeaterRow($own, 5.0),
+                $this->repeaterRow([$own], 7.0),
+            ],
+        ]);
+
+        $response->assertSessionHas('error', 'Select a product for each lottery setting.');
+        $this->assertNotSame(500, $response->getStatusCode(),
+            'Without the refusal this was a 500 AFTER the first row was written.');
         $this->assertSame([], $this->settingsFor($store->id));
     }
 
@@ -594,5 +686,67 @@ class LotterySettingProductOwnershipTest extends SecurityTestCase
 
         $response->assertSessionHas('error');
         $this->assertSame([], $this->settingsFor($store->id));
+    }
+    /* ---------------------------------------------------------------------------------------- *
+     *  A VENDORED DEFECT THIS SUITE'S OWN FIXTURE WAS HIDING
+     * ---------------------------------------------------------------------------------------- */
+
+    /**
+     * TICKING "REFUND TICKET OPTION" IS A 500, FOR EVERY MERCHANT, ON A LEGITIMATE OWN-PRODUCT SAVE.
+     *
+     * `index.blade.php:46` and `:107` are `<input type="checkbox" name="refund_ticket">` inside a
+     * `[data-repeater-item]`, so `public/js/repeater.js` renames them to
+     * `lottery_repeater_basic[i][refund_ticket]` at runtime and a TICKED checkbox posts the SCALAR
+     * `'on'`. `store():115` then does `implode(',', $lotterySettingData['refund_ticket'] ?? [])`,
+     * and `implode()` on a string is a TypeError in PHP 8 -- measured:
+     * "implode(): Argument #2 ($array) must be of type ?array, string given".
+     *
+     * MEASURED END TO END through the real route, with a product the merchant owns:
+     *   refund_ticket = 'on' (ticked)               -> HTTP 500, no row written
+     *   refund_ticket = []   (this suite's fixture) -> HTTP 302, row written
+     *
+     * WHY IT IS PINNED HERE. `repeaterRow()` passes `'refund_ticket' => []`, which is what an
+     * UNTICKED checkbox effectively produces (the key is absent and `?? []` covers it). So every
+     * other test in this file drives the one shape that works, and the shape a merchant produces by
+     * USING the feature was never exercised. That is a fixture-shaped blind spot, and it was found
+     * by an adversarial review of this suite rather than by the suite.
+     *
+     * NOT THIS GUARD'S TO FIX: it is inside `packages/workdo/`, it is reached on a legitimate
+     * request the guard correctly allows, and no ownership predicate bears on it. A host-side
+     * FormRequest or middleware normalising `refund_ticket` to an array would be the only legal
+     * repair. Raised against #70; pinned so that when it is fixed this test goes red deliberately.
+     */
+    public function test_pins_a_vendored_defect_ticking_refund_ticket_is_a_500(): void
+    {
+        $this->enableModule();
+
+        [$merchant, $store, $own] = $this->merchantWithProduct('OWN', 10.0);
+        $this->grantPermission($merchant, self::PERMISSION);
+        $merchant->refresh();
+        Cache::flush();
+
+        $this->assertStringContainsString('name="refund_ticket"', file_get_contents(base_path(
+            'packages/workdo/LotteryPrizes/src/resources/views/admin/lottery/index.blade.php'
+        )), 'The checkbox is no longer a bare name renamed by the repeater; re-measure.');
+
+        $ticked = $this->repeaterRow($own, 5.0);
+        $ticked['refund_ticket'] = 'on';
+
+        $response = $this->actingAs($merchant)->from('/x')
+            ->post('/lotteryproduct', ['lottery_repeater_basic' => [$ticked]]);
+
+        $this->assertSame(500, $response->getStatusCode(),
+            'PINNING A VENDORED DEFECT: implode() on the scalar "on" at store():115. When this '
+            . 'stops being a 500 the upstream fix landed -- update this test, do not relax it.');
+        $this->assertSame([], $this->settingsFor($store->id));
+
+        // THE CONTROL: the only difference is the checkbox value.
+        $response = $this->actingAs($merchant)->from('/x')
+            ->post('/lotteryproduct', ['lottery_repeater_basic' => [$this->repeaterRow($own, 5.0)]]);
+
+        $response->assertSessionHas('success');
+        $this->assertSame([(string) $own], $this->settingsFor($store->id),
+            'The same request with the checkbox unticked must succeed, or the 500 above is not '
+            . 'attributable to refund_ticket.');
     }
 }
