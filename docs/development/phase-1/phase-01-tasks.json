@@ -2171,6 +2171,39 @@
       ],
       "owner_decision": true,
       "blocked_on": null
+    },
+    {
+      "id": "P1-TST-01",
+      "title": "Composer's negative class cache made five module-guard positive controls order-dependent",
+      "workstream": "platform",
+      "risk": "medium",
+      "status": "DONE",
+      "issue": null,
+      "scope": [
+        "tests/Support/ComposerClassLoaderGuard.php",
+        "tests/TestCase.php",
+        "tests/Unit/ComposerClassLoaderGuardTest.php"
+      ],
+      "existing_status": "FOUND 2026-10-20 while taking the gate figures for PR #3 section 12. Fixed and verified in the same session.",
+      "depends_on": [],
+      "acceptance": [
+        "php artisan test tests/Feature/Tenancy tests/Feature/Security has no failures",
+        "The root cause is measured, not inferred, and recorded where the next reader will find it",
+        "Nothing is weakened -- the ResidualTenancyExposureTest ratchet still bites"
+      ],
+      "tests": [
+        "Unit: forgetWorkdoMisses() drops every Workdo\\ entry and keeps every other one",
+        "Unit: it reports zero and mutates nothing when there is nothing to drop",
+        "Premise: a Composer ClassLoader is registered in this process",
+        "Premise: Workdo\\ is still absent from composer.json's psr-4 block",
+        "Wiring: tests/TestCase::setUp() calls it"
+      ],
+      "compatibility": "None. Test support only -- no application file, no vendored file, no production code path.",
+      "db": "None.",
+      "evidence": "Composer's ClassLoader caches NEGATIVE lookups in a private $missingClasses map (vendor/composer/ClassLoader.php:93, consulted :448, written :471) which outlives every Laravel app teardown. Workdo\\ is not in composer.json's psr-4 block, so a module prefix exists only after PackageServiceProvider::loadAddons() runs addPsr4() -- and a miss cached before that call can never be undone by it. MEASURED: the /tenant-check selection reported 5 failures that neither the individual files nor --testsuite=Feature reported; all five were POSITIVE controls failing on HTTP 500 (not 403) with Class \"Workdo\\AuctionProduct\\app\\Models\\AuctionProductSetting\" not found. 184 cached misses, 23 of them Workdo\\; clearing those 23 took the request from 500 to 302. Fixed by Tests\\Support\\ComposerClassLoaderGuard::forgetWorkdoMisses() called from tests/TestCase::setUp(). 5 tests / 10 assertions. R-L1 (delete the call) returns 4 of 5 failures; R-L2 corrected an over-claim of mine -- the position relative to parent::setUp() does NOT matter, measured both ways, so the ordering assertion was deleted rather than re-justified. /tenant-check 1784 passed / 10 skipped / 0 failures, was 1779 passed / 5 failed.",
+      "queue_refs": [],
+      "owner_decision": false,
+      "blocked_on": null
     }
   ]
 }

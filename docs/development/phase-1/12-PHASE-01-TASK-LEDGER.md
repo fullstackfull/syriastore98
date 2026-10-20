@@ -1,7 +1,22 @@
 # Phase 01 — Task Ledger  ·  Foundation & Stability
 
-> **GENERATED FILE — do not hand-edit.** The source of truth is [`phase-01-tasks.json`](phase-01-tasks.json); regenerate with
-> `python3 docs/development/phase-1/tools/render-ledger.py`, then commit both files.
+> ### ⚠ DO NOT REGENERATE THIS FILE. The banner that used to stand here was wrong, and following it destroys evidence.
+>
+> It read *"GENERATED FILE — do not hand-edit … regenerate with `render-ledger.py`"*. **This file has
+> diverged from its generator and the divergence is the valuable part.** `render-ledger.py` emits only
+> the JSON's own fields and always renders acceptance criteria as unchecked `- [ ]`, so it cannot
+> reproduce the dated evidence paragraphs, the corrections, the removal-check tables or the ticked
+> criteria that sessions have recorded here.
+>
+> **MEASURED, 2026-10-20:** regenerating produces **216,709 bytes** against this file's **277,079** —
+> **60,370 bytes and 126 lines destroyed**, including every `[x]` and every round-2 review record.
+>
+> So: **hand-edit this file, and keep [`phase-01-tasks.json`](phase-01-tasks.json) in step by hand
+> too.** The JSON remains the machine-readable index — `id`, `status`, `risk`, `scope`, `depends_on`,
+> `owner_decision` — and `render-ledger.py` is still useful for `validate()`, which checks the
+> dependency graph: run it against a THROWAWAY path, never against this one. Reconciling the two
+> properly (teaching the renderer the richer record, or retiring it) is its own task and is not done.
+>
 > GitHub Issues carry the same records and must agree with this ledger.
 
 | | |
@@ -10,7 +25,7 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 61 — 18 DONE, 16 READY, 8 BACKLOG, 19 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
+| Tasks | 62 — 20 DONE, 15 READY, 8 BACKLOG, 19 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
 | Requiring an owner decision | 24 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
@@ -257,6 +272,46 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 **And one lesson taken structurally rather than by fixing the instance:** four of the six line numbers I wrote into `methodSource()`'s own docblock had drifted by the time the NEXT edit to that controller landed. That docblock now cites METHOD NAMES, with the premise test as the authority. Citation rot was three of these nine findings.
 
 **GATES AT THIS TREE.** Unit 286 passed / 1661 assertions. Contract 26 passed / 83 assertions. `SessionHygieneTest` 17 passed / 81 assertions (was 12/53). Six removal checks run, all six bite, both touched files restored byte-identically and verified by `diff -q`. `guard-no-workdo-changes.sh` against `origin/main`: OK, nothing under `packages/`.
+
+### `P1-TST-01` — Composer's negative class cache made five module-guard POSITIVE controls order-dependent
+
+| field | value |
+|---|---|
+| Status | **DONE** |
+| Risk | medium — a test-process artefact with no production behaviour behind it, but it made `/tenant-check` red and it can hide a real defect in the other direction |
+| Workstream | Platform & CI |
+| GitHub issue | — (found while taking the gate figures for PR #3 §12; recorded here) |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `tests/Support/ComposerClassLoaderGuard.php` (new), `tests/TestCase.php`, `tests/Unit/ComposerClassLoaderGuardTest.php` (new) |
+| Queue references | — |
+| Database / migration | None. |
+| Compatibility impact | **None.** Test support only. No application file, no vendored file, no production code path. |
+
+**Acceptance criteria.**
+- [x] `php artisan test tests/Feature/Tenancy tests/Feature/Security` has no failures
+- [x] The root cause is measured, not inferred, and written down where the next reader will find it
+- [x] Nothing is weakened to achieve it — in particular the `ResidualTenancyExposureTest` ratchet still bites
+
+**2026-10-20 — FOUND WHILE MEASURING, NOT WHILE LOOKING.** `php artisan test tests/Feature/Tenancy tests/Feature/Security` — the `/tenant-check` selection — reported **5 failures** that neither the individual files nor `--testsuite=Feature` reported. MY FIRST EXPLANATION WAS WRONG AND IS RECORDED AS SUCH: I had run that selection concurrently with the full Feature suite and assumed they had collided on the shared `storage/` tree. **It reproduced identically on a quiet tree**, so it is a real, deterministic order dependency.
+
+All five were **POSITIVE controls** — "a merchant can *verb* their **own** row" — on the guards P1-INV-17 shipped, and all five failed on **HTTP 500, not 403**, so no guard was ever involved: `Error: Class "Workdo\AuctionProduct\app\Models\AuctionProductSetting" not found` at `packages/workdo/AuctionProduct/src/app/Http/Controllers/AuctionProductSettingController.php:142`.
+
+**ROOT CAUSE, MEASURED.** Composer's `ClassLoader` keeps a **private `$missingClasses` negative cache** (`vendor/composer/ClassLoader.php:93`), consults it FIRST in `findFile()` (`:448`) and writes a miss into it (`:471`). It belongs to the loader **singleton**, so it survives every Laravel application teardown — the same process scope as the `addPsr4()` pollution `ResidualTenancyExposureTest` already documents, in the OPPOSITE direction. `Workdo\` is **absent from `composer.json`'s psr-4 block**: a module's namespace exists only once `PackageServiceProvider::loadAddons()` has run `addPsr4()`. So anything that asks `class_exists()` for a module model BEFORE that call records it as permanently absent, and **no later `addPsr4()` can undo it**, because `findFile()` never reaches the prefix map for a class already in the cache. `BulkDeleteAuthorizationTest` enables the BulkDelete module, whose model map `class_exists()`-checks every addon model it knows of while only BulkDelete's own prefix is registered. PROBED AT THE POINT OF FAILURE: **184 cached misses, 23 of them `Workdo\`** — exactly the 23 addon model classes `ResidualTenancyExposureTest` counts. **Clearing only those 23 and changing nothing else took the same request from 500 to 302, exception: none.**
+
+**IT IS A TEST-PROCESS ARTEFACT, AND THAT IS PART OF THE FINDING RATHER THAN AN EXCUSE.** Production boots once and registers every active module's prefix inside `PackageServiceProvider`, before application code can ask about a module class, so production's negative cache caches truths. A test process boots the application dozens of times against ONE ClassLoader, which is the only way the order inverts. THE FAILURE DIRECTION HERE WAS THE HARMLESS ONE: an order-dependent POSITIVE control reads as "the fix locks the owner out", a false alarm. **The same mechanism could just as easily make a module route 500 under a NEGATIVE control and have it pass for the wrong reason** — which is the direction this project keeps being bitten in, and the reason this is written up rather than quietly patched.
+
+**THE FIX IS IN TEST SUPPORT, NOT IN APPLICATION CODE AND NOT IN `packages/`.** `Tests\Support\ComposerClassLoaderGuard::forgetWorkdoMisses()` drops every `Workdo\` entry and returns the count; `tests/TestCase::setUp()` calls it — one line, with the derivation in the class's own docblock. Scoped to `Workdo\` deliberately: those are the only classes whose resolvability changes mid-process, and the other 161 entries are genuinely absent.
+
+**IT WEAKENS NOTHING, asserted rather than assumed.** Clearing a cached "no" lets `class_exists()` ask the filesystem again, which still answers FALSE for a prefix nobody registered — so the *"resolves although no provider for its module was registered in this process"* ratchet in `ResidualTenancyExposureTest` keeps biting exactly as before, and that file's own `assertCount(23, ...)` is unchanged and still passes.
+
+**TESTS:** `tests/Unit/ComposerClassLoaderGuardTest.php` — 5 tests / 10 assertions, two of them premise tests (a ClassLoader really is registered; `Workdo\` is still not a static psr-4 prefix — if it ever becomes one this guard can go).
+
+**REMOVAL CHECKS, AND ONE OVER-CLAIM OF MINE CORRECTED BY MEASUREMENT.** R-L1, delete the `setUp()` call: **4 of the 5 return** in the two-file pairing, and the wiring ratchet fails. R-L2, move the call ABOVE `parent::setUp()`: the ordering assertion fails **and the behaviour does not**. R-L2 IS THE CORRECTION — my first version of that test REQUIRED the call to follow `parent::setUp()`, reasoning that the application boot is what primes the cache. Measured both ways: with the call moved above it the pairing is equally green (49 passed). What it clears is what the PREVIOUS test left; this test's own boot re-primes nothing, because `RefreshDatabase` has rolled the `add_on_managers` rows back. **The assertion was DELETED rather than re-justified** — an assertion whose stated reason does not hold is worse than no assertion. THE RESIDUAL IS STATED INSTEAD, because no position fixes it: a test that primes the cache for a module class INSIDE its own body before calling `loadAddons()` must call `forgetWorkdoMisses()` itself.
+
+**NOT REWRITTEN: the earlier entries' "Security + Tenancy ... 0 failures" lines.** Those were taken at their own trees, before `ModuleResourceOwnershipTest` existed, and are left as their author measured them. What is now true is recorded here.
+
+**GATES AT THE FIXED TREE.** `/tenant-check` selection **1,784 passed / 10 skipped / 0 failures** (was 1,779 passed / **5 failed**). Unit **291 passed / 1,671 assertions**. Contract **26 passed / 83 assertions**.
 
 ### `P1-SEC-02` — A merchant with Create Role can grant the six finance permissions they do not hold
 
