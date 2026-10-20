@@ -280,7 +280,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 | Status | **DONE** |
 | Risk | medium — a test-process artefact with no production behaviour behind it, but it made `/tenant-check` red and it can hide a real defect in the other direction |
 | Workstream | Platform & CI |
-| GitHub issue | — (found while taking the gate figures for PR #3 §12; recorded here) |
+| GitHub issue | #72 — opened and closed with the record, because it was found and fixed in one session |
 | Owner decision required | no |
 | Depends on | — |
 | Scope | `tests/Support/ComposerClassLoaderGuard.php` (new), `tests/TestCase.php`, `tests/Unit/ComposerClassLoaderGuardTest.php` (new) |

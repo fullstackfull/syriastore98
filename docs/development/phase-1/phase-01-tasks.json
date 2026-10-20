@@ -2178,7 +2178,7 @@
       "workstream": "platform",
       "risk": "medium",
       "status": "DONE",
-      "issue": null,
+      "issue": 72,
       "scope": [
         "tests/Support/ComposerClassLoaderGuard.php",
         "tests/TestCase.php",
