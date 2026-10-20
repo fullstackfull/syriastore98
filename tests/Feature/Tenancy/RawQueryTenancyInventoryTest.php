@@ -54,7 +54,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
      * builder, and the surrounding query still carries its scopes, so conflating the two would
      * overstate this inventory.
      */
-    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty_four(): void
+    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty_six(): void
     {
         $perDir = [];
 
@@ -186,13 +186,15 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // the pre-write empty set and every draw after the first inserted three more rows,
         // measured at 3 -> 6 across two draws. One more visible, classified raw site is a better
         // trade than an invisible stale cache.
-        $this->assertSame(['app' => 119, 'packages' => 45], $perDir,
+        // app 119 -> 121 with P1-INV-19: the bid guard's product lookup and its current-maximum
+        // read. Both name their table literally, so the per-table breakdown below gains TWO rows.
+        $this->assertSame(['app' => 121, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
             . 'a raw query became Eloquent, which is an improvement worth recording here.');
 
-        $this->assertSame(164, array_sum($perDir));
+        $this->assertSame(166, array_sum($perDir));
     }
 
     /**
@@ -212,6 +214,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
 
         $this->assertSame([
             // table                         [ total sites, sites with no `store_id` anywhere ]
+            // NEW WITH P1-INV-19, and unscoped BY DESIGN. AuctionBidIdentityGuard:143 reads
+            // `max('bid_amount')` keyed on `product_id` alone, deliberately matching the vendored
+            // display reads at AuctionProductController:1568 and :1635 -- the guard enforces
+            // "higher than the current highest bid" and must ask the question the PAGE asks, or it
+            // would refuse a bid the page invited. `product_id` is globally unique, since `Product`
+            // carries no scope at all, so keying on it does identify one store's product.
+            'auction_product_bids' => [1, 1],
             'coupon_requests' => [3, 3],
             'coupons' => [2, 0],
             'currency' => [3, 3],
@@ -251,6 +260,16 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             'owner_menu_settings' => [1, 1],
             'owner_menus' => [1, 1],
             'personal_access_tokens' => [2, 2],
+            // NEW WITH P1-INV-19, and the [1, 0] is a HEURISTIC ARTIFACT worth naming rather than
+            // reading as reassurance. AuctionBidIdentityGuard:118 is
+            // `DB::table('products')->where('id', $productId)->first(['id', 'store_id'])` -- it
+            // carries NO store_id PREDICATE, and must not: bidding across stores is the module's
+            // own design. It counts as "scoped" only because this inventory looks for the string
+            // `store_id` in the statement, and the statement SELECTS that column in order to
+            // derive the bid's store from the row instead of from the caller. The real control is
+            // asserted per-site in OwnedPathRawQueryInventoryTest, where the file is classified
+            // 'comparison'.
+            'products' => [1, 0],
             'settings' => [15, 9],
             'shetabit_visits' => [16, 0],
             'side_menus_option' => [28, 0],
@@ -312,10 +331,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // `$ownedByCaller`, uses `DB::table(self::TABLE)` and so falls into the variable-table
         // population -- 27 -> 28 -- which is why these counts move by three and the entry-point
         // total above moves by four.
-        $this->assertSame(136, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '136 literal-table sites of the 164 entry points; the other 28 build their table name '
+        // 136 -> 138 and 68 -> 69 with P1-INV-19: both new sites name their table literally, and
+        // only one of the two counts as unscoped -- see the `products` note above for why that
+        // asymmetry is an artifact of the heuristic and not a difference in the code.
+        $this->assertSame(138, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            '138 literal-table sites of the 166 entry points; the other 28 build their table name '
             . 'from a variable and so cannot be attributed (see LIMIT 2 in this class docblock).');
-        $this->assertSame(68, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        $this->assertSame(69, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**
@@ -521,6 +543,24 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // `add_on_managers`, which is empty in a fresh database (NEW-ADDON-SCHEMA-03). So the
             // table is absent HERE while existing in production -- its three unscoped statements
             // are unclassified rather than cleared.
+            // NEW WITH P1-INV-19. This table DOES carry a `store_id` column
+            // (2024_09_18_070113_create_auction_product_bids_table.php:20, nullable + indexed) and
+            // the one raw statement on it has no `store_id` predicate -- so it belongs in this
+            // population, and listing it here is the accurate answer rather than an exemption.
+            //
+            // IT IS NOT A TENANCY FINDING, and the reason is the module's design rather than a
+            // judgement call. AuctionBidIdentityGuard:143 reads `max('bid_amount')` keyed on
+            // `product_id` to enforce "higher than the current highest bid", and it must ask the
+            // same question the page asks (AuctionProductController:1568, :1635 use the identical
+            // predicate) or it would refuse a bid the page invited. `product_id` is globally unique
+            // because `Product` carries no effective scope at all, so the key does identify one
+            // store's product; adding `store_id` would narrow the maximum to one store's rows while
+            // the page still showed the global one, and the guard and the page would disagree.
+            //
+            // What makes the WRITE safe is not a predicate on this read: it is that the bid's
+            // `store_id` and `customer_id` are derived from the product row and the authenticated
+            // principal, pinned in OwnedPathRawQueryInventoryTest.
+            'auction_product_bids',
             'coupon_requests',
             // `owner_menu_items`, `owner_menu_settings` and `owner_menus` USED TO BE LISTED
             // HERE. They are not absent any more: PackageServiceProvider registers each addon's

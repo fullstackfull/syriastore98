@@ -239,6 +239,40 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->appendToGroup('web', \App\Http\Middleware\LotteryTicketWriteGuard::class);
         $middleware->appendToGroup('web', \App\Http\Middleware\LotteryRefundOwnershipGuard::class);
         $middleware->appendToGroup('web', \App\Http\Middleware\LotteryMailTemplatePrerequisite::class);
+        // P1-INV-19. `POST /{storeSlug}/product-bid` writes ALL FOUR of its columns from request
+        // input, so any customer with a session on ANY store can forge a bid attributed to another
+        // customer on another store's product. AuctionProductController:1600-1603. The
+        // authenticated principal is used only for a PRESENCE test at :1582 and then discarded;
+        // $storeSlug is used only in the failure redirect; $product at :1585 is assigned and never
+        // read. The route's gatherMiddleware() is literally ["web"].
+        //
+        // MEASURED -- attacker customer 1 in store 1, victim customer 2 in store 2:
+        //   POST /store-a/product-bid  product_id=<store B's product>  bid_amount=999999
+        //                              customer_id=<victim>  store_id=<attacker's choice>
+        //   -> 302 "Your Bid place successfully."
+        //      ROW product_id=2 customer_id=2 store_id=1 bid_amount=999999
+        //      and store B's displayed maximum went 150 -> 999999, because :1568 and :1635 read
+        //      max('bid_amount') keyed on product_id alone.
+        //
+        // THE FIX DERIVES RATHER THAN REFUSES, because the module's own form
+        // (place_bid.blade.php:312-314) posts customer_id = the signed-in customer and
+        // store_id = $product->store_id -- both values the server already holds. Middleware
+        // rewrites them with $request->merge(), which the handler then reads through
+        // Request::__get -> all(). It also enforces the bid rule the module only ever enforced in
+        // the browser: an HTML `min` and a JS border recolour that does not block submit, with a
+        // controller validator asking only `required`.
+        //
+        // IT DOES NOT RESTRICT WHICH STORE'S PRODUCT MAY BE BID ON, deliberately. `customers` is
+        // one session guard and storefronts are public, so a customer of store A really can open
+        // store B's auction page -- the form renders $product->store_id for exactly that reason. A
+        // slug-versus-store check would add nothing (the attacker can already see the product) and
+        // would refuse a real flow. That is the mistake the guard above shipped and had to
+        // withdraw; it is not repeated here.
+        //
+        // NOT CLOSED: rows already written before this guard. A forged bid in the table still
+        // counts toward max('bid_amount'), which has no store predicate in the vendored reads. A
+        // reconciliation pass belongs with the P1-OWN-07 data-residue work, not here.
+        $middleware->appendToGroup('web', \App\Http\Middleware\AuctionBidIdentityGuard::class);
         // SEC-R1-02 / R2-07 / NEW-throttle-bypass: the RateLimiter named 'api'
         // is defined at app/Providers/RouteServiceProvider.php:27-29 but was
         // never applied to the 'api' middleware group, so it was dead code and

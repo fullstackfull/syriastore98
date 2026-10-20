@@ -187,6 +187,28 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             // is that the id comes from `auth()->user()`, never from request input, and it is
             // asserted at the bottom of this method.
             'app/Http/Middleware/LotteryMailTemplatePrerequisite.php' => 'platform',
+            // P1-INV-19's TWO SITES, and the honest category for this file is 'comparison'
+            // even though NEITHER read carries a store predicate -- because neither should.
+            //
+            // `:118` reads `products` by id with NO store filter, and that is the POINT: bidding
+            // across stores is the module's own design (place_bid.blade.php:314 renders
+            // `store_id = $product->store_id`), so the guard wants the product whatever store owns
+            // it. What it must not do is let the CALLER name the store, and it does not -- the
+            // store is taken from the row and merged over the caller's value. A
+            // `->where('store_id', getCurrentStore())` here would break the legitimate flow and
+            // close nothing: the attacker can already see the product, since storefronts are
+            // public.
+            //
+            // `:143` reads `max('bid_amount')` keyed on `product_id` alone, deliberately matching
+            // the vendored display reads at AuctionProductController:1568 and :1635. The guard
+            // enforces "higher than the current highest bid", and it has to ask the question the
+            // PAGE asks or it would refuse a bid the page invited. `product_id` is globally unique
+            // (`Product` carries no scope at all), so keying on it does identify one store's
+            // product.
+            //
+            // Controls asserted at the bottom of this method: the derivation of `customer_id` from
+            // the authenticated principal and of `store_id` from the product row.
+            'app/Http/Middleware/AuctionBidIdentityGuard.php' => 'comparison',
             // PLATFORM-GLOBAL BY DESIGN. The framework's own `migrations` bookkeeping table has
             // no store_id and must never acquire a tenant predicate -- XSS::handle() compares
             // on-disk migration filenames against it to decide whether the platform operator is
@@ -274,7 +296,11 @@ class OwnedPathRawQueryInventoryTest extends TestCase
         // every draw after the first inserted three more rows. Measured at 3 -> 6 across two
         // draws. Adding a raw read to this inventory was the correct trade: it is visible and
         // classified here, where an invisible stale cache was not.
-        $this->assertCount(17, $sites, "The owned-path raw query inventory changed:\n  "
+        // 17 -> 19 with P1-INV-19: the bid guard's product lookup and its current-maximum read.
+        // Both are 'comparison' sites and both deliberately carry no store predicate -- see the
+        // classification above, where the reason is that a store predicate would break the
+        // module's own cross-store bidding and close nothing.
+        $this->assertCount(19, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry
@@ -383,6 +409,28 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             . 'tests/Support/Security/bin/verify-lottery-refund-collation-on-mysql.php, where it '
             . 'reports a request owned while the handler\'s unscoped ->first() reaches a foreign '
             . 'row.');
+
+        // THE FOURTH 'comparison' SITE'S CONTROLS -- P1-INV-19's bid guard. Its category rests on
+        // the two DERIVATIONS, not on a predicate: the reads are unscoped on purpose, and what
+        // makes that safe is that the caller cannot name either the customer or the store.
+        $bid = (string) file_get_contents(
+            base_path('app/Http/Middleware/AuctionBidIdentityGuard.php')
+        );
+
+        $this->assertStringContainsString("'customer_id' => \$customer->id,", $bid,
+            'AuctionBidIdentityGuard no longer derives customer_id from the authenticated '
+            . 'principal. Console/Auction.php:79 reads that column to decide who wins the auction '
+            . 'and receives the order, so a caller-supplied value forges the winner.');
+
+        $this->assertStringContainsString("'store_id' => \$productStore,", $bid,
+            "AuctionBidIdentityGuard no longer derives store_id from the product's own row, so the "
+            . 'bid lands in whichever store the caller names.');
+
+        $this->assertStringContainsString('auth(\'customers\')->user()', $bid,
+            'AuctionBidIdentityGuard no longer resolves the customer from the customers guard '
+            . 'explicitly. `auth()` with no guard name reads the MUTABLE default guard.');
+
+        $this->assertFileExists(base_path('tests/Feature/Security/AuctionBidForgeryTest.php'));
 
         $this->assertFileExists(base_path('tests/Feature/Security/LotteryTicketWriterTest.php'));
         $this->assertFileExists(
