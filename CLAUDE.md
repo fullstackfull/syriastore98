@@ -222,17 +222,44 @@ concurrent assignments. **Do not start the next phase before Phase 01 acceptance
 
 ---
 
-## 6. Skills
+## 6. Skills and tooling
 
-Use these without being asked, when the work is theirs:
+### What the repository owns, and therefore what you actually have
 
-- **`laravel-best-practices`** — controllers, FormRequests, Eloquent, service classes, Blade,
-  policies, observers, Artisan commands. Read it before adding a new controller or policy. Note
-  this project has **no Inertia**; ignore that part.
-- **`ui-ux-pro-max`** — any interface work: components, accessibility, responsive layout, RTL,
-  typography, colour, charts.
-- **`frontend-design`** — aesthetic direction when building or reshaping UI.
-- **`claude-automation-recommender`** — only when revisiting this tooling setup.
+**Committed, so it works in every environment:**
+
+- **`.claude/skills/store-syria-laravel-tenancy/`** — the counter-intuitive facts of this codebase
+  (Laratrust vs spatie, the operator-first ordering, which models are really scoped, which request
+  key a handler reads, the four ways a test passes for the wrong reason, how censuses fail). Read
+  it before adding a controller, policy, middleware or query scope, and before reviewing anything
+  that touches authorization or tenancy.
+- **`.claude/agents/tenant-authz-reviewer.md`** — the read-only reviewer. Use it before committing
+  any change to authorization, tenancy, a route's middleware, an order, a payment, or a handler
+  that reads an id from request input. Three of the last four packages had a defect found only by
+  this review, two of them *in the fix itself*.
+- **`.claude/commands/tenant-check.md`** — `/tenant-check`.
+
+**Account-level, so it may be absent:**
+
+- **`frontend-design`** — aesthetic direction for UI work. Present in some environments, not all.
+
+### What this section used to claim, and why it was wrong
+
+It named `laravel-best-practices`, `ui-ux-pro-max` and `claude-automation-recommender` and said to
+use them "without being asked". **None of the three exists in this environment.** They were
+account-level installs on another machine; the only capabilities that survived the move were the
+ones committed to `.claude/`. A missing skill is not an error — it is simply never offered — so a
+session proceeds silently without it.
+
+So: do not write code or reviews as if those three were available. If you need what they covered,
+the project-local skill above holds what is specific to this codebase, and `vendor/` holds the
+framework's own truth for the version actually installed.
+
+The full evaluation of candidate additions — twelve tools, each read from its real upstream for
+license, install mechanics, hooks, egress and credentials — is in `docs/tooling/SKILLS-MANIFEST.md`,
+with routing rules and the hard prohibitions in `docs/tooling/SKILL-USAGE-POLICY.md`. **Nothing from
+that list is installed**, and four items there need an owner decision. Do not install any of them
+without one.
 
 The storefront and admin are **Blade + Tailwind**, bilingual **Arabic (RTL) and English (LTR)**.
 Any UI change must be checked in both directions, and contrast-checked — Claude B's verification

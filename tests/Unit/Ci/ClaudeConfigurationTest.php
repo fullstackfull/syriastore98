@@ -101,8 +101,11 @@ class ClaudeConfigurationTest extends TestCase
             '.claude/hooks/guard-protected-paths.php',
             '.claude/agents/tenant-authz-reviewer.md',
             '.claude/commands/tenant-check.md',
+            '.claude/skills/store-syria-laravel-tenancy/SKILL.md',
             '.claude/README.md',
             'CLAUDE.md',
+            'docs/tooling/SKILLS-MANIFEST.md',
+            'docs/tooling/SKILL-USAGE-POLICY.md',
         ] as $relative) {
             $this->assertFileExists($this->root() . '/' . $relative);
         }
@@ -607,6 +610,180 @@ class ClaudeConfigurationTest extends TestCase
                 "CLAUDE.md does not point at {$pointer}.");
             $this->assertFileExists($this->root() . '/' . $pointer,
                 "CLAUDE.md points at {$pointer}, which does not exist.");
+        }
+    }
+
+    // ===================================================================================
+    // PORTABILITY -- P1-TOOL-01 / #66
+    //
+    // THIS SECTION EXISTS BECAUSE THE ALTERNATIVE WAS MEASURED AND FAILED. CLAUDE.md used to tell
+    // the developer to use four skills "without being asked"; when the project moved environments,
+    // THREE OF THEM WERE SIMPLY GONE -- account-level installs that do not travel with a clone.
+    // The two capabilities that survived were the two committed to .claude/.
+    //
+    // A missing skill produces NO ERROR. It is not offered, the session proceeds without it, and
+    // the instruction to use it reads as satisfied. So the thing worth asserting is not "is the
+    // skill installed" -- a repository cannot know that -- but "does the repository still contain
+    // every capability it tells a reader to rely on, and does it still avoid naming ones it does
+    // not contain".
+    // ===================================================================================
+
+    /**
+     * The project-local skill is present, has the frontmatter that makes it discoverable, and is
+     * not an empty stub.
+     *
+     * The `name` and `description` are what a session matches a task against. A skill with no
+     * description is dead weight that looks like a capability.
+     */
+    public function test_the_project_local_skill_is_discoverable(): void
+    {
+        $path = $this->root() . '/.claude/skills/store-syria-laravel-tenancy/SKILL.md';
+
+        $this->assertFileExists($path);
+
+        $source = (string) file_get_contents($path);
+
+        $this->assertStringStartsWith("---\n", $source,
+            'The skill has no YAML frontmatter, so it cannot be discovered by name.');
+        $this->assertMatchesRegularExpression('/^name:\s*store-syria-laravel-tenancy\s*$/m', $source,
+            'The skill\'s `name` does not match its directory, which is how it is addressed.');
+        $this->assertMatchesRegularExpression('/^description:\s*\S.{60,}/m', $source,
+            'The skill has no substantial `description`. That field is what a session matches a '
+            . 'task against, so without it the skill is never selected.');
+
+        // Not a stub: it must still carry the facts it exists to carry. Each of these has produced
+        // a real defect in this codebase, so losing one silently is the failure mode.
+        foreach ([
+            'isAbleTo',             // Laratrust, not spatie
+            'scoped_models',        // absence from the allowlist is what decides
+            'appendToGroup',        // the only vehicle that survives the module load order
+            'filter_var',           // strict id parsing; is_numeric is not enough
+            'DB::table',            // Cachable models serve stale reads in assertions
+        ] as $needle) {
+            $this->assertStringContainsString($needle, $source,
+                "The project-local skill no longer mentions `{$needle}`. Every item in this list "
+                . 'is a fact that has produced a measured defect here; if the skill has been '
+                . 'rewritten, check that nothing was dropped rather than deleting this assertion.');
+        }
+    }
+
+    /**
+     * CLAUDE.md DOES NOT NAME A SKILL THE REPOSITORY DOES NOT CONTAIN.
+     *
+     * This is the regression the whole section exists for. The three names below were instructed
+     * as mandatory and were absent; the file now explains that rather than depending on them. If
+     * one is ever named as available again, it must be committed to `.claude/skills/` first -- and
+     * this test will say so.
+     *
+     * The check is deliberately narrow: it allows the names to APPEAR (the file explains why they
+     * are gone, and that explanation is worth keeping) but requires that any skill named in a
+     * "committed" or "use this" position actually exist on disk.
+     */
+    public function test_claude_md_does_not_depend_on_an_uncommitted_skill(): void
+    {
+        $claude = (string) file_get_contents($this->root() . '/CLAUDE.md');
+
+        // Every `.claude/skills/<name>/` path CLAUDE.md points at must exist.
+        preg_match_all('#`\.claude/skills/([a-z0-9-]+)/#i', $claude, $m);
+
+        $this->assertNotEmpty($m[1],
+            'CLAUDE.md names no project-local skill at all. If the skills section has been '
+            . 'rewritten, re-read #66 before assuming that is intended.');
+
+        foreach (array_unique($m[1]) as $named) {
+            $this->assertDirectoryExists($this->root() . '/.claude/skills/' . $named,
+                "CLAUDE.md points at `.claude/skills/{$named}/`, which does not exist. That is "
+                . 'exactly the defect #66 was opened to fix: an instruction to use a capability '
+                . 'the repository does not contain.');
+        }
+
+        // And the three absent skills must not be presented as available. They may be mentioned
+        // -- the explanation is the point -- but not instructed.
+        foreach (['laravel-best-practices', 'ui-ux-pro-max', 'claude-automation-recommender'] as $absent) {
+            if (! str_contains($claude, $absent)) {
+                continue;
+            }
+
+            $this->assertMatchesRegularExpression(
+                '/(does not exist|absent|may be absent|were never|used to claim)/i',
+                $claude,
+                "CLAUDE.md mentions `{$absent}` without anywhere stating that it is absent. It was "
+                . 'instructed as mandatory once and was not installed; if it has genuinely been '
+                . 'committed to .claude/skills/, say so there and update this test.'
+            );
+        }
+    }
+
+    /**
+     * The tooling manifest records an installation scope for every tool it lists, and does not
+     * describe an account-level install as portable.
+     *
+     * The manifest's own rule, and the one claim in it that would be actively misleading.
+     */
+    public function test_the_tooling_manifest_labels_install_required_tools(): void
+    {
+        $manifest = (string) file_get_contents($this->root() . '/docs/tooling/SKILLS-MANIFEST.md');
+
+        $this->assertStringContainsString('INSTALL-REQUIRED', $manifest,
+            'The manifest no longer states its portability rule. That rule is the finding #66 '
+            . 'rests on: anything that cannot be committed is labelled, never called portable.');
+
+        // Each verdict must be one of the four the owner asked for.
+        //
+        // `#` DELIMITERS, NOT `/`. The first version used `/.../m` with an unescaped `/` inside
+        // the character class -- which terminates the pattern, so preg_match_all returned FALSE,
+        // left $m null, and the test died on a TypeError instead of checking anything. A regex
+        // that fails to compile is a control that silently stops controlling, so the explicit
+        // `is_array` assertion below stays even though the delimiter is now right.
+        $matched = preg_match_all('#^\| `([a-z0-9@._/-]+)` \| \*\*([A-Z_]+)#m', $manifest, $m);
+
+        $this->assertNotFalse($matched, 'The verdict-table pattern failed to compile.');
+        $this->assertIsArray($m[2] ?? null, 'The verdict-table pattern captured nothing.');
+
+        $this->assertGreaterThanOrEqual(10, count($m[1]),
+            'The manifest verdict table lists fewer tools than were evaluated.');
+
+        foreach ($m[2] as $verdict) {
+            $this->assertContains($verdict, ['APPROVED_NOW', 'OPTIONAL', 'LATER_PHASE', 'REJECTED'],
+                "`{$verdict}` is not one of the four classifications the owner asked for.");
+        }
+    }
+
+    /**
+     * NO CREDENTIAL, TOKEN OR PERSONAL CONFIGURATION IS COMMITTED UNDER .claude/ OR docs/tooling/.
+     *
+     * The manifest records THAT a tool needs a key; it must never record the key. This is a cheap
+     * standing check on exactly the two directories this package added to.
+     */
+    public function test_no_credential_is_committed_in_the_tooling_configuration(): void
+    {
+        $files = array_merge(
+            glob($this->root() . '/.claude/**/*.md') ?: [],
+            glob($this->root() . '/.claude/*.md') ?: [],
+            glob($this->root() . '/.claude/*.json') ?: [],
+            glob($this->root() . '/docs/tooling/*.md') ?: []
+        );
+
+        $this->assertNotEmpty($files);
+
+        // Shapes, not names: a real key, not the word "key". Each pattern is a provider's own
+        // documented prefix, so a match is a literal credential rather than prose about one.
+        $shapes = [
+            '/sk-ant-[A-Za-z0-9_-]{20,}/' => 'an Anthropic API key',
+            '/ctx7sk-[A-Za-z0-9_-]{16,}/' => 'a Context7 API key',
+            '/gh[pousr]_[A-Za-z0-9]{30,}/' => 'a GitHub token',
+            '/-----BEGIN [A-Z ]*PRIVATE KEY-----/' => 'a private key',
+        ];
+
+        foreach ($files as $file) {
+            $source = (string) file_get_contents($file);
+            $relative = str_replace($this->root() . '/', '', $file);
+
+            foreach ($shapes as $pattern => $what) {
+                $this->assertSame(0, preg_match($pattern, $source),
+                    "{$relative} contains what looks like {$what}. The manifest records THAT a "
+                    . 'tool needs a credential; it must never contain one.');
+            }
         }
     }
 }

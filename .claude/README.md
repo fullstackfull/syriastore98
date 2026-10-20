@@ -10,6 +10,7 @@ which is gitignored.
 | `hooks/guard-protected-paths.php` | refuses edits to vendored WorkDo modules, and tool access to secret-bearing files |
 | `agents/tenant-authz-reviewer.md` | read-only reviewer for authorization and tenancy changes |
 | `commands/tenant-check.md` | `/tenant-check` — runs the existing tenancy and authorization suites |
+| `skills/store-syria-laravel-tenancy/` | this codebase's counter-intuitive Laravel, tenancy and authorization facts, and the test disciplines that catch them |
 
 `../CLAUDE.md` holds the project rules themselves.
 
@@ -29,6 +30,22 @@ rule. That gap is why the hook also has a Bash branch.
 "deny this tree except one subdirectory" — deny beats allow in every scope, so there is no way to
 carve the exemption back out. A script can, so the WorkDo rule lives there and there is
 deliberately **no** blanket `Edit(./packages/workdo/**)` deny rule.
+
+## Why the skill is committed here rather than installed
+
+Because the alternative was measured and failed. `CLAUDE.md` used to name four skills to use
+"without being asked"; when the project moved environments, **three of them were simply gone** —
+account-level installs that do not travel with a clone. The two capabilities that survived were the
+two in this directory.
+
+A missing skill produces no error. It is not offered, the session proceeds without it, and the
+instruction to use it reads as satisfied. So anything this project depends on lives **here**, in
+the diff, where it can be reviewed and cannot vanish. `tests/Unit/Ci/ClaudeConfigurationTest`
+asserts that it is still present.
+
+Account-level skills are not forbidden — `frontend-design` is one and is useful. They are just
+never *depended on*, and `docs/tooling/SKILL-USAGE-POLICY.md` labels each as install-required
+rather than portable.
 
 ## What these are not
 
