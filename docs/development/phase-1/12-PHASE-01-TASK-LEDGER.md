@@ -10,8 +10,8 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 59 — 17 DONE, 17 READY, 8 BACKLOG, 17 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
-| Requiring an owner decision | 22 |
+| Tasks | 61 — 18 DONE, 16 READY, 8 BACKLOG, 19 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
+| Requiring an owner decision | 24 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
 A task is **not** `DONE` because code was committed — `DONE` requires its acceptance criteria verified, with the evidence recorded in its row.
@@ -51,6 +51,8 @@ graph TD
   P1_INV_17 --> P1_INV_18
   P1_INV_18 --> P1_INV_20
   P1_INV_20 --> P1_INV_21
+  P1_INV_21 --> P1_SEC_07
+  P1_INV_21 --> P1_INV_22
   P1_INV_02 --> P1_INV_15
   P1_INV_04 --> P1_OWN_07
   P1_R_01
@@ -109,9 +111,9 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 8. `P1-INV-13` — The Woo/Shopify import family: three more unscoped mapping resolves, one still carrying a store-transfer primitive *(inventory, READY, risk high)*
 9. `P1-INV-15` — Order::product_return robustness: POS orders 500, no transaction, tax_price zeroed, and a double-credit across the two return endpoints *(inventory, READY, risk medium)*
 10. `P1-INV-16` — AuctionProductOrder::product_return restocks an unscoped Product, has no replay guard, and its non-variant path is a silent no-op *(inventory, READY, risk high)*
-11. `P1-INV-19` — any customer can forge an auction bid attributed to another customer on another store's product; store_id and customer_id both come from request input *(inventory, READY, risk high)*
-12. `P1-INV-20` — four more LotteryPrizes defects: an anonymous ticket writer into any store, an unscoped refund delete, a cross-tenant email-template resolve, and a 500 on every successful draw *(inventory, BLOCKED, risk high)*
-13. `P1-INV-21` — The lottery ticket amount is a client-posted hidden input, so the recorded price is forgeable while the charge is not; and a ticket can be written without paying *(inventory, BLOCKED, risk high)*
+11. `P1-INV-20` — four more LotteryPrizes defects: an anonymous ticket writer into any store, an unscoped refund delete, a cross-tenant email-template resolve, and a 500 on every successful draw *(inventory, BLOCKED, risk high)*
+12. `P1-INV-21` — The lottery ticket amount is a client-posted hidden input, so the recorded price is forgeable while the charge is not; and a ticket can be written without paying *(inventory, BLOCKED, risk high)*
+13. `P1-INV-22` — LotteryPrizes: most payment arms are unreachable from its own form, two authorization gates lock out the platform operator, and one is commented out *(inventory, BLOCKED, risk medium)*
 14. `P1-PAY-04` — COD settles at order time, which blocks releasing GATE F *(payments, BLOCKED, risk high)*
 15. `P1-MIG-03` — Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns *(migrations, BLOCKED, risk high)*
 16. `P1-MIG-01` — GATE F: release the six money-bearing tables *(migrations, BLOCKED, risk high)*
@@ -141,6 +143,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 40. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, READY, risk medium)*
 41. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
 42. `P1-SEC-06` — Authenticated SSRF: four import handlers fetch a merchant-controlled URL and serve the response *(security, READY, risk high)*
+43. `P1-SEC-07` — PLATFORM-WIDE: six modules resolve email templates with no created_by, and a console command reaches the same code with no request and no tenant *(security, BLOCKED, risk high)*
 
 ---
 
@@ -428,6 +431,38 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 - Negative: an expired token is refused with 403, not 401 (401 force-logs-out the Flutter app)
 
 **Evidence.** S4 item 2; docs/security/P01-TOKEN-EXPIRY-PROPOSAL.md
+
+### `P1-SEC-07` — PLATFORM-WIDE: six modules resolve email templates with no created_by, and a console command reaches the same code with no request and no tenant
+
+| field | value |
+|---|---|
+| Status | **BLOCKED** |
+| Risk | high |
+| Workstream | Security & Identity |
+| GitHub issue | #69 |
+| Owner decision required | **yes** |
+| Blocked on | No host mechanism is known that covers all six modules AND the console/queue context. The scope argues for one upstream report covering the family rather than six host-side patches. |
+| Depends on | `P1-INV-21` |
+| Scope | `packages/workdo/ (UPSTREAM -- not editable here)` |
+| Queue references |  |
+| Database / migration | None. |
+| Compatibility impact | No request or response contract changes are proposed here. |
+
+**Existing implementation status.** Six modules carry the identical `EmailTemplate::where('name','LIKE',$t)->first()` with no created_by: LotteryPrizes:715, PartialPayments:307, ProductCatelog:296, ProductEnquiry:276, ReviewReminder:214, SpinToWinReward:415 (line numbers read with grep -n; the investigation's own citations were off by 1-3). EmailTemplate is a HOST model keyed on created_by with no store_id, so whichever tenant's row comes first serves every tenant, and :722 then takes the STORE SLUG from the template's owner. :722 is also a null-property 500 whenever no store carries that created_by. THREE THINGS KILL A HOST SCOPE: (1) LotteryPrizes/src/app/Console/Lottery.php has signature 'lottery:order' and calls sendOwnerEmailTemplate at :80 with no request and no tenant, so request-scoped mechanisms are absent; (2) the investigated predicate created_by IN (creatorId(), super admins) has a DEMONSTRATED LOCKOUT -- LotteryPrizesController:197 and this project's own LotteryMailTemplatePrerequisite write the ACTING user's id, UserController:154 sets a staff user's type to the role name, and User::creatorId() then returns the EMPLOYER's id, so the predicate rejects a staff member's own template after the Paid order is already written; (3) the leaked content is in App\Models\EmailTemplateLang, which carries no scope at all. THREE DEAD JOBS reopen it silently: SendLotteryWinEmail, SendOrderCreatedEmail, SendLotteryFailEmail each call the resolve and each has ZERO dispatch sites, verified by grepping app/, packages/workdo/ and routes/ excluding the job's own file.
+
+**Acceptance criteria.**
+- [ ] The template resolve is tenant-correct in all six modules, or one host mechanism covers all six INCLUDING the console/queue context
+- [ ] Any predicate includes auth()->id() as well as creatorId(), with the operator limb FIRST
+- [ ] A test drives a STAFF principal (type = role name, created_by = the merchant), not only admin-type users -- an admin-only fixture is structurally unable to see the lockout, because admin is the one type where creatorId() === id
+- [ ] A test drives the CONSOLE path, where no request exists
+- [ ] :722's null-property dereference is guarded
+- [ ] EmailTemplateLang is assessed -- it holds the body and carries no scope
+- [ ] No packages/workdo/ edits; if no host mechanism covers all six plus the console, a version-pinned upstream report is prepared for owner review first
+
+**Required tests.**
+- Per the acceptance criteria on the issue.
+
+**Evidence.** Found by the P1-INV-21 host-side feasibility investigation; every claim re-verified by reading the cited files with grep -n before filing.
 
 ### `P1-SEC-06` — Authenticated SSRF: four import handlers fetch a merchant-controlled URL and serve the response
 
@@ -1061,9 +1096,9 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 | Workstream | Inventory & Stock |
 | GitHub issue | #68 |
 | Owner decision required | **yes** |
-| Blocked on | An owner decision: upstream, or a host-side seam designed first. Not blocked on any other Phase 01 task. |
+| Blocked on | Item 2 only. Payment verification is not closable host-side -- purchase_tickets has no payment-status, transaction-id or gateway-reference column, so there is nothing to record settlement in and nothing to check. Needs an upstream report. Item 1 is delivered and gated. |
 | Depends on | `P1-INV-20` |
-| Scope | `packages/workdo/LotteryPrizes/src/app/Http/Controllers/LotteryPrizesController.php (UPSTREAM -- not editable here)`, `packages/workdo/LotteryPrizes/src/resources/views/theme/lottery-form.blade.php (UPSTREAM)` |
+| Scope | `app/Listeners/EnforceLotteryTicketPrice.php`, `app/Providers/AppServiceProvider.php`, `tests/Feature/Security/LotteryTicketPriceIntegrityTest.php`, `tests/Feature/Security/LotteryTicketWriterTest.php`, `tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest.php`, `tests/Feature/Tenancy/RawQueryTenancyInventoryTest.php` |
 | Queue references |  |
 | Database / migration | None. |
 | Compatibility impact | Taking the amount from the LotterySetting changes no request or response contract -- the gateway is already charged that value, so the record simply stops disagreeing with the charge. Adding payment verification stops unpaid tickets being recorded, which is the point. |
@@ -1071,12 +1106,12 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 **Existing implementation status.** Found while fixing P1-INV-20 (#67); outside its four acceptance criteria and not closable by its guards. TWO DIFFERENT VALUES, ONLY ONE TRUSTWORTHY. The CHARGE is server-side: lottery_form_data:540 passes $lottery_setting->ticket_price into the payment service, which hands it to the gateway views (payment/paystack.blade.php:20 '{{ $lottery_price * 100 }}', payment/razorpay.blade.php:20). The RECORD is not: lottery-form.blade.php:277 posts `ticket_price` as a HIDDEN INPUT, it rides into the session with the rest of the request (LotteryPaymentService stores $data = $request verbatim at all 15 Session::put sites), and StoreLotteryPayment:571 reads it back into $lottery_data->amount at :617. So a customer who edits one hidden field pays the real price and purchase_tickets.amount records any number they choose -- not theft of goods, but corruption of a money-bearing column the merchant reads for revenue reporting, and it runs both ways. lottery_form_data:513-526's validator covers the nine lottery_info.* fields and payment_methods, not ticket_price. The paytr branch at :574 is the same defect with a second caller-supplied field, `amount`. SECOND ITEM: a caller who submits the lottery form legitimately (that route carries no auth) gets a populated session, and can then skip the gateway and GET the return URL directly -- store.lottery.payment is wired as return_url/cancel_url/callback_url throughout LotteryPaymentService (:335, :438-439, :528, :655-656, :713-714, :779-780, :899). Only Khalti (:581-591) and Midtrans (:576-580) verify anything; telegram, whatsapp, paytr and every other payment_methods value go straight to save(), and payment_methods is caller-supplied.
 
 **Acceptance criteria.**
-- [ ] :571 and :574 take the ticket amount from the resolved LotterySetting, not from caller-supplied input
-- [ ] StoreLotteryPayment verifies the payment before save() on every payment_methods branch, not only Khalti and Midtrans
-- [ ] No file under packages/workdo/ is edited by this project; if upstream will not take it, the host-side seam that makes it fixable here is designed and recorded FIRST
-- [ ] A test tampers with the hidden ticket_price and asserts the stored amount, read through DB::table()
-- [ ] A test drives a non-verifying payment_methods branch and asserts no row is written without payment
-- [ ] Removal checks on each control
+- [ ] DONE -- item 1. The recorded amount is derived from lottery_settings.ticket_price for the ticket's own lottery_id, by a host-side `eloquent.creating` listener on the vendored model. Measured: posted ticket_price=1 against a lottery charging 25 stored 25. The vehicle is a model event and not middleware because the handler reads the amount from the SESSION, so there is nothing in the request to rewrite.
+- [ ] NOT DONE -- item 2, payment verification, and it is not closable host-side. purchase_tickets has NO payment-status, transaction-id or gateway-reference column at all, so there is nowhere to record settlement and nothing for any mechanism to check. payment_type is caller-supplied and is the sole selector of whether anything is verified. Upstream.
+- [ ] DONE -- no packages/workdo/ edits
+- [ ] DONE -- a test tampers with the hidden ticket_price and asserts the stored amount through DB::table()
+- [ ] N/A -- the 'drive a non-verifying payment_methods branch' criterion belongs to item 2
+- [ ] DONE -- 8 removal checks, 7 biting
 
 **Required tests.**
 - Negative: a tampered hidden ticket_price does not reach purchase_tickets.amount
@@ -1084,19 +1119,50 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 - Negative: a non-verifying payment_methods branch writes no row without a settled payment
 - Positive: a genuine paid purchase still records the setting's price
 
-**Evidence.** VERIFIED BY READING, with both sides of the amount traced to their sources: the charged value to lottery_form_data:540 -> $lottery_setting->ticket_price -> the gateway views, and the recorded value to lottery-form.blade.php:277 -> the session -> :571 -> :617. The anonymous half of item 2 was additionally OBSERVED BY EXECUTION during P1-INV-20's reproduction (HTTP 200, a row written with the caller's own amount and no payment); P1-INV-20's LotteryTicketWriteGuard closes that half and nothing of item 1.
+**Evidence.** THE OWNER'S DIRECTIVE CHANGED THE ANSWER. I had recorded 'no host-side seam' having considered only middleware; the owner named service boundaries and callback interception, and two seams existed: PurchaseTicket extends Model (so a host model-event listener can intercept creating) and LotteryPaymentService is constructor-injected. A 13-agent investigation (six candidate mechanisms, each adversarially attacked, then a five-axis classification) found THIS AXIS FULLY CLOSABLE. THE FIX: app/Listeners/EnforceLotteryTicketPrice, registered from AppServiceProvider by EVENT-NAME STRING -- Event::listen('eloquent.creating: Workdo\LotteryPrizes\app\Models\PurchaseTicket', ...) -- because the class only exists when the module is loaded and module providers boot from app->booted(). THAT THE EVENT FIRES WAS VERIFIED, NOT ASSUMED: PurchaseTicket uses Cachable, and a trait intercepting persistence would make the fix silently inert. Cachable is six lines composing Caching + ModelCaching + PivotEventTrait; ModelCaching overrides __get, __set, all(), bootCachable(), destroy(), newEloquentBuilder() and newBelongsToMany() -- not save, performInsert or fireModelEvent; bootCachable() listens on created/deleted/saved only. TWO THINGS IT DELIBERATELY DOES NOT DO, both caught before shipping. It does not re-derive store_id: that is a TAUTOLOGY, since :595-597 selects the lottery where('store_id',$store->id) so $lottery_setting->store_id is identically what :616 already assigns -- a control that cannot fail is worse than none because it reads as protection, and a test pins the absence. And it does not ABORT: a creating listener returning false makes save() return false, and :617 is a bare save() whose return value is discarded, so execution continues to the success response and theme.payment_success renders the in-memory model with a BLANK date (updateTimestamps() runs after the gate). A silent false success is worse than the defect. The `void` return type is itself a control -- relaxing it to ?bool fails six tests. AND IT IS LEDGER INTEGRITY, NOT REVENUE, which corrects my own framing in the issue. The ONLY read of the stored purchase_tickets.amount in the repository is theme/payment_success.blade.php:122, the buyer's own receipt; the admin views never display it; the draw re-derives from ticket_price. EVERY LINE CITATION IN THIS MODULE'S WORK WAS WRONG AND IS FIXED. The investigation's sharpest criticism -- 'in a project where the citation is the evidence, a reviewer opening :618 finds a blank line' -- was right. Verified with grep -n and corrected in 12 places: session fallback :568-570 -> :567-569; lottery_id :613 -> :612; customer_id :614 -> :613 (right in two places, wrong in three); amount :617 -> :614; store_id :617 -> :616; save() :618 -> :617. THE GATE CAUGHT MY OWN KNOWN-LIMITATION TEST GOING STALE: #67's test asserted 'the amount is still the caller's own', this listener closed that half, the Feature suite went to three failures against a manifest declaring two, and the known-outcome gate refused the run. The assertion is now inverted and earns its place -- the anonymous path is where the caller controls every field and no validator has run. EVIDENCE: 9 tests / 47 assertions including THREE premise tests (the routes carry no auth; the listener is registered under the name the MODEL reports; a bare ->save() fires creating, which catches an upstream switch to a builder insert). 8 removal checks, 7 bite; R7 subsumed by the null-price guard and kept for intent. R5 needed a value PHP and the column read differently WITH a real lottery at the coerced id -- lottery_id is a STRING column, so '1.5' stores verbatim while is_numeric would stamp lottery 1's price onto it. GATES: Unit 286; Feature 2 failed / 17 skipped / 2980 passed, gate exit 0; Contract 26; four CI guards 0. RATCHETS, AND A GLOB THAT DID NOT REACH ITS OWN CLAIM: app/Listeners/ was outside OwnedPathRawQueryInventoryTest's glob, so this raw query left that inventory silently and only the platform-wide count noticed -- second time a path that file claims to own slipped out of its own glob. I ALSO PUT lottery_settings IN THE WRONG LIST FIRST and then reasoned myself into a confident explanation for why it could not belong at all; the diff showed the opposite. Checking beat reasoning.
+
+### `P1-INV-22` — LotteryPrizes: most payment arms are unreachable from its own form, two authorization gates lock out the platform operator, and one is commented out
+
+| field | value |
+|---|---|
+| Status | **BLOCKED** |
+| Risk | medium |
+| Workstream | Inventory & Stock |
+| GitHub issue | #70 |
+| Owner decision required | **yes** |
+| Blocked on | Item 5 is host-closable by the established guard pattern and is NOT blocked -- it needs reproducing first. Items 1-4 are inside vendored controllers and views with no host-side seam, so they are blocked on the same upstream decision as #67, #68 and #69. |
+| Depends on | `P1-INV-21` |
+| Scope | `packages/workdo/ (UPSTREAM -- not editable here)` |
+| Queue references |  |
+| Database / migration | None. |
+| Compatibility impact | No request or response contract changes are proposed here. |
+
+**Existing implementation status.** FIVE items, four of them functional or fail-closed rather than exposures. (1) A CASING MISMATCH makes most payment arms unselectable from the module's own form: lottery-form.blade.php:290 posts ucfirst($payment_data->name_string) while LotteryPaymentService::process switches on exact MIXED-case strings -- 'Stripe'/'Paypal'/'Razorpay'/'Xendit' are ucfirst-compatible, but 'paystack'/'yookassa'/'midtrans'/'whatsapp' and others never match, so those arms fall through to the default. The form's JS repeats the error at :396 and :426 comparing against lowercase 'payfast'. THIS CORRECTS A CLAIM I MADE IN #67: I wrote that telegram/whatsapp create an unpaid row 'by design, settling out of band'. The arms exist in the service but a real customer cannot select them -- the #67 attack works because the request is hand-crafted. (2) THE MIDTRANS ARM IS DEAD BOTH WAYS: LotteryPrizesController:575 tests == 'Midtrans', which matches what the form posts, while LotteryPaymentService.php:99 is case 'midtrans', which does not -- so one of only two arms that verifies anything never reaches the gateway. (3) TWO OPERATOR LOCKOUTS: store():92 gates on isAbleTo('Edit Lottery Setting') and LotteryOrderController:103 on isAbleTo('Show Order'), neither with an operator limb, and this codebase has NO super-admin bypass. These fail closed, so they are the mirror-image defect rather than an exposure. (4) A PERMISSION CHECK IS COMMENTED OUT at LotteryOrderController:31. (5) store():90-135 writes lottery_settings rows from lottery_repeater_basic with NO check that each lottery_products value is a product of the caller's own store -- a cross-tenant FINANCIAL reference, since ticket_price and the draw both key on that lottery. Reachable by a merchant holding 'Edit Lottery Setting'; ModuleResourceOwnershipGuard has no lottery target. ITEM 5 IS NOT YET REPRODUCED BY EXECUTION; the others are read from the cited files.
+
+**Acceptance criteria.**
+- [ ] Item 5 reproduced by execution FIRST, then closed with a host-side guard keyed on the controller action, operator limb first: every lottery_products value must be a product of the caller's own store
+- [ ] A test posts store A's product id as store B's merchant and asserts no lottery_settings row references it
+- [ ] Items 1, 2 and 4 verified against the shipped form and routes and reported upstream -- inside packages/workdo/ with no host-side seam
+- [ ] Item 3's operator lockout reported upstream; no host fix is available for a check inside a vendored controller
+- [ ] No packages/workdo/ edits
+- [ ] Removal checks on any control added
+
+**Required tests.**
+- Per the acceptance criteria on the issue.
+
+**Evidence.** Found by the P1-INV-21 host-side feasibility investigation; every claim re-verified by reading the cited files with grep -n before filing.
 
 ### `P1-INV-19` — any customer can forge an auction bid attributed to another customer on another store's product; store_id and customer_id both come from request input
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **DONE** |
 | Risk | high |
 | Workstream | Inventory & Stock |
 | GitHub issue | #65 |
 | Owner decision required | **yes** |
 | Depends on | — |
-| Scope | `app/Http/Middleware/`, `tests/Feature/Security/` |
+| Scope | `app/Http/Middleware/AuctionBidIdentityGuard.php`, `bootstrap/app.php`, `tests/Feature/Security/AuctionBidForgeryTest.php`, `tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest.php`, `tests/Feature/Tenancy/RawQueryTenancyInventoryTest.php` |
 | Queue references | S39-14 |
 | Database / migration | None. |
 | Compatibility impact | Legitimate bidding keeps working. A client that relied on posting its own customer_id/store_id stops being believed, which is the point. |
@@ -1104,12 +1170,15 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 **Existing implementation status.** FOUND by the adversarial review of P1-INV-17's guard and VERIFIED BY EXECUTION BY THREE INDEPENDENT AGENTS, each writing its own probe. packages/workdo/AuctionProduct/src/routes/web.php:26 declares POST /{storeSlug}/product-bid inside a ['web']-only group -- measured with the module loaded, the route's gatherMiddleware() is literally ["web"]. AuctionProductController::addProductbidamount:1580-1608 checks `if (!auth('customers')->user())` at :1582 and then DISCARDS the principal: product_id (:1600), bid_amount (:1601), customer_id (:1602) and store_id (:1603) ALL come from request input, and $storeSlug is used only in the failure redirect. `Product::find($request->product_id)` at :1585 is assigned and never used. The check at :1582 is a PRESENCE test, never an IDENTITY test -- the purest form of the pattern CLAUDE.md names as the most productive in this codebase. Validation: product_id and customer_id are `nullable` with no exists, bid_amount is `required` only -- no numeric, no gt, no comparison to the current max; the must-exceed rule is CLIENT-SIDE ONLY, and the view posts customer_id and store_id as HIDDEN INPUTS. AuctionProductBid declares only HasFactory, Cachable -- no BelongsToStore, no scope, absent from scoped_models -- and the group resolves no tenant with null_tenant => 'open', so nothing adds a predicate. :1568 and :1635 read max('bid_amount') with no store predicate, so the forged figure shows as store B's current highest bid. TWO CORRECTIONS TO THE ORIGINAL CLAIM, verified. (1) NOT ANONYMOUS: :1582 does refuse a null customers-guard principal and redirects to customer.login (routes/customer.php:101, a clean redirect). A merchant or driver WEB session also fails it, since `customers` is a separate session guard, and the custom.auth trap does not apply because this group has no custom.auth. A customer account on ANY store is the precondition -- trivial via storefront self-registration, not scoped to the target. (2) 'the scheduler then creates a real order' is OVERSTATED -- that limb is LATENT: `auction:order` is registered as an Artisan command and NEVER SCHEDULED. The live consequence is bid poisoning and forged attribution; the order limb arms the moment anyone schedules it, at which point Console/Auction.php picks the winner by max('bid_amount') with no store predicate.
 
 **Acceptance criteria.**
-- [ ] customer_id and store_id are derived from the authenticated principal, never from request input -- reuse ApiController::resolveStoreCustomer() rather than copying a check
-- [ ] product_id must resolve to a product in the store the slug names, and the bid's store_id must match it
-- [ ] bid_amount is validated server-side: numeric, positive, and greater than the current maximum FOR THAT STORE'S PRODUCT
-- [ ] The max('bid_amount') reads at :1568 and :1635 carry a store predicate
-- [ ] Decide whether auction:order should be scheduled at all -- scheduling it before this is fixed makes the latent order limb a live money write
-- [ ] No file under packages/workdo/ is edited
+- [ ] DONE -- customer_id and store_id are derived from the authenticated principal and the product row, never from request input
+- [ ] DONE -- product_id must resolve to a real product; the parsed int is merged so the handler cannot write a value the guard did not validate
+- [ ] DONE -- bid_amount is validated server-side: numeric, finite, positive, and greater than max(current maximum, sale_price), mirroring AuctionProductController:1571
+- [ ] NOT DONE, and corrected rather than met: the criterion asked that product_id resolve to a product in the store the SLUG names. Reading the module showed that would be wrong -- place_bid.blade.php:314 posts the PRODUCT's store, bidingForm:1566 resolves by slug with no store predicate, enable_auction_product gates only menus and admin screens, and Console/Auction.php:78-85 is written for a foreign bidder. Cross-store bidding is the design; refusing it would repeat P1-INV-20's withdrawn regression.
+- [ ] NOT DONE -- the max('bid_amount') reads at :1568 and :1635 still carry no store predicate. They are vendored reads, and the guard deliberately asks the same question they do so guard and page agree. product_id is globally unique (Product carries no scope), so the key does identify one store's product.
+- [ ] DONE -- tests drive a merchant web session and a delivery-boy session as well as a customer, each asserting 302 rather than only the row count
+- [ ] OPEN, OWNER DECISION -- whether auction:order should be scheduled at all. It is registered as a command and never scheduled, which is what makes the order limb latent. Scheduling it before the residue sweep below would make a pre-fix forged bid a live money write.
+- [ ] DONE -- no packages/workdo/ edits; guard-no-workdo-changes.sh exit 0
+- [ ] DONE -- 16 removal checks, 14 biting
 
 **Required tests.**
 - Negative: a forged customer_id/store_id/product_id creates no bid row
@@ -1118,7 +1187,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 - Positive: a legitimate own-store bid still records, attributed to the authenticated customer
 - Removal checks on each control
 
-**Evidence.** None
+**Evidence.** REPRODUCED BY EXECUTION: attacker = customer 1 in store 1, victim = customer 2 in store 2. POST /store-a/product-bid with store B's product_id, bid_amount=999999, customer_id=<victim>, store_id=<attacker's choice> returned HTTP 302 'Your Bid place successfully.' and wrote product_id=2 customer_id=2 store_id=1 bid_amount=999999, taking store B's displayed maximum from 150 to 999999. THE ATTRIBUTION IS THE SEVERE PART: Console/Auction.php:73-80 picks the winner with max('bid_amount'), then ->where('bid_amount',$max)->first() and reads THAT ROW's customer_id to create the order -- so the forgery would have made the VICTIM the winner. FIX: AuctionBidIdentityGuard derives customer_id from the authenticated principal and store_id from the product row via $request->merge(), which the handler reads through Request::__get -> all(); product_id and bid_amount are merged too so the handler cannot write a value the guard did not validate. It also enforces the bid rule the module only ever enforced in the browser. AFTER: the row is still written (cross-store bidding IS the module's design -- place_bid.blade.php:314 renders store_id = $product->store_id, and the review checked every lever that could restrict it and found none) but customer_id is the caller's and store_id the product's. TWO OF MY OWN ASSERTIONS WERE WRONG AND WERE CORRECTED: the issue's framing conflated attribution forgery (real) with cross-store bidding (the design) and with an absurd bid amount (a business-rule gap, no tenancy dimension). My first tests asserted 'no row is written', which would have closed the attack by also closing the flow -- the regression P1-INV-20's refund guard shipped and withdrew. TWO LIVE DEFECTS THE ADVERSARIAL REVIEW FOUND IN THE FIX ITSELF, both measured before accepting: (1) hasFile() WAS THE WRONG PREDICATE. It is isValidFile(), which an ERRORED upload fails while its key still occupies the file bag -- and all() is array_replace_recursive(input(), allFiles()), so the key beat the merge. Measured through the real HTTP stack with the posted store deliberately different from the product's: no file -> store_id 2 (correct); UPLOAD_ERR_NO_FILE -> store_id 2 (does NOT reproduce through the harness, though it does on a bare Request::create); UPLOAD_ERR_INI_SIZE -> store_id ''  <- THE MERGE WAS DEFEATED. The review named NO_FILE as the trigger and that is the one case that does not survive the harness's request rebuild: mechanism right, triggering code backwards. Closed with array_key_exists($key, $request->allFiles()), tested across all seven upload error codes and all four derived keys, asserting the stored VALUE rather than the row count. MY FIRST PROBE REPORTED A PASS AGAINST THE BROKEN GUARD because it posted store_id = storeB while the product was also in store B, so derived and posted were both 2. (2) THE FLOOR IGNORED sale_price. Measured: a first bid of 0.01 accepted on a product priced 100, which Console/Auction.php:73-109 would award at 0.01. Fixed with the module's own expression from AuctionProductController:1571, ?: not ?? because that line uses a FALSY test so a stored maximum of 0 also falls back -- both behaviours tested. A THIRD FINDING SETTLED AS A NON-FINDING BY MEASUREMENT: the review raised that $table->float('bid_amount') might be double(8,2) with silent clamping under strict=>false, and said it needed staging. It did not -- running the module's own migration against MySQL 8.0.46 on Laravel 11.47.0 gives `bid_amount` double NOT NULL DEFAULT '0', no cap; 1000000 stored as 1000000 and 1234567.891 exactly. The double(8,2) shape is Laravel <=10's float() signature. A NEW CONTROL MASKING AN OLD TEST: adding the floor made R7 (usableId strictness) go GREEN, because the nonexistent-product test bid exactly 100 on a product priced 100 and the floor refused it before the id check mattered. The test now bids 1000 and R7 bites again with "A bid on product_id '1.0' was recorded." ALSO FROM THE REVIEW: the 'comparison' inventory category had stopped describing the file (it promises a reader the file REFUSES cross-tenant access; this guard derives and overwrites, and my own comment conceded the mismatch) -> added a 'derivation' category and made the category SET asserted, since an unknown string lands in the skip branch and would silently exempt a whole file; three controls the ratchets never pinned, including the file-bag check while it was LIVE; two tests asserting only row counts that a 404 or 500 satisfies -- the merchant and delivery-boy principals CLAUDE.md requires be driven, so the most ambiguous assertions in the file where they should have been the least; and an inertness assertion that could not fail from this guard at all (deny() returns 403 only for expectsJson()). RECORDED NOT FIXED: the max rule is advisory under concurrency; nothing checks the product is an auction product or the window open (LATENT -- the winner picker filters on both); XSS::handle's merge($request->all()) would copy UploadedFiles into the input bag if `xss` were ever added to this module's routes. EVIDENCE: 15 tests / 131 assertions. 16 REMOVAL CHECKS, 14 BITE; R8 subsumed by the handler's own `required` validator (engine-independent, so my predicted MySQL-coercion mechanism was refuted) and R13 not isolable, both labelled rather than counted. GATES: Unit 286 passed; Feature 2 failed / 17 skipped / 2971 passed with the known-outcome gate exit 0; Contract 26; four CI guards exit 0. No packages/workdo/ edits.
 
 ### `P1-INV-15` — Order::product_return robustness: POS orders 500, no transaction, tax_price zeroed, and a double-credit across the two return endpoints
 
