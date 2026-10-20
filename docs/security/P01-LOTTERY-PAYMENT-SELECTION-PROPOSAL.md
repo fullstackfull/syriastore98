@@ -1,10 +1,17 @@
 # P01 — Lottery payment-method selection: verification and the smallest compatible correction
 
-**Issue:** #70 item 5 · **Task:** P1-INV-22 · **Status:** verified by execution; correction
+**Issue:** #70 item 1 · **Task:** P1-INV-22 · **Status:** verified by execution; correction
 **proposed, not applied** — it needs an owner decision (§6).
 
 Owner decision of this round: *"For #70, verify the payment-method selection mismatch using
-executable tests and propose the smallest compatible correction."* This is the proposal. The
+executable tests and propose the smallest compatible correction."* This is the proposal.
+
+**Item number corrected.** An earlier draft of this document called the payment-method mismatch
+"item 5". It is **item 1** of #70. Item 5 is a different defect, still unreproduced and tracked
+separately: `LotteryPrizesController::store():90-135` writes `lottery_settings` rows from
+`lottery_repeater_basic` with no check that each `lottery_products` value is a product of the
+caller's own store — a cross-tenant financial reference, host-closable by the established guard
+pattern, and the remaining open work on this issue. The
 verification is `tests/Feature/Security/LotteryPaymentMethodSelectionTest.php` — 17 tests, 235
 assertions, executed via `php artisan test` on SQLite `:memory:`.
 
@@ -18,7 +25,7 @@ assertions, executed via `php artisan test` on SQLite `:memory:`.
 
 ---
 
-## 1. What #70 filed, and what is true
+## 1. What #70 item 1 filed, and what is true
 
 | Filed | Measured |
 |---|---|

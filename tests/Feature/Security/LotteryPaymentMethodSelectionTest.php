@@ -11,10 +11,17 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * P1-INV-22 / #70 item 5 -- the lottery payment-method selection mismatch, VERIFIED BY EXECUTION.
+ * P1-INV-22 / #70 ITEM 1 -- the lottery payment-method selection mismatch, VERIFIED BY EXECUTION.
  *
- * WHAT THIS FILE IS. #70 item 5 was filed from reading, and the issue says so: "I have NOT
- * reproduced item 5 by execution". The owner asked for it to be verified with executable tests
+ * ITEM NUMBER CORRECTED. An earlier version of this header, and my first comment on the issue,
+ * called this "item 5". It is item 1. Item 5 of #70 is a different and still-unreproduced defect:
+ * `LotteryPrizesController::store():90-135` writes `lottery_settings` rows from
+ * `lottery_repeater_basic` with no check that each `lottery_products` value is a product of the
+ * caller's own store -- a cross-tenant FINANCIAL reference, host-closable, and NOT what this file
+ * measures.
+ *
+ * WHAT THIS FILE IS. #70 item 1 was filed from reading. The owner asked for it to be verified with
+ * executable tests
  * before any correction is proposed. This is that verification. It is a CHARACTERIZATION suite:
  * every assertion pins behaviour the shipped code has TODAY. Do not repair an assertion here to
  * get green -- the numbers are the evidence.
