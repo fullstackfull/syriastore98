@@ -620,7 +620,27 @@ public function city_list(Request $request, $slug)
         // if (auth('customers')->user()) {
             $store = getStore($slug);
 
+            if (! $store) {
+                abort(404);
+            }
+
+            // P1-ORD-07. This listed EVERY refund request in the store -- the store predicate was
+            // there, a CUSTOMER predicate was not, so one shopper saw every other shopper's refund
+            // reasons, statuses and order numbers. The shopper's own order ids are resolved in a
+            // separate query rather than as a subquery: Order is Cachable, and a whereIn() over a
+            // Cachable model's builder has already 500'd once in this codebase.
+            $ownOrderIds = [];
+            $customer = auth('customers')->user();
+
+            if ($customer) {
+                $ownOrderIds = Order::where('store_id', $store->id)
+                    ->where('customer_id', $customer->id)
+                    ->pluck('id')
+                    ->all();
+            }
+
             $order_refunds = OrderRefund::where('store_id', $store->id)
+                ->whereIn('order_id', $ownOrderIds)
                 ->paginate(10);
 
 
@@ -984,19 +1004,62 @@ public function city_list(Request $request, $slug)
         }
     }
 
+    /**
+     * The order this shopper may act on: this id, in THIS store, owned by THIS customer -- the
+     * three-column predicate OrderController::status_cancel() already uses on this route group.
+     *
+     * P1-ORD-07. `EnsureCustomerAuthenticated` asks only whether SOME customer is signed in, and
+     * registration is free, so on its own it is not an ownership check. `Order` is in no
+     * `scoped_models` list, so `Order::find($id)` reaches every tenant for every principal.
+     */
+    private function ownedOrder($store, $customer, $orderId): ?Order
+    {
+        if (! $store || ! $customer || ! is_scalar($orderId)) {
+            return null;
+        }
+
+        return Order::where('id', $orderId)
+            ->where('store_id', $store->id)
+            ->where('customer_id', $customer->id)
+            ->first();
+    }
+
     public function order_refund(Request $request, $slug, $id)
     {
         $order_refunds = null;
+        $store = getStore($slug);
+
+        if (! $store) {
+            abort(404);
+        }
+
         if(isset($request->refund) && $request->refund == true)
         {
+            // Guarded by OrderDocumentAccessGuard::TARGETS (`{id}` IS an order id on this branch),
+            // proven by OrderDocumentAccessTest. Deliberately not repeated here: a second copy of a
+            // control that cannot be isolated by a test is only a second place to drift.
             $order = Order::order_detail($id);
         }
         else
         {
-            $order_refunds = OrderRefund::find($id);
+            // `{id}` is a REFUND id on this branch, and the guard resolves it as `orders.id`
+            // whatever the query string says -- so it asks "does order #<refundId> belong to me?",
+            // which an attacker answers by choosing a refund id equal to an order they own.
+            // OrderRefund carries a store scope and no customer scope, so the owner is derived
+            // here, from the refund's own order. A foreign, unknown and unowned refund answer
+            // identically (404): this branch used to dereference null for an unknown id.
+            $customer = auth('customers')->user();
+
+            $order_refunds = OrderRefund::where('id', $id)
+                ->where('store_id', $store->id)
+                ->first();
+
+            if (! $order_refunds || ! $this->ownedOrder($store, $customer, $order_refunds->order_id)) {
+                abort(404);
+            }
+
             $order = Order::order_detail($order_refunds->order_id);
         }
-        $store = getStore($slug);
         $pages = Page::where('store_id', $store->id)->get();
         $RefundStatus = OrderRefundSetting::where('store_id',$store->id)
                     ->pluck('is_active', 'name')->toArray();
@@ -1020,12 +1083,72 @@ public function city_list(Request $request, $slug)
             $messages = $validator->getMessageBag();
             return redirect()->back()->with('error', $messages->first());
         }
-        $productRefundIds = $request->product_refund_id;
-        $quantities = $request->quantity;
+        $productRefundIds = (array) $request->product_refund_id;
+        $quantities = (array) $request->quantity;
         $returnPrices = $request->return_price;
 
-        $order = Order::find($request->order_id);
+        // P1-ORD-07. THE ORDER WRITTEN IS THE ORDER RECORDED IS THE ORDER THIS SHOPPER OWNS.
+        //
+        // This handler took `order_id` from the BODY, loaded it with `Order::find()` on a model no
+        // global scope filters, and rewrote final_price / product_price / product_json -- while the
+        // refund RECORD below was written against the PATH `$id`. MEASURED (P1-SEC-03 round 2, and
+        // again by this task's own RED run): a store-A shopper naming a store-B order in the body
+        // took it from 440 to 140, and the victim merchant had no refund row to explain the drop.
+        //
+        // So: the path id is the ONLY order this request may name, the body must agree with it
+        // (the real form posts the same value in both), and the order must belong to THIS store AND
+        // THIS shopper. Everything else answers 404, uniformly, as status_cancel does.
+        $store = getStore($slug);
+        $customer = auth('customers')->user();
+
+        if (! $store) {
+            abort(404);
+        }
+
+        if (! $customer) {
+            abort(403);
+        }
+
+        if ((string) $request->order_id !== (string) $id) {
+            abort(404);
+        }
+
+        $order = $this->ownedOrder($store, $customer, $id);
+
+        if (! $order) {
+            abort(404);
+        }
+
         $productJson = json_decode($order->product_json, true);
+
+        if (! is_array($productJson)) {
+            return redirect()->back()->with('error', __('This order has no refundable items.'));
+        }
+
+        // QUANTITY BOUNDS, enforced BEFORE anything is written. The totals below are recomputed from
+        // the CURRENT row on every call, and `$quantities` was trusted verbatim, so MEASURED on this
+        // head: a quantity above the line's remaining qty drove the order NEGATIVE (qty -1, total
+        // -60); a NEGATIVE quantity INFLATED it (440 -> 640); and a replay of a full refund divided
+        // by the line's now-zero qty -- a DivisionByZeroError, 500. The form's own input is
+        // `min="1" max="{item qty}"`, so [0, remaining qty] refuses nothing a real form can send.
+        foreach ($productJson as $key => $line) {
+            if (! in_array($line['product_id'] ?? null, $productRefundIds)) {
+                continue;
+            }
+
+            $requested = array_key_exists($key, $quantities) ? $quantities[$key] : 0;
+
+            // is_numeric() + a whole-number test rather than FILTER_VALIDATE_INT, which rejects a
+            // LEADING ZERO -- and a number input hands back exactly what was typed, so a shopper
+            // entering `03` would have been refused a valid refund.
+            if (! is_numeric($requested)
+                || (float) $requested != floor((float) $requested)
+                || (float) $requested < 0
+                || (float) $requested > (float) ($line['qty'] ?? 0)) {
+                return redirect()->back()->with('error', __('Invalid refund quantity.'));
+            }
+        }
+
         $total_product_price = 0.0;
         foreach ($productJson as $key => &$product)
         {
@@ -1036,17 +1159,19 @@ public function city_list(Request $request, $slug)
                 $product['qty'] = $product['qty'] - $quantitie;
 
             }
-            $product['final_price'] = ($product['final_price'] * $product['qty']) / $old_qty;
+            // A line already at qty 0 has nothing left to scale; dividing by it was the replay 500.
+            if ((float) $old_qty != 0.0) {
+                $product['final_price'] = ($product['final_price'] * $product['qty']) / $old_qty;
+            }
 
             $total_product_price = $total_product_price + $product['final_price'];
         }
+        unset($product);
         $grand_total_price = ($total_product_price + $order->delivery_price + $order->tax_price) - $order->coupon_price;
         $order->final_price = $grand_total_price;
         $order->product_price = $total_product_price;
         $order->product_json = json_encode($productJson);
         $order->save();
-
-        $store = getStore($slug);
 
         $order_refund                    = new OrderRefund();
         $order_refund->order_id          = $id;
