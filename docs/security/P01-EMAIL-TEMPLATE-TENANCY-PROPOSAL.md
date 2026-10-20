@@ -1,4 +1,4 @@
-# P01 — Email-template tenancy: the filed premise is wrong, and the real defect is one line away
+# P01 — Email-template tenancy: two populations, opposite answers, and a second defect one line away
 
 **Issue:** #69 · **Task:** P1-INV-23 · **Status:** investigated by execution. **No fix applied —
 the fix this issue implies would have caused a platform-wide mail outage** (§3). The real defect is
@@ -22,9 +22,54 @@ template content. `EmailTemplate` does indeed carry no global scope, is absent f
 `config/tenancy.php`'s `scoped_models`, and `->first()` is unordered. The reasoning was sound. The
 premise it rested on was not.
 
-## 2. What the code actually does
+## 2. Two populations in one table
 
-**`email_templates` is a platform-global catalogue, by design.** `Utility::defaultEmail()` seeds it
+`email_templates` has two writers with two different match keys, and they behave oppositely under
+the same unscoped resolve.
+
+### Module names are seeded per tenant — and #69's premise holds for them
+
+All seven module writers are the same shape:
+
+```php
+$emailTemp = EmailTemplate::where('name', $eTemp)->where('created_by', Auth::user()->id)->count();
+if ($emailTemp == 0) { EmailTemplate::create([... 'created_by' => Auth::user()->id]); }
+```
+
+| module | writer |
+|---|---|
+| LotteryPrizes | `LotteryPrizesController.php:191` |
+| PartialPayments | `PartialPaymentsController.php:145` |
+| ProductEnquiry | `ProductEnquiryController.php:413` |
+| ReviewReminder | `ReviewReminderController.php:51` |
+| SpinToWinReward | `SpinToWinRewardController.php:177` |
+| PreOrder | `PreOrderController.php:386` |
+
+So `Lottery Win`, `Pre Order Created`, `Product Enquiry`, `Lucky Winner`, `Review Reminder`,
+`Payment Reminder` and `Product Catelog` get **one row per tenant**, and the unscoped resolve
+returns the **lowest-id tenant's row for everyone**.
+
+**Measured.** Two tenants each create their own `Lottery Win` and each activate their own:
+
+```
+email_templates:  id=7 Lottery Win created_by=2      <- tenant A
+                  id=9 Lottery Win created_by=3      <- tenant B
+unscoped resolve of 'Lottery Win' -> id=7 (tenant A's), for both callers
+  tenant A: activation row for the resolved template is_active=1, body = BODY-OF-TENANT-A
+  tenant B: activation row for the resolved template is_active=0, body = BODY-OF-TENANT-A
+```
+
+**The outage is unconditional; the leak is conditional.** Tenant B's lottery mail is silently
+skipped, and it cannot be fixed from the UI: the row that would have to be flipped belongs to
+tenant A's template, and every module settings screen lists only
+`where('created_by', Auth::user()->id)`. For tenant B's customers to actually *receive* tenant A's
+body, `(A's template, B)` would have to be `is_active = 1` — which no screen can produce, but a seed
+or a manual row can.
+
+### The six host names go the other way — and this is why the obvious fix is dangerous
+
+**For `Order Created`, `Status Change`, `Order Created For Owner`, `Stock Status`, `Abandon Cart`
+and `Abandon Wishlist`, `email_templates` is a platform-global catalogue.** `Utility::defaultEmail()` seeds it
 with
 
 ```php
@@ -82,18 +127,17 @@ with 54 call sites across `PaymentService`, `Api\ApiController` (the Flutter app
 and every payment controller, for `'Order Created'`, `'Order Created For Owner'` and
 `'Stock Status'`. Every one would have returned `'Mail not send, email not found'`.
 
-It is recorded here, and in the test file's header, so the next reader does not reach for it either.
+It is recorded here, and in the test file's header, so the next reader does not apply the module
+fix to the host line.
 
-**This analysis was wrong three times before measurement settled it**, and each wrong version was
-internally consistent:
+**This analysis took four revisions, each forced by measurement:**
 
 | | claim | what measurement showed |
 |---|---|---|
-| 1 | a cross-tenant content leak | there is one body per template platform-wide |
-| 2 | tenant B's `UserEmailTemplate` lookup is null → `ErrorException` | not the production shape; `userDefaultData` seeds a row for every pair |
-| 3 | a silent outage for every tenant but the lowest-id owner | there is only one owner, the platform admin, and merchants can toggle |
-
-All three assumed `email_templates` was per-tenant.
+| 1 | a cross-tenant content leak everywhere | true for module names, not for host names |
+| 2 | tenant B's `UserEmailTemplate` lookup is null → `ErrorException` | not the production shape; `userDefaultData` seeds a row for every pair, so it is a silent skip |
+| 3 | a silent outage for every tenant but the lowest-id owner | right for module names; for host names there is only one owner, the platform admin, and merchants can toggle |
+| 4 | "the filed premise does not hold" | too broad — generalised from the host population to the module one, which is the population the module copies resolve |
 
 ## 4. The real defect
 
@@ -111,6 +155,13 @@ $slug = Store::where('created_by', $template->created_by)->select('slug')->first
 | `packages/workdo/ReviewReminder/…/ReviewReminderController.php` | 221 |
 | `packages/workdo/ProductEnquiry/…/ProductEnquiryController.php` | 282 |
 | `packages/workdo/LotteryPrizes/…/LotteryPrizesController.php` | 722 |
+
+**A seventh copy of the resolve**, which #69's "six modules" misses:
+`packages/workdo/PreOrder/src/app/Models/PreOrderHistory.php:95`. It is reached from host code in
+`PaymentController` and from `PreOrder/src/app/Console/PreOrder.php:114` — another caller with no
+ambient tenant. It shares the **resolve** defect and **not** the slug defect: it is the
+`sendEmailTemplate` shape, like the host's, and carries no `Store::where('created_by', …)` line.
+Asserted, so the slug finding is not overstated by one site.
 
 `$template->created_by` is **always the platform admin**. So the storefront slug baked into every
 tenant's customer-facing email is derived from the platform admin rather than from the `$store` the
@@ -139,19 +190,47 @@ throw too. Executed.
 
 ## 5. Why there is no shared host-side solution
 
-The owner asked specifically whether one exists. It does not, for three independent reasons.
+The owner asked specifically whether one exists. **No mechanism reaches all eight sites.** One
+reaches at most four; one reaches all eight but only downstream, after the wrong template has
+already been chosen.
 
-**A global scope on `EmailTemplate` is the wrong instrument and would be harmful.** The table is a
-global catalogue; a tenant predicate on it would filter every tenant down to nothing, which is
-exactly §3. There is no correct per-tenant predicate to install.
+**A global scope on `EmailTemplate` is the wrong instrument.** The table holds both populations
+(§2), so a single tenant predicate is wrong for one of them whichever way it is written: scoped to
+the caller, the six host names return nothing for every merchant, which is §3's outage; unscoped,
+the module names stay broken. There is no one predicate correct for both.
 
-**The defect is not in a query the host can reach.** It is in `Store::where('created_by',
+**The slug defect is not in a query the host can reach.** It is in `Store::where('created_by',
 $template->created_by)`, inside un-editable code. The only host-owned levers are the `Store` and
 `EmailTemplate` model classes. A scope on `Store` would reach far beyond mail. An accessor
 overriding `EmailTemplate::$created_by` would reach the right expression — and would silently change
 what **51 other read sites** see, which is action at a distance this project should not ship.
 
-**Half the call sites have no ambient tenant to key anything on.** Enumerated:
+**A static call cannot be intercepted at all.**
+`LotteryPrizesController::sendOwnerEmailTemplate`, `PartialPaymentsController::sendOwnerEmailTemplate`
+and `ReviewReminderController::sendOwnerEmailTemplate` are called by literal class name from
+listeners, jobs and console commands. PHP resolves those through the Composer autoloader, not the
+container, and constructs no instance — so no binding reaches them.
+
+**But four sites ARE container-resolved, and that is a real if narrow mechanism I had missed.**
+`ProductCatelogController:130`, `ProductEnquiryController:120`, and `SpinToWinRewardController:322`
+and `:640` call `$this->sendOwnerEmailTemplate(...)` from inside a *routed action*, and Laravel
+resolves a route's controller through the container (`Illuminate\Routing\Route::getController()`).
+A host-side binding of each vendored controller to a host subclass overriding the method therefore
+**would** intercept those four. Recorded as available rather than recommended: four of eight,
+request paths only, each override must match its parent's staticness
+(`ProductCatelogController:294` is `public function`; `ProductEnquiryController:273` and
+`SpinToWinRewardController:412` are `public static`, both still invoked via `$this->`), and it means
+this repository maintaining subclasses of three vendored controllers indefinitely.
+
+**One host-owned seam reaches all eight, but only downstream.** Every copy constructs
+`App\Mail\CommonEmailTemplate($template, $settings, $store)` — host code — where `$template` is the
+`EmailTemplateLang` row whose `parent_id` still identifies the owning `EmailTemplate`, with `$store`
+in hand. Host code there can compare the template's owner against `$store->created_by` and refuse.
+That is damage *detection*, not prevention: the resolve has already picked the wrong row and the
+activation check has already been answered against it. It would convert a silent skip into a
+visible refusal, which has value, and it would not fix a single send.
+
+**And half the call sites have no ambient tenant to key anything on.** Enumerated:
 
 | call site | context | tenant resolvable? |
 |---|---|---|

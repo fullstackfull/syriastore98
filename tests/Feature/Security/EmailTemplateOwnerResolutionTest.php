@@ -13,16 +13,33 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * P1-INV-23 / #69 -- email-template tenancy. THE FILED PREMISE IS WRONG; THE REAL DEFECT IS ONE
- * LINE AWAY FROM IT.
+ * P1-INV-23 / #69 -- email-template tenancy. TWO POPULATIONS, OPPOSITE ANSWERS, AND A SECOND
+ * DEFECT ONE LINE AWAY.
  *
  * WHAT #69 CLAIMED. That `EmailTemplate::where('name', 'LIKE', $name)->first()`, repeated in six
  * vendored modules and once in the host, is an unscoped cross-tenant read, so tenant B's customers
  * receive tenant A's template content.
  *
- * WHAT THE CODE ACTUALLY DOES, measured (the four architecture tests below):
+ * THAT IS RIGHT FOR THE NAMES THE MODULE COPIES RESOLVE AND WRONG FOR THE HOST'S, and the
+ * difference is the whole story. `email_templates` has two writers with two different match keys:
  *
- *   `email_templates` IS A PLATFORM-GLOBAL CATALOGUE, BY DESIGN, NOT A PER-TENANT TABLE.
+ *   MODULE NAMES are seeded PER TENANT. All seven module writers are
+ *   `EmailTemplate::where('name', $eTemp)->where('created_by', Auth::user()->id)->count()` then
+ *   `create([... 'created_by' => Auth::user()->id])`, so 'Lottery Win', 'Pre Order Created',
+ *   'Product Enquiry', 'Lucky Winner', 'Review Reminder', 'Payment Reminder' and 'Product Catelog'
+ *   get ONE ROW PER TENANT. Under the unscoped resolve THE LOWEST-ID TENANT'S ROW WINS FOR
+ *   EVERYONE -- measured below. #69's premise holds here.
+ *
+ *   THE SIX HOST NAMES go the other way, and this is the half that matters for the fix.
+ *
+ * I FIRST MEASURED ONLY THE HOST NAMES AND GENERALISED FROM THEM, writing that "the filed premise
+ * does not hold". That was too broad by exactly the population the module copies resolve. It is
+ * corrected here, and the correction is the fourth revision of this analysis -- every one of them
+ * forced by measurement rather than reasoning.
+ *
+ * THE HOST NAMES, measured:
+ *
+ *   FOR THE SIX HOST NAMES `email_templates` IS A PLATFORM-GLOBAL CATALOGUE.
  *   `Utility::defaultEmail()` seeds it with `EmailTemplate::firstOrCreate(['name' => $name], ...)`
  *   -- the match key is `name` ALONE. Driven as three different users in one run: 6 rows after the
  *   first call, 6 after the second, 6 after the third, every one `created_by = <the super admin>`.
@@ -97,15 +114,30 @@ class EmailTemplateOwnerResolutionTest extends SecurityTestCase
         'packages/workdo/LotteryPrizes/src/app/Http/Controllers/LotteryPrizesController.php' => 722,
     ];
 
+    /**
+     * A SEVENTH COPY OF THE UNSCOPED RESOLVE, which #69's "six modules" misses:
+     * `packages/workdo/PreOrder/src/app/Models/PreOrderHistory.php:95`. Found by an independent
+     * investigation, verified here. It is reached from HOST code -- `PaymentController.php` --
+     * and from `PreOrder/src/app/Console/PreOrder.php:114`, another no-ambient-tenant caller.
+     *
+     * It shares the resolve defect and NOT the slug defect: it is the `sendEmailTemplate` shape,
+     * like the host's, and carries no `Store::where('created_by', $template->created_by)` line.
+     * That distinction is asserted rather than assumed, because lumping it in with the six would
+     * overstate the slug finding by one site.
+     */
+    private const SEVENTH_RESOLVE = 'packages/workdo/PreOrder/src/app/Models/PreOrderHistory.php';
+
     /* ---------------------------------------------------------------------------------------- *
      *  THE ARCHITECTURE -- i.e. why #69's filed premise is void
      * ---------------------------------------------------------------------------------------- */
 
     /**
-     * THE CENTRAL FACT. `firstOrCreate` matches on `name` alone, so the catalogue is created once
-     * for the whole platform by whoever triggers it first.
+     * THE HOST POPULATION. `Utility::defaultEmail()`'s `firstOrCreate` matches on `name` alone, so
+     * these six rows are created once for the whole platform by whoever triggers it first. Contrast
+     * `test_every_module_seeds_its_template_names_per_tenant` below, which is the other population
+     * and the one the six module copies actually resolve.
      */
-    public function test_email_templates_is_a_platform_global_catalogue_not_a_per_tenant_table(): void
+    public function test_the_six_host_template_names_are_a_platform_global_catalogue(): void
     {
         $admin = $this->makePlatformAdmin();
         [$merchantOne] = $this->makeTenant();
@@ -205,6 +237,153 @@ class EmailTemplateOwnerResolutionTest extends SecurityTestCase
             ->where('user_id', $merchant->id)->where('is_active', 1)->count(),
             'A merchant posting the settings form must be able to activate every template. If '
             . 'this is 0, the "merchant cannot enable mail" reading would be correct after all.');
+    }
+
+    /* ---------------------------------------------------------------------------------------- *
+     *  THE TWO POPULATIONS -- and the correction that cost me a fourth revision of #69
+     *
+     *  `email_templates` holds TWO KINDS OF ROW, seeded by two different writers with two
+     *  different match keys, and they behave oppositely under the same unscoped resolve:
+     *
+     *    THE SIX HOST NAMES ('Order Created', 'Status Change', 'Order Created For Owner',
+     *    'Stock Status', 'Abandon Cart', 'Abandon Wishlist') come from `Utility::defaultEmail()`,
+     *    whose `firstOrCreate(['name' => $name], ...)` matches on NAME ALONE. One row per name for
+     *    the whole platform, owned by the operator. The unscoped resolve is CORRECT, and the
+     *    `created_by` predicate #69 implies would return null for every merchant -- that is the
+     *    platform-wide outage recorded above.
+     *
+     *    EVERY MODULE NAME ('Lottery Win', 'Pre Order Created', 'Product Enquiry', 'Lucky Winner',
+     *    'Review Reminder', 'Payment Reminder', 'Product Catelog') comes from the module's OWN
+     *    settings screen, and all seven of those writers are
+     *    `EmailTemplate::where('name', $eTemp)->where('created_by', Auth::user()->id)->count()`
+     *    then `create([... 'created_by' => Auth::user()->id])`. ONE ROW PER TENANT PER NAME. Under
+     *    the same unscoped resolve the LOWEST-ID TENANT'S ROW WINS FOR EVERYONE.
+     *
+     *  I MEASURED ONLY THE FIRST POPULATION AND GENERALISED FROM IT, and that made my "the filed
+     *  premise does not hold" too broad by exactly the population the six module copies actually
+     *  resolve. The premise holds for module names. It does not hold for the host names. Both
+     *  halves matter: the first is the defect, the second is why the obvious fix must not be
+     *  applied to `Utility::sendEmailTemplate`.
+     * ---------------------------------------------------------------------------------------- */
+
+    /**
+     * EVERY MODULE WRITER IS PER-TENANT. Asserted across all seven so the two-population claim
+     * cannot drift, and so a reader does not have to take the distinction on trust.
+     */
+    public function test_every_module_seeds_its_template_names_per_tenant(): void
+    {
+        $writers = [
+            'LotteryPrizes/src/app/Http/Controllers/LotteryPrizesController.php' => 191,
+            'PartialPayments/src/app/Http/Controllers/PartialPaymentsController.php' => 145,
+            'ProductEnquiry/src/app/Http/Controllers/ProductEnquiryController.php' => 413,
+            'ReviewReminder/src/app/Http/Controllers/ReviewReminderController.php' => 51,
+            'SpinToWinReward/src/app/Http/Controllers/SpinToWinRewardController.php' => 177,
+            'PreOrder/src/app/Http/Controllers/PreOrderController.php' => 386,
+        ];
+
+        foreach ($writers as $path => $line) {
+            $lines = file(base_path('packages/workdo/' . $path));
+
+            $this->assertStringContainsString(
+                "EmailTemplate::where('name', \$eTemp)->where('created_by', Auth::user()->id)->count()",
+                $lines[$line - 1],
+                "packages/workdo/{$path}:{$line} is no longer the per-tenant existence check. If a "
+                . 'module has moved to a platform-wide match key, its template names join the host '
+                . 'population and the resolve becomes correct for them.'
+            );
+        }
+
+        // And the host writer, for contrast: matched on name ALONE.
+        $this->assertStringContainsString(
+            "EmailTemplate::firstOrCreate(
+                    ['name' => \$eTemp],",
+            file_get_contents(base_path('app/Models/Utility.php')),
+            'Utility::defaultEmail no longer matches on name alone.'
+        );
+    }
+
+    /**
+     * THE DEFECT #69 FILED, MEASURED -- on a MODULE name, which is the population the six module
+     * copies resolve.
+     *
+     * MEASURED: two tenants each create their own 'Lottery Win' through the module settings screen
+     * and each activate their own. The unscoped resolve returns the lower id for BOTH. Tenant A's
+     * activation row for it is 1 and its body is tenant A's. Tenant B's activation row for THAT
+     * template is 0 -- so tenant B's lottery mail is silently skipped, and the body it would
+     * otherwise have used is tenant A's, not its own.
+     *
+     * SO THE LEAK IS CONDITIONAL AND THE OUTAGE IS UNCONDITIONAL. The leak needs
+     * `(A's template, B)` to be `is_active = 1`, which no module screen can produce -- each lists
+     * only `where('created_by', Auth::user()->id)`. The outage needs nothing.
+     */
+    public function test_a_module_template_name_resolves_the_lowest_id_tenants_row_for_everyone(): void
+    {
+        $admin = $this->makePlatformAdmin();
+        $this->actingAs($admin);
+        Utility::defaultEmail();
+
+        $tenants = [];
+        foreach (['a', 'b'] as $key) {
+            [$owner, $store] = $this->makeTenant();
+            $this->actingAs($owner);
+
+            // Exactly what every module's settings screen does -- see the test above.
+            $existing = EmailTemplate::where('name', 'Lottery Win')->where('created_by', $owner->id)->count();
+            $this->assertSame(0, $existing);
+
+            $template = EmailTemplate::create([
+                'name' => 'Lottery Win', 'from' => 'x', 'created_by' => $owner->id,
+            ]);
+            DB::table('email_template_langs')->insert([
+                'parent_id' => $template->id, 'language' => 'en', 'subject' => 's',
+                'content' => 'BODY-OF-TENANT-' . strtoupper($key),
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+
+            Utility::userDefaultData($owner->id);
+            DB::table('user_email_templates')
+                ->where('user_id', $owner->id)->where('template_id', $template->id)
+                ->update(['is_active' => 1]);
+
+            $tenants[$key] = ['owner' => $owner, 'store' => $store, 'template' => (int) $template->id];
+        }
+
+        Cache::flush();
+        (new EmailTemplate)->flushCache();
+
+        $this->assertNotSame($tenants['a']['template'], $tenants['b']['template'],
+            'The two tenants must hold DIFFERENT rows, or there is one population after all.');
+        $this->assertSame(2,
+            (int) DB::table('email_templates')->where('name', 'Lottery Win')->count(),
+            'A module name must have one row per tenant.');
+
+        $resolved = EmailTemplate::where('name', 'LIKE', 'Lottery Win')->first();
+
+        $this->assertSame($tenants['a']['template'], (int) $resolved->id,
+            "The unscoped resolve must return the LOWER id -- tenant A's -- for every caller.");
+
+        // Tenant A: correct by accident of registration order.
+        $rowA = DB::table('user_email_templates')
+            ->where('template_id', $resolved->id)->where('user_id', $tenants['a']['owner']->id)->first();
+        $this->assertSame(1, (int) $rowA->is_active);
+
+        // Tenant B: the row exists (userDefaultData seeds every pair) but is OFF, and no module
+        // screen can reach it.
+        $rowB = DB::table('user_email_templates')
+            ->where('template_id', $resolved->id)->where('user_id', $tenants['b']['owner']->id)->first();
+        $this->assertNotNull($rowB,
+            'userDefaultData seeds a row for every (template, user) pair, including other '
+            . "tenants' templates -- that is what makes this a silent skip rather than a throw.");
+        $this->assertSame(0, (int) $rowB->is_active,
+            "Tenant B's activation row for the RESOLVED template is off, so its lottery mail is "
+            . 'silently skipped. PINNING A DEFECT: when this changes, the resolve was fixed.');
+
+        // And the body tenant B would have used is not its own.
+        $body = DB::table('email_template_langs')->where('parent_id', $resolved->id)->value('content');
+        $this->assertSame('BODY-OF-TENANT-A', $body,
+            "If tenant B's activation row for A's template were ever 1 -- which no module screen "
+            . "can produce, but a seed or a manual row can -- tenant B's customers would receive "
+            . "tenant A's body. That is the conditional leak.");
     }
 
     /* ---------------------------------------------------------------------------------------- *
@@ -337,6 +516,30 @@ class EmailTemplateOwnerResolutionTest extends SecurityTestCase
 
         Utility::sendEmailTemplate('Order Created', 'c@x.test', ['order_id' => 1],
             $merchant, $store, \Crypt::encrypt(1));
+    }
+
+    /**
+     * THE SEVENTH COPY. Asserted so #69's "six modules" scope is corrected in code, not only in
+     * prose, and so the slug finding is not overstated by one site.
+     */
+    public function test_a_seventh_copy_of_the_resolve_exists_in_preorder_without_the_slug_line(): void
+    {
+        $source = file_get_contents(base_path(self::SEVENTH_RESOLVE));
+
+        $this->assertStringContainsString(
+            "EmailTemplate::where('name', 'LIKE', \$emailTemplate)->first()", $source,
+            self::SEVENTH_RESOLVE . ' no longer carries the unscoped resolve.');
+        $this->assertStringContainsString('public static function sendEmailTemplate(', $source,
+            'It is the sendEmailTemplate shape, like the host copy -- not sendOwnerEmailTemplate.');
+        $this->assertStringNotContainsString(self::SLUG_LINE, $source,
+            'PreOrder has acquired the slug derivation too, which would make the slug finding '
+            . 'seven sites rather than six.');
+
+        // Its template names are per-tenant, so the resolve defect applies to it.
+        $this->assertStringContainsString(
+            "EmailTemplate::where('name', \$eTemp)->where('created_by', Auth::user()->id)->count()",
+            file_get_contents(base_path('packages/workdo/PreOrder/src/app/Http/Controllers/PreOrderController.php')),
+            "PreOrder's own writer is no longer per-tenant.");
     }
 
     /* ---------------------------------------------------------------------------------------- *
