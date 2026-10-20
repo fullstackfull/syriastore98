@@ -564,6 +564,35 @@ public function store(Request $request)
         return response()->json($return);
     }
 
+    /**
+     * The order ids this SESSION placed through the WhatsApp/Telegram checkout, as a clean list of
+     * positive integers. The session value is attacker-influenced only through their own session,
+     * but it is still parsed defensively: a non-array, a nested array, `true`, `'*'` and `null`
+     * entries are all dropped rather than trusted.
+     *
+     * @return list<int>
+     */
+    private function orderCompleteBoundIds(): array
+    {
+        $raw = session('order_complete_ids', []);
+
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        $ids = [];
+
+        foreach ($raw as $value) {
+            $id = is_scalar($value) && ! is_bool($value) ? filter_var($value, FILTER_VALIDATE_INT) : false;
+
+            if ($id !== false && $id > 0) {
+                $ids[] = $id;
+            }
+        }
+
+        return $ids;
+    }
+
     public function orderComplete(Request $request)
     {
         $store = getStore($request->route('storeSlug'));
@@ -571,23 +600,55 @@ public function store(Request $request)
             abort(404);
         }
         
-        $order_id = (Session::get('khalti_order_id'));
+        // P1-ORD-08. WHO MAY SEE WHICH ORDER ON THE ANONYMOUS THANK-YOU PAGE.
+        //
+        // This route is anonymous by design -- it is where a guest lands after paying -- so the
+        // proof of ownership has to be something a guest can hold. There are exactly three, and the
+        // fourth way this handler used to find an order was an unauthenticated enumerator:
+        //
+        //   1. `data`            flashed by every gateway return handler (->with('data', $poid)).
+        //   2. `khalti_order_id` set by the Khalti flow.
+        //      Both are set SERVER-SIDE for the buyer's own session. Both now carry the store
+        //      predicate: `product_order_id` is a bare timestamp, so two stores can hold the same
+        //      value in the same second and the lookup returned whichever row came first.
+        //   3. `data[order_id]`  the WhatsApp/Telegram redirect, whose blade forwards the success
+        //      payload's PRIMARY KEY as a query string. That is request input, and a sequential
+        //      integer typed into a URL disclosed any order to a visitor who never placed it --
+        //      MEASURED, P1-SEC-03 round 2, including its number and a minted link to the full
+        //      order. It is honoured ONLY for an id this session placed: PaymentController::
+        //      whatsapp() records it under `order_complete_ids`. A session id is random and held on
+        //      the server, so unlike a Crypt::encrypt() token it is not forgeable with the leaked
+        //      APP_KEY.
+        //   4. `responce[data][order_id]` -- REMOVED. It has no producer anywhere in resources/,
+        //      themes/ or public/ (the grep hits are server-side `$responce` variables), so it was
+        //      dead for legitimate use and live only for an attacker.
+        //
+        // A store predicate on its own would not have been a fix: the slug is public, so an
+        // attacker simply addresses the victim's own store, where the order's store matches.
+        //
+        // PRECEDENCE IS THE ORIGINAL'S: the flashed `data` first, then a request id, then Khalti. The
+        // request id outranked Khalti before, and it must still -- a buyer with a stale
+        // `khalti_order_id` who then checks out through WhatsApp has to be shown the order they just
+        // placed, not the one from last week.
+        $order = null;
+        $flashed = session('data');
+        $requested = $request->input('data.order_id');
+        $khalti = Session::get('khalti_order_id');
 
-        if (session('data')) {
-            $order_id = session('data');
-            $order = Order::where('product_order_id', $order_id)->first();
-        } elseif ((isset($request['data']['order_id']) && !empty($request['data']['order_id'])) || (isset($request->responce['data']['order_id']) && ($request->responce['data']['order_id'])) || (isset($order_id) && !empty($order_id))) {
-            if (!empty($request['data']['order_id'])) {
-                $order_id = $request['data']['order_id'];
-                $order = Order::find($order_id);
-            } elseif (!empty($request->responce['data']['order_id'])) {
-                $order_id = $request->responce['data']['order_id'];
-                $order = Order::find($order_id);
-            } else {
-                $order = Order::where('product_order_id', $order_id)->first();
-            }
-        } 
-        
+        if ($flashed && is_scalar($flashed)) {
+            $order = Order::where('product_order_id', $flashed)
+                ->where('store_id', $store->id)
+                ->first();
+        } elseif (is_scalar($requested) && in_array(filter_var($requested, FILTER_VALIDATE_INT), $this->orderCompleteBoundIds(), true)) {
+            $order = Order::where('id', (int) $requested)
+                ->where('store_id', $store->id)
+                ->first();
+        } elseif ($khalti && is_scalar($khalti)) {
+            $order = Order::where('product_order_id', $khalti)
+                ->where('store_id', $store->id)
+                ->first();
+        }
+
         if (isset($order) && !empty($order)) {
             $storeUrl = getFrontThemeUrl($store);
             $url = $storeUrl.'/' . $store->slug . '/order/' . \Illuminate\Support\Facades\Crypt::encrypt($order->id ?? '');

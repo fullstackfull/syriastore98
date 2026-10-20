@@ -859,8 +859,40 @@ class HomeController extends Controller
             abort(404);
         }
          
-        if (!empty($request->order_number) || !empty($request->email)) { 
-            $order = Order::where('product_order_id', $request->order_number)->where('store_id', $store->id)->first();
+        // P1-ORD-08. AN ORDER IS RETURNED ONLY TO WHOEVER KNOWS BOTH THE NUMBER AND THE EMAIL.
+        //
+        // The gate was `order_number || email` and the email was then compared to NOTHING, so the
+        // number alone disclosed the customer's name, email and phone and minted the order-details
+        // link -- MEASURED, P1-SEC-03 round 2. `product_order_id` is a bare timestamp
+        // ('0' . date('YmdHis') for a guest), so that is 86,400 guesses per store-day. An email-only
+        // POST also compiled `where('product_order_id', null)` to IS NULL and returned the first
+        // order with no number.
+        //
+        // The form (front_end/pages/track-order.blade.php) marks BOTH fields `required`, so this
+        // refuses nothing a shopper can legitimately send. The email is compared against the one
+        // the order was PLACED with (order_billing_details -- `orders` has no email column),
+        // case-insensitively and trimmed so a retyped capital letter does not lock a buyer out.
+        // An order with no recorded email is never matched: two empty strings are equal, and
+        // `hash_equals('', '')` is true. A wrong email and an unknown number take the same branch,
+        // so neither is an oracle for the other.
+        //
+        // The posted values are already trimmed by the global TrimStrings middleware, so the trim() calls
+        // on them are belt and braces -- they cannot be isolated by an HTTP test, and say so rather than
+        // claim a control. The RECORDED email's trim() is not redundant: nothing trims a database value.
+        $orderNumber = is_string($request->order_number) ? trim($request->order_number) : '';
+        $postedEmail = is_string($request->email) ? mb_strtolower(trim($request->email)) : '';
+
+        if ($orderNumber !== '' && $postedEmail !== '') {
+            $order = Order::where('product_order_id', $orderNumber)->where('store_id', $store->id)->first();
+
+            if ($order) {
+                $recordedEmail = mb_strtolower(trim((string) OrderBillingDetail::where('order_id', $order->id)->value('email')));
+
+                if ($recordedEmail === '' || ! hash_equals($recordedEmail, $postedEmail)) {
+                    $order = null;
+                }
+            }
+
             if (!isset($order)) {
                return view('front_end.pages.order-status', compact('slug', 'store'));
             } else {

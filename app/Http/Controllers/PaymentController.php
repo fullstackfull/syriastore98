@@ -4090,6 +4090,21 @@ $result = app(\App\Services\StoreNotificationService::class)
             if (auth('customers')->user()) {
                 event(new AddRewardClubPoint($requests_data, $order, $slug));
             }
+
+            // P1-ORD-08. BIND THE THANK-YOU PAGE TO THE SESSION THAT PLACED THE ORDER.
+            //
+            // The success payload below is forwarded by resources/views/payment/{whatsapp,telegram}
+            // .blade.php to `order-complete?data[order_id]=<primary key>`. OrderController::
+            // orderComplete() used to resolve that request input with Order::find(), which let any
+            // visitor read any order by typing a sequential integer. It now honours the id only if
+            // this session is the one that placed the order -- recorded here, server-side, so the
+            // buyer's own redirect keeps working and nobody else's does. Capped, so a long-lived
+            // session does not grow without bound.
+            $placedHere = session('order_complete_ids', []);
+            $placedHere = is_array($placedHere) ? $placedHere : [];
+            $placedHere[] = (int) $order->id;
+            session()->put('order_complete_ids', array_slice(array_values(array_unique($placedHere)), -20));
+
             $msg = [
                 'status' => 'success',
                 'success' => __('Your Order Successfully Added'),

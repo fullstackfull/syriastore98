@@ -1168,6 +1168,73 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
     }
 
     /**
+     * P1-ORD-08, THE PRODUCER HALF. The WhatsApp/Telegram thank-you redirect is bound to the SESSION
+     * THAT PLACED THE ORDER.
+     *
+     * `resources/views/payment/{whatsapp,telegram}.blade.php` forwards this handler's success payload
+     * (`data => ['order_id' => $order->id]` -- a SEQUENTIAL PRIMARY KEY) to
+     * `order-complete?data[order_id]=N`, and `OrderController::orderComplete()` used to resolve that
+     * with a bare `Order::find()`, so any visitor could read any order by typing an integer. It now
+     * honours the id only when it is in the `order_complete_ids` session list, which THIS method
+     * writes -- so the buyer's own redirect keeps working and nobody else's does.
+     *
+     * Driven END TO END through the real handler rather than by seeding the session key, because the
+     * consumer-side tests in StorefrontOrderCompletionDisclosureTest seed it by hand and so cannot
+     * tell whether anything real ever writes it. A binding no producer sets would pass every one of
+     * them while breaking every WhatsApp checkout.
+     */
+    public function test_the_whatsapp_order_is_bound_to_the_session_that_placed_it(): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store, 100.00, 50);
+        $sid = $this->guestCart($store, $product);
+
+        $before = self::orderCount();
+
+        $response = $this->withCookie('cart', $sid)
+            ->post('/' . $store->slug . '/whatsapp', [
+                'wts_number' => '123456789',
+                'payment_type' => 'whatsapp',
+                'billing_info' => $this->billing(),
+            ]);
+
+        $this->assertSame($before + 1, self::orderCount(),
+            'No order was written, so the binding assertions below would be vacuous.');
+
+        $order = DB::table('orders')->orderByDesc('id')->first();
+
+        $response->assertSessionHas('order_complete_ids', function ($ids) use ($order) {
+            return is_array($ids) && in_array((int) $order->id, $ids, true);
+        });
+
+        // THE BUYER'S OWN REDIRECT: the session the POST produced, then the page the blade sends them to.
+        $query = '?' . http_build_query(['data' => ['order_id' => $order->id]]);
+
+        $landing = $this->withSession(['order_complete_ids' => session('order_complete_ids')])
+            ->get('/' . $store->slug . '/order-complete' . $query);
+
+        $landing->assertOk();
+        $this->assertStringContainsString((string) $order->product_order_id, (string) $landing->getContent(),
+            'The buyer\'s own WhatsApp thank-you page no longer renders their order.');
+
+        // A STRANGER typing the same URL, with no such session.
+        //
+        // flushSession() IS LOAD-BEARING, AND LEAVING IT OUT PRODUCED A FALSE FAILURE. The test
+        // client reuses one in-memory session Store across every request in a test, and
+        // Store::loadSession() does `array_merge($this->attributes, <handler data>)` -- it never
+        // clears. So the buyer's `order_complete_ids` from the two requests above silently rode
+        // along on this one, the "stranger" was not session-less, and the page rendered. That was
+        // the harness, not the fix; it is also why every other test in this area makes ONE request.
+        $this->flushSession();
+
+        $stranger = $this->get('/' . $store->slug . '/order-complete' . $query);
+
+        $stranger->assertRedirect();
+        $this->assertStringNotContainsString((string) $order->product_order_id, (string) $stranger->getContent(),
+            'A visitor with no session read the order by its primary key.');
+    }
+
+    /**
      * A GUEST CANNOT CLAIM A WHATSAPP ORDER FOR ANOTHER CUSTOMER.
      *
      * The live defect: `$request->merge($requests_data)` sits on the authenticated arm only, so
