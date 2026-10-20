@@ -290,27 +290,27 @@
     },
     {
       "id": "P1-SEC-03",
-      "title": "Verify and classify the four unverified order-adjacent surfaces",
+      "title": "Verify and classify the order-adjacent surfaces recorded as S14 (six rows, not four)",
       "workstream": "security",
       "risk": "medium",
-      "status": "READY",
+      "status": "DONE",
       "issue": 17,
       "scope": [
         "app/Http/Controllers/OrderController.php",
         "routes/customer.php"
       ],
-      "existing_status": "RECORDED, UNVERIFIED. S14 holds four rows with no severity assigned because none was driven to a measurement.",
+      "existing_status": "TRIAGED 2026-10-20, in two workflow rounds -- see Evidence for the verdict on each row. The ledger said 'four unverified order-adjacent surfaces' and S14 recorded six; the criterion says 'each row', so all six were in scope. Two were already closed, four were reproduced, and the triage found five more surfaces nobody had listed, three of them as severe as anything on the list.",
       "depends_on": [],
       "acceptance": [
-        "Each of the four rows is either reproduced with a measurement or refuted in writing",
+        "Each of the six rows is either reproduced with a measurement or refuted in writing",
         "Anything reproduced gets a severity and either a fix in this task or its own task"
       ],
       "tests": [
-        "One driven test per reproduced row; a written refutation per row that does not reproduce"
+        "One driven probe per row; a written refutation per row that does not reproduce -- the probes were deleted after measurement, so every fix task lands its reproduction as a permanent RED test instead"
       ],
       "compatibility": "Unknown until verified — that is the point of the task.",
       "db": "None.",
-      "evidence": "S14; OrderController:563 (order-complete) among them",
+      "evidence": "DONE 2026-10-20. TWO WORKFLOW ROUNDS: 31 agents, about half of them hostile reviewers. Every verdict that reached its skeptics was upheld (round 1: four verdicts, 3 of 3 lenses each; round 2: refund-request and order-track, 2 of 2 each).\n\nTHE ROW COUNT. The ledger said four; the S14 section lists SIX. The four were bullets 1-4 (the access findings); bullets 5 and 6 had already been characterised as a correctness defect and a false denial. A critic inferred the triager 'silently skipped' two rows. That is not what happened: both agents finished their work and then returned JSON that FAILED TO PARSE, so the harness discarded it. Round 2 lost three more verdicts the same way, and for those only the first 2,048 bytes of each payload survive in the transcript.\n\nVERDICTS (citations verified at head 5f5f96b6; method names are the stable reference):\n| # | row | verdict | severity | disposition |\n|---|---|---|---|---|\n| 1 | GET /order/export (OrderController::fileExport) | ALREADY CLOSED by 0a23723b | none (+ a new low residual) | residual -> P1-SEC-11 (#78) |\n| 2 | GET order-complete?data[order_id]=N | REPRODUCED | HIGH | fixed by P1-ORD-08 (#80); forgeable link -> P1-ORD-09 (#73) BLOCKED |\n| 3 | POST downloadable_prodcut | REPRODUCED; row's wording overstated (phishing, not exfiltration) | medium | P1-ORD-10 (#74) READY |\n| 4 | DeliverySyria order-existence oracle | REPRODUCED (recovered, see below) | medium | P1-SEC-10 (#77) READY |\n| 5 | Utility::Setting() wrong store's settings | REPRODUCED; 'correctness, not access' OVERTURNED (recovered) | medium | P1-SEC-11 (#78) READY |\n| 6 | OrderDocumentAccessGuard false denial | ALREADY CLOSED by 0a23723b | none | residual strict users.type compare -> P1-SEC-11 |\nNot on the original list: order_refund_request REPRODUCED HIGH -> P1-ORD-07 (#79); order_track REPRODUCED HIGH -> P1-ORD-08 (#80); ReportController zero authorization REPRODUCED medium -> P1-SEC-09 (#76); customerorder REFUTED (already guarded); change_refund_cart unrouted -> P1-ORD-11 (#75).\n\nHOW CONFIDENT, ROW BY ROW. Rows 1, 2, 3, 6 and the two HIGH additions were driven by an agent that returned a parseable verdict and then survived hostile review, and the two HIGH additions were then re-driven from scratch by this task's own RED tests. Rows 4 and 5 and ReportController are the weaker three: their end-to-end reproductions come from the first 2,048 bytes of a rejected payload, and they never reached their skeptics. What was independently verified by reading, at the delivered head: the oracle's ordering (the empty-token short-circuit returns 403 at :41-68, BEFORE the order lookup at :121-125, which 404s BEFORE the credential check at :183-186); the `created_by = 1` fallback at Utility.php:153; and ReportController's zero hits for isAbleTo, authorize(, $this->middleware(, __construct, Gate::, abort( and ->can( across 29 public methods and 3,136 lines. What was NOT re-executed: the label that printed another store's address, the 404/403 pair, and the staff member's 200. Each is therefore the FIRST RED TEST of its fix task (P1-SEC-11, P1-SEC-10, P1-SEC-09) rather than taken on trust.\n\nWHAT THE TRIAGE GOT WRONG ABOUT ITSELF, recorded because this project's rule is to turn its method on its author: (1) round 1's critic called customerorder an unguarded consumer of the forgeable ciphertext -- REFUTED by execution, OrderDocumentAccessGuard::TARGETS already refuses it; (2) both the round-1 and round-2 recommendations for order-complete were WRONG (store-scoping is cosmetic because the slug is public; deleting the request-id branch breaks WhatsApp checkout) -- see P1-ORD-08; (3) round 2's critic escalated the Utility::Setting finding to a shopper-visible disclosure -- REFUTED by measurement (a real dual session gets 403, and the shopper-reachable document never calls Setting()); (4) the recovered summary of the DeliverySyria sibling made it sound like a second platform-wide order oracle -- it queries zid_orders, and the 'echoed id' is the caller's own input; (5) round 1's export probe nearly mis-filed an APP_DEBUG query log as a cross-tenant disclosure, and a Cachable Setting stale read would have filed downloadable_prodcut REFUTED -- both caught by the agents and disclosed.\n\nPROCESS LESSONS: (a) Agents returning long strings through a JSON schema failed to parse in 5 of 11 triage runs across the two rounds -- the cause was strings containing quotes and PHP namespace backslashes. The review workflow that followed writes its findings to FILES and returns a 400-character summary. (b) Probes deleted after measurement leave the measurement only in a transcript, which is how three were lost. Every fix task now lands its reproduction as a permanent RED test before the fix. (c) A critic reading the controller alone refuted nothing and was wrong once; execution found the route-level guard it missed.",
       "queue_refs": [
         "S14"
       ],
@@ -2202,6 +2202,307 @@
       "db": "None.",
       "evidence": "Composer's ClassLoader caches NEGATIVE lookups in a private $missingClasses map (vendor/composer/ClassLoader.php:93, consulted :448, written :471) which outlives every Laravel app teardown. Workdo\\ is not in composer.json's psr-4 block, so a module prefix exists only after PackageServiceProvider::loadAddons() runs addPsr4() -- and a miss cached before that call can never be undone by it. MEASURED: the /tenant-check selection reported 5 failures that neither the individual files nor --testsuite=Feature reported; all five were POSITIVE controls failing on HTTP 500 (not 403) with Class \"Workdo\\AuctionProduct\\app\\Models\\AuctionProductSetting\" not found. 184 cached misses, 23 of them Workdo\\; clearing those 23 took the request from 500 to 302. Fixed by Tests\\Support\\ComposerClassLoaderGuard::forgetWorkdoMisses() called from tests/TestCase::setUp(). 5 tests / 10 assertions. R-L1 (delete the call) returns 4 of 5 failures; R-L2 corrected an over-claim of mine -- the position relative to parent::setUp() does NOT matter, measured both ways, so the ordering assertion was deleted rather than re-justified. /tenant-check 1784 passed / 10 skipped / 0 failures, was 1779 passed / 5 failed.",
       "queue_refs": [],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-ORD-09",
+      "title": "The /order/{Crypt::encrypt(id)} details link is the only credential on the order page, and it is forgeable with the leaked APP_KEY",
+      "workstream": "orders",
+      "risk": "high",
+      "status": "BLOCKED",
+      "issue": 73,
+      "scope": [
+        "app/Http/Controllers/OrderController.php",
+        "app/Http/Controllers/AccountProfileController.php",
+        "app/Http/Controllers/HomeController.php",
+        "app/Services/",
+        "resources/views/email/"
+      ],
+      "existing_status": "LIVE, and deliberately NOT closed by P1-ORD-08. `OrderController::orderDetails` (route `{storeSlug?}/order/{id}`, routes/customer.php:170) decrypts `Crypt::decrypt($id)` and renders the full order -- billing name, email, phone, address, line items, totals -- to an ANONYMOUS visitor. The ciphertext is the only credential. CLAUDE.md records APP_KEY as in git history and unrotated, so `Crypt::encrypt()` is an encoding, not a control. MEASURED (P1-SEC-03 round 2): with no session, a ciphertext the prober forged itself with `Crypt::encrypt(orderId)` returned HTTP 200 with the victim's email, order number and line items. Order ids are sequential, so with the key the whole order book is enumerable per store. THREE consumers of the same primitive: `orderDetails` (anonymous), `AccountProfileController::customerorder` (shopper gate AND `OrderDocumentAccessGuard::TARGETS`, so ownership-checked), and the minted URL on the order-complete and order-track pages. P1-ORD-08 closed every way to MINT a valid ciphertext for an order you did not place, which is the half that did not need the key; this task closes the half that does.",
+      "depends_on": [
+        "P1-ORD-08",
+        "P1-OWN-02"
+      ],
+      "acceptance": [
+        "A ciphertext forged with the application key for an order the bearer was never given is refused",
+        "The emailed link still opens the order from a different device, with no login, for a stated period",
+        "The credential is bound to ONE order and expires; its lifetime is the owner's decision",
+        "All consumers (orderDetails, the minted URLs on order-complete and order-track, customerorder) use the same credential so a design that covers one and misses another has not closed anything",
+        "Sequenced with APP_KEY rotation (#43): the owner states whether old links are honoured, and for how long"
+      ],
+      "tests": [
+        "Negative: Crypt::encrypt(<foreign order id>) with the real key no longer renders the order",
+        "Positive: the link a real confirmation email contains opens the buyer's order on a second device",
+        "Negative: an expired and a tampered credential are refused with the same body as an unknown one",
+        "Removal check on each credential check"
+      ],
+      "compatibility": "Changes the link in every order-confirmation email. A guest has no login, so the credential must be something a guest can hold and must keep working from ANOTHER device -- it cannot be session-bound, which is why P1-ORD-08 could not close this part. Old links should keep working for a stated window or the owner must accept breaking them. Web Blade routes only: no Flutter or API contract.",
+      "db": "None expected. A signed token needs no column; an opaque-token design would. Decide before building.",
+      "evidence": "None yet -- BLOCKED. The reproduction is in P1-SEC-03's ledger entry; the unforgeable-without-the-key half is closed by P1-ORD-08.",
+      "queue_refs": [
+        "S14"
+      ],
+      "owner_decision": true,
+      "blocked_on": "Owner decision on the credential design (signed + expiring + order-bound token, versus a token bound to the verified email) AND sequencing with P1-OWN-02 (#43, APP_KEY rotation), which invalidates every encrypted order link already in a customer's inbox. Not an engineering call: it changes what every confirmation email contains."
+    },
+    {
+      "id": "P1-ORD-10",
+      "title": "downloadable_prodcut lets any signed-in shopper make any store email its own customer an attacker-chosen link",
+      "workstream": "orders",
+      "risk": "medium",
+      "status": "READY",
+      "issue": 74,
+      "scope": [
+        "app/Http/Controllers/AccountProfileController.php",
+        "tests/Feature/Security/"
+      ],
+      "existing_status": "LIVE, medium. `POST {storeSlug?}/downloadable_prodcut` (routes/customer.php:335, gathered middleware [web, ActiveTheme, themelanguage, EnsureCustomerAuthenticated]; no throttle). `AccountProfileController::downloadable_prodcut` (:920; S14 cited :845, which has drifted) reads `Order::order_detail($request->order_id)` and `Order::where('id', $request->order_id)->first()` at :931-932 -- a raw request integer, no customer_id predicate, no store_id predicate, on a model in no scoped_models list -- and never reads the authenticated principal. SMTP credentials are loaded from the VICTIM's store (:934) and the recipient is the VICTIM's order billing address (:955). The second argument to the mailable is `$request['download_product']` (:957), wholly attacker-controlled, rendered in resources/views/email/productMail.blade.php:298 as `<a href=...>Your Order</a>`.\n\nMEASURED (P1-SEC-03 round 1, ZzzS14Probe2downloadable, 5 tests / 19 assertions, Mail::fake): a store-A shopper POSTing store B's order id and `download_product=https://attacker.test/phish` produced one ProdcutMail to the VICTIM's billing address carrying the attacker's link and the victim's real order number, over the victim merchant's own SMTP relay. An anonymous POST is refused (302). The order's OWN customer succeeds (positive control).\n\nWHAT THE ROW'S WORDING GOT WRONG: S14 said it 'mails digital products'. It does not -- the digital file is never derived from the order, so nothing is exfiltrated to the attacker. It is a cross-tenant phishing primitive: a genuine-looking order email from a real merchant to that merchant's real customer, with a link the attacker chose. A near-miss false reading is also recorded: App\\Models\\Setting is Cachable, so a raw-inserted MAIL_* row was invisible to the handler until flushCache() and the FIRST run answered 'E-Mail has been not sent due to SMTP configuration' for attacker AND positive control, indistinguishable from a route broken for everyone.",
+      "depends_on": [],
+      "acceptance": [
+        "The order is resolved from the authenticated shopper: id, the slug's store, and customer_id (ownedOrder(), added by P1-ORD-07)",
+        "A foreign, unknown or unowned order answers with the handler's existing error shape, not a bare 403",
+        "The download link in the mail is derived server-side from the order's own product rows, never from the request",
+        "The legitimate journey is byte-identical for the order's owner"
+      ],
+      "tests": [
+        "Negative: a store-A shopper naming a store-B order sends no mail",
+        "Negative: a sibling shopper in the same store naming another shopper's order sends no mail",
+        "Negative: an attacker-supplied download_product never appears in a sent mail",
+        "Positive: the owner still receives their own mail",
+        "Flush the Setting cache after seeding MAIL_* rows, or the positive control passes for the wrong reason",
+        "Removal check on each control"
+      ],
+      "compatibility": "Web Blade route called by jQuery from two views (front_end/sections/order_view.blade.php:288-315 and front_end/pages/refund_order.blade.php:106), both posting the shopper's OWN order id. The caller has a `success:` handler only and branches on `data.status`, so a refusal should keep the handler's own shape (HTTP 200 {status:'error',msg,message}) rather than a bare 403 that would leave the spinner running. Not an API route: no Flutter force-logout hazard.",
+      "db": "None.",
+      "evidence": "None yet. Reproduction recorded in P1-SEC-03's entry (round 1).",
+      "queue_refs": [
+        "S14"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-ORD-11",
+      "title": "A storefront refund REQUEST rewrites the order's totals at request time, before any merchant decision, and is not atomic",
+      "workstream": "orders",
+      "risk": "medium",
+      "status": "BLOCKED",
+      "issue": 75,
+      "scope": [
+        "app/Http/Controllers/AccountProfileController.php",
+        "app/Http/Controllers/OrderRefundController.php"
+      ],
+      "existing_status": "DESIGN QUESTIONS P1-ORD-07 DELIBERATELY DID NOT DECIDE. P1-ORD-07 made the handler safe (ownership, quantity bounds, replay) without changing what it does. What it does is questionable: `AccountProfileController::order_refund_request` shrinks the order's final_price, product_price and product_json the moment a shopper submits a REQUEST, with the refund still 'Processing'; the merchant-side CancelRefundStatus (OrderRefundController) later ADDS the quantities back from the recorded rows. So a pending request already reduces recorded revenue, and a shopper can do it to their own order without any merchant acting.\n\n(1) NOT ATOMIC: the order is saved, then the OrderRefund row is created with several further saves, with file uploads interleaved and no transaction. A failure between them leaves a shrunk order and no refund record to explain it -- the exact failure the merchant side's cancel path already guards against with a DB::transaction.\n(2) INDEX MISALIGNMENT: the loop that builds the refund record indexes `$request->quantity[$index]` and `return_price[$index]` with the position in the CHECKED-boxes list (`product_refund_id[]`), while those arrays are per order LINE. Checking only the second line records the first line's quantity. Pre-existing; not touched.\n(3) `change_refund_cart` (AccountProfileController ~:1096) has the same request-input shape (`Product::find($request->product_id)`, `Order::order_detail($request->order_id)`) and is currently UNROUTED -- grep finds no route and no view. A landmine rather than a live defect: record it so a future route declaration triggers a review.\n(4) The merchant refund screen's replay/state guard (OrderRefundController:379-391) has no storefront twin: nothing stops a shopper submitting overlapping requests for the same units across DIFFERENT lines of a split order. P1-ORD-07's quantity bound caps each request at the line's CURRENT remaining quantity, which bounds the damage but is not a state machine.",
+      "depends_on": [
+        "P1-ORD-07"
+      ],
+      "acceptance": [
+        "The owner states whether a refund REQUEST may change the order, or only an ACCEPTED refund",
+        "The order change and the OrderRefund record are written in one transaction, with uploads outside it",
+        "The refund record's quantities are aligned to the order lines they describe",
+        "change_refund_cart is either deleted or routed behind the same ownership predicate"
+      ],
+      "tests": [
+        "A failure between the order write and the refund write leaves neither",
+        "Checking only the second line records the second line's quantity",
+        "Removal check on the transaction"
+      ],
+      "compatibility": "Changes when an order's final_price/product_price/product_json move. The merchant-side CancelRefundStatus restores them from the recorded OrderRefund rows, so any change here must keep the two halves symmetric.",
+      "db": "None expected.",
+      "evidence": "None yet -- BLOCKED on the workflow decision.",
+      "queue_refs": [
+        "S14"
+      ],
+      "owner_decision": true,
+      "blocked_on": "Owner decision on the refund WORKFLOW: should a request change the order at all, or only a merchant's acceptance? Changing when totals move changes revenue reporting and what a merchant sees mid-dispute -- a workflow change, not a bug fix."
+    },
+    {
+      "id": "P1-SEC-09",
+      "title": "ReportController has no authorization on its 27 live order and revenue report handlers",
+      "workstream": "security",
+      "risk": "medium",
+      "status": "READY",
+      "issue": 76,
+      "scope": [
+        "app/Http/Controllers/ReportController.php",
+        "routes/web.php",
+        "tests/Feature/Security/"
+      ],
+      "existing_status": "Found by P1-SEC-03 (#17) round 2. The agent that triaged it returned its verdict as JSON that failed to parse, so the harness kept only the first 2,048 bytes of the payload; the findings below are recovered from that opening and the full measurement transcript is LOST. It is therefore re-established as the first RED test of this task rather than taken on trust.\n\nRECOVERED FINDING (medium, within-tenant vertical privilege escalation): 33 routes reach ReportController (a 34th grep match is LaraBug's unrelated class), declared at routes/web.php:451-453 and :974-1000 (30, including Route::resource('reports') = 7); only 27 are live handlers. The file is 3,136 lines with 29 public methods and ZERO authorization of any kind: isAbleTo=0, authorize(=0, $this->middleware(=0, __construct=0, Gate::=0, abort(=0, FormRequest=0, can(=0. The parent Controller only `use AuthorizesRequests, ValidatesRequests`, supplying $this->authorize() and never calling it. Gathered middleware for the representative routes: [web, auth, xss, setlocate, verified] -- authentication only. MEASURED: a staff member with type=staff, current_store=storeA, role_user=0, permission_user=0 (so isAbleTo('Manage Order') and isAbleTo('Manage Tax') are false) received HTTP 200 and a byte-identical body to the tenant owner on /order-reports-chart and every other drivable report route. The gating permissions exist (the critic names 'Manage Reports', 'Manage Order Reports', 'Manage Stock Reports') but are enforced ONLY in the sidebar menu. NO cross-tenant exposure: getCurrentStore() scopes the data throughout.\n\nA misreading to avoid: P1-SEC-03 round 1's export probe saw 'a principal holding no report permission reached an export handler and got a 200' and DISCARDED it because it had tested for cross-tenant leakage and found none. Cross-tenant leakage was the wrong test; this is within-tenant. Its four 500s on the same routes are unseeded-session ARTEFACTS (Trying to access array offset on null raised inside the handler), not refusals -- nobody should read them as a control.\n\nHandlers the round-2 critic flagged as order/money-bearing: ReportController.php :403, :408, :835, :851, :865, :870, :1717, :2166, :2174, :2621, :2709, :2737 -- NOT individually re-verified; the counts above (0 hits for each authorization pattern, 29 public methods, 3,136 lines) WERE, at head 5f5f96b6. Verify each line when the task starts; they drift.",
+      "depends_on": [],
+      "acceptance": [
+        "Every order/revenue report handler refuses a principal who lacks the matching seeded permission",
+        "The gate is operator-first, using the shape already proven at OrderController::fileExport",
+        "The platform operator and a tenant owner holding the permission are unaffected",
+        "A single mechanism covers the controller, not 27 hand-written copies that can drift",
+        "No new 401 on any path a shipped client calls"
+      ],
+      "tests": [
+        "Negative per representative route: a permissionless staff member is refused and receives none of the report body",
+        "Positive: the same staff member, once granted the permission, receives the report",
+        "Positive: the platform operator, with no current_store, is admitted",
+        "Pin config(['app.debug' => false]) before reading any body -- an APP_DEBUG query log was nearly mis-filed as a disclosure in round 1",
+        "Removal check on the gate"
+      ],
+      "compatibility": "Adds refusals where there were none. A tenant OWNER with no role, or a STAFF role lacking the report permission, is newly refused: there is no owner bypass in isAbleTo(), and the ledger has stated this compatibility cost for the same class before (P1-ORD-04). The platform operator must be admitted via the operator-first shape (OrderController::fileExport) or the fix locks them out. Web Blade/AJAX routes; the sidebar already hides these entries, so the UI is unchanged for anyone who could previously reach them legitimately.",
+      "db": "None.",
+      "evidence": "None yet. Recovered triage headline above; the transcript is lost.",
+      "queue_refs": [
+        "S14"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-SEC-10",
+      "title": "The DeliverySyria order-status endpoint is an unauthenticated, unthrottled, platform-wide order-existence oracle",
+      "workstream": "security",
+      "risk": "medium",
+      "status": "READY",
+      "issue": 77,
+      "scope": [
+        "app/Http/Controllers/Api/DeliverySyriaOrderController.php",
+        "app/Http/Controllers/DeliverySyriaStatusController.php",
+        "tests/Feature/Security/DeliverySyriaWebhookTest.php"
+      ],
+      "existing_status": "Found by P1-SEC-03 (#17) round 2. The agent that triaged it returned its verdict as JSON that failed to parse, so the harness kept only the first 2,048 bytes of the payload; the findings below are recovered from that opening and the full measurement transcript is LOST. It is therefore re-established as the first RED test of this task rather than taken on trust.\n\nRECOVERED FINDING (medium): `POST api/delivery-syria/orders/update-status` (routes/api.php:35-38, OUTSIDE the `admin` prefix; no duplicate declaration). Gathered middleware is [api] ONLY -- no throttle, no auth. `DeliverySyriaOrderController::updateStatus`: the order lookup is at :121-125 (the `where('product_order_id', ...)` at :123) and returns 404 'Order not found.' at :127-130 (message :129), while the credential comparison (hash_equals against users.deliverysyria_secret) is not reached until :183-186, returning 403 'Invalid credentials.' at :197-200 (message :199). So with the X-Platform header and ANY non-empty bearer token an anonymous caller distinguishes 404 (no such product_order_id on the platform) from 403 (it exists, in some tenant). MEASURED: 'ORACLE exists -> 403 Invalid credentials; ORACLE absent -> 404 Order not found; XTENANT exists -> 403, absent -> 404 (a VALID store-B secret gets the same oracle on store-A ids, since Order is unscoped); NOTOKEN exists -> 403, absent -> 403 (IDENTICAL: the empty-token short-circuit at :41-68 returns before the lookup)'. The SIBLING `DeliverySyriaStatusController` (app/Http/Controllers/, NOT under Api/ -- the first citation had that wrong; route routes/api.php:394-397, WITH throttle:60,1 where the primary route has none) has the same ORDERING -- lookup, then 404 'Zid order not found.' (:104-115), then the credential check (:138) and 403 (:150-153) -- but it queries `zid_orders` (the Zid integration, `ZID-` prefix stripped), NOT the host `orders` table, so what it can reveal is the existence of a Zid order. Its 404 body echoes `zid_order_id`: that is the caller's OWN input handed back, not a leak, so it is not part of the finding (an earlier summary of this row made it sound like one -- verified against the code and corrected).\n\nSEVERITY IS BOUNDED, and should not be inflated: it leaks only EXISTENCE of a product_order_id -- no PII, no money, no write -- and needs the X-Platform header. It is high-reach because product_order_id is a bare timestamp ('0' . date('YmdHis') for a guest), so one store-day is 86,400 guesses with no rate limit.\n\nNOTE: tests/Feature/Security/DeliverySyriaWebhookTest.php READS AS THOUGH it covers this and does not drive the existing-vs-nonexistent pair; the round-2 critic flagged it. Verify before adding.",
+      "depends_on": [],
+      "acceptance": [
+        "A wrong token answers identically for an existing and a non-existent product_order_id (same status, same body, same headers)",
+        "The credential comparison precedes the order lookup, or both outcomes are made byte-identical",
+        "The sibling controller (zid_orders) gains the same uniformity: the credential check precedes the lookup, or both outcomes are byte-identical",
+        "The primary route gains a throttle consistent with its sibling"
+      ],
+      "tests": [
+        "Negative: existing-id and unknown-id with a wrong non-empty token are indistinguishable",
+        "Positive: a valid token still updates a real order's status",
+        "The same pair for the sibling controller",
+        "Removal check on the reordering and on the throttle"
+      ],
+      "compatibility": "Both outcomes already REFUSE, so unifying them changes no successful request. This project has settled the same question twice in favour of uniform denial bodies ('an unknown row denies with the same body as a foreign row, so the guard is not an existence oracle'), so there is precedent to copy. Check the DeliverySyria integration's own expectations of the 404 vs 403 split before collapsing them; the endpoint is not under routes/api.php's `admin` prefix, so the Flutter admin app does not call it.",
+      "db": "None.",
+      "evidence": "None yet. Recovered triage measurement above (first 2,048 of 6,559 bytes).",
+      "queue_refs": [
+        "S14"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-SEC-11",
+      "title": "Utility::Setting() falls back to created_by=1 with no store predicate, getCurrentStore() hardcodes 1 for the operator, and a guard compares users.type strictly",
+      "workstream": "security",
+      "risk": "medium",
+      "status": "READY",
+      "issue": 78,
+      "scope": [
+        "app/Models/Utility.php",
+        "app/Helper/helper.php",
+        "app/Http/Middleware/OrderDocumentAccessGuard.php",
+        "app/Http/Controllers/OrderController.php"
+      ],
+      "existing_status": "Found by P1-SEC-03 (#17) round 2. The agent that triaged it returned its verdict as JSON that failed to parse, so the harness kept only the first 2,048 bytes of the payload; the findings below are recovered from that opening and the full measurement transcript is LOST. It is therefore re-established as the first RED test of this task rather than taken on trust.\n\nRECOVERED FINDING (medium) -- S14's classification 'a correctness defect, not an access one' is OVERTURNED, but by a different mechanism than the round-2 critic proposed, and the critic's own escalation is REFUTED. MEASURED: a shipping label for merchant A's own store-A order printed store B's address, city, state, zip and country at HTTP 200, twice. The mechanism is the fallback at app/Models/Utility.php:153 -- `created_by = 1` with NO store predicate -- reached from OrderController::shippinglabel() (:600, which calls Utility::Setting() with no argument at :605; the view is resources/views/order/shippinglabel.blade.php:189-206). Source: Utility.php:32 Setting(), :139 Auth::check, :141 getCurrentStore(), :144-146 conditions, :149 primary select, :153 fallback. S14's cited :167 has rotted; the branch is :139-157. Route: GET /shippinglabel/pdf/{id} (routes/web.php:1178), inside the ['auth','xss','setlocate','verified'] group.\n\nREFUTED, with the measurement: (a) the critic's claim that the false-denial closure lets a shopper's own order document render a foreign merchant's identity -- a REAL dual session (withSession on both the login_web_* and login_customers_* keys) gets 403 on the label route; (b) a pure merchant cross-store request is refused 403 by the guard; (c) the shopper-reachable storefront order document never calls Utility::Setting() at all.\n\nSHARED ROOT, from round 1's residual and the round-2 critic: `getCurrentStore()` (app/Helper/helper.php:387-410) returns a hardcoded 1 for type 'super admin' with no current_store -- `if ($user->type == 'super admin') { return 1; }` at :403-404. Consequences: OrderController::fileExport's companion `if (empty(getCurrentStore()))` guard is unreachable for the operator, so the operator gets a 500 -- and in production a wrong-store export; the report controllers scope to store 1; and the document settings above. It also compares `type` without normalising, so a mis-cased value gets a possible null and a 500 where a lowercase one silently gets store 1 -- two failure modes from one line.\n\nAND a third, from round 1's critic: app/Http/Middleware/OrderDocumentAccessGuard.php:395 compares `$user->type === self::PLATFORM_ADMIN` (constant at :155) and OrderPolicy::isPlatformAdmin (:25) does the same, where OrderController::fileExport normalises with strtolower(trim(...)). The two gates disagree about who the operator is; round 1's A/B printed the resulting DENY and filed it as a reassuring control. No capitalised 'super admin' was found written anywhere in app/, database/ or tests/, so it is not claimed to bite today -- only the production users table decides.",
+      "depends_on": [],
+      "acceptance": [
+        "A document or label for an order prints the settings of THAT ORDER'S store, not the viewer's current store and not a created_by=1 fallback",
+        "getCurrentStore() no longer hardcodes 1 for the operator without a current store, or every caller is shown to be safe with it",
+        "The operator is defined once: normalised comparison, one helper, applied at fileExport, OrderDocumentAccessGuard and OrderPolicy::isPlatformAdmin",
+        "Checked in Arabic RTL and English LTR on every order document"
+      ],
+      "tests": [
+        "Negative: store A's merchant renders store A's order and the label contains store A's address and NONE of store B's",
+        "Positive: the operator, with and without a current_store, can render and export",
+        "Negative/positive for 'Super Admin' and ' super admin' at the guard so the gates cannot drift again",
+        "Utility::Setting() is memoised and admin_details is cached: Cache::forget between fixture and request or the second read is the first one's answer",
+        "Removal check on each change"
+      ],
+      "compatibility": "WIDE BLAST RADIUS and the reason this wants its own task: Utility::Setting() and getCurrentStore() are read by almost every handler, and this project has twice shipped a change to a helper this central as a storefront outage (config/tenancy.php:60-63 records both). Needs both-direction (RTL/LTR) checks on every order document, and the operator definition has to be settled ONCE across the nine normalised and many case-sensitive sites rather than patched here.",
+      "db": "None.",
+      "evidence": "None yet. Recovered triage measurement above (first 2,048 of 7,716 bytes).",
+      "queue_refs": [
+        "S14"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-ORD-07",
+      "title": "The storefront refund family: any registered shopper could rewrite another tenant's order totals, and a negative refund quantity inflated them",
+      "workstream": "orders",
+      "risk": "high",
+      "status": "IN_REVIEW",
+      "issue": 79,
+      "scope": [
+        "app/Http/Controllers/AccountProfileController.php",
+        "tests/Feature/Security/StorefrontOrderRefundOwnershipTest.php"
+      ],
+      "existing_status": "FOUND by P1-SEC-03 round 2, which a round-1 critic called 'the most serious thing I found'. `routes/customer.php` moved order-refund-request, order-refund and order-return-list behind `EnsureCustomerAuthenticated` to close the ANONYMOUS defect, and the comment above that group calls the refund rewrite 'worse than status.cancel'. That gate asks one question -- `auth('customers')->check()` -- so ANY registered shopper of ANY store passes it, and registration is free. The authenticated residual was never re-triaged; the existing test (CustomerAccountBoundaryTest) proves only the anonymous refusal and carries its own admission that the handler's ownership check is absent.\n\n`AccountProfileController::order_refund_request` took `order_id` from the BODY, loaded it with `Order::find()` (Order is in no scoped_models list), and rewrote final_price, product_price and product_json -- while writing the refund RECORD against the PATH id. MEASURED twice, independently: a store-A shopper naming a store-B order took it from final_price 440 to 140 and product_price 400 to 100, status 302, read back through raw DB::table('orders'); the victim merchant had no refund row explaining the drop. 'The pair that is checked is not the pair that is written' -- with nothing checked at all.\n\nThis task's own RED run found MORE than the triage recorded: quantity[] was trusted verbatim, so an over-quantity drove the order NEGATIVE (qty -1, total -60); a NEGATIVE quantity INFLATED it (440 to 640); and a replay of a full refund divided by the line's now-zero quantity -- a DivisionByZeroError, HTTP 500. Also `order_return_list` filtered by store and never by customer (one shopper saw every other shopper's refund reasons, statuses and order numbers), and the order_refund refund-VIEW branch loaded `OrderRefund::find($id)` (store-scoped, not customer-scoped) and dereferenced null for an unknown id.",
+      "depends_on": [],
+      "acceptance": [
+        "order_refund_request resolves the order from the PATH id and refuses unless it belongs to the slug's store AND the signed-in shopper",
+        "A body order_id that disagrees with the path writes NEITHER order and records no refund",
+        "A refund quantity is a whole number in [0, the line's remaining quantity]; a negative, fractional, non-numeric or over-quantity value is refused before anything is written",
+        "A replay of a full refund no longer divides by zero or shrinks the order further",
+        "order_return_list shows a shopper only their own refund requests; the order_refund refund-view branch opens only the shopper's own refund",
+        "The legitimate refund journey is unchanged: 3 of 4 units takes the order to 140.00 and the refund record names the same order"
+      ],
+      "tests": [
+        "Negative: a store-A shopper naming a store-B order in the BODY writes neither order and records no refund",
+        "Negative: the PATH id naming a foreign order; the victim's own slug; a sibling shopper in the same store; an own order addressed under another store's slug",
+        "Negative: a session-less POST writes nothing (the probe the round-2 critic said was missing)",
+        "Negative: over-quantity, negative, fractional, empty, non-numeric and 1e400 quantities are refused; a replayed full refund is refused; a zero-quantity line does not divide by zero",
+        "Positive: the owner's partial refund still lands at 140.00, and a quantity typed with a leading zero ('03') is still accepted",
+        "Negative: the return list shows only the shopper's own requests; the refund view refuses a sibling's request even when the ids coincide",
+        "Removal check on each control, alone"
+      ],
+      "compatibility": "Web Blade routes called by jQuery from the storefront; no client in either repository calls them, and every refusal is a 404 -- never a 401 -- so there is no Flutter force-logout hazard. The real form (refund_order.blade.php) posts the PATH id and the body order_id as the same value and renders its quantity input min=\"1\" max=\"{item qty}\", so nothing it sends is refused. A merchant+shopper doubled principal can no longer open a SHOPPER's refund request through the storefront (the admin refund screen is unaffected).",
+      "db": "None.",
+      "evidence": "IN REVIEW -- not DONE. TESTS: tests/Feature/Security/StorefrontOrderRefundOwnershipTest.php, 18 tests / 80 assertions, symmetric (every refusal has an owner-succeeds control). RED first against unfixed code (11 failed on the first run, 10 failed / 6 passed after the fixtures were repaired -- see mistake 2), GREEN after. ELEVEN scripted removal checks, each control alone, ALL BITE, the controller restored byte-identical each time: the store predicate (its own test: an own order addressed under another store's slug would otherwise stamp a refund row into a store that never sold it), the customer predicate (3 tests), the body-vs-path agreement check, the quantity upper bound, lower bound, whole-number test and is_numeric test, the division-by-zero guard, the return-list customer predicate, and the refund-view ownership check; plus a regression check that swapping back to FILTER_VALIDATE_INT fails the leading-zero positive control. NEIGHBOURS GREEN: CustomerAccountBoundaryTest, OrderDocumentAccessTest, OrderDocumentRouteResolutionTest, UnauthenticatedRouteBoundaryTest, OrderRefundAuthorizationTest, RefundStateMachineTest, RefundStockIdempotencyTest, CustomerAccountSelfServiceTest, Batch2ModelIsolationTest. Unit 291 and Contract 26 pass. The full Feature gate has NOT been run on this tree; CI is the authority.\n\nDELIBERATELY NOT CHANGED: `customerorder` and the `order_refund?refund=true` branch. OrderDocumentAccessGuard::TARGETS already refuses both (OrderDocumentAccessTest). A round-2 critic called customerorder 'an unguarded third consumer of the forgeable ciphertext'; that was read from the controller alone and is REFUTED by execution -- a control that is already present is not a finding. NOTE the guard resolves `{id}` as orders.id for BOTH branches of order-refund/{id}; on the refund-view branch `{id}` is a REFUND id, so it asks 'does order #<refundId> belong to me?'. An attacker picks a refund id equal to an order they own: the handler-level ownership check added here is what refuses that (test: ...even_when_the_ids_coincide). Whether the same mis-targeting FALSELY DENIES an owner whose refund id matches none of their order ids is not yet measured -- queued with the review.\n\nFOUR MISTAKES OF MINE, caught before this shipped: (1) a test helper named post() would have shadowed Laravel's MakesHttpRequests::post() (a fatal); (2) two list tests were RED for the WRONG reason -- my order lines had no `name` and the view threw 'Undefined array key name'; repaired and re-verified RED on the intended assertion; (3) FILTER_VALIDATE_INT REJECTS A LEADING ZERO, and a number input returns exactly what was typed, so a shopper entering '03' would have been refused a valid refund -- found while writing the removal check for it, replaced with is_numeric + a whole-number test, pinned by a positive test; (4) the unknown-refund-id test PASSED against unfixed code because the guard refuses before the handler is reached -- recorded as such, not as a control of this task.\n\nNOT FIXED HERE: P1-ORD-11 (BLOCKED, owner decision) -- a refund REQUEST shrinks the order's totals at request time, the order write and the OrderRefund row are not atomic, the record indexes per-line arrays with the checked-box position, and change_refund_cart is an unrouted landmine. P1-ORD-10 (READY) -- downloadable_prodcut in the same controller.",
+      "queue_refs": [
+        "S14"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-ORD-08",
+      "title": "The anonymous thank-you and tracking pages disclosed any order to anyone who typed an integer or an order number",
+      "workstream": "orders",
+      "risk": "high",
+      "status": "IN_REVIEW",
+      "issue": 80,
+      "scope": [
+        "app/Http/Controllers/OrderController.php",
+        "app/Http/Controllers/PaymentController.php",
+        "app/Http/Controllers/HomeController.php",
+        "tests/Feature/Security/StorefrontOrderCompletionDisclosureTest.php",
+        "tests/Feature/Commerce/UnguardedOrderWriterTrustBoundaryTest.php"
+      ],
+      "existing_status": "FOUND by P1-SEC-03 round 2. MEASURED with no session of any kind: `GET /{storeA}/order-complete?data[order_id]=<N>` returned 200 with the order number and a minted `/order/<ciphertext>` link that returned the FULL order (email, phone, address, line items, total) at the order's own public slug; `POST /{store}/order-track {order_number, email: anything}` returned 200 with name, email and phone -- the posted email was compared to NOTHING (the gate was `order_number || email`), and an email-only POST compiled `where(product_order_id, null)` to IS NULL and returned the first order with no number. N is a SEQUENTIAL PRIMARY KEY; `product_order_id` is a bare timestamp ('0' . date('YmdHis') for a guest), so one store-day is 86,400 guesses.\n\nTHE ROUND-1 AND ROUND-2 RECOMMENDATIONS WERE BOTH WRONG, and finding out why took reading the callers rather than the handler. (a) Scoping the four `Order::find()` reads to the slug's store is nearly cosmetic: the slug is public, so an attacker addresses the VICTIM's own store, where the order's store matches. (b) Deleting the request-input branches breaks WhatsApp/Telegram checkout: `data[order_id]` has exactly ONE legitimate producer -- PaymentController::whatsapp's success payload is `data => ['order_id' => $order->id]`, forwarded by resources/views/payment/{whatsapp,telegram}.blade.php as a query string. (c) `responce[data][order_id]` has NO producer anywhere in resources/, themes/ or public/ -- the grep hits are server-side `$responce` variables -- so that branch was dead for legitimate use and live only for an attacker.\n\nTHE FIX: orderComplete honours a request-supplied id ONLY if it is in the session list `order_complete_ids`, which PaymentController::whatsapp writes when it places the order (capped at 20, so a long-lived session does not grow without bound). A session id is random and held server-side, so unlike a Crypt::encrypt() token it is NOT forgeable with the leaked APP_KEY. The gateway return handlers already flash the product_order_id into the session (`->with('data', $poid)`), so they need no change and gain only a store predicate -- which also fixes a real collision, since two stores can hold the same timestamp-derived number in the same second. The original precedence (flashed data, then request id, then Khalti) is preserved. `responce` is removed. order_track requires the order number AND the email the order was placed with, compared case-insensitively against order_billing_details (the `orders` table has no email column); a wrong email and an unknown number take the same branch, so neither is an oracle.",
+      "depends_on": [],
+      "acceptance": [
+        "An anonymous visitor cannot read an order through a primary key typed into order-complete, in any store",
+        "The WhatsApp/Telegram buyer's own redirect still renders their order, driven through the REAL POST /whatsapp rather than a hand-seeded session",
+        "The gateway session paths (`data`, `khalti_order_id`) are store-scoped",
+        "order-track discloses nothing unless the number AND the placed-with email both match; a wrong email is indistinguishable from an unknown number",
+        "The remaining forgeable /order/<ciphertext> link is recorded as an owner-gated task, not silently left (P1-ORD-09)"
+      ],
+      "tests": [
+        "Negative: another tenant's primary key; the victim's OWN slug (the half a store predicate cannot close); responce[data][order_id] for both an own and a foreign order",
+        "Negative: a session bound to one order cannot read another in the same store; a binding does not unlock another store's order; malformed bindings (including [true], which a naive filter_var coerces to order id 1) are ignored",
+        "Positive: a gateway return, the Khalti value, the WhatsApp redirect with a bound session, and a stale Khalti key that must NOT hide the order just placed",
+        "Positive: tracking with the right number and a differently-cased, padded email; a recorded email with stray whitespace",
+        "Negative: wrong email, number only, email only (the IS NULL case), blank email on an order with none recorded, cross-tenant with the victim's real email, and wrong-email vs unknown-number indistinguishable",
+        "END TO END: the real POST /whatsapp records the binding and the buyer's redirect then renders, while a session-less stranger does not",
+        "Removal check on each control"
+      ],
+      "compatibility": "Both routes are anonymous BY DESIGN (the post-payment landing page and the guest order lookup), so the proof of ownership had to be something a guest can hold. DISCLOSED CHANGES: (1) a bookmarked or re-opened `order-complete?data[order_id]=N` URL from the WhatsApp/Telegram flow now renders only while the session that placed the order is alive (default 120 minutes); afterwards it redirects to the store's landing page. That is the intended tightening -- it used to work forever, which was the vulnerability. (2) An order with NO recorded billing email can no longer be tracked (there is nothing to verify). (3) A shopper must supply the email as well as the number -- the form already marks both `required`. Web Blade routes: no Flutter or API contract, no 401.",
+      "db": "None.",
+      "evidence": "IN REVIEW -- not DONE. TESTS: tests/Feature/Security/StorefrontOrderCompletionDisclosureTest.php, 21 tests / 86 assertions, plus the end-to-end producer test in UnguardedOrderWriterTrustBoundaryTest. RED first against unfixed code: 12 of 18 failed, every one on the intended 'Not to contain: <order marker>' assertion (three more tests were added after). EIGHTEEN scripted removal checks. ALL BITE except four, RECORDED AS SUBSUMED rather than claimed: the strict in_array flag (the sanitiser yields ints only, so loosening it changes nothing); the `&&` gate and the recorded-email-empty check (each covers the other -- removing BOTH is the pair that bites); and the posted-email trim (the global TrimStrings middleware already does it, so the call is belt and braces and says so in a comment). Neighbours green: UnauthenticatedRouteBoundaryTest (which asserts order-complete reachable without a session) and the whole UnguardedOrderWriterTrustBoundaryTest. The full Feature gate has NOT been run on this tree; CI is the authority.\n\nWHAT THIS DOES NOT CLOSE: the `/{slug}/order/<Crypt::encrypt(id)>` details link, forgeable by anyone holding the leaked APP_KEY and present in every order-confirmation email, so it must keep working from another device and cannot be session-bound. That is P1-ORD-09 (BLOCKED, owner decision, depends on #43). This task closes every way to MINT a valid link for an order you did not place.\n\nFOUR MISTAKES OF MINE, caught before this shipped: (1) the end-to-end test's 'stranger' request got 200 -- the HARNESS, not the fix: the test client reuses ONE in-memory session Store across every request in a test and Store::loadSession() does array_replace(), never clearing, so the buyer's session rode along; flushSession() fixes it and the trap is recorded in the test docblock because it is why every other test in the area makes one request; (2) I put Khalti ahead of the request id, but the original ranked the request id first, so a buyer with a stale khalti_order_id who then checked out via WhatsApp would have been shown last week's order -- restored and pinned; (3) the recorded email's trim() had no test, and a billing email saved with stray whitespace would lock a real buyer out -- added; (4) a sanitiser that lets booleans through coerces [true] to order id 1 -- the malformed-binding test now includes it.",
+      "queue_refs": [
+        "S14"
+      ],
       "owner_decision": false,
       "blocked_on": null
     }

@@ -476,25 +476,86 @@ package and its own regression tests, not a line bolted onto a document guard.
 
 ---
 
-## S14 — Order-adjacent surfaces found alongside S12/S13, not yet triaged
+## S14 — Order-adjacent surfaces found alongside S12/S13 — TRIAGED (P1-SEC-03, 2026-10-20)
 
-Recorded so they are not rediscovered from scratch. Each was reported by the same audit; severity
-is **not** assigned because none has been through the same verification as S12 and S13.
+Originally recorded unverified: *"severity is **not** assigned because none has been through the same
+verification as S12 and S13."* **All six rows have now been driven or refuted, in two workflow rounds.**
+The verdict, the verified citation and the follow-up for each are below. The original wording of every row
+is kept, because three of the six carried a claim the evidence did not support.
 
-- `GET /order/export` (`OrderController:1230`) — dumps every order in the store to any
-  authenticated caller, with no order permission.
-- `GET {storeSlug?}/order-complete?data[order_id]=N` (`OrderController:563`) — discloses another
-  tenant's order number to an anonymous caller and mints its storefront document link.
-- `POST {storeSlug?}/downloadable_prodcut` (`AccountProfileController:845`) — mails digital
-  products for an unscoped raw `order_id`. Reported but **not** reproduced.
-- `DeliverySyriaOrderController:122` — answers differently for an order that exists before its
-  credential check, i.e. a platform-wide order-existence oracle.
+**There are SIX rows, not four.** The task ledger said "four unverified surfaces". The four were bullets
+1–4, the access findings; bullets 5 and 6 had already been characterised as a correctness defect and a
+false denial. The task's criterion says *each row*, so all six were in scope, and that mismatch is how two
+rows went unexamined in round 1. (Not a silent skip, as a critic inferred: both triage agents finished
+and then returned JSON that failed to parse, so the harness discarded it. Round 2 lost three more the same
+way, and for those only the first 2,048 bytes of each payload survive.)
+
+**Citations are verified at head `5f5f96b6`.** Line numbers drift — three of the original four had — so
+the method name is the stable reference and the line is a courtesy.
+
+- `GET /order/export` (S14 cited `OrderController:1230`; the handler is `OrderController::fileExport()`)
+  — dumped every order in the store to any authenticated caller, with no order permission.
+  **ALREADY CLOSED** by `0a23723b` (2026-10-18, *"S14: gate the order export, and stop the guard refusing a doubled principal"* — the same commit that closed the last row below). Gated by an operator-first `Manage Order` check; driven: a permissionless staff
+  member is refused (302), the same user after the grant gets the file (200), the platform operator gets
+  it (200). The "every order in the store" wording was already store-scoped (`OrderExport::collection()`
+  filters `store_id`). One new **low** residual, tracked as **P1-SEC-11 (#78)**: `getCurrentStore()`
+  hardcodes `1` for the operator, so the companion empty-store guard is unreachable for them — a 500, and
+  in production a wrong-store export. The six `*-order-export` routes at `routes/web.php:976-996` are
+  `ReportController`, not `OrderController`; see **P1-SEC-09 (#76)**.
+- `GET {storeSlug?}/order-complete?data[order_id]=N` (S14 cited `OrderController:563`; `orderComplete()`)
+  — discloses another tenant's order number to an anonymous caller and mints its storefront document link.
+  **REPRODUCED — HIGH, and worse than the row said.** With no session of any kind, a primary key typed into
+  the URL returned the order number and a minted link to the FULL order (email, phone, address, line items,
+  total); and it did not need to be another tenant — the victim's own public slug works too, and `N` is a
+  sequential integer. Fixed by **P1-ORD-08 (#80)**. The residual forgeable details link is
+  **P1-ORD-09 (#73), BLOCKED on an owner decision.**
+- `POST {storeSlug?}/downloadable_prodcut` (S14 cited `AccountProfileController:845`; now `:920`) — mails
+  digital products for an unscoped raw `order_id`. Reported but **not** reproduced.
+  **REPRODUCED — MEDIUM, and the wording overstated it.** Nothing is exfiltrated: the digital file is never
+  derived from the order. It is a cross-tenant **phishing** primitive — any signed-in shopper can make any
+  store send a genuine-looking order email, over that merchant's own SMTP relay, to that merchant's own
+  customer, with a link the attacker chose. Tracked as **P1-ORD-10 (#74), READY.**
+- `DeliverySyriaOrderController:122` (`Api\DeliverySyriaOrderController::updateStatus`, lookup at
+  `:121-125`) — answers differently for an order that exists before its credential check, i.e. a
+  platform-wide order-existence oracle.
+  **REPRODUCED — MEDIUM** (recovered from a truncated triage record; re-established as the first RED test of
+  the fix). With a non-empty bearer: `404 Order not found` for an unknown `product_order_id`, `403 Invalid
+  credentials` for a real one, in any tenant; unauthenticated and unthrottled. Bounded: it reveals
+  existence only, no PII, money or write. The sibling `DeliverySyriaStatusController` has the same
+  ordering but queries `zid_orders`, and its echoed `zid_order_id` is the caller's own input.
+  Tracked as **P1-SEC-10 (#77), READY.**
 - Every order document renders store settings fetched without reference to the order's store
-  (`app/Models/Utility.php:167`), so a document can print the wrong store's address. A correctness
-  defect, not an access one.
-- `OrderDocumentAccessGuard` denies a shopper their own document when the same browser also holds
-  a live `web` session, because the merchant limb is evaluated first and returns on its own result.
+  (S14 cited `app/Models/Utility.php:167`; the branch is `:139-157`, the fallback at `:153`), so a document
+  can print the wrong store's address. A correctness defect, not an access one.
+  **REPRODUCED — MEDIUM, and the classification is OVERTURNED** (recovered from a truncated triage record).
+  A shipping label for merchant A's own store-A order printed store B's address at HTTP 200, twice, through
+  the `created_by = 1` fallback, which carries no store predicate. A round-2 critic's escalation —
+  that a shopper's own document could render a foreign merchant's identity in a real dual session — is
+  **REFUTED by measurement**: that session gets 403, and the shopper-reachable storefront document never
+  calls `Utility::Setting()` at all. Tracked, with the shared root `getCurrentStore()` and the strict
+  `users.type` comparison at the document guard, as **P1-SEC-11 (#78), READY.**
+- `OrderDocumentAccessGuard` denies a shopper their own document when the same browser also holds a live
+  `web` session, because the merchant limb is evaluated first and returns on its own result.
   A false denial, not a leak; it needs a decision about which principal should win.
+  **ALREADY CLOSED** — fixed 2026-10-18 by the same `0a23723b`, which made the merchant limb fall through to
+  `shopperOwns()` on all three of its failure paths. Driven: a doubled principal is admitted to its own document, and still refused an order
+  neither identity owns.
+
+**Surfaces the triage found that were not in the original six:**
+
+- `AccountProfileController::order_refund_request` — **REPRODUCED — HIGH.** Any registered shopper could
+  rewrite another tenant's order totals; a negative quantity inflated them. Fixed by **P1-ORD-07 (#79)**.
+- `HomeController::order_track` — **REPRODUCED — HIGH.** The posted email was compared to nothing.
+  (Intra-store: the store predicate existed, so the "no store predicate" half of the claim is refuted.)
+  Fixed by **P1-ORD-08 (#80)**.
+- `ReportController` — **REPRODUCED — MEDIUM**, within-tenant vertical privilege: zero authorization checks
+  across 29 methods and 3,136 lines (verified), a permissionless staff member gets the owner's report body.
+  No cross-tenant exposure. **P1-SEC-09 (#76), READY.**
+- `AccountProfileController::customerorder` — a round-2 critic called it an unguarded consumer of the
+  forgeable ciphertext. **REFUTED by execution:** `OrderDocumentAccessGuard::TARGETS` already refuses it,
+  proven by `OrderDocumentAccessTest`.
+- `AccountProfileController::change_refund_cart` — same request-input shape, **unrouted** (no route, no
+  view). Recorded under **P1-ORD-11 (#75)** so a future route declaration triggers a review.
 
 ---
 
