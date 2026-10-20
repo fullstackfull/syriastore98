@@ -283,8 +283,10 @@ class LotteryTicketWriterTest extends SecurityTestCase
      *      `Session::put('lottery_request_data', $request); return view(...)`.
      *   2. GET /{victim}/store-lottery-payment -- no query string needed.
      *
-     * Outcome: the same row the one-request defect produced. Victim's store, `customer_id` 0, the
-     * caller's own amount.
+     * Outcome: the same row the one-request defect produced -- victim's store, `customer_id` 0.
+     * The AMOUNT is no longer the caller's: P1-INV-21's `EnforceLotteryTicketPrice` listener
+     * derives it from `lottery_settings.ticket_price`, which closes #68 item 1 on this path too.
+     * The write itself is what remains open.
      *
      * WHY NOT FIX IT HERE. The two requests are the shape of a legitimate guest purchase minus the
      * payment, and for `telegram` and `whatsapp` there IS no payment step -- the module creates the
@@ -331,8 +333,26 @@ class LotteryTicketWriterTest extends SecurityTestCase
             . 'happened, update #67, and DELETE this test; do not adjust it to keep it green.');
         $this->assertSame((int) $store->id, (int) $row->store_id);
         $this->assertSame(0, (int) $row->customer_id);
-        $this->assertSame(1.0, (float) $row->amount,
-            "And the amount is still the caller's own -- #68.");
+        /*
+         * AND THE AMOUNT IS NO LONGER THE CALLER'S OWN -- #68 ITEM 1 IS CLOSED.
+         *
+         * This line used to assert `1.0`, the forged value, as part of documenting what remained
+         * open. P1-INV-21's `EnforceLotteryTicketPrice` listener closed it, and THIS TEST IS WHERE
+         * THAT SHOWED UP: the Feature suite went to three failures against a manifest declaring
+         * two, and the known-outcome gate refused the run. That is the gate working -- a
+         * documented limitation stopped being true and the suite would not let it pass unnoticed.
+         *
+         * The assertion is now the opposite, and it earns its place: this is the ANONYMOUS path,
+         * where the caller controls every field and no form validator has run, so it is the
+         * strongest place to show the price is server-derived. The seeded lottery charges 25.
+         *
+         * What is still open, and what this test exists for, is unchanged: the two-request write
+         * itself. The row is created, by an unauthenticated caller, in a store they have no
+         * relationship with.
+         */
+        $this->assertSame(25.0, (float) $row->amount,
+            "The amount is not the lottery's own ticket_price. P1-INV-21's creating-listener "
+            . 'derives it, and this is the anonymous path where nothing else would.');
     }
 
     /* ---------------------------------------------------------------------------------------- *

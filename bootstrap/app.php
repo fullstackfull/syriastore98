@@ -183,7 +183,7 @@ return Application::configure(basePath: dirname(__DIR__))
         //      store, customer_id 0, the caller's amount.
         //
         //      What the guard does close is the single-request, validator-free variant: the
-        //      `$request->all()` fallback at :568-570, the only path to the five gateway-callback
+        //      `$request->all()` fallback at :567-569, the only path to the five gateway-callback
         //      routes, through which fields the form never collects can be supplied by hand. All
         //      34 `Session::put('lottery_request_data', ...)` sites in LotteryPaymentService
         //      populate the key on the real path, and the session-less path cannot serve a genuine
@@ -194,7 +194,7 @@ return Application::configure(basePath: dirname(__DIR__))
         //      Closing it properly needs the gateway's own signature or a transaction lookup
         //      INSIDE the handler; no middleware can ask Paystack whether money moved, and
         //      requiring auth('customers') would break guest purchase, which is a real flow
-        //      (:614 writes customer_id = 0 for it). #67 item 1 stays OPEN; the forgeable amount
+        //      (:613 writes customer_id = 0 for it). #67 item 1 stays OPEN; the forgeable amount
         //      is #68.
         //      -> LotteryTicketWriteGuard
         //

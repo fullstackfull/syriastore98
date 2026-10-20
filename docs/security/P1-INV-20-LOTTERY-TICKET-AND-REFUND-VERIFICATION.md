@@ -19,7 +19,7 @@ not one. They are grouped by where they were found, not by what they are.
 more routes inside a **`['web']`-only group** — no `auth`, no `PlanModuleCheck`, no permission. The
 same shape as P1-INV-14's six anonymous admin mutations.
 
-The defect is the fallback at `LotteryPrizesController:568-570`:
+The defect is the fallback at `LotteryPrizesController:567-569`:
 
 ```php
 $requests_data = (Session::get('lottery_request_data'));
@@ -32,10 +32,10 @@ and then:
 
 ```php
 :594   $store = getStore($slug);                        // the CALLER'S url slug
-:613   $lottery_data->lottery_id  = $lottery_setting->id;
-:614   $lottery_data->customer_id = auth('customers')->user()->id ?? 0;
-:617   $lottery_data->amount      = $ticket_amount;     // from $requests_data['ticket_price']
-:618   $lottery_data->save();
+:612   $lottery_data->lottery_id  = $lottery_setting->id;
+:613   $lottery_data->customer_id = auth('customers')->user()->id ?? 0;
+:614   $lottery_data->amount      = $ticket_amount;     // from $requests_data['ticket_price']
+:617   $lottery_data->save();
 ```
 
 ### Reproduced by execution
@@ -92,7 +92,7 @@ properly sees that test fail and deletes it rather than this file over-claiming.
 
 ### What the guard does close, and why it is kept
 
-The **single-request, validator-free** variant: the `$request->all()` fallback at `:568-570`,
+The **single-request, validator-free** variant: the `$request->all()` fallback at `:567-569`,
 through which a caller supplies every field by hand, including fields the lottery form never
 collects. That is the only path to the five gateway-callback routes, which have no form step of
 their own. Two facts make refusing it non-regressive, and both were counted rather than assumed:
@@ -141,7 +141,7 @@ and asserts its size, so the array in the test cannot drift from reality.
 
 ### And a guest must still be able to buy a ticket
 
-`lottery-form-data` carries no `auth` either, and `:614` writes `customer_id = 0` for a guest. A
+`lottery-form-data` carries no `auth` either, and `:613` writes `customer_id = 0` for a guest. A
 guard requiring a signed-in customer would have closed the defect **by breaking guest checkout** —
 which is why this guard tests the *flow* and not the principal.
 `test_a_guest_inside_the_real_flow_still_writes_the_ticket` pins that.

@@ -76,6 +76,18 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             // site count caught it (11 -> 10). Any future Concerns/, Traits/ or similar folder
             // under Middleware is covered by this.
             glob(base_path('app/Http/Middleware/*/*.php')) ?: [],
+            // AND app/Listeners/, FOR THE SAME REASON THE MIDDLEWARE SUBDIRECTORY WAS ADDED.
+            // P1-INV-21 put a tenancy-relevant raw query in app/Listeners/ --
+            // EnforceLotteryTicketPrice reads `lottery_settings.ticket_price` to overwrite a
+            // client-posted amount -- and the glob did not reach it, so the site left this
+            // inventory silently and only the platform-wide count in
+            // tests/Feature/Tenancy/RawQueryTenancyInventoryTest noticed. That is the second time
+            // a path this file claims to own has slipped out of its own glob; the first was the
+            // Middleware subdirectory above.
+            //
+            // A model-event listener is exactly where such a query belongs when the handler is
+            // vendored, so this will not be the last one.
+            glob(base_path('app/Listeners/*.php')) ?: [],
             glob(base_path('routes/*.php')) ?: []
         );
 
@@ -234,6 +246,19 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             // Controls asserted at the bottom of this method: the derivation of `customer_id` from
             // the authenticated principal and of `store_id` from the product row.
             'app/Http/Middleware/AuctionBidIdentityGuard.php' => 'derivation',
+            // P1-INV-21's price listener. 'derivation' -- it reads the authoritative
+            // `lottery_settings.ticket_price` for the ticket's own `lottery_id` and OVERWRITES the
+            // client-posted `amount` on the model, between the controller's assignments and the
+            // INSERT.
+            //
+            // NO store_id PREDICATE, and adding one would be worse than useless. The lookup is by
+            // PRIMARY KEY, which is already unique; the only `store_id` available to the listener
+            // is the one on the model being written, which is the untrusted side. And re-deriving
+            // `store_id` itself is a TAUTOLOGY -- `StoreLotteryPayment:595-597` selects the lottery
+            // BY the store it then assigns at `:616` -- so a predicate here would be dressing a
+            // check that cannot fail. The listener deliberately does not touch `store_id`, and
+            // LotteryTicketPriceIntegrityTest pins that absence.
+            'app/Listeners/EnforceLotteryTicketPrice.php' => 'derivation',
             // PLATFORM-GLOBAL BY DESIGN. The framework's own `migrations` bookkeeping table has
             // no store_id and must never acquire a tenant predicate -- XSS::handle() compares
             // on-disk migration filenames against it to decide whether the platform operator is
@@ -320,6 +345,9 @@ class OwnedPathRawQueryInventoryTest extends TestCase
         //       every requested value is accounted for by an owned row. Collapsing them into one
         //       query would be collapsing two different questions; the first version of that
         //       predicate asked only the second and was bypassable on MySQL.
+        // 19 -> 20 with P1-INV-21: EnforceLotteryTicketPrice's `lottery_settings` read. It is
+        //       also the reason app/Listeners/ joined the glob above -- the site was outside this
+        //       inventory until it did.
         // 13 -> 17 with P1-INV-20, FOUR sites across two files:
         //       LotteryRefundOwnershipGuard  -- the `$ownedByCaller` read, and the slug lookup
         //       LotteryMailTemplatePrerequisite -- the existence READ and the INSERT
@@ -334,7 +362,7 @@ class OwnedPathRawQueryInventoryTest extends TestCase
         // Both are 'comparison' sites and both deliberately carry no store predicate -- see the
         // classification above, where the reason is that a store predicate would break the
         // module's own cross-store bidding and close nothing.
-        $this->assertCount(19, $sites, "The owned-path raw query inventory changed:\n  "
+        $this->assertCount(20, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry

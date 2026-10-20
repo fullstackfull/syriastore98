@@ -15,7 +15,7 @@ use Symfony\Component\HttpFoundation\Response;
  * the attacker one extra request. It does not close the defect.
  *
  *   IT CLOSES   the single-request, validator-free variant: the `$request->all()` fallback at
- *               :568-570, through which a caller supplies every field by hand, including fields
+ *               :567-569, through which a caller supplies every field by hand, including fields
  *               the lottery form never collects, on any of the eight routes -- five of which are
  *               gateway callbacks with no form step of their own.
  *
@@ -40,7 +40,7 @@ use Symfony\Component\HttpFoundation\Response;
  * discriminator is whether money actually moved, which means the gateway's own signature or a
  * transaction lookup, inside the handler. Middleware cannot ask Paystack whether a payment
  * settled. Requiring `auth('customers')` would not help either: `lottery-form-data` has no auth,
- * guest purchase is a real flow (`:614` writes `customer_id = 0` for it), and refusing guests
+ * guest purchase is a real flow (`:613` writes `customer_id = 0` for it), and refusing guests
  * would close the defect by breaking the feature.
  *
  * So #67 item 1 stays OPEN as a payment-verification finding, tracked with the forgeable amount in
@@ -56,7 +56,7 @@ use Symfony\Component\HttpFoundation\Response;
  * No bearer token, no session, no guard, no payment. The routes sit in a `['web']`-only group
  * (packages/workdo/LotteryPrizes/src/routes/web.php:41-52) -- the same shape as #57's six routes.
  *
- * WHAT IS REFUSED, precisely. LotteryPrizesController:568-570:
+ * WHAT IS REFUSED, precisely. LotteryPrizesController:567-569:
  *
  *     $requests_data = Session::get('lottery_request_data');
  *     if ($requests_data == null) {

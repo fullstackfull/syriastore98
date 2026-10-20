@@ -54,7 +54,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
      * builder, and the surrounding query still carries its scopes, so conflating the two would
      * overstate this inventory.
      */
-    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty_six(): void
+    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty_seven(): void
     {
         $perDir = [];
 
@@ -188,13 +188,16 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // trade than an invisible stale cache.
         // app 119 -> 121 with P1-INV-19: the bid guard's product lookup and its current-maximum
         // read. Both name their table literally, so the per-table breakdown below gains TWO rows.
-        $this->assertSame(['app' => 121, 'packages' => 45], $perDir,
+        // app 121 -> 122 with P1-INV-21: EnforceLotteryTicketPrice's `lottery_settings` read --
+        // the FIRST raw query this project has put in app/Listeners/, which is also why the
+        // owned-path inventory's glob had to be widened to reach it.
+        $this->assertSame(['app' => 122, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
             . 'a raw query became Eloquent, which is an improvement worth recording here.');
 
-        $this->assertSame(166, array_sum($perDir));
+        $this->assertSame(167, array_sum($perDir));
     }
 
     /**
@@ -241,6 +244,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest, where the file is classified
             // 'platform' and the owner-id derivation is pinned.
             'email_templates' => [2, 2],
+            // NEW WITH P1-INV-21, and unscoped BY DESIGN. EnforceLotteryTicketPrice reads
+            // `ticket_price` for the ticket's own `lottery_id` by PRIMARY KEY, which is already
+            // unique -- and the only `store_id` the listener could add to the predicate is the one
+            // on the model being written, i.e. the untrusted side. The question it asks is "what
+            // does THAT lottery charge", and the primary key answers it exactly.
+            'lottery_settings' => [1, 1],
             'migrations' => [1, 1],
             // `notify_users` USED TO BE LISTED HERE AT [2, 1] AND HAS LEFT THIS POPULATION
             // ALTOGETHER: it now has no literal raw statement at all. P01-SEC-14 Work Package C
@@ -334,10 +343,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // 136 -> 138 and 68 -> 69 with P1-INV-19: both new sites name their table literally, and
         // only one of the two counts as unscoped -- see the `products` note above for why that
         // asymmetry is an artifact of the heuristic and not a difference in the code.
-        $this->assertSame(138, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '138 literal-table sites of the 166 entry points; the other 28 build their table name '
+        // 138 -> 139 and 69 -> 70 with P1-INV-21: the `lottery_settings` read names its table
+        // literally and carries no store_id predicate, for the reason in its row above.
+        $this->assertSame(139, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            '139 literal-table sites of the 167 entry points; the other 28 build their table name '
             . 'from a variable and so cannot be attributed (see LIMIT 2 in this class docblock).');
-        $this->assertSame(69, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        $this->assertSame(70, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**
@@ -562,6 +573,18 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // principal, pinned in OwnedPathRawQueryInventoryTest.
             'auction_product_bids',
             'coupon_requests',
+            // NEW WITH P1-INV-21, and it belongs HERE rather than in the no-store_id list above --
+            // which is where I put it first, and the assertion was right to reject that.
+            // `lottery_settings` DOES carry `store_id`
+            // (2024_10_21_070929_create_lottery_settings_table.php:29), so it is tenant-
+            // discriminated, and the one raw statement on it carries no store predicate.
+            //
+            // NOT A TENANCY FINDING. EnforceLotteryTicketPrice reads `ticket_price` for the
+            // ticket's own `lottery_id` BY PRIMARY KEY, which is already unique; the only
+            // `store_id` the listener could add to that predicate is the one on the model it is
+            // correcting, i.e. the untrusted side. Classified per-site as 'derivation' in
+            // tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest, where its controls are pinned.
+            'lottery_settings',
             // `owner_menu_items`, `owner_menu_settings` and `owner_menus` USED TO BE LISTED
             // HERE. They are not absent any more: PackageServiceProvider registers each addon's
             // real on-disk migration directory, which fixes NEW-ADDON-SCHEMA-02, so the six
