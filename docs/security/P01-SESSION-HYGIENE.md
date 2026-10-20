@@ -57,22 +57,41 @@ sites against 8 `forget()` sites, so it is normally left behind.)
 **It is not an authentication bypass** — the login key really is removed, so the stale cookie
 re-authenticates nobody.
 
+**And the fix is not data minimisation, which this section could be misread as claiming.**
+`regenerate(true)` is `migrate(true)` plus `regenerateToken()`: it **destroys the old record and
+carries the data across to the new id**. `request_data` is not deleted — it moves. What changes is
+that the cookie the browser still holds no longer addresses anything, and the CSRF token it was
+paired with is dead. Reducing what the session carries in the first place (52 `put('request_data')`
+sites against 8 `forget()` sites) is a separate item and is not claimed here.
+
 **Why not `invalidate()`, which is what the criterion asked for.** `config/session.php:130` derives
 **one static cookie name** from `APP_NAME` with no per-store override, and `:146` sets the path to
 `/`. Storefronts are path-prefixed on the same host, so **a single cookie holds `login_web_*` and
-`login_customers_*` at once** — and a merchant previewing their own storefront is exactly the person
-this logout button is rendered to (`front_end/common/account-tab.blade.php:75`). Measured:
+`login_customers_*` at once**. Measured:
 
-| mode | merchant `login_web_*` | shopper key | other data | old record |
-|---|---|---|---|---|
-| as shipped | survives | removed | kept | **kept** |
-| `invalidate()` | **destroyed** | removed | all gone | destroyed |
-| `regenerate(true)` | survives | removed | kept | destroyed |
+| mode | merchant `login_web_*` | shopper key | other data | old record | `_token` |
+|---|---|---|---|---|---|
+| as shipped | survives | removed | kept | **kept** | **not rotated** |
+| `invalidate()` | **destroyed** | removed | all gone | destroyed | rotated |
+| `regenerate(true)` | survives | removed | kept | destroyed | rotated |
 
-The route carries no auth middleware (gathered: `["web", ActiveTheme, "themelanguage"]`), so a guest
-POST reaches it — and with `invalidate()` patched in, a POST from a principal holding only a `web`
-session **wiped the merchant's admin key**. Symmetry with the web guard is the wrong goal when the
-two guards share a cookie.
+**One disclosed side effect of that last column.** Rotating `_token` invalidates the CSRF token
+embedded in every page the shared cookie's owner has *already rendered*. For the merchant who is
+also signed in as a customer — the only principal who can trigger this from the UI — an admin form
+left open in another tab will answer **419** on submit and need a reload. That is the accepted cost
+of rotating the token at this boundary, not an oversight: `invalidate()` has the same effect and
+destroys the admin session as well.
+
+**THE REACHABLE SURFACE IS THE ROUTE, NOT THE BUTTON, and an earlier draft of this section had
+that wrong.** I wrote that "a merchant previewing their own storefront is exactly the person this
+logout button is rendered to". That over-reaches: the form at
+`front_end/common/account-tab.blade.php:75` sits inside an `@if` at `:73` that requires
+`auth('customers')->user()`, so a merchant who is *not also* signed in as a customer of that store
+never sees it. What makes `invalidate()` dangerous anyway is that the **route** carries no auth
+middleware (gathered: `["web", ActiveTheme, "themelanguage"]`) and no CSRF exemption is needed to
+reach it from the merchant's own session: with `invalidate()` patched in, a POST from a principal
+holding only a `web` session **wiped the merchant's admin key**. Symmetry with the web guard is the
+wrong goal when the two guards share a cookie.
 
 **And it is gated.** A guest cart row is keyed to `session()->getId()` (`Cart.php:154`), so rotating
 the id for a caller who never had a shopper session orphans that caller's basket — measured through
@@ -88,10 +107,17 @@ never session** (`carts` row keyed by `customer_id` or `cookie_session_id`), so 
 not have dropped a cart; and `LANGUAGE` has **zero** session write sites — it is a cookie, so Arabic
 RTL / English LTR is unaffected either way.
 
-**Also found, out of scope and queued:** there is **no `deliveryboy` logout at all** (latent — the
-api group carries no `StartSession`, so those `login()` calls write to a store that is never
-persisted), and `app/Helper/helper.php:436` and `HomeController.php:383` both force
-`auth()->logout()` with no invalidate or regenerate.
+**Also found, out of scope and queued:** there is no `deliveryboy` **session** logout, and
+`app/Helper/helper.php:436` and `HomeController.php:383` both force `auth()->logout()` with no
+invalidate or regenerate.
+
+The `deliveryboy` wording is a correction to an earlier draft of this document, which said there was
+"no `deliveryboy` logout at all". **That was false.** `routes/api.php:342` routes
+`POST api/admin/logOut` to `Api\DashboardController::logout()` (`:4726-4744`), which revokes the
+driver's Sanctum tokens — so the token boundary *is* closed, and that is the only boundary the
+driver clients use. What is absent is anything that clears the `deliveryboy` **session** guard key
+written by `CustomAuth`, and that is latent rather than exploitable: the api group carries no
+`StartSession`, so those `login()` calls write to a store that is never persisted.
 
 ## B — the criterion was already satisfied; the real gap is one method away
 

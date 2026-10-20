@@ -431,9 +431,11 @@ public function verifyPasswordOtp(Request $request, $storeSlug)
     }
 
     // THE ATTEMPT LIMIT. The 5-minute expiry above was the only bound on guessing: this route
-    // (routes/customer.php:128-131) carried no throttle, unlike the sibling login route at :102,
-    // and nothing counted wrong answers. A six-digit code guessed as fast as the server answers,
-    // with `customer.password.otp.send` free to mint a fresh one, is brute-forceable.
+    // (`routes/customer.php:133-136`) carried no throttle, unlike the sibling login route at
+    // `:102-104`, and nothing counted wrong answers. A six-digit code guessed as fast as the
+    // server answers, with `customer.password.otp.send` free to mint a fresh one, is
+    // brute-forceable. BOTH halves are now in place: this counter, and `throttle:auth` added at
+    // `:126` (send) and `:136` (verify).
     //
     // It is unreachable TODAY only because `customers.password_otp` is an INTEGER column and no
     // OTP can verify at all on MySQL -- see P01-SEC-13 and
@@ -441,7 +443,7 @@ public function verifyPasswordOtp(Request $request, $storeSlug)
     // dead flow into an exploitable one, which is why the two belong in one release.
     //
     // Counted in the session, which is where this flow already keeps its customer and store
-    // binding (:319-322), so the limit needs no schema and cannot be reset by re-requesting the
+    // binding (`:339-342`), so the limit needs no schema and cannot be reset by re-requesting the
     // page. Exhausting it destroys the code rather than leaving the attacker guessing against a
     // counter they cannot see.
     $attemptKey = 'password_otp_attempts_' . $customer->id;
@@ -782,15 +784,32 @@ private function normalizePhone($phone)
         // cookie the browser still holds kept addressing it, and the CSRF token was not rotated.
         // It is NOT an authentication bypass: the login key really is removed.
         //
+        // AND THIS IS NOT DATA MINIMISATION. `regenerate(true)` is `migrate(true)` plus
+        // `regenerateToken()`: it destroys the old record and CARRIES THE DATA ACROSS to the new
+        // id. `request_data` moves, it is not deleted. What changes is that the cookie the browser
+        // still holds no longer addresses anything and the token it was paired with is dead.
+        // Reducing what the session carries is a separate item.
+        //
         // WHY NOT `invalidate()`, which is what the acceptance criterion asked for and what the
         // web guard does. `config/session.php:130` derives ONE static cookie name from APP_NAME
         // with no per-store override and `:146` sets the path to `/`, so a single cookie can hold
-        // `login_web_*` and `login_customers_*` at once -- and a merchant previewing their own
-        // storefront is exactly the person this logout button is rendered to
-        // (`front_end/common/account-tab.blade.php:75`). MEASURED: `invalidate()` here DESTROYS
-        // that merchant's admin session. Worse, this route carries no auth middleware (gathered:
-        // `["web", ActiveTheme, "themelanguage"]`), so a guest POST reaches it and wipes the key.
+        // `login_web_*` and `login_customers_*` at once. MEASURED: `invalidate()` here DESTROYS
+        // the merchant's admin session.
+        //
+        // THE REACHABLE SURFACE IS THIS ROUTE, NOT THE BUTTON -- a correction to an earlier draft
+        // of this comment, which said a merchant previewing their storefront "is exactly the
+        // person this logout button is rendered to". The form at
+        // `front_end/common/account-tab.blade.php:75` sits inside an `@if` at `:73` requiring
+        // `auth('customers')->user()`, so a merchant not also signed in as a customer never sees
+        // it. What matters is that this route carries no auth middleware (gathered: `["web",
+        // ActiveTheme, "themelanguage"]`), so a guest or a merchant holding only a `web` session
+        // reaches it directly and, with `invalidate()` in place, wipes the admin key.
         // Symmetry with the web guard is the wrong goal when the two guards share a cookie.
+        //
+        // ACCEPTED COST of the token rotation, disclosed rather than discovered later: rotating
+        // `_token` kills the CSRF token in every page the shared cookie's owner has ALREADY
+        // rendered, so an admin form left open in another tab answers 419 and needs a reload.
+        // `invalidate()` does the same and takes the session with it.
         //
         // WHY GATED. A GUEST cart row is keyed to `session()->getId()` (`Cart.php:154`,
         // `CartController.php:352`) and the add path rewrites the `cart` cookie to the current id,

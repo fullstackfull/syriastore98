@@ -38,7 +38,7 @@ What that measured, rather than assumed:
 | a 60-char bcrypt hash into the `INT` column, strict mode | **ERROR 1366** — the write fails, so `sendPasswordOtp()` raises |
 | the same write, strict mode off | **warning 1366, stored as `0`** (not null) |
 | does the verify step's `empty()` guard catch that `0`? | **yes** — so the defect fails CLOSED |
-| `Hash::check()` against that `0` | **throws** `RuntimeException: This password does not use the Bcrypt algorithm` — so the `empty()` guard at `:391` is also what keeps `:413` off a 500 |
+| `Hash::check()` against that `0` | **throws** `RuntimeException: This password does not use the Bcrypt algorithm` — so the `empty()` guard at `:410-417` is also what keeps the `Hash::check()` at `:463` off a 500 |
 | the table built from this repo's own `create_customers_table` migration | `password_otp` is `int`, nullable — as declared |
 | after `up()` | `varchar(255)`, nullable |
 | rows, `email`, `password` after `up()` | **unchanged**; every seeded password still verifies |
@@ -68,7 +68,7 @@ It creates and drops its own database and refuses to run against one whose name 
 
 `database/migrations/2023_12_15_112855_create_customers_table.php:39` declares
 `$table->integer('password_otp')->nullable()` and no migration alters it.
-`app/Http/Controllers/Customer/Auth/CustomerLoginController.php:154` writes
+`app/Http/Controllers/Customer/Auth/CustomerLoginController.php:174` writes
 `Hash::make((string) $otp)` — 60 characters of bcrypt — into it.
 
 SQLite's type affinity accepts that, which is why the test suite never noticed. MySQL raises
@@ -83,8 +83,9 @@ reset is therefore **broken, not exploitable** — no customer can complete one.
 The verify step had **no attempt limit** and neither OTP route had a **throttle**. Those are
 unreachable today precisely because nothing can verify; applying this widening by itself would
 turn a dead flow into a brute-forceable one. Both controls are implemented on this branch
-(`CustomerLoginController::MAX_OTP_ATTEMPTS`, `throttle:auth` on
-`routes/customer.php:118-131`) and are safe to carry while the flow is still inert.
+(`CustomerLoginController::MAX_OTP_ATTEMPTS`, and `throttle:auth` on both OTP POSTs —
+`routes/customer.php:126` for `send` and `:136` for `verify`) and are safe to carry while the flow
+is still inert.
 
 **Apply the column change only in a release that already contains them.**
 

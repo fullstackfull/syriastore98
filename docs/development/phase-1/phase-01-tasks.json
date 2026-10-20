@@ -225,7 +225,7 @@
       "title": "Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering",
       "workstream": "security",
       "risk": "high",
-      "status": "READY",
+      "status": "DONE",
       "issue": 15,
       "scope": [
         "app/Http/Controllers/Customer/Auth/CustomerLoginController.php",

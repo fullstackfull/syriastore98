@@ -50,10 +50,17 @@ use Illuminate\Support\Facades\Hash;
  * The criterion asked for logout to be "symmetric with the web guard", i.e. `invalidate()`.
  * Symmetry is the wrong goal when the two guards share a cookie: `config/session.php:130` derives
  * ONE static cookie name from APP_NAME with no per-store override and `:146` sets the path to `/`,
- * so a single cookie holds `login_web_*` and `login_customers_*` at once — and a merchant
- * previewing their own storefront is exactly the person this logout button is rendered to
- * (`front_end/common/account-tab.blade.php:75`). MEASURED: `invalidate()` there destroys that
- * merchant's ADMIN session. The route carries no auth middleware, so a guest POST reaches it too.
+ * so a single cookie holds `login_web_*` and `login_customers_*` at once. MEASURED:
+ * `invalidate()` there destroys the merchant's ADMIN session, and the route carries no auth
+ * middleware, so a guest or a merchant holding only a `web` session POSTs to it directly. (An
+ * earlier draft said the logout BUTTON is rendered to a merchant previewing their storefront. It
+ * is not: the form at `front_end/common/account-tab.blade.php:75` sits inside an `@if` at `:73`
+ * requiring `auth('customers')->user()`. The route is the surface, not the button.)
+ *
+ * The fix is not data minimisation either: `regenerate(true)` MIGRATES `request_data` to the new
+ * id rather than dropping it. What it takes away is addressability — the cookie the browser holds
+ * points at a destroyed record — plus the token. Accepted cost, disclosed: rotating `_token` 419s
+ * any admin form the same cookie's owner had already rendered in another tab.
  *
  * What was actually wrong: `SessionGuard::logout()` removes `login_customers_*` and nothing else.
  * Measured on `DatabaseSessionHandler` — the production driver — the old `sessions` row SURVIVED
@@ -144,8 +151,20 @@ class SessionHygieneTest extends SecurityTestCase
     }
 
     /**
-     * The predicate itself, seeded with an explicit list so its SEMANTICS can be driven even
-     * though the configured static is flushed.
+     * The predicate itself, driven against the SEEDED LIST AND NOTHING ELSE.
+     *
+     * THE STATIC IS CLEARED FOR THE DURATION, AND THAT IS A CORRECTION. My first version set only
+     * the instance property and claimed the seeded list was what the predicate saw. It is not:
+     * `getExcludedPaths()` is `array_merge($this->except, static::$neverVerify)`
+     * (VerifyCsrfToken.php:123-126), so seeding is a UNION with the live configuration, not a
+     * replacement. The prefixed-path test below reads as "a bare pattern never matched `/ar/login`"
+     * while actually asserting "no configured entry matches `/ar/login` either" -- a true but
+     * different claim, and one that would go red for the wrong reason the day an unrelated
+     * wildcard callback was added.
+     *
+     * So `$neverVerify` is emptied, the predicate is invoked, and the real value is restored in a
+     * `finally` -- it is static and shared, so a leak would corrupt every later test in the
+     * process.
      *
      * @param  list<string>  $except
      */
@@ -158,10 +177,20 @@ class SessionHygieneTest extends SecurityTestCase
         $property->setAccessible(true);
         $property->setValue($middleware, $except);
 
+        $never = new \ReflectionProperty(VerifyCsrfToken::class, 'neverVerify');
+        $never->setAccessible(true);
+        $configured = $never->getValue();
+
         $predicate = $class->getMethod('inExceptArray');
         $predicate->setAccessible(true);
 
-        return (bool) $predicate->invoke($middleware, Request::create($path, 'POST'));
+        try {
+            $never->setValue(null, []);
+
+            return (bool) $predicate->invoke($middleware, Request::create($path, 'POST'));
+        } finally {
+            $never->setValue(null, $configured);
+        }
     }
 
     /**
@@ -194,6 +223,57 @@ class SessionHygieneTest extends SecurityTestCase
             . 'empty list rather than by the real configuration.');
         $this->assertContains('/duologin', $this->configuredExceptList(),
             'A known-good entry must be present, or the list is not the configured one.');
+
+        // AND THE SECOND HALF OF THE SAME TRAP: seeding the instance property does not REPLACE
+        // the configured list, it is UNIONED WITH IT. So `isExemptUnder()` has to empty the
+        // static to drive a seeded list in isolation, and this pins the merge that makes that
+        // necessary. If the framework ever stops merging, the clearing can go.
+        $source = file_get_contents(
+            base_path('vendor/laravel/framework/src/Illuminate/Foundation/Http/Middleware/VerifyCsrfToken.php')
+        );
+
+        $this->assertStringContainsString(
+            'return array_merge($this->except, static::$neverVerify);',
+            $source,
+            'getExcludedPaths() no longer merges the instance property with the static. Re-read '
+            . 'isExemptUnder(): it clears the static precisely because of this merge.'
+        );
+
+        // The clearing must not leak. Driving the predicate must leave the configured list intact.
+        $this->isExemptUnder(['/seeded-only'], '/seeded-only');
+        $this->assertContains('/duologin', $this->configuredExceptList(),
+            'isExemptUnder() leaked -- it emptied the static and did not restore it, so every '
+            . 'later test in this process now sees an empty except list.');
+    }
+
+    /**
+     * THE PREMISE FOR `methodSource()`, which was returning four methods at once.
+     */
+    public function test_premise_the_method_window_stops_at_the_method(): void
+    {
+        $verify = $this->methodSource('verifyPasswordOtp');
+
+        $this->assertStringContainsString('password_otp_verified_customer_id', $verify,
+            'The window does not reach the end of verifyPasswordOtp().');
+
+        // The three methods that used to be swept in with it, because they are declared at
+        // column 0 and the old needle wanted four spaces.
+        foreach ([
+            'function resetPasswordOtpForm',
+            'function resetPasswordWithOtp',
+            'function normalizePhone',
+            'function showLoginForm',
+        ] as $beyond) {
+            $this->assertStringNotContainsString($beyond, $verify,
+                "methodSource('verifyPasswordOtp') ran on into {$beyond}. Every "
+                . 'assertStringNotContainsString against this window is then weaker than it '
+                . 'reads, and every ordering assertion can be answered by another method.');
+        }
+
+        // And the comment stripping, which the OTP test used to bypass entirely.
+        $this->assertStringNotContainsString('P1-SEC-01 item B', $verify,
+            'methodSource() is no longer stripping comments, so an assertion can be satisfied '
+            . 'or tripped by prose. That has happened once already.');
     }
 
     /** THE HEADLINE. */
@@ -384,6 +464,206 @@ class SessionHygieneTest extends SecurityTestCase
             'The unknown-store branch must still answer before the session code runs.');
     }
 
+    /* ---------------------------------------------------------------------------------------- *
+     *  THE TWO FIXES, EXECUTED
+     *
+     *  THE REVIEW'S TOP FINDING, AND IT WAS RIGHT: nothing above runs either changed line. The
+     *  source assertions read the file, the primitives test drives Laravel rather than this
+     *  application, and the only HTTP test posts to an UNKNOWN STORE -- so it takes
+     *  `logout()`'s early return and would pass with the whole fix deleted.
+     *
+     *  WHAT I GOT WRONG, narrower than the conclusion I drew from it: my array-driver measurement
+     *  bars HTTP session-id assertions, because `StartSession` mints a new id per request whatever
+     *  the handler does. It does NOT bar DIRECT INVOCATION, which runs in one process against one
+     *  `Store` instance and is fully deterministic -- the id only changes if the handler changes
+     *  it. So the handler is called directly, with the request bound so `request()->session()`
+     *  resolves, and these are the tests that bite.
+     * ---------------------------------------------------------------------------------------- */
+
+    /**
+     * Bind a started session and a matching request, and return the session.
+     *
+     * ONE INSTANCE ON BOTH SIDES is the whole point: `SessionGuard` is constructed with
+     * `$app['session.store']` (AuthManager::createSessionDriver), which is the default driver,
+     * and `logout()` reads `request()->session()`. Hand the request a DIFFERENT store and the
+     * gate reads a session the guard never wrote to, and the test proves nothing.
+     */
+    private function bindRequest(string $uri, string $method = 'POST', array $parameters = []): \Illuminate\Session\Store
+    {
+        $session = $this->app['session']->driver();
+        $session->start();
+
+        $request = Request::create($uri, $method, $parameters);
+        $request->setLaravelSession($session);
+        $this->app->instance('request', $request);
+
+        return $session;
+    }
+
+    /** ITEM A, EXECUTED: a shopper's logout rotates the id and the token, and keeps the data. */
+    public function test_invoking_the_logout_rotates_a_shopper_session(): void
+    {
+        [$store, $customer] = $this->shopper();
+
+        $session = $this->bindRequest('/' . $store->slug . '/customer-logout');
+
+        \Auth::guard('customers')->login($customer);
+        $session->put('request_data', ['email' => 'victim@example.test', 'address' => '1 Real St']);
+
+        // AFTER the login, because `SessionGuard::login()` migrates for free -- capturing before
+        // it would let the framework's own rotation answer this test.
+        $before = $session->getId();
+        $tokenBefore = $session->token();
+        $guardKey = \Auth::guard('customers')->getName();
+
+        $response = (new \App\Http\Controllers\Customer\Auth\CustomerLoginController)
+            ->logout($store->slug);
+
+        $this->assertInstanceOf(\Illuminate\Http\RedirectResponse::class, $response,
+            'The logout no longer redirects, so this test may not have reached the fix at all.');
+
+        $this->assertNotSame($before, $session->getId(),
+            'THE FIX IS INERT. `logout()` did not rotate the session id for a caller who held a '
+            . 'shopper session. As shipped, `SessionGuard::logout()` removes only '
+            . '`login_customers_*`: on the production DatabaseSessionHandler the old `sessions` '
+            . 'row survives, still addressed by the cookie the browser holds, still carrying the '
+            . 'checkout POST body.');
+
+        $this->assertNotSame($tokenBefore, $session->token(),
+            'The CSRF token was not rotated. `regenerate(true)` does both; `migrate(true)` alone '
+            . 'would not, and that is why the fix is not migrate().');
+
+        $this->assertFalse($session->has($guardKey),
+            'The shopper guard key survived the logout, which would be an authentication '
+            . 'failure rather than a hygiene one.');
+
+        $this->assertSame(
+            ['email' => 'victim@example.test', 'address' => '1 Real St'],
+            $session->get('request_data'),
+            'The data did not survive the rotation, so this is behaving like `invalidate()` -- '
+            . 'which destroys a merchant\'s admin session, because one static cookie name at '
+            . 'config/session.php:130 and path `/` at :146 means one cookie holds both guards.'
+        );
+    }
+
+    /**
+     * ITEM A'S GATE, EXECUTED -- and this is the half that makes the fix safe rather than the half
+     * that makes it work. A guest cart row is keyed to `session()->getId()` (`Cart.php:154`), so
+     * rotating a caller who never had a shopper session orphans their basket.
+     */
+    public function test_invoking_the_logout_does_not_rotate_a_guest_session(): void
+    {
+        [$store] = $this->shopper();
+
+        $session = $this->bindRequest('/' . $store->slug . '/customer-logout');
+
+        // A guest with a basket: no shopper guard key, but a session id their cart row is keyed to.
+        $session->put('cart_marker', 'basket');
+        $before = $session->getId();
+
+        (new \App\Http\Controllers\Customer\Auth\CustomerLoginController)->logout($store->slug);
+
+        $this->assertSame($before, $session->getId(),
+            'THE GATE IS GONE. A guest POST to this route -- it carries no auth middleware, so a '
+            . 'guest and a merchant both reach it -- just had their session id rotated, which '
+            . 'orphans the `carts` row keyed to the old id. Measured when the gate was absent: '
+            . 'one row became two.');
+        $this->assertSame('basket', $session->get('cart_marker'));
+    }
+
+    /**
+     * ITEM A'S OTHER GATE, EXECUTED: the unknown-store branch must answer before any session work.
+     * The HTTP test above asserts the status; this asserts that nothing was rotated.
+     */
+    public function test_invoking_the_logout_on_an_unknown_store_touches_no_session(): void
+    {
+        $session = $this->bindRequest('/no-such-store/customer-logout');
+
+        $before = $session->getId();
+
+        (new \App\Http\Controllers\Customer\Auth\CustomerLoginController)
+            ->logout('no-such-store-' . uniqid());
+
+        $this->assertSame($before, $session->getId());
+    }
+
+    /**
+     * ITEM B, EXECUTED, down the REAL SUCCESS PATH of `verifyPasswordOtp()`.
+     *
+     * THIS PATH IS REACHABLE IN THIS SUITE ONLY BECAUSE OF SQLITE, AND THAT HAS TO BE SAID OUT
+     * LOUD. `customers.password_otp` is an INTEGER column; on MySQL a 60-char bcrypt hash cannot
+     * round-trip through it, which is P01-SEC-13 and is why this whole flow is inert in
+     * production. SQLite's type affinity stores the unconvertible string AS TEXT, so `Hash::check`
+     * succeeds here and the handler runs to completion. That is engine-hiding in the direction
+     * that HELPS the test: it lets the rotation be driven today, before SEC-13 is applied. The
+     * dependency runs the other way -- applying SEC-13 without this rotation arms the takeover --
+     * and `test_the_sec13_migration_is_still_unapplied_and_records_the_dependency` pins it.
+     */
+    public function test_invoking_the_otp_verify_rotates_the_session_before_writing_the_flags(): void
+    {
+        [$store, $customer] = $this->shopper();
+
+        $customer->password_otp = Hash::make('123456');
+        $customer->password_otp_datetime = now();
+        $customer->save();
+
+        $this->assertTrue(
+            Hash::check('123456', $customer->fresh()->password_otp),
+            'The OTP hash did not round-trip through customers.password_otp, so the success path '
+            . 'below is unreachable and this test would prove nothing. On MySQL this is expected '
+            . '(P01-SEC-13); under SQLite it means the column changed.'
+        );
+
+        $session = $this->bindRequest(
+            '/' . $store->slug . '/forgot-password/otp/verify',
+            'POST',
+            ['otp' => '123456']
+        );
+
+        $session->put([
+            'password_otp_customer_id' => $customer->id,
+            'password_otp_store_id' => $store->id,
+            'password_otp_store_slug' => $store->slug,
+            'password_otp_attempts_' . $customer->id => 2,
+        ]);
+
+        $planted = $session->getId();
+        $tokenBefore = $session->token();
+
+        $response = (new \App\Http\Controllers\Customer\Auth\CustomerLoginController)
+            ->verifyPasswordOtp($this->app['request'], $store->slug);
+
+        // THE ORACLE FIRST. Without it every assertion below is satisfied by an early return --
+        // a wrong store, an expired code, a missing binding -- and the test passes vacuously.
+        $this->assertTrue($session->get('password_otp_verified') === true,
+            'The success path was NOT reached: `password_otp_verified` was not written, so the '
+            . 'handler took one of its early returns and nothing below is being tested. '
+            . 'Redirect was: ' . (method_exists($response, 'getTargetUrl') ? $response->getTargetUrl() : '?'));
+        $this->assertSame($customer->id, $session->get('password_otp_verified_customer_id'));
+        $this->assertSame($store->id, $session->get('password_otp_verified_store_id'));
+
+        // THE FIX.
+        $this->assertNotSame($planted, $session->getId(),
+            'THE FIX IS INERT. The OTP verify boundary did not rotate the session id. The three '
+            . 'flags just asserted are, on their own, a standing authorisation to change this '
+            . "customer's password -- the reset handler reads nothing else, not even "
+            . '`password_otp`. An attacker who planted the pre-OTP id replays it after the victim '
+            . 'verifies and takes the account over.');
+
+        $this->assertNotSame($tokenBefore, $session->token(),
+            'The CSRF token was not rotated at the privilege boundary, which is the half that '
+            . 'matches the house pattern at AuthenticatedSessionController.php:77.');
+
+        // AND THE ORDER, driven rather than read off the source: the flags must land in the NEW
+        // session. `regenerate(true)` migrates the data, so a rotation placed AFTER the writes
+        // would still carry them -- what it would NOT do is leave them unreachable by the
+        // planted id, which is the whole control. This asserts the surviving state is addressed
+        // by the new id and the attempt counter stayed cleared.
+        $this->assertNull($session->get('password_otp_attempts_' . $customer->id),
+            'The attempt counter was not cleared, so a rotation was placed before the forget() '
+            . 'and the counter migrated with the data.');
+    }
+
     /**
      * One method's CODE out of CustomerLoginController, with comments stripped.
      *
@@ -392,6 +672,18 @@ class SessionHygieneTest extends SecurityTestCase
      * text matches the EXPLANATION and fails on correct code. That happened: the `check()`
      * assertion went red against a tree where the gate was correct. An assertion that can be
      * tripped by a comment is worse than no assertion.
+     *
+     * THE END-OF-METHOD NEEDLE IS A REGEX AND NOT `"\n    public function "`, WHICH IS A SECOND
+     * DEFECT THE REVIEW FOUND. SIX methods in this controller are declared at COLUMN 0 --
+     * `sendPasswordOtp`, `passwordOtpForm`, `verifyPasswordOtp`, `resetPasswordOtpForm`,
+     * `resetPasswordWithOtp` and `normalizePhone` -- so a four-space needle skipped straight past
+     * them. Asking for `verifyPasswordOtp` returned a window spanning FOUR methods, running on to
+     * `showLoginForm`, which makes every `assertStringNotContainsString` in it weaker than it
+     * reads and every ordering assertion answerable by a different method's code.
+     *
+     * NAMES AND NOT LINE NUMBERS, deliberately: four of the six numbers I first wrote here had
+     * drifted by the next edit to that file, which is the same citation rot the review found in
+     * three other places. `test_premise_the_method_window_stops_at_the_method` is the authority.
      */
     private function methodSource(string $method): string
     {
@@ -402,8 +694,16 @@ class SessionHygieneTest extends SecurityTestCase
         $at = strpos($source, "function {$method}(");
         $this->assertIsInt($at, "{$method}() was not found.");
 
-        $next = strpos($source, "\n    public function ", $at + 10);
-        $body = $next === false ? substr($source, $at) : substr($source, $at, $next - $at);
+        // Any visibility, any indentation, at the start of a line.
+        $found = preg_match(
+            '/\n[ \t]*(?:public|protected|private)(?:\s+static)?\s+function\s/',
+            $source,
+            $m,
+            PREG_OFFSET_CAPTURE,
+            $at + 10
+        );
+
+        $body = $found === 1 ? substr($source, $at, $m[0][1] - $at) : substr($source, $at);
 
         // Drop `//` and `#` line comments and `/* ... */` blocks, leaving executable text.
         $body = preg_replace('#/\*.*?\*/#s', '', $body);
@@ -441,14 +741,17 @@ class SessionHygieneTest extends SecurityTestCase
             'The framework did not rotate the id at the login privilege boundary.');
     }
 
+    /**
+     * THE WINDOW THIS READS IS ITSELF A FINDING. My first version sliced the source by hand with
+     * `strpos($source, "\n    public function ")`, which bypassed `methodSource()`'s comment
+     * stripping AND landed on `showLoginForm` at `:636` -- four methods past the end of
+     * `verifyPasswordOtp`. The ordering assertion below was therefore being answered against
+     * `resetPasswordWithOtp`'s code as readily as against this method's. It goes through
+     * `methodSource()` now, and `test_premise_the_method_window_stops_at_the_method` pins it.
+     */
     public function test_the_otp_verify_boundary_rotates_the_session(): void
     {
-        $source = file_get_contents(base_path(
-            'app/Http/Controllers/Customer/Auth/CustomerLoginController.php'
-        ));
-
-        $verify = substr($source, strpos($source, 'function verifyPasswordOtp'));
-        $verify = substr($verify, 0, strpos($verify, "\n    public function "));
+        $verify = $this->methodSource('verifyPasswordOtp');
 
         $this->assertStringContainsString('session()->regenerate(true);', $verify,
             'verifyPasswordOtp() no longer rotates the session. The three flags it writes are a '
@@ -526,11 +829,19 @@ class SessionHygieneTest extends SecurityTestCase
             'Credential verification must precede session regeneration.');
 
         // The MFA redirects both sit after both, which is the criterion.
-        foreach (['2fa-verify', 'duo'] as $needle) {
-            $at = stripos($source, $needle);
-            if ($at === false) {
-                continue;
-            }
+        //
+        // THE NEEDLES ARE THE REAL ROUTE NAMES AND THEY ARE ASSERTED PRESENT. My first version
+        // looked for `'2fa-verify'`, WHICH APPEARS NOWHERE IN THE FILE, and `continue`d on
+        // `false` -- so half this test silently did nothing and would have kept passing if the
+        // GoogleAuthentication dispatch moved above the regeneration. The routes are
+        // `2fa.dashboard` (`:121`) and `duo2fa.form` (`:124`).
+        foreach (['2fa.dashboard', 'duo2fa.form'] as $needle) {
+            $at = strpos($source, $needle);
+
+            $this->assertIsInt($at,
+                "The MFA dispatch `{$needle}` was not found. Either the route was renamed -- in "
+                . 'which case update the needle, do not let it skip -- or the dispatch is gone '
+                . 'and item E needs re-deriving.');
             $this->assertGreaterThan($regenAt, $at,
                 "An MFA dispatch ({$needle}) appears before the session regeneration.");
         }
