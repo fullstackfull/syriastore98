@@ -267,6 +267,190 @@ class PrivilegeEscalationTest extends SecurityTestCase
             . 'tenant root and every created_by predicate answers about them.');
     }
 
+    /**
+     * A real permission id for the role-write routes.
+     *
+     * `'permissions' => 'required'` REJECTS AN EMPTY ARRAY, so `['permissions' => []]` never
+     * reaches the creating code and every "the role was not created" assertion passes for the
+     * wrong reason. The first draft of the case-variant tests below did exactly that, and its own
+     * legitimate-name controls are what caught it. Noted here because
+     * `test_staff_cannot_self_promote_to_tenant_owner_by_naming_a_role_admin` carries the same
+     * `['permissions' => []]` and its step-1 assertion is therefore weaker than it reads -- its
+     * step 2, which smuggles the role in directly, is the half that bites.
+     */
+    private function somePermissionId(): int
+    {
+        return (int) \App\Models\Permission::firstOrCreate(
+            ['name' => 'Manage Dashboard'],
+            ['display_name' => 'Manage Dashboard']
+        )->id;
+    }
+
+    // -----------------------------------------------------------------------------------
+    // THE CASE VARIANTS -- the asymmetry S13-b's fix left behind, and why it was not an
+    // escalation.
+    //
+    // S13-b closed the LIST. It did not make the two gates over that list agree about CASE.
+    // `RoleController::store():124` and `::update():254` validated with
+    // `Rule::notIn(RolePolicy::RESERVED_NAMES)`, which compares case-SENSITIVELY against eight
+    // hand-written spellings, while the gate that actually decides the `users.type` write --
+    // `UserController:147` and `:302`, in front of `:154` and `:305` -- lowercases the needle and
+    // is therefore case-INSENSITIVE by construction. Measured against the real constant, the
+    // validator let through 'Super admin', 'sUper admin', 'SUPER Admin', 'Super ADMIN' and
+    // 'aDmin'.
+    //
+    // NO ESCALATION FOLLOWED, AND THAT WAS ESTABLISHED BY EXECUTION BEFORE ANYTHING CHANGED. The
+    // chain breaks twice over: at the lowercasing gate, engine-independently; and on production
+    // MySQL before that, because `roles.name` carries a UNIQUE index and `utf8mb4_0900_ai_ci` is
+    // case-insensitive, so the variant row is a duplicate-key violation against the platform's own
+    // 'super admin'.
+    //
+    // AND THAT SECOND REASON IS WHY ONE OF THESE TESTS CANNOT LIVE HERE. SQLite's unique index is
+    // BINARY, so the suite ACCEPTS a row production REFUSES -- the engine hiding the truth in the
+    // SAFE direction, which is the more dangerous way round: three independent investigation
+    // agents, probing only on SQLite, concluded that
+    // `Role::where('name','LIKE','super admin')->first()` at app/Models/Utility.php:3117 was "the
+    // real defect" because two rows could match it. On MySQL exactly one row can ever match.
+    // Both engines side by side, with that refutation:
+    // tests/Support/Security/bin/verify-reserved-role-name-collation-on-mysql.php.
+    //
+    // So the fix closes an ASYMMETRY, not a hole -- worth making because a defence that only looks
+    // like one is worse than none.
+    // -----------------------------------------------------------------------------------
+
+    /**
+     * THE PREDICATE, driven directly. One place, so a third consumer cannot hand-write a fourth
+     * comparison -- the drift `ComparesRowOwnership` exists to prevent, applied to this invariant.
+     */
+    public function test_the_reserved_name_predicate_is_case_insensitive(): void
+    {
+        foreach (['super admin', 'Super admin', 'sUper admin', 'SUPER Admin', 'Super ADMIN',
+            'admin', 'Admin', 'ADMIN', 'aDmin', 'superadmin', 'SuperAdmin', ' admin '] as $name) {
+            $this->assertTrue(RolePolicy::isReservedName($name),
+                "`{$name}` must be reserved. Rule::notIn let five of these through.");
+        }
+
+        foreach (['shop-helper', 'administrator', 'admin-assistant', 'supervisor'] as $name) {
+            $this->assertFalse(RolePolicy::isReservedName($name),
+                "`{$name}` is a legitimate role name and must not be refused.");
+        }
+
+        // Interior whitespace is deliberately NOT collapsed: 'super  admin' is a different string
+        // that matches no comparison in the application, and collapsing it would refuse legitimate
+        // names for no gain. Measured: it IS writable into users.type, and grants nothing.
+        $this->assertFalse(RolePolicy::isReservedName('super  admin'));
+
+        $this->assertFalse(RolePolicy::isReservedName(['admin']),
+            'A non-scalar must not be coerced into a match or a fatal.');
+    }
+
+    public function test_staff_cannot_create_a_role_named_with_a_case_variant_of_a_reserved_name(): void
+    {
+        [$merchant, $store] = $this->merchantWhoCanCreateUsers();
+
+        $staff = $this->makeStaff($merchant, ['current_store' => $store->id]);
+        $this->grantPermission($staff, 'Create Role');
+        $staff = $staff->fresh();
+
+        $permission = $this->somePermissionId();
+
+        foreach (['Super admin', 'sUper admin', 'SUPER Admin', 'aDmin'] as $variant) {
+            $this->actingAs($staff)->post('/roles',
+                ['name' => $variant, 'permissions' => [$permission]]);
+
+            $this->assertSame(0, Role::where('name', $variant)->count(),
+                "A role named `{$variant}` was created. The validator compared case-sensitively "
+                . 'against a spelling list until this was normalised.');
+        }
+
+        // THE CONTROL. Without it every assertion above is satisfied by the route 404ing, the
+        // permission being absent, or the plan gate refusing -- and a legitimate name proves the
+        // fixture reaches the creating code at all.
+        $this->actingAs($staff)->post('/roles',
+            ['name' => 'shop-helper', 'permissions' => [$permission]]);
+
+        $this->assertSame(1, Role::where('name', 'shop-helper')->count(),
+            'A legitimate role name must still be creatable, or the refusals above prove nothing '
+            . 'about the reserved-name rule.');
+    }
+
+    /**
+     * THE RENAME IS THE MORE INTERESTING OF THE TWO SITES, because a create-time-only check cannot
+     * see it: make a role under a safe name, then rename it.
+     *
+     * The escalation primitive that once made this devastating is already dead -- RoleController
+     * :270-280 records the deleted `User::whereIn(...)->update(['type' => $input['name']])` that
+     * propagated a rename into every holder's `users.type`. So this test pins the validator, not a
+     * live promotion.
+     */
+    public function test_staff_cannot_rename_their_own_role_into_a_case_variant(): void
+    {
+        [$merchant, $store] = $this->merchantWhoCanCreateUsers();
+
+        $staff = $this->makeStaff($merchant, ['current_store' => $store->id]);
+        $this->grantPermission($staff, 'Create Role');
+        $this->grantPermission($staff, 'Edit Role');
+        $staff = $staff->fresh();
+
+        $own = $this->makeRole($merchant, $store, 'shop-helper');
+        $permission = $this->somePermissionId();
+
+        foreach (['Super admin', 'aDmin'] as $variant) {
+            $this->actingAs($staff)->put('/roles/' . $own->id, [
+                'name' => $variant,
+                'permissions' => [$permission],
+            ]);
+
+            $this->assertSame('shop-helper', (string) $own->fresh()->name,
+                "The role was renamed to `{$variant}`. update():254 compared case-sensitively "
+                . 'until this was normalised, and a create-time-only check cannot see a rename.');
+        }
+
+        // THE CONTROL: a legitimate rename must still work.
+        $this->actingAs($staff)->put('/roles/' . $own->id, [
+            'name' => 'floor-staff',
+            'permissions' => [$permission],
+        ]);
+
+        $this->assertSame('floor-staff', (string) $own->fresh()->name,
+            'A legitimate rename must still succeed, or the refusals above prove nothing.');
+    }
+
+    /**
+     * WHY THE CHAIN NEVER COMPLETED, pinned so the next reader does not have to re-derive it: the
+     * gate in front of the only tenant-reachable writers of `users.type` lowercases, and therefore
+     * refuses every variant regardless of what the validator does.
+     */
+    public function test_the_users_type_writer_is_gated_case_insensitively(): void
+    {
+        $controller = file_get_contents(base_path('app/Http/Controllers/UserController.php'));
+
+        $this->assertSame(2, substr_count($controller,
+            'in_array(strtolower(trim((string) $role'),
+            'Both users.type write paths must still lowercase the role name before comparing it '
+            . 'to RESERVED_NAMES. This is what made the case-variant finding contained rather '
+            . 'than live.');
+
+        [$merchant, $store] = $this->merchantWhoCanCreateUsers();
+        $staff = $this->makeStaff($merchant, ['current_store' => $store->id]);
+        $this->grantPermission($staff, 'Edit User');
+        $staff = $staff->fresh();
+
+        // Smuggled in directly, bypassing the now-normalised validator, so this half is tested
+        // independently of it -- the same shape the `admin` test above uses.
+        $smuggled = $this->makeRole($merchant, $store, 'Super admin');
+
+        $this->actingAs($staff)->put('/users/' . $staff->id, [
+            'name' => $staff->name,
+            'email' => $staff->email,
+            'role' => $smuggled->id,
+        ]);
+
+        $this->assertNotSame('Super admin', (string) $staff->fresh()->type,
+            'users.type was written to a case variant of the platform-operator literal. Fifteen '
+            . 'normalising comparisons in this codebase would then answer OPERATOR for this row.');
+    }
+
     // -----------------------------------------------------------------------------------
     // S13-c / S13-d -- THE TWO is_enable_login WRITERS, which had no authorization at all.
     // -----------------------------------------------------------------------------------

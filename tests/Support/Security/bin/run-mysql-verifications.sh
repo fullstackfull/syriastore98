@@ -167,6 +167,17 @@ run_one verify-lottery-refund-collation-on-mysql \
   "MYSQL_SOCK=${SOCK}" "MYSQL_HOST=${HOST}" "MYSQL_PORT_NUM=${PORT}" \
   "MYSQL_DATABASE=p1inv20_verify" "MYSQL_USER_NAME=${USER_NAME}" "MYSQL_PASS=${PASS}"
 
+# RESERVED ROLE NAMES. `roles.name` carries a UNIQUE index, and a unique index is enforced in its
+# OWN collation -- so under `utf8mb4_0900_ai_ci` a tenant role named 'Super admin' is a duplicate-key
+# violation against the platform's own 'super admin', while SQLite's BINARY index ACCEPTS it. This is
+# the engine hiding the truth in the SAFE direction, which is the more dangerous way round: an
+# investigation run only on the test engine over-states what an attacker can do, and three
+# independent agents duly reported `Role::where('name','LIKE','super admin')->first()` as ambiguous
+# when on MySQL exactly one row can ever match it. This script measures both engines side by side.
+run_one verify-reserved-role-name-collation-on-mysql \
+  "MYSQL_SOCK=${SOCK}" "MYSQL_HOST=${HOST}" "MYSQL_PORT_NUM=${PORT}" \
+  "MYSQL_DATABASE=reserved_role_name_verify" "MYSQL_USER_NAME=${USER_NAME}" "MYSQL_PASS=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

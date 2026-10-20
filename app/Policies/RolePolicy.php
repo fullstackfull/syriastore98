@@ -58,11 +58,83 @@ class RolePolicy
         // UserController already refuses it on both write paths. Only a tenant-authored role of
         // that name was ever assignable, and that is precisely what must not be.
         //
-        // The case variants are here because RoleController's validator uses
-        // Rule::notIn(), which compares case-SENSITIVELY, while UserController lowercases first.
-        // Both consumers are now covered by the same list.
+        // The case variants are here because RoleController's validator USED to compare
+        // case-SENSITIVELY while UserController lowercased first. Both consumers now go through
+        // `reservedNameRule()` / `isReservedName()` below, which lowercase, so these five
+        // mixed-case entries are redundancy rather than coverage. They are KEPT, not deleted:
+        // removing entries from a reserved-name list is the kind of change that looks safe and is
+        // not, and they cost nothing. What they must not do any more is read as protection that
+        // something depends on -- see `isReservedName()`.
         'admin', 'Admin', 'ADMIN',
     ];
+
+    /**
+     * THE ONE PREDICATE, so the two gates over this invariant cannot disagree again.
+     *
+     * THEY DID DISAGREE, and the asymmetry was measured rather than reasoned about.
+     * `RoleController::store():124` and `::update():254` validated with
+     * `Rule::notIn(self::RESERVED_NAMES)`, which is CASE-SENSITIVE, while the only two
+     * tenant-reachable writers of `users.type` -- `UserController:154` and `:305` -- are gated by
+     * `in_array(strtolower(trim((string) $role->name)), self::RESERVED_NAMES, true)` at `:147` and
+     * `:302`, which LOWERCASES THE NEEDLE and so is case-INSENSITIVE by construction. Measured
+     * against the real constant, the validator let through `'Super admin'`, `'sUper admin'`,
+     * `'SUPER Admin'`, `'Super ADMIN'` and `'aDmin'` while refusing `'super admin'`, `'admin'`,
+     * `'Admin'` and `'ADMIN'`.
+     *
+     * NO ESCALATION FOLLOWED FROM IT, and that was established by execution before anything was
+     * changed -- the chain breaks twice over:
+     *   - engine-independently at `UserController:147`/`:302`, because the lowercasing gate
+     *     collapses every variant onto one of the three lowercase entries and refuses it, so the
+     *     validator was never the last line of defence;
+     *   - and on PRODUCTION MySQL before that, because `roles.name` carries a UNIQUE index and
+     *     `utf8mb4_0900_ai_ci` is case-insensitive, so `'Super admin'` is a duplicate-key
+     *     violation against the platform's own `'super admin'`. Measured on MySQL 8.0.46:
+     *     `Duplicate entry 'Super admin' for key 'roles_name_unique'`.
+     *
+     * AND THAT SECOND POINT IS WHY THIS DOCBLOCK IS LONG. SQLite's unique index is BINARY, so the
+     * test suite ACCEPTS a row production REFUSES -- the engine hiding the truth in the SAFE
+     * direction, which is the more dangerous way round: an investigation run only on the test
+     * engine over-states what an attacker can do, and three independent agents duly concluded that
+     * `app/Models/Utility.php:3117`'s `Role::where('name','LIKE','super admin')->first()` was "the
+     * real defect" because two rows could match it. On MySQL exactly one row can ever match, so
+     * that line is unambiguous in production and the ambiguity is a test-environment artefact.
+     * Proof, both engines side by side:
+     * `tests/Support/Security/bin/verify-reserved-role-name-collation-on-mysql.php`.
+     *
+     * So this change closes an ASYMMETRY, not an escalation. It is worth making because a defence
+     * that only looks like one is worse than none: the next reader of `:124` would reasonably
+     * assume the spelling list is what stops the name existing, and it is not.
+     *
+     * @return \Closure a validation rule usable anywhere `Rule::notIn` was
+     */
+    public static function reservedNameRule(): \Closure
+    {
+        return static function (string $attribute, mixed $value, \Closure $fail): void {
+            if (self::isReservedName($value)) {
+                $fail(__('That role name is reserved.'));
+            }
+        };
+    }
+
+    /**
+     * The predicate itself, byte-for-byte the comparison `UserController:147` and `:302` already
+     * make. Public so a test can drive it directly and so a future third consumer has one obvious
+     * thing to call rather than a fourth hand-written comparison.
+     *
+     * `trim` then `strtolower`: `TrimStrings` is global so the outer value is already trimmed in a
+     * real request, but this is also called from tests and from console contexts where it is not.
+     * Interior whitespace is deliberately NOT collapsed -- `'super  admin'` is a different string
+     * that matches no comparison in the application and grants nothing, and collapsing it would
+     * refuse legitimate names for no gain.
+     */
+    public static function isReservedName(mixed $value): bool
+    {
+        if (! is_scalar($value)) {
+            return false;
+        }
+
+        return in_array(strtolower(trim((string) $value)), self::RESERVED_NAMES, true);
+    }
 
     /**
      * NORMALISED, per CLAUDE.md's prescribed form and the house pattern at

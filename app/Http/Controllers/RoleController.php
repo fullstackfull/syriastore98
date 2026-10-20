@@ -121,7 +121,16 @@ class RoleController extends Controller
                         // reserved-name refusal could not help because RESERVED_NAMES omitted
                         // 'admin'. Closing the list was necessary; closing this validator stops
                         // the role existing in the first place.
-                        \Illuminate\Validation\Rule::notIn(RolePolicy::RESERVED_NAMES),
+                        //
+                        // WAS `Rule::notIn(RolePolicy::RESERVED_NAMES)`, which is CASE-SENSITIVE
+                        // against a hand-written spelling list and let through 'Super admin',
+                        // 'sUper admin', 'SUPER Admin', 'Super ADMIN' and 'aDmin' -- measured. The
+                        // gate that actually decides the users.type write (UserController:147,
+                        // :302) lowercases, so the two halves of one invariant disagreed about
+                        // case. No escalation followed (see RolePolicy::reservedNameRule for the
+                        // two independent reasons, both measured), but a defence that only looks
+                        // like one is worse than none.
+                        RolePolicy::reservedNameRule(),
                         Rule::unique('roles')->where(function ($query) {
                         return $query->where('store_id', getCurrentStore())->where('created_by', \Auth::user()->id);
                         })
@@ -250,8 +259,11 @@ class RoleController extends Controller
                     'required',
                     'max:100',
                     // Reserved because the application decides platform-operator
-                    // status by comparing users.type against these literals.
-                    \Illuminate\Validation\Rule::notIn(RolePolicy::RESERVED_NAMES),
+                    // status by comparing users.type against these literals. Same correction as
+                    // store():124 -- this was the case-SENSITIVE Rule::notIn, and THIS site is the
+                    // more interesting of the two: a role created under a safe name can be RENAMED
+                    // here, which is a create-time-only check's blind spot.
+                    RolePolicy::reservedNameRule(),
                     'unique:roles,name,' . $role['id'] . ',id,created_by,' . \Auth::user()->creatorId().',store_id,' . getCurrentStore(),
                 ],
                 'permissions' => 'required',
