@@ -10,7 +10,7 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 57 — 16 DONE, 18 READY, 8 BACKLOG, 15 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
+| Tasks | 58 — 17 DONE, 18 READY, 8 BACKLOG, 15 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
 | Requiring an owner decision | 20 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
@@ -49,6 +49,7 @@ graph TD
   P1_INV_14 --> P1_INV_17
   P1_INV_14 --> P1_INV_18
   P1_INV_17 --> P1_INV_18
+  P1_INV_18 --> P1_INV_20
   P1_INV_02 --> P1_INV_15
   P1_INV_04 --> P1_OWN_07
   P1_R_01
@@ -107,8 +108,8 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 8. `P1-INV-13` — The Woo/Shopify import family: three more unscoped mapping resolves, one still carrying a store-transfer primitive *(inventory, READY, risk high)*
 9. `P1-INV-15` — Order::product_return robustness: POS orders 500, no transaction, tax_price zeroed, and a double-credit across the two return endpoints *(inventory, READY, risk medium)*
 10. `P1-INV-16` — AuctionProductOrder::product_return restocks an unscoped Product, has no replay guard, and its non-variant path is a silent no-op *(inventory, READY, risk high)*
-11. `P1-INV-18` — URGENT: POST lotteryresult writes forged PAID host orders from another tenant's ticket codes, and inserts rows INTO the victim's tenant *(inventory, READY, risk critical)*
-12. `P1-INV-19` — any customer can forge an auction bid attributed to another customer on another store's product; store_id and customer_id both come from request input *(inventory, READY, risk high)*
+11. `P1-INV-19` — any customer can forge an auction bid attributed to another customer on another store's product; store_id and customer_id both come from request input *(inventory, READY, risk high)*
+12. `P1-INV-20` — four more LotteryPrizes defects: an anonymous ticket writer into any store, an unscoped refund delete, a cross-tenant email-template resolve, and a 500 on every successful draw *(inventory, READY, risk high)*
 13. `P1-PAY-04` — COD settles at order time, which blocks releasing GATE F *(payments, BLOCKED, risk high)*
 14. `P1-MIG-03` — Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns *(migrations, BLOCKED, risk high)*
 15. `P1-MIG-01` — GATE F: release the six money-bearing tables *(migrations, BLOCKED, risk high)*
@@ -975,14 +976,14 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **DONE** |
 | Risk | critical |
 | Workstream | Inventory & Stock |
 | GitHub issue | #64 |
 | Owner decision required | no |
 | Depends on | `P1-INV-14`, `P1-INV-17` |
-| Scope | `app/Http/Middleware/`, `bootstrap/app.php`, `tests/Feature/Security/` |
-| Queue references | S39-13 |
+| Scope | `app/Http/Middleware/LotteryDrawOwnershipGuard.php`, `app/Http/Middleware/Concerns/ComparesRowOwnership.php`, `bootstrap/app.php`, `tests/Feature/Security/LotteryResultOwnershipTest.php`, `tests/Support/Security/bin/verify-lottery-code-collation-on-mysql.php`, `tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest.php`, `docs/security/P1-INV-18-LOTTERY-DRAW-OWNERSHIP-VERIFICATION.md` |
+| Queue references | S39-13, S39-15 |
 | Database / migration | None. |
 | Compatibility impact | A legitimate own-store lottery draw keeps working. A draw naming codes outside the store stops, which is the point. |
 
@@ -1003,6 +1004,38 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 - Negative: an authenticated principal holding no lottery permission is refused
 - Positive: a legitimate own-store draw still creates its orders
 - Every assertion reads the raw row via DB::table() -- Order and Product are both Cachable
+- Removal checks on each control
+
+**Evidence.** REPRODUCED BY EXECUTION: a merchant in store 1 drew store 2's code and produced an `orders` row with store_id 1, payment_status 'Paid', final_price 777 and a product_json whose embedded store_id is 2 -- the victim's product inside the attacker's order -- plus a lottery_customers row with store_id 2, i.e. planted INSIDE the victim's tenant via ::insert(), which bypasses model events and every global scope. TWO REASONS MY FIRST TWO REPRODUCTION ATTEMPTS REPORTED GREEN, both recorded: (a) both writes sit inside `if ($UserEmailTemplate)` at :103, so with no such row the loop runs (the sleep(1) was visible in the duration) and writes nothing -- the fixture needs the CALLER'S OWN email_templates + user_email_templates rows; (b) sendOwnerEmailTemplate:739 does `$content->from = ...` on a null EmailTemplateLang lookup, an uncaught Error and HTTP 500 before any write. Both are fixture gaps, not shipped protections. FIX: App\Http\Middleware\LotteryDrawOwnershipGuard, appended to the `web` group. A THIRD guard because the predicate is a SET: the request names no row, only a comma-separated list of ticket CODES, so the trait grew a set predicate and the rule is ALL -- every code, or the whole call is refused. Filtering would authorise a subset while the handler re-read the whole list. I SHIPPED THE WRONG PREDICATE FIRST AND CAUGHT IT BY THINKING IT THROUGH, NOT BY A TEST. It asked 'does every VALUE resolve to a row I own?' instead of 'is every ROW the handler touches mine?'. MySQL's default collation separates those: measured on 8.0.46, collation utf8mb4_0900_ai_ci, with rows ('ABC-1', store 1) and ('abc-1', store 2), the old guard query returned only store 1's row (ALLOW) while the handler's query returned BOTH -- so a caller owning ABC-1 could draw a victim's abc-1. ai_ci is accent-insensitive too, so CAFE-1 reaches CAFÉ-1; both measured, plus the NULL-store row. SQLITE'S BINARY DEFAULT HIDES IT COMPLETELY, which is why the proof is verify-lottery-code-collation-on-mysql.php and not a testcase. The predicate now runs the handler's own whereIn WITHOUT a store filter and refuses if any matched row is foreign; the value check is kept as a stricter second limb, which also closes the unmatched-code 500. The adversarial review INDEPENDENTLY found the same defect and recommended exactly this inversion. CLOSED BEYOND THE HEADLINE: the undefined-variable 500 at :151 (an unmatched code is refused); the cross-tenant half of the replay guard at :79, which returned an error NAMING the codes and was an existence oracle over every tenant's code space; and the $fail_ticket block at :151-190, transitively -- it keys on lottery_id, and the only writer of purchase_tickets couples lottery_id to store_id in the same statement. NOT CLOSED: if another tenant has ALREADY DRAWN a collation-equal code the handler's global replay guard still refuses the caller (a cross-tenant DoS, vendored), and :144/:185's sleep(1) per ticket. Both shared-code halves are unreachable rather than unlikely: lottery_code is random_int over 62^8 and the only writer is LotteryPrizesController:600, so no principal can choose it. EVIDENCE: 17 tests, 120 assertions (16 controls + 1 behaviour pin). REMOVAL CHECKS 13 of 15 isolate; R7 and R12 are labelled SUBSUMED, not counted. R10 needed a test added -- the oracle test compares two denials sharing a reason, so disclosing the reason left the suite green. THE ADVERSARIAL REVIEW FOUND NO ALLOWING REQUEST and three defects in the surrounding work, all fixed: the store() census OVERCLAIMED IN ITS NAME (scoped to two modules, named as if platform-wide); one reasoned entry was imprecise in exactly the way #64's was (lotteryproduct is store-scoped on store_id and silent that lottery_products is a host Product id from request input with no ownership check); and the sibling census entry went STALE, still reading 'OPEN ... NOT protected'. Plus two test hardenings: both headline tests would have been satisfied by the route NOT EXISTING (404), and the uniform-body test did not prove its mid-test grant took. TWO OF THE REVIEW'S PROPOSALS DID NOT SURVIVE MEASUREMENT, which is worth as much. I claimed trimming 'can only ever be STRICTER'; the review inverted it and proposed refusing untrimmed values. BOTH WRONG: TrimStrings is GLOBAL, so the value is trimmed before either the guard or the handler reads it -- driven through the real stack, the padded and clean forms behave IDENTICALLY. I had implemented the review's rule before measuring it and REMOVED IT AGAIN: keeping a control on a refuted justification is worse than not having it, and it had a cost -- it turned an empty selection into a 403. ONE UX REGRESSION I INTRODUCED, and the review was right: an empty selected_codes answered 403 on the web path, where a mis-click used to come back as a 302 with a toast. test_an_empty_code_list_denies could not catch it because it drove postJson for every payload. Fixed by softening ONLY that reason and ONLY for a non-JSON request, and by moving the usable-set check into the guard so `' , , '` reports 'no codes' rather than 'code outside store'. AND A 500 ON THE SUCCESS PATH, found because my own positive test tolerated it: LotteryResultController:157 does $FailTemplate['id'] on a null lookup, so every successful draw 500s AFTER writing its rows unless the caller also has a 'Lottery Fail' template. The test asserted only assertNotSame(403) plus the row, and 500 != 403 -- the trap CLAUDE.md names, on the POSITIVE side where it is easiest to miss. Now asserted, with the fixture seeding the second template. Raised as P1-INV-20 (#67) with three more the review found: an ANONYMOUS purchase_tickets writer into any store (which amplifies this guard's documented sleep(1) residual), an unscoped refund delete, and a cross-tenant email-template resolve. THE CENSUS LESSON, FOURTH OF ITS KIND: neither sibling could have found this. P1-INV-17's scope was update() and destroy() only, and the census exemption for this very resource read 'stub: update() and destroy() are both //' -- true of those methods and FALSELY REASSURING ABOUT THE RESOURCE. Keyed on uri words, then Route::post lines, then the uri prefix, now AN EXEMPTION SCOPED TO THE METHODS SOMEBODY HAPPENED TO LOOK AT. All three lottery entries now state which methods were read AND which were not. RAW-QUERY INVENTORIES: owned-path 11 -> 13 and platform-wide app 113 -> 115 / total 158 -> 160, because the set predicate is TWO queries by design -- limb 1 the collation-safe core, limb 2 the value check -- and collapsing them would collapse two different questions. Both variable-table, so the per-table breakdown is unchanged.
+
+### `P1-INV-20` — four more LotteryPrizes defects: an anonymous ticket writer into any store, an unscoped refund delete, a cross-tenant email-template resolve, and a 500 on every successful draw
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | high |
+| Workstream | Inventory & Stock |
+| GitHub issue | #67 |
+| Owner decision required | no |
+| Depends on | `P1-INV-18` |
+| Scope | `app/Http/Middleware/`, `bootstrap/app.php`, `tests/Feature/Security/` |
+| Queue references | S39-16 |
+| Database / migration | None. |
+| Compatibility impact | Legitimate ticket purchase, refund and draw keep working. An anonymous writer stops, which is the point. |
+
+**Existing implementation status.** FOUND while fixing P1-INV-18 -- three by its adversarial review, one by a positive test of mine that was silently passing through an HTTP 500. (1) StoreLotteryPayment creates a purchase_tickets row in ANY store, ANONYMOUSLY: routes/web.php:41-50 is a ['web']-only group (no auth, no PlanModuleCheck) and LotteryPrizesController:565-617 falls back to $request->all() when the session is empty (:568-570), resolves the store from the CALLER-CHOSEN SLUG (:594) and saves with no payment verification on several branches. This directly amplifies P1-INV-18's one documented residual -- LotteryResultController:144/:185 sleeps one second per ticket, so a victim's own legitimate draw then takes one second per planted row. Same shape as P1-INV-14's six routes. It does NOT make P1-INV-18's shared-code residual steerable: the code is still random_int at :599. (2) refund_lottery_form_data (:870-871) deletes a ticket keyed on lottery_code with NO store predicate, scoped only by customer_id on the customers guard, and $lottery_setting->delete() 500s on null -- the same 'the code is the only key' pattern as #64, in the delete direction. (3) sendOwnerEmailTemplate:715 resolves EmailTemplate::where('name','LIKE',...) with NO created_by, and :722 then reads Store::where('created_by', $template->created_by)->slug -- so on a populated install the mail body and the store slug in it can come from another tenant. It does not weaken #64's reproduction, because the if ($UserEmailTemplate) gate at LotteryResultController:99-103 IS keyed on created_by. (4) LotteryResultController:156-157 does $FailTemplate['id'] on a null EmailTemplate lookup, so EVERY SUCCESSFUL DRAW 500s AFTER writing its rows unless the caller also has a 'Lottery Fail' template. Found because #64's positive test asserted only assertNotSame(403) plus the row, and 500 != 403 -- the trap CLAUDE.md names, on the POSITIVE side where it is easiest to miss.
+
+**Acceptance criteria.**
+- [ ] store-lottery-payment and the five Route::any callbacks require an authenticated principal, or verify payment before writing -- and the ticket's store_id comes from the verified payment, not the caller's slug
+- [ ] refund_lottery_form_data's ticket lookup is paired to the resolved store, and the null $lottery_setting is guarded
+- [ ] sendOwnerEmailTemplate resolves the template within one tenant
+- [ ] :157's null dereference is guarded so a successful draw does not 500 after writing
+- [ ] No file under packages/workdo/ is edited
+
+**Required tests.**
+- Negative: an ANONYMOUS request cannot create a purchase_tickets row in any store
+- Negative: a refund cannot delete a ticket outside the resolved store -- driving a MERCHANT and a DELIVERY-BOY session as well as a customer, since a customer-token probe alone proves nothing about this family
+- Positive: a legitimate successful draw returns without a 500
 - Removal checks on each control
 
 **Evidence.** None

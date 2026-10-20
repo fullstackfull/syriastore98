@@ -136,6 +136,115 @@ trait ComparesRowOwnership
     }
 
     /**
+     * Would the handler's own `whereIn` touch any row outside the caller's store?
+     *
+     * A SET PREDICATE, because not every vendored handler names one row. P1-INV-18's
+     * `LotteryResultController::store()` takes a comma-separated list of ticket CODES and resolves
+     * them with `PurchaseTicket::whereIn('lottery_code', $codes)` -- no id, no route parameter, and
+     * no store predicate. The guards' single-row shape cannot express that, so this does.
+     *
+     * =======================================================================================
+     *  THE PREDICATE ASKS ABOUT THE ROWS, NOT ABOUT THE VALUES. THE FIRST VERSION ASKED THE
+     *  WRONG QUESTION AND WAS BYPASSABLE ON MySQL.
+     * =======================================================================================
+     *
+     * It originally ran `whereIn($column, $values)->where('store_id', $currentStore)->pluck()` and
+     * compared that against the requested values with `array_diff` -- i.e. it asked *"does every
+     * value I was given resolve to a row I own?"*. That is not the same question as *"is every row
+     * the handler will touch mine?"*, and MySQL's default collation separates them. MEASURED on
+     * MySQL 8.0.46, database collation `utf8mb4_0900_ai_ci`:
+     *
+     *   rows: (1, 'ABC-1', store 1)   (2, 'abc-1', store 2)
+     *   guard   WHERE lottery_code IN ('ABC-1') AND store_id = 1  -> row 1 only   => ALLOW
+     *   handler WHERE lottery_code IN ('ABC-1')                   -> rows 1 AND 2 => draws store 2's
+     *
+     * So a caller owning `ABC-1` could draw a victim's `abc-1`: the guard verified the value and
+     * the handler matched a wider set. `ai_ci` is accent- and case-insensitive, so the same holds
+     * for accent variants. **SQLite's BINARY default hides it completely** -- the same engine-hiding
+     * class as the `'5abc'` coercion that `ModuleOrderMutationGuard` shipped with, and the reason
+     * the proof is tests/Support/Security/bin/verify-lottery-code-collation-on-mysql.php rather
+     * than a testcase.
+     *
+     * The predicate is now the engine's own question: run the handler's `whereIn` WITHOUT a store
+     * filter and refuse if any row it matches is outside the caller's store. Whatever the
+     * collation does, the guard and the handler see the same row set.
+     *
+     * THE VALUE CHECK IS KEPT AS A SECOND, STRICTER LIMB, and it only ever denies more: every
+     * requested value must also be accounted for by a row the caller owns. That closes a separate
+     * defect for free -- these handlers dereference the first result of their own lookup with no
+     * null guard, so an unmatched value is a 500 rather than a refusal -- and where collation makes
+     * PHP's case-sensitive `array_diff` disagree with the database, it disagrees in the direction of
+     * refusing.
+     *
+     * ALL, NOT ANY, AND THE WHOLE CALL IS REFUSED RATHER THAN THE LIST FILTERED. Filtering would be
+     * worse than refusing: the handler re-reads the raw input itself, so a guard that silently
+     * narrowed the list would authorise a subset while the handler acted on the whole of it.
+     *
+     * Returns false on an empty set: nothing to authorise means nothing to allow.
+     */
+    protected function noMatchedRowOutsideCallerStore(
+        string $table,
+        string $column,
+        array $values,
+        User $user
+    ): bool {
+        $values = array_values(array_unique(array_filter(
+            array_map(static fn ($v) => is_scalar($v) ? trim((string) $v) : '', $values),
+            static fn ($v) => $v !== ''
+        )));
+
+        if ($values === []) {
+            return false;
+        }
+
+        // A bounded list, so the guard itself cannot be made the expensive part of the request.
+        // The handler's own per-item `sleep(1)` makes a long list costly regardless; this caps
+        // what the guard will even consider.
+        if (count($values) > 500) {
+            return false;
+        }
+
+        $currentStore = getCurrentStore($user->id);
+
+        if (empty($currentStore)) {
+            return false;
+        }
+
+        try {
+            // LIMB 1, the collation-safe core: the handler's own query, and nothing it matches may
+            // lie outside the caller's store. A NULL store_id counts as outside -- such a row is
+            // invisible to every store_id predicate in the application and must not become
+            // reachable here.
+            $reachesForeignRow = DB::table($table)
+                ->whereIn($column, $values)
+                ->where(function ($query) use ($currentStore) {
+                    $query->whereNull('store_id')
+                        ->orWhere('store_id', '!=', $currentStore);
+                })
+                ->exists();
+
+            if ($reachesForeignRow) {
+                return false;
+            }
+
+            // LIMB 2, stricter and deliberately case-sensitive: every requested value must be
+            // accounted for by a row the caller owns.
+            $owned = DB::table($table)
+                ->whereIn($column, $values)
+                ->where('store_id', $currentStore)
+                ->pluck($column)
+                ->map(static fn ($v) => trim((string) $v))
+                ->all();
+        } catch (\Throwable $e) {
+            // Fail closed, for the reason readRowStore() records: a module's table exists when its
+            // routes do, but "in practice" is not a control.
+            return false;
+        }
+
+        return array_diff($values, $owned) === [];
+    }
+
+    /**
      * A row id from a value, or null when it is not usable as one.
      *
      * STRICT, AND `is_numeric` IS NOT GOOD ENOUGH -- measured, not argued. `is_numeric` accepts

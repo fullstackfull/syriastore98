@@ -976,7 +976,7 @@ class ModuleOrderMutationGuardTest extends SecurityTestCase
              * NOT.
              */
             'lotteryproduct/{lotteryproduct}' => 'update():165 and destroy():175 are `//` stubs. store() READ: LotteryPrizesController::store():107-124 IS store-scoped. index/show not audited.',
-            'lotteryresult/{lotteryresult}' => 'update():221 and destroy():231 are `//` stubs -- BUT store():66-193 is a LIVE cross-tenant host-order write, OPEN at #64. Listed here because this guard\'s vehicle does not cover it; it is NOT protected.',
+            'lotteryresult/{lotteryresult}' => 'update():221 and destroy():231 are `//` stubs. store():66-193 WAS a live cross-tenant host-order write (#64) and is now guarded by App\\Http\\Middleware\\LotteryDrawOwnershipGuard -- a different vehicle from this one, because its predicate is a SET of ticket codes rather than a row id. This entry said "OPEN" and "it is NOT protected" until that landed; a stale exemption reason is the same defect class this comment block exists to stop.',
             'lotteryorder/{lotteryorder}' => 'update():86 and destroy():96 are `//` stubs. index():33 is store-scoped but its permission check is COMMENTED OUT at :31,:36-38 -- not this guard\'s surface; noted so it is not mistaken for audited.',
         ];
 

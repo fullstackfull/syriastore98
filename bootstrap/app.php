@@ -138,6 +138,30 @@ return Application::configure(basePath: dirname(__DIR__))
         // the same question. The id comes from the ROUTE PARAMETER only, the opposite of the
         // guard above, because these handlers take $id as a method argument.
         $middleware->appendToGroup('web', \App\Http\Middleware\ModuleResourceOwnershipGuard::class);
+        // P1-INV-18. `POST lotteryresult` draws ANOTHER TENANT'S ticket codes.
+        // LotteryResultController::store():66-193 has NO permission check (only index():32 checks
+        // 'Manage Lottery Winner'), takes `selected_codes` from request input, resolves
+        // PurchaseTicket::whereIn('lottery_code', ...) with NO store predicate, and then writes a
+        // HOST App\Models\Order per ticket carrying the VICTIM'S product_id and ticket_price at
+        // payment_status => 'Paid' with store_id => the ATTACKER'S store -- plus
+        // LotteryCustomer::insert() rows with store_id => the VICTIM'S, which is the unusual
+        // direction: planting rows INSIDE another tenant, past every global scope.
+        //
+        // REPRODUCED BY EXECUTION: a merchant in store 1 drew store 2's code and produced an
+        // `orders` row with store_id 1, payment_status 'Paid' and a product_json whose embedded
+        // store_id is 2.
+        //
+        // THE PREDICATE IS A SET, which is why this is a third guard and not an entry in either
+        // sibling: the request names no row, only a comma-separated list of ticket CODES. Every
+        // code must resolve to a purchase_tickets row in the caller's store or the WHOLE call is
+        // refused -- filtering the list would authorise a subset while the handler re-read the
+        // whole of it.
+        //
+        // NEITHER SIBLING'S CENSUS COULD HAVE FOUND THIS, and that was my own mistake: P1-INV-17's
+        // scope was `update()` and `destroy()` only, and the census exemption for this very
+        // resource read "stub: update() and destroy() are both //" -- true of those two methods and
+        // falsely reassuring about the resource. See the guard docblock.
+        $middleware->appendToGroup('web', \App\Http\Middleware\LotteryDrawOwnershipGuard::class);
         // SEC-R1-02 / R2-07 / NEW-throttle-bypass: the RateLimiter named 'api'
         // is defined at app/Providers/RouteServiceProvider.php:27-29 but was
         // never applied to the 'api' middleware group, so it was dead code and

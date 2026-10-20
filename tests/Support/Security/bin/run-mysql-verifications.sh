@@ -21,6 +21,10 @@
 #     guard that fell through to the route parameter on such a value authorised the caller's own
 #     order while the handler mutated another store's — and the suite no-opped the attack
 #     silently. Found by review after 23 green tests.
+#   - P1-INV-18: MySQL's default collation is case- and accent-INSENSITIVE and SQLite's is BINARY,
+#     so `whereIn('lottery_code', ['ABC-1'])` matches a victim's 'abc-1' on MySQL only. A guard
+#     that verified the requested VALUE therefore allowed a request whose handler matched a wider
+#     row set. Found by thinking the predicate through, not by a test — no test could.
 #
 # USAGE
 #   tests/Support/Security/bin/run-mysql-verifications.sh
@@ -108,6 +112,16 @@ run_one verify-module-order-mutation-id-coercion-on-mysql \
 run_one verify-module-resource-ownership-on-mysql \
   "MYSQL_SOCK=${SOCK}" "MYSQL_HOST=${HOST}" "MYSQL_PORT_NUM=${PORT}" \
   "MYSQL_DATABASE=p1inv17_verify" "MYSQL_USER_NAME=${USER_NAME}" "MYSQL_PASS=${PASS}"
+
+# P1-INV-18. MySQL's default collation is case- AND accent-insensitive (utf8mb4_0900_ai_ci here;
+# config/database.php defaults DB_COLLATION to utf8mb4_unicode_ci, also _ci), while SQLite's
+# default TEXT collation is BINARY. So `whereIn('lottery_code', ['ABC-1'])` matches a victim's
+# 'abc-1' on MySQL and not on SQLite -- which made a guard that verified the requested VALUE
+# bypassable while the handler matched a wider row set. The suite cannot see this in either
+# direction.
+run_one verify-lottery-code-collation-on-mysql \
+  "MYSQL_SOCK=${SOCK}" "MYSQL_HOST=${HOST}" "MYSQL_PORT_NUM=${PORT}" \
+  "MYSQL_DATABASE=p1inv18_verify" "MYSQL_USER_NAME=${USER_NAME}" "MYSQL_PASS=${PASS}"
 
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"

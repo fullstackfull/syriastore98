@@ -54,7 +54,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
      * builder, and the surrounding query still carries its scopes, so conflating the two would
      * overstate this inventory.
      */
-    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_fifty_eight(): void
+    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty(): void
     {
         $perDir = [];
 
@@ -168,13 +168,16 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // refuse -- and it is classified and its controls asserted in
         // tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest, which is where the 'comparison'
         // category lives.
-        $this->assertSame(['app' => 113, 'packages' => 45], $perDir,
+        // app 113 -> 115 with P1-INV-18: the shared trait's SET predicate adds two
+        // `DB::table($table)` reads -- both variable-table, so the per-table breakdown below is
+        // correctly unchanged. See OwnedPathRawQueryInventoryTest for why it is two and not one.
+        $this->assertSame(['app' => 115, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
             . 'a raw query became Eloquent, which is an improvement worth recording here.');
 
-        $this->assertSame(158, array_sum($perDir));
+        $this->assertSame(160, array_sum($perDir));
     }
 
     /**
@@ -243,8 +246,8 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // sites added since (BulkDeleteTenantGuard.php:431, :454, :469 and
         // OrderDocumentAccessGuard.php:319) are all `DB::table($variable)`, so they raised the
         // unattributable count 20 -> 24 and the entry-point total with it, and the prose was
-        // never flowed through. Re-measured rather than arithmetic: 158 entry-point lines, 133
-        // literal-table lines, 25 entry-point lines that are not a literal `DB::table('x')`.
+        // never flowed through. Re-measured rather than arithmetic: 160 entry-point lines, 133
+        // literal-table lines, 27 entry-point lines that are not a literal `DB::table('x')`.
         //
         // 24 -> 25 with P1-INV-14: ModuleOrderMutationGuard.php's read is
         // `DB::table($target['table'])`, the table resolved per uri from the guard's TARGETS map,
@@ -252,15 +255,16 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // unchanged by it -- LIMIT 2 in this class's docblock. Its own controls are asserted in
         // tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest.
         //
-        // The 25 are DashboardController.php:3302, :3374, :3468, :3564, :3665,
+        // The 27 are DashboardController.php:3302, :3374, :3468, :3564, :3665,
         // StoreFinanceController.php:302, BulkDeleteTenantGuard.php:431, :454, :469,
-        // OrderDocumentAccessGuard.php:319, ModuleOrderMutationGuard.php, Customer.php:149,
+        // OrderDocumentAccessGuard.php:319, ComparesRowOwnership.php x3 (readRowStore plus the
+        // two limbs of the set predicate), Customer.php:149,
         // Product.php:97,
         // ProductAttribute.php:48, Tag.php:47, User.php:160, Utility.php:3171, :3173, :3196,
         // :3198, :3212, :3214, OrderFinancialService.php:289, :402 and
         // packages/workdo/Marketing/src/app/Models/Storefield.php:36.
         $this->assertSame(133, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '133 literal-table sites of the 158 entry points; the other 25 build their table name '
+            '133 literal-table sites of the 160 entry points; the other 27 build their table name '
             . 'from a variable and so cannot be attributed (see LIMIT 2 in this class docblock).');
         $this->assertSame(65, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }

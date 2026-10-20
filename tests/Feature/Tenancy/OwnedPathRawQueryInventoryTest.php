@@ -222,9 +222,15 @@ class OwnedPathRawQueryInventoryTest extends TestCase
         // The count is asserted too, so a site that DISAPPEARS is noticed as well as one that
         // appears -- a vanished predicate is as interesting as a new query.
         //
-        // 10 -> 11 with P1-INV-14: ModuleOrderMutationGuard's `DB::table($target['table'])`
-        // read, classified 'comparison' above and its controls asserted below.
-        $this->assertCount(11, $sites, "The owned-path raw query inventory changed:\n  "
+        // 10 -> 11 with P1-INV-14: the shared trait's `readRowStore()`, classified 'comparison'
+        //       above and its controls asserted below.
+        // 11 -> 13 with P1-INV-18: the trait's SET predicate, which is two queries by design --
+        //       limb 1 runs the handler's own `whereIn` WITHOUT a store filter and asks whether
+        //       any matched row is foreign (the collation-safe core), and limb 2 asks whether
+        //       every requested value is accounted for by an owned row. Collapsing them into one
+        //       query would be collapsing two different questions; the first version of that
+        //       predicate asked only the second and was bypassable on MySQL.
+        $this->assertCount(13, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry
