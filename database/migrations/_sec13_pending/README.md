@@ -125,3 +125,26 @@ The MySQL behaviour itself is established by the script above, on a real server.
 remains, because what is still unknown is the **live** column's type: a server provisioned outside
 these migrations may already be `VARCHAR`, in which case this draft should be dropped rather than
 run.
+
+## DEPENDENCY: P1-SEC-01 item B must be in place before this is applied
+
+Applying this migration **arms an account takeover** that is currently held shut only by the broken
+column this migration fixes.
+
+`CustomerLoginController::verifyPasswordOtp()` writes three session flags —
+`password_otp_verified`, `password_otp_verified_customer_id`, `password_otp_verified_store_id` —
+which are, on their own, a standing authorisation to change that customer's password: the reset
+handler reads nothing else, not even `password_otp`. Nothing rotated the session id at that
+boundary, so an attacker who could plant the pre-OTP session id could replay it after the victim
+verified and take the account over. Unlike the login boundary, which gets `migrate(true)` free from
+`SessionGuard::updateSession()`, that one rotated nothing.
+
+**P1-SEC-01 item B added `session()->regenerate(true)` immediately before those flags are written**
+(migrate-with-destroy, so the planted `sessions` row is deleted rather than left carrying pre-verify
+state, plus a CSRF-token rotation matching the house pattern at
+`AuthenticatedSessionController.php:77`). Measured closed, with the legitimate reset preserved as an
+explicit oracle.
+
+So: the rotation landed first, deliberately, and it is what makes applying this migration safe.
+`tests/Feature/Security/SessionHygieneTest.php` pins both halves and will tell you if either is
+removed. Do not apply this migration on a tree where that rotation is absent.

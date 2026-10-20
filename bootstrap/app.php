@@ -323,7 +323,26 @@ return Application::configure(basePath: dirname(__DIR__))
                 '*/get-donation-payment-aamarpay',
                 'plan-easebuzz-payment-notify*',
                 '*get-payment-easebuzz*',
-                '/login',
+                // P1-SEC-01 item D. `'/login'` WAS HERE AND IS DELETED. It made `POST /login`
+                // -- the MERCHANT AND OPERATOR login -- exempt from CSRF, which is login CSRF:
+                // an attacker can log a victim into the ATTACKER'S account and then observe or
+                // capture whatever the victim does in it. `inExceptArray()` trims the slashes, so
+                // the leading one did not make the entry dead.
+                //
+                // MEASURED BOTH WAYS, by two independent agents on a patched tree: with the entry
+                // present, `POST /login` with NO token succeeds; with it deleted, the full real
+                // flow still works -- GET /login, scrape the 40-char `_token`, POST -> 302
+                // /dashboard, GET /dashboard -> 200 rendering the user's name. The form already
+                // emits `@csrf` (resources/views/auth/login.blade.php:38), so the token was always
+                // being sent and always being ignored. Nothing depended on the exemption.
+                //
+                // `'/duologin'` is LEFT ALONE deliberately: it is a different route with a
+                // different caller, and nothing in this item measured it.
+                //
+                // The acceptance criterion as filed asked that the exemption "not be satisfied by
+                // a prefixed or localised path". That half was already true and is not the defect:
+                // `inExceptArray` matches with `Str::is`, which honours only `*`, so `ar/login` and
+                // `{storeSlug}/login` never matched. The defect was the bare path itself.
                 '/duologin',
                 'plan-get-Powertranz-status*',
                 'store-get-Powertranz-status*',

@@ -468,6 +468,28 @@ public function verifyPasswordOtp(Request $request, $storeSlug)
 
     session()->forget($attemptKey);
 
+    // P1-SEC-01 item B. A PRIVILEGE BOUNDARY THAT ROTATED NOTHING.
+    //
+    // The three flags written just below are, on their own, a standing authorisation to change
+    // this customer's password: the reset handler reads nothing else -- not even `password_otp`.
+    // The LOGIN boundary gets `migrate(true)` for free from `SessionGuard::updateSession()`, which
+    // is why item B's criterion ("session id regenerated on customer login") was already satisfied
+    // and needed no change. Nothing rotated the id HERE, so an attacker who could plant the
+    // pre-OTP session id could replay it after the victim verified and take the account over.
+    //
+    // `regenerate(true)` rather than `migrate(true)`: migrate-with-destroy, so the planted
+    // `sessions` row is deleted rather than left carrying pre-verify state, PLUS the CSRF-token
+    // rotation that matches the house pattern at `AuthenticatedSessionController.php:77`. Measured
+    // closed, with the legitimate flow preserved as an explicit oracle -- the real
+    // `POST {slug}/reset-password/otp` still changes the password afterwards.
+    //
+    // SEQUENCING, and this is the part that matters: today the takeover is held shut only by a
+    // BROKEN COLUMN. `customers.password_otp` is INTEGER while the web reset writes a 60-char
+    // bcrypt hash, and the prepared-and-unapplied migration in
+    // `database/migrations/_sec13_pending/` WIDENS it. Applying SEC-13 without this line arms the
+    // takeover. Recorded in that directory's README.
+    session()->regenerate(true);
+
     session([
         'password_otp_verified' => true,
         'password_otp_verified_customer_id' => $customer->id,
@@ -748,7 +770,45 @@ private function normalizePhone($phone)
         if (empty($store)) {
             return redirect()->back()->with('error', __('Store not available'));
         }
+        // P1-SEC-01 item A. `regenerate(true)`, NOT `invalidate()`, and only when this cookie
+        // really held a shopper session.
+        //
+        // WHAT WAS WRONG: `SessionGuard::logout()` removes `login_customers_*` and nothing else --
+        // no `migrate()`, no `regenerateToken()`. Measured on `DatabaseSessionHandler`, which is
+        // the production driver (`config/session.php:21`, `.env.example:29`): after a logout the
+        // OLD `sessions` ROW SURVIVED and still carried
+        // `request_data = {"email": ..., "address": ...}` -- the whole checkout POST body, since
+        // `PaymentService:653` stores `$request->except('attachment','payment_receipt')`. The
+        // cookie the browser still holds kept addressing it, and the CSRF token was not rotated.
+        // It is NOT an authentication bypass: the login key really is removed.
+        //
+        // WHY NOT `invalidate()`, which is what the acceptance criterion asked for and what the
+        // web guard does. `config/session.php:130` derives ONE static cookie name from APP_NAME
+        // with no per-store override and `:146` sets the path to `/`, so a single cookie can hold
+        // `login_web_*` and `login_customers_*` at once -- and a merchant previewing their own
+        // storefront is exactly the person this logout button is rendered to
+        // (`front_end/common/account-tab.blade.php:75`). MEASURED: `invalidate()` here DESTROYS
+        // that merchant's admin session. Worse, this route carries no auth middleware (gathered:
+        // `["web", ActiveTheme, "themelanguage"]`), so a guest POST reaches it and wipes the key.
+        // Symmetry with the web guard is the wrong goal when the two guards share a cookie.
+        //
+        // WHY GATED. A GUEST cart row is keyed to `session()->getId()` (`Cart.php:154`,
+        // `CartController.php:352`) and the add path rewrites the `cart` cookie to the current id,
+        // so rotating the id for a caller who never had a shopper session orphans that caller's
+        // basket -- measured through `POST {slug}/product_cart`: one row became two. A logged-in
+        // shopper has nothing to lose, because their row carries `cookie_session_id = NULL`.
+        //
+        // The test is on the SESSION KEY, not `Auth::guard('customers')->check()`: no provider
+        // lookup, and immune to `SessionGuard`'s `$loggedOut` memoisation, which made a
+        // check()-gated probe report "never rotates" when it in fact always rotated.
+        $session = request()->session();
+        $hadCustomerSession = $session->has(Auth::guard('customers')->getName());
+
         Auth::guard('customers')->logout();
+
+        if ($hadCustomerSession) {
+            $session->regenerate(true);
+        }
 
         return redirect()->route('landing_page', $slug);
     }
