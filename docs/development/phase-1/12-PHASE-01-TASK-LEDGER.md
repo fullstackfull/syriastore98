@@ -209,7 +209,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 
 | field | value |
 |---|---|
-| Status | **DONE** (items A, B, D, E) · **item C is an OWNER DECISION** |
+| Status | items A, B, D, E **IMPLEMENTED AND GATED; NOT YET CLOSED** -- the owner's condition is "close only when the required tests and adversarial review pass", and the adversarial review is in flight. Item C is **DEFERRED BY THE OWNER**, recorded as `D-01` in `15-DEFERRED-OWNER-DECISIONS.md`, and its acceptance criterion is deliberately NOT ticked |
 | Risk | high |
 | Workstream | Security & Identity |
 | GitHub issue | #15 |
@@ -225,7 +225,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 **Acceptance criteria.** TWO OF THE FIVE WERE MIS-FILED and are marked as corrected rather than met.
 - [x] **CORRECTED, not met** -- "Customer logout invalidates ... symmetric with the web guard". `invalidate()` here DESTROYS a merchant's admin session: `config/session.php:130` derives ONE static cookie name and `:146` sets the path to `/`, so one cookie holds `login_web_*` and `login_customers_*` at once, and the route has no auth middleware so a guest POST reaches it. Shipped as a GATED `regenerate(true)`. Symmetry is the wrong goal when two guards share a cookie
 - [x] **ALREADY SATISFIED** -- `SessionGuard::login()` -> `updateSession()` -> `migrate(true)`, free from the framework. Pinned so nobody adds a redundant second migrate. The real gap was one method away and is closed: `verifyPasswordOtp()` rotated nothing at a boundary whose three flags are a standing authorisation to change the password
-- [ ] **OWNER DECISION** -- `SESSION_SAME_SITE` explicit default. `lax` is correct and breaks money: nine CSRF-exempt gateway callbacks read their state out of the session, six before a paid plan activates, and one writes a paid storefront order. The misleading stock comment is corrected and the value is pinned; the value itself is not changed
+- [ ] **DEFERRED BY THE OWNER, NOT INCOMPLETE** -- `SESSION_SAME_SITE` explicit default. Owner decision of 2026-10-20: *"Do not switch globally to Lax yet. Keep the current value until the gateway POST callback and session-dependency matrix has been tested and a compatible payment-state strategy approved."* Recorded as **`D-01` in `15-DEFERRED-OWNER-DECISIONS.md`**, with the nine affected callbacks and the two things that must be true before it can be taken. `lax` is correct for this cookie and breaks money: six of those nine take money before activating a plan and one writes a paid storefront order. The misleading stock comment IS corrected and the value IS pinned by a test; the value itself is deliberately unchanged. **Do not tick this box as part of P1-SEC-01** -- a deferred decision is not an incomplete task
 - [x] **CORRECTED, and the real defect was worse** -- the criterion's "not satisfied by a prefixed or localised path" was ALREADY TRUE (`Str::is` honours only `*`). The defect was `POST /login` ITSELF being exempt, i.e. LOGIN CSRF on the merchant and operator login. One deleted line
 - [x] **RETIRED WITH THE MEASUREMENT** -- MFA already dispatches after `authenticate()` and `regenerate()`
 
