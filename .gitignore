@@ -49,3 +49,8 @@ composer.phar
 # Personal Claude Code configuration; project configuration is .claude/settings.json
 .claude/settings.local.json
 CLAUDE.local.md
+
+# Written by the vendored paytabscom/laravel_paytabs package (not by this repository) into the
+# application root whenever a PayTabs code path runs, which the Feature suite does. Regenerated on
+# every run, so it shows up as an untracked file and makes the tree look dirty after any test run.
+/debug_paytabs.log
