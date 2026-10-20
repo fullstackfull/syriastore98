@@ -54,7 +54,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
      * builder, and the surrounding query still carries its scopes, so conflating the two would
      * overstate this inventory.
      */
-    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty(): void
+    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty_four(): void
     {
         $perDir = [];
 
@@ -171,13 +171,28 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // app 113 -> 115 with P1-INV-18: the shared trait's SET predicate adds two
         // `DB::table($table)` reads -- both variable-table, so the per-table breakdown below is
         // correctly unchanged. See OwnedPathRawQueryInventoryTest for why it is two and not one.
-        $this->assertSame(['app' => 115, 'packages' => 45], $perDir,
+        // app 115 -> 119 with P1-INV-20, FOUR sites, and unlike the two above most of them name
+        // their table literally, so the per-table breakdown below DOES move:
+        //   LotteryRefundOwnershipGuard's `$ownedByCaller` read   -> DB::table(self::TABLE), so
+        //                                                           VARIABLE: not attributed
+        //   LotteryRefundOwnershipGuard's slug lookup             -> stores  (18 -> 19)
+        //   LotteryMailTemplatePrerequisite's existence READ      -> email_templates (NEW)
+        //   LotteryMailTemplatePrerequisite's INSERT              -> email_templates
+        // `email_templates` enters this inventory for the first time, with two sites.
+        //
+        // THE READ IS RAW ON PURPOSE and that is why it is here at all: App\Models\EmailTemplate
+        // is Cachable, the Eloquent builder's pluck() caches even an EMPTY result, and
+        // DB::table()->insert() flushes nothing -- so an Eloquent read behind that raw write served
+        // the pre-write empty set and every draw after the first inserted three more rows,
+        // measured at 3 -> 6 across two draws. One more visible, classified raw site is a better
+        // trade than an invisible stale cache.
+        $this->assertSame(['app' => 119, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
             . 'a raw query became Eloquent, which is an improvement worth recording here.');
 
-        $this->assertSame(160, array_sum($perDir));
+        $this->assertSame(164, array_sum($perDir));
     }
 
     /**
@@ -201,6 +216,22 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             'coupons' => [2, 0],
             'currency' => [3, 3],
             'customers' => [5, 3],
+            // NEW WITH P1-INV-20, and the only WRITE in this population.
+            // LotteryMailTemplatePrerequisite inserts the authenticated merchant's own
+            // `Lottery Win` / `Lottery Fail` / `Lottery Remainder` rows before a draw, because
+            // LotteryResultController:157 dereferences a null template and 500s AFTER the draw has
+            // written its order and lottery_customers rows -- measured on an otherwise valid
+            // own-store draw.
+            //
+            // IT COUNTS AS UNSCOPED AND THAT IS CORRECT, NOT AN EXCEPTION BEING CARVED OUT:
+            // `email_templates` HAS NO `store_id` COLUMN. It is keyed on `created_by`, and the
+            // insert sets that from `auth()->user()->id`, never from request input -- so the row
+            // cannot land in another tenant even though no `store_id` predicate is possible here.
+            // This inventory measures `store_id` predicates, so a table without the column reads
+            // as unscoped by construction; the real control is asserted per-site in
+            // tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest, where the file is classified
+            // 'platform' and the owner-id derivation is pinned.
+            'email_templates' => [2, 2],
             'migrations' => [1, 1],
             // `notify_users` USED TO BE LISTED HERE AT [2, 1] AND HAS LEFT THIS POPULATION
             // ALTOGETHER: it now has no literal raw statement at all. P01-SEC-14 Work Package C
@@ -225,7 +256,20 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             'side_menus_option' => [28, 0],
             'store_devices' => [2, 1],
             'store_order_financials' => [7, 3],
-            'stores' => [18, 17],
+            // 18 -> 19 AND 17 -> 18 with P1-INV-20: LotteryRefundOwnershipGuard's slug lookup,
+            // `DB::table('stores')->where('slug', $slug)->value('id')`.
+            //
+            // IT HAS NO `store_id` PREDICATE AND MUST NOT HAVE ONE: `stores` IS the tenant table.
+            // The slug is CALLER-SUPPLIED and this read only NAMES a store; the authorisation is
+            // the comparison of the resolved id against the signed-in customer's own `store_id`
+            // four lines later, which is what makes the slug not a tenant check. That comparison
+            // is pinned in OwnedPathRawQueryInventoryTest, where the file is classified
+            // 'comparison'.
+            //
+            // Note the shape of this row generally: 18 of 19 `stores` sites are 'unscoped' for the
+            // same structural reason, which is why a rising count on THIS table is not by itself a
+            // finding -- the per-site classification is.
+            'stores' => [19, 18],
             'theme_customizes' => [2, 0],
             'users' => [5, 5],
             'zid_events' => [2, 2],
@@ -263,10 +307,15 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // ProductAttribute.php:48, Tag.php:47, User.php:160, Utility.php:3171, :3173, :3196,
         // :3198, :3212, :3214, OrderFinancialService.php:289, :402 and
         // packages/workdo/Marketing/src/app/Models/Storefield.php:36.
-        $this->assertSame(133, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '133 literal-table sites of the 160 entry points; the other 27 build their table name '
+        // 133 -> 136 and 65 -> 68 with P1-INV-20: the `stores` slug lookup and the TWO
+        // `email_templates` sites, all naming their table literally. The guard's fourth new site,
+        // `$ownedByCaller`, uses `DB::table(self::TABLE)` and so falls into the variable-table
+        // population -- 27 -> 28 -- which is why these counts move by three and the entry-point
+        // total above moves by four.
+        $this->assertSame(136, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            '136 literal-table sites of the 164 entry points; the other 28 build their table name '
             . 'from a variable and so cannot be attributed (see LIMIT 2 in this class docblock).');
-        $this->assertSame(65, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        $this->assertSame(68, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**
@@ -404,6 +453,29 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // It still has no `store_id` column, so if a new unscoped statement on it ever
             // appears it belongs back here -- and the per-table ratchet will say so first.
             'currency',
+            // NEW WITH P1-INV-20, AND NOT A TENANCY FINDING -- measured, not inferred from the
+            // name. `email_templates` genuinely has no `store_id` column: it discriminates on
+            // `created_by`, which is the OWNER, the same shape as the `owner_menu*` tables below.
+            // So no global scope was ever expected to reach it and nothing about its being
+            // unscoped here is a cross-tenant read surface.
+            //
+            // Its one unscoped statement is LotteryMailTemplatePrerequisite's insert, which sets
+            // `created_by` from `auth()->user()->id` -- never from request input -- so the row
+            // lands under the authenticated merchant and nowhere else. That derivation is the real
+            // control and it is pinned per-site in
+            // tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest.
+            //
+            // WORTH RECORDING AGAINST THIS ENTRY: the module's own read of this table IS a
+            // cross-tenant one. LotteryPrizesController::sendOwnerEmailTemplate:715 is
+            // `EmailTemplate::where('name', 'LIKE', $emailTemplate)->first()` with no
+            // `created_by`, so on a populated install the mail body and the store slug inside it
+            // can come from another tenant's template. It is Eloquent, so it is not in THIS
+            // inventory's population at all -- and it has no host-side seam (a static call from
+            // inside vendored controllers; the only lever, a global scope on the shared
+            // App\Models\EmailTemplate, would reach every module's template reads and the
+            // operator's own management screens). Recorded as an upstream item on #67 rather than
+            // left for the next reader to rediscover from this row.
+            'email_templates',         // owner-discriminated, like owner_menus below
             'migrations',              // platform
             // THE LANDINGPAGE owner_menu* TABLES, MOVED HERE FROM THE UNDECLARED-SCHEMA LIST
             // BELOW because they now EXIST. They were absent only because of

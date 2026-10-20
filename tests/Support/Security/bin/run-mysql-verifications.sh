@@ -60,17 +60,51 @@ echo
 declare -a FAILED=()
 declare -a PASSED=()
 
+# THE EXIT CODE ALONE IS NOT ENOUGH, and this runner reported nine passes while one of the scripts
+# was dying halfway through. Found by reading the log of a script this runner had just called
+# "PASS": it had crashed at STEP 4 on an undefined variable, printed a rendered ErrorException, and
+# exited 0.
+#
+# WHY IT EXITS 0. Every one of these scripts calls `$kernel->bootstrap()`, which installs Laravel's
+# `HandleExceptions` bootstrapper and with it a `set_exception_handler`. An uncaught throwable is
+# then RENDERED by that handler rather than killing the process with PHP's usual status 255 -- so
+# the script ends normally, with status 0, having skipped every assertion after the crash. A script
+# that stops at step 2 of 6 and says nothing is worse than no script: it reports the absence of
+# evidence as evidence.
+#
+# So a script passes only when ALL THREE hold:
+#   1. it exits 0;
+#   2. its log contains no `[FAIL]` assertion line;
+#   3. its log shows no rendered uncaught throwable.
+#
+# This lives in the runner rather than in the twelve scripts because the runner is the authority --
+# one place, and it covers scripts not yet written.
 run_one() {
   local label="$1"; shift
+  local log="/tmp/mysqlverify-${label}.log"
   echo "---------------------------------------------------------------------------"
   echo ">>> ${label}"
-  if env "$@" php "tests/Support/Security/bin/${label}.php" >"/tmp/mysqlverify-${label}.log" 2>&1; then
-    echo "    PASS  (see /tmp/mysqlverify-${label}.log)"
-    tail -3 "/tmp/mysqlverify-${label}.log" | sed 's/^/    /'
+
+  local status=0
+  env "$@" php "tests/Support/Security/bin/${label}.php" >"${log}" 2>&1 || status=$?
+
+  local reason=""
+  if [ "${status}" -ne 0 ]; then
+    reason="exit status ${status}"
+  elif grep -qE '^[[:space:]]*\[FAIL\]' "${log}"; then
+    reason="an assertion reported [FAIL]"
+  elif grep -qE '^[[:space:]]*(ErrorException|Error|Exception|TypeError|ValueError|ParseError|ArgumentCountError|RuntimeException|PDOException)[[:space:]]*$' "${log}"; then
+    # The rendered-exception banner Laravel's handler prints: the class name alone on its own line.
+    reason="an uncaught throwable was rendered (the script exited 0 without finishing)"
+  fi
+
+  if [ -z "${reason}" ]; then
+    echo "    PASS  (see ${log})"
+    tail -3 "${log}" | sed 's/^/    /'
     PASSED+=("${label}")
   else
-    echo "    FAIL  (see /tmp/mysqlverify-${label}.log)"
-    tail -12 "/tmp/mysqlverify-${label}.log" | sed 's/^/    /'
+    echo "    FAIL  -- ${reason}  (see ${log})"
+    tail -12 "${log}" | sed 's/^/    /'
     FAILED+=("${label}")
   fi
   echo
@@ -122,6 +156,16 @@ run_one verify-module-resource-ownership-on-mysql \
 run_one verify-lottery-code-collation-on-mysql \
   "MYSQL_SOCK=${SOCK}" "MYSQL_HOST=${HOST}" "MYSQL_PORT_NUM=${PORT}" \
   "MYSQL_DATABASE=p1inv18_verify" "MYSQL_USER_NAME=${USER_NAME}" "MYSQL_PASS=${PASS}"
+
+# P1-INV-20 / #67 item 2. The refund guard's SECOND limb is a single-value comparison, and under
+# the same _ci collation it is LOOSER than it reads: `where('lottery_code', 'abc-1')` also matches
+# the caller's own 'ABC-1', so limb 2 reports the request as owned while the handler's unscoped
+# ->first() destroys a FOREIGN row with the lower primary key. What this measures is not that
+# limb 2 is tight -- it is not -- but that limb 1 has already refused every request where that
+# looseness could matter, AND that a legitimate same-store refund still passes both limbs.
+run_one verify-lottery-refund-collation-on-mysql \
+  "MYSQL_SOCK=${SOCK}" "MYSQL_HOST=${HOST}" "MYSQL_PORT_NUM=${PORT}" \
+  "MYSQL_DATABASE=p1inv20_verify" "MYSQL_USER_NAME=${USER_NAME}" "MYSQL_PASS=${PASS}"
 
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"

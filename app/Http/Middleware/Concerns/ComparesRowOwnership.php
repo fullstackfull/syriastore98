@@ -188,6 +188,28 @@ trait ComparesRowOwnership
         array $values,
         User $user
     ): bool {
+        return $this->noMatchedRowOutsideStore($table, $column, $values, getCurrentStore($user->id));
+    }
+
+    /**
+     * The same predicate against an EXPLICIT store id.
+     *
+     * The wrapper above resolves the store from a `User`, which is right for a merchant-facing
+     * guard. The storefront has neither: its caller is a `Customer` on the `customers` guard and
+     * the relevant store is the one the URL slug resolves to. `LotteryRefundOwnershipGuard` needs
+     * exactly this predicate against that store.
+     *
+     * It is extracted rather than copied because copying is the specific failure this trait exists
+     * to prevent: `ModuleOrderMutationGuard` and `ModuleResourceOwnershipGuard` each shipped a
+     * separately-written version of this comparison, and two of the defects in them were found by
+     * review rather than by test. One predicate, one place, one set of removal checks.
+     */
+    protected function noMatchedRowOutsideStore(
+        string $table,
+        string $column,
+        array $values,
+        mixed $currentStore
+    ): bool {
         $values = array_values(array_unique(array_filter(
             array_map(static fn ($v) => is_scalar($v) ? trim((string) $v) : '', $values),
             static fn ($v) => $v !== ''
@@ -203,8 +225,6 @@ trait ComparesRowOwnership
         if (count($values) > 500) {
             return false;
         }
-
-        $currentStore = getCurrentStore($user->id);
 
         if (empty($currentStore)) {
             return false;

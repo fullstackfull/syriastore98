@@ -153,6 +153,40 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             // fell through to the route segment, each found by review rather than by a test, so a
             // second copy would have inherited whichever version was current that day.
             'app/Http/Middleware/Concerns/ComparesRowOwnership.php' => 'comparison',
+            // P1-INV-20's REFUND GUARD. 'comparison', and the classification is the FILE's, not
+            // the site's -- this inventory keys on the path. The first draft of this entry split
+            // its two reads into two categories, which the inventory cannot express; the entry now
+            // states the file's weakest claim and describes both reads under it.
+            //
+            // `:150` is the slug lookup and it is why the file is 'comparison': `stores` has no
+            // `store_id` and cannot acquire one -- it IS the tenant table -- and the read exists
+            // to resolve an id so it can be compared with the signed-in customer's own
+            // `store_id` four lines later. The slug is CALLER-SUPPLIED and is used only to NAME a
+            // store; the comparison is the authorisation. CLAUDE.md records four separate defects
+            // produced by treating a predicate built from request input as a tenant check, so the
+            // distinction between naming a store and authorising one is the whole point, and the
+            // comparison is asserted at the bottom of this method.
+            //
+            // `:111` is the `$ownedByCaller` read and it is STRICTER than the category requires:
+            // it carries `->where('store_id', $store)` AND `->where('customer_id', ...)` in the
+            // statement itself. It exists because the trait's set predicate answers a question
+            // about STORES while the handler (LotteryPrizesController:870) also keys on the
+            // customer -- a guard checking only the store would be WEAKER than the handler it
+            // protects, letting one shopper refund another shopper's ticket in the same store.
+            'app/Http/Middleware/LotteryRefundOwnershipGuard.php' => 'comparison',
+            // P1-INV-20's THIRD SITE, and the only WRITE in this inventory.
+            // `LotteryMailTemplatePrerequisite:115` inserts the authenticated merchant's own
+            // `email_templates` rows before a draw, because LotteryResultController:157 does
+            // `$FailTemplate['id']` on null and 500s AFTER the draw has written its order and
+            // `lottery_customers` rows -- measured, on an otherwise entirely valid own-store draw.
+            //
+            // 'platform' is the honest category and not a convenience: `email_templates` has NO
+            // `store_id` column at all. It is keyed on `created_by`, which is the owner, and the
+            // insert sets `created_by` to the authenticated user's own id -- so the row cannot
+            // land in another tenant even though no `store_id` predicate is possible. The control
+            // is that the id comes from `auth()->user()`, never from request input, and it is
+            // asserted at the bottom of this method.
+            'app/Http/Middleware/LotteryMailTemplatePrerequisite.php' => 'platform',
             // PLATFORM-GLOBAL BY DESIGN. The framework's own `migrations` bookkeeping table has
             // no store_id and must never acquire a tenant predicate -- XSS::handle() compares
             // on-disk migration filenames against it to decide whether the platform operator is
@@ -230,7 +264,17 @@ class OwnedPathRawQueryInventoryTest extends TestCase
         //       every requested value is accounted for by an owned row. Collapsing them into one
         //       query would be collapsing two different questions; the first version of that
         //       predicate asked only the second and was bypassable on MySQL.
-        $this->assertCount(13, $sites, "The owned-path raw query inventory changed:\n  "
+        // 13 -> 17 with P1-INV-20, FOUR sites across two files:
+        //       LotteryRefundOwnershipGuard  -- the `$ownedByCaller` read, and the slug lookup
+        //       LotteryMailTemplatePrerequisite -- the existence READ and the INSERT
+        // The prerequisite's read is raw rather than Eloquent on purpose, and that is the whole
+        // reason it is a second site here: App\Models\EmailTemplate is Cachable, the Eloquent
+        // builder's pluck() caches even an EMPTY result, and DB::table()->insert() flushes
+        // nothing -- so an Eloquent read behind that raw write served the pre-write empty set and
+        // every draw after the first inserted three more rows. Measured at 3 -> 6 across two
+        // draws. Adding a raw read to this inventory was the correct trade: it is visible and
+        // classified here, where an invisible stale cache was not.
+        $this->assertCount(17, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry
@@ -295,6 +339,114 @@ class OwnedPathRawQueryInventoryTest extends TestCase
 
         $this->assertFileExists(base_path('tests/Feature/Security/OrderDocumentAccessTest.php'));
         $this->assertFileExists(base_path('tests/Feature/Security/OrderDocumentRouteResolutionTest.php'));
+
+        // THE THIRD 'comparison' SITE'S CONTROLS -- P1-INV-20's refund guard. Same discipline:
+        // pinned on the comparison and on where the authority comes from, not on whole statements.
+        $refund = (string) file_get_contents(
+            base_path('app/Http/Middleware/LotteryRefundOwnershipGuard.php')
+        );
+
+        // WHAT THIS FILE'S 'comparison' CLASSIFICATION ACTUALLY RESTS ON, after an adversarial
+        // review corrected an earlier, STRICTER version of the guard.
+        //
+        // That version also required the slug's store to equal the signed-in customer's own
+        // `store_id`, and these assertions pinned that comparison. It was a regression: the
+        // module's own screen (`refund_lottery():862`) lists a ticket by
+        // `where('store_id', $slugStore)->where('customer_id', $caller)`, so a shopper registered
+        // at store A who bought on store B's storefront saw their ticket offered on B's form and
+        // was then refused permanently. The mismatch is the PREMISE of the defect, not an anomaly.
+        //
+        // With that limb gone, the slug NAMES the store and the two remaining checks authorise
+        // against it -- which is still not "the slug is the tenant predicate", and that is what
+        // these assertions now pin.
+        $this->assertStringContainsString("where('store_id', \$store)", $refund,
+            'LotteryRefundOwnershipGuard no longer confines its ownership read to the resolved '
+            . "store, so the caller-supplied slug is no longer compared with anything and the "
+            . "'comparison' classification above is no longer true.");
+
+        $this->assertStringContainsString("where('customer_id', \$customer->id)", $refund,
+            'LotteryRefundOwnershipGuard no longer keys the ownership read on the authenticated '
+            . 'customer, so it is now WEAKER than the handler it guards: one shopper could refund '
+            . "another shopper's ticket within the same store.");
+
+        // PINNED ON THE CALL SHAPE, NOT THE BARE NAME, and this is the SECOND time in this one
+        // method that distinction was needed -- the first version was
+        // `assertStringContainsString('noMatchedRowOutsideStore(', ...)`, which the guard's own
+        // DOCBLOCK satisfies at :47, where it names the method to explain what it calls. Deleting
+        // the real call left this assertion green. Found by adversarial review, and it is the same
+        // mistake the `userTemplateDefaultData` assertion below already records.
+        $this->assertStringContainsString(
+            '$this->noMatchedRowOutsideStore(self::TABLE, self::COLUMN, [$code], $store)',
+            $refund,
+            'LotteryRefundOwnershipGuard no longer runs the shared set predicate. Its own single-'
+            . 'value read is LOOSER than it looks under MySQL\'s _ci collation -- measured in '
+            . 'tests/Support/Security/bin/verify-lottery-refund-collation-on-mysql.php, where it '
+            . 'reports a request owned while the handler\'s unscoped ->first() reaches a foreign '
+            . 'row.');
+
+        $this->assertFileExists(base_path('tests/Feature/Security/LotteryTicketWriterTest.php'));
+        $this->assertFileExists(
+            base_path('tests/Support/Security/bin/verify-lottery-refund-collation-on-mysql.php')
+        );
+
+        // THE 'platform' WRITE'S CONTROL -- the mail-template prerequisite. `email_templates` has
+        // no store_id, so no predicate is possible and the classification cannot be checked the
+        // usual way. What makes it safe is that `created_by` comes from the authenticated user and
+        // never from request input, which IS checkable.
+        $prereq = (string) file_get_contents(
+            base_path('app/Http/Middleware/LotteryMailTemplatePrerequisite.php')
+        );
+
+        $this->assertStringContainsString("'created_by' => \$userId,", $prereq,
+            'LotteryMailTemplatePrerequisite no longer stamps the row with the owner id it was '
+            . 'given. Without it the insert could land a template under another tenant.');
+
+        // THE F2 CONTROL: the existence read must go through the SAME builder as the write.
+        // App\Models\EmailTemplate is Cachable and the Eloquent builder's pluck() caches even an
+        // empty result, while DB::table()->insert() flushes nothing -- so an Eloquent read here
+        // served the pre-write empty set and the SECOND draw re-inserted all three rows. Measured
+        // at email_templates 3 -> 6 across two draws, and pinned behaviourally by
+        // LotteryTicketWriterTest::test_a_second_draw_does_not_insert_the_templates_again.
+        $this->assertStringContainsString("DB::table('email_templates')\n                ->whereIn('name', self::TEMPLATES)", $prereq,
+            'LotteryMailTemplatePrerequisite no longer reads through the query builder it writes '
+            . 'with. An Eloquent read on this Cachable model serves a cached empty set that the '
+            . 'raw insert does not flush, and every draw after the first inserts three more rows.');
+
+        $this->assertStringNotContainsString('EmailTemplate::query()', $prereq,
+            'LotteryMailTemplatePrerequisite is reading through the Cachable Eloquent builder '
+            . 'again. See the assertion above: this is what made the second draw duplicate.');
+
+        // PINNED STRUCTURALLY BECAUSE IT CANNOT BE PINNED BEHAVIOURALLY, and that is stated rather
+        // than dressed up. `auth()` with no guard name reads the MUTABLE default guard, which can
+        // hold a Customer or DeliveryBoy -- CustomAuth logs a token into whichever guard matches
+        // its tokenable class. The `instanceof` is the sibling guards' own rule
+        // (LotteryDrawOwnershipGuard:156-168) applied here.
+        //
+        // A removal check on it comes back GREEN, and the reason is that it is NOT REACHABLE
+        // TODAY: config/auth.php defaults to `web`, the route's own `auth` gates on `web`, nothing
+        // in app/ calls Auth::shouldUse(), and LotteryDrawOwnershipGuard's explicit
+        // auth('web')->user() null-limb would deny first in any case. So no test can drive it, and
+        // claiming it is covered by one would be false. This assertion is what stops it being
+        // deleted as dead code by someone who runs the removal check and sees green.
+        $this->assertStringContainsString('if ($user instanceof User) {', $prereq,
+            'LotteryMailTemplatePrerequisite no longer checks that the principal is a User before '
+            . 'writing. auth() reads the mutable default guard, so a Customer or DeliveryBoy id '
+            . 'could reach created_by -- bounded by the users.id foreign key, but not a control.');
+
+        $this->assertStringContainsString('$this->ensureTemplatesExist((int) $user->id)', $prereq,
+            'LotteryMailTemplatePrerequisite no longer takes the owner id from the authenticated '
+            . 'user. An id read from request input here would write into any tenant -- the exact '
+            . 'pattern CLAUDE.md names as the most productive defect shape in this codebase.');
+
+        // PINNED ON THE CALL SHAPE, NOT THE NAME. The first version of this assertion matched the
+        // bare string `userTemplateDefaultData` and failed immediately -- on the guard's own
+        // DOCBLOCK, which names that method in order to explain why it is deliberately NOT called.
+        // A ratchet that reddens on the comment explaining the control is worse than no ratchet.
+        $this->assertStringNotContainsString("table('user_email_templates')", $prereq,
+            'LotteryMailTemplatePrerequisite now writes user_email_templates join rows. Those are '
+            . 'what decides whether mail is SENT, so creating them would start sending '
+            . 'lottery-loser email on behalf of a merchant who never configured a template. '
+            . 'Removing a crash must not become an outbound behaviour change.');
 
         // THE SECOND 'comparison' SITE'S CONTROLS -- the shared trait, which is where the raw
         // read and the store comparison now live for BOTH module guards. Pinned on the

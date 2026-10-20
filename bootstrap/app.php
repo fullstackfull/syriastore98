@@ -162,6 +162,83 @@ return Application::configure(basePath: dirname(__DIR__))
         // resource read "stub: update() and destroy() are both //" -- true of those two methods and
         // falsely reassuring about the resource. See the guard docblock.
         $middleware->appendToGroup('web', \App\Http\Middleware\LotteryDrawOwnershipGuard::class);
+        // P1-INV-20. Three more LotteryPrizes defects, each measured before anything was
+        // written and each needing its own vehicle -- they share a module, not a mechanism.
+        //
+        //   1. `StoreLotteryPayment` writes a `purchase_tickets` row ANONYMOUSLY into whichever
+        //      store the caller's URL slug names, with the caller's own `amount`. Measured: an
+        //      unauthenticated GET to /{slug}/store-lottery-payment returned HTTP 200 and took
+        //      purchase_tickets from 0 to 1 in the victim's store. Eight routes reach that one
+        //      method from a ['web']-only group (routes/web.php:41-52) -- the same shape as the six
+        //      in P1-INV-14.
+        //
+        //      THIS ONE IS NOT CLOSED, AND THE GUARD'S NAME SHOULD NOT SUGGEST OTHERWISE. An
+        //      earlier version of this comment said requiring the session "refuses the attacker".
+        //      It costs them one request. MEASURED: POST /{victim}/lottery-form-data (no auth on
+        //      that route either) with the victim's product and payment_methods=telegram returns
+        //      200 and leaves `lottery_request_data` in the caller's own session --
+        //      processTelegram (LotteryPaymentService:1135-1140) is just
+        //      `Session::put(...); return view(...)` -- after which GET
+        //      /{victim}/store-lottery-payment returns 200 and writes the SAME row: victim's
+        //      store, customer_id 0, the caller's amount.
+        //
+        //      What the guard does close is the single-request, validator-free variant: the
+        //      `$request->all()` fallback at :568-570, the only path to the five gateway-callback
+        //      routes, through which fields the form never collects can be supplied by hand. All
+        //      34 `Session::put('lottery_request_data', ...)` sites in LotteryPaymentService
+        //      populate the key on the real path, and the session-less path cannot serve a genuine
+        //      cross-site callback anyway (the gateway's POST body has no `ticket_price` and :571
+        //      reads one, so it 500s) -- so refusing it takes nothing from a legitimate caller and
+        //      replaces their 500 with a message.
+        //
+        //      Closing it properly needs the gateway's own signature or a transaction lookup
+        //      INSIDE the handler; no middleware can ask Paystack whether money moved, and
+        //      requiring auth('customers') would break guest purchase, which is a real flow
+        //      (:614 writes customer_id = 0 for it). #67 item 1 stays OPEN; the forgeable amount
+        //      is #68.
+        //      -> LotteryTicketWriteGuard
+        //
+        //   2. `refund_lottery_form_data` DELETES a ticket keyed on the posted code plus the
+        //      customer id, with no store predicate -- `PurchaseTicket` is a Workdo model, absent
+        //      from config/tenancy.php's `scoped_models`, so it adds no predicate for anyone.
+        //      Measured: a refund posted on store A's form returned 302 "Refund sucessfully" and
+        //      deleted store B's row. Reachable because `customers` is ONE session guard, not one
+        //      per store, so a shopper's id ends up on rows in several stores. An unmatched code is
+        //      separately a 500: `->delete()` on null.
+        //      -> LotteryRefundOwnershipGuard
+        //
+        //   3. A LEGITIMATE own-store draw returns 500 AFTER writing, because
+        //      LotteryResultController:157 does `$FailTemplate['id']` on null when the merchant has
+        //      no 'Lottery Fail' template. Ordinary, not an edge case: the only code that creates
+        //      that template is `EmailTemplateDefaultData()`, called from exactly one place -- the
+        //      mail-settings screen at LotteryPrizesController:315 -- where sibling modules wire
+        //      the same call into a ViewComposer that runs on every render (SpinToWinReward's
+        //      ViewComposer:42). A merchant who never opens that screen has no template.
+        //      -> LotteryMailTemplatePrerequisite
+        //
+        // All three are keyed on the CONTROLLER ACTION rather than the uri. P1-INV-17's census
+        // missed live routes twice by keying on uri shape -- once on uri words, once on a prefix --
+        // and item 1 alone spans eight uris, two with an optional {storeSlug?} segment.
+        //
+        // Registered on the `web` GROUP, not on the routes: module route files load from
+        // `app->booted()`, after routes/web.php, and re-declaring a method+uri there replaces the
+        // earlier declaration and silently drops its middleware. The group survives
+        // `route:cache`, which stores declared middleware names unexpanded.
+        //
+        // NOT CLOSED, and recorded rather than implied: a caller who submits the lottery form
+        // legitimately may still skip the gateway and call the return URL directly, so the ticket
+        // is written unpaid -- that needs the gateway's own signature check, inside the handler.
+        // `ticket_price` is also a client-posted hidden input (lottery-form.blade.php:277) that
+        // lands in `purchase_tickets.amount`, so the RECORDED amount is forgeable even when the
+        // charge is not. And `sendOwnerEmailTemplate:715` resolves the email template with no
+        // `created_by`, which is cross-tenant: it is a static call from inside vendored
+        // controllers, with no middleware, policy or scope seam between caller and callee, and the
+        // only host-side lever -- a global scope on the shared App\Models\EmailTemplate -- would
+        // reach every module's template reads and the operator's own management screens. Left to
+        // upstream, stated, not quietly dropped.
+        $middleware->appendToGroup('web', \App\Http\Middleware\LotteryTicketWriteGuard::class);
+        $middleware->appendToGroup('web', \App\Http\Middleware\LotteryRefundOwnershipGuard::class);
+        $middleware->appendToGroup('web', \App\Http\Middleware\LotteryMailTemplatePrerequisite::class);
         // SEC-R1-02 / R2-07 / NEW-throttle-bypass: the RateLimiter named 'api'
         // is defined at app/Providers/RouteServiceProvider.php:27-29 but was
         // never applied to the 'api' middleware group, so it was dead code and
