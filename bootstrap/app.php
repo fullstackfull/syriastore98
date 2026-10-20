@@ -239,6 +239,24 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->appendToGroup('web', \App\Http\Middleware\LotteryTicketWriteGuard::class);
         $middleware->appendToGroup('web', \App\Http\Middleware\LotteryRefundOwnershipGuard::class);
         $middleware->appendToGroup('web', \App\Http\Middleware\LotteryMailTemplatePrerequisite::class);
+        // P1-INV-22 item 5. `POST lotteryproduct` -> LotteryPrizesController::store():90-137 writes
+        // `lottery_settings` rows whose `lottery_products` is a CALLER-SUPPLIED product id, with no
+        // check that the product is the caller's. REPRODUCED BY EXECUTION: a merchant holding
+        // `Edit Lottery Setting` posted two repeater rows, one naming their own product and one
+        // naming store 2's, and both were written into store 1 with the caller's own ticket_price.
+        // The row lands in the attacker's OWN tenant -- `:107` scopes the existing rows by
+        // getCurrentStore() and `:114` writes that same store_id -- which is precisely why no
+        // store_id predicate in the application notices. The cross-tenant part is the REFERENCE,
+        // and it is financial: `lottery_form_data:535` resolves the product with `Product::find()`,
+        // no store predicate and `Product` in no scoped_models list, then `:537-539` matches the
+        // setting on (store_id, lottery_products) -- so the forged row makes the attacker's own
+        // storefront sell tickets for the victim's product at the attacker's price, and the draw
+        // awards the victim's product. The guard asks the one question store() never asks. It
+        // PASSES THE OPERATOR THROUGH on purpose: `:92`'s isAbleTo has no operator limb and this
+        // codebase has no super-admin bypass, so the handler already refuses them -- that is item
+        // 3, a vendored fail-closed defect, and a second lockout here would only make the eventual
+        // upstream fix land on a route we had independently closed.
+        $middleware->appendToGroup('web', \App\Http\Middleware\LotterySettingProductOwnershipGuard::class);
         // P1-INV-19. `POST /{storeSlug}/product-bid` writes ALL FOUR of its columns from request
         // input, so any customer with a session on ANY store can forge a bid attributed to another
         // customer on another store's product. AuctionProductController:1600-1603. The
