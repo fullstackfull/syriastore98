@@ -100,8 +100,40 @@ php artisan test --filter ClaudeConfigurationTest   # asserts the committed conf
 php artisan test --testsuite=Contract               # 26 tests, the Flutter API contract
 ```
 
-That is the whole bootstrap for everything the repository owns. Nothing to install, nothing to
-authenticate, no network.
+That is the whole bootstrap for everything the repository owns: no tool to install, nothing to
+authenticate, no credential to supply.
+
+**`composer install` does need the network** — `repo.packagist.org`, and whatever
+`packages/workdo/` resolves from. The "nothing to install" above is about *tooling*, not about
+PHP dependencies, and an earlier draft of this line said "no network" without that distinction.
+Everything after `composer install` is offline: the tests run on SQLite `:memory:`, and no step
+reaches a hosted service.
+
+### What was actually verified, and what was not
+
+Run on 2026-10-20 against commit `aeb2f225`, cloned fresh from `origin` into a scratch directory
+(not copied from a working tree):
+
+| step | result |
+|---|---|
+| every file this document lists as repository-owned | present in the clone |
+| `.claude/agents/`, `.claude/commands/`, `.claude/hooks/`, `.claude/settings.json` | present |
+| no `.env` in the clone (only `.env.example`, `.env.testing`) | confirmed |
+| skill frontmatter parses; `name` matches its directory | confirmed |
+| `php artisan test --filter ClaudeConfigurationTest` | **71 passed**, 413 assertions |
+| `php artisan test --testsuite=Contract` | **26 passed**, 83 assertions |
+| the four CI guards, run from the clone | all exit 0 |
+| `composer install` | **not verified** — see below |
+
+`composer install` could not be run to completion: this container's network policy resets the
+connection to `repo.packagist.org`, so the install stalled and was killed at 9 minutes. The
+dependency tree was instead supplied from the existing checkout by hardlink, after confirming the
+clone's `composer.lock` is byte-identical (`sha256 1227b225…2557`) — so the *dependency set* is
+exactly what `composer install` would resolve, and `realpath()` was checked to confirm the
+autoloader resolved inside the clone rather than back into the source checkout. What remains
+unverified is composer's own download step, which is a property of the network, not of this
+repository. Anyone repeating this check in an environment that permits `repo.packagist.org` gets
+the one missing line.
 
 **What this does NOT restore, stated plainly:** `frontend-design` is an account-level skill and is
 not in the repository. A fresh session on a different account will not have it, exactly as this
