@@ -30,25 +30,35 @@ rule:
 
 ## Verdicts
 
-| tool | verdict | committable? |
-|---|---|---|
-| `superpowers` | **OPTIONAL** | skill md copyable |
-| `context7` | **OPTIONAL — OWNER-GATED** | mcp server needs config |
-| `graphify` | **LATER_PHASE** | requires account or cli install |
-| `anthropic-security-review` | **REJECTED** | skill md copyable |
-| `gstack` | **REJECTED** | npm or binary |
-| `claude-mem` | **REJECTED** | requires account or cli install |
-| `strix` | **REJECTED** | requires account or cli install |
-| `agent-skills-cli` | **OPTIONAL — LOW VALUE** | npm or binary |
-| `21st-dev-mcp` | **REJECTED** | mcp server needs config |
-| `react-bits` | **REJECTED — REFERENCE ONLY** | reference only |
-| `gsap` | **LATER_PHASE — OWNER/LEGAL GATED** | npm or binary |
-| `lenis` | **LATER_PHASE — PRE-CLEARED** | npm or binary |
+All twelve verdicts below were put to the owner on 2026-10-20 and all are now settled. The
+"owner's position" column is their answer, not my recommendation.
 
-**Nothing is `APPROVED_NOW`.** That is the honest result of reading the upstreams rather than the
-pitches: four candidates collide head-on with a constraint the owner stated, two are React-only on
-a Blade stack, one is proprietary, and the two with real value for this project both need an owner
-decision about data leaving the machine.
+| tool | verdict | owner's position | committable? |
+|---|---|---|---|
+| `superpowers` | **APPROVED_NOW** — 3-skill subset only | **adopt a minimal nonconflicting subset** | skill md copyable — and copied |
+| `context7` | **OPTIONAL — CONDITIONALLY PERMITTED** | **public framework docs only**; no proprietary source, secrets or customer data | mcp server needs config |
+| `graphify` | **LATER_PHASE** | **deferred** | requires account or cli install |
+| `anthropic-security-review` | **REJECTED** | — (duplicates the built-in `/security-review`) | skill md copyable |
+| `gstack` | **REJECTED** | **do not install** | npm or binary |
+| `claude-mem` | **REJECTED** | **do not install** | requires account or cli install |
+| `strix` | **REJECTED** | **do not install** | requires account or cli install |
+| `agent-skills-cli` | **OPTIONAL — LOW VALUE** | — (not raised; no capability gap) | npm or binary |
+| `21st-dev-mcp` | **REJECTED** | — (React-only on a Blade stack) | mcp server needs config |
+| `react-bits` | **REJECTED — REFERENCE ONLY** | — (React-only on a Blade stack) | reference only |
+| `gsap` | **LATER_PHASE — OWNER/LEGAL GATED** | **deferred** | npm or binary |
+| `lenis` | **LATER_PHASE — PRE-CLEARED** | — (not raised; Phase 02/03) | npm or binary |
+
+**Exactly one candidate is `APPROVED_NOW`, and only as three of its fifteen skills** — three
+Markdown files plus four companions, with no executable surface. The earlier version of this
+manifest said "nothing is `APPROVED_NOW`", which was true when it was written and is no longer.
+The rest of that sentence still holds, and is the honest result of reading the upstreams rather
+than the pitches: four candidates collide head-on
+with a constraint the owner stated, two are React-only on a Blade stack, one is proprietary, and
+the one with real value for this project is permitted only for public documentation.
+
+Nothing here has a hook, a credential, an auto-update path or any network egress. The three
+adopted skills were chosen after reading all fifteen candidates in their upstream, and twelve were
+rejected on specific, cited grounds — see the owner-decisions section.
 
 ## Three findings that would have bitten whoever installed these
 
@@ -70,9 +80,9 @@ which is exactly what a Phase 03 downloadable theme might do.
 
 ## Per-tool record
 
-### `superpowers` — OPTIONAL
+### `superpowers` — APPROVED_NOW, AS A THREE-SKILL SUBSET ONLY (owner-approved 2026-10-20)
 
-**Why this verdict:** Committable as a hand-vendored SUBSET only. Not approved wholesale: only 3 of ~20 SKILL.md files were read.
+**Why this verdict:** Committable as a hand-vendored SUBSET only, and that is what was done — `test-driven-development`, `systematic-debugging`, `verification-before-completion`, seven files, committed under `.claude/skills/` with provenance and content pins. The other twelve skills are rejected on read grounds; see the owner-decisions section. **This record was written when only 3 of 15 SKILL.md files had been read; the subset decision was made after reading the candidates, and the per-skill reasoning is in `.claude/skills/PROVENANCE.md`.**
 
 - **What it is** — An agentic skills framework and software-development methodology for coding agents (v7.0.0), shipped as a Claude Code plugin: a library of Markdown skills under skills/ covering brainstorming, writing-plans, subagent-driven-development, TDD, systematic debugging, git worktrees, code review and branch finishing. A SessionStart hook injects the using-superpowers bootstrap so the skills trigger automatically.
 - **Source read** — https://github.com/obra/superpowers — plus raw reads of /main/LICENSE, /main/package.json, /main/index.js, /main/README.md, /main/RELEASE-NOTES.md, /main/.claude-plugin/plugin.json, /main/hooks/{hooks.json,hooks-cursor.json,run-hook.cmd,session-start}, /main/skills/writing-plans/SKILL.md, /main/skills/finishing-a-development-branch/SKILL.md, /main/skills/brainstorming/scripts/server.cjs
@@ -315,16 +325,57 @@ Recorded so nobody re-derives it, and so a later session does not mistake "evalu
   field-by-field; `anthropic-security-review`'s last-commit date and a line-level diff against the
   built-in; `lenis`'s unverified "few KB".
 
-## Owner decisions, reported separately as asked
+## Owner decisions — ANSWERED 2026-10-20
 
-None of these is mine to make, and none is required for Phase 01 to continue.
+All four were put to the owner and all four came back. Recorded here as the standing position, so
+the next session does not re-ask.
 
-| # | decision | what turns on it |
-|---|---|---|
-| 1 | **`context7`**: may library-documentation queries leave the machine to Upstash's hosted backend, and may a `ctx7sk-` API key be stored? | The only candidate that adds a capability this project genuinely lacks: version-pinned docs for Laravel 11.47 / Sanctum / Laratrust. Stale model knowledge has already cost this codebase — `permissions_as_gates`, the absent `sanctum` guard. Conditions if approved are in the usage policy. |
-| 2 | **`gsap`**: a legal reading of the Webflow licence against a merchant-facing Theme Builder and downloadable themes. | Whether Phase 03 may use GSAP at all. Proprietary, "All rights reserved", terminable, unilaterally amendable. |
-| 3 | **`react-bits`**: whether Commons Clause "ported version" bars redistribution inside a Phase 03 theme. | Reference-only use needs no decision; redistribution does. |
-| 4 | **`superpowers`**: adopt a hand-vendored subset at all? | If yes, it is committed file-by-file and reviewed in the diff — **not** installed from the marketplace, whose own README says updates "are often automatic". |
+| # | decision | the owner's answer | what was done |
+|---|---|---|---|
+| 1 | **`context7`** — may library-documentation queries leave the machine, and may a `ctx7sk-` key be stored? | **Optional, for PUBLIC FRAMEWORK DOCUMENTATION ONLY.** Proprietary source, secrets and customer data must not be transmitted without further approval. | **Not installed.** Conditionally permitted, so it stays `OPTIONAL`. The condition is now a hard prohibition in the usage policy: a query may name a public framework and version; it may not carry this repository's code, schema, customer data or configuration. |
+| 2 | **`gsap`** — a legal reading of the Webflow licence. | **Deferred.** | Stays `LATER_PHASE`. Not revisited before Phase 03, and not without the legal reading. |
+| 3 | **`react-bits`** — does Commons Clause bar redistribution in a theme? | Not separately answered; the tool is `REJECTED` on other grounds (React-only, and this project is Blade). | Unchanged. The question only arises if the verdict is ever revisited. |
+| 4 | **`superpowers`** — adopt a hand-vendored subset at all? | **Yes — evaluate and adopt a minimal, nonconflicting subset for planning, TDD, debugging and verification, without duplicating the phase ledger or the execution protocol.** | **Done.** Three skills, seven files, vendored and committed. See below and `.claude/skills/PROVENANCE.md`. |
+
+Two further decisions arrived unprompted and are recorded for completeness:
+
+| tool | the owner's answer |
+|---|---|
+| `graphify` | **Deferred.** Stays `LATER_PHASE`. |
+| `gstack`, `claude-mem`, `strix` | **Do not install.** Confirms the `REJECTED` verdicts; these are now settled, not pending. |
+
+### The superpowers subset, as adopted
+
+Fifteen skills upstream. Each candidate was read before the decision, not after — which is how
+twelve came to be rejected on specific grounds rather than on a general impression.
+
+**Adopted — `test-driven-development`, `systematic-debugging`, `verification-before-completion`.**
+Prose only: no mandated path, no git command, no script, no URL, no credential. Verified by scanning
+the seven files, not assumed from the README. The two cross-references they contain point at each
+other and were rewritten to the bare project-local names.
+
+**Rejected, and the two that matter most:**
+
+- **`executing-plans`** keeps its own progress ledger at `.superpowers/sdd/<plan>/progress.md` and
+  depends on both `writing-plans` and `finishing-a-development-branch`. It is a second execution
+  protocol with a second ledger — precisely what the owner ruled out.
+- **`brainstorming`** looked adoptable (its local HTTP server is genuinely optional) and is not: it
+  mandates a second committed document tree at `docs/superpowers/specs/`, and it **hard-gates into
+  the excluded skill** — "After a project's document is approved … invoke superpowers:writing-plans
+  and no other skill."
+
+`requesting-code-review` is the interesting near-miss: technically nonconflicting, and still
+rejected, because `tenant-authz-reviewer` carries this codebase's own facts and that specificity is
+what has actually found defects. A generic reviewer sitting beside it invites using the weaker one.
+
+**So the planning leg of the owner's four purposes is covered by nothing from upstream.** That is
+the honest outcome: superpowers' planning skills are inseparable from their own ledger, and this
+project already has one. TDD, debugging and verification are covered.
+
+The full per-skill reasoning, the licence, the content pins and the four modifications made on
+vendoring are in `.claude/skills/PROVENANCE.md`, and five tests in
+`tests/Unit/Ci/ClaudeConfigurationTest.php` hold the conditions — each confirmed to fail when its
+control is broken.
 
 ## How to verify this manifest is still true
 

@@ -239,6 +239,25 @@ concurrent assignments. **Do not start the next phase before Phase 01 acceptance
   this review, two of them *in the fix itself*.
 - **`.claude/commands/tenant-check.md`** — `/tenant-check`.
 
+**Vendored from `superpowers` (MIT), owner-approved as a three-skill subset. Committed, so these
+work everywhere too** — pinned by content hash with every modification disclosed in
+`.claude/skills/PROVENANCE.md`:
+
+- **`test-driven-development`** — failing test first. **This project is stricter:** after the fix,
+  revert it and confirm the test fails again. The skill's rule catches a test that never ran; ours
+  catches a test that passes for the wrong reason, which is the one that has actually bitten here.
+- **`systematic-debugging`** — root cause before fix, one hypothesis at a time, stop and reconsider
+  the architecture after three failed fixes. Its `root-cause-tracing.md` was localised on vendoring
+  to name the pollution this codebase really produces: a process-global Composer `ClassLoader` after
+  `loadAddons()`, `Cachable` models under `CACHE_STORE=array`, and memoised container bindings.
+- **`verification-before-completion`** — evidence before claims. The same rule as "claim only what
+  you executed" below, and worth having twice.
+
+Twelve of upstream's fifteen skills were read and rejected, most for introducing a second plan tree
+or progress ledger beside the Phase 01 ledger, two for running `git merge`/`git push`. **There is
+no vendored planning skill and that is deliberate** — upstream's planning skills are inseparable
+from their own ledger. Use the ledger and the Issues.
+
 **Account-level, so it may be absent:**
 
 - **`frontend-design`** — aesthetic direction for UI work. Present in some environments, not all.
@@ -257,9 +276,15 @@ framework's own truth for the version actually installed.
 
 The full evaluation of candidate additions — twelve tools, each read from its real upstream for
 license, install mechanics, hooks, egress and credentials — is in `docs/tooling/SKILLS-MANIFEST.md`,
-with routing rules and the hard prohibitions in `docs/tooling/SKILL-USAGE-POLICY.md`. **Nothing from
-that list is installed**, and four items there need an owner decision. Do not install any of them
-without one.
+with routing rules and nine hard prohibitions in `docs/tooling/SKILL-USAGE-POLICY.md`. **One is
+adopted** (the superpowers subset above). Every other candidate is rejected or deferred, and all of
+them are now settled by an owner decision recorded in the manifest — so do not re-ask, and do not
+install anything else without a new one.
+
+Two standing conditions worth knowing without opening the policy: **`context7` is permitted for
+public framework documentation only** — a query may name a package and version, never this
+repository's code, schema, config or customer data; and **`gstack`, `claude-mem` and `strix` must
+not be installed**, by owner decision.
 
 The storefront and admin are **Blade + Tailwind**, bilingual **Arabic (RTL) and English (LTR)**.
 Any UI change must be checked in both directions, and contrast-checked — Claude B's verification

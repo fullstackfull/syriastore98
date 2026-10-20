@@ -102,6 +102,18 @@ class ClaudeConfigurationTest extends TestCase
             '.claude/agents/tenant-authz-reviewer.md',
             '.claude/commands/tenant-check.md',
             '.claude/skills/store-syria-laravel-tenancy/SKILL.md',
+            '.claude/skills/PROVENANCE.md',
+            // THE VENDORED SUPERPOWERS SUBSET, three skills and four companion files. Listed
+            // individually rather than globbed so that losing ONE of them is a failure: a
+            // companion file is referenced from its SKILL.md, and a SKILL.md whose companion has
+            // gone reads as complete while pointing at nothing.
+            '.claude/skills/test-driven-development/SKILL.md',
+            '.claude/skills/test-driven-development/writing-good-tests.md',
+            '.claude/skills/systematic-debugging/SKILL.md',
+            '.claude/skills/systematic-debugging/root-cause-tracing.md',
+            '.claude/skills/systematic-debugging/defense-in-depth.md',
+            '.claude/skills/systematic-debugging/condition-based-waiting.md',
+            '.claude/skills/verification-before-completion/SKILL.md',
             '.claude/README.md',
             'CLAUDE.md',
             'docs/tooling/SKILLS-MANIFEST.md',
@@ -735,17 +747,174 @@ class ClaudeConfigurationTest extends TestCase
         // left $m null, and the test died on a TypeError instead of checking anything. A regex
         // that fails to compile is a control that silently stops controlling, so the explicit
         // `is_array` assertion below stays even though the delimiter is now right.
-        $matched = preg_match_all('#^\| `([a-z0-9@._/-]+)` \| \*\*([A-Z_]+)#m', $manifest, $m);
+        // SCOPED TO THE VERDICT SECTION, and this is the second defect this one assertion has had.
+        //
+        // The pattern used to run against the WHOLE manifest, so it matched any table row anywhere
+        // shaped `| `name` | **Upper...`. That went unnoticed until an owner-decisions table added
+        // `| `graphify` | **Deferred.** |`, from which `[A-Z_]+` captured the single letter `D` --
+        // and the test then failed claiming `D` was an invalid verdict. The test was right that
+        // something was wrong and wrong about what: it was reading a table it does not govern.
+        //
+        // A control that checks a wider set than it claims to is the same class of error as the
+        // censuses in P1-INV-17 that keyed on uri shape: it looks thorough and answers a different
+        // question. So the section is extracted first, with a premise assertion that the heading is
+        // still there -- because a renamed heading would silently reduce this to checking nothing.
+        $verdictStart = strpos($manifest, '## Verdicts');
+        $this->assertNotFalse($verdictStart,
+            'The manifest no longer has a `## Verdicts` section, so this test would check nothing.');
+
+        $nextHeading = strpos($manifest, "\n## ", $verdictStart + 1);
+        $verdictSection = $nextHeading === false
+            ? substr($manifest, $verdictStart)
+            : substr($manifest, $verdictStart, $nextHeading - $verdictStart);
+
+        $matched = preg_match_all('#^\| `([a-z0-9@._/-]+)` \| \*\*([A-Z_]+)#m', $verdictSection, $m);
 
         $this->assertNotFalse($matched, 'The verdict-table pattern failed to compile.');
         $this->assertIsArray($m[2] ?? null, 'The verdict-table pattern captured nothing.');
 
         $this->assertGreaterThanOrEqual(10, count($m[1]),
-            'The manifest verdict table lists fewer tools than were evaluated.');
+            'The manifest verdict table lists fewer tools than were evaluated. Found '
+            . count($m[1]) . ' in the `## Verdicts` section.');
 
         foreach ($m[2] as $verdict) {
             $this->assertContains($verdict, ['APPROVED_NOW', 'OPTIONAL', 'LATER_PHASE', 'REJECTED'],
                 "`{$verdict}` is not one of the four classifications the owner asked for.");
+        }
+    }
+
+    /**
+     * EVERY VENDORED SKILL IS DISCOVERABLE AND NAMED CORRECTLY.
+     *
+     * A skill whose frontmatter `name` does not match its directory is not offered, silently --
+     * which is the whole failure this tooling work exists to correct. Asserted per skill rather
+     * than by a loop over whatever happens to be on disk, because a loop over the directory would
+     * pass if a directory were deleted.
+     */
+    public function test_every_vendored_skill_is_discoverable(): void
+    {
+        foreach ([
+            'test-driven-development',
+            'systematic-debugging',
+            'verification-before-completion',
+        ] as $name) {
+            $path = $this->root() . '/.claude/skills/' . $name . '/SKILL.md';
+            $this->assertFileExists($path);
+
+            $source = (string) file_get_contents($path);
+
+            $this->assertStringStartsWith("---\n", $source,
+                "{$name}/SKILL.md does not open with YAML frontmatter, so it is not a skill.");
+            $this->assertMatchesRegularExpression('/^name:\s*' . preg_quote($name, '/') . '\s*$/m', $source,
+                "{$name}/SKILL.md's frontmatter name does not match its directory, so the skill "
+                . 'is never offered.');
+            $this->assertMatchesRegularExpression('/^description:\s*\S/m', $source,
+                "{$name}/SKILL.md has no description, so nothing decides when to use it.");
+        }
+    }
+
+    /**
+     * NOTHING A VENDORED SKILL REFERENCES IS MISSING.
+     *
+     * Two dangling-reference classes, both of which were present in the upstream files and both
+     * fixed on vendoring (PROVENANCE.md M1-M4):
+     *
+     *   1. `superpowers:<skill>` -- the plugin namespace. These files are committed as
+     *      project-local skills, not installed as a plugin, so a namespaced reference resolves to
+     *      nothing. The namespace must not reappear.
+     *   2. `find-polluter.sh` -- a sibling script that is deliberately NOT vendored. Upstream's
+     *      section pointed at it; the replacement names this project's own technique. The
+     *      invocation must not reappear.
+     *
+     * Both are the same mistake in different clothes: a file that reads as complete while pointing
+     * at something absent. That is exactly what CLAUDE.md section 6 used to do.
+     */
+    public function test_no_vendored_skill_points_at_something_absent(): void
+    {
+        $files = glob($this->root() . '/.claude/skills/*/*.md') ?: [];
+
+        $this->assertGreaterThanOrEqual(8, count($files),
+            'Expected at least the project-local skill plus the seven vendored files. Found '
+            . count($files) . ' -- a skill directory has probably been removed.');
+
+        foreach ($files as $file) {
+            $source = (string) file_get_contents($file);
+            $relative = str_replace($this->root() . '/', '', $file);
+
+            $this->assertDoesNotMatchRegularExpression('/`superpowers:[a-z-]+`/', $source,
+                "{$relative} references a skill by its plugin namespace. These skills are "
+                . 'committed, not installed, so `superpowers:x` resolves to nothing. Use the bare '
+                . 'name.');
+
+            $this->assertStringNotContainsString('bash ./find-polluter.sh', $source,
+                "{$relative} invokes find-polluter.sh, which is not vendored here. See "
+                . 'PROVENANCE.md M4 -- the replacement names this project own technique.');
+        }
+    }
+
+    /**
+     * THE PROVENANCE RECORD STATES WHAT A SUPPLY-CHAIN RECORD HAS TO STATE.
+     *
+     * The owner's rule is that third-party skills are supply-chain dependencies. A record that
+     * omits the licence, the pin or the modifications is not one. This asserts the four things
+     * that would have to be reconstructed by hand if they were missing.
+     */
+    public function test_the_provenance_record_pins_what_was_vendored(): void
+    {
+        $source = (string) file_get_contents($this->root() . '/.claude/skills/PROVENANCE.md');
+
+        $this->assertStringContainsString('github.com/obra/superpowers', $source,
+            'PROVENANCE.md does not name the upstream.');
+        $this->assertStringContainsString('MIT', $source,
+            'PROVENANCE.md does not record the licence.');
+        $this->assertStringContainsString('NOT installed', $source,
+            'PROVENANCE.md no longer states that these are committed rather than installed, which '
+            . 'is the property that makes them portable and reviewable.');
+
+        // ONE PIN PER VENDORED FILE. Seven files, seven hashes -- a record that pins some of them
+        // tells you nothing about the rest.
+        $this->assertSame(
+            7,
+            preg_match_all('/^[0-9a-f]{64}\s+\S+\.md$/m', $source),
+            'PROVENANCE.md does not carry exactly one SHA-256 pin per vendored file. Without a '
+            . 'pin per file an upstream change to one of them is undetectable.'
+        );
+
+        // AND THE MODIFICATIONS. Four were made; all four must be disclosed, because an
+        // undisclosed edit to a vendored file is indistinguishable from upstream content.
+        foreach (['M1', 'M2', 'M3', 'M4'] as $mod) {
+            $this->assertMatchesRegularExpression('/\|\s*' . $mod . '\s*\|/', $source,
+                "PROVENANCE.md does not disclose modification {$mod}.");
+        }
+    }
+
+    /**
+     * NO VENDORED SKILL INTRODUCES A SECOND LEDGER, A GIT WRITE, OR NETWORK EGRESS.
+     *
+     * These three are the owner's conditions, and they are why twelve of upstream's fifteen skills
+     * were rejected: `writing-plans` mandates its own plan tree, `executing-plans` keeps its own
+     * progress ledger under `.superpowers/sdd/`, and `finishing-a-development-branch` runs
+     * `git merge` and `git push`. A later update that pulled any of those in would be caught here
+     * rather than at the moment it merged something.
+     */
+    public function test_no_vendored_skill_competes_with_the_project_protocol(): void
+    {
+        foreach (glob($this->root() . '/.claude/skills/*/*.md') ?: [] as $file) {
+            $source = (string) file_get_contents($file);
+            $relative = str_replace($this->root() . '/', '', $file);
+
+            $this->assertDoesNotMatchRegularExpression('#docs/superpowers|\.superpowers/#', $source,
+                "{$relative} references a superpowers-owned document or workspace path. That is a "
+                . 'second ledger beside docs/development/phase-1/phase-01-tasks.json and GitHub '
+                . 'Issues, which the owner forbade.');
+
+            $this->assertDoesNotMatchRegularExpression('/\bgit (merge|push|worktree)\b/', $source,
+                "{$relative} instructs a git merge, push or worktree. Against 'never merge into "
+                . "main' and 'keep PR #3 Draft'.");
+
+            $this->assertDoesNotMatchRegularExpression('#https?://#', $source,
+                "{$relative} contains a URL. The vendored subset was chosen partly because it has "
+                . 'no egress at all; a URL means that is no longer true.');
         }
     }
 
