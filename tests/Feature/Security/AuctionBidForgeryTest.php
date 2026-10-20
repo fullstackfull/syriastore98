@@ -28,44 +28,57 @@ use Illuminate\Support\Facades\Schema;
  * Written against UNFIXED code and expected to FAIL.
  */
 /**
- * THE REMOVAL CHECKS, AS MEASURED (scripted; each control deleted ALONE, suite re-run, file
- * restored byte-for-byte). 11 of 13 isolate, and FIVE OF THE ELEVEN ONLY BITE BECAUSE THE CHECK
- * ITSELF DEMANDED A TEST THAT DID NOT EXIST:
+ * THE REMOVAL CHECKS, AS MEASURED (scripted; each control deleted or weakened ALONE, suite re-run,
+ * file restored byte-for-byte). 14 of 16 isolate. SIX of the fourteen only bite because a check
+ * demanded a test that did not exist, and TWO controls exist only because an adversarial review
+ * found live defects in the first version of this guard:
  *
- *   R1  the registration ...................... 6 fail
+ *   R1  the registration ...................... 9 fail
  *   R2  the customer_id derivation ............. 2 fail
- *   R3  the store_id derivation ................ 1 fail
- *   R4  the whole merge() ...................... 2 fail
- *   R5  the hasFile check ...................... 1 fail
+ *   R3  the store_id derivation ................ 2 fail
+ *   R4  the whole merge() ...................... 3 fail
+ *   R5  the file-bag check ..................... 2 fail   <- the control itself was ADDED by review
+ *   R14 array_key_exists vs hasFile ............ 1 fail   <- the LIVE defect: see below
+ *   R15 the sale_price floor ................... 2 fail   <- the LIVE money gap: see below
+ *   R16 the falsy ?: in the floor .............. 1 fail
  *   R6  the product-exists check ............... 1 fail   <- needed a status assertion
- *   R7  usableId strictness (filter_var) ....... 1 fail   <- needed '5.9' and '1.0'
- *   R9  the greater-than-max rule .............. 1 fail
+ *   R7  usableId strictness (filter_var) ....... 1 fail   <- needed '5.9'/'1.0', AND an amount
+ *                                                           that clears the floor (see below)
+ *   R9  the greater-than-floor rule ............ 3 fail
  *   R10 usableAmount strictness ................ 1 fail
- *   R11 the signed-in-customer limb ............ 1 fail   <- needed an anonymous probe
+ *   R11 the signed-in-customer limb ............ 3 fail   <- needed an anonymous probe
  *   R12 the action keying ...................... 1 fail   <- needed an inertness test
- *   R8  the amount validation .................. GREEN -- SUBSUMED, and not for the reason I first
- *                                               wrote. See the note in
- *                                               test_an_unusable_bid_amount_is_refused: the merged
- *                                               NULL is rejected by the HANDLER'S own
- *                                               `bid_amount => 'required'` validator, which runs
- *                                               before any write and is engine-independent. I had
- *                                               predicted a NOT NULL / MySQL-coercion mechanism;
- *                                               measurement refuted it.
- *   R13 the product_id derivation .............. GREEN -- NOT ISOLABLE, and stated rather than
- *                                               counted. The handler writes the RAW request value
- *                                               into an `unsignedBigInteger` column, so merging the
- *                                               parsed int removes a guard/handler divergence by
- *                                               construction. But for every value `filter_var`
- *                                               ACCEPTS, the raw string and the parsed int denote
- *                                               the same row on MySQL too -- `'5'`, `'+5'`, and
- *                                               `' 5'` (which global TrimStrings has already
- *                                               trimmed). The values where they differ, `'5.9'` and
- *                                               `'5abc'`, are refused by R7 before the merge is
- *                                               reached. So it is defence in depth against a future
- *                                               weakening of R7, with no reachable case today, and
- *                                               no MySQL script is written for it -- a script for an
- *                                               unreachable path would be evidence for a mechanism
- *                                               that does not operate.
+ *   R8  the amount validation .................. GREEN -- SUBSUMED. The merged NULL is rejected by
+ *                                               the HANDLER'S own `bid_amount => 'required'`
+ *                                               validator, before any write and so
+ *                                               engine-independent. I had predicted a NOT NULL /
+ *                                               MySQL-coercion mechanism; measurement refuted it.
+ *   R13 the product_id derivation .............. GREEN -- NOT ISOLABLE. For every value
+ *                                               `filter_var` accepts, the raw string and the parsed
+ *                                               int denote the same row on MySQL too; the values
+ *                                               where they differ are refused by R7 first. Defence
+ *                                               in depth, with no reachable case today -- and no
+ *                                               MySQL script, because a script for an unreachable
+ *                                               path is evidence for a mechanism that does not
+ *                                               operate.
+ *
+ * TWO LIVE DEFECTS THE REVIEW FOUND IN MY OWN FIX, both measured before being accepted:
+ *
+ *   `hasFile()` WAS THE WRONG PREDICATE. It is `isValidFile()`, which an ERRORED upload fails while
+ *   its key still occupies the file bag -- and `all()` overlays `allFiles()` on top of the merge.
+ *   Measured through the real HTTP stack: an `UPLOAD_ERR_INI_SIZE` part named `store_id` stored
+ *   `''`. The review named `UPLOAD_ERR_NO_FILE` as the trigger and that is the one case that does
+ *   NOT survive the harness's request rebuild, though it does defeat the merge on a bare
+ *   `Request::create`. Both are closed by `array_key_exists` on `allFiles()`.
+ *
+ *   THE FLOOR IGNORED sale_price. Measured: a first bid of 0.01 accepted on a product priced 100,
+ *   which `Console/Auction.php:73-109` would then award at 0.01. The floor is now the module's own
+ *   expression from `AuctionProductController:1571`.
+ *
+ * AND ONE CASE OF A NEW CONTROL MASKING AN OLD TEST. Adding the floor made R7 go GREEN: the
+ * nonexistent-product test bid exactly 100 on a product priced 100, so the floor refused it before
+ * the id check could matter. The test now bids 1000. A control quietly taking over another's job is
+ * the subtler half of what these checks are for.
  *
  * All assertions read rows through `DB::table()`. `AuctionProductBid` is `Cachable`
  * (src/app/Models/AuctionProductBid.php:12), and an Eloquent read in a test can serve a mutated
@@ -74,6 +87,21 @@ use Illuminate\Support\Facades\Schema;
 class AuctionBidForgeryTest extends SecurityTestCase
 {
     use RefreshDatabase;
+
+    /**
+     * The upload errors that leave a key in the file bag while `hasFile()` reports nothing.
+     * `UPLOAD_ERR_OK` is deliberately absent: a valid file IS reported by `hasFile()`, and the
+     * test above it covers that case.
+     */
+    private const ERRORED_UPLOADS = [
+        'UPLOAD_ERR_NO_FILE' => UPLOAD_ERR_NO_FILE,
+        'UPLOAD_ERR_INI_SIZE' => UPLOAD_ERR_INI_SIZE,
+        'UPLOAD_ERR_FORM_SIZE' => UPLOAD_ERR_FORM_SIZE,
+        'UPLOAD_ERR_PARTIAL' => UPLOAD_ERR_PARTIAL,
+        'UPLOAD_ERR_NO_TMP_DIR' => UPLOAD_ERR_NO_TMP_DIR,
+        'UPLOAD_ERR_CANT_WRITE' => UPLOAD_ERR_CANT_WRITE,
+        'UPLOAD_ERR_EXTENSION' => UPLOAD_ERR_EXTENSION,
+    ];
 
     private function enableModule(): void
     {
@@ -355,6 +383,117 @@ class AuctionBidForgeryTest extends SecurityTestCase
     }
 
     /**
+     * THE FIRST BID MUST STILL CLEAR THE PRODUCT'S SALE PRICE.
+     *
+     * A LIVE MONEY GAP IN MY FIRST VERSION, found by adversarial review and then measured: with
+     * `sale_price = 100` and no bids yet, a bid of **0.01** was accepted and stored.
+     * `Console/Auction.php:73-109` picks the maximum bid as the winner and writes an
+     * `AuctionProductOrder` at that price, so the item would go for a cent.
+     *
+     * The floor is the module's own expression, not one I chose.
+     * `AuctionProductController:1568-1571` computes
+     * `$bid_amount = $maxBidAmount ? $maxBidAmount : $product->sale_price`, and the page renders
+     * exactly that as "Current Highest Bid" (`:276`) and as the input's `min` (`:292`). So the
+     * pre-fix guard accepted what the page itself told the customer was too low.
+     *
+     * The falsy `?:` is deliberate and is asserted below: a stored maximum of 0 must fall back to
+     * `sale_price`, because `:1571` does the same and a guard that used `??` would diverge from the
+     * page for exactly that row.
+     */
+    public function test_the_first_bid_must_clear_the_products_sale_price(): void
+    {
+        $this->enableModule();
+
+        [$store, $productId] = $this->storeWithAuctionProduct('floor-store');
+        $customer = $this->customerIn($store);
+
+        // PREMISE: the fixture's sale_price is what the floor is built from, so assert it rather
+        // than trusting the helper.
+        $this->assertSame(100.0, (float) DB::table('products')->where('id', $productId)->value('sale_price'));
+        $this->assertNull(DB::table('auction_product_bids')->where('product_id', $productId)->max('bid_amount'),
+            'The premise of this test is that there is no bid yet, so the floor comes from sale_price.');
+
+        foreach (['0.01', '1', '99.99', '100'] as $amount) {
+            $before = DB::table('auction_product_bids')->count();
+
+            $response = $this->actingAs($customer, 'customers')
+                ->post('/floor-store/product-bid', [
+                    'product_id' => $productId,
+                    'bid_amount' => $amount,
+                    'customer_id' => $customer->id,
+                    'store_id' => $store->id,
+                ]);
+
+            $this->assertSame($before, DB::table('auction_product_bids')->count(),
+                "A first bid of {$amount} was accepted on a product whose sale_price is 100. "
+                . 'Console/Auction.php would award the item at that price.');
+            $this->assertNotSame(500, $response->getStatusCode(),
+                "A first bid of {$amount} crashed rather than being refused.");
+        }
+
+        // AND ONE ABOVE THE SALE PRICE IS ACCEPTED -- otherwise the floor is just a wall and the
+        // assertions above would hold for a guard that refused every first bid.
+        $this->actingAs($customer, 'customers')
+            ->post('/floor-store/product-bid', [
+                'product_id' => $productId,
+                'bid_amount' => '100.01',
+                'customer_id' => $customer->id,
+                'store_id' => $store->id,
+            ]);
+
+        $this->assertSame(100.01,
+            (float) DB::table('auction_product_bids')->where('product_id', $productId)->max('bid_amount'),
+            'A first bid above the sale price was refused, so no first bid can ever be placed.');
+    }
+
+    /**
+     * A STORED MAXIMUM OF ZERO FALLS BACK TO sale_price, which is why the floor uses `?:` and not
+     * `??`.
+     *
+     * `AuctionProductController:1571` is a FALSY test, so a product whose only bid is 0 shows
+     * `sale_price` as its "Current Highest Bid" and as the input's `min`. A guard using `??` would
+     * see `$currentMax = 0.0`, treat it as the floor, and accept 0.01 -- diverging from the page
+     * for precisely the row the page is lenient about.
+     *
+     * A zero-amount bid cannot be placed through this guard any more, so the row is seeded
+     * directly: it is pre-fix residue, which the table really can hold.
+     */
+    public function test_a_stored_maximum_of_zero_falls_back_to_the_sale_price(): void
+    {
+        $this->enableModule();
+
+        [$store, $productId] = $this->storeWithAuctionProduct('zero-store');
+        $customer = $this->customerIn($store);
+
+        DB::table('auction_product_bids')->insert([
+            'product_id' => $productId,
+            'bid_amount' => 0,
+            'customer_id' => $customer->id,
+            'store_id' => $store->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->assertSame(0.0,
+            (float) DB::table('auction_product_bids')->where('product_id', $productId)->max('bid_amount'),
+            'The premise is a stored maximum of exactly 0.');
+
+        $before = DB::table('auction_product_bids')->count();
+
+        $this->actingAs($customer, 'customers')
+            ->post('/zero-store/product-bid', [
+                'product_id' => $productId,
+                'bid_amount' => '0.01',
+                'customer_id' => $customer->id,
+                'store_id' => $store->id,
+            ]);
+
+        $this->assertSame($before, DB::table('auction_product_bids')->count(),
+            'A bid of 0.01 was accepted over a stored maximum of 0, so the floor used `??` rather '
+            . 'than `?:` and now disagrees with what the page shows as the minimum.');
+    }
+
+    /**
      * A NON-NUMERIC OR NON-POSITIVE AMOUNT IS REFUSED.
      *
      * `'999,999'` is the one worth naming: it is what a browser locale or a careless paste
@@ -434,10 +573,16 @@ class AuctionBidForgeryTest extends SecurityTestCase
         foreach ([999999, 0, -1, 'abc', '', '5abc', '5.9', '1.0'] as $productId) {
             $before = DB::table('auction_product_bids')->count();
 
+            // THE AMOUNT MUST CLEAR THE FLOOR, or this test stops isolating what it names. The
+            // fixture's sale_price is 100, so a bid of 100 is refused by the sale_price floor --
+            // and a removal check showed that masking the product-id check entirely: relaxing
+            // `usableId` to `is_numeric` made `'1.0'` resolve to the real product 1, the row
+            // should have landed, and the floor refused it first. A new control silently taking
+            // over an existing test's job is exactly what the removal checks are for.
             $response = $this->actingAs($customer, 'customers')
                 ->post('/ghost-store/product-bid', [
                     'product_id' => $productId,
-                    'bid_amount' => 100,
+                    'bid_amount' => 1000,
                     'customer_id' => $customer->id,
                     'store_id' => $store->id,
                 ]);
@@ -500,6 +645,98 @@ class AuctionBidForgeryTest extends SecurityTestCase
     }
 
     /**
+     * AN ERRORED FILE PART CANNOT DEFEAT THE DERIVATION -- the hole the first version of this
+     * guard actually had, found by adversarial review and then MEASURED, which corrected the
+     * review's own account of it.
+     *
+     * `UploadedFile::fake()` cannot express this, which is why
+     * `test_a_file_part_cannot_outrank_the_derived_customer_id` above did not catch it: a fake file
+     * is VALID, so `hasFile()` reports it. An ERRORED part is not valid and still occupies its key
+     * in the bag -- Symfony stores `null` for `UPLOAD_ERR_NO_FILE` (FileBag.php:72-73) and an
+     * `UploadedFile` with an empty `tmp_name` for the size errors -- while `hasFile()`
+     * (`isValidFile()`: `instanceof SplFileInfo && getPath() !== ''`) returns false for both.
+     * `all()` overlays `allFiles()` regardless.
+     *
+     * MEASURED, with the posted store deliberately DIFFERENT from the product's so the derived and
+     * posted values could be told apart -- my first probe posted the same value for both and so
+     * could not distinguish them, and reported a pass:
+     *
+     *   no file part          -> store_id = 2   (derived, correct)
+     *   UPLOAD_ERR_NO_FILE    -> store_id = 2   (derived; does NOT reproduce through HTTP)
+     *   UPLOAD_ERR_INI_SIZE   -> store_id = ''  <- THE MERGE WAS DEFEATED
+     *
+     * So the review named `UPLOAD_ERR_NO_FILE` as the trigger and it is the one that does not
+     * survive the test harness's request rebuild, although it does defeat the merge on a bare
+     * `Request::create`. The size errors are the live path. Both are driven here.
+     *
+     * WHY SUCH A ROW MATTERS, rather than being a curiosity: a bid with `store_id` empty or NULL
+     * still counts toward `max('bid_amount')` at AuctionProductController:1568/:1635 and at
+     * Console/Auction.php:73, all keyed on `product_id` alone -- so it can win another store's
+     * auction -- while being invisible to every `store_id`-filtered read in the module
+     * (biding_view.blade.php:28, AuctionOrdersController:331, AuctionProductOrderProvider:32) and
+     * to any future store-keyed reconciliation sweep. That is exactly the property this guard's
+     * own docblock refuses for the PRODUCT's store, applied to the bid row.
+     *
+     * ASSERTED ON THE STORED VALUE, not on the row count: whether the guard refuses the request or
+     * derives through it is an implementation choice, but `store_id` must never be anything other
+     * than the product's store.
+     */
+    public function test_an_errored_file_part_cannot_defeat_the_derivation(): void
+    {
+        $this->enableModule();
+
+        [$storeA, ] = $this->storeWithAuctionProduct('err-a');
+        [$storeB, $productB] = $this->storeWithAuctionProduct('err-b');
+        $attacker = $this->customerIn($storeA);
+
+        // PREMISE: the two stores must differ, or this test cannot see the defect at all. That is
+        // not hypothetical -- the first version of this probe posted the product's own store and
+        // reported a pass against the broken guard.
+        $this->assertNotSame((int) $storeA->id, (int) $storeB->id);
+
+        foreach (self::ERRORED_UPLOADS as $label => $error) {
+            foreach (['store_id', 'customer_id', 'product_id', 'bid_amount'] as $key) {
+                $before = DB::table('auction_product_bids')->count();
+
+                $response = $this->actingAs($attacker, 'customers')->call(
+                    'POST',
+                    '/err-a/product-bid',
+                    [
+                        'product_id' => $productB,
+                        'bid_amount' => 1000 + $before,
+                        'customer_id' => $attacker->id,
+                        'store_id' => $storeA->id,   // NOT the product's store
+                    ],
+                    [],
+                    [$key => [
+                        'name' => '', 'type' => '', 'tmp_name' => '',
+                        'error' => $error, 'size' => 0,
+                    ]]
+                );
+
+                $this->assertNotSame(500, $response->getStatusCode(),
+                    "An errored file part named {$key} ({$label}) crashed the request.");
+
+                $row = DB::table('auction_product_bids')->orderByDesc('id')->first();
+
+                if (DB::table('auction_product_bids')->count() === $before) {
+                    continue;   // refused outright, which is also a correct outcome
+                }
+
+                $this->assertSame((int) $storeB->id, (int) $row->store_id,
+                    "An errored file part named {$key} ({$label}) defeated the store_id "
+                    . 'derivation. Stored: ' . var_export($row->store_id, true));
+                $this->assertSame((int) $attacker->id, (int) $row->customer_id,
+                    "An errored file part named {$key} ({$label}) defeated the customer_id "
+                    . 'derivation. Stored: ' . var_export($row->customer_id, true));
+                $this->assertSame((int) $productB, (int) $row->product_id,
+                    "An errored file part named {$key} ({$label}) defeated the product_id "
+                    . 'derivation.');
+            }
+        }
+    }
+
+    /**
      * A NON-CUSTOMER PRINCIPAL IS STILL REFUSED -- and this is checked because CLAUDE.md requires
      * it: a customer-token probe alone proves nothing about this family, since `custom.auth` logs a
      * merchant's or driver's token into a non-customer guard and the usual trap is a handler whose
@@ -529,6 +766,18 @@ class AuctionBidForgeryTest extends SecurityTestCase
 
         $this->assertSame($before, DB::table('auction_product_bids')->count(),
             'A merchant web session wrote an auction bid.');
+
+        /*
+         * AND THE STATUS, because the row count alone is satisfied by a 404 (module not loaded), a
+         * 500 (a crash anywhere before the write) or anything else that fails early. These are the
+         * two principals CLAUDE.md specifically requires be driven for this family, so they should
+         * be the least ambiguous assertions in the file rather than the most -- an adversarial
+         * review pointed out they were the most. Both the handler's own `:1583` redirect to
+         * customer.login and this guard's deny() are 302.
+         */
+        $this->assertSame(302, $response->getStatusCode(),
+            'A merchant session was not cleanly redirected. A 404 or 500 here would satisfy the '
+            . 'row assertion above while proving nothing about the refusal.');
     }
 
     /**
@@ -562,6 +811,10 @@ class AuctionBidForgeryTest extends SecurityTestCase
 
         $this->assertSame($before, DB::table('auction_product_bids')->count(),
             'A delivery-boy session wrote an auction bid.');
+
+        // See the merchant test above for why the status is asserted and not merely printed.
+        $this->assertSame(302, $response->getStatusCode(),
+            'A delivery-boy session was not cleanly redirected.');
     }
 
     /**
@@ -629,14 +882,48 @@ class AuctionBidForgeryTest extends SecurityTestCase
         $this->assertNull(session('error'),
             'The guard flashed a refusal on an ordinary host page.');
 
-        // AND A SIBLING ROUTE IN THE SAME MODULE GROUP -- same slug shape, not this guard's
-        // target. It posts nothing the guard would accept, so an over-broad guard would refuse it.
-        $sibling = $this->post('/inert-bid/update-auction-status', ['id' => 1, 'status' => 1]);
+        /*
+         * AND A SIBLING ROUTE IN THE SAME MODULE GROUP -- same slug shape, not this guard's target.
+         *
+         * THE ASSERTION HERE USED TO BE `assertNotSame(403, ...)`, WHICH COULD NOT FAIL FROM THIS
+         * GUARD. An adversarial review caught it: deny() returns 403 only when the request
+         * expectsJson(), and a form POST never does, so this guard's only non-JSON refusal is a
+         * 302 with a flashed error. The companion `count() === 1` was vacuous for a simpler reason
+         * -- this guard performs no write on any path, so no behaviour of its own could change it.
+         *
+         * What CAN fail is the flash: an over-broad target match would put this guard's own refusal
+         * text into the session on a route it does not own. That is asserted instead, and the
+         * message is matched specifically so the test does not go red when a DIFFERENT guard on the
+         * `web` group legitimately refuses this route -- which `ModuleOrderMutationGuard` may well
+         * do, and which is not this test's business.
+         */
+        $sibling = $this->post('/inert-bid/update-auction-status', [
+            'id' => 1,
+            'status' => 1,
+            // Fields this guard WOULD act on, so an over-broad match has something to bite.
+            'product_id' => $productId,
+            'bid_amount' => 999999,
+            'customer_id' => $customer->id,
+            'store_id' => $store->id,
+        ]);
 
-        $this->assertNotSame(403, $sibling->getStatusCode(),
-            'The guard forbade a route that is not its target.');
-        $this->assertTrue(DB::table('auction_product_bids')->count() === 1,
-            'The guard altered bid rows on a route that is not its target.');
+        $this->assertNotSame(500, $sibling->getStatusCode(),
+            'The guard crashed on a route that is not its target.');
+
+        foreach ([
+            'Your bid could not be placed.',
+            'Please enter a valid bid amount.',
+            'Your bid must be higher than the current highest bid.',
+            'That auction product could not be found.',
+            'Please sign in to place a bid.',
+        ] as $ownMessage) {
+            $this->assertNotSame($ownMessage, session('error'),
+                "The guard flashed its own refusal (\"{$ownMessage}\") on a route it does not own, "
+                . 'so its target match is too broad.');
+        }
+
+        $this->assertSame(1, DB::table('auction_product_bids')->count(),
+            'The bid row count changed on a route that is not this guard\'s target.');
     }
 
     /**

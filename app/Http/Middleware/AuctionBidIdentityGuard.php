@@ -56,6 +56,42 @@ use Symfony\Component\HttpFoundation\Response;
  * slug-versus-store check here would add nothing (the attacker can already see the product) and
  * would refuse a real flow, which is what P1-INV-20's refund guard shipped and had to withdraw.
  *
+ * CONFIRMED AGAINST THE MODULE RATHER THAN ASSUMED, which matters because the issue's own
+ * acceptance criterion said the opposite. Every lever that could restrict it was looked for and
+ * none restricts the POST: the route middleware is `['web']` only; `bidingForm:1566` resolves the
+ * product by slug with NO store predicate, so store A's modal will render store B's product;
+ * `enable_auction_product` gates only menus, the three admin screens and the storefront slider,
+ * never this POST; no view compares the customer's store to the product's; and the winner path is
+ * WRITTEN for a foreign bidder -- `Console/Auction.php:78-85` resolves the store from the PRODUCT
+ * and the delivery address from the customer with no store predicate at all.
+ *
+ * ONE QUALIFICATION, because the premise depends on configuration and not only on the module. The
+ * page flow holds under the SHIPPED tenancy settings: `StoreScope::resolveTenant()` deliberately
+ * does not consult the `customers` guard, so a customer-only session resolves no tenant,
+ * `storefront_tenant` is `additive` and `null_tenant` is `open`, so the `Customer` retrieval adds
+ * no predicate. Under `TENANCY_STOREFRONT_TENANT=slug_only` or `TENANCY_NULL_TENANT=closed`, a
+ * store-A customer on store B's slug would not resolve at all and this guard's sign-in limb would
+ * refuse them -- as would the module's own `:1582`. A configuration consequence, not a defect, and
+ * stated so the premise is not read as unconditional.
+ *
+ * THREE THINGS RECORDED RATHER THAN FIXED, each because the fix would be out of proportion:
+ *
+ *   - THE RULE IS ADVISORY UNDER CONCURRENCY. Two simultaneous bids can both read the same
+ *     maximum, both pass, and both land; `Console/Auction.php:74` then resolves the tie to the
+ *     lower id. No lock, no unique constraint. The consequence is a deterministic tie-break at the
+ *     same price, not an authorization bypass -- so nothing here should be built into an invariant,
+ *     but a transaction around a bid board would be the wrong trade.
+ *   - NOTHING CHECKS THAT THE PRODUCT IS AN AUCTION PRODUCT, or that an auction window is open.
+ *     `products.product_type` and membership of an active `AuctionProductSetting` are consulted
+ *     only by the winner picker (`Console/Auction.php:48,66-70`) and the slider, so a bid can be
+ *     placed on a non-auction product or outside the window. Those rows are never read by the
+ *     picker, which filters on both, so this is LATENT; closing it would mean reimplementing
+ *     `productAuctionTime()`'s window logic in host middleware.
+ *   - `XSS::handle:51-60` does `$request->merge($request->all())`, which would copy `UploadedFile`
+ *     objects INTO the input bag. `xss` is a route-level alias and is not on the `web` group, so it
+ *     cannot run before this guard today. If it were ever added to this module's routes, the
+ *     file-bag check below would need re-examining.
+ *
  * WHY REWRITING INPUT IS THE RIGHT VEHICLE. `packages/workdo/` is vendored and must not be edited,
  * and no Policy, FormRequest or query scope sits between `:1582` and `:1600`. Middleware can
  * nonetheless make the handler read the right value: `$request->merge()` replaces the input bag,
@@ -64,9 +100,10 @@ use Symfony\Component\HttpFoundation\Response;
  *
  * `merge()` IS NOT ENOUGH ON ITS OWN, and the reason is specific: `Request::__get` reads `all()`
  * BEFORE route parameters, and `all()` is `array_replace_recursive($this->input(), $this->allFiles())`
- * -- so a FILE part named `customer_id` would outrank the merged value. Each derived key is
- * therefore checked for an uploaded file of the same name and the request refused if one is
- * present, rather than silently rewritten.
+ * -- so a FILE part named like a derived key outranks the merged value. Each derived key is
+ * therefore checked against `allFiles()` and the request refused if the key is present, rather
+ * than silently rewritten. `hasFile()` is NOT the right predicate for that and using it was a live
+ * hole in the first version of this guard; the reasoning is at the check itself.
  */
 class AuctionBidIdentityGuard
 {
@@ -98,8 +135,36 @@ class AuctionBidIdentityGuard
             return $this->deny($request, __('Please sign in to place a bid.'));
         }
 
+        // `array_key_exists` ON `allFiles()`, NOT `hasFile()`. The first version used `hasFile()`
+        // and that was a LIVE hole in this guard, found by adversarial review and then measured --
+        // with the review's own predicted trigger turning out to be the wrong one.
+        //
+        // `hasFile()` is `isValidFile()`: `$file instanceof SplFileInfo && $file->getPath() !== ''`
+        // (InteractsWithInput.php:212-236). An errored upload fails BOTH limbs while still
+        // occupying its key in the file bag -- Symfony stores `null` for `UPLOAD_ERR_NO_FILE`
+        // (FileBag.php:72-73) and an `UploadedFile` with an empty `tmp_name` for the size errors.
+        // `all()` is `array_replace_recursive($this->input(), $this->allFiles())`
+        // (InteractsWithInput.php:88), and `array_replace_recursive` overlays those values as
+        // happily as any other. So the key wins over the merge while `hasFile()` reports nothing.
+        //
+        // MEASURED through the real HTTP stack, with the posted store deliberately different from
+        // the product's so the two could be told apart:
+        //
+        //   no file part              -> store_id = 2   (derived, correct)
+        //   UPLOAD_ERR_NO_FILE        -> store_id = 2   (derived; does NOT reproduce here)
+        //   UPLOAD_ERR_INI_SIZE       -> store_id = ''  <- THE MERGE WAS DEFEATED
+        //
+        // The review predicted `UPLOAD_ERR_NO_FILE` as the trigger and it is the one that does not
+        // survive the test harness's request rebuild, though it does defeat the merge on a bare
+        // `Request::create`. The size errors are the live path. Both are closed by asking the
+        // question that matches the mechanism: is the key in the array `all()` overlays?
+        //
+        // `array_key_exists` also covers the nested and array-of-files shapes, which `hasFile()`
+        // only reports when at least one member is valid.
+        $files = $request->allFiles();
+
         foreach (self::DERIVED as $key) {
-            if ($request->hasFile($key)) {
+            if (array_key_exists($key, $files)) {
                 return $this->deny($request, __('Your bid could not be placed.'));
             }
         }
@@ -115,7 +180,7 @@ class AuctionBidIdentityGuard
         // exactly why this read is safe to use HERE: the guard WANTS the product whatever store it
         // belongs to, because bidding across stores is legitimate. What it must not do is let the
         // caller name the store; the store comes from the row.
-        $product = DB::table('products')->where('id', $productId)->first(['id', 'store_id']);
+        $product = DB::table('products')->where('id', $productId)->first(['id', 'store_id', 'sale_price']);
 
         if ($product === null) {
             return $this->deny($request, __('That auction product could not be found.'));
@@ -144,7 +209,30 @@ class AuctionBidIdentityGuard
             ->where('product_id', $productId)
             ->max('bid_amount');
 
-        if ($currentMax !== null && $amount <= (float) $currentMax) {
+        // THE FLOOR FALLS BACK TO sale_price, AND THE FIRST VERSION OF THIS GUARD DID NOT -- a LIVE
+        // money gap found by adversarial review and then measured: on a product with
+        // `sale_price = 100` and no bids yet, a bid of **0.01** was accepted and stored.
+        // `Console/Auction.php:73-109` then picks it as the winning bid and writes an
+        // `AuctionProductOrder` at that price, so the item goes for a cent if nobody outbids it
+        // before the auction closes.
+        //
+        // The expression is the module's own, copied rather than invented.
+        // `AuctionProductController:1568-1571`:
+        //
+        //     $maxBidAmount = AuctionProductBid::where('product_id', $product->id)->max('bid_amount');
+        //     $maxprice     = $product->sale_price;
+        //     $bid_amount   = $maxBidAmount ? $maxBidAmount : $maxprice;
+        //
+        // and `$bid_amount` is what the page renders as "Current Highest Bid" (`:276`) and as the
+        // input's `min` (`:292`). So enforcing anything lower would refuse nothing the page offers
+        // and accept what the page tells the customer is too low.
+        //
+        // `?:` NOT `??`, deliberately: `:1571` uses a FALSY test, so a stored maximum of 0 falls
+        // back to `sale_price` there too. Matching it keeps the guard and the page in agreement
+        // rather than merely close.
+        $floor = $currentMax ?: ($product->sale_price ?? null);
+
+        if ($floor !== null && $amount <= (float) $floor) {
             return $this->deny(
                 $request,
                 __('Your bid must be higher than the current highest bid.')
@@ -194,6 +282,25 @@ class AuctionBidIdentityGuard
      * non-scalar, and accepts `'250'` and `'250.50'`. Zero and negatives are refused: a bid must be
      * a positive amount, and `auction_product_bids.bid_amount` feeds `max()` on a page that shows
      * it as money.
+     *
+     * NO UPPER BOUND IS NEEDED, and that was settled by MEASUREMENT rather than left open. An
+     * adversarial review raised the possibility that `$table->float('bid_amount')` had compiled to
+     * `double(8,2)` -- max 999999.99 -- in which case a larger value would pass this check and
+     * MySQL would silently CLAMP it under `strict => false`, leaving the guard having validated one
+     * figure while the row held another. That is true of Laravel <= 10's
+     * `float($column, $total = 8, $places = 2)`. It is NOT true here: running the module's own
+     * migration against MySQL 8.0.46 on Laravel 11.47.0 produces
+     *
+     *     `bid_amount` double NOT NULL DEFAULT '0'
+     *
+     * with no precision cap -- 1000000 stored as 1000000, 1234567.891 stored exactly. So
+     * `is_finite()` already agrees with the column and an upper bound would refuse valid bids.
+     * If this project is ever pointed at a database migrated by an older Laravel, re-check the DDL
+     * before trusting this note.
+     *
+     * The locale-comma refusal is a behaviour IMPROVEMENT worth naming: before this guard,
+     * `'250,50'` reached a float column and coerced to `250`, so the customer silently bid 250
+     * instead of 250.50.
      */
     private function usableAmount(mixed $value): ?float
     {

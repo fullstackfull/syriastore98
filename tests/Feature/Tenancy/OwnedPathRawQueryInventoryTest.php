@@ -28,6 +28,27 @@ use Tests\TestCase;
  */
 class OwnedPathRawQueryInventoryTest extends TestCase
 {
+
+    /**
+     * THE CLASSIFICATIONS THIS INVENTORY UNDERSTANDS, and what each one claims.
+     *
+     * `'derivation'` was added for P1-INV-19 because `'comparison'` had stopped describing one of
+     * its members, and an adversarial review caught the drift. The distinction is not cosmetic:
+     *
+     *   'tenant'      the statement carries its own `store_id` predicate. The only category whose
+     *                 members are CHECKED below; every other is an exemption.
+     *   'comparison'  the read deliberately carries NO predicate because it exists to FETCH
+     *                 `store_id` so the caller's tenant can be compared against it and the request
+     *                 REFUSED. A reader auditing this bucket may assume every member refuses
+     *                 cross-tenant access.
+     *   'derivation'  the read carries no predicate because it exists to fetch the authoritative
+     *                 value and OVERWRITE what the caller supplied. It never refuses on tenant,
+     *                 and conflating it with 'comparison' would make the sentence above false for
+     *                 one member of that bucket.
+     *   'platform'    the table has no `store_id` and cannot acquire one.
+     *   'webhook'     there is no authenticated tenant on the request at all.
+     */
+    private const CLASSIFICATIONS = ['tenant', 'comparison', 'derivation', 'platform', 'webhook'];
     /**
      * The files this workstream owns that can contain a query at all.
      *
@@ -187,8 +208,12 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             // is that the id comes from `auth()->user()`, never from request input, and it is
             // asserted at the bottom of this method.
             'app/Http/Middleware/LotteryMailTemplatePrerequisite.php' => 'platform',
-            // P1-INV-19's TWO SITES, and the honest category for this file is 'comparison'
-            // even though NEITHER read carries a store predicate -- because neither should.
+            // P1-INV-19's TWO SITES. 'derivation', NOT 'comparison' -- and the first version of
+            // this entry said 'comparison' while its own comment conceded the word did not fit.
+            // An adversarial review was right to call that out: 'comparison' promises a reader
+            // that the file REFUSES cross-tenant access, and this guard never refuses on tenant.
+            // It fetches the authoritative store and OVERWRITES what the caller sent. Neither read
+            // carries a store predicate, and neither should.
             //
             // `:118` reads `products` by id with NO store filter, and that is the POINT: bidding
             // across stores is the module's own design (place_bid.blade.php:314 renders
@@ -208,7 +233,7 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             //
             // Controls asserted at the bottom of this method: the derivation of `customer_id` from
             // the authenticated principal and of `store_id` from the product row.
-            'app/Http/Middleware/AuctionBidIdentityGuard.php' => 'comparison',
+            'app/Http/Middleware/AuctionBidIdentityGuard.php' => 'derivation',
             // PLATFORM-GLOBAL BY DESIGN. The framework's own `migrations` bookkeeping table has
             // no store_id and must never acquire a tenant predicate -- XSS::handle() compares
             // on-disk migration filenames against it to decide whether the platform operator is
@@ -244,6 +269,15 @@ class OwnedPathRawQueryInventoryTest extends TestCase
                 $unclassified[] = $site . '   ' . $source;
                 continue;
             }
+
+            // THE CATEGORY SET IS ASSERTED, not just switched on. A typo in a classification
+            // string would otherwise land in the "not 'tenant', so skip" branch and exempt the
+            // whole file silently -- which is the same shape as the manifest ratchet that was
+            // reading a table it did not govern.
+            $this->assertContains($classified[$file], self::CLASSIFICATIONS,
+                "`{$file}` carries the classification `{$classified[$file]}`, which is not one of: "
+                . implode(', ', self::CLASSIFICATIONS) . '. An unknown classification is treated '
+                . 'as an exemption, so a typo would silently excuse every raw query in the file.');
 
             if ($classified[$file] !== 'tenant') {
                 continue;
@@ -429,6 +463,27 @@ class OwnedPathRawQueryInventoryTest extends TestCase
         $this->assertStringContainsString('auth(\'customers\')->user()', $bid,
             'AuctionBidIdentityGuard no longer resolves the customer from the customers guard '
             . 'explicitly. `auth()` with no guard name reads the MUTABLE default guard.');
+
+        // THE THREE CONTROLS THE FIRST VERSION OF THIS BLOCK DID NOT PIN. An adversarial review
+        // noted that the file-part check, the bid floor and the product_id/bid_amount merges could
+        // all be deleted with this test staying green -- and the file-part check was a LIVE hole at
+        // the time, so that mattered.
+        $this->assertStringContainsString('array_key_exists($key, $files)', $bid,
+            'AuctionBidIdentityGuard no longer refuses a request whose file bag holds one of the '
+            . 'derived keys. `all()` overlays allFiles() on top of the merge, and `hasFile()` is '
+            . 'FALSE for an errored upload while its key still wins -- measured: an '
+            . "UPLOAD_ERR_INI_SIZE part named store_id stored `''`.");
+
+        $this->assertStringContainsString('$floor = $currentMax ?:', $bid,
+            "AuctionBidIdentityGuard no longer falls back to the product's sale_price for the "
+            . 'first bid. AuctionProductController:1571 uses that fallback for the figure it shows '
+            . 'as the minimum, so without it a first bid of 0.01 is accepted on a product priced '
+            . 'at 100 and Console/Auction.php awards the item at that price.');
+
+        $this->assertStringContainsString("'product_id' => \$productId,", $bid,
+            'AuctionBidIdentityGuard no longer merges the parsed product_id, so the handler writes '
+            . 'the raw request value into an unsignedBigInteger column and can denote a different '
+            . 'row than the guard validated.');
 
         $this->assertFileExists(base_path('tests/Feature/Security/AuctionBidForgeryTest.php'));
 
