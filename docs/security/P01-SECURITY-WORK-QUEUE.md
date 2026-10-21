@@ -4197,7 +4197,7 @@ pinned (it fails, with the instruction to override the view first, if `module_is
 collided with `uploads/<store id>`; then the repository root plus 131 uploads when a mutation re-enabled the glob and a test passed `*`). Both were restored
 from git before any commit; the tests now touch only sandbox paths.
 
-## S46 — The by-name settings writers, and what two reviews found in the first two designs of the fix — **P1-SEC-27 CLOSED; P1-SEC-29, -30, -31 and P1-PLT-06 READY; P1-OWN-11 and -12 BLOCKED (owner)**
+## S46 — The by-name settings writers, and what two reviews found in the first two designs of the fix — **P1-SEC-27 and P1-SEC-29 CLOSED; P1-SEC-30, -31, P1-PLT-06 and -07 READY; P1-SEC-32, P1-OWN-11 and -12 BLOCKED (owner)**
 
 *Found 2026-10-21 by the P1-SEC-18 reviews (READ) and closed by P1-SEC-27. Two read-only reviews of the fix followed (the second a four-lens workflow, 74 agents, 35 findings each checked by two skeptics, all READ); the rows marked EXECUTED were run: MySQL 8.0.46 for the collation, the SQLite suite with a recording hosting-panel fake for the rest. Gate: Feature 3544 passed / 2 declared failures / 17 declared skips / 0 errors (the known-outcome assertion exits 0), Unit 339, Contract 26, the five CI guards exit 0 (scan: no credential-shaped literal in 257 changed files), the whole MySQL runner 14 of 14 on MySQL 8.0.46, all on 9c9a232d. The first full Feature run on this tree had ONE new failure -- a P1-SEC-18 test whose premise (staff with no permission storing a poisoned logo row) is exactly what this task closed; its actor was moved to a principal that can still reach the write and the glob mutant still makes it fail*
 
@@ -4220,7 +4220,7 @@ from git before any commit; the tests now touch only sandbox paths.
 | Residue | Task |
 |---|---|
 | A holder of `Manage Store Setting` alone can still put raw script on every storefront page, **checkout included** (`storejs`, `storecss`, `google_analytic`, `fbpixel_code` are what the screen exists to edit). Pinned by a test that fails the day it changes | **P1-OWN-12** (owner) |
-| **Any merchant owner can claim another merchant's custom domain or sub-domain**: the host lookup is an unscoped `->first()` and nothing keeps the values unique. EXECUTED: the older store's owner saved the newer store's host and the lookup returned the older store | **P1-SEC-29** |
+| ~~Any merchant owner can claim another merchant's custom domain or sub-domain~~ - **fixed by P1-SEC-29** (`605b4fc9`, `6cde10d1`): a `saving` rule in the Setting model + `HostClaims::row()` for the lookups; two reviews found the rule judging the name in PHP while MySQL decides in SQL (accent folding, a name stored cut at 255 characters or at an invalid UTF-8 byte - all EXECUTED on MySQL 8.0.46) | **P1-SEC-32** (owner: who may hold a host, proof of control, release path) |
 | Nine vendored module controllers write `settings` by caller-supplied name with no permission check (four with no auth or module check); cannot be edited, so the control is host-side | **P1-SEC-31** |
 | The fixed-name credential writers (storage, WooCommerce, Shopify, Twilio, WhatsApp, Firebase) and the store's name/e-mail/slug have no permission check | **P1-SEC-30** |
 | Saving the Home or Checkout tab removes the owner's OWN custom domain at the hosting panel (EXECUTED; pre-existing; kept for the owner and permitted staff by P1-SEC-27) | **P1-PLT-06** |
