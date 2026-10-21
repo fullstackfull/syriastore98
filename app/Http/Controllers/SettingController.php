@@ -1630,6 +1630,20 @@ $currencyRates = CurrencyRate::where('store_id', getCurrentStore())
                 $webhooks = Webhook::where('store_id', getCurrentStore())->get();
                 $view = view($views[$tabType], compact('setting', 'webhooks'));
             } elseif ($tabType == 'chat_gpt_setting') {
+                // P1-SEC-19. These are the PLATFORM's OpenAI keys: the model has no tenant column, and
+                // AITemplateController hands one to whichever tenant asks. The tab link is shown to a
+                // platform operator only and ChatgptSettings() (the save) refuses everyone else, but
+                // this read had no check, so any logged-in merchant or staff member who POSTed the tab
+                // name was given every key. Operator first, per CLAUDE.md: the type string is the only
+                // operator marker. 403, never 401 (the shipped Flutter app logs out on 401).
+                if (strtolower(trim((string) $user->type)) !== 'super admin') {
+                    return response()->json([
+                        'is_success' => false,
+                        'msg' => __('Permission denied.'),
+                        'data' => ['content' => null],
+                    ], 403);
+                }
+
                 $ai_key_settings = ApikeySetiings::get();
                 $view = view($views[$tabType], compact('setting', 'ai_key_settings'));
             } elseif ($tabType == 'tax_opt_setting') {
