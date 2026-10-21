@@ -353,7 +353,10 @@ public function city_list(Request $request, $slug)
         
         $countries = Country::get();
         if ($id) {
-            $address = DeliveryAddress::where('id', $id)->first();
+            $address = $this->ownedAddress($store, $this->shopper($store), $id);
+            if (! $address) {
+                return $this->notFoundJson(__('Address not found'));
+            }
         }
 
         $return['html'] = view('front_end.pages.address-form', compact('store', 'address', 'countries'))->render();
@@ -382,9 +385,17 @@ public function city_list(Request $request, $slug)
             }
         }
 
+        // P1-SEC-12: the owner and the store come from the session and the route, never from the post
+        $store = getStore($request->route('storeSlug'));
+        $customer = $this->shopper($store);
+        if (! $customer) {
+            return response()->json(['status' => false, 'message' => __('You must be logged in to do that.')], 403);
+        }
+
         try {
             $data = $request->all();
-            $data['customer_id'] = auth('customers')->id();
+            $data['customer_id'] = $customer->id;   // the owner and the store are assigned AFTER the post is read: nothing posted can name them
+            $data['store_id'] = $store->id;
             $data['default_address'] = $request->has('default_address') ? 1 : 0;
 
             // If setting as default, update all other addresses to not default
@@ -396,8 +407,7 @@ public function city_list(Request $request, $slug)
 
             if ($request->has('id')) {
                 // Update existing address
-                $address = DeliveryAddress::where('id', $request->id)
-                    ->first();
+                $address = $this->ownedAddress($store, $customer, $request->id);
                 
                 if (!$address) {
                     return response()->json([
@@ -431,7 +441,12 @@ public function city_list(Request $request, $slug)
     
     public function remove_address(Request $request)
     {
-        DeliveryAddress::where('id', $request->id)->delete();
+        $store = getStore($request->route('storeSlug'));
+        $address = $this->ownedAddress($store, $this->shopper($store), $request->id);
+        if (! $address) {
+            return $this->notFoundJson(__('Address not found'));
+        }
+        $address->delete();
 
          return response()->json([
             'status' => true,
@@ -449,7 +464,7 @@ public function city_list(Request $request, $slug)
         }
         
         $country_option = Country::orderBy('name','ASC')->pluck('name', 'id');
-        $DeliveryAddress = DeliveryAddress::where('id',$request->get('id'))->first();
+        $DeliveryAddress = $this->ownedAddress($store, $this->shopper($store), $request->get('id'));
         $return['html'] = '';
         if (empty($DeliveryAddress)) {
             $DeliveryAddress = [];
@@ -489,7 +504,8 @@ public function city_list(Request $request, $slug)
 
     public function delete_addressbook(Request $request, $slug)
     {
-        DeliveryAddress::where('id', $request->id)->delete();
+        $store = getStore($slug);
+        $this->ownedAddress($store, $this->shopper($store), $request->id)?->delete();
     }
     // Addressbook end
 
@@ -702,15 +718,23 @@ public function city_list(Request $request, $slug)
             $messages = $validator->getMessageBag();
             return redirect()->back()->with('error', $messages->first());
         }
+        $customer = $this->shopper($store);
+        if (! $customer) {
+            return redirect()->back()->with('error', __('You must be logged in to do that.'));
+        }
+        // P1-SEC-12: a ticket may name only one of THIS shopper's orders in THIS store (the order number is rendered back on the ticket page)
+        if (! empty($request->order_id) && ! $this->ownedOrder($store, $customer, $request->order_id)) {
+            return redirect()->back()->with('error', __('Order not found.'));
+        }
         $tickets                 = new SupportTicket();
         $tickets->title          = $request->title;
         $tickets->order_id          = $request->order_id;
         $tickets->ticket_id = time();
         $tickets->description    = $request->description;
         $tickets->status        = 'open';
-        $tickets->customer_id       = auth('customers')->user()->id;
+        $tickets->customer_id       = $customer->id;
         $tickets->store_id      = $store->id;
-        $tickets->created_by    = auth('customers')->user()->id;
+        $tickets->created_by    = $customer->id;
         $tickets->save();
 
         $data              = [];
@@ -764,7 +788,10 @@ public function city_list(Request $request, $slug)
     public function edit_support_ticket(SupportTicket $tickets, $slug, $id)
     {
         $store = getStore($slug);
-        $tickets = SupportTicket::find($id);
+        $tickets = $this->ownedTicket($store, $this->shopper($store), $id);
+        if (! $tickets) {
+            return $this->notFoundJson(__('Ticket not found'));
+        }
         $orders = Order::where('customer_id', auth('customers')->user()->id)->pluck('product_order_id', 'id');
         $return['html'] = view('front_end.pages.support_ticket_edit', compact('tickets', 'slug', 'orders'))->render();
         return response()->json($return);
@@ -787,7 +814,14 @@ public function city_list(Request $request, $slug)
             $messages = $validator->getMessageBag();
             return redirect()->back()->with('error', $messages->first());
         }
-        $ticket           = SupportTicket::find($id);
+        $customer = $this->shopper($store);
+        $ticket = $this->ownedTicket($store, $customer, $id);
+        if (! $ticket) {
+            return redirect()->back()->with('error', __('Ticket not found'));
+        }
+        if (! empty($request->order_id) && ! $this->ownedOrder($store, $customer, $request->order_id)) {
+            return redirect()->back()->with('error', __('Order not found.'));
+        }
         if ($request->attachment) {
             $dir        = 'uploads/' . getCurrentStore() . '/tickets';
             $fileName = rand(10, 100) . '_' . time() . "_" . $request->attachment->getClientOriginalName();
@@ -798,9 +832,10 @@ public function city_list(Request $request, $slug)
             $ticket->attachment      = $path['url'];
         }
 
-        $data              = [];
+        // the existing attachments are kept: `$data` started as [] and the save below wrote json_encode($data), so editing a ticket's title wiped them
+        $data              = json_decode((string) $ticket->attachment, true);
+        $data              = is_array($data) ? $data : [];
         if ($request->hasfile('attachments')) {
-            $data = json_decode($ticket->attachment, true);
 
             foreach ($request->file('attachments') as $filekey => $file) {
                 $file_size = $file->getSize();
@@ -824,7 +859,7 @@ public function city_list(Request $request, $slug)
         $ticket->title     = $request->title;
         $ticket->order_id     = $request->order_id;
         $ticket->description   = $request->description;
-        $ticket->customer_id       = $request->customer_id;
+        // no `customer_id` write: the owner of a ticket is never taken from the post (it re-parented the ticket to any customer id)
         $ticket->save();
 
         return redirect()->back()->with('success', __('Ticket successfully updated.'));
@@ -832,19 +867,30 @@ public function city_list(Request $request, $slug)
 
     public function destroy_support_ticket(Request $request, $slug, $id)
     {
+        $store = getStore($slug);
+        $ticket = $this->ownedTicket($store, $this->shopper($store), $id);
+        if (! $ticket) {
+            return redirect()->back()->with('error', __('Ticket not found'));
+        }
+        $ticket->delete();
 
-        SupportTicket::where('id', $id)->delete();
         return redirect()->back()->with('error', __('Ticket successfully deleted.'));
     }
 
     public function attachmentDestroy($slug, $ticket_id, $id)
     {
 
-        $ticket      = SupportTicket::find($ticket_id);
+        $store = getStore($slug);
+        $customer = $this->shopper($store);
+        $ticket = $this->ownedTicket($store, $customer, $ticket_id);
+        if (! $ticket) {
+            return redirect()->back()->with('error', __('Ticket not found'));
+        }
         $attachments = json_decode($ticket->attachment);
         if (isset($attachments[$id])) {
             $file_path = $attachments[$id];
-            $result = Utility::changeStorageLimit(auth()->user()->creatorId(), $file_path);
+            // the shopper's session is the `customers` guard: auth()->user() is the merchant guard and is null here (it crashed)
+            $result = Utility::changeStorageLimit($customer->creatorId(), $file_path);
             $file_path = '/tickets/' . $ticket->ticket_id . '/' . $attachments[$id];
             unset($attachments[$id]);
             $ticket->attachment = json_encode(array_values($attachments));
@@ -859,7 +905,8 @@ public function city_list(Request $request, $slug)
 
     public function reply_support_ticket(Request $request, $slug, $id)
     {
-        $ticket    = SupportTicket::where('id', '=', $id)->first();
+        $store = getStore($slug);
+        $ticket = $this->ownedTicket($store, $this->shopper($store), $id);
         if ($ticket) {
             $return['html'] = view('front_end.pages.reply_support_ticket', compact('ticket', 'slug'))->render();
             return response()->json($return);
@@ -874,7 +921,8 @@ public function city_list(Request $request, $slug)
         if (!$store) {
             return redirect()->back()->with('error', __('Something went wrong!'));
         }
-        $ticket = SupportTicket::where('id', '=', $id)->first();
+        $customer = $this->shopper($store);
+        $ticket = $this->ownedTicket($store, $customer, $id);
         if (!$ticket) {
             return redirect()->back()->with('error', __('Something went wrong!'));
         }
@@ -911,7 +959,7 @@ public function city_list(Request $request, $slug)
                 }
             }
             $post['attachments'] = json_encode($data);
-            $post['customer_id'] = auth('customers')->user()->id;
+            $post['customer_id'] = $customer->id;
             $post['store_id'] = $store->id;
             $conversion          = SupportConversion::create($post);
             $ticket->status = 'In Progress';
@@ -1022,6 +1070,60 @@ public function city_list(Request $request, $slug)
             ->where('store_id', $store->id)
             ->where('customer_id', $customer->id)
             ->first();
+    }
+
+    /**
+     * The signed-in shopper of THIS store, or null. Mirrors ApiController::resolveStoreCustomer(): the `customers` guard only (a merchant or
+     * driver session leaves it null), and a customer bound to another store is not this store's shopper.
+     *
+     * P1-SEC-12. `EnsureCustomerAuthenticated` asks only whether SOME customer is signed in, and registration is free.
+     */
+    private function shopper($store): ?\App\Models\Customer
+    {
+        $customer = auth('customers')->user();
+
+        if (! $customer instanceof \App\Models\Customer || ! $store) {
+            return null;
+        }
+
+        if ($customer->store_id !== null && (int) $customer->store_id !== (int) $store->id) {
+            return null;
+        }
+
+        return $customer;
+    }
+
+    /** The address this shopper may act on: this id AND this customer (and this store where the row records one). P1-SEC-12. */
+    private function ownedAddress($store, $customer, $id): ?DeliveryAddress
+    {
+        if (! $store || ! $customer || ! is_scalar($id)) {
+            return null;
+        }
+
+        return DeliveryAddress::withoutGlobalScopes()->where('id', $id)
+            ->where('customer_id', $customer->id)
+            ->where(fn ($q) => $q->where('store_id', $store->id)->orWhereNull('store_id'))
+            ->first();
+    }
+
+    /** The support ticket this shopper may act on: this id AND this customer (and this store where the row records one). P1-SEC-12. */
+    private function ownedTicket($store, $customer, $id): ?SupportTicket
+    {
+        if (! $store || ! $customer || ! is_scalar($id)) {
+            return null;
+        }
+
+        // withoutGlobalScopes: the isolation is THESE predicates, not the StoreScope (which is absent wherever no tenant resolves)
+        return SupportTicket::withoutGlobalScopes()->where('id', $id)
+            ->where('customer_id', $customer->id)
+            ->where(fn ($q) => $q->where('store_id', $store->id)->orWhereNull('store_id'))
+            ->first();
+    }
+
+    private function notFoundJson(string $message)
+    {
+        // 403/404, never 401: the shipped clients log the user out on a 401
+        return response()->json(['status' => false, 'message' => $message], 404);
     }
 
     public function order_refund(Request $request, $slug, $id)
