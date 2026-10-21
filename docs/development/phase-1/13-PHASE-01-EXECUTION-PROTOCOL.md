@@ -58,6 +58,10 @@ keep two agents out of the same file.
     `status:in-review`, or `status:done` once the acceptance criteria are actually met.
 11. Re-render the ledger (`python3 docs/development/phase-1/tools/render-ledger.py`) and commit it
     with the JSON.
+    **Correction, 2026-10-21:** `render-ledger.py` does not reproduce the committed ledger (it rewrites ~440 lines of hand-kept
+    evidence). Use `tools/ledger-tool.py` instead — `check`, then `amend <ID> '<json>'` for the one task — and commit the `.md` and the
+    `.json` together. `render-ledger.py` remains useful only for its graph validation (unknown dependency, cycle, READY task with
+    open prerequisites); run it and `git checkout` the ledger file afterwards.
 
 ## 4. Checks before a push
 

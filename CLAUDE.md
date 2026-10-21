@@ -2,7 +2,7 @@
 
 Multi-tenant Laravel e-commerce SaaS. Laravel 11.47 on PHP 8.3, built on the vendored **WorkDo
 eCommerceGo** addon platform (70 modules under `packages/workdo/`). A second repository,
-`StoreSyria_app98`, is the shipped **admin** Flutter app.
+`StoreSyria_app98`, is the shipped **admin** Flutter app. **Resuming or new account? Read `docs/development/HANDOFF-CURRENT.md` first.**
 
 The full analysis lives in `docs/`. This file is the short version of what will bite you, and it
 records only things verified by reading or executing the code.
@@ -134,7 +134,8 @@ reported a store-B row deleted while the raw table still held it. Assert through
 
 ## 2. Development rules
 
-- **Branch:** `claude/store-syria-p01a-ci-foundation`. Commit and push there.
+- **Branch:** `claude/store-syria-p01a-ci-foundation`. Commit and push there. If the harness assigns a second branch, keep both identical:
+  `merge-base --is-ancestor` each, push `HEAD` to both, fast-forward only. Read CI back before claiming anything about it.
 - **Never merge into `main`. Never deploy. Never run migrations against the development server.
   Never modify live data.**
 - **Never edit `packages/workdo/`.** Vendored commercial code: an in-place edit is silently
@@ -152,15 +153,17 @@ reported a store-B row deleted while the raw table still held it. Assert through
 - **A test must bite.** After writing a regression test, revert the fix and confirm the test fails.
   A removal that doesn't isolate the control proves nothing. This has caught vacuous tests
   repeatedly: a test asserting "the row didn't change" passes when the endpoint 500s for everyone.
-- **Claim only what you executed.** Say which engine, which command, and what the output was.
+- **Claim only what you executed.** Say which engine, which command, and what the output was. A review that only READ cannot close a MySQL
+  question — run `tests/Support/Security/bin/`. Never edit, commit or review while a suite or mutation run is in progress; use
+  `docs/development/phase-1/tools/ledger-tool.py` (not `render-ledger.py`, which does not reproduce the ledger) and `mutation-harness.py`.
 
 ---
 
 ## 3. Tests
 
 ```bash
-php artisan test --testsuite=Unit        # 190 tests
-php artisan test --testsuite=Feature     # ~2390 tests, ~6 min
+php artisan test --testsuite=Unit        # 339 tests (2026-10-21; counts drift)
+php artisan test --testsuite=Feature     # ~3670 tests, ~9 min
 php artisan test --testsuite=Contract    # 26 tests — the Flutter API contract
 /tenant-check                            # tenancy + security suites (see .claude/commands)
 ```
