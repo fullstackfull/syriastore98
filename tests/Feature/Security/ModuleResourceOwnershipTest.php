@@ -83,29 +83,36 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
 {
     use RefreshDatabase;
 
-    private function enableModules(): void
+    /** @param list<string> $modules the guard's own census enables DigitalProduct as well (P1-INV-23); every other case needs only the auction */
+    private function enableModules(array $modules = ['AuctionProduct']): void
     {
-        AddOnManager::create([
-            'module' => 'AuctionProduct',
-            'name' => 'Auction Product',
-            'monthly_price' => 0,
-            'yearly_price' => 0,
-            'is_enable' => 1,
-            'package_name' => 'auction-product',
-        ]);
+        $packages = ['AuctionProduct' => ['Auction Product', 'auction-product'], 'DigitalProduct' => ['Digital Product', 'digital-product']];
+
+        foreach ($modules as $module) {
+            AddOnManager::create([
+                'module' => $module,
+                'name' => $packages[$module][0],
+                'monthly_price' => 0,
+                'yearly_price' => 0,
+                'is_enable' => 1,
+                'package_name' => $packages[$module][1],
+            ]);
+        }
 
         Cache::flush();
 
         $provider = new \App\Providers\PackageServiceProvider($this->app);
         $loadAddons = new \ReflectionMethod($provider, 'loadAddons');
         $loadAddons->setAccessible(true);
-        $loadAddons->invoke($provider, ['AuctionProduct']);
+        $loadAddons->invoke($provider, $modules);
 
-        foreach (glob(base_path('packages/workdo/AuctionProduct/src/database/migrations/*.php')) ?: [] as $file) {
-            (require $file)->up();
+        foreach ($modules as $module) {
+            foreach (glob(base_path('packages/workdo/' . $module . '/src/database/migrations/*.php')) ?: [] as $file) {
+                (require $file)->up();
+            }
         }
 
-        $this->assertTrue(Schema::hasTable('auction_product_settings'));
+        $this->assertTrue(Schema::hasTable('auction_product_settings') || ! in_array('AuctionProduct', $modules, true));
     }
 
     /**
@@ -639,15 +646,16 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
      */
     public function test_the_guard_targets_and_the_route_table_agree(): void
     {
-        $this->enableModules();
+        $this->enableModules(['AuctionProduct', 'DigitalProduct']);
 
         $targets = array_keys(
             (new \ReflectionClass(\App\Http\Middleware\ModuleResourceOwnershipGuard::class))
                 ->getConstant('TARGETS')
         );
 
-        // 9 writes + the two `edit` reads the second review found live.
-        $this->assertCount(11, $targets);
+        // 9 auction writes + the two `edit` reads the second review found live + DigitalProduct's twin (P1-INV-23): edit read, PUT, PATCH,
+        // DELETE on the resource and the anonymous image delete.
+        $this->assertCount(16, $targets);
 
         $registered = [];
 
@@ -688,6 +696,7 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
             'AuctionProductController@update', 'AuctionProductController@destroy',
             'AuctionProductSettingController@update', 'AuctionProductSettingController@destroy',
             'AuctionOrdersController@update', 'AuctionOrdersController@destroy',
+            'DigitalProductController@update', 'DigitalProductController@destroy', 'DigitalProductController@file_delete',
         ];
 
         $unguarded = [];
@@ -722,7 +731,7 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
             . "second uri, a prefix or a rename will land here:\n  "
             . implode("\n  ", $unguarded));
 
-        // THE SCAN MUST BE REACHABLE. Six action names are listed; if a controller is renamed
+        // THE SCAN MUST BE REACHABLE. Nine action names are listed; if a controller is renamed
         // upstream the loop above silently matches nothing and passes vacuously.
         $this->assertSame(
             array_values($guardedActions),
@@ -738,7 +747,14 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
          * came to be anonymous. Nothing asserted that premise, so this does: if these routes ever
          * LOSE Authenticate, this reddens and the limb stops being belt-and-braces.
          */
-        foreach ($targets as $key) {
+        $anonymousByDesign = 'DELETE digital-products/{id}/delete';
+
+        // THE ONE ROUTE THE PREMISE DOES NOT HOLD FOR, stated rather than skipped: DigitalProduct declares it in a ['web']-only group. If the
+        // module ever adds `auth`, this reddens and the exemption below can go.
+        $this->assertNotContains(\Illuminate\Auth\Middleware\Authenticate::class, $registered[$anonymousByDesign],
+            "`{$anonymousByDesign}` now carries Authenticate; drop it from the exemption and let the loop below check it.");
+
+        foreach (array_diff($targets, [$anonymousByDesign]) as $key) {
             $this->assertContains(
                 \Illuminate\Auth\Middleware\Authenticate::class,
                 $registered[$key],
@@ -770,18 +786,22 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
             'Delete Auction Product',
             'Delete Auction Product Order',
             'Delete Auction Setting',
+            'Delete Digital Product',
             'Edit Auction Product',
             'Edit Auction Setting',
+            'Edit Digital Product',
             'Manage Auction Product Order',
         ], $required);
 
         $this->makeGlobalAdminRole();
-        $this->enableModules();
+        $this->enableModules(['AuctionProduct', 'DigitalProduct']);
 
-        \Illuminate\Support\Facades\Artisan::call('db:seed', [
-            '--class' => 'Workdo\\AuctionProduct\\database\\seeders\\AuctionProductDatabaseSeeder',
-            '--force' => true,
-        ]);
+        foreach (['AuctionProduct', 'DigitalProduct'] as $module) {
+            \Illuminate\Support\Facades\Artisan::call('db:seed', [
+                '--class' => 'Workdo\\' . $module . '\\database\\seeders\\' . $module . 'DatabaseSeeder',
+                '--force' => true,
+            ]);
+        }
 
         foreach ($required as $permission) {
             $this->assertTrue(

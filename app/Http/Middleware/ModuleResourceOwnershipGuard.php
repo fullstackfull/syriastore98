@@ -198,6 +198,50 @@ class ModuleResourceOwnershipGuard
             'parameter' => 'auctionorder',
             'permission' => 'Manage Auction Product Order',
         ],
+
+        /*
+         * --- DigitalProduct: AuctionProduct's TWIN, P1-INV-23 ---
+         *
+         * The module was cloned from AuctionProduct, so `DigitalProductController::edit/update/destroy` are the same three handlers:
+         * `App\Models\Product::find($id)` (the host catalogue, no effective global scope), the permission checked in update()/destroy() and
+         * never the owner, and the product's images and the files they name destroyed with it. Any merchant whose plan carries the module
+         * could read, rewrite or delete another tenant's product. Found by the read-only review of P1-SEC-28 and reproduced by
+         * DigitalProductOwnershipTest before this entry existed.
+         *
+         * AND ONE ROUTE THAT HAS NO `auth` AT ALL -- the shape ModuleOrderMutationGuard's six routes had:
+         *   routes/web.php:20  Route::middleware(['web'])->group(... Route::delete('digital-products/{id}/delete', ..., 'file_delete'))
+         * file_delete($id) finds a DigitalProductImage by bare id, unlinks the file its `image_path` names and deletes the row. An anonymous
+         * caller could delete any tenant's product image and file by counting integers. It is the one target for which the `auth` premise
+         * in the census does NOT hold, which is why the guard's own anonymous limb above is not belt-and-braces here: it IS the
+         * authentication requirement. `digital_product_images` carries its own store_id, so the shared row read works as it is.
+         *
+         * `show()` is a view stub with no model read, as in the auction resource, and is left alone.
+         */
+        'GET digitalproduct/{digitalproduct}/edit' => [
+            'table' => 'products',
+            'parameter' => 'digitalproduct',
+            'permission' => 'Edit Digital Product',
+        ],
+        'PUT digitalproduct/{digitalproduct}' => [
+            'table' => 'products',
+            'parameter' => 'digitalproduct',
+            'permission' => 'Edit Digital Product',
+        ],
+        'PATCH digitalproduct/{digitalproduct}' => [
+            'table' => 'products',
+            'parameter' => 'digitalproduct',
+            'permission' => 'Edit Digital Product',
+        ],
+        'DELETE digitalproduct/{digitalproduct}' => [
+            'table' => 'products',
+            'parameter' => 'digitalproduct',
+            'permission' => 'Delete Digital Product',
+        ],
+        'DELETE digital-products/{id}/delete' => [
+            'table' => 'digital_product_images',
+            'parameter' => 'id',
+            'permission' => 'Edit Digital Product',
+        ],
     ];
 
     public function handle(Request $request, Closure $next): Response
