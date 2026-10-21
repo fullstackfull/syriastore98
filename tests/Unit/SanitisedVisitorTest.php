@@ -117,4 +117,50 @@ class SanitisedVisitorTest extends TestCase
         $this->assertTrue(mb_check_encoding($redacted, 'UTF-8'), 'The redacted URL still contains invalid UTF-8.');
         $this->assertStringContainsString('page=2', $redacted);
     }
+
+    /** The path is the one place raw invalid bytes survive (the query is re-encoded), so it is scrubbed -- review round 3. */
+    public function test_invalid_utf8_in_the_path_is_scrubbed(): void
+    {
+        $redacted = SanitisedVisitor::redact("https://shop.test/p\xFFq/page?x=1");
+
+        $this->assertTrue(mb_check_encoding($redacted, 'UTF-8'), 'The path still contains invalid UTF-8.');
+        $this->assertStringContainsString('?x=1', $redacted);
+    }
+
+    /** Scrubbing BEFORE the split turned a bad path byte into a '?', which became the separator and shifted every name. */
+    public function test_a_bad_path_byte_does_not_become_the_query_separator(): void
+    {
+        $redacted = SanitisedVisitor::redact("https://shop.test/p\xFFq?sid=V-SENTINEL&page=2");
+
+        $this->assertStringNotContainsString('V-SENTINEL', $redacted, 'The exact-name parameter `sid` kept its value.');
+        $this->assertStringContainsString('page=2', $redacted);
+    }
+
+    /** Route matching percent-decodes the path, so the capability link can be spelled with an encoded 'e'. */
+    public function test_a_percent_encoded_capability_link_is_redacted_too(): void
+    {
+        $cipher = 'eyJpdiI6Im5SZEJBTGJ3cWhFUjZGS1pRUzdmQXc9PSIsInZhbHVlIjoiYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoiLCJtYWMiOiIxMjM0NTY3ODkwIiwidGFnIjoiIn0%3D';
+        $encoded = '%65' . substr($cipher, 1);   // %65 = 'e'
+
+        foreach (['/shop/order/' . $encoded, '/shop/order%2F' . $cipher] as $path) {
+            $redacted = SanitisedVisitor::redact('https://shop.test' . $path);
+
+            $this->assertStringNotContainsString('eyJpdiI6', $redacted, "{$path}: the ciphertext was kept.");
+            $this->assertStringNotContainsString('pdiI6', $redacted, "{$path}: part of the ciphertext was kept.");
+        }
+    }
+
+    /** Crypt::encrypt() of a small scalar is EXACTLY 200 characters, so `strlen > 200` missed it in a query value. */
+    public function test_a_ciphertext_or_jwt_value_is_redacted_whatever_its_length_or_name(): void
+    {
+        $cipher200 = 'eyJpdiI6' . str_repeat('A', 192);
+        $this->assertSame(200, strlen($cipher200), 'Fixture premise: exactly the boundary length.');
+
+        foreach (['anything', 'next', 'ref'] as $name) {
+            $this->assertStringNotContainsString('eyJpdiI6', SanitisedVisitor::redact("https://shop.test/x?{$name}={$cipher200}"), "{$name}: the value was kept.");
+        }
+
+        $this->assertStringNotContainsString('eyJhbGci', SanitisedVisitor::redact('https://shop.test/x?t=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig'));
+        $this->assertStringContainsString('q=eyelet', SanitisedVisitor::redact('https://shop.test/x?q=eyelet'), 'A harmless value that merely starts with "ey" must survive.');
+    }
 }

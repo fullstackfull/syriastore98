@@ -173,7 +173,12 @@ class AuthRateLimiterTest extends TestCase
         );
     }
 
-    /** The submitted address is folded with mb_strtolower, as order_track and the account lookups do. */
+    /**
+     * The submitted address is folded to lowercase ASCII (RouteServiceProvider::foldForRateLimit) because the lookups it guards
+     * run under MySQL's case- AND accent-insensitive collation -- verified on a real server by
+     * tests/Support/Security/bin/verify-refund-freshness-lock-and-limiter-keys-on-mysql.php. (An earlier comment here said the
+     * account lookups fold in PHP; they fold in the database.)
+     */
     public function test_non_ascii_capitals_share_a_bucket_with_their_lowercase(): void
     {
         $this->assertSame(
@@ -181,5 +186,40 @@ class AuthRateLimiterTest extends TestCase
             $this->limit('203.0.113.11', 'ÉLODIE@EXAMPLE.TEST')->key,
             'A byte-wise strtolower leaves É and é in different buckets, multiplying an attacker\'s attempts.'
         );
+    }
+
+    public function test_accent_and_case_variants_of_one_address_share_a_bucket(): void
+    {
+        $keys = array_unique(array_map(
+            fn ($email) => $this->limit('203.0.113.12', $email)->key,
+            ['elodie@example.test', 'Élodie@Example.test', 'ELODIE@EXAMPLE.TEST', 'élodie@example.test']
+        ));
+
+        $this->assertCount(1, $keys, 'MySQL matches every one of these spellings to the same account; they must share one bucket.');
+    }
+
+    public function test_the_order_track_limiter_folds_slug_and_number_the_way_the_database_compares_them(): void
+    {
+        $callback = RateLimiter::limiter('order-track');
+        $this->assertNotNull($callback, 'The order-track limiter is not registered.');
+
+        $key = function (string $slug, string $number) use ($callback) {
+            $request = Request::create("/{$slug}/order-track", 'POST', ['order_number' => $number]);
+            $request->server->set('REMOTE_ADDR', '203.0.113.13');
+            $request->setRouteResolver(fn () => (new \Illuminate\Routing\Route('POST', '{storeSlug?}/order-track', []))->bind($request));
+
+            return $callback($request)->key;
+        };
+
+        $same = array_unique([
+            $key('myshop', 'AbC-0042'),
+            $key('MyShop', 'abc-0042'),
+            $key('mYSHOP', 'ABC-0042'),
+            $key('myshóp', 'ábc-0042'),
+        ]);
+        $this->assertCount(1, $same, 'Case and accent spellings of one store and one order must share a bucket.');
+
+        $this->assertNotSame($key('myshop', 'AbC-0042'), $key('myshop', 'AbC-0043'), 'Different numbers must not.');
+        $this->assertNotSame($key('myshop', 'AbC-0042'), $key('othershop', 'AbC-0042'), 'Different stores must not.');
     }
 }

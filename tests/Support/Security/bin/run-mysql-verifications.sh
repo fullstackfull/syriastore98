@@ -178,6 +178,15 @@ run_one verify-reserved-role-name-collation-on-mysql \
   "MYSQL_SOCK=${SOCK}" "MYSQL_HOST=${HOST}" "MYSQL_PORT_NUM=${PORT}" \
   "MYSQL_DATABASE=reserved_role_name_verify" "MYSQL_USER_NAME=${USER_NAME}" "MYSQL_PASS=${PASS}"
 
+# P1-ORD-07 / P1-ORD-08 (review rounds 2-3). (A) the refund request's FOR UPDATE freshness re-read: SQLite
+# emits no lock, so the PHPUnit test pins only the comparison; this executes the blocking and the
+# locking-read-vs-snapshot semantics on InnoDB. (B) the order-track limiter's keys: stores.slug and
+# orders.product_order_id compare case- AND accent-insensitively on MySQL, so a key built from the raw
+# string gives an attacker a fresh bucket per spelling of one row.
+run_one verify-refund-freshness-lock-and-limiter-keys-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=fresh_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

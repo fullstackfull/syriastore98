@@ -48,7 +48,11 @@ class SanitisedVisitor extends Visitor
     /** Too short to match by substring without hitting innocent names (`inside`, `occurrence`). */
     private const SENSITIVE_EXACT = ['sid', 'cc'];
 
-    /** A value longer than this is not an analytics dimension; it is a payload (the Easebuzz return puts the whole checkout in one). */
+    /**
+     * A value longer than this is not an analytics dimension; it is a payload (the Easebuzz return puts the whole
+     * checkout in one). A value that BEGINS `eyJ` is a Laravel ciphertext or a JWT whatever its length --
+     * Crypt::encrypt() of a small scalar is exactly 200 characters, so the length rule alone missed it.
+     */
     private const MAX_VALUE_LENGTH = 200;
 
     /** A Laravel Crypt::encrypt() payload is base64 of `{"iv":...`, i.e. it begins `eyJpdiI6`; as a PATH segment it is a capability link. */
@@ -83,25 +87,48 @@ class SanitisedVisitor extends Visitor
     /** Replace the VALUE of every credential-looking query parameter; keep the path and the rest. */
     public static function redact(string $url): string
     {
-        $url = mb_scrub($url);
-        $url = preg_replace(self::ENCRYPTED_SEGMENT, '/[encrypted]', $url) ?? $url;
-
         $fragment = '';
 
         if (($hash = strpos($url, '#')) !== false) {
-            $fragment = substr($url, $hash);
+            $fragment = mb_scrub(substr($url, $hash));
             $url = substr($url, 0, $hash);
         }
 
-        if (($mark = strpos($url, '?')) === false) {
-            return $url . $fragment;
+        $query = null;
+
+        if (($mark = strpos($url, '?')) !== false) {
+            $query = substr($url, $mark + 1);
+            $url = substr($url, 0, $mark);
         }
 
-        parse_str(substr($url, $mark + 1), $parameters);
+        // The PATH is the only part that can still carry raw invalid bytes (the query is re-encoded below), and
+        // it is scrubbed AFTER the split: scrubbing first turned a bad byte in the path into a '?', which then
+        // became the query separator and shifted every parameter name.
+        $path = mb_scrub($url);
+
+        // Route matching percent-DECODES the path, so a capability link spelled `/order/%65yJ...` still routes
+        // while a literal `/eyJ` pattern misses it. Match on the decoded form and, only when it hits, keep that
+        // form; an ordinary URL is returned exactly as it came.
+        $decoded = rawurldecode($path);
+
+        if (preg_match(self::ENCRYPTED_SEGMENT, $decoded) === 1) {
+            $path = preg_replace(self::ENCRYPTED_SEGMENT, '/[encrypted]', $decoded);
+
+            // Fail CLOSED: a regex error must never fall back to storing the ciphertext.
+            if ($path === null) {
+                return '[unparseable url]';
+            }
+        }
+
+        if ($query === null) {
+            return $path . $fragment;
+        }
+
+        parse_str($query, $parameters);
 
         $clean = self::redactParameters($parameters);
 
-        return substr($url, 0, $mark) . ($clean === [] ? '' : '?' . http_build_query($clean)) . $fragment;
+        return $path . ($clean === [] ? '' : '?' . http_build_query($clean)) . $fragment;
     }
 
     private static function redactParameters(array $parameters): array
@@ -111,7 +138,7 @@ class SanitisedVisitor extends Visitor
                 $parameters[$name] = '[redacted]';
             } elseif (is_array($value)) {
                 $parameters[$name] = self::redactParameters($value);
-            } elseif (is_string($value) && (strlen($value) > self::MAX_VALUE_LENGTH || preg_match('/^\s*[\[{]/', $value))) {
+            } elseif (is_string($value) && (strlen($value) > self::MAX_VALUE_LENGTH || preg_match('/^\s*[\[{]/', $value) || str_starts_with($value, 'eyJ'))) {
                 $parameters[$name] = '[redacted]';
             } elseif (is_string($value) && str_contains($value, '?')) {
                 // A URL-valued parameter (`?next=/reset-password?token=T`): its own query is parsed too.

@@ -281,4 +281,35 @@ class StorefrontVisitLogTest extends SecurityTestCase
         $this->assertNotSame(500, $response->getStatusCode());
         \Illuminate\Support\Facades\Exceptions::assertNothingReported();
     }
+
+    /**
+     * Review round 3: the first version of the test above only asked that report() was not called, which also
+     * passes for an EMPTY catch and for `Log::warning(..., ['exception' => $e])` -- the exact variant the comment in
+     * ActiveTheme warns about, because the error tracker's handler acts on `context['exception']`. The log line is
+     * now pinned: the class and a message, and NO exception object.
+     */
+    public function test_the_failure_is_logged_by_class_and_message_and_never_with_the_exception_object(): void
+    {
+        $store = $this->themedStore();
+
+        \Illuminate\Support\Facades\Log::spy();
+
+        DB::unprepared("CREATE TRIGGER reject_visit_insert3 BEFORE INSERT ON shetabit_visits "
+            . "BEGIN SELECT RAISE(ABORT, 'simulated visit-log failure'); END");
+
+        try {
+            $this->visit('GET', '/' . $store->slug . '/login');
+        } finally {
+            DB::unprepared('DROP TRIGGER IF EXISTS reject_visit_insert3');
+        }
+
+        \Illuminate\Support\Facades\Log::shouldHaveReceived('warning')
+            ->withArgs(function ($message, $context = []) {
+                return $message === 'Storefront visit log failed'
+                    && is_string($context['class'] ?? null)
+                    && is_string($context['message'] ?? null)
+                    && ! array_key_exists('exception', $context);
+            })
+            ->once();
+    }
 }

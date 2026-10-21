@@ -1008,13 +1008,53 @@ class StorefrontOrderRefundOwnershipTest extends SecurityTestCase
 
         $this->assertTrue($fired, 'Fixture premise: the listener must fire on the handler\'s own ownedOrder() read.');
         $this->assertNotSame(500, $response->getStatusCode());
-        $response->assertSessionHas('error');
+        // The SPECIFIC message: any error flash would also satisfy a throw inside the closure (review round 3).
+        $response->assertSessionHas('error', __('This order was just updated. Please review it and try again.'));
 
         $row = DB::table('orders')->where('id', $order->id)->first();
         $this->assertSame($concurrent, $row->product_json,
             'The request overwrote what a concurrent refund had just committed, computed from a snapshot that no longer existed.');
         $this->assertSame(340.0, (float) $row->final_price);
         $this->assertSame(0, $this->refundRows(), 'A refund row was recorded against a stale snapshot.');
+    }
+
+    /**
+     * Review round 3. The freshness comparison covered only `product_json`, but the new total is computed from
+     * delivery, tax and coupon as well: a concurrent change to one of THOSE with the lines untouched would have
+     * been overwritten by a total built on the pre-lock values.
+     */
+    public function test_a_concurrent_change_to_delivery_tax_or_coupon_is_not_overwritten_either(): void
+    {
+        foreach (['delivery_price' => 55, 'tax_price' => 33, 'coupon_price' => 10] as $column => $newValue) {
+            [, $store] = $this->makeTenant();
+            $owner = $this->shopper($store);
+            $order = $this->twoLineOrder($store, $owner);
+
+            // ONE STATE OBJECT PER ITERATION. The first version captured `&$fired`, which is the SAME variable
+            // in every iteration: iteration 2 reset it, and iteration 1's still-registered listener consumed
+            // the trigger against order 1, so the tax change was never made and the test reported a refund
+            // that was not refused. (Listeners cannot be unregistered, so they must be inert once spent.)
+            $state = new \stdClass();
+            $state->fired = false;
+            DB::listen(function ($query) use ($state, $order, $column, $newValue) {
+                if ($state->fired || ! str_starts_with($query->sql, 'select * from "orders" where "id" = ? and "store_id" = ? and "customer_id" = ?')) {
+                    return;
+                }
+
+                $state->fired = true;
+                DB::table('orders')->where('id', $order->id)->update([$column => $newValue]);
+            });
+
+            $response = $this->refundRequest($owner, $store, $order, $this->twoLinePayload($order));
+
+            $this->assertTrue($state->fired, "{$column}: fixture premise - the listener must fire on the handler's own read.");
+            $this->assertSame(__('This order was just updated. Please review it and try again.'), session('error'),
+                "{$column}: the request was not refused (status " . $response->getStatusCode() . ', success flash ' . json_encode(session('success')) . ')');
+            $this->assertEquals($newValue, DB::table('orders')->where('id', $order->id)->value($column), "{$column}: the concurrent change was overwritten.");
+            $this->assertSame(0, DB::table('order_refunds')->where('order_id', $order->id)->count(), "{$column}: a refund was recorded on a stale total.");
+
+            $this->flushSession();
+        }
     }
 
     /**

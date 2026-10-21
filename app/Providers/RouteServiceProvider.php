@@ -20,6 +20,22 @@ class RouteServiceProvider extends ServiceProvider
     public const HOME = '/dashboard';
 
     /**
+     * The form a rate-limit key is built from: the form the DATABASE compares in.
+     *
+     * The lookups behind these limiters (`stores.slug`, `orders.product_order_id`, `users.email`) run
+     * under MySQL's utf8mb4_unicode_ci, which is case- AND accent-insensitive -- verified on a real
+     * server by tests/Support/Security/bin/verify-refund-freshness-lock-and-limiter-keys-on-mysql.php,
+     * where `MyShop`, `mYSHOP` and `myshóp` all match the one `myshop` row. A key built from the raw
+     * string hands an attacker a fresh bucket per spelling of the same row, so every key is folded to
+     * lowercase ASCII first. (SQLite compares bytes, so no PHPUnit test can see the difference; the
+     * unit tests pin the folding itself.)
+     */
+    public static function foldForRateLimit(string $value): string
+    {
+        return \Illuminate\Support\Str::lower(\Illuminate\Support\Str::ascii(trim($value)));
+    }
+
+    /**
      * Define your route model bindings, pattern filters, and other route configuration.
      */
     public function boot(): void
@@ -55,7 +71,7 @@ class RouteServiceProvider extends ServiceProvider
             // route carrying `throttle:auth` (found when P1-ORD-08 put it on order-track). It now
             // falls into the same bucket as an absent email, which is still throttled.
             $submitted = $request->input('email');
-            $email = mb_strtolower(is_scalar($submitted) ? (string) $submitted : '');
+            $email = self::foldForRateLimit(is_scalar($submitted) ? (string) $submitted : '');
 
             $key = $request->ip() . '|' . hash('sha256', $email);
 
@@ -69,9 +85,10 @@ class RouteServiceProvider extends ServiceProvider
         // `product_order_id` has no index, so every miss is a table scan: this also bounds that.
         RateLimiter::for('order-track', function (Request $request) {
             $number = $request->input('order_number');
-            $number = mb_strtolower(trim(is_scalar($number) ? (string) $number : ''));
+            $number = self::foldForRateLimit(is_scalar($number) ? (string) $number : '');
+            $slug = self::foldForRateLimit((string) $request->route('storeSlug'));
 
-            return Limit::perMinute(10)->by($request->ip() . '|' . $request->route('storeSlug') . '|' . hash('sha256', $number));
+            return Limit::perMinute(10)->by($request->ip() . '|' . $slug . '|' . hash('sha256', $number));
         });
 
         $this->routes(function () {

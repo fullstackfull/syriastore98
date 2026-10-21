@@ -23,22 +23,27 @@ final class GatewaySecretRedactor
 {
     private const SECRET_NAME = '/secret|private|salt|auth_code|token|api_?key|server_key|transaction_key|signature|password|pwd|merchant_key|integration_key|credential/i';
 
-    /** Names that are secrets but carry none of the words above. */
-    private const SECRET_EXACT = ['cashfree_key'];
+    /**
+     * Names that are secrets but carry none of the words above. `PAYMERA_USERNAME` is what Paymera sends as
+     * `Authorization: Bearer <username>` (PaymentService.php:394,416-417; PaymentController.php calls it "the
+     * bearer credential for Paymera's status API") -- it is in Setting::paymentList's entry 52 only.
+     */
+    private const SECRET_EXACT = ['cashfree_key', 'PAYMERA_USERNAME'];
 
     /**
-     * Names that CONTAIN a secret-looking word but carry none. `secretKey` is what ApiController assigns
-     * from `is_sspay_enabled` / `is_toyyibpay_enabled` (lines 2361 and 2380) -- the on/off flag, a vendor
-     * mislabel, read by the sweep review. Nulling it would change a value no credential ever occupied.
+     * Names that CONTAIN a secret-looking word but, as built today, carry a plain on/off flag. `secretKey` is what
+     * ApiController assigns from `is_sspay_enabled` / `is_toyyibpay_enabled` (lines 2361 and 2380) and
+     * Setting::paymentList from the same settings (278, 297) -- a vendor mislabel. Nulling it would change a value
+     * no credential ever occupied. The exemption is on the NAME *and* the VALUE: anything other than an on/off
+     * flag under that name is treated as a secret, so a real key stored there later is not exempted by its label.
      */
-    private const PUBLIC_EXACT = ['secretKey'];
+    private const PUBLIC_FLAG_NAMES = ['secretKey'];
+
+    /** The values a flag takes. */
+    private const FLAG_VALUES = ['on', 'off', '', null];
 
     public static function isSecret(string $name): bool
     {
-        if (in_array($name, self::PUBLIC_EXACT, true)) {
-            return false;
-        }
-
         return in_array($name, self::SECRET_EXACT, true) || preg_match(self::SECRET_NAME, $name) === 1;
     }
 
@@ -46,7 +51,13 @@ final class GatewaySecretRedactor
     public static function redact(array $entry): array
     {
         foreach ($entry as $name => $value) {
-            if (self::isSecret((string) $name)) {
+            $name = (string) $name;
+
+            if (in_array($name, self::PUBLIC_FLAG_NAMES, true) && in_array($value, self::FLAG_VALUES, true)) {
+                continue;
+            }
+
+            if (self::isSecret($name)) {
                 $entry[$name] = null;
             }
         }

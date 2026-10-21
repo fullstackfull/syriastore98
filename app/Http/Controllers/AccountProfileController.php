@@ -1244,16 +1244,26 @@ public function city_list(Request $request, $slug)
                 // write wins, while two refund rows each record the units. Re-read the row FOR UPDATE --
                 // the second request waits here on MySQL -- and refuse if the lines are no longer what
                 // this request was computed from. A raw read, not the Cachable model, so a cached copy
-                // can never make a stale row look current. (SQLite ignores FOR UPDATE; the test pins
-                // the comparison with a deterministic interleave.)
+                // can never make a stale row look current. SQLite ignores FOR UPDATE, so the PHPUnit test pins
+                // the COMPARISON with a deterministic interleave; the lock itself -- the second request
+                // blocks, then reads the committed row while a plain read in an older snapshot would not --
+                // was executed against a real InnoDB server by
+                // tests/Support/Security/bin/verify-refund-freshness-lock-and-limiter-keys-on-mysql.php.
                 $current = \DB::table('orders')
                     ->where('id', $order->id)
                     ->where('store_id', $store->id)
                     ->where('customer_id', $order->customer_id)
                     ->lockForUpdate()
-                    ->value('product_json');
+                    ->first(['product_json', 'delivery_price', 'tax_price', 'coupon_price']);
 
-                if ($current !== $order->getRawOriginal('product_json')) {
+                // The lines AND the three components the new total is computed from: a concurrent change to
+                // delivery, tax or coupon with the lines untouched would otherwise be overwritten by a total
+                // built on the values read before the lock (review round 3).
+                if (! $current
+                    || $current->product_json !== $order->getRawOriginal('product_json')
+                    || (float) $current->delivery_price !== (float) $order->getRawOriginal('delivery_price')
+                    || (float) $current->tax_price !== (float) $order->getRawOriginal('tax_price')
+                    || (float) $current->coupon_price !== (float) $order->getRawOriginal('coupon_price')) {
                     return null;
                 }
 

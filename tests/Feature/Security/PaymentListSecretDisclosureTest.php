@@ -40,6 +40,8 @@ class PaymentListSecretDisclosureTest extends SecurityTestCase
      * someone decides which it is -- that is the point.
      */
     private const SECRET_FIELDS = [
+        // Setting::paymentList's entry 52 only: sent as `Authorization: Bearer <username>` (PaymentService.php:394).
+        'PAYMERA_USERNAME',
         'Xendit_api_key', 'Xendit_token_key', 'aamarpay_signature_key', 'authorizenet_transaction_key',
         'benefit_private_key', 'benefit_secret_key', 'braintree_pay_private_key', 'cashfree_key',
         'cashfree_secret_key', 'cinet_pay_api_key', 'coingate_auth_token', 'cybersource_pay_api_key',
@@ -58,6 +60,8 @@ class PaymentListSecretDisclosureTest extends SecurityTestCase
     ];
 
     private const KEEP_FIELDS = [
+        // Setting::paymentList's entry 52 only: an identifier.
+        'PAYMERA_TERMINAL_ID',
         // The on/off flag the vendor code mislabels (ApiController:2361,2380); verified by reading, kept so the value is unchanged.
         'secretKey',
         'Senangpay_mode', 'aamarpay_description', 'aamarpay_store_id', 'authorizenet_login_id',
@@ -192,6 +196,14 @@ class PaymentListSecretDisclosureTest extends SecurityTestCase
             }
         }
 
+        // The web checkout's twin builder is a second source of the same names (plus Paymera's entry 52): harvest it
+        // too, so the ratchet is true of both (review round 3: it had only ever seen the API response).
+        foreach (\App\Models\Setting::paymentList($store->slug) as $entry) {
+            foreach (array_keys($entry) as $name) {
+                $seen[$name] = true;
+            }
+        }
+
         $unclassified = array_values(array_diff(array_keys($seen), self::SECRET_FIELDS, self::KEEP_FIELDS));
         $this->assertSame([], $unclassified,
             'The payment list returned fields nobody has classified: ' . implode(', ', $unclassified)
@@ -206,7 +218,8 @@ class PaymentListSecretDisclosureTest extends SecurityTestCase
     {
         $entry = [];
         foreach (array_merge(self::SECRET_FIELDS, self::KEEP_FIELDS) as $name) {
-            $entry[$name] = 'VALUE-' . $name;
+            // `secretKey` carries the on/off flag in production code (see GatewaySecretRedactor::PUBLIC_FLAG_NAMES).
+            $entry[$name] = $name === 'secretKey' ? 'on' : 'VALUE-' . $name;
         }
 
         $out = \App\Services\GatewaySecretRedactor::redact($entry);
@@ -215,7 +228,7 @@ class PaymentListSecretDisclosureTest extends SecurityTestCase
             $this->assertNull($out[$name], "'{$name}' is a secret and was returned.");
         }
         foreach (self::KEEP_FIELDS as $name) {
-            $this->assertSame('VALUE-' . $name, $out[$name], "'{$name}' is public and was removed: the checkout needs it.");
+            $this->assertSame($name === 'secretKey' ? 'on' : 'VALUE-' . $name, $out[$name], "'{$name}' is public and was removed: the checkout needs it.");
         }
         $this->assertSame(array_keys($entry), array_keys($out), 'The keys must stay: clients decode this into typed models.');
     }
@@ -246,5 +259,28 @@ class PaymentListSecretDisclosureTest extends SecurityTestCase
         $this->assertStringContainsString(self::STRIPE_PUBLISHABLE, $flat, 'Positive control: the builder must still list the gateway.');
         $this->assertStringNotContainsString(self::STRIPE_SECRET, $flat);
         $this->assertStringNotContainsString(self::PAYSTACK_SECRET, $flat);
+    }
+
+    /** The `secretKey` exemption is for the on/off flag only: a credential stored under that label is still nulled. */
+    public function test_the_secretkey_exemption_is_for_the_flag_and_not_for_a_credential_under_that_label(): void
+    {
+        $r = fn (array $e) => \App\Services\GatewaySecretRedactor::redact($e);
+
+        $this->assertSame('on', $r(['secretKey' => 'on'])['secretKey']);
+        $this->assertSame('off', $r(['secretKey' => 'off'])['secretKey']);
+        $this->assertNull($r(['secretKey' => 'abc123-a-real-looking-key'])['secretKey']);
+        $this->assertNull($r(['secretKey' => 'sk_live_FIXTURE_notaflag'])['secretKey']);
+    }
+
+    /** Paymera's bearer credential rides in the twin builder's entry 52. */
+    public function test_the_paymera_bearer_credential_is_nulled_in_the_twin_builder(): void
+    {
+        $store = $this->victimStore();
+        \App\Models\Setting::forceCreate(['name' => 'PAYMERA_USERNAME', 'value' => 'paymera-bearer-FIXTURE-7f31', 'store_id' => $store->id, 'created_by' => $store->created_by]);
+
+        $flat = json_encode(\App\Models\Setting::paymentList($store->slug));
+
+        $this->assertStringContainsString('PAYMERA_TERMINAL_ID', $flat, 'Positive control: the Paymera entry must still be listed.');
+        $this->assertStringNotContainsString('paymera-bearer-FIXTURE-7f31', $flat);
     }
 }
