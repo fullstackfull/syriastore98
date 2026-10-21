@@ -4081,6 +4081,67 @@ on the server are owner decisions: **P1-OWN-09**.
 | BackupRestore: `mysqldump` of the whole database to a web-reachable path, chmod 0777, linked with no auth in front; `database_name` concatenated into `shell_exec` (command injection for anyone holding `backup&restore create`) | `BackupRestoreController.php:181-188` | existing **P1-OWN-01** — the dumps would contain the S40 rows |
 
 
+## S43 — Credentials handed to the browser, and what the review of that fix found beside it — **P1-SEC-17, -19, -20, -21, -23 and -24 CLOSED; P1-SEC-22 READY; rotation is P1-OWN-09 (BLOCKED, owner)**
+
+*Found 2026-10-21: the three sinks by the S41 sweep (READ), the rest by a four-lens read-only review of the fix
+(completeness, regression, bypass, tests) and by execution. Every row below says which.*
+
+**P1-SEC-17 (S41 F1–F3) — fixed, `4a85ca3e`.**
+
+| Sink | Fix | Evidence |
+|---|---|---|
+| **F1** `POST {slug}/get-massage` returned `https://api.telegram.org/bot<TOKEN>/sendMessage` to an anonymous caller after posting the order text itself; the one page that calls it stores the body in a hidden input nothing reads | host handler posts through the Http client and returns nothing; a failure is logged by class and status only (a refused `file_get_contents` raised a warning whose message is the URL, which reached the log and the error tracker) | EXECUTED RED: the body was the URL. 9 tests |
+| **F1, vendored copies** Donation and LotteryPrizes return the same URL from their own `getWhatsappUrl()` (they never post anything) | `WithholdTelegramBotUrl` on the `web` group - a rule about a response, not a list of route names - empties a bare bot-URL body | EXECUTED RED through both module routes, enabled by the production loader. 12 tests |
+| **F2** the Midtrans **server** key printed as `data-client-key` and, via `route($fallback, $data)`, into the form action | removed from the view data and both views (store checkout and plan purchase); Campaigns / Donation / LotteryPrizes copies replaced by package-view overrides in `resources/views/vendor/<ns>/`, with a drift test that fails when the module's own view changes | EXECUTED RED for all five pages. 5 tests, plus the module set |
+| **F3** `verify-email` printed the platform `NOCAPTCHA_SECRET` into a script | uses `NOCAPTCHA_SITEKEY`, like `login`, `register`, `forgot-password`, `reset-password` | EXECUTED RED. 2 tests |
+
+26 tests / 86 assertions; every control removal-checked, and two mutations the review found unbitten (log the exception
+message; drop the empty-token return) now fail a test. **Midtrans:** the sandbox `snap.js` was fetched and read (not run) -
+`data-client-key` defaults to `''` and its absence only logs that custom-UI configuration will not take effect. NOT executed:
+the Midtrans-hosted popup without a `client_key`.
+
+**Found by the review and fixed in their own commits (each EXECUTED RED first):**
+
+| # | Finding | Task |
+|---|---|---|
+| **HIGH** | `POST /setting-form` with `tab_type=chat_gpt_setting` returned the **platform's shared OpenAI keys** to any merchant or staff login (the tab link and the save were operator-only; the read had no check) | **P1-SEC-19** `eaa0d21f` |
+| MEDIUM | Donation / LotteryPrizes Telegram, WhatsApp and Khalti responses serialised the whole `Store` row to an anonymous caller - with Duo2FA installed, `duo_secret_key` and `duo_integration_key` | **P1-SEC-20** `d809ddb7`, then `c1342d24` (see below) |
+| MEDIUM | `get-massage` deleted the cart lines of the POSTED `customer_id` (a guest could clear a victim's basket line); and built every store's message from the **lowest-id merchant's** `whatsapp_content` because `getAdminAllSetting()` with no arguments resolves `auth()->user()` (null for shoppers) | **P1-SEC-21** `a541eeb1`, then `b6902fc7` (see below) |
+| **HIGH** (found by the review of the above, **EXECUTED on MySQL 8.0.46**) | `whatsapp()` queued a guest's basket clear as `customer_id = ''`; guest rows carry `customer_id 0` and differ only by cookie. On production's non-strict MySQL `'' = 0`, so **one guest's WhatsApp/Telegram order deleted every guest's basket row for that product in the store** (2 of 2 measured). Strict mode raises 1292 and clears nothing; SQLite clears nothing, which is why the suite never saw it | **P1-SEC-23** `b6902fc7` |
+| **HIGH** (found by the review of P1-SEC-23, **EXECUTED, each member through its real route**) | **Baskets were deleted, taken over and altered through a cookie that was not there.** A logged-in customer's basket rows carry `cookie_session_id` NULL and `where('cookie_session_id', null)` is `whereNull`, so every query that used `Cookie::get('cart')` unchecked selected every logged-in customer's rows when the cookie was absent. Measured: an **anonymous** `cart-clear` / `cart-remove` / `change-cart` with no cookie deleted or altered another customer's basket - **and one `cart-clear` on store 1's slug wiped the logged-in customers' baskets of every store (2 baskets in 2 stores -> none); an earlier note said the tenant bounds it, which was a test artifact (`actingAs($c, 'customers')` makes `customers` the default guard and so resolves a tenant; production's default guard is `web`)**; a customer **logging in** with no cookie had every other customer's basket reassigned to them; a logged-in customer's **COD order** and an **NMI return** deleted every other customer's basket (cross-store, for the same reason). Eight order-completion handlers carry it. Second half: seven gateway returns and `PaymentService::clearCartLines` cleared the buyer's basket by `$request->customer_id` (the stored state: `''` for a guest, which MySQL reads as 0, or the id of the customer whose e-mail was typed). Also `cart-remove`'s logged-in arm deleted any customer's line by its sequential id | **P1-SEC-24** `8788c030`, `59944003`, `17012b5b` |
+
+**Each of the three fixes then had an independent read-only review (`tenant-authz-reviewer`), and it changed the code:**
+
+- **SEC-19 - CLEAN.** The operator test matches the other operator checks; no other path renders the keys; the tab's only consumer has no error handler, so the 403 breaks nothing.
+- **SEC-20 - NON-BLOCKING, one MEDIUM acted on.** `$hidden` is object state and Eloquent's `__sleep()` serialises it, so with `CACHE_STORE=database` a `Store` cached *before* the deploy keeps the old empty list and keeps leaking until the cache is flushed. Moved to `attributesToArray()`, a method; the new stale-cache test fails against the `$hidden` version (executed).
+- **SEC-23 - NON-BLOCKING; its review found the larger problem.** On the real web checkout the queued id is the customer found from the *typed* billing e-mail, so the clear deleted that customer's basket (executed RED); and the cookie delete after an order was unguarded against a missing cookie (P1-SEC-24).
+- **SEC-21 - NON-BLOCKING, two findings acted on.** (1) The template was keyed on the owner's user id while `customMassage` stamps `created_by` with whoever saved last - a staff-saved template would be missed; now read by name and store. (2) The authenticated arm was untested (a guest `process-order` stores a posted `customer_id`; a guest who then logs in takes that arm); the reviewer's mutation passed every earlier test and fails the new one. It also surfaced the SEC-23 defect.
+
+**Found and not fixed - READY or recorded under an existing task (READ unless stated):**
+
+| Finding | Task |
+|---|---|
+| `get-massage` is an unthrottled, ungated anonymous relay to the merchant's Telegram chat; Donation records a row per anonymous POST (one call delivering one message is EXECUTED) | **P1-SEC-22** |
+| `processMidtrans` flashes the exception **object** into the page (`{!! !!}` in two layouts); `isProduction=false` is hard-coded, so every production-key merchant takes that path on every checkout | P1-SEC-22 |
+| Marketing module prints `business_password` in page script and compares it in the browser (not traced) | P1-SEC-22 |
+| `payment_list` still returns `telegram_chat_id` | P1-SEC-22 |
+| **34** other no-argument `getAdminAllSetting()` callers in `app/` (14 in `PaymentService`, 9 in `helper.php`): on a storefront path they resolve the lowest-id merchant's settings, the shape of S41 F4 | P1-SEC-18 |
+| `POST generate/response` lets any logged-in user spend the platform's OpenAI key (cost abuse, not disclosure; reach not verified) | P1-SEC-22 |
+| Khalti's return never clears a guest's cookie basket; vendored `SkipCart` `emptyCart` deletes by a request `customer_id`; admin abandoned-cart handlers rely on the scope alone; LynomiaChat returns a live guest session id as a basket id | P1-SEC-22 |
+| `StoreLocator` builds `…&key=$apiKey` and calls `file_get_contents`; a network failure puts the merchant's key in the warning text | recorded; SEC-14 covers the tracker half |
+| The vendored installer prints `.env` while `storage/installed` is absent; production state unknown | existing GATE 0 |
+| No Midtrans **client** key setting exists, so a real client key can never be rendered; adding the field is a schema/UI change | needs approval |
+| `customer_donations.theme_id` is written by the Donation handler and declared by no migration | schema drift, recorded |
+
+**Not closed, deliberately:** the keys and tokens have been readable for as long as these routes have answered, and the
+history is squashed so how long is unknowable. Rotating the merchants' Telegram bot tokens and Midtrans sandbox server keys,
+the platform reCAPTCHA secret (only where `RECAPTCHA_MODULE=yes` and the version is not v2), the **platform OpenAI key(s)**,
+and the Duo keys of any merchant who used the Donation/LotteryPrizes Telegram/WhatsApp/Khalti checkout, plus the access-log
+queries (`POST */get-massage`, `POST /setting-form` with `tab_type=chat_gpt_setting` from a non-operator session, the module
+`*-telegram` routes) are owner decisions: **P1-OWN-09**.
+
+---
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**
