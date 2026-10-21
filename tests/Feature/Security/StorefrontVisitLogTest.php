@@ -221,4 +221,64 @@ class StorefrontVisitLogTest extends SecurityTestCase
             'A visit-log write failure took the whole storefront page down with it.');
         $this->assertSame(0, DB::table('shetabit_visits')->count());
     }
+
+    /** The anonymous order-details link is a CAPABILITY in the path (P1-ORD-09), so it must not be written down. */
+    public function test_an_order_details_link_is_not_stored_in_url_or_referer(): void
+    {
+        $store = $this->themedStore();
+        $link = \Illuminate\Support\Facades\Crypt::encrypt(7);
+
+        $_SERVER['HTTP_REFERER'] = 'https://shop.test/' . $store->slug . '/order/' . $link . '?utm=mail';
+
+        try {
+            $this->visit('GET', '/' . $store->slug . '/order/' . $link);
+        } finally {
+            unset($_SERVER['HTTP_REFERER']);
+        }
+
+        $row = DB::table('shetabit_visits')->first();
+        $this->assertNotNull($row, 'Fixture premise: the order-details visit must have been logged.');
+        $this->assertStringContainsString('/' . $store->slug . '/order/', (string) $row->url, 'The route must survive for analytics.');
+        $this->assertStringContainsString('utm=mail', (string) $row->referer, 'Premise: the referer column must have been written.');
+        $this->assertNothingSecretStored([$link, substr($link, 0, 40)], 'order-details link');
+    }
+
+    /**
+     * An invalid-UTF-8 User-Agent used to make the `headers` JSON cast throw, the catch swallowed it, and
+     * -- with `report($e)` -- every such request was reported to the error tracker WITH the live cookies.
+     * The strings are scrubbed instead: the visit is recorded and nothing is thrown.
+     */
+    public function test_an_invalid_utf8_user_agent_is_recorded_scrubbed_not_thrown_and_reported(): void
+    {
+        $store = $this->themedStore();
+
+        \Illuminate\Support\Facades\Exceptions::fake();
+
+        $response = $this->visit('GET', '/' . $store->slug . '/login', [], ['User-Agent' => "Bad\xFFAgent/1.0", 'Accept-Language' => "en\xFE-US"]);
+
+        $this->assertNotSame(500, $response->getStatusCode());
+        $this->assertSame(1, DB::table('shetabit_visits')->count(),
+            'The visit was lost: the headers JSON cast threw on invalid UTF-8.');
+        \Illuminate\Support\Facades\Exceptions::assertNothingReported();
+    }
+
+    /** A visit that cannot be written is logged by CLASS only: the exception object would take the request to the error tracker. */
+    public function test_a_failing_visit_write_is_not_reported_with_its_exception_object(): void
+    {
+        $store = $this->themedStore();
+
+        \Illuminate\Support\Facades\Exceptions::fake();
+
+        DB::unprepared("CREATE TRIGGER reject_visit_insert2 BEFORE INSERT ON shetabit_visits "
+            . "BEGIN SELECT RAISE(ABORT, 'simulated visit-log failure'); END");
+
+        try {
+            $response = $this->visit('GET', '/' . $store->slug . '/login');
+        } finally {
+            DB::unprepared('DROP TRIGGER IF EXISTS reject_visit_insert2');
+        }
+
+        $this->assertNotSame(500, $response->getStatusCode());
+        \Illuminate\Support\Facades\Exceptions::assertNothingReported();
+    }
 }

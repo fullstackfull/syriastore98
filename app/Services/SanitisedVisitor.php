@@ -39,10 +39,20 @@ class SanitisedVisitor extends Visitor
 
     /**
      * A query parameter whose NAME contains one of these has its value replaced. Substring match, so
-     * `pass` covers password/passwd, `sig` covers signature, `mail` covers email -- no alternative here
-     * is listed that another already contains (the removal check showed those could not be isolated).
+     * `pass` covers password/passwd, `pw` covers pwd, `sess` covers session/sessid/PHPSESSID, `sig`
+     * covers signature, `mail` covers email, `cred` covers credential -- no alternative here is listed
+     * that another already contains (the removal check showed those could not be isolated).
      */
-    private const SENSITIVE_PARAMETER = '/token|pass|pwd|otp|code|secret|sig|key|mail|auth|cookie|session|cvv|card|pin/i';
+    private const SENSITIVE_PARAMETER = '/token|pass|pw|otp|code|secret|sig|key|mail|auth|cookie|sess|cvv|cvc|card|pin|hash|nonce|jwt|bearer|cred|ticket|iban|account/i';
+
+    /** Too short to match by substring without hitting innocent names (`inside`, `occurrence`). */
+    private const SENSITIVE_EXACT = ['sid', 'cc'];
+
+    /** A value longer than this is not an analytics dimension; it is a payload (the Easebuzz return puts the whole checkout in one). */
+    private const MAX_VALUE_LENGTH = 200;
+
+    /** A Laravel Crypt::encrypt() payload is base64 of `{"iv":...`, i.e. it begins `eyJpdiI6`; as a PATH segment it is a capability link. */
+    private const ENCRYPTED_SEGMENT = '#/eyJ[A-Za-z0-9%_\-=.]{40,}#';
 
     public function request(): array
     {
@@ -51,7 +61,11 @@ class SanitisedVisitor extends Visitor
 
     public function httpHeaders(): array
     {
-        return array_intersect_key(parent::httpHeaders(), array_flip(self::HEADERS_KEPT));
+        $kept = array_intersect_key(parent::httpHeaders(), array_flip(self::HEADERS_KEPT));
+
+        // Invalid UTF-8 in a header value makes the `headers` JSON cast throw, which used to lose the
+        // visit (and, reported, ship the live cookies to the error tracker). Scrubbed, it is recorded.
+        return array_map(fn ($values) => is_array($values) ? array_map(fn ($v) => is_string($v) ? mb_scrub($v) : $v, $values) : $values, $kept);
     }
 
     public function url(): string
@@ -69,6 +83,9 @@ class SanitisedVisitor extends Visitor
     /** Replace the VALUE of every credential-looking query parameter; keep the path and the rest. */
     public static function redact(string $url): string
     {
+        $url = mb_scrub($url);
+        $url = preg_replace(self::ENCRYPTED_SEGMENT, '/[encrypted]', $url) ?? $url;
+
         $fragment = '';
 
         if (($hash = strpos($url, '#')) !== false) {
@@ -90,10 +107,15 @@ class SanitisedVisitor extends Visitor
     private static function redactParameters(array $parameters): array
     {
         foreach ($parameters as $name => $value) {
-            if (preg_match(self::SENSITIVE_PARAMETER, (string) $name)) {
+            if (preg_match(self::SENSITIVE_PARAMETER, (string) $name) || in_array(strtolower((string) $name), self::SENSITIVE_EXACT, true)) {
                 $parameters[$name] = '[redacted]';
             } elseif (is_array($value)) {
                 $parameters[$name] = self::redactParameters($value);
+            } elseif (is_string($value) && (strlen($value) > self::MAX_VALUE_LENGTH || preg_match('/^\s*[\[{]/', $value))) {
+                $parameters[$name] = '[redacted]';
+            } elseif (is_string($value) && str_contains($value, '?')) {
+                // A URL-valued parameter (`?next=/reset-password?token=T`): its own query is parsed too.
+                $parameters[$name] = self::redact($value);
             }
         }
 

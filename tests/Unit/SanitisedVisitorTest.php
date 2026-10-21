@@ -17,7 +17,8 @@ class SanitisedVisitorTest extends TestCase
     public static function sensitiveParameters(): array
     {
         $names = ['token', 'password', 'passwd', 'pwd', 'otp', 'code', 'secret', 'signature', 'sig', 'api_key', 'key',
-            'email', 'mail', 'auth', 'access_auth', 'cookie', 'session', 'cvv', 'card', 'card_number', 'pin'];
+            'email', 'mail', 'auth', 'access_auth', 'cookie', 'session', 'cvv', 'card', 'card_number', 'pin',
+            'pw', 'cvc', 'hash', 'nonce', 'jwt', 'bearer', 'credential', 'ticket', 'sessid', 'PHPSESSID', 'iban', 'account_number', 'sid', 'cc'];
 
         $cases = [];
         foreach ($names as $name) {
@@ -64,5 +65,56 @@ class SanitisedVisitorTest extends TestCase
 
         $this->assertStringNotContainsString('V-SENTINEL', $redacted);
         $this->assertStringEndsWith('#frag', $redacted);
+    }
+
+    /** A Laravel Crypt::encrypt() payload in a PATH is a capability link (order details, receipts, labels). */
+    public function test_an_encrypted_payload_in_the_path_is_redacted_wherever_the_route_puts_it(): void
+    {
+        $cipher = 'eyJpdiI6Im5SZEJBTGJ3cWhFUjZGS1pRUzdmQXc9PSIsInZhbHVlIjoiYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoiLCJtYWMiOiIxMjM0NTY3ODkwIiwidGFnIjoiIn0%3D';
+
+        foreach (['/shop/order/', '/shop/customerorder/', '/shop/order-view/', '/lottery-order-view/'] as $prefix) {
+            $redacted = SanitisedVisitor::redact('https://shop.test' . $prefix . $cipher . '?page=2');
+
+            $this->assertStringNotContainsString('eyJpdiI6', $redacted, "{$prefix}: the ciphertext was kept.");
+            $this->assertStringContainsString($prefix, $redacted, 'The route prefix is analytics; it must survive.');
+            $this->assertStringContainsString('page=2', $redacted);
+        }
+    }
+
+    public function test_an_ordinary_path_segment_is_not_mistaken_for_ciphertext(): void
+    {
+        $this->assertSame('https://shop.test/collections/eyJ-fashion', SanitisedVisitor::redact('https://shop.test/collections/eyJ-fashion'));
+        $this->assertSame('https://shop.test/product/summer-dress-2026', SanitisedVisitor::redact('https://shop.test/product/summer-dress-2026'));
+    }
+
+    /** `request_data` of the Easebuzz / AamarPay return carries the whole checkout as one JSON value. */
+    public function test_a_json_or_oversized_value_is_replaced_whatever_its_name(): void
+    {
+        $json = SanitisedVisitor::redact('https://shop.test/x?request_data=' . rawurlencode('{"name":"V-SENTINEL","phone":"555"}') . '&page=2');
+        $this->assertStringNotContainsString('V-SENTINEL', $json);
+        $this->assertStringContainsString('page=2', $json);
+
+        $list = SanitisedVisitor::redact('https://shop.test/x?blob=' . rawurlencode('["V-SENTINEL"]'));
+        $this->assertStringNotContainsString('V-SENTINEL', $list);
+
+        $long = SanitisedVisitor::redact('https://shop.test/x?note=' . str_repeat('V-SENTINEL', 30));
+        $this->assertStringNotContainsString('V-SENTINEL', $long);
+    }
+
+    /** `?next=/reset-password?token=T` -- the inner URL's query is parsed too. */
+    public function test_a_url_valued_parameter_has_its_own_query_redacted(): void
+    {
+        $redacted = SanitisedVisitor::redact('https://shop.test/x?next=' . rawurlencode('/reset-password?token=V-SENTINEL&page=2'));
+
+        $this->assertStringNotContainsString('V-SENTINEL', $redacted);
+        $this->assertStringContainsString('reset-password', rawurldecode($redacted));
+    }
+
+    public function test_invalid_utf8_is_scrubbed_so_a_later_json_encode_or_insert_cannot_fail(): void
+    {
+        $redacted = SanitisedVisitor::redact("https://shop.test/x?q=\xFF\xFE&page=2");
+
+        $this->assertTrue(mb_check_encoding($redacted, 'UTF-8'), 'The redacted URL still contains invalid UTF-8.');
+        $this->assertStringContainsString('page=2', $redacted);
     }
 }
