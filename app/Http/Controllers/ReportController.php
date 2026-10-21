@@ -22,6 +22,15 @@ use App\DataTables\SalesDownloadableProductDataTable;
 class ReportController extends Controller
 {
     /**
+     * P1-SEC-09: every report handler is gated by the permission of the menu entry that links to it (App\Http\Middleware\ReportPermission),
+     * one mechanism for the whole controller rather than a copy per handler. Declared here and not as HasMiddleware: see PlanCouponController.
+     */
+    public function __construct()
+    {
+        $this->middleware(\App\Http\Middleware\ReportPermission::class);
+    }
+
+    /**
      * Display a listing of the resource.
      *
      * @return \Illuminate\Http\Response
