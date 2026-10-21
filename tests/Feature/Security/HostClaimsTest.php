@@ -189,14 +189,16 @@ class HostClaimsTest extends SecurityTestCase
 
     public function test_theme_settings_refuses_a_held_sub_domain_before_the_hosting_panel_is_called(): void
     {
-        $this->giveRows($this->victimStore, $this->victimOwner, ['subdomain' => 'taken.localhost', 'enable_subdomain' => 'on']);
-        $fake = $this->recordingWebuzo();
+        $this->withPlatformHost('platform.example.test', function () {
+            $this->giveRows($this->victimStore, $this->victimOwner, ['subdomain' => 'taken.platform.example.test', 'enable_subdomain' => 'on']);
+            $fake = $this->recordingWebuzo();
 
-        $response = $this->actingAs($this->olderOwner)->post('/theme-settings', ['enable_domain' => 'enable_subdomain', 'subdomain' => 'taken']);
+            $response = $this->actingAs($this->olderOwner)->post('/theme-settings', ['enable_domain' => 'enable_subdomain', 'subdomain' => 'taken']);
 
-        $response->assertSessionHas('error');
-        $this->assertSame([], $fake->calls, 'The hosting panel was called for a sub-domain another store holds.');
-        $this->assertNull($this->stored($this->olderStore, 'subdomain'));
+            $response->assertSessionHas('error');
+            $this->assertSame([], $fake->calls, 'The hosting panel was called for a sub-domain another store holds.');
+            $this->assertNull($this->stored($this->olderStore, 'subdomain'));
+        });
     }
 
     public function test_theme_settings_still_saves_a_free_custom_domain_for_its_owner(): void
@@ -281,7 +283,7 @@ class HostClaimsTest extends SecurityTestCase
     }
 
     /**
-     * The five lookups (HomeController, the two in helper.php, ViewServiceProvider, StoreRedirectServiceProvider) are not driven
+     * The six lookups (HomeController twice, the two in helper.php, ViewServiceProvider, StoreRedirectServiceProvider) are not driven
      * request by request here -- they render themes -- so this pins that none of them has gone back to the unscoped
      * `where('name', 'domains'|'subdomain')->where('value', $host)->first()` and that every one goes through HostClaims::row().
      */
@@ -295,7 +297,10 @@ class HostClaimsTest extends SecurityTestCase
             }
 
             $source = (string) file_get_contents($file->getPathname());
-            if (preg_match("/where\(\s*'name'\s*,\s*'(?:domains|subdomain)'\s*\)\s*->where\(\s*'value'/", $source)) {
+            // two shapes: `where('name', 'domains')->where('value', ...)` and `whereIn('name', [..., 'domains', ...])->where('value', ...)`
+            // (landing_page's, which the first shape did not see and the first review found still unconverted)
+            if (preg_match("/where\(\s*'name'\s*,\s*'(?:domains|subdomain)'\s*\)\s*->where\(\s*'value'/", $source)
+                || preg_match("/whereIn\(\s*'name'\s*,\s*\[[^\]]*'(?:domains|subdomain)'[^\]]*\]\s*\)\s*->where\(\s*'value'/", $source)) {
                 $offenders[] = substr($file->getPathname(), strlen(base_path()) + 1);
             }
             $count = preg_match_all("/HostClaims::row\(/", $source);
@@ -308,7 +313,7 @@ class HostClaimsTest extends SecurityTestCase
         $this->assertSame([], $offenders, 'A host lookup bypasses HostClaims (the unscoped ->first() of P1-SEC-29).');
         $this->assertSame([
             'app/Helper/helper.php' => 4,
-            'app/Http/Controllers/HomeController.php' => 2,
+            'app/Http/Controllers/HomeController.php' => 4,
             'app/Providers/StoreRedirectServiceProvider.php' => 2,
             'app/Providers/ViewServiceProvider.php' => 2,
         ], $users, 'The set of host lookups changed; each must go through HostClaims::row().');
@@ -320,5 +325,388 @@ class HostClaimsTest extends SecurityTestCase
         $this->expectException(\Illuminate\Validation\ValidationException::class);
 
         Setting::updateOrCreate(['name' => 'domains', 'store_id' => $this->olderStore->id], ['value' => self::HOST, 'created_by' => $this->olderOwner->id]);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // REVIEW OF THE FIRST FIX
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * MySQL's collation reads `dómains` as the stored `domains` row, `enablé_domain` as the flag and `ón` as 'on' (EXECUTED:
+     * tests/Support/Security/bin/verify-host-claims-on-mysql.php, which is the real evidence -- red on the first fix, green on this).
+     * SQLite compares bytes, so this test gives its connection an accent-folding LOWER(): the hook must ask the ENGINE which setting a
+     * write is, and the first fix asked PHP (`strtolower`, ASCII only), which let all of these through.
+     */
+    private function foldAccentsLikeTheProductionCollation(): void
+    {
+        DB::connection()->getPdo()->sqliteCreateFunction('lower', fn ($v) => $v === null ? null : strtr(mb_strtolower((string) $v), ['ó' => 'o', 'é' => 'e', 'í' => 'i', 'á' => 'a', 'ú' => 'u', 'è' => 'e']), 1);
+    }
+
+    public function test_an_accented_spelling_of_the_host_name_is_judged_by_the_engine_and_refused(): void
+    {
+        $this->foldAccentsLikeTheProductionCollation();
+
+        foreach (['dómains', 'DÓMAINS', 'domaíns', 'subdómain'] as $name) {
+            $this->actingAs($this->olderOwner)->post('/customize-settings', [$name => self::HOST])->assertSessionHasErrors(str_contains($name, 'sub') ? 'subdomain' : 'domains');
+        }
+
+        $this->assertSame('older-shop.example.test', $this->stored($this->olderStore, 'domains'));
+        $this->assertSame(0, DB::table('settings')->where('store_id', $this->olderStore->id)->where('value', self::HOST)->count(), 'A row naming the victim\'s host was written.');
+        $this->assertSame($this->victimStore->id, $this->hostResolvesTo('domains', self::HOST));
+    }
+
+    public function test_an_accented_spelling_of_the_flag_or_of_its_value_is_judged_by_the_engine_and_refused(): void
+    {
+        $this->foldAccentsLikeTheProductionCollation();
+        // the older store staged the host before the victim claimed it (a raw write stands in for that), with its flag off
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'enable_domain')->update(['value' => 'off']);
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'domains')->update(['value' => self::HOST]);
+
+        foreach ([['enable_domain', 'ón'], ['enablé_domain', 'on'], ['enablé_domain', 'ón']] as [$name, $value]) {
+            $this->actingAs($this->olderOwner)->post('/customize-settings', [$name => $value])->assertSessionHasErrors('enable_domain');
+        }
+
+        $this->assertSame('off', $this->stored($this->olderStore, 'enable_domain'));
+        $this->assertSame($this->victimStore->id, $this->hostResolvesTo('domains', self::HOST));
+    }
+
+    public function test_an_accented_name_that_is_not_a_host_name_is_still_saved(): void
+    {
+        $this->foldAccentsLikeTheProductionCollation();
+
+        $this->actingAs($this->olderOwner)->post('/customize-settings', ['thème_color' => '#123456', 'cust_darklayout' => 'on'])->assertSessionHasNoErrors();
+
+        $this->assertTrue(DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'thème_color')->where('value', '#123456')->exists());
+    }
+
+    /** A plain printable-ASCII name can only fold by case and by surrounding spaces (measured on MySQL for every character at every position), so it never costs a query. */
+    public function test_a_plain_name_and_value_are_decided_without_asking_the_engine(): void
+    {
+        $asked = [];
+        DB::listen(function ($query) use (&$asked) {
+            if (str_starts_with($query->sql, 'select case lower(trim(?))') || str_starts_with($query->sql, "select (lower(trim(?)) = 'on')")) {
+                $asked[] = $query->sql;
+            }
+        });
+
+        Setting::create(['name' => 'theme_color', 'value' => '#fff', 'created_by' => $this->olderOwner->id, 'store_id' => $this->olderStore->id]);
+        Setting::create(['name' => 'Enable_Domain ', 'value' => ' ON', 'created_by' => $this->olderOwner->id, 'store_id' => $this->victimStore->id]);
+
+        $this->assertSame([], $asked, 'A plain ASCII name or value was put to the engine.');
+
+        Setting::create(['name' => "thème_color", 'value' => '#fff', 'created_by' => $this->olderOwner->id, 'store_id' => $this->olderStore->id]);
+        $this->assertNotSame([], $asked, 'A non-ASCII name was NOT put to the engine.');
+    }
+
+    // ---- an unchanged re-save is not a claim ------------------------------------------------------
+
+    public function test_a_store_already_in_a_duplicate_can_resave_what_it_already_has(): void
+    {
+        // data from before this fix: both stores are enabled holders of the host (P1-OWN-11)
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'domains')->update(['value' => self::HOST]);
+
+        $this->actingAs($this->olderOwner)->post('/customize-settings', ['domains' => self::HOST, 'enable_domain' => 'on'])->assertSessionHasNoErrors();
+        $this->actingAs($this->victimOwner)->post('/customize-settings', ['domains' => self::HOST, 'enable_domain' => 'on'])->assertSessionHasNoErrors();
+
+        // ... but changing to a host the other one holds is still a claim
+        $this->actingAs($this->olderOwner)->post('/customize-settings', ['domains' => 'brand-new.example.test'])->assertSessionHasNoErrors();
+        $this->actingAs($this->olderOwner)->post('/customize-settings', ['domains' => self::HOST])->assertSessionHasErrors('domains');
+    }
+
+    /** The Domain tab re-posts a stale hidden `domains`; a store whose mode is NOT custom domain must still be able to leave a mode and save the rest. */
+    public function test_the_domain_tab_with_a_stale_hidden_domains_value_another_store_now_holds_still_saves(): void
+    {
+        $fake = $this->recordingWebuzo();
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'enable_domain')->update(['value' => 'off']);
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'domains')->update(['value' => self::HOST]);
+
+        $this->actingAs($this->olderOwner)->post('/theme-settings', ['enable_domain' => 'enable_storelink', 'domains' => self::HOST, 'storecss' => 'body{}'])
+            ->assertSessionMissing('error')->assertSessionHasNoErrors();
+
+        $this->assertSame('on', $this->stored($this->olderStore, 'enable_storelink'));
+        $this->assertSame('body{}', $this->stored($this->olderStore, 'storecss'), 'Nothing after the stale host was saved.');
+        $this->assertSame($this->victimStore->id, $this->hostResolvesTo('domains', self::HOST));
+    }
+
+    // ---- the flag is judged against every host the store has saved --------------------------------
+
+    public function test_switching_on_is_judged_against_every_host_the_store_has_saved_not_only_the_newest(): void
+    {
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'enable_domain')->update(['value' => 'off']);
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'domains')->update(['value' => self::HOST]);
+        // a second writer's row, newer, with a harmless host: the lookups accept ANY row of a store whose flag is on
+        $this->giveRows($this->olderStore, $this->victimOwner, ['domains' => 'x-other.example.test']);
+
+        $this->actingAs($this->olderOwner)->post('/customize-settings', ['enable_domain' => 'on'])->assertSessionHasErrors('enable_domain');
+
+        $this->assertSame('off', $this->stored($this->olderStore, 'enable_domain'));
+        $this->assertSame($this->victimStore->id, $this->hostResolvesTo('domains', self::HOST));
+    }
+
+    /** Request order puts the flag first; the host row has to be written first, or the flag is judged against the stale host it replaces. */
+    public function test_theme_settings_writes_the_host_before_the_flag_that_switches_it_on(): void
+    {
+        $this->recordingWebuzo();
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'enable_domain')->update(['value' => 'off']);
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'domains')->update(['value' => self::HOST]);   // stale, held by the victim
+
+        $this->actingAs($this->olderOwner)->post('/theme-settings', ['enable_domain' => 'enable_domain', 'domains' => 'brand-new.example.test'])
+            ->assertSessionMissing('error')->assertSessionHasNoErrors();
+
+        $this->assertSame('brand-new.example.test', $this->stored($this->olderStore, 'domains'));
+        $this->assertSame('on', $this->stored($this->olderStore, 'enable_domain'));
+    }
+
+    // ---- the claimed host is read the way the panel block reads it --------------------------------
+
+    public function test_a_port_user_info_query_or_fragment_does_not_change_which_host_is_meant(): void
+    {
+        foreach (['victim-shop.example.test:8080', 'user:pw@victim-shop.example.test', 'victim-shop.example.test?x=1', 'victim-shop.example.test#top',
+                  'https://u@www.Victim-Shop.Example.TEST:443/p?q#f', 'victim-shop.example.test:'] as $spelling) {
+            $this->assertSame(self::HOST, HostClaims::normalise($spelling), $spelling);
+        }
+    }
+
+    public function test_theme_settings_refuses_a_held_host_written_with_a_port_before_the_hosting_panel_is_called(): void
+    {
+        $fake = $this->recordingWebuzo();
+
+        $this->actingAs($this->olderOwner)->post('/theme-settings', ['enable_domain' => 'enable_domain', 'domains' => self::HOST . ':8080'])->assertSessionHas('error');
+
+        $this->assertSame([], $fake->calls, 'The hosting panel was called for a host another store holds, written with a port.');
+        $this->assertSame('older-shop.example.test', $this->stored($this->olderStore, 'domains'));
+    }
+
+    // ---- the hosting-panel account is shared: a store's cleanup must not delete another store's host ----
+
+    public function test_blanking_a_stale_domain_another_store_now_holds_does_not_delete_it_at_the_panel(): void
+    {
+        $fake = $this->recordingWebuzo();
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'enable_domain')->update(['value' => 'off']);
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'domains')->update(['value' => self::HOST]);
+
+        $this->actingAs($this->olderOwner)->post('/theme-settings', ['enable_domain' => 'enable_domain', 'domains' => ''])->assertSessionMissing('error');
+
+        $this->assertNotContains(['deleteDomain', self::HOST], $fake->calls, 'The victim\'s live domain was removed at the hosting panel.');
+    }
+
+    public function test_leaving_custom_domain_mode_does_not_delete_a_stale_domain_another_store_now_holds(): void
+    {
+        $fake = $this->recordingWebuzo();
+        // the older store is itself an enabled holder of the host (a duplicate from before the fix) and leaves the mode
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'domains')->update(['value' => self::HOST]);
+
+        $this->actingAs($this->olderOwner)->post('/theme-settings', ['enable_domain' => 'enable_storelink'])->assertSessionMissing('error');
+
+        $this->assertNotContains(['deleteDomain', self::HOST], $fake->calls, 'The other store\'s live domain was removed at the hosting panel.');
+    }
+
+    public function test_the_store_still_deletes_its_own_old_domain_at_the_panel(): void
+    {
+        $fake = $this->recordingWebuzo();
+
+        $this->actingAs($this->olderOwner)->post('/theme-settings', ['enable_domain' => 'enable_domain', 'domains' => ''])->assertSessionMissing('error');
+
+        $this->assertContains(['deleteDomain', 'older-shop.example.test'], $fake->calls, 'Premise: a store\'s own old domain is still cleaned up at the panel.');
+    }
+
+    public static function spellingsOfOn(): array
+    {
+        return array_map(fn ($v) => [$v], ['ON', 'On', ' on ', "on "]);
+    }
+
+    /** @dataProvider spellingsOfOn */
+    public function test_a_flag_value_the_lookups_read_as_on_is_judged_as_on(string $value): void
+    {
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'enable_domain')->update(['value' => 'off']);
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'domains')->update(['value' => self::HOST]);
+
+        $this->actingAs($this->olderOwner)->post('/customize-settings', ['enable_domain' => $value])->assertSessionHasErrors('enable_domain');
+
+        $this->assertSame('off', $this->stored($this->olderStore, 'enable_domain'));
+    }
+
+    /** Renaming a row onto a host name is a claim even when its value does not change. */
+    public function test_renaming_a_row_onto_a_host_name_is_a_claim(): void
+    {
+        $this->giveRows($this->olderStore, $this->olderOwner, ['note' => self::HOST]);
+        $row = Setting::where('store_id', $this->olderStore->id)->where('name', 'note')->first();
+
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+
+        $row->update(['name' => 'domains']);
+    }
+
+    /** Whichever of its saved hosts is held, in whatever order the rows are: the first as well as the newest. */
+    public function test_switching_on_is_refused_whichever_saved_host_is_the_held_one(): void
+    {
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'enable_domain')->update(['value' => 'off']);
+        // the older store's OLDEST `domains` row is harmless and a newer one (a second writer's) is the held host
+        $this->giveRows($this->olderStore, $this->victimOwner, ['domains' => self::HOST]);
+
+        $this->actingAs($this->olderOwner)->post('/customize-settings', ['enable_domain' => 'on'])->assertSessionHasErrors('enable_domain');
+
+        $this->assertSame('off', $this->stored($this->olderStore, 'enable_domain'));
+    }
+
+    /** The domain CHANGES while the old one is also another store's: the new one is added, the old one is left at the panel. */
+    public function test_replacing_a_stale_domain_another_store_now_holds_does_not_delete_it_at_the_panel(): void
+    {
+        $fake = $this->recordingWebuzo();
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'enable_domain')->update(['value' => 'off']);
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'domains')->update(['value' => self::HOST]);
+
+        $this->actingAs($this->olderOwner)->post('/theme-settings', ['enable_domain' => 'enable_domain', 'domains' => 'brand-new.example.test'])->assertSessionMissing('error');
+
+        $this->assertContains(['addDomain', 'brand-new.example.test'], $fake->calls, 'Premise: the new host reaches the panel.');
+        $this->assertNotContains(['deleteDomain', self::HOST], $fake->calls, 'The victim\'s live domain was removed at the hosting panel.');
+        $this->assertSame('brand-new.example.test', $this->stored($this->olderStore, 'domains'));
+    }
+
+    public static function plainSpellingsOfTheHostName(): array
+    {
+        return array_map(fn ($n) => [$n], ['Domains', 'DOMAINS', 'domains ', ' Domains ', '  domains  ']);
+    }
+
+    /** The hook is the model's, so it is driven through the model: every Eloquent writer of `settings` passes through it, not only the web forms. */
+    #[\PHPUnit\Framework\Attributes\DataProvider('plainSpellingsOfTheHostName')]
+    public function test_a_plain_spelling_of_the_host_name_by_case_or_surrounding_space_is_a_claim(string $name): void
+    {
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+
+        Setting::create(['name' => $name, 'value' => self::HOST, 'created_by' => $this->olderOwner->id, 'store_id' => $this->olderStore->id + 0]);
+    }
+
+    public static function plainSpellingsOfTheFlag(): array
+    {
+        return [['Enable_Domain', 'on'], ['enable_domain ', 'on'], [' ENABLE_DOMAIN ', 'ON'], ['enable_domain', ' On '], ['enable_domain', 'on ']];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('plainSpellingsOfTheFlag')]
+    public function test_a_plain_spelling_of_the_flag_or_of_its_value_by_case_or_surrounding_space_is_a_claim(string $name, string $value): void
+    {
+        $this->giveRows($this->olderStore, $this->olderOwner, ['subdomain' => 'unused.example.test']);   // a second saved host: the flag is judged against every one
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'enable_domain')->update(['value' => 'off']);
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'domains')->update(['value' => self::HOST]);
+        $row = Setting::where('store_id', $this->olderStore->id)->where('name', 'enable_domain')->first();
+
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+
+        $row->update(['name' => $name, 'value' => $value]);
+    }
+
+    public static function bytesOutsidePrintableAscii(): array
+    {
+        return array_map(fn ($b) => [$b], ["domains\0", "domains\t", "domains\n", "domains\r", "domains\x0B", "\0domains", "dom\x01ains", "dom ains", "dómains"]);
+    }
+
+    /**
+     * Anything outside printable ASCII (spaces aside) is not decided in PHP: a collation may ignore the byte or fold the letter, and the
+     * lookups run on the engine. trim()'s default would strip NUL, tab and newline and take those names for plain ones.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('bytesOutsidePrintableAscii')]
+    public function test_a_name_with_a_byte_outside_printable_ascii_is_put_to_the_engine(string $name): void
+    {
+        $asked = [];
+        DB::listen(function ($query) use (&$asked) {
+            if (str_starts_with($query->sql, 'select case lower(trim(?))')) {
+                $asked[] = $query->bindings;
+            }
+        });
+
+        Setting::create(['name' => $name, 'value' => 'x', 'created_by' => $this->olderOwner->id, 'store_id' => $this->olderStore->id]);
+
+        $this->assertCount(1, $asked, 'The name ' . json_encode($name) . ' was decided in PHP.');
+    }
+
+    public static function valuesOutsidePrintableAscii(): array
+    {
+        return array_map(fn ($b) => [$b], ["on\0", "on\t", "on\n", "\0on", "ón", "o n"]);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('valuesOutsidePrintableAscii')]
+    public function test_a_flag_value_with_a_byte_outside_printable_ascii_is_put_to_the_engine(string $value): void
+    {
+        $asked = 0;
+        DB::listen(function ($query) use (&$asked) {
+            if (str_starts_with($query->sql, "select (lower(trim(?)) = 'on')")) {
+                $asked++;
+            }
+        });
+
+        Setting::create(['name' => 'enable_subdomain', 'value' => $value, 'created_by' => $this->olderOwner->id, 'store_id' => $this->olderStore->id]);
+
+        $this->assertSame(1, $asked, 'The value ' . json_encode($value) . ' was decided in PHP.');
+    }
+
+    /** Switching a flag OFF is never a claim: a store that is in a duplicate from before the fix must still be able to leave it. */
+    public function test_switching_a_flag_off_is_never_refused_even_for_a_store_in_a_duplicate(): void
+    {
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'domains')->update(['value' => self::HOST]);   // both stores enabled holders
+
+        $this->actingAs($this->olderOwner)->post('/customize-settings', ['enable_domain' => 'off'])->assertSessionHasNoErrors();
+
+        $this->assertSame('off', $this->stored($this->olderStore, 'enable_domain'));
+    }
+
+    // ---- sub-domain mode: the same order, a free host reaches the panel -----------------------------
+
+    /** the platform host as ThemeSettings reads it (`env('APP_URL')`), pinned for the test so nothing depends on the checkout's .env */
+    private function withPlatformHost(string $host, callable $test): void
+    {
+        $before = [$_ENV['APP_URL'] ?? null, $_SERVER['APP_URL'] ?? null];
+        $_ENV['APP_URL'] = $_SERVER['APP_URL'] = 'https://' . $host;
+        try {
+            $test();
+        } finally {
+            foreach (['_ENV' => $before[0], '_SERVER' => $before[1]] as $bag => $value) {
+                if ($value === null) {
+                    unset($GLOBALS[$bag]['APP_URL']);
+                } else {
+                    $GLOBALS[$bag]['APP_URL'] = $value;
+                }
+            }
+        }
+    }
+
+    public function test_theme_settings_still_saves_a_free_sub_domain_and_reaches_the_panel(): void
+    {
+        $this->withPlatformHost('platform.example.test', function () {
+            $fake = $this->recordingWebuzo();
+
+            $this->actingAs($this->olderOwner)->post('/theme-settings', ['enable_domain' => 'enable_subdomain', 'subdomain' => 'fresh'])->assertSessionMissing('error');
+
+            $this->assertContains(['addSubdomain', 'platform.example.test', 'fresh'], $fake->calls, 'Premise: a free sub-domain must still reach the panel.');
+            $this->assertSame('fresh.platform.example.test', $this->stored($this->olderStore, 'subdomain'));
+            $this->assertSame('on', $this->stored($this->olderStore, 'enable_subdomain'));
+        });
+    }
+
+    public function test_theme_settings_refuses_a_held_sub_domain_whatever_the_platform_host_is(): void
+    {
+        $this->withPlatformHost('platform.example.test', function () {
+            $this->giveRows($this->victimStore, $this->victimOwner, ['subdomain' => 'taken.platform.example.test', 'enable_subdomain' => 'on']);
+            $fake = $this->recordingWebuzo();
+
+            $this->actingAs($this->olderOwner)->post('/theme-settings', ['enable_domain' => 'enable_subdomain', 'subdomain' => 'taken'])->assertSessionHas('error');
+
+            $this->assertSame([], $fake->calls);
+            $this->assertNull($this->stored($this->olderStore, 'subdomain'));
+        });
+    }
+
+    public function test_theme_settings_writes_the_sub_domain_before_the_flag_that_switches_it_on(): void
+    {
+        $this->withPlatformHost('platform.example.test', function () {
+            $this->recordingWebuzo();
+            // a stale `subdomain` of the older store that the victim now holds, flag off
+            $this->giveRows($this->olderStore, $this->olderOwner, ['subdomain' => 'held.platform.example.test', 'enable_subdomain' => 'off']);
+            $this->giveRows($this->victimStore, $this->victimOwner, ['subdomain' => 'held.platform.example.test', 'enable_subdomain' => 'on']);
+
+            $this->actingAs($this->olderOwner)->post('/theme-settings', ['enable_domain' => 'enable_subdomain', 'subdomain' => 'fresh'])->assertSessionMissing('error')->assertSessionHasNoErrors();
+
+            $this->assertSame('fresh.platform.example.test', $this->stored($this->olderStore, 'subdomain'));
+            $this->assertSame('on', $this->stored($this->olderStore, 'enable_subdomain'));
+        });
     }
 }

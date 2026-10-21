@@ -448,14 +448,10 @@ class HomeController extends Controller
         $local = parse_url(config('app.url'))['host'];
         $remote = str_replace('www.', '', request()->getHost());
 
-        // Cache the settings
-        $settings = Setting::whereIn('name', ['subdomain', 'domains', 'enable_subdomain', 'enable_domain'])
-            ->where('value', $remote)
-            ->get()
-            ->keyBy('name');
-
-        $subdomainSetting = $settings->get('subdomain');
-        $domainSetting = $settings->get('domains');
+        // P1-SEC-29: only a row whose own store has the matching flag on counts (App\Services\HostClaims). This lookup was the sixth one
+        // and the review found it still reading every row of that host with no store predicate, the LAST of them winning.
+        $subdomainSetting = \App\Services\HostClaims::row('subdomain', $remote);
+        $domainSetting = \App\Services\HostClaims::row('domains', $remote);
 
         $enable_subdomain = null;
         $enable_domain = null;

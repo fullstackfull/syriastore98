@@ -2871,5 +2871,6 @@
     "Add the first one to get started.": "أضف الخيار الأول للبدء.",
     "Drag to reorder": "اسحب لإعادة الترتيب",
     "Order saved.": "تم حفظ الترتيب.",
-    "Order could not be saved.": "تعذّر حفظ الترتيب."
+    "Order could not be saved.": "تعذّر حفظ الترتيب.",
+    "This domain is already used by another store.": "هذا النطاق مستخدم بالفعل من متجر آخر."
 }

@@ -208,6 +208,14 @@ run_one verify-settings-name-collation-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_DATABASE=settingname_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
+# P1-SEC-29 (review). The host-claim hook (App\Services\HostClaims, the Setting model's `saving` event) decided WHICH setting a write was
+# by comparing the name and the flag value in PHP, while the lookups compare them in SQL under utf8mb4_unicode_ci: `dómains` IS the stored
+# `domains` row, `enablé_domain` IS the flag and `ón` IS 'on', so an owner could rewrite the real rows past the hook. RED on the first fix,
+# GREEN now; it also measures which bytes the collation folds (printable ASCII: none beyond case) so the PHP fast path stays sound.
+run_one verify-host-claims-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=hostclaims_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

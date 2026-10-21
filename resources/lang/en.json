@@ -2823,5 +2823,6 @@
     "Add the first one to get started.": "Add the first one to get started.",
     "Drag to reorder": "Drag to reorder",
     "Order saved.": "Order saved.",
-    "Order could not be saved.": "Order could not be saved."
+    "Order could not be saved.": "Order could not be saved.",
+    "This domain is already used by another store.": "This domain is already used by another store."
 }

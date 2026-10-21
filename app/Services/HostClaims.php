@@ -27,6 +27,14 @@ use Illuminate\Validation\ValidationException;
  *
  * Comparison is case-insensitive and ignores `www.`, as the lookups do (they lower-case the request host and strip `www.`), and MySQL's
  * collation does for the stored value.
+ *
+ * WHICH WRITE IS A CLAIM is decided by the engine that answers the lookups, not by PHP. The lookups compare names and the flag value in
+ * SQL under utf8mb4_unicode_ci, which is case-, accent- and PAD-SPACE-insensitive and ignores some control bytes, so on MySQL `dómains` IS
+ * the stored `domains` row, `enablé_domain` IS the flag and a flag value of `ón` IS 'on' -- and a PHP `=== 'domains'` let an owner post
+ * them and rewrite the real rows past this hook (review of the first fix; EXECUTED on MySQL 8.0.46:
+ * tests/Support/Security/bin/verify-host-claims-on-mysql.php; SQLite compares bytes, so the suite cannot show it). A name or value that is
+ * plain printable ASCII can only fold by case and by surrounding spaces -- measured by that script for every character at every
+ * position -- so those take the PHP path; anything else is put to the engine.
  */
 final class HostClaims
 {
@@ -37,7 +45,9 @@ final class HostClaims
     {
         $host = strtolower(trim($host));
         $host = preg_replace('#^[a-z][a-z0-9+.-]*://#', '', $host) ?? $host;
-        $host = explode('/', $host, 2)[0];
+        $host = preg_split('#[/?\#]#', $host, 2)[0];             // path, query, fragment
+        $host = preg_replace('#^[^@]*@#', '', $host) ?? $host;     // user:password@
+        $host = preg_replace('#:\d*$#', '', $host) ?? $host;       // :port -- the panel block saves parse_url()'s host, which has none
 
         return str_replace('www.', '', $host);
     }
@@ -87,31 +97,79 @@ final class HostClaims
     /**
      * The `saving` hook of App\Models\Setting: refuse a write that would make this store hold a host another store holds.
      *
+     * A re-save that changes none of what a claim is made of -- name, value, store -- is not a claim and is let through: the Domain
+     * tab re-posts a stale hidden `domains` and the Home and Checkout tabs re-post whatever they were given, and a store that is
+     * already in a duplicate (P1-OWN-11) must still be able to save what it already has.
+     *
      * @throws ValidationException
      */
     public static function assertFree(Setting $setting): void
     {
         $storeId = $setting->store_id;
-        $name = strtolower(trim((string) $setting->name));
 
-        if ($storeId === null || ($name !== 'domains' && $name !== 'subdomain' && $name !== 'enable_domain' && $name !== 'enable_subdomain')) {
+        if ($storeId === null) {
+            return;
+        }
+
+        if ($setting->exists && ! $setting->isDirty(['name', 'value', 'store_id'])) {
+            return;
+        }
+
+        $name = self::canonicalName((string) $setting->name);
+
+        if ($name === null) {
             return;
         }
 
         if (isset(self::FLAGS[$name])) {
-            $host = (string) $setting->value;
+            $hosts = [(string) $setting->value];
         } else {
-            // a flag: only SWITCHING ON matters, and the host it switches on is the one this store already has saved
-            if (strtolower(trim((string) $setting->value)) !== 'on') {
+            // a flag: only SWITCHING ON matters, and the hosts it switches on are every one this store has saved under the matching
+            // name (the lookups accept ANY row, not the newest)
+            if (! self::isOn((string) $setting->value)) {
                 return;
             }
 
             $held = array_search($name, self::FLAGS, true);
-            $host = (string) (DB::table('settings')->where('store_id', $storeId)->whereRaw('LOWER(TRIM(name)) = ?', [$held])->orderByDesc('id')->value('value') ?? '');
+            $hosts = DB::table('settings')->where('store_id', $storeId)->whereRaw('LOWER(TRIM(name)) = ?', [$held])->pluck('value')->all();
         }
 
-        if (self::heldByAnotherStore($host, $storeId)) {
-            throw ValidationException::withMessages([$name => [__('This domain is already used by another store.')]]);
+        foreach ($hosts as $host) {
+            if (self::heldByAnotherStore((string) $host, $storeId)) {
+                throw ValidationException::withMessages([$name => [__('This domain is already used by another store.')]]);
+            }
         }
+    }
+
+    /** Plain printable ASCII, spaces aside: the only strings whose fold under the collation is a case fold and nothing more. */
+    private static function plain(string $text): bool
+    {
+        // trim()'s default would also strip NUL, tab and newline -- exactly the bytes a collation may ignore
+        return preg_match('/[^\x21-\x7E]/', trim($text, ' ')) !== 1;
+    }
+
+    /** Which of the four names is this?  Null for any other. A non-plain name is asked of the engine the lookups run on. */
+    private static function canonicalName(string $name): ?string
+    {
+        if (self::plain($name)) {
+            $normal = strtolower(trim($name, ' '));
+
+            return isset(self::FLAGS[$normal]) || in_array($normal, self::FLAGS, true) ? $normal : null;
+        }
+
+        $row = DB::selectOne("select case lower(trim(?)) when 'domains' then 'domains' when 'subdomain' then 'subdomain' "
+            . "when 'enable_domain' then 'enable_domain' when 'enable_subdomain' then 'enable_subdomain' end as n", [$name]);
+
+        return $row->n ?? null;
+    }
+
+    /** Is this flag value 'on' to the lookups?  (`f.value = 'on'` in SQL.) */
+    private static function isOn(string $value): bool
+    {
+        if (self::plain($value)) {
+            return strtolower(trim($value, ' ')) === 'on';
+        }
+
+        return (bool) (DB::selectOne("select (lower(trim(?)) = 'on') as o", [$value])->o ?? false);
     }
 }

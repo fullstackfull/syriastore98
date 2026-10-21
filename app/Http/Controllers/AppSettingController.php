@@ -772,7 +772,7 @@ if ($mayChangeRouting && $request->enable_domain === 'enable_domain') {
     */
     if ($input === '') {
 
-        if (!empty($oldDomain)) {
+        if (!empty($oldDomain) && !\App\Services\HostClaims::heldByAnotherStore($oldDomain, $store->id)) {
 
             $deleteResult = $webuzo->deleteDomain($oldDomain);
 
@@ -838,8 +838,9 @@ if ($mayChangeRouting && $request->enable_domain === 'enable_domain') {
 
             /*
              * 2. بعد نجاح الجديد، احذف القديم
+             *    (P1-SEC-29: not one another store holds now -- the hosting-panel account is shared, so that would take its site down)
              */
-            if (!empty($oldDomain)) {
+            if (!empty($oldDomain) && !\App\Services\HostClaims::heldByAnotherStore($oldDomain, $store->id)) {
 
                 $deleteResult = $webuzo->deleteDomain($oldDomain);
 
@@ -866,6 +867,7 @@ if (
     && $oldCustomDomainEnabled
     && $request->enable_domain !== 'enable_domain'
     && !empty($oldDomain)
+    && !\App\Services\HostClaims::heldByAnotherStore($oldDomain, $store->id)   // P1-SEC-29: the panel account is shared
 ) {
 
     $webuzo = app(WebuzoDomainService::class);
@@ -1123,6 +1125,12 @@ if ($mayChangeRouting && $request->enable_domain === 'enable_subdomain') {
         if (! $mayChangeRouting) {
             $post = array_diff_key($post, array_flip(\App\Services\StoreSettingsAccess::DOMAIN_ROUTING));
         }
+
+        // P1-SEC-29: the custom domain is written BEFORE the flag that switches it on, so the flag is judged against the host this request
+        // saves and not against the stale one it replaces (the model hook checks every host the store has saved when a flag goes on). The
+        // radio posts its token under `enable_domain`, which is the first key of the form; `enable_storelink` and `enable_subdomain` are
+        // derived above and so already come last.
+        $post = array_merge(array_intersect_key($post, ['domains' => true]), $post);
 
         $settingQuery = Setting::query();
         foreach ($post as $key => $data) {
