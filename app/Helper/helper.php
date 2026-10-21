@@ -1711,7 +1711,7 @@ if (!function_exists('delete_file')) {
             $storage_settings = getAdminAllSetting();
             if (isset($storage_settings['storage_setting'])) {
                 if ($storage_settings['storage_setting'] == 'local') {
-                    return File::delete($path);
+                    return \App\Services\StoredUpload::delete(is_string($path) ? $path : null);   // P1-SEC-28
                 } else {
                     if ($storage_settings['storage_setting'] == 's3') {
                         config(

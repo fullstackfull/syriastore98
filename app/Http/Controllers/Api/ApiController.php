@@ -6526,9 +6526,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             // null -- and that column is nullable. The slug's store is already confirmed to be
             // this customer's by the check above, so it is the right one to bill.
             $cover_image = upload_theme_image( $theme_image, 0, $store->created_by);
-            if (File::exists(base_path($user->profile_image))) {
-                File::delete(base_path($user->profile_image));
-            }
+            \App\Services\StoredUpload::delete($user->profile_image, $store->created_by);
             $user->profile_image = $cover_image['image_path'];
             $user->save();
         }

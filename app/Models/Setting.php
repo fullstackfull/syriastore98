@@ -24,6 +24,7 @@ class Setting extends Model
     {
         static::saving(function (Setting $setting) {
             \App\Services\HostClaims::assertFree($setting);
+            \App\Services\StoredPathPolicy::setting($setting);   // P1-SEC-28
         });
     }
 

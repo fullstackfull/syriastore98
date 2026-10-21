@@ -14,6 +14,17 @@ use App\Models\Concerns\BelongsToStore;
 class Product extends Model
 {
     use HasFactory, Cachable, BelongsToStore;
+
+    /**
+     * P1-SEC-28: the path columns the vendored module deleters unlink are kept inside the roots uploads live in
+     * (App\Services\StoredPathPolicy). The ImportExport CSV importer writes them from a spreadsheet cell.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (Product $product) {
+            \App\Services\StoredPathPolicy::product($product);
+        });
+    }
     protected $fillable = [
         'name',
         'slug',
@@ -646,9 +657,7 @@ protected $appends = ["in_cart", "in_whishlist", "final_price", "category_name"]
         if (!empty($ProductImages)) {
             // image remove from product variant image
             foreach ($ProductImages as $key => $ProductImage) {
-                if (\File::exists(base_path($ProductImage->image_path))) {
-                    \File::delete(base_path($ProductImage->image_path));
-                }
+                \App\Services\StoredUpload::delete($ProductImage->image_path, \Auth::user()->creatorId());
             }
         }
 
@@ -666,9 +675,7 @@ protected $appends = ["in_cart", "in_whishlist", "final_price", "category_name"]
                 $description_json = json_decode($Product->other_description_api, true);
                 foreach ($description_json['product-other-description'] as $key => $value) {
                     if ($value['field_type'] == 'photo upload') {
-                        if (\File::exists(base_path($value['value']))) {
-                            \File::delete(base_path($value['value']));
-                        }
+                        \App\Services\StoredUpload::delete($value['value'], \Auth::user()->creatorId());
                     }
                 }
             }

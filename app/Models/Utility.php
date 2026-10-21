@@ -505,9 +505,8 @@ class Utility extends Model
     public static function remove_file($value)
     {
         try {
-            if (File::exists(base_path($value))) {
-                File::delete(base_path($value));
-            }
+            // P1-SEC-28: a stored value is a literal path inside uploads/, never a pattern or a path elsewhere
+            \App\Services\StoredUpload::delete(is_string($value) ? $value : null, \Auth::check() ? \Auth::user()->creatorId() : null);
             $res = [
                 'flag' => 1,
                 'msg' => __('File removed successfully'),

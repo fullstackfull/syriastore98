@@ -485,7 +485,7 @@ class ResidualTenancyExposureTest extends TestCase
             // ^ and this one is UNREACHABLE: Customer.php declares getRelatedSlugs() but contains
             //   no `self::getRelatedSlugs(` caller, unlike the four below. Dead code -- which is
             //   why the one model in this group that IS now scoped has no live bypass.
-            'app/Models/Product.php:97',
+            'app/Models/Product.php:108',
             'app/Models/ProductAttribute.php:48',
             'app/Models/Tag.php:47',
             // :155 -> :160 when B4 added the `mobile_verified_at` cast above it. The SET is
@@ -503,7 +503,7 @@ class ResidualTenancyExposureTest extends TestCase
             // across all of them.
             // DELIBERATELY NOT FIXED here: the correct store id on the anonymous branch has to
             // come from the slug-resolved store, which is plumbing in app/Http/** and themes/**.
-            'app/Models/Utility.php:830',
+            'app/Models/Utility.php:829',
 
             // ------------------------------------------------------------------------------
             // FOREIGN_KEY_CHECKS toggles around the country/state/city reference-data import.

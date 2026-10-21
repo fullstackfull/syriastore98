@@ -1329,12 +1329,8 @@ public function OrderList(Request $request)
             ->first();
 
         if (!empty($Category)) {
-            if (File::exists(base_path($Category->image_path))) {
-                File::delete(base_path($Category->image_path));
-            }
-            if (File::exists(base_path($Category->icon_path))) {
-                File::delete(base_path($Category->icon_path));
-            }
+            \App\Services\StoredUpload::delete($Category->image_path, auth()->user()?->creatorId());
+            \App\Services\StoredUpload::delete($Category->icon_path, auth()->user()?->creatorId());
 
             $Category->delete();
             return $this->success(['message' => __('Maincategory deleted successfully!.')]);
@@ -2024,11 +2020,8 @@ private function deleteProductFile(?string $path): void
      * uploads/products/image.jpg
      * فغالبًا تحتاج public_path بدل base_path.
      */
-    $fullPath = base_path(ltrim($path, '/'));
-
-    if (File::isFile($fullPath)) {
-        File::delete($fullPath);
-    }
+    // P1-SEC-28: a database string goes to the filesystem only through StoredUpload (literal path, inside uploads/, the owner's folder)
+    \App\Services\StoredUpload::delete($path, auth()->user()?->creatorId());
 }
 
 
@@ -2164,9 +2157,7 @@ public function DeleteProduct(Request $request)
         if (!empty($ProductImages)) {
             // image remove from product variant image
             foreach ($ProductImages as $key => $ProductImage) {
-                if (File::exists(base_path($ProductImage->image_path))) {
-                    File::delete(base_path($ProductImage->image_path));
-                }
+                \App\Services\StoredUpload::delete($ProductImage->image_path, auth()->user()?->creatorId());
             }
         }
 
@@ -2182,17 +2173,13 @@ public function DeleteProduct(Request $request)
                 $description_json = json_decode($Product->other_description_api, true);
                 foreach ($description_json['product-other-description'] as $key => $value) {
                     if ($value['field_type'] == 'photo upload') {
-                        if (File::exists(base_path($value['value']))) {
-                            File::delete(base_path($value['value']));
-                        }
+                        \App\Services\StoredUpload::delete($value['value'], auth()->user()?->creatorId());
                     }
                 }
             }
 
             // image remove from cover image
-            if (File::exists(base_path($Product->cover_image_path))) {
-                File::delete(base_path($Product->cover_image_path));
-            }
+            \App\Services\StoredUpload::delete($Product->cover_image_path, auth()->user()?->creatorId());
 
             Cart::where('product_id', $request->product_id)->delete();
             Wishlist::where('product_id', $request->product_id)->delete();
@@ -2417,9 +2404,7 @@ public function UpdateProduct(Request $request)
 
                 if (gettype($theme_image) == 'object') {
                     $image_path = (!empty($old_data[$slug['section_slug']][$slug_key]['value'])) ? $old_data[$slug['section_slug']][$slug_key]['value'] : '';
-                    if (File::exists(base_path($image_path))) {
-                        File::delete(base_path($image_path));
-                    }
+                    \App\Services\StoredUpload::delete($image_path, auth()->user()?->creatorId());
 
                     $fileName = rand(10, 100) . '_' . time() . "_" . basename($theme_image->getClientOriginalName());
                     $upload = Utility::jsonUpload_file($request, 'value', $theme_image, $fileName, $dir, []);
@@ -2473,9 +2458,7 @@ public function UpdateProduct(Request $request)
     $product->save();
 
     if ($request->hasFile('cover_image')) {
-        if (!empty($product->cover_image_path) && File::exists(base_path($product->cover_image_path))) {
-            File::delete(base_path($product->cover_image_path));
-        }
+        \App\Services\StoredUpload::delete($product->cover_image_path, auth()->user()?->creatorId());
 
         $fileName = rand(10, 100) . '_' . time() . "_" . basename($request->cover_image->getClientOriginalName());
         $path = Utility::upload_file($request, 'cover_image', $fileName, $dir, []);

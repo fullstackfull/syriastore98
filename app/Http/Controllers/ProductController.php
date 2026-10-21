@@ -1119,9 +1119,7 @@ $Product->cost_price = $request->cost_price;
 
                         return $msg;
                     }
-                    if (File::exists(base_path($product->cover_image_path))) {
-                        File::delete(base_path($product->cover_image_path));
-                    }
+                    \App\Services\StoredUpload::delete($product->cover_image_path, \Auth::user()->creatorId());
                 } else {
                     $msg['flag'] = 'error';
                     $msg['msg'] = $result;
@@ -1260,9 +1258,7 @@ $Product->cost_price = $request->cost_price;
 
                         return $msg;
                     }
-                    if (File::exists(base_path($product->downloadable_product))) {
-                        File::delete(base_path($product->downloadable_product));
-                    }
+                    \App\Services\StoredUpload::delete($product->downloadable_product, \Auth::user()->creatorId());
                 } else {
 
                     $msg['flag'] = 'error';
@@ -1788,9 +1784,7 @@ $Product->cost_price = $request->cost_price;
             if (!empty($ProductImages)) {
                 // image remove from product variant image
                 foreach ($ProductImages as $key => $ProductImage) {
-                    if (File::exists(base_path($ProductImage->image_path))) {
-                        File::delete(base_path($ProductImage->image_path));
-                    }
+                    \App\Services\StoredUpload::delete($ProductImage->image_path, \Auth::user()->creatorId());
                 }
             }
 
@@ -1816,17 +1810,13 @@ $Product->cost_price = $request->cost_price;
                     $description_json = json_decode($Product->other_description_api, true);
                     foreach ($description_json['product-other-description'] as $key => $value) {
                         if ($value['field_type'] == 'photo upload') {
-                            if (File::exists(base_path($value['value']))) {
-                                File::delete(base_path($value['value']));
-                            }
+                            \App\Services\StoredUpload::delete($value['value'], \Auth::user()->creatorId());
                         }
                     }
                 }
 
                 // image remove from cover image
-                if (File::exists(base_path($Product->cover_image_path))) {
-                    File::delete(base_path($Product->cover_image_path));
-                }
+                \App\Services\StoredUpload::delete($Product->cover_image_path, \Auth::user()->creatorId());
 
                 WoocommerceConection::where('module', 'product')->where('original_id', $product->id)->delete();
 
