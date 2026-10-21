@@ -160,7 +160,12 @@ class SanitisedVisitorTest extends TestCase
             $this->assertStringNotContainsString('eyJpdiI6', SanitisedVisitor::redact("https://shop.test/x?{$name}={$cipher200}"), "{$name}: the value was kept.");
         }
 
-        $this->assertStringNotContainsString('eyJhbGci', SanitisedVisitor::redact('https://shop.test/x?t=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig'));
+        // A JWT-shaped fixture BUILT AT RUNTIME: the secret scan's jwt-literal rule has no fixture exemption (on purpose), and
+        // a literal `eyJ...eyJ...` in source would be reported as a credential. This one is the canonical example header/payload.
+        $b64 = fn (string $json) => rtrim(strtr(base64_encode($json), '+/', '-_'), '=');
+        $jwt = $b64('{"alg":"HS256"}') . '.' . $b64('{"sub":"1"}') . '.fixture-signature';
+        $this->assertStringStartsWith('eyJ', $jwt, 'Fixture premise: it must look like a JWT.');
+        $this->assertStringNotContainsString('eyJhbGci', SanitisedVisitor::redact('https://shop.test/x?t=' . $jwt));
         $this->assertStringContainsString('q=eyelet', SanitisedVisitor::redact('https://shop.test/x?q=eyelet'), 'A harmless value that merely starts with "ey" must survive.');
     }
 }
