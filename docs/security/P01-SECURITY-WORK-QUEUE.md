@@ -3952,6 +3952,134 @@ about the codebase. It is the same shape as S39-4's "a scan of one file answers 
 that file".
 
 
+---
+
+## S40 — The storefront visit log wrote every request's body and headers to the database — **CLOSED by P1-SEC-13; the rows already written are P1-OWN-08 (BLOCKED, owner)**
+
+*Found 2026-10-21 while chasing an unexplained HTTP 500 in a P1-ORD-07 test. Not found by any census: nothing
+in the tenancy or authorization sweeps looks at what a page-view counter persists.*
+
+`App\Http\Middleware\ActiveTheme::handle` calls `visitor()->visit($store)` on every request whose first path
+segment is an active, themed store's slug. `Shetabit\Visitor\Visitor::visit()` persists `prepareLog()`, which
+includes `'request' => $request->all()` and `'headers' => $request->headers->all()`. The package's only filter,
+`config/visitor.php` `except => ['login', 'register']`, is matched with `Request::is($path)` — the **bare** path
+`login`, never `{storeSlug}/login`. So it excluded nothing on a storefront.
+
+**EXECUTED (SQLite test database, this tree):** `POST /{slug}/login` with a customer's email and password and a
+`Cookie` header left one `shetabit_visits` row whose `request` column held the plaintext password and whose
+`headers` column held the Cookie value. Route membership was executed for `{storeSlug?}/get-payment-NMI`
+(`nmi_card_number`, `nmi_cvv_code`) and `{storeSlug?}/authorizenet-status` (`cardNumber`, `cvv`) — the field names
+are READ in the controllers; the persistence is the same code path as the executed login. Not logged, because their
+first segment is not a slug: `store-get-cybersource-status`, `store-pay-with/DPO`, `store-pay-with/Powertranz`, the
+`plan-*` routes (a correction to the first version of this entry, which listed CyberSource). `url` also stored the
+query string, so a password-reset link's token went into the table, and `referer` stored the page the visitor came
+from.
+
+**The most valuable subset (READ, review lens "exposure"):** cookies are not exempt from the path prefix — storefronts
+are path-prefixed on the same host as the admin — so a merchant or the super admin previewing a storefront sent their
+*admin* session cookie (and `remember_web_*` if ticked) into the table with `visitor_type = 'App\Models\User'`.
+
+**The fix (host app only, vendor untouched):** `App\Services\SanitisedVisitor` subclasses the package visitor and is
+re-bound as `shetabit-visitor` in `AppServiceProvider::register` (package providers register first, so the app's
+binding wins — READ, `bootstrap/cache/services.php`). `request()` is `[]`; `httpHeaders()` is an **allowlist** with
+values scrubbed of invalid UTF-8; `url()`/`referer()` keep the path and the harmless query and replace the *value* of
+credential-looking parameters, JSON-looking or >200-character values, URL-valued parameters' inner queries, and any
+path segment that is a Laravel ciphertext (the anonymous order-details link is a capability). `ActiveTheme` wraps the
+visit in try/catch and logs the **class**, never the exception object (the default log stack includes the error
+tracker, which would ship the request's cookies off the box). Nothing reads the `request` or `headers` columns
+(`Api\DashboardController`, `ThemeAnalyticController`, `HomeController`, `StoreController` read store_id, url, ip,
+platform, browser, device, created_at), so no screen changes.
+
+**Tests:** `StorefrontVisitLogTest` (10 / 64 assertions, RED first: 6 of 7 failed) and `SanitisedVisitorTest` (44 / 101,
+table-driven so each credential-looking name is pinned on its own). Removal checks bite for the container binding,
+`request()`, the header allowlist, `url()` and `referer()` redaction, the try/catch, the exception-object logging, nested
+and fragment handling, the encrypted-segment rule, the exact short names, the oversize/JSON/URL-valued rules, header
+scrubbing and **every** regex alternative (two redundant alternatives — `email`⊂`mail`, `signature`⊂`sig` — and later
+`pwd`, `session`, `credential` were *removed* rather than claimed). Two of my own first versions were vacuous and are
+recorded: the header test sent no headers (`call()` does not apply `withHeaders()`), and the allowlist kept `referer`,
+which a test then caught carrying a reset token.
+
+**Adversarial review — three read-only lenses (bypass, sibling sinks, exposure), verdict NON-BLOCKING, all acted on or recorded:**
+
+| Finding | Disposition |
+|---|---|
+| Order-details link stored in `url`/`referer` (MEDIUM) | **Fixed** — ciphertext path segments redacted |
+| Denylist misses `pw`, `cvc`, `hash`, `nonce`, `jwt`, `bearer`, `ticket`, `sid`, `iban`, `account`…; URL-valued and JSON values | **Fixed** (`transaction_id`/`reference` deliberately not added: not credentials) |
+| `report($e)` ships cookies/session to the error tracker (LaraBug) on every failed visit | **Fixed** (class-only log); the tracker itself is **P1-SEC-14** |
+| Invalid-UTF-8 header threw and lost the visit | **Fixed** (header values scrubbed); `userAgent()`/`languages()` scrubbing was dropped — not reproducible on SQLite |
+| Sibling sinks: LaraBug payload, `payment-list` secrets + API log, `withInput()` password flash, plaintext 2FA seed | **Recorded** — P1-SEC-14, **P1-SEC-15 (critical, fixed — S41)**, P1-SEC-16 |
+| `store_id` is never populated on a visit row (`Visit::$fillable` lacks it, `Store` has no `visitLogs()`) | **Recorded, not fixed** — analytics that filter `where store_id` read zero here; a per-store scrub is impossible, so P1-OWN-08 must be table-wide. Production's vendored copy may differ — diff it |
+| No retention anywhere; BackupRestore's `mysqldump` of the whole database (web-reachable path, chmod 0777) would contain the same rows; `database_name` is concatenated into `shell_exec` | **Recorded** under P1-OWN-08 / P1-OWN-01 — owner actions |
+
+**Not closed, deliberately:** the rows already written (P1-OWN-08 — scrub vs purge, customer notification and forced
+password reset, backups, sequencing with the APP_KEY rotation P1-OWN-02, whether card-bearing rows start a PCI process).
+No data operation was performed. **Severity as found: CRITICAL** — plaintext customer passwords and, with the NMI or
+Authorize.Net gateway enabled, card number and CVV at rest; storing a CVV after authorisation is prohibited outright by
+PCI DSS whoever can read the table.
+
+---
+
+## S41 — `POST /api/{slug}/payment-list` returned every gateway's SECRET keys; public registration mints the token that reaches it — **CLOSED by P1-SEC-15; exposure follow-up P1-OWN-09 (BLOCKED, owner)**
+
+*Found 2026-10-21 by the sibling-sink lens of the S40 review (READ) and confirmed by execution the same day. The second
+critical exposure of the session.*
+
+`Api\ApiController::payment_list` builds the checkout's payment-method list and, for each gateway, puts the merchant's
+live **secret** next to the display fields: 129 distinct field names across about fifty gateways, 56 of them secrets
+(`stripe_secret_key`, `paystack_secret`, `paytm_merchant_key`, `nmi_api_private_key`, …). `getStore($slug)` takes the store
+from the URL with no relation to the caller; the route (`routes/api.php:90`) carries `custom.auth` + `APILog`; and
+`POST /api/{slug}/register` — `APILog` only, no auth, no throttle on that route — returns a Sanctum token to anybody.
+(`custom.auth` accepts a token of **any** principal class — CLAUDE.md §1 — so "must be a customer" was never a barrier.)
+
+**EXECUTED:** an anonymous visitor registered on their *own* store, POSTed `/api/{victim-slug}/payment-list` with the
+returned token, and read the victim store's Stripe secret key and Paystack secret from the JSON. A shopper of another store
+and the victim's own shopper got the same body. The API log then wrote the response to disk with only
+password/otp/token/secret/authorization/api_key redacted, so most gateway secrets sat in `api-*.log` (15-day retention).
+
+**The fix (host app, shape kept):** `App\Services\GatewaySecretRedactor` nulls every secret-named field in every entry at the
+single return of `payment_list` — *after* the PartialPayments module has had its say — and keeps the keys. `secretKey`
+(which the vendor code fills with the Sspay/Toyyibpay on/off flag) is exempt so its value is unchanged. The web checkout's
+twin builder `Setting::paymentList` returns redacted entries too (its view echoes only name/status/detail/image, so this is
+defence in depth). A **ratchet** pins all 129 field names into explicit SECRET (55) and KEEP (74) lists: a gateway added later
+fails `PaymentListSecretDisclosureTest` until a human classifies it.
+
+**Tests:** 8 / 152 assertions; removal checks bite for the call site, every regex alternative, the exact `cashfree_key`
+entry, the exemption, the twin builder, over-redaction and unset-vs-null. **Review:** two read-only lenses (fix, sweep), both
+NON-BLOCKING; the fix could not be broken by reading, and the sweep found the siblings below.
+
+**What the sweep found beside it (READ, none fixed here — all recorded as READY tasks):**
+
+| # | Finding | Task |
+|---|---|---|
+| F1 HIGH (probable) | `POST {slug}/get-massage` returns `https://api.telegram.org/bot<TOKEN>/sendMessage…` to an anonymous shopper; reachable after a guest `process-order` with `payment_type=telegram` (no enabled-flag check) | **P1-SEC-17** |
+| F2 MEDIUM | Midtrans **server** key rendered as `data-client-key` in page HTML and in a form-action query (guest and platform-to-merchant); module copies carry it; only sandbox keys leak today (`isProduction=false` throws first) | P1-SEC-17 |
+| F3 MED-LOW | Platform `NOCAPTCHA_SECRET` echoed into `verify-email.blade.php`'s script for any logged-in unverified user | P1-SEC-17 |
+| F4 MEDIUM | `Utility::GetValueByName` with no store id reads **across tenants** (last row wins) for guests and customers: Ozow, Easebuzz, `payment_data` — a shopper can be charged through another tenant's keys | **P1-SEC-18** |
+| F5 MEDIUM | Any **staff** user of a merchant can read and overwrite that merchant's gateway and SMTP secrets through the admin API (`resolveOwnedStore` admits the owner's staff; no `isAbleTo`) | P1-SEC-18 |
+| F6 MED-LOW | Any merchant can delete another tenant's image file (`Setting::where('name','cod_image')->first()` with no `store_id`, then `File::delete`) | P1-SEC-18 |
+| F7 MEDIUM | `/zid/{storeId}/orders` and `/webhooks`: any logged-in user reads any connected store's Zid data (`zid_stores` has no migration — GATE F) | P1-SEC-18 |
+
+**Not closed, deliberately:** that the keys were readable by any internet visitor for as long as the route has answered — the
+repository history is squashed, so *how long* is unknowable here. Whether to tell merchants to rotate, a read-only check of
+the web-server access logs for `payment-list` calls from sessions that are not the store's own shoppers, and the API log files
+on the server are owner decisions: **P1-OWN-09**.
+
+---
+
+## S42 — What the S40 and S41 reviews found at rest and in transit that is not the visit log or `payment-list`
+
+*READ unless stated. Each row is a READY task; none is fixed by P1-SEC-13 or P1-SEC-15.*
+
+| Sink | Where | Task |
+|---|---|---|
+| Error tracker receives URL + decrypted cookies + `Session::all()` + `Request::all()` + `auth()->user()->toArray()` on every reported exception, posting whether or not `LB_KEY` is set; blacklist misses `cookie`, `*session*`, `*secret*`, every card-number name, `expiry` | `config/logging.php:57`, `config/larabug.php:99-111`, `LaraBug.php:154-177` | **P1-SEC-14** (raises P1-PLT-05) |
+| API log redaction gaps (`pass`/`key`/`card`/`cvv`/`pin`/`code`/`cookie`); `ApiController.php:5851` logs `$request->all()` directly | `RedactsApiLogFields.php:36-40` | **P1-SEC-16** |
+| `->withInput()` with no argument flashes the password into `sessions.payload` (session encryption off) | `CustomerController.php:95,106`, `DeliveryBoyController.php:58,125` | P1-SEC-16 |
+| `google2fa_secret` plaintext, not hidden, **copied to the new sub-user** (two accounts share one TOTP seed); `Customer::$hidden` lacks `password_otp`; `deliverysyria_secret` not hidden | `UserController.php:165-168`, `User.php:63-66` | P1-SEC-16 |
+| Easebuzz / AamarPay put the whole checkout JSON + `_token` in the return URL's `request_data` | `PaymentService.php:4253-4254`, `:1746` | P1-SEC-16 (now redacted from the visit log; still in browser history and access logs) |
+| BackupRestore: `mysqldump` of the whole database to a web-reachable path, chmod 0777, linked with no auth in front; `database_name` concatenated into `shell_exec` (command injection for anyone holding `backup&restore create`) | `BackupRestoreController.php:181-188` | existing **P1-OWN-01** — the dumps would contain the S40 rows |
+
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**

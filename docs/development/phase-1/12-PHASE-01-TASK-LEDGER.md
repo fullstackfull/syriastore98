@@ -25,8 +25,8 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 70 — 21 DONE, 18 READY, 8 BACKLOG, 21 BLOCKED, 0 IN_PROGRESS, 2 IN_REVIEW |
-| Requiring an owner decision | 26 |
+| Tasks | 82 — 25 DONE, 26 READY, 8 BACKLOG, 23 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
+| Requiring an owner decision | 28 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
 A task is **not** `DONE` because code was committed — `DONE` requires its acceptance criteria verified, with the evidence recorded in its row.
@@ -165,6 +165,16 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 47. `P1-SEC-09` — ReportController has no authorization on its 27 live order and revenue report handlers *(security, READY, risk medium)*
 48. `P1-SEC-10` — The DeliverySyria order-status endpoint is an unauthenticated, unthrottled, platform-wide order-existence oracle *(security, READY, risk medium)*
 49. `P1-SEC-11` — Utility::Setting() falls back to created_by=1 with no store predicate, getCurrentStore() hardcodes 1 for the operator, and a guard compares users.type strictly *(security, READY, risk medium)*
+50. `P1-ORD-12` — OrderDocumentAccessGuard resolves the refund id on order-refund/{id} as an order id: a shopper cannot open their own refund request unless the two numbers coincide *(orders, READY, risk medium)*
+51. `P1-ORD-13` — The thank-you page identifies an order by a non-unique timestamp number: carry the primary key through the gateway returns and close the Paymera replay *(orders, READY, risk medium)*
+52. `P1-ORD-14` — Cancelling or restocking a refund reads the refund record by order-line position, so a partial refund restores the wrong line *(orders, READY, risk high)*
+53. `P1-SEC-12` — The storefront account area has a login gate and no ownership check: any signed-in shopper of any store can read, overwrite or delete another shopper's addresses and support tickets *(security, READY, risk high)*
+54. `P1-OWN-08` — shetabit_visits rows already written hold plaintext customer passwords, session cookies and possibly card fields: scrub or purge, notify, and sequence with the APP_KEY rotation *(security, BLOCKED, risk critical)*
+55. `P1-OWN-09` — Every store's payment-gateway secrets were readable by any internet visitor: treat them as exposed - rotation guidance, access-log check, and the API log files on the server *(security, BLOCKED, risk critical)*
+56. `P1-SEC-14` — The error tracker (LaraBug) is sent the request, cookies, session and input on every reported exception, and its blacklist misses cookies, sessions, secrets and card numbers *(security, READY, risk high)*
+57. `P1-SEC-16` — Credentials at rest outside the visit log: the API log's redaction gaps, passwords flashed into the session, a plaintext 2FA seed copied between users, whole checkouts in return URLs *(security, READY, risk medium)*
+58. `P1-SEC-17` — Credentials handed to the browser: the Telegram bot token to an anonymous shopper, the Midtrans server key in page HTML, the platform reCAPTCHA secret in a script *(security, READY, risk high)*
+59. `P1-SEC-18` — Setting reads and writes with no tenant predicate or no permission: a shopper charged through another tenant's keys, a cross-tenant image delete, staff reading and writing a merchant's gateway and SMTP secrets *(security, READY, risk high)*
 
 ---
 
@@ -748,6 +758,282 @@ AND a third, from round 1's critic: app/Http/Middleware/OrderDocumentAccessGuard
 - Removal check on each change
 
 **Evidence.** None yet. Recovered triage measurement above (first 2,048 of 7,716 bytes).
+
+### `P1-SEC-12` — The storefront account area has a login gate and no ownership check: any signed-in shopper of any store can read, overwrite or delete another shopper's addresses and support tickets
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | high |
+| Workstream | Security & Identity |
+| GitHub issue | #84 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `app/Http/Controllers/AccountProfileController.php`, `tests/Feature/Security/CustomerAccountBoundaryTest.php` |
+| Queue references | S14 |
+| Database / migration | None. |
+| Compatibility impact | Web Blade routes called by the storefront; every refusal is a 404 or an error redirect, never a 401. Mirrors P1-ORD-07's `ownedOrder` predicate and P01-SEC-11's API address handlers. A shopper keeps full access to their own addresses and tickets. |
+
+**Existing implementation status.** FOUND by the P1-ORD-07/08 adversarial review (lens E, E6). Same shape as P1-ORD-07 - `EnsureCustomerAuthenticated` asks only whether SOME customer is signed in, and registration is free - on handlers in the same controller and route group (`routes/customer.php:310-338`) that the refund sweep did not touch. They read and write PII and a shipping destination; none touches money. EXECUTED (P11/P12): `remove_address` (`AccountProfileController.php:432`, `DeliveryAddress::where('id', $request->id)->delete()`) - a store-A shopper deleted a store-B shopper's address, `rows_left=0`; `addressForm` (:348) rendered the victim's street to the attacker; `destroy_support_ticket` (:833, `SupportTicket::where('id', $id)->delete()`) deleted another shopper's ticket - `SupportTicket` is in `scoped_models`, but the scope adds no predicate for a `customers`-guard principal (null tenant). READ, not executed: `delete_addressbook` (:490, same delete by GET), `saveAddress` (:363, `DeliveryAddress::where('id', $request->id)->first()->update($data)` - overwrite and re-parent), `update_support_ticket` (:773, writes `customer_id = $request->customer_id`), `attachmentDestroy` / `reply_support_ticket` / `ticket_reply` (:840/:860/:871, bare id), `support_ticket_store` (:707, `$tickets->order_id = $request->order_id` with no ownership, which `support_ticket.blade.php:61-67` then renders as `#<product_order_id>` - an order-existence and order-number oracle over a sequential id). Only `remove_address` has any trace of being known (a comment near CustomerAccountBoundaryTest.php:430). Money and orders are not touched, which is why this is HIGH rather than critical.
+
+**Acceptance criteria.**
+- [ ] Every address handler derives the row from the signed-in shopper (id AND customer_id AND store_id) and refuses anything else uniformly
+- [ ] Every support-ticket handler does the same; a ticket's order_id must be one of the shopper's own orders in this store
+- [ ] A shopper of another store, and a sibling in the same store, can neither read, overwrite, re-parent nor delete another shopper's row
+- [ ] The legitimate address book and ticket flows are unchanged
+
+**Required tests.**
+- Negative per handler, driven with a Customer token AND with a merchant and a driver token where the route accepts them (a customer-only probe cannot see the guard-class trap)
+- Positive per handler: the owner still succeeds
+- Removal check on each ownership predicate, alone
+
+**Evidence.** None yet - READY. Reproductions are in the P1-ORD-07/08 review record (lens E, E6).
+
+### `P1-SEC-13` — Every themed storefront request is written to shetabit_visits with its full body and headers: customers' plaintext passwords, session cookies and gateway card fields are stored at rest
+
+| field | value |
+|---|---|
+| Status | **DONE** |
+| Risk | critical |
+| Workstream | Security & Identity |
+| GitHub issue | #85 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `app/Services/SanitisedVisitor.php`, `app/Providers/AppServiceProvider.php`, `app/Http/Middleware/ActiveTheme.php`, `tests/Feature/Security/StorefrontVisitLogTest.php`, `tests/Unit/SanitisedVisitorTest.php` |
+| Queue references | S40 |
+| Database / migration | None for the fix. The rows ALREADY stored are P1-OWN-08 (owner-gated, destructive) and are not touched here. |
+| Compatibility impact | Visitor analytics read only store_id, url, ip, platform, browser, device and created_at (verified by grep: Api\DashboardController, ThemeAnalyticController, HomeController, StoreController) - nothing reads the `request` or `headers` columns, so dropping their content changes no screen. `url` keeps its path and its harmless query; credential-looking parameter VALUES, JSON-looking or oversized values and ciphertext path segments are replaced, which merges analytics rows that differed only in such a value (e.g. `?keyword=` is redacted by the 'key' alternative). Web storefront only: no Flutter or API contract, no 401. |
+
+**Existing implementation status.** FOUND 2026-10-21 while chasing an unexplained 500 in a P1-ORD-07 test, and CONFIRMED BY EXECUTION on this tree (SQLite test database). `App\Http\Middleware\ActiveTheme::handle` calls `visitor()->visit($store)` on every request whose FIRST path segment is an active, themed store's slug. `Shetabit\Visitor\Visitor::visit` persists `prepareLog()`, which includes `'request' => $this->request->all()` (every posted and query field) and `'headers' => $this->httpHeaders()` (every request header, Cookie included). The package's only filter is `config/visitor.php` `except => ['login', 'register']`, matched with `Request::is($path)` - the BARE path `login`, never `{storeSlug}/login`, so it excludes nothing on a storefront.
+
+EXECUTED: `POST /{slug}/login` with a customer's email and password and a `Cookie: laravel_session=...` header left ONE row in `shetabit_visits` whose `request` column contains the plaintext password and whose `headers` column contains the Cookie value. A real Cookie header carries the encrypted session value; the review notes it replays as stored without APP_KEY. The same middleware runs on `register-data`, `forgot-password`, `reset-password` (a new password), the OTP routes, `customer_password_change`, and the gateway handlers `{storeSlug?}/get-payment-NMI` (`nmi_card_number`, `nmi_cvv_code`) and `{storeSlug?}/authorizenet-status` (`cardNumber`, `cvv`) - route membership EXECUTED, field names READ in the controllers, persistence the same code path as the executed login. NOT logged, because their first segment is not a slug: `store-get-cybersource-status`, `store-pay-with/DPO`, `store-pay-with/Powertranz`, the `plan-*` routes. `url` also stored the query string (a password-reset link's token) and `referer` the page the visitor came from. The highest-value subset (READ): storefronts are path-prefixed on the same host as the admin, so a merchant or the super admin previewing a storefront sent their ADMIN session cookie (and `remember_web_*`) into the table with `visitor_type = 'App\Models\User'`.
+
+ALSO FOUND: the same call JSON-encodes the whole request, so ANY storefront request carrying invalid UTF-8 answered HTTP 500 before its handler ran, and a failure to write a visit (table missing, database down) failed the shopper's page. The migration is `2024_01_26_112423_create_visits_table.php`, so the logging has run since that date wherever the migration ran.
+
+**Acceptance criteria.**
+- [x] A POST to {slug}/login, register-data, forgot-password, reset-password and the NMI / Authorize.Net handlers stores no field VALUE from the body in any shetabit_visits column
+- [x] No Cookie, Authorization, X-XSRF-TOKEN, X-CSRF-TOKEN or Referer HEADER value is stored (the allowlist excludes them)
+- [x] token, password, email, otp, code and signature query parameters - and the wider credential-looking family - are redacted from `url` and `referer`; a JSON-looking or oversized value, a URL-valued parameter's inner query and a ciphertext path segment (the anonymous order-details link) are too
+- [x] A request carrying invalid UTF-8 no longer 500s because of the visit log, and a failure to write a visit never fails the storefront request
+- [x] The visitor analytics still work: a row is written with url (path), ip, browser, device, platform and useragent
+- [x] Rows already stored are NOT touched here - they are P1-OWN-08
+
+**Required tests.**
+- RED first: posting a password, a Cookie header, card fields and a reset token leaves none of them in any column (6 of 7 failed)
+- Positive control: the same request still writes a visit row with its path, ip, useragent and the other analytics columns
+- Negative: invalid UTF-8 in a storefront request is not a 500; a visit-write failure (a SQLite trigger) does not fail the page and is not reported with its exception object
+- Table-driven unit test: each credential-looking parameter name is redacted on its own; nested, fragment, URL-valued, JSON, oversized and ciphertext cases
+- Removal check on the scrub, the container binding, the allowlist, each redaction, the try/catch and every regex alternative
+
+**Evidence.** DONE 2026-10-21. TESTS: tests/Feature/Security/StorefrontVisitLogTest.php 10 tests / 64 assertions and tests/Unit/SanitisedVisitorTest.php 44 / 101, RED first (6 of 7 feature tests failed on the intended 'sentinel is in the table' assertion). REMOVAL CHECKS, each control alone, ALL BITE: the container re-binding, request(), the header allowlist, the referer header back in the allowlist, url() and referer() redaction, the try/catch, the exception-object logging, nested parameters, the fragment split, the case-insensitive flag, the encrypted-segment rule, the exact short names (sid, cc), the oversize rule, the JSON rule, URL-valued parameters, header-value scrubbing, and EVERY regex alternative. Redundant alternatives (email inside mail, signature inside sig, pwd inside pw, session inside sess, credential inside cred) were REMOVED rather than claimed. DROPPED as unprovable: userAgent()/languages() scrubbing (the driver filters invalid bytes on SQLite). ADVERSARIAL REVIEW, three read-only lenses (bypass, sibling sinks, exposure), verdict NON-BLOCKING; every finding is dispositioned in queue S40. GATES at HEAD: Feature Feature at 38c013d2: 3134 passed, 2 declared failures, 17 declared skips, 0 errors, known-outcome assertion exit 0; Unit 335 passed; Contract 26 passed; CI guards no-workdo / no-env / test-isolation / gate-f-containment / scan-secrets exit 0 (guard-composer-lock-integrity exits 1 in this sandbox only because two LOCKED packages, myfatoorah/laravel-package and myfatoorah/library, are not installed here; no composer file changed).. MISTAKES OF MINE, caught before this shipped: (1) the credential-header test sent NO headers - `call()` does not apply `withHeaders()` - so it passed vacuously; it now asserts the User-Agent sent alongside made it into the row; (2) my first allowlist kept `referer`, and the reset-token test caught the token in the headers column; (3) the first removal-check run flagged 'NOT ISOLATED' for failures it could not name (data-set test names do not match my regex) - I changed the script to read the summary rather than the names; (4) I first listed CyberSource's store route as logged - it is not (no slug segment) - and corrected the issue text.
+
+OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (`Visit::$fillable` lacks it and `Store` has no `visitLogs()`), so analytics that filter `where store_id` read zero on this code and a per-store scrub is impossible - production's vendored copy may differ (diff it against v4.3.1); the table has no retention; a SESSION-cookie sentinel in the test is plaintext whereas production cookies are encrypted.
+
+### `P1-OWN-08` — shetabit_visits rows already written hold plaintext customer passwords, session cookies and possibly card fields: scrub or purge, notify, and sequence with the APP_KEY rotation
+
+| field | value |
+|---|---|
+| Status | **BLOCKED** |
+| Risk | critical |
+| Workstream | Security & Identity |
+| GitHub issue | #86 |
+| Owner decision required | **yes** |
+| Blocked on | Owner decision. P1-SEC-13 stops NEW rows holding secrets; it cannot undo the rows already stored, and the protocol forbids destructive data operations and migrations against the running server without approval. The owner decides: (1) scrub (null the `request` and `headers` columns, keep the analytics columns) or purge - a TABLE-WIDE operation, because `store_id` is never set on these rows; (2) whether affected customers are told and made to reset their password - every customer who logged in, registered or reset a password on a themed storefront since 2024-01-26 has a plaintext password in the table, failed attempts included (often near-misses of the real one), and customers reuse passwords; (3) whether merchants and the super admin who previewed a storefront have their sessions invalidated (their admin cookies are in the table); (4) how long database backups containing the table are retained and whether they are re-cut - including any `mysqldump` the BackupRestore module wrote under storage/uploads/Database_Backup (P1-OWN-01); (5) who had read access to the table; (6) sequencing with P1-OWN-02 (#43); (7) whether the card-bearing rows (NMI / Authorize.Net) start a PCI incident process. |
+| Depends on | `P1-SEC-13` |
+| Scope | `database/`, `docs/security/` |
+| Queue references | S40 |
+| Database / migration | A scrub is a data operation on a live table, run by the owner or with their approval; not a schema change. |
+| Compatibility impact | None for clients. Customers who are made to reset their password see the usual reset flow. |
+
+**Existing implementation status.** DATA REMEDIATION that P1-SEC-13 deliberately does not perform. What is known from the repository: the table exists wherever `2024_01_26_112423_create_visits_table.php` ran (ActiveTheme would 500 every themed page if it were missing, so it almost certainly exists in production); nothing in the application reads the `request` or `headers` columns, so nulling them loses no function; query strings in `url` and `referer` need a separate pass (reset-link tokens expired after 60 minutes, so what remains useful is the email address); the table has no retention and anonymous traffic can drive its growth; the BackupRestore module's `mysqldump` covers the whole database and writes to a web-reachable path with chmod 0777 (`BackupRestoreController.php:181-188`), and its `database_name` is concatenated into `shell_exec`; suggested triage order for a census: `method = 'POST'`, then `visitor_type = 'App\Models\User'`. What is NOT known and cannot be known from this repository: row count and period, which gateways were enabled (card fields), who has read access, what the backups hold, the real SESSION_DOMAIN / lifetime / driver, and whether production's vendored copy of the visitor package differs. A read-only census of the production table is the first step and is itself an owner-approved action.
+
+**Acceptance criteria.**
+- [ ] The owner states scrub or purge, and the scrub is run against a restored copy first and verified (no row retains a non-analytics value)
+- [ ] The owner states whether customers are notified and forced to reset passwords, and the mechanism exists before the statement is made
+- [ ] Backups and replicas holding the table, and any BackupRestore dump, are accounted for
+- [ ] The order relative to the APP_KEY rotation (P1-OWN-02) is stated
+
+**Required tests.**
+- Verification query on the scrubbed copy: zero rows with a non-null request or headers value
+- A restored backup is checked for the same residue
+
+**Evidence.** None - BLOCKED on the owner.
+
+### `P1-SEC-15` — POST /api/{slug}/payment-list returned every payment gateway's SECRET keys to any token holder, and POST /api/{slug}/register hands a token to anybody
+
+| field | value |
+|---|---|
+| Status | **DONE** |
+| Risk | critical |
+| Workstream | Security & Identity |
+| GitHub issue | #87 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `app/Services/GatewaySecretRedactor.php`, `app/Http/Controllers/Api/ApiController.php`, `app/Models/Setting.php`, `tests/Feature/Security/PaymentListSecretDisclosureTest.php` |
+| Queue references | S41 |
+| Database / migration | None. |
+| Compatibility impact | SHAPE KEPT: secret-named fields are returned as null, not removed, so a client that decodes the entry into a typed model keeps its shape. Publishable/public keys, client/merchant/store identifiers, modes, names, images and the free-text `detail` are untouched. `secretKey` (the on/off flag the vendor code mislabels for Sspay/Toyyibpay) is exempt so its value is unchanged. CLAUDE.md records that no client in either repository calls the storefront API; `packages/workdo/Api/src/documentation/theme.json` documents `stripe_secret_key` in this response, so a client OUTSIDE both repositories that charged client-side with it would break - the reviewer could not rule one out. A client never needs a secret to LIST methods: the server charges. |
+
+**Existing implementation status.** FOUND by the P1-SEC-13 sibling-sink review (READ) and CONFIRMED BY EXECUTION on this tree. `Api\ApiController::payment_list` builds the checkout's method list and puts each gateway's live secret next to its display fields (129 distinct field names across ~50 gateways, 56 of them secrets: `stripe_secret_key`, `paystack_secret`, `paytm_merchant_key`, `nmi_api_private_key`, ...). The route (`routes/api.php:90`) carries `custom.auth` + `APILog` only, `getStore($slug)` takes the store from the URL with no relation to the caller, and `POST /api/{slug}/register` (`APILog` only) is PUBLIC and returns a Sanctum token - so no one has to be a customer of anything. MEASURED: an anonymous visitor registered on their OWN store, POSTed `/api/{victim-slug}/payment-list` with the returned token, and received the victim store's Stripe SECRET key and Paystack secret in the JSON; a shopper of another store, and the victim store's own shopper, received them too. The API log (APILog) then writes the response body to disk with only password/otp/token/secret/authorization/api_key redacted (P1-SEC-16). The repository history is squashed, so how long the route has been live is unknowable from here (P1-OWN-09).
+
+**Acceptance criteria.**
+- [x] No secret-named field of any gateway is returned by payment_list to any principal; the keys stay (null)
+- [x] Publishable/public keys, identifiers, modes, names and images still are, so the checkout list is not emptied
+- [x] A gateway field nobody has classified cannot reach a client: a ratchet pins every field name the endpoint can return into explicit SECRET and KEEP lists
+- [x] The web checkout's twin builder (Setting::paymentList) is redacted too, so a future view edit cannot put a key in a public page
+
+**Required tests.**
+- RED first: the anonymous register-then-read chain, a stranger's token, the store's own shopper's token
+- Positive: the list is still returned with the publishable key, for every principal tested
+- Ratchet: every harvested field name is classified; the redactor nulls exactly the SECRET list and keeps the KEEP list and the keys
+- Removal check on the call site, every regex alternative, the exact entry, the exemption, the twin builder, over-redaction and unset-vs-null
+
+**Evidence.** DONE 2026-10-21. TESTS: tests/Feature/Security/PaymentListSecretDisclosureTest.php, 8 tests / 152 assertions; RED first on 4 of 6 (the other two - the positive control and the classification ratchet - are new tests that pass by construction). 129 harvested field names pinned: 55 SECRET, 74 KEEP. REMOVAL CHECKS, each control alone, ALL BITE: the redactAll call site, every regex alternative (token, api_?key, pwd, credential, secret, private, salt, auth_code, server_key, transaction_key, signature, password, merchant_key, integration_key), the exact `cashfree_key` entry, the `secretKey` exemption, the web twin builder, an over-broad `key` alternative, and unset-instead-of-null. A REDUNDANT alternative ('passphrase', covered by 'salt') was REMOVED rather than claimed. ADVERSARIAL REVIEW, two read-only lenses (fix, sweep), both NON-BLOCKING: the fix could not be broken by reading (single data-bearing return; PartialPayments only filters; no response cache; no view echoes a secret; all 73 then-KEEP names checked against the regex by hand). Acted on: twin builder redacted, deny-list widened, `secretKey` exempted (verified by reading ApiController:2361/2380 that it carries the enabled flag), positive controls added. Recorded, not fixed: P1-SEC-16/17/18 and the notes under P1-OWN-09. GATES: Feature at 38c013d2: 3134 passed, 2 declared failures, 17 declared skips, 0 errors, known-outcome assertion exit 0; Unit 335 passed; Contract 26 passed; CI guards no-workdo / no-env / test-isolation / gate-f-containment / scan-secrets exit 0 (guard-composer-lock-integrity exits 1 in this sandbox only because two LOCKED packages, myfatoorah/laravel-package and myfatoorah/library, are not installed here; no composer file changed). MISTAKES OF MINE: (1) a redundant regex alternative ('passphrase') survived to the first removal-check run, which is how it was found; (2) I would have nulled `secretKey` and changed a value no credential ever held, had the review not asked what it carried.
+
+### `P1-OWN-09` — Every store's payment-gateway secrets were readable by any internet visitor: treat them as exposed - rotation guidance, access-log check, and the API log files on the server
+
+| field | value |
+|---|---|
+| Status | **BLOCKED** |
+| Risk | critical |
+| Workstream | Security & Identity |
+| GitHub issue | #88 |
+| Owner decision required | **yes** |
+| Blocked on | Owner decision. P1-SEC-15 stops the endpoint answering; it cannot un-disclose what it already answered. The owner decides: (1) whether to tell merchants to rotate their gateway keys (Stripe, Paystack, PayPal, Razorpay, ... the 56 secret fields) and how; (2) a READ-ONLY check of the web-server access logs for POST /api/*/payment-list from sessions that are not the store's own shoppers - the only evidence of exploitation; (3) the API log files (`api-*.log`, 15-day retention, config/logging.php) write the response body with most gateway secrets in plaintext (P1-OWN-03's writer, P1-SEC-16): purge them and any backup of them; (4) the same for the Telegram bot token (P1-SEC-17) and the Midtrans server key if those routes were used; (5) sequencing with P1-OWN-02 (APP_KEY rotation). |
+| Depends on | `P1-SEC-15`, `P1-OWN-03` |
+| Scope | `docs/security/` |
+| Queue references | S41 |
+| Database / migration | None. |
+| Compatibility impact | Merchants who rotate keys must update them in the store settings; nothing in the platform changes. |
+
+**Existing implementation status.** OWNER-GATED FOLLOW-UP to P1-SEC-15. What is known from the repository: the route is declared in routes/api.php:90 and the repository history is squashed to the remediation project, so the date it first answered is unknowable here; registration is public, so the audience was the whole internet; the response carried live secrets for every gateway the store had configured, including disabled ones. What is NOT known: whether anyone used it, which stores had which gateways configured, what the access logs show.
+
+**Acceptance criteria.**
+- [ ] The owner states whether merchants are told to rotate, and the guidance exists before the statement is made
+- [ ] The access-log check has been done by someone with access, and its result is recorded here
+- [ ] The API log files and their backups are accounted for and purged or confirmed clean
+- [ ] The order relative to the APP_KEY rotation is stated
+
+**Required tests.**
+- Evidence from the server rather than the repository: the access-log query and the file listing
+
+**Evidence.** None - BLOCKED on the owner.
+
+### `P1-SEC-14` — The error tracker (LaraBug) is sent the request, cookies, session and input on every reported exception, and its blacklist misses cookies, sessions, secrets and card numbers
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | high |
+| Workstream | Security & Identity |
+| GitHub issue | #89 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `config/larabug.php`, `config/logging.php`, `tests/Feature/Security/` |
+| Queue references | S42 |
+| Database / migration | None. |
+| Compatibility impact | Error reports to the tracker lose the redacted keys; nothing user-visible. If the owner decides the tracker should not be used, that is a separate, larger change. |
+
+**Existing implementation status.** RECORDED by the P1-SEC-13 sibling-sink review (READ, probable; `.env` was not read, so `LB_KEY` and `APP_ENV` in production are unchecked). `config/logging.php:57` makes the default `stack` channel `['single','larabug']`; `config/larabug.php:38-40` enables it for `production`. `vendor/larabug/larabug/src/LaraBug.php:154-177` posts to `https://www.larabug.com/api/log` the full URL with its query string, the DECRYPTED cookies (including the session id and any `remember_*`), the raw `cookie` header, `Session::all()`, `Request::all()`, old input and `auth()->user()->toArray()`; `src/Http/Client.php:38-49` posts whether or not `LB_KEY` is set. The blacklist (`config/larabug.php:99-111`) is a key-name glob and misses `cookie`, `*session*`, `*secret*` (so `stripe_secret` and `google2fa_secret` pass), and every card-number field name (`nmi_card_number`, `cardNumber`, `card_number`, `PowerTranz_card_number`); `cvv` is caught, `expiry` is not. TRIGGER: any 500 on a card POST, on a settings save that posts gateway secrets, or on an authenticated request. `User::$hidden` hides only password/remember_token and `google2fa_secret` is plaintext, so it rides in `toArray()`. P1-PLT-05 (BACKLOG) already says 'larabug's blacklist reviewed before anyone enables it'; this raises it because the reviewer found the reporter posts regardless of the key.
+
+**Acceptance criteria.**
+- [ ] The blacklist covers cookie, session, secret, card and number-bearing fields, expiry, otp, pin and the user model's secrets
+- [ ] A reported exception from a request carrying a card number, a gateway secret and a session cookie contains none of them (a test builds the payload with the real LaraBug class)
+- [ ] The owner is told whether the tracker is keyed in production, and the answer is recorded
+
+**Required tests.**
+- Build the LaraBug payload for a fake request carrying sentinel cookie/session/card/secret values and assert none appears
+- Removal check on each blacklist entry
+
+**Evidence.** None yet - READY.
+
+### `P1-SEC-16` — Credentials at rest outside the visit log: the API log's redaction gaps, passwords flashed into the session, a plaintext 2FA seed copied between users, whole checkouts in return URLs
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | medium |
+| Workstream | Security & Identity |
+| GitHub issue | #90 |
+| Owner decision required | no |
+| Depends on | `P1-SEC-13` |
+| Scope | `app/Http/Middleware/Concerns/RedactsApiLogFields.php`, `app/Http/Controllers/Api/ApiController.php`, `app/Http/Controllers/CustomerController.php`, `app/Http/Controllers/DeliveryBoyController.php`, `app/Http/Controllers/UserController.php`, `app/Models/User.php`, `app/Models/Customer.php`, `app/Services/PaymentService.php` |
+| Queue references | S42 |
+| Database / migration | None for the code. A 2FA-seed change would be a data migration - out of scope here. |
+| Compatibility impact | Logs and session payloads lose credential values; no client contract. |
+
+**Existing implementation status.** RECORDED by the P1-SEC-13 sibling-sink review (READ). (1) API log: `RedactsApiLogFields.php:36-40` redacts only password/otp/token/secret/authorization/api_key, so `pass`-named, `key`-named, `card`, `cvv`, `pin`, `code` and `cookie` fields are written to `api-*.log` (15-day retention); `ApiController.php:5851` (`user_detail`, reached through `profile_update` at :5789) runs `Log::channel('API_log')->info(json_encode($request->all()))` directly, bypassing the scrubber. (2) `->withInput()` with no argument flashes the whole input, password included, into `sessions.payload` (session encryption is off, `config/session.php:50`): `CustomerController.php:95,106`, `DeliveryBoyController.php:58,125`. (3) `google2fa_secret` is plaintext (add_google2fa_enable_to_users_table.php:19), is not in `User::$hidden` (so it rides `toArray()`), and `UserController.php:165-168` COPIES the creator's seed and enable flag to the new sub-user, so two accounts share one TOTP seed; `Customer::$hidden` lacks `password_otp`; `deliverysyria_secret` is fillable and not hidden. (4) The Easebuzz and AamarPay returns put `json_encode($request->all())` plus `_token` into `request_data` in the callback query (`PaymentService.php:4253-4254`, `:1746`) - now redacted from the visit log, still in browser history and web-server access logs. (5) `LynomiaChat IntegrationController.php:663` flashes the commerce credential (first-party code, editable). (6) `config/services.php:31,34` and `config/myfatoorah.php:10` hold committed secrets (P1-OWN-02).
+
+**Acceptance criteria.**
+- [ ] The API log scrubber covers pass/key/card/cvv/pin/code/cookie names, and user_detail goes through it
+- [ ] ->withInput() calls on credential-bearing forms exclude the password fields
+- [ ] User and Customer $hidden cover every secret column
+- [ ] A user created by another user does not inherit the creator's 2FA seed
+
+**Required tests.**
+- Per sink: a sentinel secret posted through the handler does not appear in the log/session payload
+- Removal check on each control
+
+**Evidence.** None yet - READY.
+
+### `P1-SEC-17` — Credentials handed to the browser: the Telegram bot token to an anonymous shopper, the Midtrans server key in page HTML, the platform reCAPTCHA secret in a script
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | high |
+| Workstream | Security & Identity |
+| GitHub issue | #91 |
+| Owner decision required | no |
+| Depends on | `P1-SEC-15` |
+| Scope | `app/Http/Controllers/PaymentController.php`, `resources/views/payment/telegram.blade.php`, `app/Services/PaymentService.php`, `resources/views/midtras/`, `resources/views/auth/verify-email.blade.php`, `tests/Feature/Security/` |
+| Queue references | S41 |
+| Database / migration | None. |
+| Compatibility impact | The Telegram flow's page opens the URL the server returns; the fix must keep the order-via-Telegram journey working (the server already posts the message itself). Midtrans module copies (LotteryPrizes, Donation, Campaigns) cannot be edited in place - they need a host-side override. No Flutter/API contract. |
+
+**Existing implementation status.** RECORDED by the P1-SEC-15 sweep review (READ; F1 is probable and its first step is to reproduce it). F1 HIGH: `PaymentController.php:2857` reads `telegram_access_token`, `:3055` builds `https://api.telegram.org/bot<TOKEN>/sendMessage`, `:3074` returns the URL; the route is `POST {storeSlug?}/get-massage` (`routes/customer.php:183`), anonymous, and the shipped page `resources/views/payment/telegram.blade.php:40,74-84` makes the call itself. A guest can POST `{victim}/process-order` with `payment_type=telegram` (the allowlist at `PaymentController.php:1436-1443` checks no enabled flag) and then `{victim}/get-massage` and read the token. Condition: Telegram must answer 200; if `whatsapp_content` is empty the request 500s and nothing leaks. F2 MEDIUM: the Midtrans server key is rendered as `data-client-key` in `resources/views/midtras/order_payment.blade.php:8` (guest, `process-order` with `payment_type=midtrans`; not cross-tenant, the slug is forced) and in the form-action query string; the platform key reaches any merchant buying a plan via `MidtransController.php:41-42,175`; module copies carry it. Only sandbox keys leak today: `Config::$isProduction = false` makes a production key throw before the view renders. F3 MEDIUM-LOW: `resources/views/auth/verify-email.blade.php:86,90` echoes `NOCAPTCHA_SECRET` (the platform secret) into a script for any logged-in unverified user when RECAPTCHA_MODULE=yes and the version is not v2; the sibling auth pages use `NOCAPTCHA_SITEKEY`.
+
+**Acceptance criteria.**
+- [ ] get-massage no longer returns a URL containing the bot token; the order-via-Telegram journey still delivers the message
+- [ ] No Midtrans server key is rendered into HTML or a URL by the host or by an override of the module views
+- [ ] verify-email uses the site key, not the secret
+
+**Required tests.**
+- F1: reproduce first (the Telegram call needs a network seam - route it through Http:: so a test can fake it), then assert the response contains no token
+- Rendered-HTML sentinel tests for Midtrans and reCAPTCHA
+- Removal check on each
+
+**Evidence.** None yet - READY.
+
+### `P1-SEC-18` — Setting reads and writes with no tenant predicate or no permission: a shopper charged through another tenant's keys, a cross-tenant image delete, staff reading and writing a merchant's gateway and SMTP secrets
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | high |
+| Workstream | Security & Identity |
+| GitHub issue | #92 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `app/Services/PaymentService.php`, `app/Models/Utility.php`, `app/Http/Controllers/Api/DashboardController.php`, `app/Http/Controllers/SettingController.php`, `routes/web.php` |
+| Queue references | S42 |
+| Database / migration | None expected. F7 depends on zid_stores, which has no migration (GATE F). |
+| Compatibility impact | Admin API responses keep their shape; staff without the permission get a refusal that is not a 401 (the shipped app forces a logout on 401). |
+
+**Existing implementation status.** RECORDED by the P1-SEC-15 sweep review (READ, probable). (F4) `Utility::GetValueByName($name)` with no store id adds NO `store_id` predicate and `getCurrentStore()` is null for guests and customers (`app/Helper/helper.php:387-411`), so the read spans all tenants and the last row wins: `PaymentService.php:4146-4149` (Ozow), `:4232-4235` (Easebuzz), `Utility.php:1819-1915` (`payment_data`, called store-less from `ApiController.php:6855,8624`) - a shopper at store A can be charged through another tenant's credentials (money misdirection, not disclosure). `payment_list` itself read another tenant's non-secret strings at `ApiController.php:2209` (`skrill_unfo`) and `:3003`. (F5) `GetEmailSetting` returns `MAIL_PASSWORD` and `GetStripePayment` returns `stripe_secret` (`Api/DashboardController.php:3314-3337`, `:3676-3699`) and their write twins are at `:3257-3312`, `:3598-3674`; the routes carry only `custom.auth` and `resolveOwnedStore` admits anyone whose `creatorId()` owns the store - no `isAbleTo` check, so any STAFF user of a merchant can read and overwrite that merchant's gateway and SMTP secrets (cross-tenant is clean: a different merchant is refused); `SettingController::settingForm` has no permission calls at all. (F6) `DashboardController.php:3441,3537,3633` run `Setting::where(['name'=>'cod_image'])->first()` with no `store_id`, then `File::delete(base_path($Setting->value))`; `Setting` is not in `scoped_models` - any merchant can delete another tenant's image file. (F7) `routes/web.php:1320-1326` expose `/zid/{storeId}/orders` and `/webhooks` behind `auth` only and `app/Services/Zid.php:9-19` decrypts whichever store's stored token is named: any logged-in user reads any connected store's Zid data (the credential is not returned). Also noted: `POST custom-msg/{slug?}` is an anonymous settings writer that fails closed only because `Auth::user()->id` null-dereferences; `GET /` runs `package:migrate`/`package:seed` on an anonymous request when `display_landing` is on (HomeController.php:122-126).
+
+**Acceptance criteria.**
+- [ ] Every credential read on a storefront or shopper path names its store explicitly
+- [ ] The admin API's gateway/SMTP settings reads and writes check an operator-first permission, and a staff user without it is refused with a non-401
+- [ ] The image-delete paths scope the Setting lookup to the caller's store
+- [ ] The Zid routes check that the named store belongs to the caller
+
+**Required tests.**
+- Per site: a two-tenant fixture where the wrong tenant's value is returned/deleted today
+- Staff probes with and without the permission
+- Removal check on each predicate
+
+**Evidence.** None yet - READY.
 
 ---
 
@@ -1823,11 +2109,13 @@ AND a third, from round 1's critic: app/Http/Middleware/OrderDocumentAccessGuard
 
 **Existing implementation status.** LIVE, and deliberately NOT closed by P1-ORD-08. `OrderController::orderDetails` (route `{storeSlug?}/order/{id}`, routes/customer.php:170) decrypts `Crypt::decrypt($id)` and renders the full order -- billing name, email, phone, address, line items, totals -- to an ANONYMOUS visitor. The ciphertext is the only credential. CLAUDE.md records APP_KEY as in git history and unrotated, so `Crypt::encrypt()` is an encoding, not a control. MEASURED (P1-SEC-03 round 2): with no session, a ciphertext the prober forged itself with `Crypt::encrypt(orderId)` returned HTTP 200 with the victim's email, order number and line items. Order ids are sequential, so with the key the whole order book is enumerable per store. THREE consumers of the same primitive: `orderDetails` (anonymous), `AccountProfileController::customerorder` (shopper gate AND `OrderDocumentAccessGuard::TARGETS`, so ownership-checked), and the minted URL on the order-complete and order-track pages. P1-ORD-08 closed every way to MINT a valid ciphertext for an order you did not place, which is the half that did not need the key; this task closes the half that does.
 
+CONSUMER LIST EXTENDED by the P1-ORD-07/08 review (lens E, section 6(1)). The same Crypt::encrypt(order id) primitive is consumed, with no OrderDocumentAccessGuard coverage, by: PartialPaymentsController::customerpayment (:737, anonymous when the module is on, NO store predicate - S12(c)/P1-OWN-05) and payment_status_change (:786, route PartialPayments/src/routes/web.php:30 - an anonymous WRITE, money-bearing - S3); ReviewReminderController::orderReview / orderReviewStore (:334,356, routes web.php:25-26 - NOT previously tracked: Crypt::decrypt then Order::find, and it writes OrderReviews with store_id = $request->store_id ?? 0, a caller-supplied value); AuctionOrdersController::orderdetails (:145, route :30 - its store predicate is the public slug, so equivalent to this task). The BUILDERS of the link, all of which must change with whatever credential is chosen: OrderController:654, HomeController:906, PaymentController:2762 and :4010, PaymentService:2935, ApiController:3815, PayUPaymentController:808, AuthorizeNetPaymnetController:1097 and the email at Utility.php:2265. These are vendored modules where the consumer lives in packages/workdo, so the fix for those has to be host-side (route middleware / guard), never an in-place edit.
+
 **Acceptance criteria.**
 - [ ] A ciphertext forged with the application key for an order the bearer was never given is refused
 - [ ] The emailed link still opens the order from a different device, with no login, for a stated period
 - [ ] The credential is bound to ONE order and expires; its lifetime is the owner's decision
-- [ ] All consumers (orderDetails, the minted URLs on order-complete and order-track, customerorder) use the same credential so a design that covers one and misses another has not closed anything
+- [ ] All consumers use the same credential so a design that covers one and misses another has not closed anything: orderDetails, customerorder, the minted URLs on order-complete and order-track, PartialPayments customerpayment and payment_status_change, ReviewReminder order-review*, AuctionProduct auction-order/{id}
 - [ ] Sequenced with APP_KEY rotation (#43): the owner states whether old links are honoured, and for how long
 
 **Required tests.**
@@ -1898,16 +2186,20 @@ WHAT THE ROW'S WORDING GOT WRONG: S14 said it 'mails digital products'. It does 
 (3) `change_refund_cart` (AccountProfileController ~:1096) has the same request-input shape (`Product::find($request->product_id)`, `Order::order_detail($request->order_id)`) and is currently UNROUTED -- grep finds no route and no view. A landmine rather than a live defect: record it so a future route declaration triggers a review.
 (4) The merchant refund screen's replay/state guard (OrderRefundController:379-391) has no storefront twin: nothing stops a shopper submitting overlapping requests for the same units across DIFFERENT lines of a split order. P1-ORD-07's quantity bound caps each request at the line's CURRENT remaining quantity, which bounds the damage but is not a state machine.
 
+RE-SCOPED 2026-10-21 by the P1-ORD-07/08 review. DONE in P1-ORD-07's follow-up and no longer part of this task: (1) the order write and the OrderRefund row are one transaction; (2) the record is built from the order's own lines by LINE key, validated, with ticked ids required to exist. STILL HERE, with measurements (lens E, executed unless marked): (a) the REQUEST-TIME SHRINK itself - the owner's workflow decision; (b) ELIGIBILITY is enforced only by the Blade (`delivered_status == 1` and no existing refund, order_list_filter.blade.php:173-196): a refund POST was accepted on a Pending, Cancelled and Confirmed order, and a second identical POST on a delivered order made a SECOND order_refunds row (a cancelled order's stock was already restored by status_cancel, so a refund on it can be accepted and restocked twice); (c) a FIXED coupon drives the total NEGATIVE: coupon 450, lines 500, every unit refunded -> final_price -410, because nothing floors it and the coupon is not prorated; (d) `change_refund_cart` is unrouted, BUT refund_order.blade.php:70 and :300-349 call url($store->slug, 'change-refund-cart') by AJAX, so it 404s for every shopper and the form's price recalculation silently never updates - the earlier note 'no route and no view' was wrong about the view; routing it behind EnsureCustomerAuthenticated alone would recreate the IDOR; (e) order_refunds.product_refund_id is VARCHAR(255) holding the record's JSON (json_encode escapes non-ASCII as six bytes each), so three or more lines overflow it on MySQL's non-strict connection, the stored JSON is cut, the merchant's refund screen answers 'no restorable product data' and the shopper's own return list 500s (needs TEXT - a schema change, GATE F territory); (f) ticking one checkbox (value = product_id) applies the refund to EVERY line carrying that product id, each at its posted default (the full quantity); (g) the shopper-supplied display strings return_price[] and product_sub_total are still recorded and the merchant's payout screen prefills from product_refund_price - the payout itself is merchant-typed and capped by RefundIntegrityService at order.final_price (the post-shrink figure, unrelated to what was returned); (h) on MySQL `Order::where('id','1abc')` matches order 1 (numeric-prefix coercion; no ownership hole - the customer and store predicates still apply). The merchant-side consumers that read the record by line position are P1-ORD-14.
+
 **Acceptance criteria.**
 - [ ] The owner states whether a refund REQUEST may change the order, or only an ACCEPTED refund
-- [ ] The order change and the OrderRefund record are written in one transaction, with uploads outside it
-- [ ] The refund record's quantities are aligned to the order lines they describe
 - [ ] change_refund_cart is either deleted or routed behind the same ownership predicate
+- [ ] Eligibility is enforced server-side (delivered, no open refund on the order) - the owner states whether the POST should repeat the UI's rule
+- [ ] A refund can never take an order's total below zero, and a fixed coupon is prorated or the owner states otherwise
+- [ ] product_refund_id can hold a record of any line count (TEXT), or the record moves to rows
 
 **Required tests.**
-- A failure between the order write and the refund write leaves neither
-- Checking only the second line records the second line's quantity
-- Removal check on the transaction
+- Eligibility: a refund POST on a pending, cancelled or confirmed order, and a second POST on a delivered order, are refused (per the owner's rule)
+- A fixed coupon cannot take final_price below zero
+- A four-line record round-trips through the column intact (a real-MySQL script: SQLite does not enforce VARCHAR(255))
+- Removal check on each control
 
 **Evidence.** None yet -- BLOCKED on the workflow decision.
 
@@ -1915,13 +2207,13 @@ WHAT THE ROW'S WORDING GOT WRONG: S14 said it 'mails digital products'. It does 
 
 | field | value |
 |---|---|
-| Status | **IN_REVIEW** |
+| Status | **DONE** |
 | Risk | high |
 | Workstream | Orders & Checkout |
 | GitHub issue | #79 |
 | Owner decision required | no |
 | Depends on | — |
-| Scope | `app/Http/Controllers/AccountProfileController.php`, `tests/Feature/Security/StorefrontOrderRefundOwnershipTest.php` |
+| Scope | `app/Http/Controllers/AccountProfileController.php`, `tests/Feature/Security/StorefrontOrderRefundOwnershipTest.php`, `tests/Feature/Tenancy/RawQueryTenancyInventoryTest.php` |
 | Queue references | S14 |
 | Database / migration | None. |
 | Compatibility impact | Web Blade routes called by jQuery from the storefront; no client in either repository calls them, and every refusal is a 404 -- never a 401 -- so there is no Flutter force-logout hazard. The real form (refund_order.blade.php) posts the PATH id and the body order_id as the same value and renders its quantity input min="1" max="{item qty}", so nothing it sends is refused. A merchant+shopper doubled principal can no longer open a SHOPPER's refund request through the storefront (the admin refund screen is unaffected). |
@@ -1933,12 +2225,14 @@ WHAT THE ROW'S WORDING GOT WRONG: S14 said it 'mails digital products'. It does 
 This task's own RED run found MORE than the triage recorded: quantity[] was trusted verbatim, so an over-quantity drove the order NEGATIVE (qty -1, total -60); a NEGATIVE quantity INFLATED it (440 to 640); and a replay of a full refund divided by the line's now-zero quantity -- a DivisionByZeroError, HTTP 500. Also `order_return_list` filtered by store and never by customer (one shopper saw every other shopper's refund reasons, statuses and order numbers), and the order_refund refund-VIEW branch loaded `OrderRefund::find($id)` (store-scoped, not customer-scoped) and dereferenced null for an unknown id.
 
 **Acceptance criteria.**
-- [ ] order_refund_request resolves the order from the PATH id and refuses unless it belongs to the slug's store AND the signed-in shopper
-- [ ] A body order_id that disagrees with the path writes NEITHER order and records no refund
-- [ ] A refund quantity is a whole number in [0, the line's remaining quantity]; a negative, fractional, non-numeric or over-quantity value is refused before anything is written
-- [ ] A replay of a full refund no longer divides by zero or shrinks the order further
-- [ ] order_return_list shows a shopper only their own refund requests; the order_refund refund-view branch opens only the shopper's own refund
-- [ ] The legitimate refund journey is unchanged: 3 of 4 units takes the order to 140.00 and the refund record names the same order
+- [x] order_refund_request resolves the order from the PATH id and refuses unless it belongs to the slug's store AND the signed-in shopper
+- [x] A body order_id that disagrees with the path writes NEITHER order and records no refund
+- [x] A refund quantity is a whole number in [0, the line's remaining quantity]; a negative, fractional, non-numeric or over-quantity value is refused before anything is written
+- [x] A replay of a full refund no longer divides by zero or shrinks the order further
+- [x] order_return_list shows a shopper only their own refund requests; the order_refund refund-view branch opens only the shopper's own refund
+- [x] The legitimate refund journey is unchanged: 3 of 4 units takes the order to 140.00 and the refund record names the same order
+- [x] The refund record is built from the order's own lines by LINE key: every recorded product exists on the order, every recorded quantity equals the units removed from that line, and a request that removes nothing is refused
+- [x] The order change and the OrderRefund row are one transaction (a failure leaves neither), and a concurrent change to the order's lines between the read and the write is refused rather than overwritten
 
 **Required tests.**
 - Negative: a store-A shopper naming a store-B order in the BODY writes neither order and records no refund
@@ -1947,30 +2241,27 @@ This task's own RED run found MORE than the triage recorded: quantity[] was trus
 - Negative: over-quantity, negative, fractional, empty, non-numeric and 1e400 quantities are refused; a replayed full refund is refused; a zero-quantity line does not divide by zero
 - Positive: the owner's partial refund still lands at 140.00, and a quantity typed with a leading zero ('03') is still accepted
 - Negative: the return list shows only the shopper's own requests; the refund view refuses a sibling's request even when the ids coincide
+- Two-line order, tick only the SECOND: the record carries that line's quantity and price; a number in an unticked line's slot is never recorded; a ticked product on no line, an omitted or short quantity[], an all-zero request and array/scalar shapes are refused or handled without a half-write
+- Per-line validity with TWO ticked lines (a valid quantity must not carry an invalid one): non-numeric, negative, blank, missing, above the line, fractional
+- Atomicity (a SQLite trigger rejects the refund INSERT: the order is untouched) and freshness (a query listener commits another refund between the handler's read and write: nothing is overwritten)
 - Removal check on each control, alone
 
-**Evidence.** IN REVIEW -- not DONE. TESTS: tests/Feature/Security/StorefrontOrderRefundOwnershipTest.php, 18 tests / 80 assertions, symmetric (every refusal has an owner-succeeds control). RED first against unfixed code (11 failed on the first run, 10 failed / 6 passed after the fixtures were repaired -- see mistake 2), GREEN after. ELEVEN scripted removal checks, each control alone, ALL BITE, the controller restored byte-identical each time: the store predicate (its own test: an own order addressed under another store's slug would otherwise stamp a refund row into a store that never sold it), the customer predicate (3 tests), the body-vs-path agreement check, the quantity upper bound, lower bound, whole-number test and is_numeric test, the division-by-zero guard, the return-list customer predicate, and the refund-view ownership check; plus a regression check that swapping back to FILTER_VALIDATE_INT fails the leading-zero positive control. NEIGHBOURS GREEN: CustomerAccountBoundaryTest, OrderDocumentAccessTest, OrderDocumentRouteResolutionTest, UnauthenticatedRouteBoundaryTest, OrderRefundAuthorizationTest, RefundStateMachineTest, RefundStockIdempotencyTest, CustomerAccountSelfServiceTest, Batch2ModelIsolationTest. Unit 291 and Contract 26 pass. The full Feature gate has NOT been run on this tree; CI is the authority.
-
-DELIBERATELY NOT CHANGED: `customerorder` and the `order_refund?refund=true` branch. OrderDocumentAccessGuard::TARGETS already refuses both (OrderDocumentAccessTest). A round-2 critic called customerorder 'an unguarded third consumer of the forgeable ciphertext'; that was read from the controller alone and is REFUTED by execution -- a control that is already present is not a finding. NOTE the guard resolves `{id}` as orders.id for BOTH branches of order-refund/{id}; on the refund-view branch `{id}` is a REFUND id, so it asks 'does order #<refundId> belong to me?'. An attacker picks a refund id equal to an order they own: the handler-level ownership check added here is what refuses that (test: ...even_when_the_ids_coincide). Whether the same mis-targeting FALSELY DENIES an owner whose refund id matches none of their order ids is not yet measured -- queued with the review.
-
-FOUR MISTAKES OF MINE, caught before this shipped: (1) a test helper named post() would have shadowed Laravel's MakesHttpRequests::post() (a fatal); (2) two list tests were RED for the WRONG reason -- my order lines had no `name` and the view threw 'Undefined array key name'; repaired and re-verified RED on the intended assertion; (3) FILTER_VALIDATE_INT REJECTS A LEADING ZERO, and a number input returns exactly what was typed, so a shopper entering '03' would have been refused a valid refund -- found while writing the removal check for it, replaced with is_numeric + a whole-number test, pinned by a positive test; (4) the unknown-refund-id test PASSED against unfixed code because the guard refuses before the handler is reached -- recorded as such, not as a control of this task.
-
-NOT FIXED HERE: P1-ORD-11 (BLOCKED, owner decision) -- a refund REQUEST shrinks the order's totals at request time, the order write and the OrderRefund row are not atomic, the record indexes per-line arrays with the checked-box position, and change_refund_cart is an unrouted landmine. P1-ORD-10 (READY) -- downloadable_prodcut in the same controller.
+**Evidence.** DONE 2026-10-21. TESTS: tests/Feature/Security/StorefrontOrderRefundOwnershipTest.php, 32 tests / 183 assertions (18 / 80 at first delivery), symmetric (every refusal has an owner-succeeds control). THE FIRST DELIVERY (57f091a1) closed ownership, quantity bounds and replay; a five-lens adversarial review then found what it had NOT closed, and three follow-up commits closed it (b658e251, 5c0d0893, f8e53422). E1 - BLOCKING, EXECUTED by the reviewer: the refund RECORD was indexed by the position of the TICKED box while the bound read the LINE position, and the real form posts quantity[] and return_price[] for every line but a checkbox only for ticked ones. So ticking only the second of two lines recorded the FIRST line's quantity and price; a number typed into an UNTICKED line's box (99999) reached the record and, through RefundStock, the stock (10 -> 100009 measured); an omitted return_price crashed with HTTP 500 AFTER $order->save() (540 -> 40, no refund row at all - the originally reported symptom, now reachable by the owner with one omitted field); a ticked product on no line of the order was recorded; and an honest partial refund followed by the merchant rejecting it left the order BIGGER than it started (P7 -> P1-ORD-14). FIX: the record is built from the order's own lines by LINE key; each ticked line carries its own whole-number quantity in [0, remaining]; every ticked id must match a line; at least one unit must leave; the order write and the refund row are ONE transaction that first re-reads product_json FOR UPDATE (raw, store_id + customer_id predicates) and refuses if the lines changed (review F2: two identical concurrent requests both cleared the bound against one snapshot); display strings are type-guarded and capped; scalar/array shapes no longer 500. The vacuous unknown-refund-id test (D-1) was repaired so it reaches the handler. REMOVAL CHECKS, each control alone, ALL BITE except one recorded: store predicate, customer predicate, body-vs-path, is_scalar order_id, quantity upper/lower bound, whole-number, is_numeric, missing-entry, unknown ticked product, removes-nothing, scalar-tick refusal, display type-guard, transaction, freshness lock, record read by tick position (quantity AND price), return-list customer predicate, refund-view ownership, division-by-zero guard, FILTER_VALIDATE_INT regression. Three controls were MASKED by the sum-of-units check in single-line requests (lower bound, is_numeric, missing entry) until a two-ticked-line test isolated them. NOT ISOLATABLE, recorded as such: JSON_THROW_ON_ERROR on the two encodes (the reviewer's invalid-UTF-8 path does not reproduce - mb_substr substitutes '?'). GATES at the delivered tree: Feature at 38c013d2: 3134 passed, 2 declared failures, 17 declared skips, 0 errors, known-outcome assertion exit 0; Unit 335 passed; Contract 26 passed; CI guards no-workdo / no-env / test-isolation / gate-f-containment / scan-secrets exit 0 (guard-composer-lock-integrity exits 1 in this sandbox only because two LOCKED packages, myfatoorah/laravel-package and myfatoorah/library, are not installed here; no composer file changed). NEIGHBOURS GREEN: CustomerAccountBoundaryTest, OrderDocumentAccessTest, OrderDocumentRouteResolutionTest, UnauthenticatedRouteBoundaryTest, OrderRefundAuthorizationTest, RefundStateMachineTest, RefundStockIdempotencyTest, RawQueryTenancyInventoryTest. DELIBERATELY NOT CHANGED: customerorder and the order_refund?refund=true branch (OrderDocumentAccessGuard::TARGETS already refuses both). NOT FIXED HERE, each recorded: P1-ORD-12 - the guard resolves the refund id on order-refund/{id} as an ORDER id, so a real shopper cannot open their own refund request unless the two numbers coincide (EXECUTED by the reviewer: refund id 1, order id 5, same owner -> 403; the handler-level ownership check only ever runs on the coincidence, which is the attacker's move); P1-ORD-14 - CancelRefundStatus/RefundStock read the record by line position; P1-ORD-11 (BLOCKED) - request-time shrink, eligibility enforced only by the Blade (a pending, cancelled or confirmed order accepts a refund; a second POST on a delivered order made a second row), a fixed coupon drives the total NEGATIVE (-410), order_refunds.product_refund_id is VARCHAR(255) so three or more lines overflow it on MySQL, ticking one checkbox applies to EVERY line with that product id at its posted (default full) quantity, the shopper-supplied display strings are still what the merchant's payout screen prefills (the payout itself is merchant-typed and capped by RefundIntegrityService). MISTAKES OF MINE: (1) a test helper named post() would have shadowed Laravel's post(); (2) two list tests were RED for the WRONG reason (order lines had no `name`); (3) FILTER_VALIDATE_INT rejects a leading zero - '03' - found while writing its removal check; (4) the unknown-refund-id test passed against unfixed code because the guard refuses first; (5) my E1 fix re-aligned the OrderRefund assignments and so changed the literal `refund_status     = 'Processing'` that RefundStateMachineTest greps out of this file - found by the FULL Feature gate, not by my targeted runs; (6) my FOR UPDATE re-read was a raw DB::table('orders') with no store_id - three new RawQueryTenancyInventoryTest failures, again from the full gate; the census was updated the way its own history does it (app 122 -> 123, 167 -> 168, 139 -> 140, one new SCOPED orders row) and its unscoped-set test passes unmodified; (7) my first concurrency-test listener matched the GUARD's earlier orders query, which the premise assertion caught; (8) the invalid-UTF-8 test was unreachable over HTTP because ActiveTheme's visitor 500s first - which is how P1-SEC-13 was found.
 
 ### `P1-ORD-08` — The anonymous thank-you and tracking pages disclosed any order to anyone who typed an integer or an order number
 
 | field | value |
 |---|---|
-| Status | **IN_REVIEW** |
+| Status | **DONE** |
 | Risk | high |
 | Workstream | Orders & Checkout |
 | GitHub issue | #80 |
 | Owner decision required | no |
 | Depends on | — |
-| Scope | `app/Http/Controllers/OrderController.php`, `app/Http/Controllers/PaymentController.php`, `app/Http/Controllers/HomeController.php`, `tests/Feature/Security/StorefrontOrderCompletionDisclosureTest.php`, `tests/Feature/Commerce/UnguardedOrderWriterTrustBoundaryTest.php` |
+| Scope | `app/Http/Controllers/OrderController.php`, `app/Http/Controllers/PaymentController.php`, `app/Http/Controllers/HomeController.php`, `tests/Feature/Security/StorefrontOrderCompletionDisclosureTest.php`, `tests/Feature/Commerce/UnguardedOrderWriterTrustBoundaryTest.php`, `routes/customer.php`, `app/Providers/RouteServiceProvider.php`, `tests/Feature/Security/AuthRateLimiterTest.php` |
 | Queue references | S14 |
 | Database / migration | None. |
-| Compatibility impact | Both routes are anonymous BY DESIGN (the post-payment landing page and the guest order lookup), so the proof of ownership had to be something a guest can hold. DISCLOSED CHANGES: (1) a bookmarked or re-opened `order-complete?data[order_id]=N` URL from the WhatsApp/Telegram flow now renders only while the session that placed the order is alive (default 120 minutes); afterwards it redirects to the store's landing page. That is the intended tightening -- it used to work forever, which was the vulnerability. (2) An order with NO recorded billing email can no longer be tracked (there is nothing to verify). (3) A shopper must supply the email as well as the number -- the form already marks both `required`. Web Blade routes: no Flutter or API contract, no 401. |
+| Compatibility impact | Both routes are anonymous BY DESIGN (the post-payment landing page and the guest order lookup), so the proof of ownership had to be something a guest can hold. DISCLOSED CHANGES: (1) a bookmarked or re-opened `order-complete?data[order_id]=N` URL from the WhatsApp/Telegram flow now renders only while the session that placed the order is alive (default 120 minutes); afterwards it redirects to the store's landing page. That is the intended tightening -- it used to work forever, which was the vulnerability. (2) An order with NO recorded billing email can no longer be tracked (there is nothing to verify). (3) A shopper must supply the email as well as the number -- the form already marks both `required`. Web Blade routes: no Flutter or API contract, no 401. FURTHER DISCLOSED CHANGES (review round): an ambiguous order number in one store (a same-second collision) sends BOTH buyers to the landing page until P1-ORD-13 carries the primary key; order-track answers 429 after 10 attempts per minute per IP+address or per IP+store+number, and the shared `auth` limiter no longer 500s on an array-shaped email (the login routes included). |
 
 **Existing implementation status.** FOUND by P1-SEC-03 round 2. MEASURED with no session of any kind: `GET /{storeA}/order-complete?data[order_id]=<N>` returned 200 with the order number and a minted `/order/<ciphertext>` link that returned the FULL order (email, phone, address, line items, total) at the order's own public slug; `POST /{store}/order-track {order_number, email: anything}` returned 200 with name, email and phone -- the posted email was compared to NOTHING (the gate was `order_number || email`), and an email-only POST compiled `where(product_order_id, null)` to IS NULL and returned the first order with no number. N is a SEQUENTIAL PRIMARY KEY; `product_order_id` is a bare timestamp ('0' . date('YmdHis') for a guest), so one store-day is 86,400 guesses.
 
@@ -1979,11 +2270,13 @@ THE ROUND-1 AND ROUND-2 RECOMMENDATIONS WERE BOTH WRONG, and finding out why too
 THE FIX: orderComplete honours a request-supplied id ONLY if it is in the session list `order_complete_ids`, which PaymentController::whatsapp writes when it places the order (capped at 20, so a long-lived session does not grow without bound). A session id is random and held server-side, so unlike a Crypt::encrypt() token it is NOT forgeable with the leaked APP_KEY. The gateway return handlers already flash the product_order_id into the session (`->with('data', $poid)`), so they need no change and gain only a store predicate -- which also fixes a real collision, since two stores can hold the same timestamp-derived number in the same second. The original precedence (flashed data, then request id, then Khalti) is preserved. `responce` is removed. order_track requires the order number AND the email the order was placed with, compared case-insensitively against order_billing_details (the `orders` table has no email column); a wrong email and an unknown number take the same branch, so neither is an oracle.
 
 **Acceptance criteria.**
-- [ ] An anonymous visitor cannot read an order through a primary key typed into order-complete, in any store
-- [ ] The WhatsApp/Telegram buyer's own redirect still renders their order, driven through the REAL POST /whatsapp rather than a hand-seeded session
-- [ ] The gateway session paths (`data`, `khalti_order_id`) are store-scoped
-- [ ] order-track discloses nothing unless the number AND the placed-with email both match; a wrong email is indistinguishable from an unknown number
-- [ ] The remaining forgeable /order/<ciphertext> link is recorded as an owner-gated task, not silently left (P1-ORD-09)
+- [x] An anonymous visitor cannot read an order through a primary key typed into order-complete, in any store
+- [x] The WhatsApp/Telegram buyer's own redirect still renders their order, driven through the REAL POST /whatsapp rather than a hand-seeded session
+- [x] The gateway session paths (`data`, `khalti_order_id`) are store-scoped
+- [x] order-track discloses nothing unless the number AND the placed-with email both match; a wrong email is indistinguishable from an unknown number
+- [x] The remaining forgeable /order/<ciphertext> link is recorded as an owner-gated task, not silently left (P1-ORD-09)
+- [x] An order number shared by two orders in one store renders neither on the thank-you page, and order-track picks the order whose recorded email matches among those sharing the number
+- [x] order-track is rate limited on both axes: one address swept across numbers, and one number tried against many addresses
 
 **Required tests.**
 - Negative: another tenant's primary key; the victim's OWN slug (the half a store predicate cannot close); responce[data][order_id] for both an own and a foreign order
@@ -1992,13 +2285,105 @@ THE FIX: orderComplete honours a request-supplied id ONLY if it is in the sessio
 - Positive: tracking with the right number and a differently-cased, padded email; a recorded email with stray whitespace
 - Negative: wrong email, number only, email only (the IS NULL case), blank email on an order with none recorded, cross-tenant with the victim's real email, and wrong-email vs unknown-number indistinguishable
 - END TO END: the real POST /whatsapp records the binding and the buyer's redirect then renders, while a session-less stranger does not
+- Ambiguous number (flash and Khalti) in one store renders neither; the same number in TWO stores resolves to the store the request names; odd shapes of data[order_id] are not coerced into a match
+- Tracking among orders sharing a number; a posted email in capitals against a lowercase record; array-shaped fields are a blank lookup; 11th attempt per address and per number is 429, and a different number is not caught up in it
 - Removal check on each control
 
-**Evidence.** IN REVIEW -- not DONE. TESTS: tests/Feature/Security/StorefrontOrderCompletionDisclosureTest.php, 21 tests / 86 assertions, plus the end-to-end producer test in UnguardedOrderWriterTrustBoundaryTest. RED first against unfixed code: 12 of 18 failed, every one on the intended 'Not to contain: <order marker>' assertion (three more tests were added after). EIGHTEEN scripted removal checks. ALL BITE except four, RECORDED AS SUBSUMED rather than claimed: the strict in_array flag (the sanitiser yields ints only, so loosening it changes nothing); the `&&` gate and the recorded-email-empty check (each covers the other -- removing BOTH is the pair that bites); and the posted-email trim (the global TrimStrings middleware already does it, so the call is belt and braces and says so in a comment). Neighbours green: UnauthenticatedRouteBoundaryTest (which asserts order-complete reachable without a session) and the whole UnguardedOrderWriterTrustBoundaryTest. The full Feature gate has NOT been run on this tree; CI is the authority.
+**Evidence.** DONE 2026-10-21. TESTS: tests/Feature/Security/StorefrontOrderCompletionDisclosureTest.php 31 tests / 155 assertions (21 / 86 at first delivery), the end-to-end producer test in UnguardedOrderWriterTrustBoundaryTest, and AuthRateLimiterTest 9 / 26. RED first against unfixed code: 12 of 18 failed on the intended 'Not to contain: <order marker>' assertion. THE FIRST DELIVERY (e67a5c9c) closed the primary-key enumerator and the number-only tracker; the review (lens B, anonymous disclosure; lens E, completeness) found what remained, closed by b658e251 and 5c0d0893: F1 - product_order_id is NOT unique (a guest order is '0'.date('YmdHis'), the column has no index), so two orders in one store in one second share it and `first()` showed the LOWEST id's order and a minted link (EXECUTED by lens E) - an ambiguous number now renders neither order (soleStoreOrderByNumber), and order-track compares the posted email across every order sharing the number instead of only the first; F3 - order.track had no throttle and its secret is the email - it now carries throttle:auth (one address swept across numbers) AND a new order-track limiter keyed on IP + slug + number (one number tried against many addresses, the axis the reviewer found unbounded); the shared `auth` limiter cast `email[]` to string and 500ed BEFORE the handler on every route that carries it (login included) - fixed with is_scalar and mb_strtolower. D-3: the producer test now builds the redirect from the handler's own JSON (a renamed payload key used to leave it green); D-5: posted-email case folding is isolated. REMOVAL CHECKS, each control alone: store predicates, session binding, request-id branch, responce branch, boolean sanitiser, precedence, producer write, email comparison, case folding (both sides), recorded trim, scan-all-candidates, ambiguity, both throttles, limiter is_scalar and mb_strtolower. SUBSUMED, recorded not claimed: the strict in_array flag (the sanitiser yields ints only), the `&&` gate and the recorded-email-empty check (each covers the other; removing BOTH bites), the posted-email trim (the global TrimStrings middleware already does it). GATES: Feature at 38c013d2: 3134 passed, 2 declared failures, 17 declared skips, 0 errors, known-outcome assertion exit 0; Unit 335 passed; Contract 26 passed; CI guards no-workdo / no-env / test-isolation / gate-f-containment / scan-secrets exit 0 (guard-composer-lock-integrity exits 1 in this sandbox only because two LOCKED packages, myfatoorah/laravel-package and myfatoorah/library, are not installed here; no composer file changed). DISCLOSED CHANGES (also in the compatibility field): an order with no recorded billing email cannot be tracked; a same-second collision shows both buyers the landing page instead of an order; the order-complete binding is lost if a concurrent request in the same session overwrites the session payload (lens B F4: whatsapp.blade/telegram.blade fire getWhatsappUrl and whatsapp() together; the order is still placed). RECORDED, NOT FIXED HERE: P1-ORD-13 (carry the primary key through the gateway returns; the Paymera callback GET /store/paymera/callback/{orderId} is anonymous and replays a stored number to whoever presents the reference, and its pending record can name the OTHER buyer's order under concurrency); P1-ORD-09 (BLOCKED) - the forgeable /order/<Crypt::encrypt(id)> link. MISTAKES OF MINE: (1) the end-to-end test's 'stranger' got 200 - the HARNESS (one session Store reused; Store::loadSession is array_replace and never clears) - flushSession() fixes it and the trap is in the docblock; (2) I put Khalti ahead of the request id, reversing the original precedence - restored and pinned; (3) the recorded email's trim() had no test; (4) a sanitiser that lets booleans through coerces [true] to order id 1; (5) throttle:auth was added first and the reviewer showed it limited the WRONG axis; (6) adding it exposed the limiter's own 500 on an array email.
 
-WHAT THIS DOES NOT CLOSE: the `/{slug}/order/<Crypt::encrypt(id)>` details link, forgeable by anyone holding the leaked APP_KEY and present in every order-confirmation email, so it must keep working from another device and cannot be session-bound. That is P1-ORD-09 (BLOCKED, owner decision, depends on #43). This task closes every way to MINT a valid link for an order you did not place.
+### `P1-ORD-12` — OrderDocumentAccessGuard resolves the refund id on order-refund/{id} as an order id: a shopper cannot open their own refund request unless the two numbers coincide
 
-FOUR MISTAKES OF MINE, caught before this shipped: (1) the end-to-end test's 'stranger' request got 200 -- the HARNESS, not the fix: the test client reuses ONE in-memory session Store across every request in a test and Store::loadSession() does array_replace(), never clearing, so the buyer's session rode along; flushSession() fixes it and the trap is recorded in the test docblock because it is why every other test in the area makes one request; (2) I put Khalti ahead of the request id, but the original ranked the request id first, so a buyer with a stale khalti_order_id who then checked out via WhatsApp would have been shown last week's order -- restored and pinned; (3) the recorded email's trim() had no test, and a billing email saved with stray whitespace would lock a real buyer out -- added; (4) a sanitiser that lets booleans through coerces [true] to order id 1 -- the malformed-binding test now includes it.
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | medium |
+| Workstream | Orders & Checkout |
+| GitHub issue | #81 |
+| Owner decision required | no |
+| Depends on | `P1-ORD-07` |
+| Scope | `app/Http/Middleware/OrderDocumentAccessGuard.php`, `tests/Feature/Security/OrderDocumentAccessTest.php`, `tests/Feature/Security/StorefrontOrderRefundOwnershipTest.php` |
+| Queue references | S14 |
+| Database / migration | None. |
+| Compatibility impact | Web Blade route called by the storefront refund list. The guard change only ADMITS a shopper who owns the order behind the refund; every other outcome stays a 403/404. No Flutter/API contract; no 401. |
+
+**Existing implementation status.** MEASURED by the P1-ORD-07/08 adversarial review (lens E, E4, executed): `OrderDocumentAccessGuard::TARGETS['{storeSlug?}/order-refund/{id}']` resolves `{id}` as `orders.id` for BOTH branches of that route, but on the refund-VIEW branch (`refund` query not set) `{id}` is a REFUND id. So the guard asks 'does order #<refundId> belong to me?'. Fixture: order id 5, refund id 1, same owner -> `GET /{slug}/order-return-list` lists the refund (200), and the 'eye' button URL `GET /{slug}/order-refund/1` returns 403 from the guard. For a real shopper the refund-view branch is therefore dead unless the refund id happens to equal one of their order ids - a feature that has been dead since the guard shipped, not a leak. It also means the ownership check P1-ORD-07 added at handler level only ever runs on that coincidence (which is exactly the attacker's move, so it is the right control - but it cannot help the honest owner). The P1-ORD-07 positive control `test_an_owner_can_open_their_own_refund_request` asserts the coincidence as a PREMISE, so it cannot see this. The honest fix is in the guard (resolve `{id}` through `order_refunds`, store-scoped, when `refund` is not truthy), not in the controller.
+
+**Acceptance criteria.**
+- [ ] A shopper whose refund id matches none of their order ids opens their own refund request (200)
+- [ ] A sibling shopper, a shopper of another store, and a refund id that does not exist are all refused with the same status as before
+- [ ] An attacker who picks a refund id equal to an order they own is still refused (the handler's ownership check stays)
+- [ ] The `refund=true` branch (where `{id}` IS an order id) is unchanged
+
+**Required tests.**
+- Positive: order id 5, refund id 1, same owner - the eye-button URL renders (the P1-ORD-07 test only covered coincident ids)
+- Negative: sibling shopper, other-store shopper, unknown refund id, coincident-id attacker
+- Removal check on the new refund-id resolution, and OrderDocumentAccessTest / OrderDocumentRouteResolutionTest stay green
+
+**Evidence.** None yet - READY. Reproduction is recorded under P1-ORD-07 (review E4).
+
+### `P1-ORD-13` — The thank-you page identifies an order by a non-unique timestamp number: carry the primary key through the gateway returns and close the Paymera replay
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | medium |
+| Workstream | Orders & Checkout |
+| GitHub issue | #82 |
+| Owner decision required | no |
+| Depends on | `P1-ORD-08` |
+| Scope | `app/Http/Controllers/OrderController.php`, `app/Http/Controllers/PaymentController.php`, `app/Services/PaymentService.php`, `app/Http/Controllers/` |
+| Queue references | S14 |
+| Database / migration | None. |
+| Compatibility impact | Touches the success-redirect of every gateway return handler, so each must be re-verified end to end; a handler that stops flashing the number would send its buyers to the landing page. No Flutter/API contract. P1-ORD-08 already fails CLOSED on an ambiguous number, so this task removes the false denial rather than a leak. |
+
+**Existing implementation status.** RECORDED by the P1-ORD-07/08 adversarial review (lenses B F1/F2 and E E3/E8). `orders.product_order_id` is a plain nullable string with no index (2024_01_23_061635_create_orders_table.php:16) and a guest order is `'0' . date('YmdHis')`, so two orders placed in one store in one second share it. Every gateway return handler flashes the NUMBER (`->with('data', $poid)`: PaymentService:3089, PaymentController:536/628/2847, AuthorizeNet:1184, PayU:897, NMI:1215, Easebuzz:1032, PaiementPro:996, CinetPay:1044), and `orderComplete` used to take `first()` - the lowest id - so a visitor who placed an order a second after a victim's was shown the VICTIM'S order and a minted link (EXECUTED by lens E, P8). P1-ORD-08 now refuses an ambiguous number for both buyers: safe, but a false denial in a collision. The WhatsApp/Telegram path already carries the primary key through `order_complete_ids`; the gateway paths should do the same.
+
+SEPARATELY (lens B F2, READ): the Paymera callback `GET /store/paymera/callback/{orderId}` is anonymous and, for an already-processed pending record, redirects to `order.complete` flashing `$pending['product_order_id']` (PaymentController.php:533-537, 626-629) to WHOEVER presents the reference (`uniqid('paymera_')`, PaymentService.php:405 - about a million candidates per known second, and the URL sits in the victim's history, logs and Referer). The stored number comes from `Order::where(store)->where(payment_type paymera)->latest('id')->first()` (PaymentController.php:669-681, 956-963), so two concurrent Paymera payments in one store can record the OTHER buyer's number.
+
+**Acceptance criteria.**
+- [ ] Each gateway return flashes or session-binds the order's PRIMARY KEY, and orderComplete resolves by id within the store
+- [ ] Two same-second guest orders in one store each get their own thank-you page and neither sees the other's
+- [ ] The Paymera replay branch cannot hand a stranger a buyer's order, and its pending record names the order it created rather than 'the latest Paymera order in the store'
+- [ ] Every gateway return handler is driven end to end (the vendored-style handlers are in the host app, so they are in scope)
+
+**Required tests.**
+- Negative: same-second collision in one store - each buyer sees only their own order
+- Negative: the Paymera callback replayed by a visitor who is not the buyer
+- Positive: one end-to-end return per gateway handler touched
+- Removal check on each control
+
+**Evidence.** None yet - READY. Reproductions and the interim fail-closed behaviour are recorded under P1-ORD-08.
+
+### `P1-ORD-14` — Cancelling or restocking a refund reads the refund record by order-line position, so a partial refund restores the wrong line
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | high |
+| Workstream | Orders & Checkout |
+| GitHub issue | #83 |
+| Owner decision required | no |
+| Depends on | `P1-ORD-07` |
+| Scope | `app/Http/Controllers/OrderRefundController.php`, `tests/Feature/Security/OrderRefundAuthorizationTest.php`, `tests/Feature/Commerce/RefundStateMachineTest.php` |
+| Queue references | S14 |
+| Database / migration | None. |
+| Compatibility impact | Merchant-side admin routes; the response shapes stay. Records written BEFORE P1-ORD-07 are positionally ambiguous (their quantity came from the wrong slot) and cannot be repaired retroactively - say so in the release note. P1-ORD-11 stays BLOCKED on the owner's workflow decision; this task is the symmetric half of P1-ORD-07's record and does not change when totals move. |
+
+**Existing implementation status.** MEASURED by the P1-ORD-07/08 adversarial review (lens E, E1(d), executed as P7). `OrderRefundController::CancelRefundStatus` (~:414) restores with `$productRefunds[$key]['quantity']` where `$key` is the position of the line in `product_json`, but the record is a list of the TICKED lines. Order A (qty 3, 300) + B (qty 2, 200) = 540; the shopper returns 1 of B; the merchant REJECTS the request: before 540, after refund 440, AFTER REJECT 740 with A doubled to qty 6 and B not restored. An honest user and an honest merchant end with an order larger than it started. `RefundStock` (~:571) restocks `(int) $product_refund['quantity']` from the same record with only a numeric/positive check. P1-ORD-07 now writes a record whose quantities equal what was removed, so both consumers can match by PRODUCT ID instead of position and bound what they read against the order line.
+
+**Acceptance criteria.**
+- [ ] CancelRefundStatus restores each recorded entry onto the line with the same product id, never by position
+- [ ] A partial refund of the second line, then a reject, returns the order to exactly its original quantities and total
+- [ ] A recorded quantity larger than the amount the order line has ever lost is not added back (read-side bound, defence in depth)
+- [ ] RefundStock bounds its restock the same way
+- [ ] Records written before P1-ORD-07 are handled without a crash (they may be wrong; they must not be able to inflate)
+
+**Required tests.**
+- Positive: two-line order, refund line B only, reject -> original quantities and total
+- Negative: a hand-written record with an inflated quantity does not inflate the order or the stock
+- Removal check on the by-product-id match and on each read-side bound
+
+**Evidence.** None yet - READY. The reproduction (P6 stock inflation before P1-ORD-07, P7 doubled line) is in the P1-ORD-07 review record.
 
 ---
 
@@ -2185,7 +2570,7 @@ FOUR MISTAKES OF MINE, caught before this shipped: (1) the end-to-end test's 'st
 | Database / migration | None. |
 | Compatibility impact | No user-visible change. |
 
-**Existing implementation status.** PARTIAL. Refusals and unverified 'Paid' writes are logged; nothing asserts an operator can see them, and larabug's 5-name blacklist is unreviewed.
+**Existing implementation status.** PARTIAL. Refusals and unverified 'Paid' writes are logged; nothing asserts an operator can see them, and larabug's 5-name blacklist is unreviewed. UPDATE 2026-10-21 (P1-SEC-13 sibling-sink review): the reporter posts to https://www.larabug.com/api/log whether or not LB_KEY is set, and its payload includes the decrypted cookies, Session::all(), Request::all() and auth()->user()->toArray(); the blacklist misses cookie, *session*, *secret* and every card-number field name. That part is now P1-SEC-14 (READY, high); this task keeps the channel/retention expectation.
 
 **Acceptance criteria.**
 - [ ] The security-relevant log lines added across Phase 01 are enumerated in one place
