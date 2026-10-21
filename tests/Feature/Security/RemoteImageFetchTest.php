@@ -163,6 +163,160 @@ class RemoteImageFetchTest extends SecurityTestCase
             'The connection is not pinned to the address that was judged.');
     }
 
+    /**
+     * REVIEW FINDING (read-only review of 7524e844, reproduced by execution). The first version sent the GET with `'stream' => true`; Guzzle
+     * routes a streamed request to its StreamHandler, which ignores the `curl` array -- so the pin held for HEAD and was absent for the GET
+     * that stores the bytes. tests/Support/Security/bin/verify-remote-fetch-pin-with-curl.php measures the behaviour against a live socket;
+     * this pins the OPTIONS that make it hold.
+     */
+    public function test_the_get_is_not_streamed_and_carries_the_pin_and_the_size_cap_to_curl(): void
+    {
+        SafeRemoteFetch::limitBytesTo(5000);
+        $seen = [];
+        Http::fake(function (Request $request, array $options) use (&$seen) {
+            $seen[$request->method()] = $options;
+
+            return Http::response('bytes', 200);
+        });
+
+        SafeRemoteFetch::contents('https://img.example.test/p.jpg');
+        SafeRemoteFetch::head('https://img.example.test/p.jpg');
+
+        foreach (['GET', 'HEAD'] as $method) {
+            $this->assertArrayNotHasKey('stream', $seen[$method], "{$method}: a streamed request is served by a handler that ignores the curl options.");
+            $this->assertSame(['img.example.test:443:' . self::PUBLIC_IP], $seen[$method]['curl'][CURLOPT_RESOLVE], "{$method} is not pinned");
+        }
+
+        $this->assertSame(5000, $seen['GET']['curl'][CURLOPT_MAXFILESIZE], 'the cap is enforced by cURL while the body arrives');
+        $this->assertArrayNotHasKey(CURLOPT_MAXFILESIZE, $seen['HEAD']['curl'], 'HEAD stays free to report a large Content-Length, which the importers read');
+    }
+
+    /**
+     * cURL matches the name it was GIVEN against the CURLOPT_RESOLVE entry. check() normalises (`cdn.example.com.` is judged as
+     * `cdn.example.com`), so a URL that kept the dot would not match the pin and would be resolved again.
+     */
+    public function test_a_trailing_dot_or_capitals_in_the_host_do_not_escape_the_pin(): void
+    {
+        foreach (['https://img.example.test./p.jpg', 'https://IMG.Example.TEST/p.jpg', 'https://img.example.test../p.jpg'] as $url) {
+            $seen = [];
+            Http::fake(function (Request $request, array $options) use (&$seen) {
+                $seen[] = [$request->url(), $options];
+
+                return Http::response('bytes', 200);
+            });
+
+            SafeRemoteFetch::contents($url);
+
+            $this->assertSame('https://img.example.test/p.jpg', $seen[0][0], "{$url}: the request must name the host the pin names");
+            $this->assertSame(['img.example.test:443:' . self::PUBLIC_IP], $seen[0][1]['curl'][CURLOPT_RESOLVE]);
+        }
+    }
+
+    public function test_the_path_query_and_port_survive_the_rebuilt_url(): void
+    {
+        $seen = [];
+        Http::fake(function (Request $request) use (&$seen) {
+            $seen[] = $request->url();
+
+            return Http::response('bytes', 200);
+        });
+
+        SafeRemoteFetch::contents('http://img.example.test:8080/a%20b/p.jpg?x=1&y=%C3%A9#frag');
+        SafeRemoteFetch::contents('http://img.example.test');
+
+        $this->assertSame('http://img.example.test:8080/a%20b/p.jpg?x=1&y=%C3%A9', $seen[0]);
+        $this->assertSame('http://img.example.test/', $seen[1]);
+    }
+
+    /** @return array<string, array{0: \Throwable, 1: string, 2: string}> */
+    public static function transportFailures(): array
+    {
+        $request = new \GuzzleHttp\Psr7\Request('GET', 'https://img.example.test/x.jpg');
+
+        return [
+            'size abort' => [new \GuzzleHttp\Exception\RequestException('cURL error 63: Exceeded the maximum allowed file size (20971520) with 20971520 bytes', $request), 'larger than', 'cURL error'],
+            'unresolvable' => [new \GuzzleHttp\Exception\ConnectException('cURL error 6: Could not resolve host', $request), 'could not be fetched', 'Could not resolve'],
+            'timeout' => [new \GuzzleHttp\Exception\RequestException('cURL error 28: timed out', $request), 'could not be fetched', 'timed out'],
+        ];
+    }
+
+    /**
+     * A body cURL aborted for its size is reported as too large; any other transport error as unfetchable, without the transport detail.
+     *
+     * @dataProvider transportFailures
+     */
+    public function test_a_transport_failure_surfaces_as_a_runtime_exception_with_a_merchant_safe_message(\Throwable $failure, string $says, string $hides): void
+    {
+        Http::fake(function () use ($failure) {
+            throw $failure;
+        });
+
+        try {
+            SafeRemoteFetch::contents('https://img.example.test/x.jpg');
+            $this->fail('no exception');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString($says, $e->getMessage());
+            $this->assertStringNotContainsString($hides, $e->getMessage());
+        }
+    }
+
+    /** gethostbynamel() answers false for a name with no A record; `(array) false` made that `[false]`, which counted as a denied address. */
+    public function test_a_failed_lookup_yields_no_addresses_and_an_aaaa_only_host_keeps_its_address(): void
+    {
+        $this->assertSame([], SafeRemoteFetch::addressesFrom(false, false));
+        $this->assertSame([], SafeRemoteFetch::addressesFrom(false, []));
+        $this->assertSame([self::PUBLIC_IP], SafeRemoteFetch::addressesFrom([self::PUBLIC_IP], false));
+        $this->assertSame(['2606:4700:4700::1111'], SafeRemoteFetch::addressesFrom(false, [['host' => 'x', 'ipv6' => '2606:4700:4700::1111'], ['host' => 'x']]));
+        $this->assertSame([self::PUBLIC_IP, '2606:4700:4700::1111'], SafeRemoteFetch::addressesFrom([self::PUBLIC_IP], [['ipv6' => '2606:4700:4700::1111']]));
+    }
+
+    public function test_a_host_that_does_not_resolve_is_refused_as_not_resolving(): void
+    {
+        SafeRemoteFetch::resolveUsing(fn () => []);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('does not resolve');
+
+        SafeRemoteFetch::check('https://nowhere.example.test/p.jpg');
+    }
+
+    public function test_a_nul_byte_in_an_own_origin_path_is_a_clean_refusal_not_a_value_error(): void
+    {
+        config(['app.url' => 'https://shop.example.test']);
+        Http::fake();
+
+        foreach (['https://shop.example.test/%00', 'https://shop.example.test/a%00.png', 'https://shop.example.test/storage/%00../.env'] as $url) {
+            try {
+                SafeRemoteFetch::contents($url);
+                $this->fail("{$url} was read");
+            } catch (RuntimeException $e) {
+                $this->assertStringContainsString('not available on this server', $e->getMessage());
+            }
+        }
+
+        Http::assertNothingSent();
+    }
+
+    /** A server that rejects HEAD (405) but serves GET: the size probe is advisory and its answer is whatever the server said. */
+    public function test_head_returns_a_non_success_answer_instead_of_raising(): void
+    {
+        Http::fake(['*' => Http::response('', 405)]);
+
+        $response = SafeRemoteFetch::head('https://img.example.test/p.jpg');
+
+        $this->assertSame(405, $response->status());
+        $this->assertSame('', $response->header('Content-Length'));
+    }
+
+    public function test_head_still_judges_a_redirect_target(): void
+    {
+        Http::fake(['img.example.test/*' => Http::response('', 302, ['Location' => 'http://169.254.169.254/latest/meta-data/'])]);
+
+        $this->expectException(RuntimeException::class);
+
+        SafeRemoteFetch::head('https://img.example.test/p.jpg');
+    }
+
     public function test_an_ipv6_address_is_pinned_in_brackets(): void
     {
         $seen = [];
@@ -423,12 +577,134 @@ class RemoteImageFetchTest extends SecurityTestCase
     public function test_the_upload_sink_still_stores_a_public_image(): void
     {
         $this->storageStore();
-        Http::fake(['*' => Http::response('IMAGEBYTES', 200)]);
+        Http::fake(['*' => Http::response(self::image('jpeg'), 200)]);
 
         $result = Utility::upload_woo_file('https://img.example.test/p.jpg', 'img.jpg', 'uploads/1');
 
         $this->assertSame(1, $result['flag'], $result['msg'] ?? '');
-        $this->assertSame('IMAGEBYTES', Storage::disk('theme')->get('uploads/1/img.jpg'));
+        $this->assertSame(self::image('jpeg'), Storage::disk('theme')->get('uploads/1/img.jpg'));
+        $this->assertSame('uploads/1/img.jpg', $result['url']);
+    }
+
+    /** A real, minimal image of the given kind (GD), so the content check has something genuine to accept. */
+    private static function image(string $kind): string
+    {
+        $im = imagecreatetruecolor(2, 2);
+        ob_start();
+        match ($kind) {
+            'jpeg' => imagejpeg($im),
+            'png' => imagepng($im),
+            'gif' => imagegif($im),
+            'webp' => imagewebp($im),
+            'bmp' => imagebmp($im),
+        };
+
+        return (string) ob_get_clean();
+    }
+
+    // -- what is WRITTEN: the bytes must be an image and the name must say so ---------------------------------
+    //
+    // REVIEW FINDING (second read-only review of 7524e844). The sink kept the file name the REMOTE URL chose, extension included, and wrote
+    // the bytes under it in the application root -- which is the web root (index.php, .htaccess and theme disk root are all base_path('')),
+    // and Apache serves an existing file before the front controller. So a WooCommerce "store" the merchant runs could return
+    // `images[0].src = https://attacker.example/x.php`, the guard let the fetch through (a public host), and the bytes landed in
+    // uploads/<store>/NN_<time>_x.php -- a file the web server executes. The guard secured WHERE the fetch goes, not WHAT is stored.
+
+    /** @return array<string, array{0: string, 1: string}> a name the remote chose, and the bytes it served */
+    public static function hostileUploads(): array
+    {
+        return [
+            'php source under .php' => ['x.php', "<?php system(\$_GET['c']);"],
+            'php source under .phtml' => ['x.phtml', '<?php echo 1;'],
+            'php source under .jpg' => ['x.jpg', '<?php echo 1;'],
+            'html' => ['x.html', '<script>alert(1)</script>'],
+            'svg with script' => ['x.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'],
+            'empty body' => ['x.png', ''],
+            // recognised by getimagesize() and still refused: only the raster kinds a product page shows are accepted
+            'photoshop document' => ['x.png', "8BPS\x00\x01" . str_repeat("\0", 6) . pack('n', 3) . pack('N', 2) . pack('N', 2) . pack('n', 8) . pack('n', 3)],
+            'text under an image name' => ['x.png', 'IMAGEBYTES'],
+            'htaccess' => ['.htaccess', "AddHandler application/x-httpd-php .png"],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('hostileUploads')]
+    public function test_the_upload_sink_stores_only_images(string $name, string $bytes): void
+    {
+        $this->storageStore();
+        Http::fake(['*' => Http::response($bytes, 200)]);
+
+        $result = Utility::upload_woo_file('https://img.example.test/' . $name, '55_1700000000_' . $name, 'uploads/1');
+
+        $this->assertSame(0, $result['flag'], 'Bytes that are not an image were stored: ' . json_encode($result));
+        $this->assertSame([], Storage::disk('theme')->allFiles(), 'A file was written for ' . $name);
+        // every importer reads these next; an absent key is a 500 in the middle of an import
+        $this->assertSame(['url' => '', 'image_path' => '', 'full_url' => ''], array_intersect_key($result, array_flip(['url', 'image_path', 'full_url'])));
+    }
+
+    /** @return array<string, array{0: string, 1: string, 2: string}> the name the remote chose, the kind of image served, the extension that must result */
+    public static function imageUnderAHostileName(): array
+    {
+        return [
+            'png as .php' => ['55_1_x.php', 'png', 'png'],
+            'png as .phtml' => ['55_1_x.phtml', 'png', 'png'],
+            'jpeg as .php.jpg' => ['55_1_x.php.jpg', 'jpeg', 'jpg'],
+            'png as .php.png' => ['55_1_x.php.png', 'png', 'png'],
+            'gif as .php5' => ['55_1_x.php5', 'gif', 'gif'],
+            'jpeg with a query string kept in the name' => ['55_1_x.php?v=1.jpg', 'jpeg', 'jpg'],
+            'png as .jpg (mislabelled)' => ['55_1_photo.jpg', 'png', 'png'],
+            'jpeg as .jpeg (equivalent spelling kept)' => ['55_1_photo.jpeg', 'jpeg', 'jpeg'],
+            'png with a directory in the name' => ['55_1_../../x.php', 'png', 'png'],
+            'png with no extension' => ['55_1_photo', 'png', 'png'],
+            'png named only by an extension' => ['.php', 'png', 'png'],
+            'png with a name of nothing but symbols' => ['???', 'png', 'png'],
+            'png with a name of backslashes' => ['..\\..\\x.php', 'png', 'png'],
+            'webp' => ['55_1_photo.webp', 'webp', 'webp'],
+            'bmp' => ['55_1_photo.bmp', 'bmp', 'bmp'],
+            'gif' => ['55_1_photo.gif', 'gif', 'gif'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('imageUnderAHostileName')]
+    public function test_an_image_is_stored_under_a_name_that_cannot_be_executed(string $chosen, string $kind, string $extension): void
+    {
+        $this->storageStore();
+        Http::fake(['*' => Http::response(self::image($kind), 200)]);
+
+        $result = Utility::upload_woo_file('https://img.example.test/p', $chosen, 'uploads/1');
+
+        $this->assertSame(1, $result['flag'], $result['msg'] ?? '');
+        $files = Storage::disk('theme')->allFiles();
+        $this->assertCount(1, $files);
+        $file = basename($files[0]);
+
+        $this->assertMatchesRegularExpression('/^[A-Za-z0-9_-]+\.' . $extension . '$/', $file, "'{$chosen}' was stored as '{$file}'.");
+        $this->assertSame('uploads/1', dirname($files[0]), 'the file stays in the folder it was given');
+        $this->assertSame('uploads/1/' . $file, $result['url'], 'the returned path is the stored one');
+        $this->assertSame(self::image($kind), Storage::disk('theme')->get($files[0]));
+        $this->assertSame(1, substr_count($file, '.'), 'a stored name has exactly one dot, so no handler mapping can see an inner extension');
+    }
+
+    /** The service answers "not an accepted image" with null for a kind PHP recognises but we do not accept -- it does not raise. */
+    public function test_a_recognised_but_unaccepted_image_kind_is_answered_with_null(): void
+    {
+        $psd = "8BPS\x00\x01" . str_repeat("\0", 6) . pack('n', 3) . pack('N', 2) . pack('N', 2) . pack('n', 8) . pack('n', 3);
+
+        $this->assertSame(IMAGETYPE_PSD, getimagesizefromstring($psd)[2], 'premise: PHP recognises it');
+        $this->assertNull(\App\Services\ImportedImage::storedName($psd, 'x.png'));
+    }
+
+    /** A valid GIF header followed by PHP source is still a GIF to the content check; what protects it is that it is stored as .gif. */
+    public function test_a_polyglot_is_stored_only_under_its_image_extension(): void
+    {
+        $this->storageStore();
+        $polyglot = self::image('gif') . "\n<?php system('id'); ?>";
+        Http::fake(['*' => Http::response($polyglot, 200)]);
+
+        $result = Utility::upload_woo_file('https://img.example.test/x.php', '55_1_x.php', 'uploads/1');
+
+        $this->assertSame(1, $result['flag'], $result['msg'] ?? '');
+        $this->assertStringEndsWith('.gif', $result['url']);
+        $this->assertSame([], array_filter(Storage::disk('theme')->allFiles(), fn ($f) => ! str_ends_with($f, '.gif')));
     }
 
     public function test_the_upload_sink_still_stores_the_bundled_default_image_from_this_servers_own_public_directory(): void
@@ -438,13 +714,13 @@ class RemoteImageFetchTest extends SecurityTestCase
         Http::fake();
         $dir = public_path('p1sec06-fixture');
         @mkdir($dir);
-        file_put_contents($dir . '/woocommerce.png', 'DEFAULTPNG');
+        file_put_contents($dir . '/woocommerce.png', self::image('png'));
 
         try {
             $result = Utility::upload_woo_file('https://shop.example.test/p1sec06-fixture/woocommerce.png', 'img.png', 'uploads/1');
 
             $this->assertSame(1, $result['flag'], $result['msg'] ?? '');
-            $this->assertSame('DEFAULTPNG', Storage::disk('theme')->get('uploads/1/img.png'));
+            $this->assertSame(self::image('png'), Storage::disk('theme')->get('uploads/1/img.png'));
             Http::assertNothingSent();
         } finally {
             @unlink($dir . '/woocommerce.png');
@@ -507,15 +783,32 @@ class RemoteImageFetchTest extends SecurityTestCase
     {
         [$merchant, $store] = $this->productImportFixture();
         WooProduct::shouldReceive('find')->andReturn($this->wooProductPayload('https://img.example.test/p.jpg'));
-        Http::fake(['*' => Http::response('IMAGEBYTES', 200, ['Content-Length' => '10'])]);
+        Http::fake(['*' => Http::response(self::image('jpeg'), 200, ['Content-Length' => (string) strlen(self::image('jpeg'))])]);
 
         $this->actingAs($merchant->fresh())->get('/woocom_product/77');
 
         $files = Storage::disk('theme')->allFiles();
         $this->assertCount(1, $files, 'Premise: a public image must still be fetched and stored.');
-        $this->assertSame('IMAGEBYTES', Storage::disk('theme')->get($files[0]));
+        $this->assertSame(self::image('jpeg'), Storage::disk('theme')->get($files[0]));
         $this->assertStringStartsWith('uploads/' . $store->id . '/', $files[0]);
         Http::assertSent(fn (Request $request) => $request->url() === 'https://img.example.test/p.jpg' && $request->method() === 'GET');
+    }
+
+    /** The chain end to end: a "store" that names a .php image and serves PHP leaves nothing executable behind. */
+    public function test_the_product_import_route_does_not_store_php_served_as_an_image(): void
+    {
+        [$merchant, $store] = $this->productImportFixture();
+        WooProduct::shouldReceive('find')->andReturn($this->wooProductPayload('https://img.example.test/shell.php'));
+        // Content-Length present, as a real server sends it: without one the handler's quota check refuses before the sink, and the
+        // test would pass for a reason that is not the control.
+        Http::fake(['*' => Http::response('<?php system($_GET["c"]);', 200, ['Content-Length' => '26'])]);
+        $before = DB::table('products')->count();
+
+        $this->actingAs($merchant->fresh())->get('/woocom_product/77');
+
+        Http::assertSent(fn (Request $request) => $request->url() === 'https://img.example.test/shell.php' && $request->method() === 'GET'); // premise: the sink was reached
+        $this->assertSame([], Storage::disk('theme')->allFiles(), 'PHP source was written under uploads/.');
+        $this->assertSame($before, DB::table('products')->count());
     }
 
     // ---------------------------------------------------------------------------------------------

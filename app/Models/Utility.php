@@ -2089,17 +2089,13 @@ class Utility extends Model
     {
         if (!empty($url) && !empty($parameter)) {
             try {
-                $curlHandle = curl_init($url);
-                curl_setopt($curlHandle, CURLOPT_POSTFIELDS, $parameter);
-                curl_setopt($curlHandle, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($curlHandle, CURLOPT_CUSTOMREQUEST, $method);
-                $curlResponse = curl_exec($curlHandle);
-                curl_close($curlHandle);
-                if (empty($curlResponse)) {
-                    return true;
-                } else {
-                    return false;
+                // P1-SEC-33: the URL and method come from the merchant's `webhooks` row. SafeWebhook judges the address like the image
+                // importers' fetch (http/https only, no private/loopback/metadata address), pins it, allows GET/POST only and bounds the time.
+                $curlResponse = \App\Services\SafeWebhook::send((string) $url, $parameter, (string) $method);
+                if ($curlResponse === null) {
+                    return false;               // refused: nothing was sent
                 }
+                return empty($curlResponse);
             } catch (\Throwable $th) {
                 return false;
             }
@@ -2166,6 +2162,12 @@ class Utility extends Model
                 // P1-SEC-06: the address comes from a remote payload the caller controls; nothing is written unless it passes
                 // App\Services\SafeRemoteFetch (http/https only, no private or metadata address, pinned, redirects re-checked, size-capped).
                 $file = \App\Services\SafeRemoteFetch::contents($request);
+                // and what is stored is an image under a name built here, never the name or extension the remote chose (ImportedImage)
+                $name = \App\Services\ImportedImage::storedName($file, (string) $name);
+                if ($name === null) {
+                    // empty keys, not absent ones: every caller reads $result['url'] / ['full_url'] next, and an absent key is a 500 mid-import
+                    return ['flag' => 0, 'msg' => __('The remote file is not a supported image.'), 'url' => '', 'image_path' => '', 'full_url' => ''];
+                }
                 if ($settings['storage_setting'] == 'local') {
                     $path = Str::finish($path, '/');
                     $save = Storage::disk('theme')->put($path . '/' . $name, $file);

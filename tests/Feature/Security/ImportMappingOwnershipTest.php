@@ -246,9 +246,19 @@ class ImportMappingOwnershipTest extends SecurityTestCase
         DB::table('settings')->insert(['name' => 'storage_setting', 'value' => 'local', 'created_by' => $store->created_by, 'store_id' => $store->id,
             'created_at' => now(), 'updated_at' => now()]);
         Storage::fake('theme');
-        Http::fake(['*' => Http::response('IMG', 200, ['Content-Length' => '3'])]);
+        Http::fake(['*' => Http::response(self::pngBytes(), 200, ['Content-Length' => (string) strlen(self::pngBytes())])]);
         SafeRemoteFetch::resolveUsing(fn () => ['93.184.216.34']);
         WooCategory::shouldReceive('find')->andReturn(['id' => 12, 'name' => 'Renamed', 'image' => (object) ['src' => 'https://img.example.test/c.jpg']]);
+    }
+
+    /** A real image: the shared upload sink stores nothing else (ImportedImage). */
+    private static function pngBytes(): string
+    {
+        $im = imagecreatetruecolor(2, 2);
+        ob_start();
+        imagepng($im);
+
+        return (string) ob_get_clean();
     }
 
     public function test_a_category_resync_updates_the_mapped_category_instead_of_inserting_a_duplicate(): void
@@ -314,6 +324,20 @@ class ImportMappingOwnershipTest extends SecurityTestCase
             $source = (string) file_get_contents(app_path('Http/Controllers/' . $file));
             $this->assertSame($count, preg_match_all('/ImportMappingOwnership::owned\(/', $source), $file);
             $this->assertStringNotContainsString('$upddata->original_id;', $source, $file . ' still dereferences an unchecked mapping.');
+        }
+
+        // REVIEW FINDING: the Shopify product re-sync fetched the image, charged the storage quota and wrote the file BEFORE it refused a
+        // foreign or missing mapping, so a refused request still cost the merchant quota and left an orphan upload. The refusal comes first.
+        $shopify = (string) file_get_contents(app_path('Http/Controllers/ShopifyProductController.php'));
+        $editStart = strpos($shopify, 'public function edit(');
+        $this->assertNotFalse($editStart);
+        $edit = substr($shopify, $editStart);
+        $owned = strpos($edit, 'ImportMappingOwnership::owned(');
+        $this->assertNotFalse($owned);
+        foreach (['SafeRemoteFetch::head(', 'Utility::updateStorageLimit(', 'Utility::upload_woo_file('] as $sideEffect) {
+            $first = strpos($edit, $sideEffect);
+            $this->assertNotFalse($first, $sideEffect);
+            $this->assertLessThan($first, $owned, "ShopifyProductController::edit reaches {$sideEffect} before it has refused a mapping the store does not own.");
         }
 
         // no update path re-stamps ownership: the coupon and customer handlers carry no store_id/created_by assignment in edit()

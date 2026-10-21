@@ -207,7 +207,9 @@ class MerchantCategoryOwnershipTest extends SecurityTestCase
         [$coverRel, $coverAbs] = $this->fileFor($store, $name . '-cover');
         [$imageRel, $imageAbs] = $this->fileFor($store, $name . '-image');
 
-        $product = Product::forceCreate([
+        // withoutEvents: the cover path names a scratch directory no real store owns (see fileFor()), which StoredPathPolicy refuses on a
+        // WRITE. This fixture stands for a row that already exists -- the policy judges new values, never rows written before it.
+        $product = Product::withoutEvents(fn () => Product::forceCreate([
             'name' => $name, 'slug' => 'p-' . uniqid(),
             'category_id' => $category->id,
             'product_stock' => 50, 'track_stock' => 1, 'variant_product' => 0,
@@ -215,7 +217,7 @@ class MerchantCategoryOwnershipTest extends SecurityTestCase
             'stock_status' => 'in_stock',
             'cover_image_path' => $coverRel,
             'store_id' => $store->id, 'created_by' => $store->created_by,
-        ]);
+        ]));
 
         $imageId = DB::table('product_images')->insertGetId([
             'product_id' => $product->id, 'image_path' => $imageRel,

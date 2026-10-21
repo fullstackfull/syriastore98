@@ -2,7 +2,9 @@
 
 namespace App\Services;
 
+use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Psr7\Response as PsrResponse;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -19,8 +21,9 @@ use RuntimeException;
  *   - a host that is not a plain DNS name or a canonical IP literal (`2130706433`, `0x7f.1`, `017700000001` are all 127.0.0.1 to cURL);
  *   - a name that resolves, on ANY of its A/AAAA records, to a loopback, private, link-local, metadata, CGNAT, documentation, multicast or
  *     reserved address, including IPv4 hidden in IPv6 (`::ffff:127.0.0.1`, 6to4, NAT64).
- * The connection is PINNED to the address that was checked (CURLOPT_RESOLVE), so a second DNS answer cannot redirect it, redirects are
- * followed by hand and each hop is checked, and the body is read up to MAX_BYTES.
+ * The connection is PINNED to the address that was checked (CURLOPT_RESOLVE, on the cURL handler for HEAD and GET alike -- see
+ * requestOptions() for why not a streamed request), so a second DNS answer cannot redirect it, redirects are followed by hand and each hop
+ * is checked, and the body is capped at MAX_BYTES (CURLOPT_MAXFILESIZE, then the length of what was kept).
  *
  * The platform's OWN origin (config app.url) is never fetched over the network: the importers use `asset(...)` of a bundled default image,
  * which is served from public/ -- that is read from disk, confined to public/ and storage/app/public.
@@ -60,7 +63,7 @@ final class SafeRemoteFetch
             return new Response(new PsrResponse(200, ['Content-Length' => (string) filesize($local)]));
         }
 
-        return self::send('HEAD', $url);
+        return self::send('HEAD', $url, false);
     }
 
     /** GET, validated, at most MAX_BYTES. */
@@ -72,16 +75,10 @@ final class SafeRemoteFetch
             return (string) file_get_contents($local);
         }
 
-        $response = self::send('GET', $url);
-        $stream = $response->toPsrResponse()->getBody();
-        $body = '';
+        $body = self::send('GET', $url, true)->body();
 
-        while (! $stream->eof()) {
-            $body .= $stream->read(65536);
-
-            if (strlen($body) > (self::$maxBytes ?? self::MAX_BYTES)) {
-                throw new RuntimeException('The remote file is larger than ' . round((self::$maxBytes ?? self::MAX_BYTES) / 1048576, 1) . ' MB.');
-            }
+        if (strlen($body) > self::cap()) {
+            throw new RuntimeException('The remote file is larger than ' . round(self::cap() / 1048576, 1) . ' MB.');
         }
 
         return $body;
@@ -90,11 +87,14 @@ final class SafeRemoteFetch
     /**
      * Validate a URL and return what the connection must be pinned to.
      *
+     * @param  bool  $anyPort  a caller that talks to a PUBLIC address the user chose (a webhook receiver on :5678) may use any port; the private
+     *                         ranges, the scheme and the host spelling are judged exactly as for the image fetch
+     *
      * @return array{scheme: string, host: string, port: int, ip: string}
      *
      * @throws RuntimeException
      */
-    public static function check(string $url): array
+    public static function check(string $url, bool $anyPort = false): array
     {
         $parts = parse_url($url);
 
@@ -114,7 +114,7 @@ final class SafeRemoteFetch
 
         $port = (int) ($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
 
-        if (! in_array($port, self::PORTS, true)) {
+        if (! $anyPort && ! in_array($port, self::PORTS, true)) {
             throw new RuntimeException('The file address uses a port that is not accepted.');
         }
 
@@ -219,14 +219,31 @@ final class SafeRemoteFetch
             return array_values((self::$resolver)($host));
         }
 
+        return self::addressesFrom(@gethostbynamel($host), @dns_get_record($host, DNS_AAAA));
+    }
+
+    /**
+     * The addresses a lookup produced, from the raw answers of gethostbynamel() and dns_get_record().
+     *
+     * Both answer `false` for a name with no such record, and `(array) false` is `[false]` -- which isDeniedIp() counts as denied, so a host
+     * with no A record (an IPv6-only store) was refused as "private or reserved" and the "does not resolve" refusal could never fire.
+     *
+     * @param  mixed  $ipv4  list<string>|false
+     * @param  mixed  $ipv6  list<array{ipv6?: string}>|false
+     * @return list<string>
+     */
+    public static function addressesFrom(mixed $ipv4, mixed $ipv6): array
+    {
         $addresses = [];
 
-        foreach ((array) @gethostbynamel($host) as $ip) {
-            $addresses[] = $ip;
+        foreach (is_array($ipv4) ? $ipv4 : [] as $ip) {
+            if (is_string($ip) && $ip !== '') {
+                $addresses[] = $ip;
+            }
         }
 
-        foreach ((array) @dns_get_record($host, DNS_AAAA) as $record) {
-            if (! empty($record['ipv6'])) {
+        foreach (is_array($ipv6) ? $ipv6 : [] as $record) {
+            if (is_array($record) && ! empty($record['ipv6'])) {
                 $addresses[] = $record['ipv6'];
             }
         }
@@ -234,18 +251,23 @@ final class SafeRemoteFetch
         return $addresses;
     }
 
-    private static function send(string $method, string $url): Response
+    /** @param bool $requireSuccess a GET must end on a 2xx; a HEAD answers whatever the server said, as Http::head() always did */
+    private static function send(string $method, string $url, bool $requireSuccess): Response
     {
         for ($hop = 0; $hop <= self::MAX_REDIRECTS; $hop++) {
             $target = self::check($url);
+            $url = self::pinnedUrl($url, $target);
 
-            $response = Http::withOptions([
-                'allow_redirects' => false,
-                'stream' => $method === 'GET',
-                'timeout' => 15,
-                'connect_timeout' => 5,
-                'curl' => [CURLOPT_RESOLVE => [sprintf('%s:%d:%s', $target['host'], $target['port'], str_contains($target['ip'], ':') ? '[' . $target['ip'] . ']' : $target['ip'])]],
-            ])->send($method, $url);
+            try {
+                $response = Http::withOptions(self::requestOptions($target, $method))->send($method, $url);
+            } catch (ConnectionException $e) {
+                throw new RuntimeException('The remote file could not be fetched.', 0, $e);
+            } catch (GuzzleException $e) {
+                // CURLOPT_MAXFILESIZE aborting a body that outgrew the cap surfaces here, as cURL error 63
+                throw new RuntimeException(str_contains($e->getMessage(), 'cURL error 63')
+                    ? 'The remote file is larger than ' . round(self::cap() / 1048576, 1) . ' MB.'
+                    : 'The remote file could not be fetched.', 0, $e);
+            }
 
             $status = $response->status();
 
@@ -255,7 +277,7 @@ final class SafeRemoteFetch
                 continue;
             }
 
-            if ($status < 200 || $status >= 300) {
+            if ($requireSuccess && ($status < 200 || $status >= 300)) {
                 throw new RuntimeException('The remote file could not be fetched (HTTP ' . $status . ').');
             }
 
@@ -263,6 +285,66 @@ final class SafeRemoteFetch
         }
 
         throw new RuntimeException('The remote file redirects too many times.');
+    }
+
+    /**
+     * The client options for ONE hop, for both methods.
+     *
+     * NOT `'stream' => true`: Guzzle sends a streamed request through its StreamHandler, which resolves the name itself and ignores the
+     * `curl` array, so the pin below held for HEAD and was silently absent for the GET that stores the bytes -- a second DNS answer could
+     * aim it anywhere (measured: with stream=true and a name that does not resolve the connection is refused; with stream=false the
+     * CURLOPT_RESOLVE entry is honoured). The size cap is therefore enforced by cURL itself (CURLOPT_MAXFILESIZE aborts mid-transfer with
+     * cURL error 63, also when the response carries no Content-Length), and again on the body that was kept.
+     *
+     * @param  array{scheme: string, host: string, port: int, ip: string}  $target
+     * @return array<string, mixed>
+     */
+    public static function requestOptions(array $target, string $method): array
+    {
+        $curl = [CURLOPT_RESOLVE => [self::resolveEntry($target)]];
+
+        if ($method === 'GET') {
+            $curl[CURLOPT_MAXFILESIZE] = self::cap();
+        }
+
+        return [
+            'allow_redirects' => false,
+            'timeout' => 15,
+            'connect_timeout' => 5,
+            'curl' => $curl,
+        ];
+    }
+
+    /**
+     * The CURLOPT_RESOLVE entry that pins a connection to the address check() judged.
+     *
+     * @param  array{scheme: string, host: string, port: int, ip: string}  $target
+     */
+    public static function resolveEntry(array $target): string
+    {
+        return sprintf('%s:%d:%s', $target['host'], $target['port'], str_contains($target['ip'], ':') ? '[' . $target['ip'] . ']' : $target['ip']);
+    }
+
+    /**
+     * The URL cURL is asked for. The pin names the host as check() normalised it (lower case, no trailing dot) and cURL matches the name
+     * it was given, so `https://cdn.example.com./x` -- which check() judged as `cdn.example.com` -- would have bypassed the pin and been
+     * resolved again. The request is built from the normalised parts so the two cannot differ.
+     *
+     * @param  array{scheme: string, host: string, port: int, ip: string}  $target
+     */
+    public static function pinnedUrl(string $url, array $target): string
+    {
+        $parts = parse_url($url);
+
+        return $target['scheme'] . '://' . $target['host']
+            . (isset($parts['port']) ? ':' . $parts['port'] : '')
+            . ($parts['path'] ?? '/')
+            . (isset($parts['query']) ? '?' . $parts['query'] : '');
+    }
+
+    private static function cap(): int
+    {
+        return self::$maxBytes ?? self::MAX_BYTES;
     }
 
     private static function absolute(string $base, string $location): string
@@ -300,6 +382,11 @@ final class SafeRemoteFetch
         }
 
         $relative = ltrim(rawurldecode($parts['path']), '/');
+
+        if (str_contains($relative, "\0")) {
+            // realpath() raises a ValueError (not an Exception) on a NUL byte, which the importers' catch (\Exception) would miss
+            throw new RuntimeException('The file address is not available on this server.');
+        }
 
         foreach ([public_path($relative), storage_path('app/public/' . preg_replace('#^storage/#', '', $relative))] as $candidate) {
             $real = realpath($candidate);

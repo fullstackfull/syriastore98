@@ -67,7 +67,13 @@ class StoredFilePathSafetyTest extends SecurityTestCase
     public static function safePaths(): array
     {
         return array_map(fn ($p) => [$p], [null, '', 'uploads/12/cover.png', 'uploads/uploads/12/gallery/a b.png', 'public/uploads/x.jpg', 'storage/uploads/x.jpg',
-            'themes/grocery/assets/img/a.png', 'uploads/logo/logo-dark.png', StoredPathPolicy::IMPORT_EXPORT_DEFAULT]);
+            'uploads/logo/logo-dark.png', StoredPathPolicy::IMPORT_EXPORT_DEFAULT,
+            // characters real upload names contain; File::delete is unlink(), nothing here globs (REVIEW: the first version refused these AFTER
+            // the file was written and the quota debited)
+            'uploads/12/photo[1].jpg', 'uploads/12/what?.png', 'uploads/12/{a}.png', 'uploads/12/a|b.png', 'uploads/12/a*b.png', 'uploads/12/a"b.png',
+            'uploads/12/a<b>.png', 'uploads/12/صورة.png',
+            // an absolute URL names no file (see testAnAbsoluteUrlCannotReachAFileThroughBasePath)
+            'https://cdn.example.com/p/a.png', 'http://cdn.example.com/a.png?v=1', 'HTTPS://CDN.EXAMPLE.COM/A.PNG']);
     }
 
     /** @dataProvider safePaths */
@@ -80,14 +86,100 @@ class StoredFilePathSafetyTest extends SecurityTestCase
     {
         return array_map(fn ($p) => [$p], ['.env', 'config/app.php', 'app/Models/Utility.php', 'database/database.sqlite', 'vendor/autoload.php', 'composer.json',
             'avatar.png', '/etc/passwd', '/uploads/x.png', 'C:\\Windows\\win.ini', 'c:/x', '..', '../x', 'uploads/../.env', 'uploads/../../etc/passwd', 'uploads/./x',
-            'uploads//x', 'uploads/', 'uploads', 'uploads/*', 'uploads/12/*', 'uploads/12/?.png', 'uploads/[a-z]*', 'uploads/{a,b}', "uploads/x\0.png", "uploads/x\n.png",
-            'uploads\\..\\.env', 'http://169.254.169.254/x', 'file:///etc/passwd', 'php://filter/x', 'Uploads/x.png', ' uploads/x.png', 'packages/workdo/ImportExport/src/Other.php']);
+            'uploads//x', 'uploads/', 'uploads', "uploads/x\0.png", "uploads/x\n.png",
+            'uploads\\..\\.env', 'file:///etc/passwd', 'php://filter/x', 'phar://uploads/x.phar', 'data://text/plain;base64,AAAA', 'ftp://x/y', 'Uploads/x.png', ' uploads/x.png',
+            'packages/workdo/ImportExport/src/Other.php',
+            // REVIEW FINDING: these were accepted because `public/`, `storage/` and `themes/` were whole roots, so a vendored deleter could
+            // still be pointed at the front controller, the log or a session file
+            'public/index.php', 'public/.htaccess', 'public/build/manifest.json', 'public/assets/css/app.css', 'storage/logs/laravel.log',
+            'storage/framework/sessions/abc', 'storage/app/.env', 'storage/app/public/uploads/x.png', 'themes/greentic/assets/css/main-style.css',
+            'public/uploads', 'storage/uploads', 'uploads-evil/x.png', 'public/uploads-evil/x.png', 'public/../.env', 'storage/uploads/../../.env']);
     }
 
     /** @dataProvider unsafePaths */
-    public function test_a_path_outside_the_upload_roots_or_with_traversal_or_glob_characters_is_refused(string $path): void
+    public function test_a_path_outside_the_upload_roots_or_with_traversal_is_refused(string $path): void
     {
         $this->assertFalse(StoredPathPolicy::isSafe($path), json_encode($path));
+    }
+
+    /**
+     * Why an absolute URL is safe to store: a vendored deleter does File::delete(base_path($value)) = unlink("<root>/https://x/../../victim"),
+     * and the kernel resolves `https:` as a directory component first. Executed against a real directory tree, not argued.
+     */
+    public function test_an_absolute_url_cannot_reach_a_file_through_base_path(): void
+    {
+        $root = sys_get_temp_dir() . '/p1sec28-url-' . uniqid();
+        mkdir($root);
+        file_put_contents($root . '/victim', 'DO NOT DELETE');
+
+        try {
+            foreach (['https://x/../../victim', 'https://x/../victim', 'http://x/../../../victim'] as $value) {
+                $this->assertTrue(StoredPathPolicy::isSafe($value), $value);
+                @unlink($root . DIRECTORY_SEPARATOR . ltrim($value, DIRECTORY_SEPARATOR));
+                $this->assertFileExists($root . '/victim', "unlink of <root>/{$value} reached a file");
+            }
+        } finally {
+            @unlink($root . '/victim');
+            @rmdir($root);
+        }
+    }
+
+    // -- the owning store -------------------------------------------------------------------------------------
+
+    public function test_with_a_known_store_only_that_stores_folder_or_one_its_owner_runs_is_accepted(): void
+    {
+        [$ownerA, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $second = $this->makeStore($ownerA);
+
+        $ids = ['own' => $storeA->id, 'sibling' => $second->id, 'other' => $storeB->id];
+
+        $this->assertTrue(StoredPathPolicy::isSafe("uploads/{$ids['own']}/p.png", $storeA->id));
+        $this->assertTrue(StoredPathPolicy::isSafe("uploads/uploads/{$ids['own']}/g/p.png", $storeA->id), 'the gallery helper doubles the prefix');
+        $this->assertTrue(StoredPathPolicy::isSafe("public/uploads/{$ids['own']}/p.png", $storeA->id));
+        $this->assertTrue(StoredPathPolicy::isSafe("uploads/{$ids['sibling']}/p.png", $storeA->id), 'a store the same owner runs');
+        $this->assertTrue(StoredPathPolicy::isSafe(StoredPathPolicy::IMPORT_EXPORT_DEFAULT, $storeA->id));
+        $this->assertTrue(StoredPathPolicy::isSafe('https://cdn.example.com/a.png', $storeA->id));
+
+        $this->assertFalse(StoredPathPolicy::isSafe("uploads/{$ids['other']}/p.png", $storeA->id), "another tenant's folder");
+        $this->assertFalse(StoredPathPolicy::isSafe("uploads/uploads/{$ids['other']}/g/p.png", $storeA->id), "another tenant's gallery folder");
+        $this->assertFalse(StoredPathPolicy::isSafe('uploads/profile/avatar.png', $storeA->id), 'a shared platform folder');
+        $this->assertFalse(StoredPathPolicy::isSafe('uploads/logo/logo-dark.png', $storeA->id));
+        $this->assertFalse(StoredPathPolicy::isSafe('uploads/avatar.png', $storeA->id), 'a file directly in uploads/ has no owner');
+        $this->assertFalse(StoredPathPolicy::isSafe("uploads/{$ids['own']}", $storeA->id), 'a folder, not a file');
+        $this->assertFalse(StoredPathPolicy::isSafe('uploads/999999/p.png', $storeA->id), 'a folder of a store that does not exist');
+        $this->assertFalse(StoredPathPolicy::isSafe("uploads/{$ids['own']}x/p.png", $storeA->id), 'digits followed by letters are not a store id');
+    }
+
+    public function test_a_product_cannot_take_another_tenants_file_or_a_shared_one_as_its_cover(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        foreach (["uploads/{$storeB->id}/victim.png", "uploads/uploads/{$storeB->id}/g/victim.png", 'uploads/profile/avatar.png', 'uploads/logo/logo-dark.png'] as $value) {
+            try {
+                $this->productIn($storeA, ['cover_image_path' => $value]);
+                $refused = false;
+            } catch (ValidationException $e) {
+                $refused = isset($e->errors()['cover_image_path']);
+            }
+
+            $this->assertTrue($refused, "A product of store {$storeA->id} was saved with cover_image_path = {$value}.");
+        }
+
+        $this->assertNotNull($this->productIn($storeA, ['cover_image_path' => "uploads/{$storeA->id}/mine.png"])->id, 'its own folder is still accepted');
+    }
+
+    public function test_a_gallery_image_cannot_name_another_tenants_file(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $product = $this->productIn($storeA);
+
+        $this->assertNotNull(ProductImage::create(['product_id' => $product->id, 'image_path' => "uploads/uploads/{$storeA->id}/g.png"])->id);
+
+        $this->expectException(ValidationException::class);
+        ProductImage::create(['product_id' => $product->id, 'image_path' => "uploads/uploads/{$storeB->id}/victim.png"]);
     }
 
     public function test_a_non_string_is_not_a_path(): void
@@ -320,7 +412,7 @@ class StoredFilePathSafetyTest extends SecurityTestCase
             'app/Http/Controllers/AddonController.php' => 1,           // addon installer: temp tree it just created
             'app/Http/Controllers/LanguageController.php' => 1,        // operator-only language file name
             'app/Http/Controllers/ModuleController.php' => 1,          // module installer: temp tree it just created
-            'app/Http/Controllers/ProductController.php' => 1,         // file_delete(): realpath() after isInsideUploadsRoot() (P1-INV-07), same containment
+            'app/Http/Controllers/ProductController.php' => 1,         // file_delete(): realpath() after isInsideUploadsRoot() (P1-INV-07): confined to uploads/ and to a row whose product the caller owns, but WITHOUT StoredUpload's owner-folder rule (review of c71c717e; the write-side policy now keeps image_path in the product's own folder)
             'app/Http/Controllers/SettingController.php' => 3,         // logo files: the path is a constant 'uploads/logo/<fixed name>', not a stored value
             'app/Models/Utility.php' => 3,                             // rmdir-style directory helper + the two loops that unlink ONLY what StoredUpload::resolveAll() returned
             'app/Services/StoredUpload.php' => 1,                      // THE deleter

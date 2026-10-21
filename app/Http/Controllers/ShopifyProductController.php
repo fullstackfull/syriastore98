@@ -498,6 +498,14 @@ class ShopifyProductController extends Controller
                         $mainCategory = Category::where('store_id', $storeId)->first();
                         if (isset($products) && !empty($products)) {
 
+                            $upddata = ShopifyConection::where('store_id', $storeId)->where('module', '=', 'product')->where('shopify_id', $id)->first();
+                            // P1-INV-13: no mapping, or a mapping to a product this store does not own, is refused before any fetch, quota charge or write
+                            // (Product is not in scoped_models, so find() reaches every tenant's catalogue).
+                            $product = \App\Services\ImportMappingOwnership::owned($upddata, Product::class, $storeId);
+                            if (!$product) {
+                                return redirect()->back()->with('error', __('Product Not Found.'));
+                            }
+
                             if (!empty($products['products'][0]['image']['src'])) {
                                 $ImageUrl = $products['products'][0]['image']['src'];
                                 $url =  strtok($ImageUrl, '?');
@@ -529,13 +537,6 @@ class ShopifyProductController extends Controller
                                 $file2  = rand(10, 100) . '_' . time() . "_" . $name;
                                 $path   = 'uploads/' .getCurrentStore();
                                 $uplaod = Utility::upload_woo_file($url, $file2, $path);
-                            }
-                            $upddata = ShopifyConection::where('store_id', $storeId)->where('module', '=', 'product')->where('shopify_id', $id)->first();
-                            // P1-INV-13: no mapping, or a mapping to a product this store does not own, is refused before any write
-                            // (Product is not in scoped_models, so find() reaches every tenant's catalogue).
-                            $product = \App\Services\ImportMappingOwnership::owned($upddata, Product::class, $storeId);
-                            if (!$product) {
-                                return redirect()->back()->with('error', __('Product Not Found.'));
                             }
                             $product->name                    = $products['products'][0]['title'];
                             $product->description             = strip_tags($products['products'][0]['body_html']);
