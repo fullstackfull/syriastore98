@@ -3138,7 +3138,11 @@ public function saveStoreFcmToken(Request $request)
             }
         }
         if ( !empty( $Setting_array ) ) {
-            return $this->success( $Setting_array );
+            // P1-SEC-15. The entries above carry each gateway's live SECRET next to its display fields, and
+            // this route answers any Sanctum token for ANY slug (and POST {slug}/register issues one to
+            // anybody). A client lists methods; the server charges. Secrets are nulled here -- after the
+            // PartialPayments module has had its say -- and the keys are kept.
+            return $this->success( \App\Services\GatewaySecretRedactor::redactAll( $Setting_array ) );
         } else {
             return $this->error(['message' => __('Payment not found.')]);
         }
