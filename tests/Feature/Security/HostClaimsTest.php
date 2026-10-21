@@ -283,9 +283,11 @@ class HostClaimsTest extends SecurityTestCase
     }
 
     /**
-     * The six lookups (HomeController twice, the two in helper.php, ViewServiceProvider, StoreRedirectServiceProvider) are not driven
+     * The six lookups in app/ (HomeController twice, the two in helper.php, ViewServiceProvider, StoreRedirectServiceProvider) are not driven
      * request by request here -- they render themes -- so this pins that none of them has gone back to the unscoped
-     * `where('name', 'domains'|'subdomain')->where('value', $host)->first()` and that every one goes through HostClaims::row().
+     * `where('name', 'domains'|'subdomain')->where('value', $host)->first()` and that every one goes through HostClaims::row(). It scans app/
+     * only: a seventh, unscoped lookup lives in the vendored ThemeCustomizer module's view composer
+     * (packages/workdo/ThemeCustomizer/src/app/Providers/ViewComposer.php), which cannot be edited -- recorded under P1-SEC-31.
      */
     public function test_no_host_lookup_in_app_bypasses_hostclaims(): void
     {
@@ -379,7 +381,7 @@ class HostClaimsTest extends SecurityTestCase
         $this->assertTrue(DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'thème_color')->where('value', '#123456')->exists());
     }
 
-    /** A plain printable-ASCII name can only fold by case and by surrounding spaces (measured on MySQL for every character at every position), so it never costs a query. */
+    /** A plain printable-ASCII name can only fold by case and by surrounding spaces (measured on MySQL 8.0.46 by verify-host-claims-on-mysql.php), so it never costs a query. */
     public function test_a_plain_name_and_value_are_decided_without_asking_the_engine(): void
     {
         $asked = [];
@@ -708,5 +710,186 @@ class HostClaimsTest extends SecurityTestCase
             $this->assertSame('fresh.platform.example.test', $this->stored($this->olderStore, 'subdomain'));
             $this->assertSame('on', $this->stored($this->olderStore, 'enable_subdomain'));
         });
+    }
+
+    /**
+     * `settings.name` is VARCHAR(255) and production runs with `strict => false`: MySQL keeps the first 255 characters, and the spaces
+     * that remain are PAD SPACE, so `domains` + 300 spaces + `x` IS the stored `domains` (EXECUTED on MySQL 8.0.46 by
+     * verify-host-claims-on-mysql.php, red before the name was judged as stored; SQLite stores the whole string, so here the claim is that
+     * the hook judges the name as it WILL be stored). Found by the second review of the fix.
+     */
+    public function test_a_name_that_is_stored_cut_to_255_characters_is_judged_as_stored(): void
+    {
+        foreach (['domains', 'subdomain'] as $name) {
+            try {
+                Setting::create(['name' => $name . str_repeat(' ', 300) . 'x', 'value' => self::HOST, 'created_by' => $this->olderOwner->id, 'store_id' => $this->olderStore->id]);
+                $this->fail('An over-long spelling of `' . $name . '` was not judged as the name MySQL stores.');
+            } catch (\Illuminate\Validation\ValidationException $e) {
+                $this->assertArrayHasKey($name, $e->errors());
+            }
+        }
+        $this->assertSame(0, DB::table('settings')->where('store_id', $this->olderStore->id)->where('value', self::HOST)->count());
+    }
+
+    public function test_an_over_long_spelling_of_the_flag_is_judged_as_stored(): void
+    {
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'enable_domain')->update(['value' => 'off']);
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'domains')->update(['value' => self::HOST]);
+
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+
+        Setting::create(['name' => 'enable_domain' . str_repeat(' ', 300) . 'x', 'value' => 'on', 'created_by' => $this->olderOwner->id, 'store_id' => $this->olderStore->id]);
+    }
+
+    /** the truncation is of the NAME only: a name that is long but not padded stays another name, and a long value is untouched */
+    public function test_a_long_name_that_is_not_a_host_name_when_cut_is_still_saved(): void
+    {
+        $setting = Setting::create(['name' => str_repeat('a', 300), 'value' => str_repeat('b', 5000), 'created_by' => $this->olderOwner->id, 'store_id' => $this->olderStore->id]);
+
+        $this->assertNotNull($setting->id);
+    }
+
+    /** the boundary is exact: the 256th character is the first one MySQL drops, the 255th is the last it keeps */
+    public function test_the_cut_is_at_exactly_255_characters(): void
+    {
+        // 7 + 248 = 255 characters of `domains` and padding, then an `x` that is dropped: stored as `domains`
+        try {
+            Setting::create(['name' => 'domains' . str_repeat(' ', 248) . 'x', 'value' => self::HOST, 'created_by' => $this->olderOwner->id, 'store_id' => $this->olderStore->id]);
+            $this->fail('The 256th character is dropped by MySQL, so this is `domains`.');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->assertArrayHasKey('domains', $e->errors());
+        }
+
+        // the `x` is the 255th character: it is kept, so this stays another name
+        $setting = Setting::create(['name' => 'domains' . str_repeat(' ', 247) . 'x', 'value' => self::HOST, 'created_by' => $this->olderOwner->id, 'store_id' => $this->olderStore->id]);
+        $this->assertNotNull($setting->id);
+    }
+
+    // ---- the early check reads the host the way the panel block does; the root dot; the all-or-nothing save ----
+
+    public static function spellingsTheHostingPanelReadsAsTheVictimsHost(): array
+    {
+        return array_map(fn ($h) => [$h], ['//victim-shop.example.test', '/victim-shop.example.test/', 'a@b@victim-shop.example.test', 'x:y@z@victim-shop.example.test:8080',
+            'http://a@b.test@victim-shop.example.test/p?q#f', 'victim-shop.example.test.', 'WWW.Victim-Shop.Example.Test.']);
+    }
+
+    /** @dataProvider spellingsTheHostingPanelReadsAsTheVictimsHost */
+    public function test_every_spelling_the_hosting_panel_block_reads_as_the_victims_host_is_refused_before_the_panel(string $spelling): void
+    {
+        $this->assertSame(self::HOST, HostClaims::normalise($spelling), $spelling);
+
+        $fake = $this->recordingWebuzo();
+        $this->actingAs($this->olderOwner)->post('/theme-settings', ['enable_domain' => 'enable_domain', 'domains' => $spelling])->assertSessionHas('error');
+
+        $this->assertSame([], $fake->calls, 'The hosting panel was called for a host another store holds, written as ' . json_encode($spelling) . '.');
+        $this->assertSame('older-shop.example.test', $this->stored($this->olderStore, 'domains'));
+    }
+
+    /** The early check must derive the host exactly as the panel block does, so this compares the two over spellings neither was written for. */
+    public function test_the_normalised_host_is_the_host_the_panel_block_would_add(): void
+    {
+        foreach (['victim.test', 'http://victim.test', 'https://User@victim.test:8443/x', '/victim.test', '//victim.test//', 'a@b@victim.test', 'VICTIM.TEST', 'www.victim.test'] as $input) {
+            $panel = trim(trim($input), '/');
+            $panel = preg_match('#^http(s)?://#', $panel) ? $panel : 'http://' . $panel;
+            $expected = strtolower(preg_replace('/^www\./', '', parse_url($panel)['host']));
+
+            $this->assertSame($expected, HostClaims::normalise($input), $input);
+        }
+    }
+
+    public function test_a_request_for_the_fully_qualified_spelling_of_a_host_resolves_to_its_holder(): void
+    {
+        $this->assertSame($this->victimStore->id, $this->hostResolvesTo('domains', self::HOST . '.'));
+    }
+
+    public function test_a_store_that_is_serving_a_host_in_a_duplicate_can_still_save_the_custom_tab(): void
+    {
+        $fake = $this->recordingWebuzo();
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'domains')->update(['value' => self::HOST]);   // both stores enabled holders
+
+        $this->actingAs($this->olderOwner)->post('/theme-settings', ['enable_domain' => 'enable_domain', 'domains' => self::HOST, 'storecss' => 'a{}'])
+            ->assertSessionMissing('error')->assertSessionHasNoErrors();
+
+        $this->assertSame('a{}', $this->stored($this->olderStore, 'storecss'), 'The rest of the tab was not saved.');
+        $this->assertSame([], $fake->calls, 'An unchanged host must not touch the hosting panel.');
+    }
+
+    public function test_a_store_that_is_not_serving_a_held_host_cannot_switch_it_on_with_the_stored_value_unchanged(): void
+    {
+        $fake = $this->recordingWebuzo();
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'enable_domain')->update(['value' => 'off']);
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'domains')->update(['value' => self::HOST]);
+
+        $this->actingAs($this->olderOwner)->post('/theme-settings', ['enable_domain' => 'enable_domain', 'domains' => self::HOST])->assertSessionHas('error');
+
+        $this->assertSame([], $fake->calls);
+        $this->assertSame('off', $this->stored($this->olderStore, 'enable_domain'));
+    }
+
+    /** The hook can refuse after earlier keys were written; the save is then undone and the merchant is told (this page shows session('error'), not $errors). */
+    public function test_a_refusal_by_the_model_hook_undoes_the_whole_save_and_is_shown(): void
+    {
+        $this->recordingWebuzo();
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'enable_domain')->update(['value' => 'off']);
+        // a second writer's stale row names the victim's host: the early check reads the stored `domains` of the posting user only
+        $this->giveRows($this->olderStore, $this->victimOwner, ['domains' => self::HOST]);
+
+        $response = $this->actingAs($this->olderOwner)->post('/theme-settings', ['enable_domain' => 'enable_domain', 'domains' => 'free.example.test', 'storecss' => 'z{}']);
+
+        $response->assertSessionHas('error', 'This domain is already used by another store.');
+        $this->assertSame('older-shop.example.test', $this->stored($this->olderStore, 'domains'), 'The host written before the refused flag stayed saved.');
+        $this->assertNull($this->stored($this->olderStore, 'storecss'));
+        $this->assertSame('off', $this->stored($this->olderStore, 'enable_domain'));
+    }
+
+    public static function namesCutAtAnInvalidByte(): array
+    {
+        return array_map(fn ($n) => [$n], ["domains\xFFx", "domains\xC3", "domains\xE2\x82x", "domains \xFF", "subdomain\xC0\x80zz", "domains\xED\xA0\x80"]);
+    }
+
+    /**
+     * Non-strict MySQL ends a name at the first byte that is not valid UTF-8: `domains\xFFx` is STORED as `domains` (EXECUTED on 8.0.46
+     * through Laravel's native prepared statements by verify-host-claims-on-mysql.php, red before the hook judged the stored form; a
+     * SELECT on the same raw string answers NULL there, so asking the engine does not catch it). SQLite keeps the whole string.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('namesCutAtAnInvalidByte')]
+    public function test_a_name_that_is_stored_cut_at_an_invalid_utf8_byte_is_judged_as_stored(string $name): void
+    {
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+
+        Setting::create(['name' => $name, 'value' => self::HOST, 'created_by' => $this->olderOwner->id, 'store_id' => $this->olderStore->id]);
+    }
+
+    public function test_valid_multi_byte_names_are_not_cut(): void
+    {
+        $setting = Setting::create(['name' => "d\u{00F3}m\u{1F600}ains", 'value' => self::HOST, 'created_by' => $this->olderOwner->id, 'store_id' => $this->olderStore->id]);
+
+        $this->assertNotNull($setting->id, 'A valid multi-byte name that is not one of the four was refused.');
+    }
+
+    public static function validLeadsFollowedByAnInvalidByte(): array
+    {
+        // one valid character of each UTF-8 shape, then a byte that is not valid: MySQL cuts AFTER the valid character, so the name is
+        // `domains` + that character and is another name
+        return array_map(fn ($c) => [$c], ["\xC3\xA9", "\xE0\xA0\x80", "\xE1\x80\x80", "\xE2\x82\xAC", "\xED\x9F\xBF", "\xEE\x80\x80", "\xEF\xBF\xBD",
+            "\xF0\x90\x80\x80", "\xF1\x80\x80\x80", "\xF3\xA0\x80\x80", "\xF4\x8F\xBF\xBF"]);
+    }
+
+    /** @dataProvider validLeadsFollowedByAnInvalidByte */
+    public function test_the_valid_part_of_a_name_before_an_invalid_byte_is_kept_whole(string $character): void
+    {
+        $setting = Setting::create(['name' => 'domains' . $character . "\xFF", 'value' => self::HOST, 'created_by' => $this->olderOwner->id, 'store_id' => $this->olderStore->id]);
+
+        $this->assertNotNull($setting->id, 'A name whose valid part is `domains` + ' . bin2hex($character) . ' was taken for `domains`.');
+    }
+
+    /** The check reads a bounded window: a name of megabytes must not make the cut fail open (a regex over a huge string can run out of stack). */
+    public function test_a_name_of_megabytes_with_an_invalid_byte_at_the_end_is_still_judged_as_stored(): void
+    {
+        $name = 'domains' . str_repeat(' ', 248) . str_repeat('x', 3_000_000) . "\xFF";
+
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+
+        Setting::create(['name' => $name, 'value' => self::HOST, 'created_by' => $this->olderOwner->id, 'store_id' => $this->olderStore->id]);
     }
 }

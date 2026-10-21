@@ -18,10 +18,14 @@
  * names it did not know, and the original takeover was open again. SQLite compares bytes, so no Feature test can show it.
  *
  * WHAT IT ESTABLISHES, by execution:
- *   1. which spellings MySQL folds onto the four names and onto 'on' (printed; printable ASCII is checked exhaustively, because the
- *      fix keeps a PHP fast path for a plain ASCII name and that is sound only if ASCII folds by case alone);
+ *   1. which spellings MySQL folds onto the four names and onto 'on' (printed), and the three facts that make the PHP fast path for a
+ *      plain printable-ASCII name sound: no such character is ignorable (inserted at every position of the five strings), two of them are
+ *      equal only as a case pair (all 94 x 94), and no two of them equal one (all 94 x 94 x 94). One server, one collation, measured;
+ *      a different MySQL or collation has to be measured again;
  *   2. each bypass, through the writers' own updateOrCreate shape, is refused: an accented host-name, an accented flag name, an
- *      accented flag VALUE, the same names on a store that has no such row yet (an INSERT), and an accented host VALUE;
+ *      accented flag VALUE, the same names on a store that has no such row yet (an INSERT), an accented host VALUE, and a name stored
+ *      CUT to 255 characters (settings.name is VARCHAR(255), production runs strict => false, the padding left is PAD SPACE -- found by
+ *      the second review of the fix);
  *   3. the control is not over-broad: a free host is saved, an unchanged re-save is not a claim, and the row the lookup returns is
  *      still the victim's after every attempt.
  */
@@ -124,29 +128,43 @@ try {
     $out("MySQL treats an accented name as the stored name", $folds("d\u{00F3}mains", 'domains'));
     $out("MySQL treats an accented flag value as 'on'", $folds("\u{00F3}n", 'on'));
 
-    // The PHP fast path in HostClaims treats a plain printable-ASCII name as exactly its lower-cased self. That is sound only if no
-    // printable ASCII character, inserted anywhere in a name, folds it onto another: measure every one, at every position.
+    // The PHP fast path in HostClaims treats a plain printable-ASCII name as exactly its lower-cased self. That is sound if, under this
+    // collation, (1) no printable ASCII character is ignorable, (2) two printable ASCII characters are equal only as a case pair, and
+    // (3) no sequence of two of them is equal to one (a contraction). Measured exhaustively for (2) and (3), and for (1) by inserting
+    // each character at every position of the five strings the hook cares about. Control bytes are measured too, because they are NOT
+    // plain and so go to the engine.
     $targets = ['domains', 'subdomain', 'enable_domain', 'enable_subdomain', 'on'];
-    $asciiFolds = [];
+    $printable = array_map('chr', range(0x21, 0x7E));
+    $insertionFolds = [];
     $controlFolds = [];
     for ($byte = 0x00; $byte <= 0x7F; $byte++) {
         $c = chr($byte);
         foreach ($targets as $t) {
             for ($pos = 0; $pos <= strlen($t); $pos++) {
                 $probe = substr($t, 0, $pos) . $c . substr($t, $pos);
-                if ($byte >= 0x21 && $byte <= 0x7E) {
-                    // a case variant of the target itself is expected; anything else folding is a hole in the fast path
-                    if ($folds($probe, $t) && strtolower($probe) !== $t) {
-                        $asciiFolds[] = json_encode($probe);
+                if ($folds($probe, $t)) {
+                    if ($byte >= 0x21 && $byte <= 0x7E) {
+                        $insertionFolds[] = json_encode($probe);
+                    } else {
+                        $controlFolds[$byte] = true;
                     }
-                } elseif ($folds($probe, $t)) {
-                    $controlFolds[$byte] = true;
                 }
             }
         }
     }
-    $out('no printable ASCII character, inserted at any position of any of the five strings, folds it onto the target (the PHP fast path is sound)',
-        $asciiFolds === [], implode(' ', array_slice($asciiFolds, 0, 8)));
+    $out('(1) no printable ASCII character, inserted at any position of any of the five strings, is ignored by the collation',
+        $insertionFolds === [], implode(' ', array_slice($insertionFolds, 0, 8)));
+
+    $db->statement('CREATE TABLE chars (c VARCHAR(1) NOT NULL) DEFAULT CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci');
+    $db->table('chars')->insert(array_map(fn ($c) => ['c' => $c], $printable));
+    // equal under the collation, different as bytes: the case pairs, 26 letters x 2 orders, and nothing else
+    $equalButDifferent = $db->select('SELECT a.c AS a, b.c AS b FROM chars a JOIN chars b ON a.c = b.c WHERE CAST(a.c AS BINARY) <> CAST(b.c AS BINARY)');
+    $notCasePairs = array_filter($equalButDifferent, fn ($r) => strtolower($r->a) !== strtolower($r->b));
+    $out('(2) the comparison sees the case pairs (52 ordered pairs equal under the collation and different as bytes) ...', count($equalButDifferent) === 52, count($equalButDifferent) . ' pairs');
+    $out('(2) ... and two printable ASCII characters are equal under the collation ONLY as a case pair (94 x 94 pairs compared)',
+        $notCasePairs === [], implode(' ', array_map(fn ($r) => json_encode($r->a . $r->b), array_slice($notCasePairs, 0, 8))));
+    $contractions = (int) $db->selectOne('SELECT COUNT(*) AS n FROM chars a JOIN chars b JOIN chars c ON CONCAT(a.c, b.c) = c.c')->n;
+    $out('(3) no sequence of two printable ASCII characters is equal to one (94 x 94 x 94 compared)', $contractions === 0, "{$contractions} contractions");
     printf("         control bytes that DO fold (so a name holding one must go to the engine): %s\n",
         $controlFolds === [] ? 'none' : implode(' ', array_map(fn ($b) => sprintf('0x%02X', $b), array_keys($controlFolds))));
 
@@ -180,12 +198,24 @@ try {
         ['an accented host VALUE', 'domains', "v\u{00ED}ctim-shop.example.test"],
         ['an accented sub-domain name', "subd\u{00F3}main", $victimHost],
         ['a control byte inside the name', "dom\x01ains", $victimHost],
-    ] as [$label, $name, $value]) {
+        // `settings.name` is VARCHAR(255) and production runs with strict => false: MySQL stores the name CUT to 255 characters, and the
+        // spaces that remain are PAD SPACE -- this one is stored as `domains`, while the hook saw an unrelated name
+        ['an over-long host-name that is stored cut to 255 characters', 'domains' . str_repeat(' ', 300) . 'x', $victimHost],
+        ['an over-long sub-domain name', 'subdomain' . str_repeat(' ', 300) . 'x', $victimHost],
+        // non-strict MySQL also cuts a name at the first byte that is not valid UTF-8 (measured: `domains\xFFx` is stored as `domains`)
+        ['an invalid UTF-8 byte after the name', "domains\xFFx", $victimHost, true],
+        ['a truncated multi-byte sequence after the name', "domains\xC3", $victimHost, true],
+    ] as $case) {
+        [$label, $name, $value] = $case;
+        $knownToFold = $case[3] ?? null;
         $before = $snapshot(1);
         $refusal = $writer($name, $value, 1);
         // A spelling this server does not fold is just another name: it is saved, and the assertion that matters is the last one of the
         // section (the lookup is still the victim's). A spelling it DOES fold must be refused.
-        $mustRefuse = $name === 'domains' || $folds($name, 'domains') || $folds($name, 'subdomain');
+        $stored = mb_substr($name, 0, 255);   // what a VARCHAR(255) keeps
+        // (the last two cases are stored cut at the invalid byte -- measured, and the answer a SELECT on the raw string gives is NULL, so
+        // they are marked here rather than derived)
+        $mustRefuse = $knownToFold ?? ($name === 'domains' || $folds($stored, 'domains') || $folds($stored, 'subdomain'));
         if ($mustRefuse) {
             $out("{$label} ({$name} = {$value}) is refused", $refusal !== null, $refusal === null ? 'NOT REFUSED; store 1 now: ' . $snapshot(1) : '');
             $out('   ...and store 1\'s rows are unchanged', $snapshot(1) === $before, $snapshot(1));
@@ -209,6 +239,7 @@ try {
         ['an accented flag name', "enabl\u{00E9}_domain", 'on'],
         ['an accented flag name AND value', "enabl\u{00E9}_domain", "\u{00F3}n"],
         ['an upper-case flag value', 'enable_domain', 'ON'],
+        ['an over-long flag name that is stored cut to 255 characters', 'enable_domain' . str_repeat(' ', 300) . 'x', 'on'],
     ] as [$label, $name, $value]) {
         $before = $snapshot(4);
         $refusal = $writer($name, $value, 4);

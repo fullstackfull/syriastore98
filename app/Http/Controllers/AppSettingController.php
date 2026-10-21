@@ -753,7 +753,13 @@ if ($mayChangeRouting) {
         $appHost = parse_url('http://' . preg_replace('#^https?://#', '', trim((string) env('APP_URL'), '/')), PHP_URL_HOST);
         $claimedHost = $appHost ? strtolower(trim((string) $request->subdomain)) . '.' . preg_replace('/^www\./', '', $appHost) : null;
     }
-    if ($claimedHost && \App\Services\HostClaims::heldByAnotherStore($claimedHost, $store->id)) {
+    // A host the store ALREADY has switched on and is merely re-saving is not a claim (the model hook lets it through for the same
+    // reason): without this a store that is in a duplicate from before the fix could not save the Custom tab at all.
+    $alreadyServing = ($request->enable_domain === 'enable_domain' && $oldCustomDomainEnabled
+            && \App\Services\HostClaims::normalise((string) $oldDomain) === \App\Services\HostClaims::normalise((string) $claimedHost))
+        || ($request->enable_domain === 'enable_subdomain' && ($settings['enable_subdomain'] ?? 'off') === 'on'
+            && \App\Services\HostClaims::normalise((string) ($settings['subdomain'] ?? '')) === \App\Services\HostClaims::normalise((string) $claimedHost));
+    if ($claimedHost && ! $alreadyServing && \App\Services\HostClaims::heldByAnotherStore($claimedHost, $store->id)) {
         return redirect()->back()->with('error', __('This domain is already used by another store.'));
     }
 }
@@ -1133,20 +1139,29 @@ if ($mayChangeRouting && $request->enable_domain === 'enable_subdomain') {
         $post = array_merge(array_intersect_key($post, ['domains' => true]), $post);
 
         $settingQuery = Setting::query();
-        foreach ($post as $key => $data) {
-            (clone $settingQuery)->updateOrCreate(
-                [
-                    'name' => $key,
-                    'store_id'      => getCurrentStore(),
-                    'created_by' => auth()->user()->id
-                ],
-                [
-                    'value'         => $data,
-                    'name'          => $key,
-                    'store_id'      => getCurrentStore(),
-                    'created_by'    => auth()->user()->id,
-                ]
-            );
+        // P1-SEC-29: all or nothing. The Setting model refuses a host another store holds (App\Services\HostClaims); without a transaction
+        // the keys written before the refused one stay saved, and the merchant is left half-applied with no message (this page prints
+        // session('error'), not $errors).
+        try {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($post, $settingQuery) {
+                foreach ($post as $key => $data) {
+                    (clone $settingQuery)->updateOrCreate(
+                        [
+                            'name' => $key,
+                            'store_id'      => getCurrentStore(),
+                            'created_by' => auth()->user()->id
+                        ],
+                        [
+                            'value'         => $data,
+                            'name'          => $key,
+                            'store_id'      => getCurrentStore(),
+                            'created_by'    => auth()->user()->id,
+                        ]
+                    );
+                }
+            });
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return redirect()->back()->with('error', (string) collect($e->errors())->flatten()->first());
         }
 
         return redirect()->back()->with('success', __('Settings successfully updated.'));

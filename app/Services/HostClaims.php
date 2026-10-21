@@ -33,29 +33,50 @@ use Illuminate\Validation\ValidationException;
  * the stored `domains` row, `enablé_domain` IS the flag and a flag value of `ón` IS 'on' -- and a PHP `=== 'domains'` let an owner post
  * them and rewrite the real rows past this hook (review of the first fix; EXECUTED on MySQL 8.0.46:
  * tests/Support/Security/bin/verify-host-claims-on-mysql.php; SQLite compares bytes, so the suite cannot show it). A name or value that is
- * plain printable ASCII can only fold by case and by surrounding spaces -- measured by that script for every character at every
- * position -- so those take the PHP path; anything else is put to the engine.
+ * plain printable ASCII can only fold by case and by surrounding spaces -- that script measures, on the server it runs against, that no
+ * such character is ignorable, that two of them are equal only as a case pair and that no two equal one -- so those take the PHP path;
+ * anything else is put to the engine. The name is judged as it will be STORED (cut to the column's 255 characters).
+ *
+ * Six host lookups in app/ go through row(); a seventh, in the vendored ThemeCustomizer module's view composer, cannot be edited
+ * (P1-SEC-31).
  */
 final class HostClaims
 {
     /** the two names that hold a host, and the flag that switches each on */
     private const FLAGS = ['domains' => 'enable_domain', 'subdomain' => 'enable_subdomain'];
 
+    /** the length of `settings.name` (database/migrations/2023_12_11_100148_create_settings_table.php: a plain string() column) */
+    private const NAME_LENGTH = 255;
+
+    /**
+     * The bare host a stored or posted value means. It reads a value the way the hosting-panel block of ThemeSettings does (trim `/`,
+     * prefix `http://` when there is no scheme, parse_url's host) so the early check and the panel agree on EVERY spelling -- a leading
+     * slash, several `@`, a port, a query -- and then drops the root dot (`shop.example.` is the DNS name `shop.example`; Symfony accepts
+     * it as a Host) and `www.`. A value parse_url cannot read falls back to cutting at the first `/ ? #`, user-info and port.
+     */
     public static function normalise(string $host): string
     {
         $host = strtolower(trim($host));
-        $host = preg_replace('#^[a-z][a-z0-9+.-]*://#', '', $host) ?? $host;
-        $host = preg_split('#[/?\#]#', $host, 2)[0];             // path, query, fragment
-        $host = preg_replace('#^[^@]*@#', '', $host) ?? $host;     // user:password@
-        $host = preg_replace('#:\d*$#', '', $host) ?? $host;       // :port -- the panel block saves parse_url()'s host, which has none
+        $trimmed = trim($host, '/');
+        $parts = parse_url(preg_match('#^[a-z][a-z0-9+.-]*://#', $trimmed) ? $trimmed : 'http://' . $trimmed);
 
-        return str_replace('www.', '', $host);
+        if (is_array($parts) && isset($parts['host']) && $parts['host'] !== '') {
+            $host = $parts['host'];
+        } else {
+            $host = preg_replace('#^[a-z][a-z0-9+.-]*://#', '', $host) ?? $host;
+            $host = preg_split('#[/?\#]#', $host, 2)[0];
+            $host = preg_replace('#^[^@]*@#', '', $host) ?? $host;
+            $host = preg_replace('#:\d*$#', '', $host) ?? $host;
+        }
+
+        return rtrim(str_replace('www.', '', $host), '.');
     }
 
     /** The row that makes `$host` this store's, when its store has the matching flag on; null otherwise. A stdClass (properties as the columns). */
     public static function row(string $name, string $host): ?object
     {
         $flag = self::FLAGS[$name];
+        $host = rtrim($host, '.');   // the root dot: `shop.example.` is the DNS name `shop.example`
 
         return DB::table('settings')
             ->where('settings.name', $name)
@@ -148,9 +169,17 @@ final class HostClaims
         return preg_match('/[^\x21-\x7E]/', trim($text, ' ')) !== 1;
     }
 
-    /** Which of the four names is this?  Null for any other. A non-plain name is asked of the engine the lookups run on. */
+    /**
+     * Which of the four names is this?  Null for any other. A non-plain name is asked of the engine the lookups run on.
+     *
+     * The name is judged as it will be STORED. `settings.name` is VARCHAR(255) and production runs with `strict => false`, so MySQL keeps
+     * the first 255 characters and the spaces that remain are PAD SPACE: `domains` + 300 spaces + `x` is stored as `domains`
+     * (EXECUTED on MySQL 8.0.46 -- verify-host-claims-on-mysql.php; found by the second review of this fix).
+     */
     private static function canonicalName(string $name): ?string
     {
+        $name = self::asStored($name);
+
         if (self::plain($name)) {
             $normal = strtolower(trim($name, ' '));
 
@@ -161,6 +190,24 @@ final class HostClaims
             . "when 'enable_domain' then 'enable_domain' when 'enable_subdomain' then 'enable_subdomain' end as n", [$name]);
 
         return $row->n ?? null;
+    }
+
+    /**
+     * The name as the column keeps it. Non-strict MySQL stores the first 255 characters, and ends the value at the first byte that is
+     * not valid UTF-8 (EXECUTED on 8.0.46 through the native prepared statements Laravel uses: `domains\xFFx` is stored as `domains`,
+     * while the hook's own SELECT on that string answered NULL -- verify-host-claims-on-mysql.php, which failed on it before this).
+     */
+    private static function asStored(string $name): string
+    {
+        // 255 characters are at most 1020 bytes; the rest can only matter if everything before it is valid
+        $name = substr($name, 0, 4 * self::NAME_LENGTH + 4);
+
+        if (! mb_check_encoding($name, 'UTF-8')) {
+            preg_match('/\A(?:[\x00-\x7F]|[\xC2-\xDF][\x80-\xBF]|\xE0[\xA0-\xBF][\x80-\xBF]|[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}|\xED[\x80-\x9F][\x80-\xBF]|\xF0[\x90-\xBF][\x80-\xBF]{2}|[\xF1-\xF3][\x80-\xBF]{3}|\xF4[\x80-\x8F][\x80-\xBF]{2})*/', $name, $valid);
+            $name = $valid[0] ?? '';
+        }
+
+        return mb_substr($name, 0, self::NAME_LENGTH, 'UTF-8');
     }
 
     /** Is this flag value 'on' to the lookups?  (`f.value = 'on'` in SQL.) */
