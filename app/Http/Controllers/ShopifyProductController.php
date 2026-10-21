@@ -215,11 +215,11 @@ class ShopifyProductController extends Controller
                                 $file_size = 0;
                                 try{
                                     $file_url = str_replace("\0", '', $url);
-                                    $get_file = \Illuminate\Support\Facades\Http::head($file_url);
+                                    $get_file = \App\Services\SafeRemoteFetch::head($file_url);
                                     $file_size = $get_file->header('Content-Length');
                                 } catch(\Exception $e)
                                 {
-                                    return redirect()->back()->with('error', $e);
+                                    return redirect()->back()->with('error', $e->getMessage());
                                 }
                                 $result = Utility::updateStorageLimit(\Auth::user()->creatorId(), $file_size);
                                 if ($result != 1) {
@@ -404,11 +404,11 @@ class ShopifyProductController extends Controller
                                     $file_size = 0;
                                     try{
                                         $file_url = str_replace("\0", '', $url);
-                                        $get_file = \Illuminate\Support\Facades\Http::head($file_url);
+                                        $get_file = \App\Services\SafeRemoteFetch::head($file_url);
                                         $file_size = $get_file->header('Content-Length');
                                     } catch(\Exception $e)
                                     {
-                                        return redirect()->back()->with('error', $e);
+                                        return redirect()->back()->with('error', $e->getMessage());
                                     }
                                     $result = Utility::updateStorageLimit(\Auth::user()->creatorId(), $file_size);
                                     if ($result != 1) {
@@ -509,11 +509,11 @@ class ShopifyProductController extends Controller
                                 $file_size = 0;
                                 try{
                                     $file_url = str_replace("\0", '', $url);
-                                    $get_file = \Illuminate\Support\Facades\Http::head($file_url);
+                                    $get_file = \App\Services\SafeRemoteFetch::head($file_url);
                                     $file_size = $get_file->header('Content-Length');
                                 } catch(\Exception $e)
                                 {
-                                    return redirect()->back()->with('error', $e);
+                                    return redirect()->back()->with('error', $e->getMessage());
                                 }
                                 $result = Utility::updateStorageLimit(\Auth::user()->creatorId(), $file_size);
                                 if ($result != 1) {
@@ -725,11 +725,11 @@ class ShopifyProductController extends Controller
                                     $file_size = 0;
                                     try{
                                         $file_url = str_replace("\0", '', $url);
-                                        $get_file = \Illuminate\Support\Facades\Http::head($file_url);
+                                        $get_file = \App\Services\SafeRemoteFetch::head($file_url);
                                         $file_size = $get_file->header('Content-Length');
                                     } catch(\Exception $e)
                                     {
-                                        return redirect()->back()->with('error', $e);
+                                        return redirect()->back()->with('error', $e->getMessage());
                                     }
                                     $result = Utility::updateStorageLimit(\Auth::user()->creatorId(), $file_size);
                                     if ($result != 1) {

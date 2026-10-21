@@ -2164,8 +2164,9 @@ class Utility extends Model
                 }
 
 
-                $request = str_replace("\0", '', $request);
-                $file = file_get_contents($request);
+                // P1-SEC-06: the address comes from a remote payload the caller controls; nothing is written unless it passes
+                // App\Services\SafeRemoteFetch (http/https only, no private or metadata address, pinned, redirects re-checked, size-capped).
+                $file = \App\Services\SafeRemoteFetch::contents($request);
                 if ($settings['storage_setting'] == 'local') {
                     $path = Str::finish($path, '/');
                     $save = Storage::disk('theme')->put($path . '/' . $name, $file);

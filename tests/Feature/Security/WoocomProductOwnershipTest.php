@@ -59,6 +59,8 @@ class WoocomProductOwnershipTest extends SecurityTestCase
 
     protected function tearDown(): void
     {
+        \App\Services\SafeRemoteFetch::resolveUsing(null);
+
         foreach ($this->scratch as $path) {
             if (is_file($path)) {
                 @unlink($path);
@@ -187,19 +189,16 @@ class WoocomProductOwnershipTest extends SecurityTestCase
 
         \Illuminate\Support\Facades\Storage::fake('theme');
         \Illuminate\Support\Facades\Http::fake([
-            '*' => \Illuminate\Support\Facades\Http::response('', 200, ['Content-Length' => '10']),
+            '*' => \Illuminate\Support\Facades\Http::response('x', 200, ['Content-Length' => '10']),
         ]);
 
-        // tempnam() CREATES the file at the unsuffixed path, so BOTH paths need cleaning up --
-        // tracking only the suffixed one left an empty woosrc* file behind per test. Raised by
-        // review; this file already had a tearDown for exactly this class of leak.
-        $stub = tempnam(sys_get_temp_dir(), 'woosrc');
-        $src = $stub . '.jpg';
-        file_put_contents($src, 'x');
-        $this->scratch[] = $stub;
-        $this->scratch[] = $src;
+        // P1-SEC-06: the image is now fetched through App\Services\SafeRemoteFetch, which accepts http/https only and refuses a private
+        // address. This fixture used to hand the handler a LOCAL FILE PATH for file_get_contents() -- exactly what the SSRF fix closes --
+        // so it now hands it a public URL whose host "resolves" to a public address; the faked HTTP client answers both the size probe and
+        // the download, and nothing touches the network.
+        \App\Services\SafeRemoteFetch::resolveUsing(fn () => ['93.184.216.34']);
 
-        return $src;
+        return 'https://img.example.test/p.jpg';
     }
 
     /**
