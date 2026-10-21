@@ -4148,10 +4148,12 @@ private function webhook_backup($order, $r, $products_weight = []) {
         }
 
         try {
-            $siteCode = \App\Models\Utility::GetValueByName('ozow_pay_Site_key') ? \App\Models\Utility::GetValueByName('ozow_pay_Site_key') : '';
-            $privateKey = \App\Models\Utility::GetValueByName('ozow_pay_private_key') ? \App\Models\Utility::GetValueByName('ozow_pay_private_key') : '';
-            $apiKey = \App\Models\Utility::GetValueByName('ozow_pay_api_key') ? \App\Models\Utility::GetValueByName('ozow_pay_api_key') : '';
-            $isTest = \App\Models\Utility::GetValueByName('ozow_mode') == 'sandbox' ? 'true' : 'false';
+            // The store's own credentials, by id -- like the currency above. A read that names no store has no store_id
+            // predicate and returns the last tenant's row (P1-SEC-18 F4); the route fallback covers it, this does not depend on it.
+            $siteCode = \App\Models\Utility::GetValueByName('ozow_pay_Site_key', $store->id) ?: '';
+            $privateKey = \App\Models\Utility::GetValueByName('ozow_pay_private_key', $store->id) ?: '';
+            $apiKey = \App\Models\Utility::GetValueByName('ozow_pay_api_key', $store->id) ?: '';
+            $isTest = \App\Models\Utility::GetValueByName('ozow_mode', $store->id) == 'sandbox' ? 'true' : 'false';
 
             $countryCode = "ZA";
             $currencyCode = $currency;
@@ -4234,10 +4236,11 @@ private function webhook_backup($order, $r, $products_weight = []) {
         
         $other_info = is_string($request->billing_info) ? (array) json_decode($request->billing_info) : $request->billing_info;
 
-        $currency = \App\Models\Utility::GetValueByName('CURRENCY_NAME');
-        $easebuzz_merchant_key = \App\Models\Utility::GetValueByName('easebuzz_merchant_key');
-        $easebuzz_salt_key = \App\Models\Utility::GetValueByName('easebuzz_salt_key');
-        $easebuzz_enviroment_name = \App\Models\Utility::GetValueByName('easebuzz_enviroment_name');
+        // By the store's id (P1-SEC-18 F4): a read naming no store returns the last tenant's row.
+        $currency = \App\Models\Utility::GetValueByName('CURRENCY_NAME', $store->id);
+        $easebuzz_merchant_key = \App\Models\Utility::GetValueByName('easebuzz_merchant_key', $store->id);
+        $easebuzz_salt_key = \App\Models\Utility::GetValueByName('easebuzz_salt_key', $store->id);
+        $easebuzz_enviroment_name = \App\Models\Utility::GetValueByName('easebuzz_enviroment_name', $store->id);
 
         $orderID = $request->customer_id . date('YmdHis');
 

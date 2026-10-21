@@ -362,6 +362,11 @@ if (!function_exists('getAdminAllSetting')) {
         if (isset($user->type) && !in_array($user->type, ['admin', 'super admin'])) {
             $user = User::find($user->created_by);
         }
+        // P1-SEC-18 F4: with no user and no store named, the last branch below serves the LOWEST-ID MERCHANT ON THE PLATFORM
+        // to whoever asked. A shopper's request is addressed to a store -- use it; null keeps the old behaviour.
+        if (empty($user) && empty($store_id)) {
+            $store_id = getRouteStoreId();
+        }
         if (!empty($user)) {
             $store_id = $store_id ?? $user->current_store;
             $store = Store::find($store_id);
@@ -2406,6 +2411,60 @@ if (! function_exists('getStore')) {
     function getStore($storeSlug = null)
     {
         return Store::where('slug', $storeSlug ?? request()->route('storeSlug'))->first();
+    }
+}
+
+if (! function_exists('getRouteStoreId')) {
+    /**
+     * The id of the store the CURRENT REQUEST is addressed to, taken from its route -- or null.
+     *
+     * P1-SEC-18 F4. A shopper (guest, or on the `customers` guard) is not the `web` guard's user, so `getCurrentStore()` is
+     * null for them, and a settings read that names no store then ran with NO `store_id` predicate: every tenant's rows,
+     * last one wins -- a shopper at store A was handed store C's gateway key. The storefront's own route already says which
+     * store the request is for; this is the same source `getStore()` uses.
+     *
+     * `storeSlug` always names a store. `slug` names one ONLY as the first path segment (`{slug}/...`, `api/{slug}/...` --
+     * the storefront API): `marketplace/{slug}`, `landing-pages/{slug}`, `add-on/details/{slug}` and
+     * `{storeSlug}/article/{slug}` reuse the parameter name for a page, an add-on or an article, and a page slug that
+     * happens to equal a store's slug must not select that store's credentials.
+     *
+     * An unknown slug, a route with neither parameter, and a request with no route (console, queue) all return null, and
+     * the caller keeps its previous behaviour -- which for an unknown slug is still the all-tenant read; every storefront
+     * handler refuses an unknown slug through getStore() before it uses a credential (P1-SEC-18 review, not fail-closed here
+     * on purpose: a sentinel id would turn "wrong slug" into a 500 wherever a handler reads a setting without isset()).
+     *
+     * Memoised on the request, KEYED BY THE SLUG: HomeController re-points `storeSlug` with route()->setParameter() after the
+     * route has matched (custom-domain and subdomain landing), so a memo that ignored the slug would keep the first answer.
+     */
+    function getRouteStoreId(): ?int
+    {
+        $request = request();
+        $route = $request?->route();
+        if (! $route instanceof \Illuminate\Routing\Route) {
+            return null;
+        }
+
+        $slug = $route->parameter('storeSlug');
+        if (! is_string($slug) || $slug === '') {
+            $segments = explode('/', ltrim($route->uri(), '/'));
+            if (($segments[0] ?? '') === 'api') {
+                array_shift($segments);
+            }
+            $slug = in_array($segments[0] ?? '', ['{slug}', '{slug?}'], true) ? $route->parameter('slug') : null;
+        }
+
+        if (! is_string($slug) || $slug === '') {
+            return null;
+        }
+
+        $memo = $request->attributes->get('_route_store_ids', []);
+        if (! array_key_exists($slug, $memo)) {
+            $storeId = Store::where('slug', $slug)->value('id');
+            $memo[$slug] = $storeId ? (int) $storeId : null;
+            $request->attributes->set('_route_store_ids', $memo);
+        }
+
+        return $memo[$slug];
     }
 }
 

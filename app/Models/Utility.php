@@ -180,8 +180,8 @@ class Utility extends Model
 
     public static function GetValueByName($name = '', $store_id = '')
     {
-        // Set the store_id if not provided
-        $store_id = !empty($store_id) ? $store_id : getCurrentStore();
+        // Set the store_id if not provided: the web-guard store, else the one the request is addressed to (P1-SEC-18 F4, see getRouteStoreId())
+        $store_id = !empty($store_id) ? $store_id : (getCurrentStore() ?: getRouteStoreId());
         $return = null;
         if (!empty($name)) {
             // Initialize the query
