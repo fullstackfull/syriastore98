@@ -184,6 +184,13 @@ $u->save();
 
     public function StorageSettings(Request $request)
     {
+        // P1-SEC-30: a fixed-name credential writer. The menu hides this tab from a user without the Settings permission; the route did not,
+        // so any logged-in user of the store reached it by URL. Operator first, the store owner, then `Manage Setting`
+        // (App\Services\StoreSettingsAccess::permits), and a refusal is a redirect with an error, never a 401.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'storage_setting']);
         $theme_id = APP_THEME();
         if (isset($request->storage_setting) && $request->storage_setting == 'local') {
@@ -911,6 +918,13 @@ $u->save();
 
     public function WoocommerceSettings(Request $request)
     {
+        // P1-SEC-30: a fixed-name credential writer. The menu hides this tab from a user without the Settings permission; the route did not,
+        // so any logged-in user of the store reached it by URL. Operator first, the store owner, then `Manage Setting`
+        // (App\Services\StoreSettingsAccess::permits), and a refusal is a redirect with an error, never a 401.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'woocom_setting']);
         $theme_id = !empty(APP_THEME()) ? APP_THEME() : '';
 
@@ -960,6 +974,13 @@ $u->save();
 
     public function shopifySettings(Request $request)
     {
+        // P1-SEC-30: a fixed-name credential writer. The menu hides this tab from a user without the Settings permission; the route did not,
+        // so any logged-in user of the store reached it by URL. Operator first, the store owner, then `Manage Setting`
+        // (App\Services\StoreSettingsAccess::permits), and a refusal is a redirect with an error, never a 401.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'shopify_setting']);
         $theme_id = !empty(APP_THEME()) ? APP_THEME() : '';
 
@@ -1168,6 +1189,13 @@ $u->save();
 
     public function WhatsappSettings(Request $request)
     {
+        // P1-SEC-30: a fixed-name credential writer. The menu hides this tab from a user without the Settings permission; the route did not,
+        // so any logged-in user of the store reached it by URL. Operator first, the store owner, then `Manage Setting`
+        // (App\Services\StoreSettingsAccess::permits), and a refusal is a redirect with an error, never a 401.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'whatsapp_setting']);
         $theme_id = !empty(APP_THEME()) ? APP_THEME() : '';
 
@@ -1229,6 +1257,13 @@ $u->save();
 
     public function whatsapp_notification_setting(Request $request)
     {
+        // P1-SEC-30: a fixed-name credential writer. The menu hides this tab from a user without the Settings permission; the route did not,
+        // so any logged-in user of the store reached it by URL. Operator first, the store owner, then `Manage Setting`
+        // (App\Services\StoreSettingsAccess::permits), and a refusal is a redirect with an error, never a 401.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'whatsapp_notify_setting']);
         $theme_id = !empty(APP_THEME()) ?  APP_THEME() : '';
 
@@ -1342,6 +1377,13 @@ $u->save();
 
     public function TwilioSettings(Request $request)
     {
+        // P1-SEC-30: a fixed-name credential writer. The menu hides this tab from a user without the Settings permission; the route did not,
+        // so any logged-in user of the store reached it by URL. Operator first, the store owner, then `Manage Setting`
+        // (App\Services\StoreSettingsAccess::permits), and a refusal is a redirect with an error, never a 401.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'twilio_setting']);
         $theme_id = !empty(App_THEME()) ? APP_THEME() : '';
         $post['twilio_setting_enabled'] = $request->twilio_setting_enabled;

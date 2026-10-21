@@ -1169,6 +1169,13 @@ if ($mayChangeRouting && $request->enable_domain === 'enable_subdomain') {
 
     public function FirebaseSettings(Request $request)
     {
+        // P1-SEC-30: a fixed-name credential writer. The menu hides this tab from a user without the Settings permission; the route did not,
+        // so any logged-in user of the store reached it by URL. Operator first, the store owner, then `Manage Setting`
+        // (App\Services\StoreSettingsAccess::permits), and a refusal is a redirect with an error, never a 401.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put('app_setting_tab', $request->app_setting_tab);
         
         $firebase_enabled = !empty($request->firebase_enabled) ? $request->firebase_enabled : 'off';
