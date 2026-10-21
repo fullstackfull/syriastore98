@@ -164,6 +164,36 @@ class NullCookieCartTest extends SecurityTestCase
         $this->assertSame(1, self::rows($w['a']), 'A guest\'s cart-remove reached a customer\'s basket line.');
     }
 
+    // -- the logged-in arm of cart-remove: the row id is the REQUEST's ---------------------------
+
+    /**
+     * `cart_remove`'s logged-in arm did `Cart::where('id', $request->cart_id)->first()` and deleted it, with no check
+     * that the row is the caller's. Cart ids are sequential integers and Cart is store-scoped, so any logged-in
+     * customer could delete any other customer's basket line in their own store. (change-cart is NOT open: it resolves
+     * the principal and refuses -- probed; this one never did.)
+     */
+    public function test_a_logged_in_customer_cannot_remove_another_customers_cart_line_by_id(): void
+    {
+        $w = $this->world();
+        $row = Cart::forceCreate(['customer_id' => $w['b']->id, 'product_id' => $w['p']->id, 'variant_id' => 0, 'qty' => 1, 'price' => 10, 'store_id' => $w['store']->id]);
+
+        $response = $this->actingAs($w['a'], 'customers')->post('/' . $w['store']->slug . '/cart-remove', ['cart_id' => $row->id]);
+
+        $response->assertOk();
+        $this->assertTrue(DB::table('carts')->where('id', $row->id)->exists(), 'A customer deleted another customer\'s basket line by its id.');
+        $this->assertSame(1, self::rows($w['a']), 'Premise: the caller\'s own line is untouched too.');
+    }
+
+    public function test_a_logged_in_customer_can_still_remove_their_own_cart_line_by_id(): void
+    {
+        $w = $this->world();
+        $own = (int) DB::table('carts')->where('customer_id', $w['a']->id)->value('id');
+
+        $this->actingAs($w['a'], 'customers')->post('/' . $w['store']->slug . '/cart-remove', ['cart_id' => $own])->assertOk();
+
+        $this->assertFalse(DB::table('carts')->where('id', $own)->exists(), 'The customer\'s own line was not removed (control).');
+    }
+
     // -- login -------------------------------------------------------------------------------
 
     public function test_logging_in_without_a_cookie_takes_over_nobody_elses_basket(): void

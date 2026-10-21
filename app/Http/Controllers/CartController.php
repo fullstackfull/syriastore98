@@ -96,7 +96,10 @@ class CartController extends Controller
             $cart = Cart::forGuestCookie($Carts)->where('product_id',$request->product_id)->where('variant_id',$request->variant_id)->delete();
             Cookie::queue('cart', $Carts, 1440);
         } else {
-            $cart = Cart::where('id', $request->cart_id)->first();
+            // P1-SEC-24. The row is looked up THROUGH the caller's own basket: the id is the request's, cart ids are
+            // sequential, and Cart is store-scoped, so without the customer predicate any logged-in customer could
+            // delete any other customer's basket line in the store.
+            $cart = Cart::forCustomer(auth('customers')->id())->where('id', $request->cart_id)->first();
 
             // activity log
             if ($cart && $store) {
