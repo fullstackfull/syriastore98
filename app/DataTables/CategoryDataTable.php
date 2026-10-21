@@ -56,7 +56,11 @@ class CategoryDataTable extends DataTable
                 return $iconPath;
             })
             ->editColumn('parent_id', function (Category $category) {
-                return optional($category->parent_category)->name ?? '-';
+                // P1-INV-11: the relation is unscoped, so a parent_id written before the controller validated it could name another store's
+                // category. Only a parent of the SAME store is printed.
+                $parent = $category->parent_category;
+
+                return ($parent && (int) $parent->store_id === (int) $category->store_id) ? $parent->name : '-';
             })
             ->filterColumn('parent_id', function ($query, $keyword) {
                 $query->whereHas('parent_category', function ($q) use ($keyword) {

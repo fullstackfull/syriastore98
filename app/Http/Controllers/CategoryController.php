@@ -65,6 +65,12 @@ class CategoryController extends Controller
                 return redirect()->back()->with('error', $messages->first());
             }
 
+            // P1-INV-11. The parent is validated BEFORE any upload or write.
+            $parentId = $this->resolveParentId($request->input('parent_id'), null);
+            if ($parentId === null) {
+                return redirect()->back()->with('error', __('The parent category is not valid.'));
+            }
+
             $dir        = 'uploads/' . getCurrentStore();
             $totalImageSize = 0;
             if ($request->hasFile('image')) {
@@ -120,7 +126,7 @@ class CategoryController extends Controller
             $Category->image_url    = $path['full_url'];
             $Category->image_path   = $path['url'];
             $Category->icon_path    = $paths['url'];
-            $Category->parent_id    = $request->parent_id ?? 0;
+            $Category->parent_id    = $parentId;
             $Category->trending     = $request->trending;
             $Category->status       = $request->status;
             $Category->store_id     = getCurrentStore();
@@ -214,6 +220,12 @@ class CategoryController extends Controller
                 $messages = $validator->getMessageBag();
                 return redirect()->back()->with('error', $messages->first());
             }
+            // P1-INV-11. The parent is validated BEFORE any upload or write.
+            $parentId = $this->resolveParentId($request->input('parent_id'), $category);
+            if ($parentId === null) {
+                return redirect()->back()->with('error', __('The parent category is not valid.'));
+            }
+
             $dir        = 'uploads/' . getCurrentStore();
 
             $Category = $category;
@@ -278,7 +290,7 @@ class CategoryController extends Controller
             }
 
             $Category->slug         =  'collections/' . strtolower(preg_replace("/[^\w]+/", "-", $request->name));
-            $Category->parent_id    = $request->parent_id ?? 0;
+            $Category->parent_id    = $parentId;
             $Category->trending     = $request->trending;
             $Category->status       = $request->status;
             $Category->save();
@@ -289,6 +301,58 @@ class CategoryController extends Controller
         {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
+    }
+
+    /**
+     * The parent a request may give a category, or null when the request's value is not acceptable. P1-INV-11.
+     *
+     * 0 / absent / empty means top level. Anything else must be a plain positive integer (a string such as '5abc' is read as 5 by MySQL in a
+     * comparison, so it is refused here rather than coerced) naming a category in the caller's OWN store - the same predicate as
+     * categoryIsOutsideCurrentStore(), so the platform operator is handled as in P1-INV-08 - and, on an update, neither the category itself
+     * nor one of its descendants (either would store a cycle, and buildCategoryTree() would recurse on it).
+     */
+    private function resolveParentId($value, $self): ?int
+    {
+        if ($value === null || $value === '' || $value === 0 || $value === '0') {
+            return 0;
+        }
+
+        if (is_int($value)) {
+            $value = (string) $value;
+        }
+
+        if (! is_string($value) || ! ctype_digit($value) || strlen($value) > 18) {
+            return null;
+        }
+
+        $parentId = (int) $value;
+
+        if ($parentId === 0) {
+            return 0;
+        }
+
+        $parent = Category::find($parentId);
+
+        if ($parent === null || $this->categoryIsOutsideCurrentStore($parent)) {
+            return null;
+        }
+
+        if ($self !== null) {
+            // walk UP from the proposed parent: reaching the category itself means the parent is the category or one of its descendants
+            $seen = [];
+            $cursor = $parent;
+
+            while ($cursor !== null && ! isset($seen[$cursor->id])) {
+                if ((int) $cursor->id === (int) $self->id) {
+                    return null;
+                }
+
+                $seen[$cursor->id] = true;
+                $cursor = empty($cursor->parent_id) ? null : Category::find($cursor->parent_id);
+            }
+        }
+
+        return $parentId;
     }
 
     /**

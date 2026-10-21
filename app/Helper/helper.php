@@ -2595,16 +2595,18 @@ if (! function_exists('buildMenuTree')) {
 }
 
 if (! function_exists('buildCategoryTree')) {
-    function buildCategoryTree($categories, $parentId = null, $prefix = '')
+    // $seen is the chain of ids already on the path from the root (P1-INV-11): a parent_id loop written by any writer ends the walk instead of
+    // recursing until the process runs out of memory.
+    function buildCategoryTree($categories, $parentId = null, $prefix = '', array $seen = [])
     {
         $tree = [];
         foreach ($categories as $category) {
-            if ($category->parent_id == $parentId) {
+            if ($category->parent_id == $parentId && ! isset($seen[$category->id])) {
                 $tree[] = [
                     'id' => $category->id,
                     'name' => $prefix.$category->name,
                 ];
-                $tree = array_merge($tree, buildCategoryTree($categories, $category->id, $prefix.'&nbsp;&nbsp;&nbsp;'));
+                $tree = array_merge($tree, buildCategoryTree($categories, $category->id, $prefix.'&nbsp;&nbsp;&nbsp;', $seen + [$category->id => true]));
             }
         }
         return $tree;
