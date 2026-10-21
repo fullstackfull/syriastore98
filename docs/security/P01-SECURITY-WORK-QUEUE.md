@@ -4212,6 +4212,8 @@ from git before any commit; the tests now touch only sandbox paths.
 | MEDIUM (review 2) | an "unchanged" resubmission re-stamped `created_by` (`/seo-setting`) or inserted a second row (`/theme-settings`), which every newest-row reader then prefers over the owner's later edit | **fixed**: an unchanged restricted value is removed from the request, body and query |
 | LOW | integer keys (`where name = 0` matches every non-numeric name on MySQL); a file under `subdomain`; routing rows written by the neutralisation itself | **fixed** |
 | — | refuted by both skeptics: "the neutralising replay is not idempotent" | recorded as a known read-only panel call for an explicit-token post |
+| MEDIUM (review 3) | other routes to the rows P1-SEC-27 protects: the web currency-rate update (`auth` only), the stock and refund tabs' POST targets, `currency_name` in `updateStoreOwnerInfo` (on MySQL it addresses the CURRENCY_NAME row), the social-login audience pins; and the hosting panel was still reachable by a token-less post on a store whose domain is not stored in canonical form | **fixed** in `e8bae382`: each asks `Manage Setting`; the three Webuzo blocks of ThemeSettings run only for a user who may change routing |
+| MEDIUM (review 3, pre-existing) | ordinary Store Setting saves by staff re-stamp `created_by` on the owner's rows, so the owner's screen shows them blank | **P1-PLT-07** |
 
 **Not closed, and why it matters**
 
