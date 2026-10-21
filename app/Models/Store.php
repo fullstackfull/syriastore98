@@ -31,6 +31,18 @@ class Store extends Model
         'duo_integration_key'
     ];
 
+    /**
+     * P1-SEC-20. Never serialised. The Duo2FA module adds these two columns to `stores`, and the
+     * Donation and LotteryPrizes payment handlers return `'store' => $store` in JSON to ANONYMOUS
+     * callers, so without this every column of the row -- the Duo secret and integration keys
+     * included -- went out. `$hidden` changes serialisation only: every reader of the Duo values
+     * (LaravelDuo, Duo2FAController, the module's settings form) uses property access and is unaffected.
+     */
+    protected $hidden = [
+        'duo_secret_key',
+        'duo_integration_key',
+    ];
+
     public static function pwa_store($slug)
     {
         $store = getStore($slug);
