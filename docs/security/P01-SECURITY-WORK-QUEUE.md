@@ -4197,6 +4197,35 @@ pinned (it fails, with the instruction to override the view first, if `module_is
 collided with `uploads/<store id>`; then the repository root plus 131 uploads when a mutation re-enabled the glob and a test passed `*`). Both were restored
 from git before any commit; the tests now touch only sandbox paths.
 
+## S46 — The by-name settings writers, and what two reviews found in the first two designs of the fix — **P1-SEC-27 CLOSED; P1-SEC-29, -30, -31 and P1-PLT-06 READY; P1-OWN-11 and -12 BLOCKED (owner)**
+
+*Found 2026-10-21 by the P1-SEC-18 reviews (READ) and closed by P1-SEC-27. Two read-only reviews of the fix followed (the second a four-lens workflow, 74 agents, 35 findings each checked by two skeptics, all READ); the rows marked EXECUTED were run: MySQL 8.0.46 for the collation, the SQLite suite with a recording hosting-panel fake for the rest. Gate: Feature 3544 passed / 2 declared failures / 17 declared skips / 0 errors (the known-outcome assertion exits 0), Unit 339, Contract 26, the five CI guards exit 0 (scan: no credential-shaped literal in 257 changed files), the whole MySQL runner 14 of 14 on MySQL 8.0.46, all on 9c9a232d. The first full Feature run on this tree had ONE new failure -- a P1-SEC-18 test whose premise (staff with no permission storing a poisoned logo row) is exactly what this task closed; its actor was moved to a principal that can still reach the write and the glob mutant still makes it fail*
+
+| # | Finding | State |
+|---|---|---|
+| **HIGH** | Nine web handlers wrote EVERY posted name into `settings` for the caller's store and their routes carry no permission middleware: a user holding NEITHER settings permission could write `MAIL_*`, the Stripe keys, `bank_transfer`, `CURRENCY_NAME` (what a card is charged in), an integration's endpoint (its stored token is sent there) or `domains` | **fixed**: the six Settings-screen handlers require `Manage Setting` outright; the three Store Setting handlers require `Manage Store Setting` and refuse a change to a restricted name without `Manage Setting`; the admin API's six writers answer 403 |
+| **HIGH** (review 1, EXECUTED) | `utf8mb4_unicode_ci` is case-, accent- and PAD-SPACE-insensitive: `Domains`, `DOMAINS`, `domains ` and `dómains` ARE the stored `domains` row, and the writers' `updateOrCreate` rewrote that row **including its name** while the guard compared case-sensitively. SQLite matches none of them — the suite cannot show it | **fixed**: names lower-cased and trimmed, a restricted name in a spelling other than the stored one refused, a non-ASCII / control / integer key refused; `verify-settings-name-collation-on-mysql.php` (in the runner) |
+| **HIGH** (review 1) | ThemeSettings turns a posted TOKEN into on/off flags and Webuzo add/delete calls; any token but `enable_domain` **deletes the stored custom domain**, so the by-name comparison ('on' = 'on') was bypassed | **fixed**: a user without `Manage Setting` is fed the inputs that reproduce the stored state, the five routing names are never written, a differing value is refused |
+| HIGH, regression (review 1) | `_token` is a "secret" by `GatewaySecretRedactor`'s pattern, so every honest browser post by staff was refused; the suite has CSRF off and never posted it | **fixed** |
+| HIGH, regression (review 2) | an ABSENT routing field counted as a change, so the Home and Checkout tabs (which post none) were refused on every custom-domain / sub-domain store — and the first version's test pinned that refusal as correct | **fixed**: only a present, differing value is an attempt |
+| MEDIUM (review 2) | the currency, loyalty, integration-endpoint, local-storage and fourteen gateway-image names were unclassified, so the gates on their dedicated handlers were bypassable through the generic ones | **fixed** |
+| MEDIUM (review 2) | an "unchanged" resubmission re-stamped `created_by` (`/seo-setting`) or inserted a second row (`/theme-settings`), which every newest-row reader then prefers over the owner's later edit | **fixed**: an unchanged restricted value is removed from the request, body and query |
+| LOW | integer keys (`where name = 0` matches every non-numeric name on MySQL); a file under `subdomain`; routing rows written by the neutralisation itself | **fixed** |
+| — | refuted by both skeptics: "the neutralising replay is not idempotent" | recorded as a known read-only panel call for an explicit-token post |
+
+**Not closed, and why it matters**
+
+| Residue | Task |
+|---|---|
+| A holder of `Manage Store Setting` alone can still put raw script on every storefront page, **checkout included** (`storejs`, `storecss`, `google_analytic`, `fbpixel_code` are what the screen exists to edit). Pinned by a test that fails the day it changes | **P1-OWN-12** (owner) |
+| **Any merchant owner can claim another merchant's custom domain or sub-domain**: the host lookup is an unscoped `->first()` and nothing keeps the values unique. EXECUTED: the older store's owner saved the newer store's host and the lookup returned the older store | **P1-SEC-29** |
+| Nine vendored module controllers write `settings` by caller-supplied name with no permission check (four with no auth or module check); cannot be edited, so the control is host-side | **P1-SEC-31** |
+| The fixed-name credential writers (storage, WooCommerce, Shopify, Twilio, WhatsApp, Firebase) and the store's name/e-mail/slug have no permission check | **P1-SEC-30** |
+| Saving the Home or Checkout tab removes the owner's OWN custom domain at the hosting panel (EXECUTED; pre-existing; kept for the owner and permitted staff by P1-SEC-27) | **P1-PLT-06** |
+| The live `settings` indexes, hosts already held by two stores, rows renamed by a case variant — only the owner can read them | **P1-OWN-11** (owner) |
+
+**A thing worth knowing about the process:** the first version of this fix was a deny-list of names, tested only on SQLite, and its first review found three HIGH defects — one of which the suite could not have seen on principle. The second review found the first fix's own regression and that a deny-list cannot be shown complete. The design that shipped puts the PERMISSION on the route and keeps the name rule only where a lower permission legitimately reaches a generic writer. The acceptance criterion that asked for per-writer allow-lists was deliberately not implemented (reasons in the task's evidence).
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**

@@ -3277,25 +3277,25 @@
       "title": "Staff (and any logged-in user of the store) can still write any setting by NAME: gateway and SMTP keys, the bank-transfer destination, domains; the admin API's Cod/Bank/Loyalty/currency writers have no permission check",
       "workstream": "security",
       "risk": "high",
-      "status": "READY",
+      "status": "DONE",
       "issue": 101,
       "scope": [
+        "app/Services/StoreSettingsAccess.php",
         "app/Http/Controllers/SettingController.php",
         "app/Http/Controllers/AppSettingController.php",
         "app/Http/Controllers/Api/DashboardController.php",
-        "app/Models/Setting.php",
-        "routes/web.php",
-        "tests/Feature/Security/"
+        "tests/Feature/Security/",
+        "tests/Feature/Tenancy/RawQueryTenancyInventoryTest.php",
+        "tests/Support/Security/bin/"
       ],
-      "existing_status": "RECORDED by the P1-SEC-18 reviews (READ, and EXECUTED where stated). P1-SEC-18 closes the dedicated doors to the SMTP and Stripe secrets; it does not close the doors that write the same rows BY NAME. (a) `SettingController::CustomizeSetting` (:824), `SystemSettings` (:979), `currencySettings` (:1354), `CookieSettings` (:638), `SEOSetting` (:1764) and `AppSettingController::seoSettings/shippingLabelSettings` take every posted name/value into `settings` for `getCurrentStore()` - no allow-list, no permission (EXECUTED: a staff member stored an arbitrary `logo_dark`). A staff member can set `MAIL_HOST`/`MAIL_USERNAME`/`MAIL_PASSWORD` to their own SMTP server (storefront mail, shoppers' reset links included, then goes through it) or replace the Stripe keys so card payments settle to them; they never need to read the old value. (b) The admin API's `CodPayment`, `BankPayment` (`bank_transfer` is the text shoppers pay into), `LoyalitySetting` and the currency handlers (`updateCurrencyApi` ~:6722-7048) have only resolveOwnedStore() and no permission check. (c) PLAUSIBLE, unexecuted, depends on Webuzo being configured: `AppSettingController::ThemeSettings` reads `domains` and `enable_domain` from the store's own settings (both writable by name) and calls `WebuzoDomainService::deleteDomain($oldDomain)` against the hosting panel. (d) `settings` has NO unique key on (name, store_id) in its migration (2023_12_11_100148), so the API writers' `INSERT ... ON DUPLICATE KEY UPDATE` appends a new row on every save on MySQL unless production differs (owner read-only check: `SHOW INDEX FROM settings`); readers that `pluck` see the newest row, the F6 `->first()` the oldest. (e) `GET /` runs `package:migrate`/`package:seed` on an anonymous request when `display_landing` is on (HomeController:122-126), and `POST custom-msg/{slug?}` is an anonymous settings writer that fails closed only because `Auth::user()->id` null-dereferences (carried over from P1-SEC-18's record).",
+      "existing_status": "RECORDED by the P1-SEC-18 reviews (READ, and EXECUTED where stated). P1-SEC-18 closes the dedicated doors to the SMTP and Stripe secrets; it does not close the doors that write the same rows BY NAME. (a) `SettingController::CustomizeSetting` (:824), `SystemSettings` (:979), `currencySettings` (:1354), `CookieSettings` (:638), `SEOSetting` (:1764) and `AppSettingController::seoSettings/shippingLabelSettings` take every posted name/value into `settings` for `getCurrentStore()` - no allow-list, no permission (EXECUTED: a staff member stored an arbitrary `logo_dark`). A staff member can set `MAIL_HOST`/`MAIL_USERNAME`/`MAIL_PASSWORD` to their own SMTP server (storefront mail, shoppers' reset links included, then goes through it) or replace the Stripe keys so card payments settle to them; they never need to read the old value. (b) The admin API's `CodPayment`, `BankPayment` (`bank_transfer` is the text shoppers pay into), `LoyalitySetting` and the currency handlers (`updateCurrencyApi` ~:6722-7048) have only resolveOwnedStore() and no permission check. (c) PLAUSIBLE, unexecuted, depends on Webuzo being configured: `AppSettingController::ThemeSettings` reads `domains` and `enable_domain` from the store's own settings (both writable by name) and calls `WebuzoDomainService::deleteDomain($oldDomain)` against the hosting panel. (d) `settings` has NO unique key on (name, store_id) in its migration (2023_12_11_100148), so the API writers' `INSERT ... ON DUPLICATE KEY UPDATE` appends a new row on every save on MySQL unless production differs (owner read-only check: `SHOW INDEX FROM settings`); readers that `pluck` see the newest row, the F6 `->first()` the oldest. (e) `GET /` runs `package:migrate`/`package:seed` on an anonymous request when `display_landing` is on (HomeController:122-126), and `POST custom-msg/{slug?}` is an anonymous settings writer that fails closed only because `Auth::user()->id` null-dereferences (carried over from P1-SEC-18's record). CLOSED 2026-10-21 - see the evidence for what two reviews and the tests found beside it, and P1-SEC-29/-30/-31, P1-PLT-06, P1-OWN-11/-12 for what is recorded and not fixed here.",
       "depends_on": [
         "P1-SEC-18"
       ],
       "acceptance": [
-        "Each generic settings writer accepts only the names its screen posts (an allow-list), and a secret-bearing name is only writable through the gated handlers",
+        "The Settings-screen web writers require `Manage Setting`; the Store Setting writers require `Manage Store Setting` and refuse a change to a payment/mail/storage/currency/loyalty/integration/routing name without `Manage Setting` (a restricted-name rule replaces the per-writer allow-list this criterion first named: reasons in the evidence)",
         "The admin API's Cod, Bank, Loyalty and currency writers check StoreSettingsAccess and refuse with a 403",
-        "ThemeSettings cannot be made to delete a domain by a name-written `domains` / `enable_domain`",
-        "The settings table's real indexes are read on the live database and the write path is decided (owner)"
+        "ThemeSettings cannot be made to delete or change a domain by a name-written `domains` / `enable_domain`, by a token, or by a post that carries no routing field"
       ],
       "tests": [
         "Staff POST of MAIL_PASSWORD / stripe_secret_key / bank_transfer by name through each writer is refused or ignored (RED first)",
@@ -3303,11 +3303,12 @@
         "Staff probes with and without `Manage Setting` on the API writers",
         "Removal check on each allow-list and gate"
       ],
-      "compatibility": "An allow-list per generic writer rejects names a screen never posts; a screen that posts an unexpected name would lose it (find them by running every settings form). The permission check on Cod/Bank/Loyalty/currency refuses staff without `Manage Setting` with a 403 (never 401).",
-      "db": "None expected. If a unique key on settings(name, store_id) is added it is a migration and needs the owner (read the live indexes first).",
-      "evidence": "None yet - READY.",
+      "compatibility": "Web, Settings screen: the six generic handlers (business, cookie, customize, system, currency, meta-seo) and the loyalty and currency twins refuse a user without `Manage Setting` with a redirect and an error and write nothing - the same permission the tab renderer already requires, so no legitimate form is lost. Web, Store Setting screen: ThemeSettings, seoSettings and shippingLabelSettings require `Manage Store Setting` (what the screen itself asks) and refuse a CHANGE to a payment/mail/storage/currency/loyalty/integration/routing name unless the user also holds `Manage Setting`; a staff member without `Manage Setting` can no longer change the domain mode, the custom domain or the sub-domain (refused with a message), and their Home and Checkout saves no longer reach the hosting panel. Admin API: Cod, Bank, Loyalty, updateCurrencyApi, update-currency-rate and toggle-currency-status answer staff without `Manage Setting` with HTTP 403 (never 401); the shipped app calls loyalitysetting, updateCurrencyApi, toggle-currency-status and update-currency-rate, so staff without the permission lose those calls (an earlier repair, ApiStoreOwnershipPredicateTest, had deliberately admitted staff there); owners and the operator are unaffected; the Contract suite (26) passes. The owner, the operator and staff holding `Manage Setting` are unaffected everywhere.",
+      "db": "None. The live indexes of `settings` are read by the owner (P1-OWN-11).",
+      "evidence": "DONE 2026-10-21. Commit 9c9a232d. THE DEFECT: nine web handlers wrote EVERY posted name into `settings` for the caller's store and their routes carry NO permission middleware, so any logged-in user of the store - staff holding neither settings permission included - could write MAIL_*, the Stripe keys, `bank_transfer`, `CURRENCY_NAME` (what a card is charged in), an integration's endpoint (its stored token is sent there), `domains`/`enable_domain` (ThemeSettings turns them into a hosting-panel delete) or, through `storejs`, script into the checkout page. WHAT SHIPPED (design v3, after two read-only reviews): (1) the six Settings-screen handlers (BusinessSettings, CookieSettings, CustomizeSetting, SystemSettings, currencySettings, SEOSetting) and the web LoyalityProgramSettings require `Manage Setting` OUTRIGHT, as settingForm() - the tab renderer - already did; (2) the three Store Setting handlers (ThemeSettings, seoSettings, shippingLabelSettings) require `Manage Store Setting`, which AppSettingController::index() asks too, and refuse a CHANGE to a restricted name unless the user also holds `Manage Setting` (StoreSettingsAccess::refusesRestrictedPost); a restricted value that is merely resubmitted is neither refused nor written again (the writers key rows by the writing user, so a write inserts a shadow row or re-stamps created_by); (3) the admin API's LoyalitySetting, CodPayment, BankPayment, updateCurrencyRateApi, toggleCurrencyStatusApi and updateCurrencyApi answer 403 (never 401) to staff without `Manage Setting`. RESTRICTED = anything GatewaySecretRedactor calls a secret, mail_*, s3_*, wasabi_*, local_storage_*, shopify_*, woocommerce_*, twilio_*, whatsapp_*, firebase_*, fcm_*, every field and tile image of every gateway in PaymentSettingController::getPaymentGateways(), the payment images Setting::paymentList reads, the admin API's Stripe/COD/bank names, the store currency and the loyalty reward, and the five domain-routing names. Names are compared lower-cased and trimmed against the NEWEST stored row read from the table (Setting is Cachable and the API writers use a raw insert); a restricted name posted in a spelling other than the stored one, a name with a non-ASCII or control byte, and an integer key are refused whatever the value. THEMESETTINGS: its radio posts a TOKEN under `enable_domain` that the handler turns into on/off flags and Webuzo add/delete calls (any token but `enable_domain` DELETES the stored custom domain), so for a user without `Manage Setting` the five routing inputs are replaced by the ones that reproduce the stored state (StoreSettingsAccess::domainRoutingNeutralised), the five names are not written, and a post that carries a routing value that differs is refused; the Home and Checkout tabs, which post none, now save without touching the hosting panel at all. WHAT THE REVIEWS FOUND (all acted on): review 1 (READ, three HIGH): the by-token Webuzo delete bypassed the by-name guard; `_token` classed as a secret refused every honest staff post; and EXECUTED ON MYSQL 8.0.46 (tests/Support/Security/bin/verify-settings-name-collation-on-mysql.php) `Domains`, `DOMAINS`, `domains ` and `dómains` are the stored `domains` row under utf8mb4_unicode_ci and the writers' updateOrCreate rewrote that row INCLUDING its name while the guard compared case-sensitively (SQLite matches none of them, so the suite is blind to it). Review 2 (four lenses, 74 agents, 35 findings each checked by two skeptics, READ): an ABSENT routing field counted as a change, refusing the Home and Checkout tabs on every custom-domain or sub-domain store; the currency, loyalty, integration-endpoint, local-storage and ten-odd gateway-image names were unclassified, so the gates on their dedicated handlers were bypassable through the generic ones; an unchanged resubmission re-stamped or duplicated the owner's rows; integer keys; a file under `subdomain`; routing rows written by the neutralisation. RECORDED, NOT FIXED HERE: P1-SEC-29 (any merchant owner can claim another store's custom domain - EXECUTED), P1-SEC-30 (fixed-name credential writers), P1-SEC-31 (nine vendored module writers), P1-PLT-06 (a Home/Checkout save removes the owner's own custom domain at the hosting panel - EXECUTED), P1-OWN-11 (owner: read-only checks on the live settings table), P1-OWN-12 (owner: who may put script on a storefront). ACCEPTANCE CRITERION 1 AS WRITTEN (a per-writer allow-list) WAS NOT IMPLEMENTED, deliberately: an allow-list would silently drop whatever field of nine screens was not enumerated against the real forms, and the route-level permission closes the population that matters (users holding neither permission) completely; the restricted-name rule closes the escalation for holders of `Manage Store Setting`; what a name list cannot prove complete is recorded as P1-OWN-12, P1-SEC-30 and P1-SEC-31, and criterion 4 (the live indexes) moved to P1-OWN-11 because only the owner can run it. TESTS: SettingsRestrictedWriteTest 231 tests / 664 assertions, each control removal-checked by a mutation harness of 65 mutants (HONESTLY: the web tests were written after the fix, not before it; the one RED-first piece is the MySQL collation script, which failed on the first version, EXECUTED) (every gate, every classifier branch, every routing rule, the scrub, the six API gates); the mutants that survived were test gaps and are closed (the gateway tile images named only by the derived rule, the no-op-on-resubmission rule, the pure-ordinary post by a user with neither permission, the second Store handler's gate), two survivors were equivalent code paths and were removed rather than excused; the MySQL script holds all its assertions; the pinned raw-query inventory moved by exactly the one new store-scoped read (RawQueryTenancyInventoryTest 168 -> 169, no-store_id column unchanged). NOT EXECUTED: nothing runs against MySQL beyond the collation script (the Feature tests are SQLite and the admin-API writers use MySQL-only `insert ... on duplicate key`, so an allowed API write is asserted as not 401/403), and no WorkDo module loads in any test run. GATE: Feature 3544 passed / 2 declared failures / 17 declared skips / 0 errors (the known-outcome assertion exits 0), Unit 339, Contract 26, the five CI guards exit 0 (scan: no credential-shaped literal in 257 changed files), the whole MySQL runner 14 of 14 on MySQL 8.0.46, all on 9c9a232d. The first full Feature run on this tree had ONE new failure -- a P1-SEC-18 test whose premise (staff with no permission storing a poisoned logo row) is exactly what this task closed; its actor was moved to a principal that can still reach the write and the glob mutant still makes it fail.",
       "queue_refs": [
-        "S45"
+        "S45",
+        "S46"
       ],
       "owner_decision": false,
       "blocked_on": null
@@ -3382,6 +3383,210 @@
       ],
       "owner_decision": true,
       "blocked_on": "Owner decision. Whether those files may stay in the repository's history (they are readable by everyone with repository access and cannot be removed by a normal commit), whether to purge them (a history rewrite, which this project's protocol forbids without approval) and whether /uploads/ should be ignored like /public/uploads/. Engineering will not rewrite history or delete tracked files."
+    },
+    {
+      "id": "P1-SEC-29",
+      "title": "A merchant can claim another merchant's custom domain or sub-domain: the host lookup takes the lowest-id `domains`/`subdomain` row of ANY store and nothing keeps the values unique (EXECUTED)",
+      "workstream": "security",
+      "risk": "high",
+      "status": "READY",
+      "issue": 104,
+      "scope": [
+        "app/Models/Setting.php",
+        "app/Http/Controllers/HomeController.php",
+        "app/Providers/StoreRedirectServiceProvider.php",
+        "app/Helper/helper.php",
+        "app/Http/Controllers/AppSettingController.php",
+        "app/Http/Controllers/SettingController.php",
+        "tests/Feature/Security/"
+      ],
+      "existing_status": "RECORDED by the P1-SEC-27 review (READ) and EXECUTED on SQLite 2026-10-21 (the probe is kept as a test in this task's scope). The storefront resolves a request's HOST to a store with `Setting::where('name', 'domains')->where('value', $host)->first()` and the same for `subdomain` (HomeController's root-path handler, StoreRedirectServiceProvider's `storeSlug` binding, the helper `getEnableSetting`; the review also names ViewServiceProvider, not read here). There is no store predicate and no ORDER BY, so the row with the LOWEST ID OF ANY TENANT wins, and nothing keeps a domain or sub-domain value unique across stores: ThemeSettings validates presence only, the hosting panel's `addDomain` can reject a duplicate only on the ThemeSettings path, and the generic settings writers take `domains` by name and never reach the panel. EXECUTED: the owner of store A (a permitted merchant, nothing unusual) posted `domains = <store B's host>` to `/customize-settings` after B had saved its own; the lookup then returned A's row (id 1, store 1) instead of B's (id 3, store 2). Needs only that A's `domains` row has a lower id than B's (any merchant that saved the domain tab earlier) and that B's DNS points at the platform, which is the whole point of a custom domain. Effect: shoppers who type B's own domain are served A's storefront - login, checkout and payment forms under B's name - and B's orders stop arriving on that host. Not a data read. The same lookup serves the sub-domain mode. P1-SEC-27 made STAFF unable to write these names without the Settings permission; the OWNER of any store still can.",
+      "depends_on": [
+        "P1-SEC-27"
+      ],
+      "acceptance": [
+        "A `domains` or `subdomain` value cannot be saved for a store while another store holds it, on every writer path (a rule in the host model, not in each controller), with a refusal the merchant can read",
+        "The host lookups resolve only a row whose store has the matching enable flag on, and a duplicate that already exists in the data resolves deterministically (the decision is recorded)",
+        "The owner has run the duplicate query and the result is recorded (P1-OWN-11)"
+      ],
+      "tests": [
+        "Two stores; the older one saves the newer one's host through each writer - refused (RED first, through the real route; the executed probe is the starting point)",
+        "The lookup for a host held by two rows resolves the one whose enable flag is on",
+        "Removal check on each"
+      ],
+      "compatibility": "A merchant who today shares a host with another store will be refused on the next save of that tab, with a message; existing duplicates are not touched by the code (they are data). A host held by two rows resolves deterministically.",
+      "db": "None expected. A unique index on settings(name, value) for these two names is a migration and the owner's (P1-OWN-11 reads the live data first).",
+      "evidence": "None yet - READY.",
+      "queue_refs": [
+        "S46"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-SEC-30",
+      "title": "Fixed-name credential and identity writers have no permission check: storage (S3/Wasabi endpoint and keys), WooCommerce, Shopify, Twilio, WhatsApp, Firebase, and the store's name, e-mail and slug",
+      "workstream": "security",
+      "risk": "medium",
+      "status": "READY",
+      "issue": 105,
+      "scope": [
+        "app/Http/Controllers/SettingController.php",
+        "app/Http/Controllers/AppSettingController.php",
+        "app/Services/StoreSettingsAccess.php",
+        "tests/Feature/Security/"
+      ],
+      "existing_status": "RECORDED by the P1-SEC-27 review (READ), and each handler's opening lines read at head: none asks StoreSettingsAccess. On the web, SettingController::StorageSettings (s3_*/wasabi_* keys, secrets and ENDPOINT - uploads go to whatever bucket is named), WoocommerceSettings, shopifySettings, TwilioSettings, WhatsappSettings and whatsapp_notification_setting (third-party tokens and the numbers shoppers' messages are sent from) and AppSettingController::FirebaseSettings (`fcm_Key`) write FIXED names, so the name classifier of P1-SEC-27 does not apply: any logged-in user of the store reaches them by URL whatever role the merchant gave them (the menu hides the tab; the route does not). Separately, ThemeSettings writes `stores.name`, `stores.email` and `stores.slug` for any staff member (the slug is the storefront URL); what trusts `stores.email` was not traced. Their by-name twins are closed by P1-SEC-27 for every name the secret classifier or the s3_/wasabi_ prefix catches.",
+      "depends_on": [
+        "P1-SEC-27"
+      ],
+      "acceptance": [
+        "Each handler named in the status asks the permission of the screen it belongs to (operator first), and a refusal is a redirect with an error / a 403, never a 401",
+        "ThemeSettings does not let a user without the Store Setting permission change the store's name, e-mail or slug",
+        "What reads `stores.email` is traced and recorded"
+      ],
+      "tests": [
+        "Staff without the permission POST to each handler - refused and nothing written (RED first, through the real route)",
+        "Staff holding it, the owner and the operator still save",
+        "Removal check on each gate"
+      ],
+      "compatibility": "Staff without the screen's permission get a redirect with an error (web) instead of a save; the owner, the operator and staff holding the permission are unaffected. The permission for each screen is the one its menu entry asks (Settings = `Manage Setting`, Store Setting = `Manage Store Setting`) - read from CompanyMenuListener, not assumed.",
+      "db": "None.",
+      "evidence": "None yet - READY.",
+      "queue_refs": [
+        "S46"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-OWN-11",
+      "title": "Owner: three read-only checks on the live `settings` table (its real indexes, hosts held by more than one store, rows renamed by a case variant)",
+      "workstream": "security",
+      "risk": "medium",
+      "status": "BLOCKED",
+      "issue": 106,
+      "scope": [
+        "docs/security/"
+      ],
+      "existing_status": "RECORDED while closing P1-SEC-27 and recording P1-SEC-29. Three facts about the LIVE `settings` table cannot be read from the repository and the migration says nothing: (1) `settings` has no unique key on (name, store_id) in its migration (2023_12_11_100148), so the admin API's `INSERT ... ON DUPLICATE KEY UPDATE` appends a row on every save unless production differs; (2) whether two stores already hold the same `domains` / `subdomain` value (P1-SEC-29's precondition, and a sign it has happened); (3) whether any store has rows whose names differ only in case or surrounding space - what the collation bypass P1-SEC-27 closed would have left behind. Engineering will not connect to the live database.",
+      "depends_on": [],
+      "acceptance": [
+        "The three results are recorded with the date, and a unique key is either decided or declined",
+        "If (2) returns rows, those stores are told and P1-SEC-29's fix is checked against that data"
+      ],
+      "tests": [
+        "None until the owner has the results."
+      ],
+      "compatibility": "None: reading changes nothing. A unique index, if the owner wants one, is a separate migration with its own review.",
+      "db": "None. Read-only.",
+      "evidence": "None yet - BLOCKED on the owner.",
+      "queue_refs": [
+        "S46"
+      ],
+      "owner_decision": true,
+      "blocked_on": "Owner action: run these READ-ONLY statements on the live database and record the results (counts and store ids are enough; no values need leave the server). (1) `SHOW INDEX FROM settings;` (2) `SELECT name, value, COUNT(DISTINCT store_id) AS stores FROM settings WHERE name IN ('domains','subdomain') AND value <> '' GROUP BY name, value HAVING stores > 1;` (3) `SELECT store_id, LOWER(TRIM(name)) AS n, COUNT(DISTINCT name) AS spellings FROM settings GROUP BY store_id, LOWER(TRIM(name)) HAVING spellings > 1;` Then decide whether a unique key on the settings table is wanted (a migration). Engineering will not connect to the live database."
+    },
+    {
+      "id": "P1-SEC-31",
+      "title": "Nine vendored WorkDo module controllers write `settings` by caller-supplied name with no permission check, four of them with no auth or module/plan check; they cannot be edited, so the control has to be host-side",
+      "workstream": "security",
+      "risk": "high",
+      "status": "READY",
+      "issue": 107,
+      "scope": [
+        "app/Providers/",
+        "app/Models/Setting.php",
+        "routes/web.php",
+        "tests/Feature/Security/"
+      ],
+      "existing_status": "RECORDED by the second P1-SEC-27 review (census, READ - and only where the module is enabled: NO WorkDo module loads in any test run, so the suite cannot see these). Nine vendored WorkDo module controllers write the `settings` table with a name taken from `$request->all()` and no permission check - the original P1-SEC-27 defect, unchanged, in code this repository must not edit (`packages/workdo/` is vendored). The review names BoostSales (`/boost-sales-setting`), PurchaseNotification (`/purchase-notification-setting`), QuickCheckout (`/store-quick-checkout`), FreeShippingPopup (`/free-shipping-popup-setting`) and the SMS settings (`/sms-settings`); four of the nine need no auth middleware and no plan/module check, and an anonymous caller fails closed only because `Auth::user()->id` is dereferenced while the arguments are built. Posting `MAIL_HOST`, `stripe_secret_key` or `domains` by name through any of them is what the web handlers could do before P1-SEC-27. A control has to live in the host: route middleware attached by route NAME from a service provider that runs after the modules' routes are registered (covers every writer, including raw ones), or a `saving` rule in App\\Models\\Setting (covers vendored Eloquent writers; does not cover raw `DB::table('settings')` / `insert ... on duplicate key` writers) - an architecture choice, and the same model rule P1-SEC-29 needs for uniqueness.",
+      "depends_on": [
+        "P1-SEC-27"
+      ],
+      "acceptance": [
+        "The vendored generic writers are enumerated by a census test that fails when a module adds one (a module must be enabled through the production loader in the test; no module loads by default)",
+        "A host-side control makes each of them require the permission of the screen it belongs to, with the operator first, and a refusal is a redirect with an error / a 403, never a 401",
+        "The design choice (route middleware by name vs a Setting `saving` rule vs both) is recorded with what each covers"
+      ],
+      "tests": [
+        "With the module enabled via an add_on_managers row, a staff user without the permission posts MAIL_HOST / stripe_secret_key / domains by name to each route - refused and nothing written (RED first, through the real route)",
+        "A premise test that the module really is active in the test",
+        "Removal check on the control"
+      ],
+      "compatibility": "A user without `Manage Setting` (or, for the Store Setting-hosted module tabs, `Manage Store Setting`) can no longer save those module settings; the owner, the operator and staff holding the permission are unaffected. packages/workdo/ is not touched.",
+      "db": "None.",
+      "evidence": "None yet - READY.",
+      "queue_refs": [
+        "S46"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-OWN-12",
+      "title": "Owner decision: who may put script and style on every storefront page, checkout included (`storejs`, `storecss`, `google_analytic`, `fbpixel_code`)",
+      "workstream": "security",
+      "risk": "medium",
+      "status": "BLOCKED",
+      "issue": 108,
+      "scope": [
+        "app/Services/StoreSettingsAccess.php",
+        "tests/Feature/Security/"
+      ],
+      "existing_status": "RECORDED by the second P1-SEC-27 review and pinned by a test. The Store Setting screen exists to edit `storejs`, `storecss`, `google_analytic` and `fbpixel_code`: raw script and style written into EVERY storefront page, checkout included (the `xss` middleware strips a handful of literal substrings and is not a control). P1-SEC-27 made the three Store Setting writers require `Manage Store Setting` (what the screen itself asks), so a user holding NEITHER permission can no longer reach them; but a holder of `Manage Store Setting` alone - a store-manager role - can still put script on the checkout page, which is the 'redirect a merchant's card payments' outcome by another route. Whether that role is entitled to is a delegation decision, not an engineering one: (a) leave it, (b) require `Manage Setting` for these four names (a four-name addition to the restricted list; staff holding only `Manage Store Setting` lose the Custom tab's script fields), (c) keep it and sanitise/allow-list what is written. SettingsRestrictedWriteTest::test_script_bearing_names_remain_open_to_manage_store_setting_holders_pending_the_owner_decision pins today's behaviour and fails the day it changes.",
+      "depends_on": [
+        "P1-SEC-27"
+      ],
+      "acceptance": [
+        "The decision is recorded, and implemented if it is (b) or (c)",
+        "The test that pins today's behaviour is changed in the same commit, with the decision cited"
+      ],
+      "tests": [
+        "The pinning test named in the status; for (b) a Manage-Store-Setting-only staff post of storejs is refused and the owner's is not."
+      ],
+      "compatibility": "(b) removes the script fields of the Custom tab from staff holding only `Manage Store Setting`; the owner, the operator and staff holding `Manage Setting` are unaffected.",
+      "db": "None.",
+      "evidence": "None yet - BLOCKED on the owner.",
+      "queue_refs": [
+        "S46"
+      ],
+      "owner_decision": true,
+      "blocked_on": "Owner decision: may a holder of `Manage Store Setting` alone write these four names? (a) leave as is, (b) require `Manage Setting` for them, (c) keep and sanitise. Engineering will not narrow a delegation the owner has not decided to narrow."
+    },
+    {
+      "id": "P1-PLT-06",
+      "title": "Saving the Home or Checkout tab of the Store Setting screen removes the store's custom domain at the hosting panel and blanks it - for the owner too (EXECUTED)",
+      "workstream": "platform",
+      "risk": "medium",
+      "status": "READY",
+      "issue": 109,
+      "scope": [
+        "app/Http/Controllers/AppSettingController.php",
+        "tests/Feature/Security/"
+      ],
+      "existing_status": "RECORDED by the second P1-SEC-27 review (READ) and EXECUTED 2026-10-21 for the OWNER (SettingsRestrictedWriteTest::test_premise_the_unrelated_tab_post_reaches_the_domain_branch_for_the_owner). AppSettingController::ThemeSettings runs its 'user cancelled Custom Domain and chose Store Link or Subdomain' branch whenever the stored mode is custom-domain and the posted `enable_domain` token is anything but `enable_domain` - and NULL is 'anything but'. The Home and Checkout tabs (their forms post no routing field at all), and the Custom tab on a plan that allows neither domain nor sub-domain (no radio is rendered), therefore call WebuzoDomainService::deleteDomain($oldDomain) at the hosting panel and write `domains = ''`, leaving the store in 'custom domain on, domain empty'. If the panel is unreachable the whole save is aborted with 'Webuzo: Could not delete old custom domain'. So a merchant who renames the store, or flips a checkout toggle, takes their own custom domain off the hosting panel. P1-SEC-27 keeps this behaviour for the owner and for staff holding `Manage Setting` (it only stops it for everyone else) because changing it is a behaviour fix of its own.",
+      "depends_on": [
+        "P1-SEC-27"
+      ],
+      "acceptance": [
+        "The 'cancelled Custom Domain' branch runs only when the post carries an `enable_domain` token other than `enable_domain`",
+        "A Home or Checkout save on a custom-domain store makes no hosting-panel call and keeps `domains` (owner and permitted staff)",
+        "The explicit switch still removes the domain"
+      ],
+      "tests": [
+        "Owner: Home post on a custom-domain store - no panel call, domain intact (RED first, through the real route; the executed premise test is the starting point)",
+        "Owner: Custom tab switch to Store Link - deleteDomain called once",
+        "Removal check on the precondition"
+      ],
+      "compatibility": "Home and Checkout saves stop calling the hosting panel. An explicit switch to Store Link or Sub-domain on the Custom tab still removes the custom domain, as designed. A store whose plan was downgraded keeps its custom domain until the owner switches mode explicitly instead of losing it at the next unrelated save.",
+      "db": "None.",
+      "evidence": "None yet - READY.",
+      "queue_refs": [
+        "S46"
+      ],
+      "owner_decision": false,
+      "blocked_on": null
     }
   ]
 }
