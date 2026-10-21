@@ -1083,9 +1083,13 @@ public function city_list(Request $request, $slug)
             $messages = $validator->getMessageBag();
             return redirect()->back()->with('error', $messages->first());
         }
+        // Every list this handler indexes is cast ONCE, here, and only the casts are used below.
+        // The first version validated the casts and then wrote from `$request->quantity[...]`,
+        // which is null when the field is omitted and a string when it is scalar: a TypeError or an
+        // "Undefined array key" raised AFTER the order had been saved.
         $productRefundIds = (array) $request->product_refund_id;
         $quantities = (array) $request->quantity;
-        $returnPrices = $request->return_price;
+        $returnPrices = (array) $request->return_price;
 
         // P1-ORD-07. THE ORDER WRITTEN IS THE ORDER RECORDED IS THE ORDER THIS SHOPPER OWNS.
         //
@@ -1109,7 +1113,8 @@ public function city_list(Request $request, $slug)
             abort(403);
         }
 
-        if ((string) $request->order_id !== (string) $id) {
+        // is_scalar() first: `order_id[]=5` satisfies `required` and then stringifies to a 500.
+        if (! is_scalar($request->order_id) || (string) $request->order_id !== (string) $id) {
             abort(404);
         }
 
@@ -1125,18 +1130,42 @@ public function city_list(Request $request, $slug)
             return redirect()->back()->with('error', __('This order has no refundable items.'));
         }
 
+        // WHAT IS BEING REFUNDED, decided in ONE pass over the ORDER'S OWN LINES and BEFORE anything
+        // is written (review E1). A ticked box is a product id; a line is a position in
+        // `product_json`; `quantity[]` and `return_price[]` are posted for EVERY line, so they are
+        // indexed by LINE. The first version bounded `$quantities[$line]` and then recorded
+        // `$request->quantity[$tick]` -- a position in the list of TICKED boxes -- so with one of
+        // two lines ticked the record carried the other line's number, and a hostile client chose
+        // what went in the slot the bound never read. `OrderRefundController::RefundStock`
+        // restocks the recorded quantity. So the record below is built from `$units` and nothing
+        // else: the same numbers that were bounded are the numbers that are applied and recorded.
+        $tickedIds = [];
+        foreach ($productRefundIds as $ticked) {
+            if (! is_scalar($ticked)) {
+                return redirect()->back()->with('error', __('Invalid refund item.'));
+            }
+
+            $tickedIds[] = (string) $ticked;
+        }
+
         // QUANTITY BOUNDS, enforced BEFORE anything is written. The totals below are recomputed from
         // the CURRENT row on every call, and `$quantities` was trusted verbatim, so MEASURED on this
         // head: a quantity above the line's remaining qty drove the order NEGATIVE (qty -1, total
         // -60); a NEGATIVE quantity INFLATED it (440 -> 640); and a replay of a full refund divided
         // by the line's now-zero qty -- a DivisionByZeroError, 500. The form's own input is
         // `min="1" max="{item qty}"`, so [0, remaining qty] refuses nothing a real form can send.
+        $units = [];
+        $matchedIds = [];
         foreach ($productJson as $key => $line) {
-            if (! in_array($line['product_id'] ?? null, $productRefundIds)) {
+            if (! is_array($line) || ! isset($line['product_id']) || ! in_array((string) $line['product_id'], $tickedIds, true)) {
                 continue;
             }
 
-            $requested = array_key_exists($key, $quantities) ? $quantities[$key] : 0;
+            $matchedIds[] = (string) $line['product_id'];
+
+            // A ticked line must come with its quantity. The real form posts one for every line; a
+            // missing entry was silently read as 0 and then crashed the record loop.
+            $requested = array_key_exists($key, $quantities) ? $quantities[$key] : null;
 
             // is_numeric() + a whole-number test rather than FILTER_VALIDATE_INT, which rejects a
             // LEADING ZERO -- and a number input hands back exactly what was typed, so a shopper
@@ -1147,17 +1176,45 @@ public function city_list(Request $request, $slug)
                 || (float) $requested > (float) ($line['qty'] ?? 0)) {
                 return redirect()->back()->with('error', __('Invalid refund quantity.'));
             }
+
+            $units[$key] = (int) (float) $requested;
         }
 
+        // A ticked product that is on NO line of this order: the old record would carry it, and
+        // RefundStock would restock `Product where id = <that>`.
+        if (array_diff($tickedIds, $matchedIds) !== []) {
+            return redirect()->back()->with('error', __('Invalid refund item.'));
+        }
+
+        // A request that removes nothing is not a refund request, and would give the merchant a row
+        // to action for an order that never changed.
+        if (array_sum($units) <= 0) {
+            return redirect()->back()->with('error', __('Invalid refund quantity.'));
+        }
+
+        // The recorded figures that are the SHOPPER'S OWN display strings (`return_price[]`,
+        // `product_sub_total`) stay as posted -- the merchant's payout is typed by the merchant and
+        // capped server-side by RefundIntegrityService -- but they are type-guarded and short:
+        // `order_refunds.product_refund_id` is a VARCHAR(255) holding this JSON, and a padded string
+        // would truncate it into something the merchant's `json_decode` cannot read.
+        $display = static fn ($value): string => is_scalar($value) ? mb_substr((string) $value, 0, 32) : '';
+
         $total_product_price = 0.0;
+        $product_refund_data = [];
         foreach ($productJson as $key => &$product)
         {
             $old_qty = $product['qty'];
-            if(in_array($product['product_id'],$request->product_refund_id))
+            if (array_key_exists($key, $units))
             {
-                $quantitie = (array_key_exists($key,$quantities)) ?  $quantities[$key] : 0;
-                $product['qty'] = $product['qty'] - $quantitie;
+                $product['qty'] = $product['qty'] - $units[$key];
 
+                if ($units[$key] > 0) {
+                    $product_refund_data[] = [
+                        'product_refund_id' => $product['product_id'],
+                        'return_price' => $display($returnPrices[$key] ?? null),
+                        'quantity' => $units[$key],
+                    ];
+                }
             }
             // A line already at qty 0 has nothing left to scale; dividing by it was the replay 500.
             if ((float) $old_qty != 0.0) {
@@ -1168,30 +1225,42 @@ public function city_list(Request $request, $slug)
         }
         unset($product);
         $grand_total_price = ($total_product_price + $order->delivery_price + $order->tax_price) - $order->coupon_price;
-        $order->final_price = $grand_total_price;
-        $order->product_price = $total_product_price;
-        $order->product_json = json_encode($productJson);
-        $order->save();
 
-        $order_refund                    = new OrderRefund();
-        $order_refund->order_id          = $id;
-        $order_refund->refund_status     = 'Processing';
-        $refund                          = $request->product_refund_id;
-        $product_refund_data = [];
+        // ONE TRANSACTION for the order's new totals and the row that lets the merchant undo them.
+        // `$order->save()` used to run first and the refund row second with nothing joining them, so
+        // anything that failed in between (an omitted field, a rejected insert) left a shrunken
+        // order and NOTHING for `CancelRefundStatus` to restore from. Uploads wait for the commit:
+        // a rolled-back request must not leave files behind.
+        try {
+            $order_refund = \DB::transaction(function () use ($order, $store, $request, $productJson, $total_product_price, $grand_total_price, $product_refund_data, $display) {
+                $order->final_price = $grand_total_price;
+                $order->product_price = $total_product_price;
+                $order->product_json = json_encode($productJson);
+                $order->save();
 
-        foreach ($refund as $index => $product_refund_id) {
-            $return_price = $request->return_price[$index];
-            $quantity = $request->quantity[$index];
+                $order_refund                       = new OrderRefund();
+                $order_refund->order_id             = $order->id;
+                $order_refund->refund_status        = 'Processing';
+                $order_refund->product_refund_id    = json_encode($product_refund_data);
+                $order_refund->store_id             = $store->id;
+                // Passed through as before. A non-scalar value fails the INSERT, and the transaction
+                // makes that a handled refusal with the order untouched instead of a half-write.
+                $order_refund->refund_reason        = $request->refund_reason;
+                $order_refund->custom_refund_reason = $request->custom_refund_reason;
+                $order_refund->product_refund_price = str_replace('$', '', $display($request->product_sub_total));
+                $order_refund->save();
 
-            $product_refund_data[] = [
-                'product_refund_id' => $product_refund_id,
-                'return_price' => $return_price,
-                'quantity' => $quantity,
-            ];
+                return $order_refund;
+            });
+        } catch (\Throwable $e) {
+            \Log::error('Storefront refund request rolled back', [
+                'order_id' => $order->id,
+                'store_id' => $store->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return redirect()->back()->with('error', __('Something Went wrong.'));
         }
-        $order_refund->product_refund_id = json_encode($product_refund_data);
-
-        $order_refund->store_id          = $store->id;
 
         $data              = [];
         if ($request->hasfile('attachments')) {
@@ -1210,10 +1279,6 @@ public function city_list(Request $request, $slug)
                 $order_refund->save();
             }
         }
-        $order_refund->refund_reason = $request->refund_reason;
-        $order_refund->custom_refund_reason = $request->custom_refund_reason;
-        $order_refund->product_refund_price = str_replace('$', '', $request->product_sub_total);
-        $order_refund->save();
 
         return redirect()->back()->with('success', __('Refund Request Send successfully!'));
     }

@@ -50,7 +50,12 @@ class RouteServiceProvider extends ServiceProvider
         // error with no retry affordance, so a throttled merchant sees an
         // unexplained failure rather than "try again in a minute".
         RateLimiter::for('auth', function (Request $request) {
-            $email = strtolower((string) $request->input('email'));
+            // is_scalar(): `email[]=x` is request input, `(string) array` is an ErrorException, and
+            // this closure runs BEFORE the handler -- so an array-shaped email was a 500 on every
+            // route carrying `throttle:auth` (found when P1-ORD-08 put it on order-track). It now
+            // falls into the same bucket as an absent email, which is still throttled.
+            $submitted = $request->input('email');
+            $email = strtolower(is_scalar($submitted) ? (string) $submitted : '');
 
             $key = $request->ip() . '|' . hash('sha256', $email);
 

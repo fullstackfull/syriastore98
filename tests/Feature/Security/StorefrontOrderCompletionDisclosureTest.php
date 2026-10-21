@@ -337,6 +337,100 @@ class StorefrontOrderCompletionDisclosureTest extends SecurityTestCase
         }
     }
 
+    /**
+     * M-8 (review): the SAME number in two stores must resolve to the store the request names.
+     * The other store tests prove a foreign number is not rendered; none drove the actual
+     * collision, where the right answer is the OTHER order that shares the number.
+     */
+    public function test_a_number_held_by_two_stores_resolves_to_the_store_the_request_names(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $a = $this->placedOrder($storeA, 'SHAREDNUM9101');
+        $b = $this->placedOrder($storeB, 'SHAREDNUM9101');
+        DB::table('order_billing_details')->where('order_id', $a->id)->update(['first_name' => 'ALPHABUYER']);
+        DB::table('order_billing_details')->where('order_id', $b->id)->update(['first_name' => 'BETABUYER']);
+
+        $this->assertSame($a->product_order_id, $b->product_order_id, 'Fixture premise: the two numbers must collide.');
+
+        $response = $this->complete($storeB, [], ['data' => $b->product_order_id]);
+
+        $response->assertOk();
+        $this->assertStringContainsString('SHAREDNUM9101', (string) $response->getContent());
+        $this->assertSame((int) $b->id, (int) $response->viewData('order')->id,
+            'The thank-you page for store B rendered a different order sharing its number.');
+    }
+
+    /**
+     * F1 (review lens B). `product_order_id` is not unique -- a guest order is `'0' . date('YmdHis')`
+     * and the column has no index -- so two orders placed in one store in one second share it. The
+     * flashed and Khalti lookups took `first()`, i.e. the LOWEST id: a visitor who placed their own
+     * order a second after the victim's was shown the victim's name, phone, address and a minted
+     * link to the full order, with no proof of ownership. An ambiguous number is refused, for the
+     * buyer too -- a false denial in a rare collision is the price of never guessing between two
+     * people's orders; P1-ORD-13 records the real fix (carry the primary key in the flash).
+     */
+    public function test_an_ambiguous_session_order_number_in_one_store_renders_neither_order(): void
+    {
+        [, $store] = $this->makeTenant();
+        $first = $this->placedOrder($store, 'COLLIDE9102', [], 'victim@buyer.test');
+        $second = $this->placedOrder($store, 'COLLIDE9102', [], 'attacker@buyer.test');
+        DB::table('order_billing_details')->where('order_id', $first->id)->update(['first_name' => 'VICTIMNAME']);
+
+        $this->assertSame($first->product_order_id, $second->product_order_id, 'Fixture premise: the two numbers must collide.');
+
+        $response = $this->complete($store, [], ['data' => $second->product_order_id]);
+
+        $this->assertNotSame(500, $response->getStatusCode());
+        $this->assertStringNotContainsString('VICTIMNAME', (string) $response->getContent());
+        $this->assertStringNotContainsString('/order/eyJ', (string) $response->getContent(),
+            'A minted details link for the LOWEST-id order sharing the number was handed to a visitor who placed the other.');
+        $response->assertRedirect();
+    }
+
+    public function test_an_ambiguous_khalti_session_order_number_in_one_store_renders_neither_order(): void
+    {
+        [, $store] = $this->makeTenant();
+        $first = $this->placedOrder($store, 'COLLIDEK9103', [], 'victim@buyer.test');
+        $second = $this->placedOrder($store, 'COLLIDEK9103', [], 'attacker@buyer.test');
+
+        $response = $this->complete($store, [], ['khalti_order_id' => $second->product_order_id]);
+
+        $this->assertNotSame(500, $response->getStatusCode());
+        $response->assertRedirect();
+        $this->assertStringNotContainsString('/order/eyJ', (string) $response->getContent());
+    }
+
+    /**
+     * M-9 (review): shapes of the request id. Only the plain integer of an id this session placed
+     * is honoured; everything else is refused rather than coerced into a match.
+     */
+    public function test_odd_shapes_of_the_request_id_are_not_coerced_into_a_match(): void
+    {
+        [, $store] = $this->makeTenant();
+        $order = $this->placedOrder($store, 'SHAPES9104');
+
+        foreach (['abc', $order->id . 'abc', '0' . $order->id, $order->id . '.0', $order->id . 'e0', [$order->id], ['x' => $order->id], ''] as $shape) {
+            $response = $this->complete($store, ['data' => ['order_id' => $shape]], ['order_complete_ids' => [$order->id]]);
+
+            $this->assertNotSame(500, $response->getStatusCode(), 'order_id ' . json_encode($shape) . ' crashed the page.');
+            $this->assertStringNotContainsString('SHAPES9104', (string) $response->getContent(),
+                'order_id ' . json_encode($shape) . ' was coerced into a match for order ' . $order->id . '.');
+        }
+    }
+
+    /** The sanitiser accepts an id stored as a numeric STRING, as a session driver round-trip may produce. */
+    public function test_a_session_binding_stored_as_numeric_strings_still_works(): void
+    {
+        [, $store] = $this->makeTenant();
+        $order = $this->placedOrder($store, 'STRINGID9105');
+
+        $response = $this->complete($store, ['data' => ['order_id' => $order->id]], ['order_complete_ids' => [(string) $order->id]]);
+
+        $response->assertOk();
+        $this->assertStringContainsString('STRINGID9105', (string) $response->getContent());
+    }
+
     // =========================================================================================
     //  order-track
     // =========================================================================================
@@ -465,5 +559,92 @@ class StorefrontOrderCompletionDisclosureTest extends SecurityTestCase
         $strip = fn ($r) => preg_replace('/name="_token" value="[^"]+"/', '', (string) $r->getContent());
         $this->assertSame(strlen($strip($unknownNumber)), strlen($strip($wrongEmail)),
             'A wrong email renders a different page from an unknown order number: the number\'s existence leaks.');
+    }
+
+    /**
+     * D-5 (review): the case a real buyer hits. The record is lowercase and they type capitals.
+     * Both earlier positive controls posted a LOWERCASE address against a MIXED-case record, so
+     * removing the lowercase of the POSTED side left them green.
+     */
+    public function test_a_posted_email_in_capitals_matches_a_lowercase_record(): void
+    {
+        [, $store] = $this->makeTenant();
+        $order = $this->placedOrder($store, 'UPPERPOST9201', [], 'buyer@example.test');
+
+        $response = $this->track($store, ['order_number' => $order->product_order_id, 'email' => 'BUYER@EXAMPLE.TEST']);
+
+        $response->assertOk();
+        $this->assertStringContainsString('UPPERPOST9201', (string) $response->getContent(),
+            'A buyer who types their address in capitals was locked out of their own order.');
+    }
+
+    /**
+     * F1 on the tracking page. Two orders in one store share a number; the email is what tells them
+     * apart. `first()` took the lowest id and then compared the email to THAT order only, so the
+     * second buyer was told their order does not exist. The scan matches the email across every
+     * order sharing the number.
+     */
+    public function test_tracking_picks_the_order_whose_email_matches_among_orders_sharing_a_number(): void
+    {
+        [, $store] = $this->makeTenant();
+        $a = $this->placedOrder($store, 'SAMETRACK9202', [], 'alpha@buyer.test');
+        $b = $this->placedOrder($store, 'SAMETRACK9202', [], 'beta@buyer.test');
+        DB::table('order_billing_details')->where('order_id', $a->id)->update(['first_name' => 'ALPHABUYER']);
+        DB::table('order_billing_details')->where('order_id', $b->id)->update(['first_name' => 'BETABUYER']);
+
+        $this->assertSame($a->product_order_id, $b->product_order_id, 'Fixture premise: the two numbers must collide.');
+
+        $asBeta = $this->track($store, ['order_number' => $b->product_order_id, 'email' => 'beta@buyer.test']);
+        $asBeta->assertOk();
+        $this->assertStringContainsString('BETABUYER', (string) $asBeta->getContent(),
+            'The second buyer was told their order does not exist because the first row sharing the number was compared.');
+        $this->assertStringNotContainsString('ALPHABUYER', (string) $asBeta->getContent());
+
+        $this->flushSession();
+
+        $asAlpha = $this->track($store, ['order_number' => $a->product_order_id, 'email' => 'alpha@buyer.test']);
+        $this->assertStringContainsString('ALPHABUYER', (string) $asAlpha->getContent());
+        $this->assertStringNotContainsString('BETABUYER', (string) $asAlpha->getContent());
+    }
+
+    public function test_array_shaped_tracking_fields_are_a_blank_lookup_not_a_crash(): void
+    {
+        [, $store] = $this->makeTenant();
+        $order = $this->placedOrder($store, 'ARRAYTRACK9203');
+
+        foreach ([
+            ['order_number' => [$order->product_order_id], 'email' => 'arraytrack9203@buyer.test'],
+            ['order_number' => $order->product_order_id, 'email' => ['arraytrack9203@buyer.test']],
+        ] as $body) {
+            $response = $this->track($store, $body);
+
+            $this->assertNotSame(500, $response->getStatusCode());
+            $this->assertStringNotContainsString('ARRAYTRACK9203', (string) $response->getContent());
+        }
+    }
+
+    /**
+     * F3 (review lens B). The number is a timestamp, so the EMAIL is the only secret -- and nothing
+     * limited how many numbers could be tried against a known address. The route now carries the
+     * project's `auth` limiter (10/min per IP + submitted email), whose key is the same `email`
+     * field this form posts.
+     */
+    public function test_order_tracking_is_rate_limited_per_address(): void
+    {
+        $middleware = Route::getRoutes()->getByName('order.track')->gatherMiddleware();
+        $this->assertContains('throttle:auth', $middleware, 'order.track lost its rate limit.');
+
+        [, $store] = $this->makeTenant();
+        $order = $this->placedOrder($store, 'LIMITED9204', [], 'limited@buyer.test');
+
+        for ($i = 1; $i <= 10; $i++) {
+            $this->assertNotSame(429, $this->track($store, ['order_number' => 'GUESS' . $i, 'email' => 'limited@buyer.test'])->getStatusCode(),
+                "Attempt {$i} was throttled before the limit.");
+        }
+
+        $eleventh = $this->track($store, ['order_number' => $order->product_order_id, 'email' => 'limited@buyer.test']);
+
+        $this->assertSame(429, $eleventh->getStatusCode(), 'The 11th attempt within a minute for one address was not throttled.');
+        $this->assertStringNotContainsString('LIMITED9204', (string) $eleventh->getContent());
     }
 }

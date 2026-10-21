@@ -1208,7 +1208,15 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
         });
 
         // THE BUYER'S OWN REDIRECT: the session the POST produced, then the page the blade sends them to.
-        $query = '?' . http_build_query(['data' => ['order_id' => $order->id]]);
+        //
+        // The query is built from the HANDLER'S RESPONSE, as the blade does (`$.param({data: data.data})`),
+        // and not from the database row (review D-3). Built from the row, this test stayed green if the
+        // payload key were renamed or carried the order NUMBER -- while every real WhatsApp/Telegram
+        // thank-you redirect landed on the home page.
+        $this->assertSame((int) $order->id, (int) $response->json('data.order_id'),
+            'The success payload no longer carries the order\'s primary key under data.order_id, which is '
+            . 'what the WhatsApp and Telegram blades forward to order-complete.');
+        $query = '?' . http_build_query(['data' => $response->json('data')]);
 
         $landing = $this->withSession(['order_complete_ids' => session('order_complete_ids')])
             ->get('/' . $store->slug . '/order-complete' . $query);

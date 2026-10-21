@@ -883,13 +883,18 @@ class HomeController extends Controller
         $postedEmail = is_string($request->email) ? mb_strtolower(trim($request->email)) : '';
 
         if ($orderNumber !== '' && $postedEmail !== '') {
-            $order = Order::where('product_order_id', $orderNumber)->where('store_id', $store->id)->first();
+            // EVERY order in this store that carries the number, not the first: `product_order_id` is
+            // not unique (two guest orders in one second share it), and comparing the email to only
+            // the lowest id told the second buyer their order did not exist. The email is what tells
+            // them apart. Bounded, because the number is request input.
+            $order = null;
 
-            if ($order) {
-                $recordedEmail = mb_strtolower(trim((string) OrderBillingDetail::where('order_id', $order->id)->value('email')));
+            foreach (Order::where('product_order_id', $orderNumber)->where('store_id', $store->id)->orderBy('id')->limit(20)->get() as $candidate) {
+                $recordedEmail = mb_strtolower(trim((string) OrderBillingDetail::where('order_id', $candidate->id)->value('email')));
 
-                if ($recordedEmail === '' || ! hash_equals($recordedEmail, $postedEmail)) {
-                    $order = null;
+                if ($recordedEmail !== '' && hash_equals($recordedEmail, $postedEmail)) {
+                    $order = $candidate;
+                    break;
                 }
             }
 

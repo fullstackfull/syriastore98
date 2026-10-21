@@ -149,4 +149,27 @@ class AuthRateLimiterTest extends TestCase
         $this->assertSame(10, $limit->maxAttempts);
         $this->assertNotEmpty($limit->key);
     }
+
+    /**
+     * `email[]=x` is request input and `(string) $array` is an ErrorException. The closure runs
+     * before the route's handler, so this was a 500 on every `throttle:auth` route -- the login forms
+     * and, since P1-ORD-08, the guest order lookup. An array-shaped email is throttled in the same
+     * bucket as an absent one.
+     */
+    public function test_an_array_shaped_email_is_throttled_not_a_crash(): void
+    {
+        $callback = RateLimiter::limiter('auth');
+
+        $request = Request::create('/login', 'POST', ['email' => ['a@example.test', 'b@example.test']]);
+        $request->server->set('REMOTE_ADDR', '203.0.113.9');
+
+        $limit = $callback($request);
+
+        $this->assertSame(10, $limit->maxAttempts);
+        $this->assertSame(
+            $this->limit('203.0.113.9', null)->key,
+            $limit->key,
+            'An array-shaped email must land in the same bucket as an absent one.'
+        );
+    }
 }

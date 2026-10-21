@@ -593,6 +593,27 @@ public function store(Request $request)
         return $ids;
     }
 
+    /**
+     * The ONE order in this store that carries this number -- null when there is none, and null when
+     * there is MORE THAN ONE.
+     *
+     * `product_order_id` is not unique: a guest order is `'0' . date('YmdHis')`, a dozen writers do
+     * the same, and the column has no index. Two orders placed in one store in one second therefore
+     * share it, and `first()` returned the lowest id -- so a visitor who placed their own order a
+     * second after a victim's was shown the VICTIM'S order and a minted link to it (review lens B,
+     * F1). An ambiguous number is refused rather than guessed between two people's orders. The real
+     * fix is to carry the primary key in the flash (P1-ORD-13).
+     */
+    private function soleStoreOrderByNumber($store, $number): ?Order
+    {
+        $matches = Order::where('product_order_id', $number)
+            ->where('store_id', $store->id)
+            ->limit(2)
+            ->get();
+
+        return $matches->count() === 1 ? $matches->first() : null;
+    }
+
     public function orderComplete(Request $request)
     {
         $store = getStore($request->route('storeSlug'));
@@ -636,17 +657,13 @@ public function store(Request $request)
         $khalti = Session::get('khalti_order_id');
 
         if ($flashed && is_scalar($flashed)) {
-            $order = Order::where('product_order_id', $flashed)
-                ->where('store_id', $store->id)
-                ->first();
+            $order = $this->soleStoreOrderByNumber($store, $flashed);
         } elseif (is_scalar($requested) && in_array(filter_var($requested, FILTER_VALIDATE_INT), $this->orderCompleteBoundIds(), true)) {
             $order = Order::where('id', (int) $requested)
                 ->where('store_id', $store->id)
                 ->first();
         } elseif ($khalti && is_scalar($khalti)) {
-            $order = Order::where('product_order_id', $khalti)
-                ->where('store_id', $store->id)
-                ->first();
+            $order = $this->soleStoreOrderByNumber($store, $khalti);
         }
 
         if (isset($order) && !empty($order)) {
