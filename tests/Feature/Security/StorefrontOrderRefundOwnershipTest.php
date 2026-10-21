@@ -927,6 +927,97 @@ class StorefrontOrderRefundOwnershipTest extends SecurityTestCase
     }
 
     /**
+     * F3 (review) -- MEASURED, AND THE REVIEWER'S FAILURE MODE DID NOT REPRODUCE. `json_encode()`
+     * returns FALSE on invalid UTF-8 rather than throwing, and the concern was that `return_price[]`
+     * (shopper text) could make the record encode to false while the order, committed in the same
+     * transaction, stayed shrunk. In fact `mb_substr()` SUBSTITUTES '?' for invalid bytes, so the
+     * display strings reach json_encode valid and this test passes against the code as it stood. It is
+     * kept as a characterization that bites if `$display` ever stops scrubbing (a byte-wise substr()
+     * makes it fail), and both encodes now also carry JSON_THROW_ON_ERROR so a future failure rolls
+     * the transaction back instead of storing `false`. THAT flag cannot be isolated by any request
+     * today, and is recorded as such rather than claimed.
+     *
+     * The store is given no theme because `ActiveTheme` otherwise runs `visitor()->visit($store)`,
+     * which JSON-encodes the whole request into shetabit_visits and answers ANY storefront request
+     * carrying invalid UTF-8 with a 500 before the handler runs (P1-SEC-13).
+     */
+    public function test_invalid_utf8_in_a_display_field_cannot_corrupt_the_record(): void
+    {
+        [, $store] = $this->makeTenant();
+
+        // A store with NO theme skips `ActiveTheme`'s `visitor()->visit($store)`, which JSON-encodes the
+        // whole request into shetabit_visits and so answers ANY storefront request carrying invalid
+        // UTF-8 with a 500 before the handler runs (recorded under P1-SEC-13). Without this the request
+        // never reaches the code under test.
+        Store::where('id', $store->id)->update(['theme_id' => '']);
+
+        $owner = $this->shopper($store);
+        $order = $this->twoLineOrder($store, $owner);
+        $before = $this->linesByProduct($order);
+
+        $response = $this->refundRequest($owner, $store, $order,
+            $this->twoLinePayload($order, ['return_price' => ['L1PRICE', "\xFF\xFE" . 'L2'], 'product_sub_total' => "\xC3\x28"]));
+
+        $this->assertNotSame(500, $response->getStatusCode());
+
+        $raw = DB::table('order_refunds')->value('product_refund_id');
+        $record = json_decode((string) $raw, true);
+        $this->assertIsArray($record,
+            'The refund record was stored as ' . var_export($raw, true) . ' -- json_encode() failed on invalid UTF-8 '
+            . 'and returned false, while the order itself stayed shrunk.');
+        $this->assertSame(1, (int) $record[0]['quantity']);
+        $this->assertRecordEqualsWhatWasRemoved($before, $order, 'Invalid UTF-8: record and order disagree.');
+    }
+
+    /**
+     * F2 (review). The order is read by `ownedOrder()` BEFORE the transaction, and the bounds and
+     * totals are computed from that unlocked row. Two identical requests passing together both
+     * clear the bound against the same snapshot: the order is written once (last write wins) but two
+     * refund rows each record the units. The write now re-reads the row `FOR UPDATE` inside the
+     * transaction and refuses if `product_json` is no longer what the request was computed from.
+     *
+     * The concurrent writer is SIMULATED, deterministically: a query listener fires on the handler's
+     * own order read and commits another refund's effect (Beta 3 -> 1) before the handler writes.
+     * SQLite ignores `FOR UPDATE`, so what this pins is the comparison; on MySQL the lock makes the
+     * second request WAIT and then fail that same comparison.
+     */
+    public function test_a_concurrent_writer_between_the_read_and_the_write_is_not_overwritten(): void
+    {
+        [, $store] = $this->makeTenant();
+        $owner = $this->shopper($store);
+        $order = $this->twoLineOrder($store, $owner);
+
+        $concurrent = json_encode([
+            ['product_id' => 501, 'name' => 'Alpha', 'variant_id' => 0, 'qty' => 2, 'final_price' => 200],
+            ['product_id' => 502, 'name' => 'Beta', 'variant_id' => 0, 'qty' => 1, 'final_price' => 100],
+        ]);
+
+        $fired = false;
+        DB::listen(function ($query) use (&$fired, $order, $concurrent) {
+            // The handler's own three-column read (id + store + customer), not the guard's earlier one.
+            if ($fired || ! str_starts_with($query->sql, 'select * from "orders" where "id" = ? and "store_id" = ? and "customer_id" = ?')) {
+                return;
+            }
+
+            $fired = true;
+            DB::table('orders')->where('id', $order->id)
+                ->update(['product_json' => $concurrent, 'product_price' => 300, 'final_price' => 340]);
+        });
+
+        $response = $this->refundRequest($owner, $store, $order, $this->twoLinePayload($order));
+
+        $this->assertTrue($fired, 'Fixture premise: the listener must fire on the handler\'s own ownedOrder() read.');
+        $this->assertNotSame(500, $response->getStatusCode());
+        $response->assertSessionHas('error');
+
+        $row = DB::table('orders')->where('id', $order->id)->first();
+        $this->assertSame($concurrent, $row->product_json,
+            'The request overwrote what a concurrent refund had just committed, computed from a snapshot that no longer existed.');
+        $this->assertSame(340.0, (float) $row->final_price);
+        $this->assertSame(0, $this->refundRows(), 'A refund row was recorded against a stale snapshot.');
+    }
+
+    /**
      * ATOMICITY. `$order->save()` ran first and the refund row second, with nothing joining them:
      * a failure on the second left the order shrunk and nothing for the merchant to cancel. The
      * failure here is a real one -- a database trigger that rejects the INSERT -- rather than a

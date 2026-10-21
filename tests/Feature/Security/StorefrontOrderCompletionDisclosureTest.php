@@ -647,4 +647,35 @@ class StorefrontOrderCompletionDisclosureTest extends SecurityTestCase
         $this->assertSame(429, $eleventh->getStatusCode(), 'The 11th attempt within a minute for one address was not throttled.');
         $this->assertStringNotContainsString('LIMITED9204', (string) $eleventh->getContent());
     }
+
+    /**
+     * F4 (review lens), the OTHER axis. `throttle:auth` keys on ip + the submitted EMAIL, so it bounds
+     * one known address swept across numbers. An attacker who has seen an order NUMBER (a screenshot,
+     * a receipt) and varies the email gets a fresh bucket per guess. `order-track` keys on ip + store
+     * + number, so the guesses against one number share a bucket.
+     */
+    public function test_guessing_emails_against_one_order_number_is_rate_limited(): void
+    {
+        $middleware = Route::getRoutes()->getByName('order.track')->gatherMiddleware();
+        $this->assertContains('throttle:order-track', $middleware, 'order.track lost its per-number rate limit.');
+
+        [, $store] = $this->makeTenant();
+        $order = $this->placedOrder($store, 'SPRAY9205', [], 'spray@buyer.test');
+
+        for ($i = 1; $i <= 10; $i++) {
+            $this->assertNotSame(429, $this->track($store, ['order_number' => $order->product_order_id, 'email' => "guess{$i}@evil.test"])->getStatusCode(),
+                "Attempt {$i} was throttled before the limit.");
+        }
+
+        $eleventh = $this->track($store, ['order_number' => $order->product_order_id, 'email' => 'spray@buyer.test']);
+
+        $this->assertSame(429, $eleventh->getStatusCode(), 'An eleventh guess against one order number in a minute was not throttled.');
+        $this->assertStringNotContainsString('SPRAY9205', (string) $eleventh->getContent());
+
+        // The bucket is PER NUMBER: a different number from the same address, with an address not yet seen
+        // by the `auth` limiter, is not caught up in it. (Without this a key that ignores the number
+        // would pass every assertion above.)
+        $other = $this->track($store, ['order_number' => 'SOMEOTHERNUMBER', 'email' => 'fresh-address@buyer.test']);
+        $this->assertNotSame(429, $other->getStatusCode(), 'The limiter is not scoped to the order number.');
+    }
 }

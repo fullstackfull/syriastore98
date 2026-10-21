@@ -55,11 +55,23 @@ class RouteServiceProvider extends ServiceProvider
             // route carrying `throttle:auth` (found when P1-ORD-08 put it on order-track). It now
             // falls into the same bucket as an absent email, which is still throttled.
             $submitted = $request->input('email');
-            $email = strtolower(is_scalar($submitted) ? (string) $submitted : '');
+            $email = mb_strtolower(is_scalar($submitted) ? (string) $submitted : '');
 
             $key = $request->ip() . '|' . hash('sha256', $email);
 
             return Limit::perMinute(10)->by($key);
+        });
+
+        // Guest order lookup (P1-ORD-08). `auth` above bounds ONE ADDRESS swept across order numbers;
+        // this bounds the other axis -- one ORDER NUMBER (seen on a receipt or a screenshot) tried
+        // against many guessed addresses, which gets a fresh `auth` bucket per guess. Keyed on IP +
+        // store slug + number, hashed like the email above so a cache key holds no raw identifier.
+        // `product_order_id` has no index, so every miss is a table scan: this also bounds that.
+        RateLimiter::for('order-track', function (Request $request) {
+            $number = $request->input('order_number');
+            $number = mb_strtolower(trim(is_scalar($number) ? (string) $number : ''));
+
+            return Limit::perMinute(10)->by($request->ip() . '|' . $request->route('storeSlug') . '|' . hash('sha256', $number));
         });
 
         $this->routes(function () {

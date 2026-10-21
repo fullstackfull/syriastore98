@@ -172,4 +172,14 @@ class AuthRateLimiterTest extends TestCase
             'An array-shaped email must land in the same bucket as an absent one.'
         );
     }
+
+    /** The submitted address is folded with mb_strtolower, as order_track and the account lookups do. */
+    public function test_non_ascii_capitals_share_a_bucket_with_their_lowercase(): void
+    {
+        $this->assertSame(
+            $this->limit('203.0.113.11', 'élodie@example.test')->key,
+            $this->limit('203.0.113.11', 'ÉLODIE@EXAMPLE.TEST')->key,
+            'A byte-wise strtolower leaves É and é in different buckets, multiplying an attacker\'s attempts.'
+        );
+    }
 }

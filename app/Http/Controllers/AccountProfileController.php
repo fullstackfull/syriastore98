@@ -1194,9 +1194,12 @@ public function city_list(Request $request, $slug)
 
         // The recorded figures that are the SHOPPER'S OWN display strings (`return_price[]`,
         // `product_sub_total`) stay as posted -- the merchant's payout is typed by the merchant and
-        // capped server-side by RefundIntegrityService -- but they are type-guarded and short:
-        // `order_refunds.product_refund_id` is a VARCHAR(255) holding this JSON, and a padded string
-        // would truncate it into something the merchant's `json_decode` cannot read.
+        // capped server-side by RefundIntegrityService -- but they are type-guarded and capped at 32
+        // CHARACTERS. That bounds a padded string; it does not guarantee the record fits
+        // `order_refunds.product_refund_id`, a VARCHAR(255) holding this JSON, because json_encode
+        // escapes non-ASCII as \uXXXX (six bytes each) and three or more lines overflow it on MySQL
+        // whatever is typed -- recorded under P1-ORD-11. mb_substr also substitutes '?' for invalid
+        // UTF-8, which is what keeps the encode below from failing on shopper text (measured).
         $display = static fn ($value): string => is_scalar($value) ? mb_substr((string) $value, 0, 32) : '';
 
         $total_product_price = 0.0;
@@ -1226,16 +1229,32 @@ public function city_list(Request $request, $slug)
         unset($product);
         $grand_total_price = ($total_product_price + $order->delivery_price + $order->tax_price) - $order->coupon_price;
 
-        // ONE TRANSACTION for the order's new totals and the row that lets the merchant undo them.
+        // ONE TRANSACTION for the order's new totals and the row that records the request.
         // `$order->save()` used to run first and the refund row second with nothing joining them, so
         // anything that failed in between (an omitted field, a rejected insert) left a shrunken
-        // order and NOTHING for `CancelRefundStatus` to restore from. Uploads wait for the commit:
-        // a rolled-back request must not leave files behind.
+        // order and NO refund row for the merchant to see. (Whether the merchant's CANCEL then
+        // restores the right line is a separate defect on the merchant side, P1-ORD-14: it reads this
+        // record by line position.) Uploads wait for the commit: a rolled-back request must not
+        // leave files behind.
         try {
             $order_refund = \DB::transaction(function () use ($order, $store, $request, $productJson, $total_product_price, $grand_total_price, $product_refund_data, $display) {
+                // FRESHNESS (review F2). Everything above was computed from the row `ownedOrder()` read
+                // BEFORE this transaction, with no lock, so two identical requests passing together both
+                // clear the quantity bound against the same snapshot: the order is written once, last
+                // write wins, while two refund rows each record the units. Re-read the row FOR UPDATE --
+                // the second request waits here on MySQL -- and refuse if the lines are no longer what
+                // this request was computed from. A raw read, not the Cachable model, so a cached copy
+                // can never make a stale row look current. (SQLite ignores FOR UPDATE; the test pins
+                // the comparison with a deterministic interleave.)
+                $current = \DB::table('orders')->where('id', $order->id)->lockForUpdate()->value('product_json');
+
+                if ($current !== $order->getRawOriginal('product_json')) {
+                    return null;
+                }
+
                 $order->final_price = $grand_total_price;
                 $order->product_price = $total_product_price;
-                $order->product_json = json_encode($productJson);
+                $order->product_json = json_encode($productJson, JSON_THROW_ON_ERROR);
                 $order->save();
 
                 // The `refund_status     = 'Processing'` spelling is asserted verbatim by
@@ -1244,7 +1263,7 @@ public function city_list(Request $request, $slug)
                 $order_refund                    = new OrderRefund();
                 $order_refund->order_id          = $order->id;
                 $order_refund->refund_status     = 'Processing';
-                $order_refund->product_refund_id = json_encode($product_refund_data);
+                $order_refund->product_refund_id = json_encode($product_refund_data, JSON_THROW_ON_ERROR);
                 $order_refund->store_id          = $store->id;
                 // Passed through as before. A non-scalar value fails the INSERT, and the transaction
                 // makes that a handled refusal with the order untouched instead of a half-write.
@@ -1263,6 +1282,12 @@ public function city_list(Request $request, $slug)
             ]);
 
             return redirect()->back()->with('error', __('Something Went wrong.'));
+        }
+
+        // A concurrent request changed this order's lines between the read and the lock: nothing was
+        // written. The shopper reloads and sees the order as it now is.
+        if ($order_refund === null) {
+            return redirect()->back()->with('error', __('This order was just updated. Please review it and try again.'));
         }
 
         $data              = [];

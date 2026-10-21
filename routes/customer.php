@@ -82,10 +82,11 @@ Route::middleware([ActiveTheme::class, 'themelanguage'])->group(function () {
     Route::get('{storeSlug?}/cart', [HomeController::class, 'cart_page'])->name('page.cart');
     Route::any('{storeSlug?}/checkout', [HomeController::class, 'checkout'])->name('checkout');
     Route::post('{storeSlug?}/checkout/address/form', [HomeController::class, 'addressForm'])->name('order.address.form');
-    // The number is a timestamp, so the email is the only secret: limit guesses per IP + address with the
-    // project's `auth` limiter, whose key is the same `email` field this form posts (P1-ORD-08).
+    // The number is a timestamp, so the email is the only secret. Two limiters, one per axis (P1-ORD-08):
+    // `auth` = one address swept across numbers (IP + the posted email), `order-track` = one number tried
+    // against many addresses (IP + slug + number).
     Route::post('{storeSlug?}/order-track', [HomeController::class, 'order_track'])
-        ->middleware('throttle:auth')
+        ->middleware(['throttle:auth', 'throttle:order-track'])
         ->name('order.track');
     Route::get('{storeSlug?}/wishlist', [HomeController::class, 'wishlist'])->name('wishlist');
     Route::get('{storeSlug?}/search-product', [HomeController::class, 'search_products'])->name('search.product');
