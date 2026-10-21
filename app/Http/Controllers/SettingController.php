@@ -275,6 +275,14 @@ $u->save();
 
     public function BusinessSettings(Request $request)
     {
+
+        // P1-SEC-27. This handler writes EVERY posted name into `settings` for the caller's store, and its form is on the Settings
+        // screen, which settingForm() already refuses to anyone without `Manage Setting`; the route itself was open to every logged-in
+        // user of the store, so the write asks for it too (App\Services\StoreSettingsAccess).
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'brand_setting']);
         // Get the authenticated user
         $user = auth()->user();
@@ -637,6 +645,14 @@ $u->save();
 
     public function CookieSettings(Request $request)
     {
+
+        // P1-SEC-27. This handler writes EVERY posted name into `settings` for the caller's store, and its form is on the Settings
+        // screen, which settingForm() already refuses to anyone without `Manage Setting`; the route itself was open to every logged-in
+        // user of the store, so the write asks for it too (App\Services\StoreSettingsAccess).
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'cookie_setting']);
         $validator = \Validator::make(
             $request->all(),
@@ -823,6 +839,14 @@ $u->save();
 
     public function CustomizeSetting(Request $request)
     {
+
+        // P1-SEC-27. This handler writes EVERY posted name into `settings` for the caller's store, and its form is on the Settings
+        // screen, which settingForm() already refuses to anyone without `Manage Setting`; the route itself was open to every logged-in
+        // user of the store, so the write asks for it too (App\Services\StoreSettingsAccess).
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'style_setting']);
         $post = $request->all();
         unset($post['_token']);
@@ -849,6 +873,11 @@ $u->save();
     public function LoyalityProgramSettings(Request $request)
     {
         session()->put(['setting_tab' => 'loyality_pro_setting']);
+        // P1-SEC-27. The web twin of Api\DashboardController::LoyalitySetting, which asks the same question; the reward point decides
+        // what a shopper's points are worth.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
         $theme_id = !empty(APP_THEME()) ? APP_THEME() : APP_THEME();
 
         $loyality_program_enabled = !empty($request->loyality_program_enabled) ? $request->loyality_program_enabled : 'off';
@@ -978,6 +1007,14 @@ $u->save();
 
     public function SystemSettings(Request $request)
     {
+
+        // P1-SEC-27. This handler writes EVERY posted name into `settings` for the caller's store, and its form is on the Settings
+        // screen, which settingForm() already refuses to anyone without `Manage Setting`; the route itself was open to every logged-in
+        // user of the store, so the write asks for it too (App\Services\StoreSettingsAccess).
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'system_setting']);
         // Get the authenticated user
         $user = auth()->user();
@@ -1353,6 +1390,14 @@ $u->save();
 
    public function currencySettings(Request $request)
 {
+        // P1-SEC-27. The currency tab of the Settings screen. Changing the store currency REWRITES product, variant and wallet
+        // amounts and pending COD orders (convertStoreCurrentValues), so this is not "a setting": it needs the permission the screen
+        // needs, like its admin-API twins (updateCurrencyApi, updateCurrencyRateApi, toggleCurrencyStatusApi). That also covers the
+        // restricted names this handler would write by name: whoever passes this check may write them.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
     session()->put(['setting_tab' => 'currency_setting']);
 
     $storeId = getCurrentStore();
@@ -1763,6 +1808,14 @@ elseif ($tabType == 'otp_setting') {
 
     public function SEOSetting(Request $request)
     {
+
+        // P1-SEC-27. This handler writes EVERY posted name into `settings` for the caller's store, and its form is on the Settings
+        // screen, which settingForm() already refuses to anyone without `Manage Setting`; the route itself was open to every logged-in
+        // user of the store, so the write asks for it too (App\Services\StoreSettingsAccess).
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put(['setting_tab' => 'seo_setting']);
         $post = $request->all();
         unset($post['_token']);

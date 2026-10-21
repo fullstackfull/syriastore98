@@ -252,6 +252,16 @@ class AppSettingController extends Controller
 
     public function seoSettings(Request $request)
     {
+
+        // P1-SEC-27. This handler writes EVERY posted name into `settings` for the caller's store. Its form is the Store Setting screen
+        // (AppSettingController::index() asks for `Manage Store Setting`), so the write does too; and a payment-, mail-, storage-,
+        // integration- or domain-configuration name needs the Settings permission whoever posts it (App\Services\StoreSettingsAccess).
+        // A restricted value that is merely resubmitted unchanged is removed from the request rather than written again.
+        if (! \App\Services\StoreSettingsAccess::permitsStoreScreen(auth()->user())
+            || \App\Services\StoreSettingsAccess::refusesRestrictedPost($request, auth()->user(), getCurrentStore())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put('app_setting_tab', $request->app_setting_tab);
         $validator = \Validator::make(
             $request->all(),
@@ -312,6 +322,16 @@ class AppSettingController extends Controller
 
     public function shippingLabelSettings(Request $request)
     {
+
+        // P1-SEC-27. This handler writes EVERY posted name into `settings` for the caller's store. Its form is the Store Setting screen
+        // (AppSettingController::index() asks for `Manage Store Setting`), so the write does too; and a payment-, mail-, storage-,
+        // integration- or domain-configuration name needs the Settings permission whoever posts it (App\Services\StoreSettingsAccess).
+        // A restricted value that is merely resubmitted unchanged is removed from the request rather than written again.
+        if (! \App\Services\StoreSettingsAccess::permitsStoreScreen(auth()->user())
+            || \App\Services\StoreSettingsAccess::refusesRestrictedPost($request, auth()->user(), getCurrentStore())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put('app_setting_tab', $request->app_setting_tab);
         $validator = \Validator::make(
             $request->all(),
@@ -489,6 +509,33 @@ class AppSettingController extends Controller
 
     public function ThemeSettings(Request $request)
     {
+
+        // P1-SEC-27. This handler writes EVERY posted name into `settings` for the caller's store. Its form is the Store Setting screen
+        // (AppSettingController::index() asks for `Manage Store Setting`), so the write does too; and a payment-, mail-, storage-,
+        // integration- or domain-configuration name needs the Settings permission whoever posts it (App\Services\StoreSettingsAccess).
+        //
+        // The domain tab is the exception to "compare what was posted with what is stored": its radio posts a TOKEN under the name
+        // `enable_domain` that this handler turns into three on/off flags and into hosting-panel calls (Webuzo add/delete), including
+        // a DELETE of the stored custom domain whenever the token is anything but `enable_domain` -- which includes the Home and
+        // Checkout tabs, whose forms post no routing field at all. So for a user who may not change routing the five routing inputs are
+        // replaced by the ones that reproduce the stored state, the five names are dropped from what is written below, and the request
+        // is refused outright if it tried to change them.
+        $routingUser = auth()->user();
+        $mayChangeRouting = \App\Services\StoreSettingsAccess::permits($routingUser);
+        if (! \App\Services\StoreSettingsAccess::permitsStoreScreen($routingUser)) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+        if (! $mayChangeRouting) {
+            $neutral = \App\Services\StoreSettingsAccess::domainRoutingNeutralised($request->all(), getCurrentStore());
+            if ($neutral === null) {
+                return redirect()->back()->with('error', __('Permission denied.'));
+            }
+            $request->merge($neutral);
+        }
+        if (\App\Services\StoreSettingsAccess::refusesRestrictedPost($request, $routingUser, getCurrentStore(), \App\Services\StoreSettingsAccess::DOMAIN_ROUTING)) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         session()->put('app_setting_tab', $request->app_setting_tab);
         $store = Store::find(getCurrentStore());
         $settings = Setting::where('store_id', $store->id)->pluck('value', 'name')->toArray();
@@ -1047,6 +1094,11 @@ if ($request->enable_domain === 'enable_subdomain') {
         }
         if ($request->product_image_zoom_is_enable) {
             $post['product_image_zoom_is_enable'] = $request->product_image_zoom_is_enable ?? 'off';
+        }
+
+        // P1-SEC-27: a user who may not change routing never writes the five routing names, whatever the handler derived for them above.
+        if (! $mayChangeRouting) {
+            $post = array_diff_key($post, array_flip(\App\Services\StoreSettingsAccess::DOMAIN_ROUTING));
         }
 
         $settingQuery = Setting::query();

@@ -201,6 +201,13 @@ run_one verify-store-id-coercion-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_DATABASE=storeid_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
+# P1-SEC-27 (review). The settings writers do `updateOrCreate(['name' => $postedName, ...])` for every posted name; under the project's
+# utf8mb4_unicode_ci connection collation `Domains`, `DOMAINS`, `domains ` and `dómains` are the stored `domains` row and the write
+# REWRITES it, name included. SQLite compares bytes and matches none of them.
+run_one verify-settings-name-collation-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=settingname_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

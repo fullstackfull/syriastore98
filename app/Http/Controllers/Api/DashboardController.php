@@ -3351,6 +3351,10 @@ public function DeleteReview($id)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
+        }
+
         $user = Auth::user();
         if ($user) {
             $rules = [
@@ -3416,6 +3420,10 @@ public function DeleteReview($id)
         $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
+        }
+
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
         }
 
         $user = Auth::user();
@@ -3514,6 +3522,10 @@ public function DeleteReview($id)
         $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
+        }
+
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
         }
 
         $user = Auth::user();
@@ -6748,6 +6760,10 @@ public function updateCurrencyRateApi(Request $request)
             ], 403);
         }
 
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
+        }
+
         $currencyRate = \App\Models\CurrencyRate::where('store_id', $validated['store_id'])
             ->where('currency_code', $validated['currency_code'])
             ->first();
@@ -6824,6 +6840,10 @@ public function toggleCurrencyStatusApi(Request $request)
                 'message' => 'fail',
                 'data' => ['message' => 'You do not have permission to update this store settings.']
             ], 403);
+        }
+
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
         }
 
         $currencyRate = \App\Models\CurrencyRate::where('store_id', $validated['store_id'])
@@ -7072,6 +7092,10 @@ public function updateCurrencyApi(Request $request)
                 'message' => 'fail',
                 'data' => ['message' => 'You do not have permission to update this store settings.']
             ], 403);
+        }
+
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
         }
 
         $validated = $request->validate([

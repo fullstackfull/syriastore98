@@ -294,10 +294,17 @@ class WebSettingsSecretsTest extends SecurityTestCase
      * the F6 fix, which asked what the delete does with a path of the caller's choosing.
      *
      * This test points the pattern at a sandbox directory; the real target is any directory of the application.
+     *
+     * P1-SEC-27 closed the first half of this for a member of staff with no settings permission: the generic writers now require
+     * `Manage Setting` (see SettingsRestrictedWriteTest), so the poisoned row can no longer be stored by them. The delete primitive
+     * is still reachable by whoever MAY write the row -- the owner, and staff the owner gave `Manage Setting` -- and by any writer
+     * the name rules do not reach (the vendored module writers, P1-SEC-31), so the central fix in StoredUpload stays the control
+     * under test, with the actor moved to a principal that can still reach it.
      */
     public function test_a_poisoned_logo_row_cannot_make_business_settings_delete_files_by_glob(): void
     {
         Storage::fake('theme');
+        $this->grantPermission($this->staff, 'Manage Setting');
         $dir = 'storage/framework/testing/sec18/glob';
         File::ensureDirectoryExists(base_path($dir));
         foreach (['a', 'b', 'c'] as $n) {
