@@ -1314,6 +1314,11 @@ public function city_list(Request $request, $slug)
                 $product['qty'] = $product['qty'] - $units[$key];
 
                 if ($units[$key] > 0) {
+                    // P1-ORD-14: what this line has LOST (qty + refunded_qty is what it started with). The merchant side gives back at most
+                    // this, onto the line that lost it, so a record read by position, a hand-written one or two variants of one product
+                    // cannot move the wrong units.
+                    $product['refunded_qty'] = (int) ($product['refunded_qty'] ?? 0) + $units[$key];
+
                     $product_refund_data[] = [
                         'product_refund_id' => $product['product_id'],
                         'return_price' => $display($returnPrices[$key] ?? null),
@@ -1323,7 +1328,13 @@ public function city_list(Request $request, $slug)
             }
             // A line already at qty 0 has nothing left to scale; dividing by it was the replay 500.
             if ((float) $old_qty != 0.0) {
+                $priceBefore = $product['final_price'];
                 $product['final_price'] = ($product['final_price'] * $product['qty']) / $old_qty;
+
+                // P1-ORD-14: the VALUE the line lost, so cancelling the request can put a fully refunded line's price back exactly
+                if (isset($product['refunded_qty']) && ($units[$key] ?? 0) > 0) {
+                    $product['refunded_value'] = (float) ($product['refunded_value'] ?? 0) + ((float) $priceBefore - (float) $product['final_price']);
+                }
             }
 
             $total_product_price = $total_product_price + $product['final_price'];

@@ -405,6 +405,19 @@ class OrderRefundController extends Controller
             return $this->refundDenied('This refund request has no restorable product data.', 422);
         }
 
+        // WHICH LINE EACH RECORDED ENTRY GOES BACK ONTO (P1-ORD-14). The record lists the TICKED lines only, so it is NOT parallel to
+        // the order's lines: reading `$productRefunds[$key]` with `$key` the line's position gave the first entry to the first line
+        // whatever product it named (order A qty 3 + B qty 2, one unit of B returned, request rejected -> A grew, B did not come back).
+        // Entries are matched to lines by PRODUCT ID; where a product sits on several lines (variants) the line that actually lost
+        // units takes it (`refunded_qty`, kept by the storefront request); and what is given back is bounded by what the line lost.
+        $plan = $this->restorationPlan($productJson, $productRefunds);
+
+        if ($plan === null) {
+            \Log::warning('Refund cancellation refused: the record does not match the order', ['refund_id' => $order_refund->id, 'order_id' => $order->id]);
+
+            return $this->refundDenied('This refund request does not match the order\'s lines, so nothing was restored.', 422);
+        }
+
         // ATOMIC with the status write. Previously the order's totals were saved
         // and the refund status was updated as two separate statements: a
         // failure between them left the order's quantities and final_price
@@ -412,17 +425,35 @@ class OrderRefundController extends Controller
         // 'Accept' -- so the next POST restored them a second time. Making the
         // pair atomic is what lets the state guard above actually hold.
         try {
-            \DB::transaction(function () use ($order, $order_refund, $productJson, $productRefunds, $request) {
+            \DB::transaction(function () use ($order, $order_refund, $productJson, $plan, $request) {
                 $total_product_price = 0.0;
 
                 foreach ($productJson as $key => &$product) {
-                    $quantitie = $productRefunds[$key]['quantity'] ?? ($productRefunds[$key]['qty'] ?? 0);
+                    $quantitie = $plan[$key] ?? 0;
                     $old_qty = $product['qty'];
 
                     $product['qty'] = $product['qty'] + $quantitie;
 
+                    // the value this line lost when it was refunded, given back in proportion to the units that come back (new data only)
+                    $lostValue = null;
+
+                    if ($quantitie > 0 && isset($product['refunded_qty'])) {
+                        $lostQty = (int) $product['refunded_qty'];
+                        $lostValue = isset($product['refunded_value']) && $lostQty > 0 ? (float) $product['refunded_value'] * $quantitie / $lostQty : null;
+                        $product['refunded_qty'] = max(0, $lostQty - $quantitie);
+
+                        if ($lostValue !== null) {
+                            $product['refunded_value'] = max(0.0, (float) $product['refunded_value'] - $lostValue);
+                        }
+                    }
+
                     if ($old_qty != 0) {
                         $product['final_price'] = ($product['final_price'] * $product['qty']) / $old_qty;
+                    } elseif ($lostValue !== null) {
+                        // A line refunded down to nothing has no price left to scale. The value it lost was recorded when it lost it, so the
+                        // restored price no longer depends on a figure posted with this request (the cancel button sends the SHOPPER's
+                        // display subtotal).
+                        $product['final_price'] = $lostValue;
                     } else {
                         $product['final_price'] = $request->subtotal;
                     }
@@ -453,6 +484,94 @@ class OrderRefundController extends Controller
             'status' => $order_refund->refund_status,
             'message' => 'Request cancel successfully!'
         ]);
+    }
+
+    /**
+     * Which order line each recorded refund entry is given back to, and how many units: line index => units; null when the record cannot be
+     * applied to this order without guessing or inflating it.
+     *
+     * An entry is {product_refund_id, return_price, quantity}. It goes to the first line (in order) of that product that has not been
+     * given an entry yet and that LOST at least that many units -- `refunded_qty`, written by the storefront request. A line that predates
+     * the counter (no such key) takes it unbounded, as before (recorded residual: nothing says how many units it lost). An entry for a
+     * product that is on no line, an entry larger than every candidate line lost, or a quantity that is not a positive whole number makes the
+     * whole plan unusable: a half-applied cancellation would leave the order and the request disagreeing.
+     *
+     * @param  array<int, array<string, mixed>>  $lines
+     * @param  array<int, mixed>  $entries
+     * @return array<int, int>|null
+     */
+    private function restorationPlan(array $lines, array $entries): ?array
+    {
+        $plan = [];
+
+        foreach ($entries as $entry) {
+            if (! is_array($entry)) {
+                return null;
+            }
+
+            $productId = $entry['product_refund_id'] ?? null;
+            $units = $entry['quantity'] ?? ($entry['qty'] ?? null);
+
+            if ($productId === null || ! is_scalar($productId) || ! is_numeric($units) || (float) $units != (int) $units || (int) $units <= 0) {
+                return null;
+            }
+
+            $units = (int) $units;
+            $placed = false;
+
+            // a line that KEEPS the counter and lost at least this many units is the right one; only then a line that predates it
+            foreach ([true, false] as $counted) {
+                foreach ($lines as $key => $line) {
+                    if (isset($plan[$key]) || ! is_array($line) || (string) ($line['product_id'] ?? '') !== (string) $productId
+                        || array_key_exists('refunded_qty', $line) !== $counted) {
+                        continue;
+                    }
+
+                    if ($counted && $units > (int) $line['refunded_qty']) {
+                        continue;
+                    }
+
+                    $plan[$key] = $units;
+                    $placed = true;
+
+                    break 2;
+                }
+            }
+
+            if (! $placed) {
+                return null;
+            }
+        }
+
+        return $plan;
+    }
+
+    /**
+     * Product id => the units its order lines have lost to refunds (`refunded_qty`), or null when any line of that product predates the
+     * counter and so says nothing. A product on no line is absent from the map.
+     *
+     * @return array<string, int|null>
+     */
+    private function unitsLostByProduct(Order $order): array
+    {
+        $lines = json_decode((string) $order->product_json, true);
+        $lost = [];
+
+        foreach (is_array($lines) ? $lines : [] as $line) {
+            if (! is_array($line) || ! isset($line['product_id'])) {
+                continue;
+            }
+
+            $key = (string) $line['product_id'];
+
+            if (! array_key_exists('refunded_qty', $line)) {
+                $lost[$key] = null;
+            } elseif (! array_key_exists($key, $lost) || $lost[$key] !== null) {
+                $lost[$key] = ($lost[$key] ?? 0) + max(0, (int) $line['refunded_qty']);
+            }
+        }
+
+        return $lost;
     }
 
     /**
@@ -561,6 +680,9 @@ class OrderRefundController extends Controller
 
             $variantIds = $this->resolveVariantIdsFromOrder($order);
 
+            // P1-ORD-14: the units each product's order lines lost -- the most that can honestly come back (null = unknown, a legacy line)
+            $lostLeft = $this->unitsLostByProduct($order);
+
             $restored = 0;
 
             \DB::transaction(function () use (
@@ -569,7 +691,8 @@ class OrderRefundController extends Controller
                 $order,
                 $storeId,
                 $variantIds,
-                &$restored
+                &$restored,
+                &$lostLeft
             ) {
                 foreach ($product_refund_id_array as $product_refund) {
                     $product_id = $product_refund['product_refund_id'] ?? null;
@@ -593,6 +716,28 @@ class OrderRefundController extends Controller
                     }
 
                     $quantity = (int) $quantity;
+
+                    // A record is a claim; the order's lines say how many units were actually taken off them. Two entries for one product
+                    // draw on the same allowance, so listing a unit twice does not restock it twice.
+                    if (array_key_exists((string) $product_id, $lostLeft) && $lostLeft[(string) $product_id] !== null) {
+                        $allowed = min($quantity, $lostLeft[(string) $product_id]);
+
+                        if ($allowed < $quantity) {
+                            \Log::warning('Refund restock clamped to the units the order lines lost', [
+                                'refund_id' => $order_refund->id,
+                                'product_id' => $product_id,
+                                'recorded' => $quantity,
+                                'allowed' => $allowed,
+                            ]);
+                        }
+
+                        $lostLeft[(string) $product_id] -= $allowed;
+                        $quantity = $allowed;
+
+                        if ($quantity <= 0) {
+                            continue;
+                        }
+                    }
 
                     // product_refund_id comes out of a JSON blob on the refund
                     // row, so it is attacker-influenced input, not a validated
