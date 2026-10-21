@@ -54,8 +54,9 @@ class HomeController extends Controller
         // Get the remote domain
         // remove WWW
         $remote = str_replace('www.', '', $remote);
-        $subdomain = Setting::where('name', 'subdomain')->where('value', $remote)->first();
-        $domain = Setting::where('name', 'domains')->where('value', $remote)->first();
+        // P1-SEC-29: only a row whose own store has the matching flag on counts (App\Services\HostClaims).
+        $subdomain = \App\Services\HostClaims::row('subdomain', $remote);
+        $domain = \App\Services\HostClaims::row('domains', $remote);
 
         $enable_subdomain = '';
         $enable_domain = '';

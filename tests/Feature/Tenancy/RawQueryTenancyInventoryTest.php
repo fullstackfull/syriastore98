@@ -54,7 +54,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
      * builder, and the surrounding query still carries its scopes, so conflating the two would
      * overstate this inventory.
      */
-    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty_nine(): void
+    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty_eight(): void
     {
         $perDir = [];
 
@@ -202,13 +202,18 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // `insert ... on duplicate key update` that flushes nothing, so an Eloquent read here could treat a stale value as the
         // baseline and call a real change "unchanged" (pinned by SettingsRestrictedWriteTest::test_the_baseline_is_the_table_*).
         // The per-table row for `settings` moves 15 -> 16 and its no-store_id column does not.
-        $this->assertSame(['app' => 124, 'packages' => 45], $perDir,
+        // app 124 -> 123 with P1-SEC-29: the host lookups moved into App\Services\HostClaims. FOUR raw `settings` reads without a store
+        // predicate (the `subdomain` and `domains` lookups in StoreRedirectServiceProvider and in ViewServiceProvider) are gone; three
+        // came back in HostClaims -- row() and heldByAnotherStore(), whose statements name the store through the matching flag's
+        // subquery, and assertFree()'s read of the store's own saved host. The per-table row for `settings` moves 16 -> 15 and its
+        // no-store_id column 9 -> 5: a REDUCTION in raw exposure, and the lookup now resolves only a row whose store has the flag on.
+        $this->assertSame(['app' => 123, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
             . 'a raw query became Eloquent, which is an improvement worth recording here.');
 
-        $this->assertSame(169, array_sum($perDir));
+        $this->assertSame(168, array_sum($perDir));
     }
 
     /**
@@ -293,7 +298,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // asserted per-site in OwnedPathRawQueryInventoryTest, where the file is classified
             // 'comparison'.
             'products' => [1, 0],
-            'settings' => [16, 9],   // 15 -> 16 with P1-SEC-27: StoreSettingsAccess::storedRows(), WITH a store_id predicate
+            'settings' => [15, 5],   // 15 -> 16 with P1-SEC-27 (StoreSettingsAccess::storedRows, WITH a store_id predicate); 16 -> 15 and 9 -> 5 with P1-SEC-29 (HostClaims)
             'shetabit_visits' => [16, 0],
             'side_menus_option' => [28, 0],
             'store_devices' => [2, 1],
@@ -363,10 +368,11 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // and carries store_id + customer_id, so the unscoped sum below does not move.
         // 140 -> 141 with P1-SEC-27: StoreSettingsAccess::storedRows(), a `settings` read WITH a store_id predicate, so the
         // unscoped sum below does not move.
-        $this->assertSame(141, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '141 literal-table sites of the 169 entry points; the other 28 build their table name '
+        // 141 -> 140 and 70 -> 66 with P1-SEC-29: four unscoped `settings` host lookups out, three store-aware reads in (HostClaims).
+        $this->assertSame(140, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            '140 literal-table sites of the 168 entry points; the other 28 build their table name '
             . 'from a variable and so cannot be attributed (see LIMIT 2 in this class docblock).');
-        $this->assertSame(70, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        $this->assertSame(66, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**
@@ -469,20 +475,20 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // looks like in practice.
             // `settings` IS THE REAL ONE, and it is the widest surface in the codebase: read on
             // every page render through getAdminAllSetting() (app/Helper/helper.php:350-382).
-            // It is also why Setting is NOT allowlisted. The nine sites:
+            // It is also why Setting is NOT allowlisted. The five sites (nine before P1-SEC-29):
             //     app/Models/Utility.php:830                      (Utility::cookies(), filtered
             //                                                      on created_by, not store_id --
             //                                                      the cookie-consent bleed
             //                                                      already detailed in
             //                                                      ResidualTenancyExposureTest)
-            //     app/Providers/StoreRedirectServiceProvider.php:30, :31
-            //     app/Providers/ViewServiceProvider.php:89, :90   (subdomain/domain -> store
-            //                                                      resolution; keyed on the host,
-            //                                                      so arguably correct)
+            //     (app/Providers/StoreRedirectServiceProvider.php:30, :31 and
+            //      app/Providers/ViewServiceProvider.php:89, :90 -- the host lookups -- were here
+            //      until P1-SEC-29 moved them into App\Services\HostClaims, which resolves a row
+            //      only when its own store has the matching flag on; four sites fewer, five left)
             //     app/Http/Controllers/AITemplateController.php:52
             //     packages/workdo/Donation/.../DonationController.php:187
             //     packages/workdo/PartialPayments/.../PartialPaymentsController.php:459, :470
-            'settings' => 9,
+            'settings' => 5,
             // `store_devices` -- app/Services/StoreNotificationService.php:195. Push-notification
             // device tokens, read with no store predicate. One statement, genuinely unscoped.
             'store_devices' => 1,

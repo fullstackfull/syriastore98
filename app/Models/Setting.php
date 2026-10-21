@@ -16,6 +16,17 @@ class Setting extends Model
         'name', 'value',  'created_by', 'store_id'
     ];
 
+    /**
+     * P1-SEC-29: a store cannot save, or switch on, a custom domain or sub-domain that another store holds. Every Eloquent writer of
+     * `settings` passes through here (see App\Services\HostClaims).
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (Setting $setting) {
+            \App\Services\HostClaims::assertFree($setting);
+        });
+    }
+
     public static function paymentList($slug) 
     {
         $store = getStore($slug);

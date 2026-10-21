@@ -742,6 +742,22 @@ $oldCustomDomainEnabled = ($settings['enable_domain'] ?? 'off') === 'on';
 | Custom Domain
 |--------------------------------------------------------------------------
 */
+// P1-SEC-29: a host another store holds is refused BEFORE anything reaches the hosting panel -- including the removal of this
+// store's own old custom domain, which the second block below does FIRST when the mode is switched, and which a refusal after it
+// would leave done at the panel and not saved.
+if ($mayChangeRouting) {
+    $claimedHost = null;
+    if ($request->enable_domain === 'enable_domain') {
+        $claimedHost = (string) $request->domains;   // heldByAnotherStore() normalises it, as the lookups do
+    } elseif ($request->enable_domain === 'enable_subdomain') {
+        $appHost = parse_url('http://' . preg_replace('#^https?://#', '', trim((string) env('APP_URL'), '/')), PHP_URL_HOST);
+        $claimedHost = $appHost ? strtolower(trim((string) $request->subdomain)) . '.' . preg_replace('/^www\./', '', $appHost) : null;
+    }
+    if ($claimedHost && \App\Services\HostClaims::heldByAnotherStore($claimedHost, $store->id)) {
+        return redirect()->back()->with('error', __('This domain is already used by another store.'));
+    }
+}
+
 // P1-SEC-27: the hosting panel is for a user who may change routing; for everyone else NOTHING below reaches it, whatever is posted.
 if ($mayChangeRouting && $request->enable_domain === 'enable_domain') {
 

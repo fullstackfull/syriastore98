@@ -209,9 +209,9 @@ if (!function_exists('get_file')) {
 if (!function_exists('getEnableSetting')) {
     function getEnableSetting($remote)
     {
-        $settingQuery = Setting::query();
-        $subdomain = (clone $settingQuery)->where('name', 'subdomain')->where('value', $remote)->first();
-        $domain = (clone $settingQuery)->where('name', 'domains')->where('value', $remote)->first();
+        // P1-SEC-29: only a row whose own store has the matching flag on counts (App\Services\HostClaims).
+        $subdomain = \App\Services\HostClaims::row('subdomain', $remote);
+        $domain = \App\Services\HostClaims::row('domains', $remote);
 
         return $subdomain ? $subdomain : $domain;
     }
@@ -494,8 +494,9 @@ if (!function_exists('GetCurrenctTheme')) {
             // remove WWW
             $remote = str_replace('www.', '', $remote);
             $settingQuery = Setting::query();
-            $subdomain = (clone $settingQuery)->where('name', 'subdomain')->where('value', $remote)->first();
-            $domain = (clone $settingQuery)->where('name', 'domains')->where('value', $remote)->first();
+            // P1-SEC-29: only a row whose own store has the matching flag on counts (App\Services\HostClaims).
+            $subdomain = \App\Services\HostClaims::row('subdomain', $remote);
+            $domain = \App\Services\HostClaims::row('domains', $remote);
 
             $enable_subdomain = "";
             $enable_domain = "";
