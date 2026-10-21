@@ -25,10 +25,17 @@ use Illuminate\Support\Facades\Schema;
  * MEASURED before the fix, through the real route with the Donation module enabled by the production
  * loader: HTTP 200, and the body contained both Duo values.
  *
- * The fix is on the model, not the modules (packages/workdo/ cannot be edited): the two columns are
- * `$hidden`, which changes SERIALISATION only. Every reader -- LaravelDuo.php:31-41, Duo2FAController
- * :159-160, the module's settings form -- reads them as properties, which `$hidden` does not touch; a test
- * below pins that.
+ * The fix is on the model, not the modules (packages/workdo/ cannot be edited): `Store::attributesToArray()`
+ * drops the two columns, which changes SERIALISATION only. Every reader -- LaravelDuo.php:31-41,
+ * Duo2FAController:159-160, the module's settings form -- reads them as properties, which this does not
+ * touch; a test below pins that.
+ *
+ * WHY A METHOD AND NOT `$hidden`. The first version used `$hidden`, and the review of it found the flaw:
+ * `$hidden` is object STATE, `Model::__sleep()` serialises every property including it, and `Store` is
+ * Cachable -- so with a non-taggable cache store (CACHE_STORE=database in production) a Store cached
+ * before the deploy comes back from `unserialize()` with the old, empty list and keeps leaking until the
+ * cache is flushed. The suite's array cache holds live objects and cannot show that, so
+ * test_a_store_cached_by_an_older_build_still_hides_the_keys reproduces the mechanism by hand.
  *
  * `customer_donations.theme_id` is written by the Donation handler but declared by none of the module's
  * migrations (schema drift in the vendored module), so without it the handler 500s before it reaches the
@@ -82,7 +89,7 @@ class StoreSerializationSecretsTest extends SecurityTestCase
         }
     }
 
-    /** Every reader in the Duo2FA module uses property access, which `$hidden` must not break. */
+    /** Every reader in the Duo2FA module uses property access, which the serialisation control must not break. */
     public function test_the_modules_own_property_reads_still_work(): void
     {
         $store = $this->storeWithDuo();
@@ -94,6 +101,28 @@ class StoreSerializationSecretsTest extends SecurityTestCase
         // And the save path (Duo2FAController::..., `$store->update($post)`).
         $store->update(['duo_secret_key' => 'FIXTURE-duo-secret-0002']);
         $this->assertSame('FIXTURE-duo-secret-0002', DB::table('stores')->where('id', $store->id)->value('duo_secret_key'));
+    }
+
+    /**
+     * A Store cached before the fix. `setHidden([])` is the state the OLD build serialised into the cache;
+     * `serialize()`/`unserialize()` is what a database cache store does to it. A control held in object
+     * state would come back empty here; one held in the class does not.
+     */
+    public function test_a_store_cached_by_an_older_build_still_hides_the_keys(): void
+    {
+        $store = $this->storeWithDuo();
+
+        $old = clone $store;
+        $old->setHidden([]);
+
+        $revived = unserialize(serialize($old));
+
+        $this->assertSame(self::DUO_SECRET, $revived->duo_secret_key, 'Premise: the revived model still carries the value (property reads work).');
+        $this->assertSame([], $revived->getHidden(), 'Premise: the revived model carries the OLD, empty hidden list.');
+
+        $this->assertStringNotContainsString(self::DUO_SECRET, json_encode($revived));
+        $this->assertStringNotContainsString(self::DUO_INTEGRATION, $revived->toJson());
+        $this->assertArrayNotHasKey('duo_secret_key', $revived->toArray());
     }
 
     public function test_the_non_secret_store_columns_are_still_serialised(): void
