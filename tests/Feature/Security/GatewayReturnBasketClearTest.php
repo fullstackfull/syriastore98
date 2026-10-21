@@ -172,6 +172,11 @@ class GatewayReturnBasketClearTest extends SecurityTestCase
         $this->assertSame(0, self::cookieRows($mine), 'The guest\'s own basket was not cleared.');
     }
 
+    /**
+     * The "no other guests" half passes on SQLite with the fix reverted, because `'' = 0` is false there (the MySQL half
+     * is tests/Support/Security/bin/verify-guest-cart-clear-coercion-on-mysql.php). What this test pins on every engine is
+     * the other half: the guest's OWN basket is cleared, by the cookie, now that the id-keyed delete matches nothing for them.
+     */
     public function test_a_pure_guest_return_clears_their_own_basket_and_no_other_guests(): void
     {
         [, $store] = $this->tenant();

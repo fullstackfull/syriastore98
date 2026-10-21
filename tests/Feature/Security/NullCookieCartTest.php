@@ -32,8 +32,13 @@ use Illuminate\Support\Facades\Mail;
  *     (PaymentService:3013, PaymentController:2843, and the AuthorizeNet, PayU, NMI, Easebuzz, PaiementPro
  *     and CinetPay returns); the census test below pins that none remains.
  *
- * The tenant bounds it (Cart is in `scoped_models`): the other STORE's baskets survive. Within a store it is
- * every logged-in customer.
+ * THE TENANT DOES NOT BOUND IT, and an earlier version of this note said it did. MEASURED on the unfixed code: one
+ * anonymous `cart-clear` on store 1's slug deleted the logged-in customers' baskets of EVERY store (two baskets in two
+ * stores -> none). The belief came from tests that `actingAs($customer, 'customers')`: that also makes `customers` the
+ * DEFAULT guard, so a tenant resolves and StoreScope adds a `store_id` predicate. In production the default guard is
+ * `web`, a storefront request resolves no tenant, and with `null_tenant => 'open'` the scope adds nothing. So the
+ * assertions below that another STORE's basket survives are only meaningful for the ANONYMOUS tests; the logged-in ones
+ * prove same-store behaviour.
  *
  * Cart assertions read the raw table: Cart is store-scoped and a model read answers for the resolved tenant.
  */
@@ -136,8 +141,12 @@ class NullCookieCartTest extends SecurityTestCase
     {
         $w = $this->world();
 
-        $this->post('/' . $w['store']->slug . '/change-cart', ['product_id' => $w['p']->id, 'variant_id' => 0, 'quantity_type' => 'increase']);
+        $response = $this->post('/' . $w['store']->slug . '/change-cart', ['product_id' => $w['p']->id, 'variant_id' => 0, 'quantity_type' => 'increase']);
 
+        // The answer, not only the row: with the cookie matching nothing the handler must say so (HTTP 200,
+        // status 0) rather than dereference a missing row and 500 -- and a 500 would leave the row untouched too.
+        $response->assertOk();
+        $this->assertSame(0, (int) $response->json('status'), 'Premise: the guest\'s quantity change found no basket.');
         $this->assertSame(1, (int) DB::table('carts')->where('customer_id', $w['a']->id)->value('qty'), 'An anonymous quantity change altered a logged-in customer\'s basket row.');
     }
 
@@ -194,6 +203,39 @@ class NullCookieCartTest extends SecurityTestCase
         $this->assertFalse(DB::table('carts')->where('id', $own)->exists(), 'The customer\'s own line was not removed (control).');
     }
 
+    /** The count a guest's quantity change returns is THEIR basket's, not a request-chosen customer's (an oracle for any customer id). */
+    public function test_a_guests_quantity_change_reports_their_own_basket_count_not_a_customers(): void
+    {
+        $w = $this->world();
+        $this->guestBasket($w['store'], $w['p']);
+        Cart::forceCreate(['customer_id' => $w['a']->id, 'product_id' => $w['p']->id, 'variant_id' => 0, 'qty' => 1, 'price' => 10, 'store_id' => $w['store']->id]);
+        Cart::forceCreate(['customer_id' => $w['a']->id, 'product_id' => $w['p']->id, 'variant_id' => 1, 'qty' => 1, 'price' => 10, 'store_id' => $w['store']->id]);
+
+        $response = $this->withCookie('cart', self::GUEST_COOKIE)
+            ->post('/' . $w['store']->slug . '/change-cart', ['product_id' => $w['p']->id, 'variant_id' => 0, 'quantity_type' => 'increase', 'user_id' => $w['a']->id]);
+
+        $response->assertOk();
+        $this->assertSame(1, (int) $response->json('status'), 'Premise: the quantity change succeeded and reached the count (a decrease from 1 returns early with a constant count).');
+        $this->assertSame(1, (int) $response->json('count'), 'The count returned was not the guest\'s own basket (one row): a customer\'s line count leaked through user_id.');
+    }
+
+    // -- change-cart's logged-in arm -----------------------------------------------------------
+
+    public function test_a_logged_in_customer_changing_a_foreign_or_unknown_cart_id_gets_a_clean_refusal(): void
+    {
+        $w = $this->world();
+        $row = Cart::forceCreate(['customer_id' => $w['b']->id, 'product_id' => $w['p']->id, 'variant_id' => 0, 'qty' => 3, 'price' => 10, 'store_id' => $w['store']->id]);
+
+        foreach ([$row->id, 99999999] as $cartId) {
+            $response = $this->actingAs($w['a'], 'customers')->post('/' . $w['store']->slug . '/change-cart', ['cart_id' => $cartId, 'quantity_type' => 'increase']);
+
+            $response->assertOk();   // not a 500: an unknown id used to dereference null
+            $this->assertSame(0, (int) $response->json('status'));
+        }
+
+        $this->assertSame(3, (int) DB::table('carts')->where('id', $row->id)->value('qty'), 'Another customer\'s basket row was altered.');
+    }
+
     // -- login -------------------------------------------------------------------------------
 
     public function test_logging_in_without_a_cookie_takes_over_nobody_elses_basket(): void
@@ -206,6 +248,22 @@ class NullCookieCartTest extends SecurityTestCase
         $this->assertStringContainsString('/home', (string) $response->headers->get('Location'), 'Premise: the login succeeded.');
         $this->assertSame(1, self::rows($w['a']), 'A customer logging in took over another customer\'s basket.');
         $this->assertSame(0, self::rows($w['b']), 'The logging-in customer was handed another customer\'s basket.');
+    }
+
+    /** The cookie is the guest's across every store; the customer belongs to one. Their other store's basket stays theirs. */
+    public function test_the_login_merge_moves_only_this_stores_rows(): void
+    {
+        $w = $this->world();
+        $this->guestBasket($w['store'], $w['p']);
+        $otherProduct = Product::withoutGlobalScopes()->where('store_id', $w['other']->id)->first();
+        Cart::forceCreate(['customer_id' => 0, 'product_id' => $otherProduct->id, 'variant_id' => 0, 'qty' => 1, 'price' => 10, 'store_id' => $w['other']->id, 'cookie_session_id' => self::GUEST_COOKIE]);
+
+        $response = $this->withCookie('cart', self::GUEST_COOKIE)->post('/' . $w['store']->slug . '/login', ['email' => $w['b']->email, 'password' => 'secret123']);
+
+        $this->assertStringContainsString('/home', (string) $response->headers->get('Location'), 'Premise: the login succeeded.');
+        $this->assertSame(1, self::rows($w['b']), 'Premise: this store\'s guest row was merged.');
+        $this->assertSame(1, (int) DB::table('carts')->where('store_id', $w['other']->id)->where('cookie_session_id', self::GUEST_COOKIE)->count(),
+            'The guest\'s basket in ANOTHER store was moved onto this store\'s customer.');
     }
 
     public function test_logging_in_with_a_cookie_still_merges_that_guests_basket(): void
@@ -267,37 +325,47 @@ class NullCookieCartTest extends SecurityTestCase
     }
 
     /**
-     * RATCHET. Every host query on `cookie_session_id` goes through Cart::forGuestCookie(), whose only job is to
-     * refuse a missing cookie. A new `where('cookie_session_id', ...)` is the same defect again.
+     * RATCHET. Every host query on `cookie_session_id` goes through Cart::forGuestCookie(), whose only job is to refuse a
+     * missing cookie. Comments are stripped with the tokenizer, so a docblock quoting the old statement is not a hit, and
+     * the match survives a line break between `where(` and the column, the array form, a qualified `carts.` column and
+     * raw SQL. `DB::table('carts')` is forbidden outright: it would bypass both the scopes and Cart's own global scope.
      */
     public function test_no_host_query_names_cookie_session_id_outside_the_scope(): void
     {
         $hits = [];
-        $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(base_path('app'), \FilesystemIterator::SKIP_DOTS));
+        $rawTable = [];
 
-        foreach ($files as $file) {
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(base_path('app'), \FilesystemIterator::SKIP_DOTS)) as $file) {
             if ($file->getExtension() !== 'php') {
                 continue;
             }
-            foreach (file($file->getPathname()) as $n => $line) {
-                if (preg_match('/->where\(\s*[\'"]cookie_session_id[\'"]|::where\(\s*[\'"]cookie_session_id[\'"]|whereNull\(\s*[\'"]cookie_session_id/', $line)) {
-                    $hits[] = str_replace(base_path() . '/', '', $file->getPathname()) . ':' . ($n + 1);
+
+            $code = '';
+            foreach (token_get_all(file_get_contents($file->getPathname())) as $token) {
+                if (is_array($token)) {
+                    if ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT) {
+                        continue;
+                    }
+                    $code .= $token[1];
+                } else {
+                    $code .= $token;
                 }
             }
-        }
 
-        $this->assertSame(['app/Models/Cart.php:' . $this->scopeLine()], $hits,
-            'A query names cookie_session_id outside Cart::scopeForGuestCookie(): ' . implode(', ', array_diff($hits, ['app/Models/Cart.php:' . $this->scopeLine()])));
-    }
+            $relative = str_replace(base_path() . '/', '', $file->getPathname());
 
-    private function scopeLine(): int
-    {
-        foreach (file(base_path('app/Models/Cart.php')) as $n => $line) {
-            if (preg_match('/->where\(\s*[\'"]cookie_session_id[\'"]/', $line)) {
-                return $n + 1;
+            if (preg_match("/DB::table\(\s*['\"]carts['\"]/", $code)) {
+                $rawTable[] = $relative;
+            }
+
+            preg_match_all("/(?:where\w*|orWhere\w*)\s*\(\s*(?:\[\s*)?['\"](?:\w+\.)?cookie_session_id['\"]|whereRaw\([^)]*cookie_session_id/s", $code, $m);
+            foreach ($m[0] as $_) {
+                $hits[] = $relative;
             }
         }
 
-        return -1;
+        $this->assertSame([], $rawTable, 'DB::table(\'carts\') bypasses the Cart scopes: ' . implode(', ', $rawTable));
+        $this->assertSame(['app/Models/Cart.php'], $hits,
+            'A query names cookie_session_id outside Cart::scopeForGuestCookie() (it appears once, in Cart.php): ' . implode(', ', $hits));
     }
 }

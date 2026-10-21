@@ -819,16 +819,11 @@ class AuthorizeNetPaymnetController extends Controller
                         }
                     }
                     if (isset($request->customer_id) && !empty($request->customer_id)) {
-                        // P01-COMMERCE-SEC-01, EXAMINED AND DELIBERATELY LEFT AS IS. This delete carries no
-                        // store predicate, unlike the per-line delete above it, so on its face an order in this
-                        // store empties the same shopper's basket in every other store. Adding
-                        // ->where('store_id', $store->id) was tried and REVERTED because it could not be shown
-                        // to change any outcome: Cart is in config/tenancy.php's scoped_models, and on both
-                        // principals that reach this line -- an authenticated customer and a cookie guest -- a
-                        // tenant resolves, so StoreScope already adds the predicate. Measured both ways: the
-                        // other store's rows survive with and without it. It is recorded as a residual rather
-                        // than shipped unproven, because null_tenant is 'open': a principal that resolved NO
-                        // tenant would get no predicate from either source. See the package report.
+                        // P1-SEC-24. The id is the AUTHENTICATED buyer's (it was the stored checkout state's), and a Customer belongs to one
+                        // store (customers.store_id), so this reaches that buyer's own basket. The earlier note here said StoreScope adds a
+                        // store predicate for every principal that reaches this line; that was measured with actingAs($customer, 'customers'),
+                        // which also makes `customers` the DEFAULT guard and so resolves a tenant. In production the default guard is `web`, a
+                        // storefront request resolves none, and with null_tenant 'open' the scope adds nothing -- do not rely on it.
                         Cart::forCustomer(auth('customers')->id())->delete();
                     }
                     // Order stock decrease end

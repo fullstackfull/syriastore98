@@ -120,4 +120,54 @@ class CartScopesTest extends SecurityTestCase
             "app/Http/Controllers/CartController.php :: auth('customers')->id()",
         ], $found, 'A basket delete is keyed on a raw customer id. Use Cart::forCustomer(auth(\'customers\')->id()).');
     }
+
+    /**
+     * RATCHET, the other half. `forCustomer()` refuses a NON-id; it cannot refuse an id that is the wrong person's.
+     * That is decided at the call site, so the call sites' arguments are pinned: the authenticated principal's id, the
+     * order writers' pre-computed owner, or a queued line's id (which the queue sites set from the principal). A new
+     * `forCustomer($request->customer_id)` would pass the scope and be the defect again, so it fails here.
+     */
+    public function test_every_for_customer_call_names_the_authenticated_principal(): void
+    {
+        $arguments = [];
+
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(base_path('app'), \FilesystemIterator::SKIP_DOTS)) as $file) {
+            if ($file->getExtension() !== 'php') {
+                continue;
+            }
+
+            $code = '';
+            foreach (token_get_all(file_get_contents($file->getPathname())) as $token) {
+                if (is_array($token)) {
+                    if ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT) {
+                        continue;
+                    }
+                    $code .= $token[1];
+                } else {
+                    $code .= $token;
+                }
+            }
+
+            $offset = 0;
+            while (preg_match('/(?:->|::)forCustomer\(/', $code, $m, PREG_OFFSET_CAPTURE, $offset)) {
+                $start = $m[0][1] + strlen($m[0][0]);
+                $depth = 1;
+                for ($i = $start, $n = strlen($code); $i < $n && $depth > 0; $i++) {
+                    $depth += $code[$i] === '(' ? 1 : ($code[$i] === ')' ? -1 : 0);
+                }
+                $arguments[] = preg_replace('/\s+/', ' ', trim(substr($code, $start, $i - 1 - $start)));
+                $offset = $i;
+            }
+        }
+
+        $allowed = [
+            "auth('customers')->id()",      // the gateway returns, cart-remove, change-cart
+            '$cartOwnerId',                  // getWhatsappUrl: (int) auth('customers')->id()
+            "(int) \$line['customer_id']",   // clearCartLines: lines queued with auth('customers')->id()
+        ];
+
+        $this->assertNotEmpty($arguments, 'Premise: the scan found the call sites.');
+        $this->assertSame([], array_values(array_diff($arguments, $allowed)),
+            'forCustomer() is called with something other than the authenticated principal: ' . implode(' | ', array_diff($arguments, $allowed)));
+    }
 }

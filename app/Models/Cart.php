@@ -870,7 +870,9 @@ class Cart extends Model
             }
             $cart_array->save();
 
-            $cart_count = Cart::where('customer_id', $request->user_id)->count();
+            // P1-SEC-24. The count of THIS guest's basket. It was `Cart::where('customer_id', $request->user_id)`: a
+            // request-chosen customer's line count (an oracle for any customer id), or, with no user_id, the NULL-customer rows.
+            $cart_count = Cart::forGuestCookie($Carts)->count();
             return Utility::success(['message' => 'Cart successfully updated.'], "successfull", 200, $cart_count);
         }
     }

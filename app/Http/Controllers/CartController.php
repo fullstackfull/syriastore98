@@ -160,7 +160,14 @@ class CartController extends Controller
             $response = Cart::cart_qty_cookie($request);
             return response()->json($response);
         } else {
-            $Cart = Cart::find($cart_id);
+            // P1-SEC-24. Looked up through the caller's own basket: the id is the request's, so an unknown or foreign id
+            // was a null dereference (HTTP 500) and an existence oracle for cart ids in every store. (No cross-customer
+            // WRITE: cart_qty re-resolves the principal and touches the caller's own row -- probed.)
+            $Cart = Cart::forCustomer(auth('customers')->id())->where('id', $cart_id)->first();
+
+            if (empty($Cart)) {
+                return response()->json(['status' => 0, 'message' => __('Product not found.'), 'data' => ['message' => __('Product not found.')]]);
+            }
 
             $param = [
                 'customer_id' => $Cart->customer_id,

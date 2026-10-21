@@ -741,7 +741,8 @@ private function normalizePhone($phone)
                         'slug' => $store->slug
                     ]);
                     $cookie_session_id = Cookie::get('cart');
-                    $cartItems = Cart::forGuestCookie($cookie_session_id)->get();
+                    // P1-SEC-24: only this store's rows -- the cookie is the guest's across every store, and the customer belongs to one.
+                    $cartItems = Cart::forGuestCookie($cookie_session_id)->where('store_id', $store->id)->get();
 
                     foreach ($cartItems as $cartItem) {
                         $cartItem->customer_id =  auth('customers')->user()->id;
