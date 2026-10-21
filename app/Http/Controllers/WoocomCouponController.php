@@ -191,8 +191,12 @@ class WoocomCouponController extends Controller
 
             $store_id = getStoreById(getCurrentStore());
             $upddata = WoocommerceConection::where('store_id',getCurrentStore())->where('module','=','coupon')->where('woocomerce_id' , $id)->first();
-            $original_id = $upddata->original_id;
-            $coupon = \App\Models\Coupon::find($original_id);
+            // P1-INV-13: the mapping may be missing, and the coupon it names is not tenant-scoped (Coupon is not in scoped_models), so the handler
+            // checks that the row it is about to rewrite belongs to THIS store before it touches it.
+            $coupon = \App\Services\ImportMappingOwnership::owned($upddata, \App\Models\Coupon::class, getCurrentStore());
+            if (!$coupon) {
+                return redirect()->back()->with('error', __('Coupon Not Found.'));
+            }
             if (!empty($jsonData)) {
             $coupon->coupon_name       = $jsonData['code'];
             $coupon->coupon_type       = $jsonData['discount_type'];
@@ -201,7 +205,7 @@ class WoocomCouponController extends Controller
             $coupon->coupon_expiry_date= $jsonData['date_expires'];
             $coupon->coupon_code       = $jsonData['code'];
             $coupon->status            = 1;
-            $coupon->store_id          = getCurrentStore();
+            // no `store_id` write here: an UPDATE must never re-own the row (P1-INV-04/-13)
 
             $coupon->save();
             return redirect()->back()->with('success', __('Coupon update successfully.'));

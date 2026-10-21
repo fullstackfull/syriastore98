@@ -154,7 +154,7 @@ class WoocomCustomerController extends Controller
                 $cutomer                = new NewCustomer();
                 $cutomer->first_name    = $jsonData['first_name'];
                 $cutomer->last_name     = $jsonData['last_name'];
-                $cutomer->profile_image = $uplaod['url'];
+                $cutomer->profile_image = $uplaod['url'] ?? null;   // the payload may carry no avatar (then $uplaod is never set)
                 $cutomer->email         =$jsonData['email'];
                 $cutomer->type          ='customer';
                 // A FIXED, PUBLIC PASSWORD IS NOT A PASSWORD -- see PaymentController::createCustomer.
@@ -174,7 +174,7 @@ class WoocomCustomerController extends Controller
                 $Cutomer->original_id       = $cutomer->id;
                 $Cutomer->save();
                 
-                return redirect()->back()->with('success', __('Customer successfully Add , We set customer password 1234'));
+                return redirect()->back()->with('success', __('Customer successfully Add.'));
             }
             catch(\Exception $e){
                     return redirect()->back()->with('success', __('This email alredy use.'));
@@ -215,8 +215,13 @@ class WoocomCustomerController extends Controller
 
                 $store_id = getStoreById(getCurrentStore());
                 $upddata = WoocommerceConection::where('store_id',getCurrentStore())->where('module','=','customer')->where('woocomerce_id' , $id)->first();
-                $original_id = $upddata->original_id;
-                $cutomer = NewCustomer::find($original_id);
+                // P1-INV-13: the handler checks, it does not lean on the Customer global scope (which adds no predicate where no tenant resolves,
+                // and which is a one-line allowlist away from being removed). A missing mapping or a customer of another store is refused with its
+                // own message -- not the 'email already used' this try/catch used to turn every failure into.
+                $cutomer = \App\Services\ImportMappingOwnership::owned($upddata, NewCustomer::class, getCurrentStore());
+                if (!$cutomer) {
+                    return redirect()->back()->with('error', __('Customer Not Found.'));
+                }
 
                 if(!empty($jsonData['avatar_url'])) {
                     $url = $jsonData['avatar_url'];
@@ -242,13 +247,12 @@ class WoocomCustomerController extends Controller
                 if (!empty($jsonData)) {
                     $cutomer->first_name    = $jsonData['first_name'];
                     $cutomer->last_name     = $jsonData['last_name'];
-                    $cutomer->profile_image = $uplaod['url'];
+                    $cutomer->profile_image = $uplaod['url'] ?? $cutomer->profile_image;   // no avatar in the payload: keep the one there is
                     $cutomer->email         =$jsonData['email'];
                     $cutomer->type          ='customer';
                     $cutomer->register_type = 'email';
                     $cutomer->mobile        = !empty($jsonData['billing']) ? $jsonData['billing']->phone : $jsonData['shipping']->phone;
-                    $cutomer->store_id      = getCurrentStore();
-                    $cutomer->created_by    = auth()->user()->id;
+                    // no `store_id` / `created_by` write: an UPDATE must not re-own or re-attribute the customer
                     $cutomer->save();
 
                     return redirect()->back()->with('success', __('Customer successfully updated.'));

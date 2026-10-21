@@ -212,8 +212,11 @@ class WoocomCategoryController extends Controller
             
             $store_id = getStoreById(getCurrentStore());
             $upddata = WoocommerceConection::where('store_id',getCurrentStore())->where('module','=','category')->where('woocomerce_id' , $id)->first();
-            $original_id = $upddata->original_id;
-            $mainCategory = Category::find($original_id);
+            // P1-INV-13: a missing mapping, or a category of another store, is refused before anything is fetched or written
+            $mainCategory = \App\Services\ImportMappingOwnership::owned($upddata, Category::class, getCurrentStore());
+            if (!$mainCategory) {
+                return redirect()->back()->with('error', __('Category Not Found.'));
+            }
 
             if(!empty($jsonData['image']->src)) {
 
@@ -250,7 +253,7 @@ class WoocomCategoryController extends Controller
             }
 
             if (!empty($jsonData)) {
-                $mainCategory = new Category();
+                // the resolved category is UPDATED; this used to build `new Category()` and so INSERTED a duplicate on every re-sync
                 $mainCategory->name         = $jsonData['name'];
                 $mainCategory->slug         = 'collections/' . strtolower(preg_replace("/[^\w]+/", "-", $jsonData['name']));
                 $mainCategory->image_url    = $uplaod['full_url'];
@@ -258,7 +261,6 @@ class WoocomCategoryController extends Controller
                 $mainCategory->icon_path    = $uplaod['url'];
                 $mainCategory->trending     = 0;
                 $mainCategory->status       = 1;
-                $mainCategory->store_id     = getCurrentStore();
                 $mainCategory->save();
                 return redirect()->back()->with('success', __('Category update successfully.'));
             } else {

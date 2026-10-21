@@ -531,9 +531,12 @@ class ShopifyProductController extends Controller
                                 $uplaod = Utility::upload_woo_file($url, $file2, $path);
                             }
                             $upddata = ShopifyConection::where('store_id', $storeId)->where('module', '=', 'product')->where('shopify_id', $id)->first();
-                            $original_id = $upddata->original_id;
-
-                            $product                          = Product::find($original_id);
+                            // P1-INV-13: no mapping, or a mapping to a product this store does not own, is refused before any write
+                            // (Product is not in scoped_models, so find() reaches every tenant's catalogue).
+                            $product = \App\Services\ImportMappingOwnership::owned($upddata, Product::class, $storeId);
+                            if (!$product) {
+                                return redirect()->back()->with('error', __('Product Not Found.'));
+                            }
                             $product->name                    = $products['products'][0]['title'];
                             $product->description             = strip_tags($products['products'][0]['body_html']);
                             $product->cover_image_path        = $uplaod['url'];
