@@ -2860,6 +2860,7 @@ $result = app(\App\Services\StoreNotificationService::class)
         $cartlist_final_price = 0;
         $final_price = 0;
         $customer_id = $requests_data['customer_id'] ?? 0;
+        $cartOwnerId = (int) (auth('customers')->id() ?? 0);
 
         // cart list api call
         if (!auth('customers')->user()) {
@@ -2987,7 +2988,15 @@ $result = app(\App\Services\StoreNotificationService::class)
                 } else {
                     return Utility::error(['message' => 'Please fill proper product json field .']);
                 }
-                Cart::where('customer_id', $request->customer_id)->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id', $store->id)->delete();
+                // P1-SEC-21 (a). The owner of the lines being cleared is the AUTHENTICATED customer, never
+                // the body's: on the guest arm nothing overwrites `customer_id`, so a guest holding product
+                // P in their own basket could post `customer_id=<victim>` and delete the victim's line for
+                // P in this store. A guest has nothing of their own to clear here (guest rows carry
+                // customer_id 0, which the old `IS NULL` lookup never matched), so with no customer this is
+                // skipped -- NOT run with 0, which would delete every guest's rows for the product.
+                if ($cartOwnerId > 0) {
+                    Cart::where('customer_id', $cartOwnerId)->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id', $store->id)->delete();
+                }
             }
         }
         $item_variable = '';
@@ -3042,7 +3051,11 @@ $result = app(\App\Services\StoreNotificationService::class)
             'total_tax' => ($tax_price),
             'final_total' => $total_price,
         ];
-        $settings = getAdminAllSetting();
+        // P1-SEC-21 (b). With no arguments getAdminAllSetting() resolves the user from `auth()->user()` (the
+        // `web` guard -- null for every storefront shopper) and falls through to the LOWEST-ID MERCHANT ON
+        // THE PLATFORM, so every store's order message used the first merchant's `whatsapp_content`. Named
+        // for the store's owner and the store, as the Khalti return does.
+        $settings = getAdminAllSetting($store->created_by, $store->id);
         $resp = Utility::replaceVariable(($settings['whatsapp_content'] ?? null), $arr) ?? null;
 
         if ($request['data']['type'] == 'telegram') {
