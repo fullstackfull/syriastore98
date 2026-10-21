@@ -480,7 +480,7 @@ public function store(Request $request)
 
     public function index(Request $request, OrderDataTable $dataTable)
     {
-        if (auth()->user() && auth()->user()->isAbleTo('Manage Order')) {
+        if ($this->mayUseOrderScreen('Manage Order')) {
             return $dataTable->render('order.index');
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));
@@ -496,9 +496,23 @@ public function store(Request $request)
         return view('order.order_show', compact('order', 'orders'));
     }
 
+    /**
+     * P1-ORD-05 (B): the platform operator first. Laratrust has no super-admin bypass and the operator holds no merchant role, so a bare
+     * `isAbleTo()` answered "Permission denied" to the one principal who legitimately reads every store's orders (OrderPolicy::allow
+     * orders its checks operator-first for the same reason). Row ownership is not decided here: OrderDocumentAccessGuard does that for
+     * these URIs.
+     */
+    private function mayUseOrderScreen(string $permission): bool
+    {
+        $user = auth()->user();
+
+        return $user !== null
+            && (strtolower(trim((string) $user->type)) === \App\Policies\OrderPolicy::PLATFORM_ADMIN || $user->isAbleTo($permission));
+    }
+
     public function order_view(Request $request, $id)
     {
-        if (auth()->user() && auth()->user()->isAbleTo('Show Order')) {
+        if ($this->mayUseOrderScreen('Show Order')) {
             try {
                 $id = Crypt::decrypt($id);
                 $order = Order::order_detail($id);
