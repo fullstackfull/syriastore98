@@ -1246,7 +1246,12 @@ public function city_list(Request $request, $slug)
                 // this request was computed from. A raw read, not the Cachable model, so a cached copy
                 // can never make a stale row look current. (SQLite ignores FOR UPDATE; the test pins
                 // the comparison with a deterministic interleave.)
-                $current = \DB::table('orders')->where('id', $order->id)->lockForUpdate()->value('product_json');
+                $current = \DB::table('orders')
+                    ->where('id', $order->id)
+                    ->where('store_id', $store->id)
+                    ->where('customer_id', $order->customer_id)
+                    ->lockForUpdate()
+                    ->value('product_json');
 
                 if ($current !== $order->getRawOriginal('product_json')) {
                     return null;

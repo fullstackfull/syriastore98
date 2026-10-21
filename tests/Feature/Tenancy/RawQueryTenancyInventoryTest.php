@@ -54,7 +54,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
      * builder, and the surrounding query still carries its scopes, so conflating the two would
      * overstate this inventory.
      */
-    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty_seven(): void
+    public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty_eight(): void
     {
         $perDir = [];
 
@@ -191,13 +191,18 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // app 121 -> 122 with P1-INV-21: EnforceLotteryTicketPrice's `lottery_settings` read --
         // the FIRST raw query this project has put in app/Listeners/, which is also why the
         // owned-path inventory's glob had to be widened to reach it.
-        $this->assertSame(['app' => 122, 'packages' => 45], $perDir,
+        // app 122 -> 123 with P1-ORD-07's review fix: AccountProfileController::order_refund_request
+        // re-reads the order's `product_json` FOR UPDATE inside its transaction. It carries
+        // `store_id` AND `customer_id` predicates (the census's remedy for a new site), and it is raw on
+        // purpose, for the reason above: `Order` is Cachable, and a cached copy must never be able to
+        // make a stale row look current at the one place that compares for staleness.
+        $this->assertSame(['app' => 123, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
             . 'a raw query became Eloquent, which is an improvement worth recording here.');
 
-        $this->assertSame(167, array_sum($perDir));
+        $this->assertSame(168, array_sum($perDir));
     }
 
     /**
@@ -265,6 +270,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // filters orders.store_id against getCurrentStore(), so the unscoped count is now
             // zero. The ratchet this assertion guards is a count going UP; this one went down.
             'order_billing_details' => [1, 0],
+            // NEW WITH P1-ORD-07's review fix, and SCOPED: the FOR UPDATE freshness read in
+            // AccountProfileController::order_refund_request (id + store_id + customer_id).
+            'orders' => [1, 0],
             'owner_menu_items' => [1, 1],
             'owner_menu_settings' => [1, 1],
             'owner_menus' => [1, 1],
@@ -345,8 +353,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // asymmetry is an artifact of the heuristic and not a difference in the code.
         // 138 -> 139 and 69 -> 70 with P1-INV-21: the `lottery_settings` read names its table
         // literally and carries no store_id predicate, for the reason in its row above.
-        $this->assertSame(139, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '139 literal-table sites of the 167 entry points; the other 28 build their table name '
+        // 139 -> 140 with P1-ORD-07's review fix: the `orders` FOR UPDATE read names its table literally
+        // and carries store_id + customer_id, so the unscoped sum below does not move.
+        $this->assertSame(140, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            '140 literal-table sites of the 168 entry points; the other 28 build their table name '
             . 'from a variable and so cannot be attributed (see LIMIT 2 in this class docblock).');
         $this->assertSame(70, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
