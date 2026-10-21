@@ -25,7 +25,7 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 82 — 25 DONE, 26 READY, 8 BACKLOG, 23 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
+| Tasks | 90 — 32 DONE, 27 READY, 8 BACKLOG, 23 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
 | Requiring an owner decision | 28 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
@@ -176,6 +176,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 58. `P1-SEC-17` — Credentials handed to the browser: the Telegram bot token to an anonymous shopper, the Midtrans server key in page HTML, the platform reCAPTCHA secret in a script *(security, READY, risk high)*
 59. `P1-SEC-18` — Setting reads and writes with no tenant predicate or no permission: a shopper charged through another tenant's keys, a cross-tenant image delete, staff reading and writing a merchant's gateway and SMTP secrets *(security, READY, risk high)*
 60. `P1-SEC-22` — get-massage residue and sibling credential sinks found by the P1-SEC-17 review: an unthrottled, ungated anonymous Telegram relay, an exception object flashed into the Midtrans page, a password in module page script, the chat id in payment-list *(security, READY, risk medium)*
+61. `P1-SEC-26` — Store-less setting reads on routes that name no store: the lowest-id merchant's settings, the platform's storage and captcha config read through the merchant-shaped call, and an unknown slug that fails open *(security, READY, risk medium)*
 
 ---
 
@@ -1006,7 +1007,7 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 
 **Evidence.** DONE 2026-10-21. Commit 4a85ca3e. TESTS, three files, 26 tests / 86 assertions: StorefrontCredentialDisclosureTest.php (9: delivery premise, no token in the response, the telegram page's request still succeeds, the WhatsApp link unchanged, a 401 reply, a ConnectionException whose message carries the URL, an unset token, and the two verify-email tests), MidtransServerKeyDisclosureTest.php (5: store checkout and plan purchase through the real routes with the Midtrans API stubbed by the SDK's own seam, supplied in tests/Support/Midtrans/MT_Tests.php because the SDK ships it under tests/), ModuleCredentialDisclosureTest.php (12: the Donation and LotteryPrizes Telegram routes, the three module Midtrans views, a drift test per override, the guard's own rules, and that the guard is on the web group - every module enabled through PackageServiceProvider::loadAddons with a premise that it is active). Every leak was RED against the unfixed code first and every test has a premise that the request reached the real page or handler; F1's Telegram call is faked on BOTH transports it could use (a stream wrapper standing in for https://, and Http::fake) and recorded in one list, so the delivery assertion does not depend on which the handler uses. REMOVAL CHECKS, each control alone, ALL BITE: guard unregistered (3 fail), view overrides removed (6), host handler reverted (2), host Midtrans files reverted (2), verify-email reverted (2); and two mutations the review found unbitten - logging the exception message in the catch, and the empty-token early return - now fail a test. The host F1 tests switch the guard off so they measure the controller, not the guard. REVIEW: four read-only lenses (census, regression, bypass, tests); no HIGH or MEDIUM regression and no bypass of the new controls found; findings acted on: the guard's per-request log line (noise on every legitimate module Telegram checkout, and a flood an anonymous caller could drive) was removed; the connection-failure, empty-token and module-status tests were added; the siblings are P1-SEC-19, -20, -21 (fixed) and P1-SEC-22 (READY). GATE: Feature 3208 passed / 2 declared failures / 17 declared skips / 0 errors - the known-outcome assertion exits 0 - on the committed tree 17012b5b; Unit 339; Contract 26; guard-test-isolation, guard-no-env-files, guard-gate-f-containment, guard-no-workdo-changes <main> . and scan-secrets <main> . (run as CI invokes them) all exit 0; the MySQL runner reports 12 of 12 scripts exit 0 (one, reserved role names, skipped itself in this container). DISCLOSED CHANGES: a failed Telegram delivery used to raise a PHP warning (a 500 the page could not see) and is now a logged 200 with a 10 s timeout instead of PHP's 60 s; the Http client honours HTTPS_PROXY where file_get_contents did not (production topology unseen). NOT EXECUTED: the Midtrans-hosted popup without a client_key (the sandbox snap.js was fetched and READ - the attribute defaults to '' and its absence only logs that custom-UI configuration will not take effect); that a theme cannot shadow the overrides (no shipped theme has a vendor/ directory); the guard is a rule about plain string bodies of at most 2 KiB that begin with the bot-URL prefix - a future handler that returns JSON or a redirect would not be caught. `composer dump-autoload -o` warns that MT_Tests is not PSR-4 (non-fatal; the SDK requires that exact class name). NOT DONE, owner-gated (P1-OWN-09): the tokens and keys were readable for as long as the routes have answered.
 
-### `P1-SEC-18` — Setting reads and writes with no tenant predicate or no permission: a shopper charged through another tenant's keys, a cross-tenant image delete, staff reading and writing a merchant's gateway and SMTP secrets
+### `P1-SEC-18` — Setting reads and writes with no permission or no tenant predicate: staff reading and writing a merchant's gateway and SMTP secrets, a cross-tenant image delete, and the Zid routes
 
 | field | value |
 |---|---|
@@ -1016,15 +1017,14 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 | GitHub issue | #92 |
 | Owner decision required | no |
 | Depends on | — |
-| Scope | `app/Services/PaymentService.php`, `app/Models/Utility.php`, `app/Http/Controllers/Api/DashboardController.php`, `app/Http/Controllers/SettingController.php`, `routes/web.php` |
-| Queue references | S42 |
+| Scope | `app/Http/Controllers/Api/DashboardController.php`, `app/Http/Controllers/SettingController.php`, `routes/web.php` |
+| Queue references | S42, S44 |
 | Database / migration | None expected. F7 depends on zid_stores, which has no migration (GATE F). |
 | Compatibility impact | Admin API responses keep their shape; staff without the permission get a refusal that is not a 401 (the shipped app forces a logout on 401). |
 
-**Existing implementation status.** RECORDED by the P1-SEC-15 sweep review (READ, probable). (F4) `Utility::GetValueByName($name)` with no store id adds NO `store_id` predicate and `getCurrentStore()` is null for guests and customers (`app/Helper/helper.php:387-411`), so the read spans all tenants and the last row wins: `PaymentService.php:4146-4149` (Ozow), `:4232-4235` (Easebuzz), `Utility.php:1819-1915` (`payment_data`, called store-less from `ApiController.php:6855,8624`) - a shopper at store A can be charged through another tenant's credentials (money misdirection, not disclosure). `payment_list` itself read another tenant's non-secret strings at `ApiController.php:2209` (`skrill_unfo`) and `:3003`. (F5) `GetEmailSetting` returns `MAIL_PASSWORD` and `GetStripePayment` returns `stripe_secret` (`Api/DashboardController.php:3314-3337`, `:3676-3699`) and their write twins are at `:3257-3312`, `:3598-3674`; the routes carry only `custom.auth` and `resolveOwnedStore` admits anyone whose `creatorId()` owns the store - no `isAbleTo` check, so any STAFF user of a merchant can read and overwrite that merchant's gateway and SMTP secrets (cross-tenant is clean: a different merchant is refused); `SettingController::settingForm` has no permission calls at all. (F6) `DashboardController.php:3441,3537,3633` run `Setting::where(['name'=>'cod_image'])->first()` with no `store_id`, then `File::delete(base_path($Setting->value))`; `Setting` is not in `scoped_models` - any merchant can delete another tenant's image file. (F7) `routes/web.php:1320-1326` expose `/zid/{storeId}/orders` and `/webhooks` behind `auth` only and `app/Services/Zid.php:9-19` decrypts whichever store's stored token is named: any logged-in user reads any connected store's Zid data (the credential is not returned). Also noted: `POST custom-msg/{slug?}` is an anonymous settings writer that fails closed only because `Auth::user()->id` null-dereferences; `GET /` runs `package:migrate`/`package:seed` on an anonymous request when `display_landing` is on (HomeController.php:122-126). ADDED by the P1-SEC-17 review: a census of the NO-ARGUMENT `getAdminAllSetting()` finds 34 call sites in app/ outside comments (PaymentService 14, helper.php 9, PosController 3, SettingController 2, HomeController 2, one each in TaxController, ReportController, DPOPayController, ProductDataTable). With no arguments it resolves `auth()->user()` (the `web` guard, null for every storefront shopper) and falls through to `User::where('type','admin')->first()`, the lowest-id merchant, so on a storefront path it reads another tenant's settings - the shape of F4. Measured on one of them (the WhatsApp message template, fixed as P1-SEC-21) and NOT yet classified for the other 35; the 14 in PaymentService are the ones to read first, since they sit on the gateway paths.
+**Existing implementation status.** NARROWED 2026-10-21: F4 (a shopper charged through another tenant's keys) was split out and CLOSED as P1-SEC-25 (82ba2ea3); the census of the 34 no-argument `getAdminAllSetting()` callers is carried by P1-SEC-25 (the route-store fallback) and P1-SEC-26 (the callers on routes that name no store). WHAT REMAINS HERE IS F5-F7, and nothing in P1-SEC-25 touches them. RECORDED by the P1-SEC-15 sweep review (READ, probable). (F5) `GetEmailSetting` returns `MAIL_PASSWORD` and `GetStripePayment` returns `stripe_secret` (`Api/DashboardController.php:3314-3337`, `:3676-3699`) and their write twins are at `:3257-3312`, `:3598-3674`; the routes carry only `custom.auth` and `resolveOwnedStore` admits anyone whose `creatorId()` owns the store - no `isAbleTo` check, so any STAFF user of a merchant can read and overwrite that merchant's gateway and SMTP secrets (cross-tenant is clean: a different merchant is refused); `SettingController::settingForm` has no permission calls at all. (F6) `DashboardController.php:3441,3537,3633` run `Setting::where(['name'=>'cod_image'])->first()` with no `store_id`, then `File::delete(base_path($Setting->value))`; `Setting` is not in `scoped_models` - any merchant can delete another tenant's image file. (F7) `routes/web.php:1320-1326` expose `/zid/{storeId}/orders` and `/webhooks` behind `auth` only and `app/Services/Zid.php:9-19` decrypts whichever store's stored token is named: any logged-in user reads any connected store's Zid data (the credential is not returned). Also noted: `POST custom-msg/{slug?}` is an anonymous settings writer that fails closed only because `Auth::user()->id` null-dereferences; `GET /` runs `package:migrate`/`package:seed` on an anonymous request when `display_landing` is on (HomeController.php:122-126).
 
 **Acceptance criteria.**
-- [ ] Every credential read on a storefront or shopper path names its store explicitly
 - [ ] The admin API's gateway/SMTP settings reads and writes check an operator-first permission, and a staff user without it is refused with a non-401
 - [ ] The image-delete paths scope the Setting lookup to the caller's store
 - [ ] The Zid routes check that the named store belongs to the caller
@@ -1222,6 +1222,70 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 - (b) A Midtrans failure renders a fixed message and no trace
 - (c) Reproduce first: fetch the card page anonymously and look for the value
 - (d) The ratchet moves the entry from KEEP to SECRET
+
+**Evidence.** None yet - READY.
+
+### `P1-SEC-25` — Store-less setting reads answered with another tenant's row: a shopper at store A was charged through store C's gateway keys
+
+| field | value |
+|---|---|
+| Status | **DONE** |
+| Risk | high |
+| Workstream | Security & Identity |
+| GitHub issue | #100 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `app/Helper/helper.php`, `app/Models/Utility.php`, `app/Services/PaymentService.php`, `tests/Feature/Security/StorelessCredentialReadTest.php`, `tests/Feature/Security/PricingSettingsDisclosureTest.php` |
+| Queue references | S41, S44 |
+| Database / migration | None. |
+| Compatibility impact | A shopper on a storefront route now reads THEIR store's settings (currency, date format, logos, public keys, message templates) where it used to read an arbitrary tenant's; a value the store has not set falls back to `Utility::Setting($store_id)`'s defaults instead of another tenant's row. A signed-in merchant, staff member or merchant token keeps their own store exactly as before. No request or response shape changes; no Flutter/API contract. |
+
+**Existing implementation status.** RECORDED by the P1-SEC-15 sweep review as S41 F4 (READ, probable) and CONFIRMED BY EXECUTION on this tree. `Utility::GetValueByName($name)` with no store id used `getCurrentStore()`, which is `auth()->user()->current_store` - the `web` guard - and so NULL for every storefront shopper (a guest, a `customers`-guard login, a customer or driver Sanctum token: `custom.auth` logs those into their own guard, never the default one). With a null store id the query has no `store_id` predicate: every tenant's rows, and a name more than one tenant has kept answers with the LAST row (no ORDER BY). `getAdminAllSetting()` with no arguments has the same shape one level up: with no user and no store it falls through to `User::where('type','admin')->first()` - the lowest-id MERCHANT, not the operator - and returns everything that merchant owns. MEASURED with three tenants that each hold `ozow_pay_Site_key`: a shopper at store A and a shopper at store B both read store C's key, so their payment request would be created in C's gateway account. 84 one-argument `GetValueByName()` calls in app/ (14 in `PaymentService`: the Ozow and Easebuzz merchant credentials, the currency every gateway charges in, the currency strings written into an order's coupon record) and 34 no-argument `getAdminAllSetting()` calls are exposed to it. It is money MISDIRECTION (a charge through another tenant's account), not disclosure: the review traced every credential read to a server-side use and found none that returns the value to the caller.
+
+**Acceptance criteria.**
+- [x] A shopper (guest, customers-guard login, customer or driver token) at store X reads X's credential, not another tenant's
+- [x] getAdminAllSetting() with no arguments serves the requested store, not the first merchant on the platform
+- [x] An explicit store id still wins; a signed-in merchant keeps their own store
+- [x] The Ozow and Easebuzz credential reads name their store by id
+- [x] A `{slug}` that is not the first path segment never selects a store
+
+**Required tests.**
+- Three tenants with the same setting; each shopper reads their own (RED first)
+- Customer, driver and merchant Sanctum tokens through custom.auth on a real api/{slug}/... route
+- A route parameter re-pointed mid-request is followed
+- Tokenizer ratchet on processOzow / processEasebuzz
+- Removal check on each control
+
+**Evidence.** DONE 2026-10-21. Commit 82ba2ea3. THE FIX IS CENTRAL: `getRouteStoreId()` (app/Helper/helper.php) returns the store the REQUEST is addressed to - route parameter `storeSlug` wherever it sits, `slug` ONLY as the first path segment (`{slug}/...`, `api/{slug}/...`, the storefront API; `marketplace/{slug}`, `landing-pages/{slug}`, `add-on/details/{slug}` and `{storeSlug}/article/{slug}` reuse the name for something else) - memoised on the request KEYED BY THE SLUG; `GetValueByName` now reads `getCurrentStore() ?: getRouteStoreId()` and `getAdminAllSetting()` uses it when it has neither a user nor a store. An explicit store id still wins and a signed-in merchant keeps their own store. The eight Ozow / Easebuzz credential reads in `PaymentService` (which take their store from the BODY's slug) now pass `$store->id` explicitly. TESTS: tests/Feature/Security/StorelessCredentialReadTest.php, 11 tests / 39 assertions, plus PricingSettingsDisclosureTest.php, 3 / 7 (below). RED first: 3 of the first 7 failed against the unfixed code with the message 'A shopper at store A read another tenant's gateway credential.' REMOVAL CHECKS, each control alone, ALL BITE: the `GetValueByName` fallback removed (4 fail, incl. the customer-token and driver-token probe), the `getAdminAllSetting()` fallback removed (1), `slug` accepted at any position (1), a single request-wide memo instead of one per slug (1: `HomeController` re-points `storeSlug` with `route()->setParameter()` after the route has matched), either Ozow/Easebuzz read reverted to the one-argument form (the tokenizer ratchet fails). A customer-token probe alone proves nothing here (a Customer token takes the SAFE branch in some handlers), so the token test drives a customer, a driver and a merchant token through `custom.auth` on a real `api/{slug}/...` route. REVIEW (independent, read-only, tenant-authz-reviewer): NO DEFECT INTRODUCED. Acted on: the memo keyed by slug (its fragility finding), the two 'not broken' tests that passed with or without the fix now pin the legacy value, the token-class test, explicit ids at the Ozow/Easebuzz reads. Left, by decision: a fail-CLOSED sentinel for an unknown slug (a sentinel id would turn 'wrong slug' into a 500 wherever a handler reads a setting without isset(); the reviewer read that every storefront handler refuses an unknown slug through `getStore()` first - READ, not executed) and a try/catch around the lookup. THE REVIEW'S /pricing FINDING WAS REFUTED BY EXECUTION: the LandingPage module's pricing view prints `json_encode(getAdminAllSetting())` twelve times (read), but `HomeController::Pricing()` renders it only inside `module_is_active('LandingPage')` AFTER redirecting every logged-in caller, and `module_is_active()` with no route slug answers from the authenticated user and returns FALSE when there is none - the two conditions exclude each other, so the view is dead code behind /pricing whether or not the module is enabled (measured with the module's `add_on_managers` row enabled). A host override that was written for it was DELETED; PricingSettingsDisclosureTest pins the premise instead and fails, with the instruction to override the view first, the day `module_is_active()` starts answering true for an anonymous caller (EXECUTED: it fails when that is mutated). GATE: Feature 3222 passed / 2 declared failures / 17 declared skips (known-outcome exit 0), Unit 339, Contract 26, the five CI guards exit 0, on 82ba2ea3. NOT CLAIMED: that every storefront read is now store-bound - routes that name no store (P1-SEC-26) keep the old behaviour, and an unknown slug does too; that `storage_setting` readers behave identically (P1-SEC-26); behaviour on MySQL (the change is a plain integer predicate and a `slug` lookup, SQLite only was run).
+
+### `P1-SEC-26` — Store-less setting reads on routes that name no store: the lowest-id merchant's settings, the platform's storage and captcha config read through the merchant-shaped call, and an unknown slug that fails open
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | medium |
+| Workstream | Security & Identity |
+| GitHub issue | #99 |
+| Owner decision required | no |
+| Depends on | `P1-SEC-25` |
+| Scope | `app/Helper/helper.php`, `app/Http/Controllers/DPOPayController.php`, `app/Http/Controllers/PaymentController.php`, `app/Services/PaymentService.php`, `app/Http/Controllers/HomeController.php`, `routes/customer.php`, `routes/web.php` |
+| Queue references | S44 |
+| Database / migration | None expected. |
+| Compatibility impact | A platform setting read through getSuperAdminAllSetting() instead of the lowest-id merchant's array changes which row answers; on a deployment where the two agree nothing changes. Needs the owner's storage_setting query before the helpers change. |
+
+**Existing implementation status.** RECORDED by the P1-SEC-25 review and fix (READ unless stated). P1-SEC-25 gives a read the store its REQUEST names. What it cannot reach: (a) routes that name no store, which still take the lowest-id MERCHANT's settings through `getAdminAllSetting()`'s last branch - `store-pay-with/DPO/create` (`routes/customer.php:375`, `DPOPayController.php:21`; the view echoes only the currency name), the Paymera callback `/store/paymera/callback/{orderId}` (`routes/web.php:374`, `PaymentController.php:520` -> `:664` -> the coupon-string currency reads at `PaymentService.php:2813-2814` and `:2858-2859`), custom-domain and subdomain pages other than `/`, and webhooks and jobs; (b) an unknown slug, which keeps the all-tenant read until the handler's own `getStore()` refuses it; (c) helpers that want a PLATFORM setting but read it through the merchant-shaped call: `check_file()` and `delete_file()` (`helper.php`, `storage_setting`) - for a shopper that is now the visited store's row rather than the lowest-id merchant's, and `defaultSetting()` seeds `storage_setting` for the super admin only, so where the lowest-id merchant had set it and the visited store has not, an image-existence check that used to find the file now answers false (NOT DETERMINED; a read-only query for the owner: `SELECT store_id, value FROM settings WHERE name = 'storage_setting'`), and the logo helpers; (d) `HomeController::Pricing()` takes the PLATFORM reCAPTCHA secret and key from `getAdminAllSetting()` - the lowest-id merchant's - instead of `getSuperAdminAllSetting()`, so the captcha configured on the public pricing page is a merchant's (not a disclosure; the host view echoes only the public site key; also `marketplace.pricing` fails to render in the test environment on an undefined route, `guest.module.selection`). Not one of these was shown to move money or leak a secret.
+
+**Acceptance criteria.**
+- [ ] Every remaining no-argument getAdminAllSetting() caller is classified: a PLATFORM setting reads getSuperAdminAllSetting(), a STORE setting names its store id
+- [ ] A route that names no store never serves the lowest-id merchant's settings to a caller
+- [ ] check_file / delete_file / the logo helpers read the platform's storage config, after the owner has shown what is in settings.storage_setting
+- [ ] The decision on an unknown slug (fail closed vs. legacy read) is made and tested
+
+**Required tests.**
+- Per caller: a two-tenant fixture where the wrong tenant's value is returned today (RED first)
+- A route with no store through a customer, a driver and a merchant token
+- check_file with the lowest-id merchant holding storage_setting and the visited store not
+- Removal check on each
 
 **Evidence.** None yet - READY.
 

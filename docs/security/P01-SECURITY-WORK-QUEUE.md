@@ -4142,6 +4142,35 @@ queries (`POST */get-massage`, `POST /setting-form` with `tab_type=chat_gpt_sett
 
 ---
 
+## S44 — A read that names no store answered with the last tenant's row — **P1-SEC-25 CLOSED (S41 F4); P1-SEC-26 READY; P1-SEC-18 narrowed to F5–F7**
+
+*Found by the P1-SEC-15 sweep (S41 F4, READ, probable); confirmed by execution 2026-10-21. A read-only review of the fix found no defect in it and produced the follow-ups below; one of its findings (`/pricing`) was refuted by execution.*
+
+| | |
+|---|---|
+| **What** | `Utility::GetValueByName($name)` with no store id used `getCurrentStore()` (the `web` guard's `current_store`), which is NULL for every shopper. With no store id the query has no `store_id` predicate: all tenants' rows, last one wins. `getAdminAllSetting()` with no arguments, with no user and no store, returned the **lowest-id merchant's** settings |
+| **Measured** | three tenants with the same `ozow_pay_Site_key`: a shopper at store A and one at store B both read store C's key — their Ozow payment request would be created in C's account (money **misdirection**; no read returned a secret to the caller) |
+| **Fix** | `getRouteStoreId()`: the store the request's route names (`storeSlug`, or `slug` as the first path segment only), memoised per slug; `GetValueByName` and `getAdminAllSetting()` use it when nothing else names a store; the eight Ozow/Easebuzz credential reads pass `$store->id` |
+| **Tests** | `StorelessCredentialReadTest` 11 / 39 (RED first; each control removal-checked; customer, driver and merchant token classes), `PricingSettingsDisclosureTest` 3 / 7 |
+| **Gate** | Feature 3222 passed / 2 declared failures / 17 declared skips (known-outcome exit 0), Unit 339, Contract 26, the five CI guards exit 0, on 82ba2ea3 |
+
+**Refuted by execution — the review's `/pricing` finding.** The LandingPage module's pricing view prints
+`json_encode(getAdminAllSetting())` twelve times, which for a caller with no user and no store is a merchant's whole settings
+array. But `HomeController::Pricing()` renders it only inside `module_is_active('LandingPage')`, after redirecting every
+logged-in caller, and `module_is_active()` with no route slug answers from the authenticated user and is **false** when there is
+none. The view is dead code behind `/pricing`, enabled module or not. A host override written for it was deleted; the premise is
+pinned (it fails, with the instruction to override the view first, if `module_is_active()` ever answers true for an anonymous caller).
+
+**Not closed, and recorded:**
+
+| Residue | Task |
+|---|---|
+| Routes that name no store still take the lowest-id merchant's settings: `store-pay-with/DPO/create` (display currency only), the Paymera callback's coupon-string currency reads, custom-domain pages other than `/`, webhooks, jobs | **P1-SEC-26** |
+| An unknown slug keeps the all-tenant read until the handler's `getStore()` refuses it (READ, not executed) | P1-SEC-26 |
+| `check_file()` / `delete_file()` / the logo helpers read the **platform's** `storage_setting` through the merchant-shaped call; for a shopper it is now the visited store's row. Whether any deployment depends on the old answer is not determined — owner data query `SELECT store_id, value FROM settings WHERE name='storage_setting'` | P1-SEC-26 |
+| `HomeController::Pricing()` configures the public captcha from the lowest-id merchant's settings instead of the platform's | P1-SEC-26 |
+| F5 staff read/overwrite a merchant's gateway and SMTP secrets through the admin API; F6 cross-tenant image delete (`cod_image`); F7 Zid routes | **P1-SEC-18** (narrowed) |
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**
