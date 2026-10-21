@@ -91,6 +91,16 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(10)->by($request->ip() . '|' . $slug . '|' . hash('sha256', $number));
         });
 
+        // Storefront message relay (P1-SEC-22 a). `POST {storeSlug}/get-massage` is anonymous and, for `data[type]=telegram`, makes the SERVER post
+        // one message to the merchant's Telegram chat per call; with no limit anyone could flood a merchant's bot (and burn its API quota)
+        // from one address. Keyed on IP + store slug so one noisy address cannot starve the same store's other shoppers, and one store's traffic
+        // cannot starve another's. 12/min: a shopper sends one message per checkout, and a shared (NAT) address needs room.
+        RateLimiter::for('storefront-relay', function (Request $request) {
+            $slug = self::foldForRateLimit((string) $request->route('storeSlug'));
+
+            return Limit::perMinute(12)->by($request->ip() . '|' . $slug);
+        });
+
         $this->routes(function () {
             Route::middleware('api')
                 ->prefix('api')

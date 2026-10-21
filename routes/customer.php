@@ -180,7 +180,7 @@ Route::post(
     Route::post('{storeSlug?}/wish-list', [WishlistController::class, 'wishlist'])->name('wish.list');
 
     Route::any('{storeSlug?}/process-order', [PaymentController::class, 'processOrder'])->name('payment.process');
-    Route::post('{storeSlug?}/get-massage', [PaymentController::class, 'getWhatsappUrl'])->name('get.whatsappurl');
+    Route::post('{storeSlug?}/get-massage', [PaymentController::class, 'getWhatsappUrl'])->middleware('throttle:storefront-relay')->name('get.whatsappurl');
     Route::post('{storeSlug?}/telegram', [PaymentController::class, 'whatsapp'])->name('user.telegram');
     Route::post('{storeSlug?}/whatsapp', [PaymentController::class, 'whatsapp'])->name('user.whatsapp');
     Route::any('{storeSlug?}/get-payment-status', [PaymentController::class, 'getProductStatus'])->name('store.payment.status');

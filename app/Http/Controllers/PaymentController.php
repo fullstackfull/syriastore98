@@ -2858,6 +2858,20 @@ $result = app(\App\Services\StoreNotificationService::class)
     public function getWhatsappUrl(Request $request, $slug)
     {
         $store = getStore($slug);
+
+        // P1-SEC-22 a. This route is anonymous and, for `data[type]=telegram`, makes the server post to the merchant's Telegram bot. Both
+        // refusals are 404/403 and not the JSON envelope below: the only page that calls it (the payment page for the method) is reached
+        // only when the method is switched on, so a refusal here is never a shopper's mistake. An unknown slug used to be a 500.
+        if (! $store) {
+            abort(404);
+        }
+
+        $relay = ($request->input('data.type') === 'telegram') ? 'is_telegram_enabled' : 'is_whatsapp_enabled';
+
+        if (\App\Models\Utility::GetValueByName($relay, $store->id) !== 'on') {
+            abort(403);
+        }
+
         $requests_data = Session::get('request_data');
         $telegram_access_token = \App\Models\Utility::GetValueByName('telegram_access_token', $store->id);
         $telegram_chat_id = \App\Models\Utility::GetValueByName('telegram_chat_id', $store->id);

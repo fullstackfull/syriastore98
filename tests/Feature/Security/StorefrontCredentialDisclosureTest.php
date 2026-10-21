@@ -93,6 +93,9 @@ class StorefrontCredentialDisclosureTest extends SecurityTestCase
             'telegram_access_token' => self::BOT_TOKEN,
             'telegram_chat_id' => self::CHAT_ID,
             'whatsapp_number' => '963900000000',
+            // the relay methods are switched on (P1-SEC-22 a: the route refuses a store whose method is off)
+            'is_telegram_enabled' => 'on',
+            'is_whatsapp_enabled' => 'on',
             'whatsapp_item_variable' => '{quantity} x {product_name}',
             'whatsapp_content' => 'New order {order_no} from {customer_name}: {item_variable}',
         ] as $name => $value) {

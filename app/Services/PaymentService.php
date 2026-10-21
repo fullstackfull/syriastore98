@@ -1767,7 +1767,7 @@ private function processPaymera00000($request, $slug)
             curl_close($ch);
             $this->redirect_to_merchant($url_forward);
         } catch (\Exception $e) {
-            return redirect()->back()->with('error', $e);
+            return \App\Services\PaymentFailure::redirectBack($e, 'processAamarPay');
         }
 
     }
@@ -1928,7 +1928,7 @@ private function processPaymera00000($request, $slug)
             }
             return view('payment.pay_tr', compact('token'));
         } catch (\Throwable $e) {
-            return redirect()->back()->with('error', $e);
+            return \App\Services\PaymentFailure::redirectBack($e, 'processPayTr');
         }
 
     }
@@ -2088,7 +2088,7 @@ private function processPaymera00000($request, $slug)
             ];
             return view('midtras.order_payment', compact('data'));
         } catch (\Exception $e) {
-            return redirect()->back()->with('error', $e);
+            return \App\Services\PaymentFailure::redirectBack($e, 'processMidtrans');
         }
     }
 

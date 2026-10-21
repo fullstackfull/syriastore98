@@ -54,6 +54,8 @@ class StorefrontGetMassageBoundaryTest extends SecurityTestCase
         foreach ([
             'stock_management' => 'on', 'out_of_stock_threshold' => '0', 'notification' => '[]',
             'whatsapp_number' => '963900000000',
+            // the relay methods are switched on (P1-SEC-22 a: the route refuses a store whose method is off)
+            'is_telegram_enabled' => 'on', 'is_whatsapp_enabled' => 'on',
             'whatsapp_item_variable' => '{quantity} x {product_name}',
             'whatsapp_content' => $template,
         ] as $name => $value) {
