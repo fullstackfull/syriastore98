@@ -3990,7 +3990,7 @@ tracker, which would ship the request's cookies off the box). Nothing reads the 
 (`Api\DashboardController`, `ThemeAnalyticController`, `HomeController`, `StoreController` read store_id, url, ip,
 platform, browser, device, created_at), so no screen changes.
 
-**Tests:** `StorefrontVisitLogTest` (10 / 64 assertions, RED first: 6 of 7 failed) and `SanitisedVisitorTest` (44 / 101,
+**Tests:** `StorefrontVisitLogTest` (11 / 67 assertions, RED first: 6 of 7 failed) and `SanitisedVisitorTest` (44 / 101,
 table-driven so each credential-looking name is pinned on its own). Removal checks bite for the container binding,
 `request()`, the header allowlist, `url()` and `referer()` redaction, the try/catch, the exception-object logging, nested
 and fragment handling, the encrypted-segment rule, the exact short names, the oversize/JSON/URL-valued rules, header
@@ -4025,7 +4025,7 @@ PCI DSS whoever can read the table.
 critical exposure of the session.*
 
 `Api\ApiController::payment_list` builds the checkout's payment-method list and, for each gateway, puts the merchant's
-live **secret** next to the display fields: 129 distinct field names across about fifty gateways, 56 of them secrets
+live **secret** next to the display fields: 129 distinct field names across about fifty gateways, 55 of them secrets (56 of 131 counting the web twin builder's Paymera entry)
 (`stripe_secret_key`, `paystack_secret`, `paytm_merchant_key`, `nmi_api_private_key`, …). `getStore($slug)` takes the store
 from the URL with no relation to the caller; the route (`routes/api.php:90`) carries `custom.auth` + `APILog`; and
 `POST /api/{slug}/register` — `APILog` only, no auth, no throttle on that route — returns a Sanctum token to anybody.
@@ -4040,10 +4040,10 @@ password/otp/token/secret/authorization/api_key redacted, so most gateway secret
 single return of `payment_list` — *after* the PartialPayments module has had its say — and keeps the keys. `secretKey`
 (which the vendor code fills with the Sspay/Toyyibpay on/off flag) is exempt so its value is unchanged. The web checkout's
 twin builder `Setting::paymentList` returns redacted entries too (its view echoes only name/status/detail/image, so this is
-defence in depth). A **ratchet** pins all 129 field names into explicit SECRET (55) and KEEP (74) lists: a gateway added later
+defence in depth). A **ratchet** pins every field name of both builders (131: SECRET 56, KEEP 75; the API response alone is 129: 55 / 74) into explicit lists: a gateway added later
 fails `PaymentListSecretDisclosureTest` until a human classifies it.
 
-**Tests:** 8 / 152 assertions; removal checks bite for the call site, every regex alternative, the exact `cashfree_key`
+**Tests:** 10 / 160 assertions; removal checks bite for the call site, every regex alternative, the exact `cashfree_key`
 entry, the exemption, the twin builder, over-redaction and unset-vs-null. **Review:** two read-only lenses (fix, sweep), both
 NON-BLOCKING; the fix could not be broken by reading, and the sweep found the siblings below.
 
@@ -4077,6 +4077,7 @@ on the server are owner decisions: **P1-OWN-09**.
 | `->withInput()` with no argument flashes the password into `sessions.payload` (session encryption off) | `CustomerController.php:95,106`, `DeliveryBoyController.php:58,125` | P1-SEC-16 |
 | `google2fa_secret` plaintext, not hidden, **copied to the new sub-user** (two accounts share one TOTP seed); `Customer::$hidden` lacks `password_otp`; `deliverysyria_secret` not hidden | `UserController.php:165-168`, `User.php:63-66` | P1-SEC-16 |
 | Easebuzz / AamarPay put the whole checkout JSON + `_token` in the return URL's `request_data` | `PaymentService.php:4253-4254`, `:1746` | P1-SEC-16 (now redacted from the visit log; still in browser history and access logs) |
+| **No trusted-proxy configuration** (no `trustProxies`, no `config/trustedproxy.php`): `ip()` is `REMOTE_ADDR`, so behind a reverse proxy or CDN every limiter that keys on it - `throttle:auth` on the login routes, `order-track` - collapses to one bucket per address/number, and a receipt number is enough to keep its owner at 429 | `bootstrap/app.php`, `RouteServiceProvider.php` | **Owner to confirm the production topology**; the fix is configuration, not code |
 | BackupRestore: `mysqldump` of the whole database to a web-reachable path, chmod 0777, linked with no auth in front; `database_name` concatenated into `shell_exec` (command injection for anyone holding `backup&restore create`) | `BackupRestoreController.php:181-188` | existing **P1-OWN-01** — the dumps would contain the S40 rows |
 
 
