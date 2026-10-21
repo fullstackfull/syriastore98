@@ -25,8 +25,8 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 90 — 32 DONE, 27 READY, 8 BACKLOG, 23 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
-| Requiring an owner decision | 28 |
+| Tasks | 93 — 33 DONE, 28 READY, 8 BACKLOG, 24 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
+| Requiring an owner decision | 29 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
 A task is **not** `DONE` because code was committed — `DONE` requires its acceptance criteria verified, with the evidence recorded in its row.
@@ -177,6 +177,9 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 59. `P1-SEC-18` — Setting reads and writes with no tenant predicate or no permission: a shopper charged through another tenant's keys, a cross-tenant image delete, staff reading and writing a merchant's gateway and SMTP secrets *(security, READY, risk high)*
 60. `P1-SEC-22` — get-massage residue and sibling credential sinks found by the P1-SEC-17 review: an unthrottled, ungated anonymous Telegram relay, an exception object flashed into the Midtrans page, a password in module page script, the chat id in payment-list *(security, READY, risk medium)*
 61. `P1-SEC-26` — Store-less setting reads on routes that name no store: the lowest-id merchant's settings, the platform's storage and captcha config read through the merchant-shaped call, and an unknown slug that fails open *(security, READY, risk medium)*
+62. `P1-SEC-27` — Staff (and any logged-in user of the store) can still write any setting by NAME: gateway and SMTP keys, the bank-transfer destination, domains; the admin API's Cod/Bank/Loyalty/currency writers have no permission check *(security, READY, risk high)*
+63. `P1-SEC-28` — Unlinks of a path read from the database or the request that bypass StoredUpload: product images (ImportExport writes them raw), vendored module deleters, a shared vendored asset deleted as collateral, files with no store segment *(security, READY, risk high)*
+64. `P1-OWN-10` — 407 user-uploaded files are committed to the repository (uploads/, including screenshots, a receipt and profile images) *(security, BLOCKED, risk medium)*
 
 ---
 
@@ -1011,30 +1014,31 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **DONE** |
 | Risk | high |
 | Workstream | Security & Identity |
 | GitHub issue | #92 |
 | Owner decision required | no |
 | Depends on | — |
-| Scope | `app/Http/Controllers/Api/DashboardController.php`, `app/Http/Controllers/SettingController.php`, `routes/web.php` |
-| Queue references | S42, S44 |
+| Scope | `app/Services/StoreSettingsAccess.php`, `app/Services/StoredUpload.php`, `app/Models/Utility.php`, `app/Http/Controllers/Api/DashboardController.php`, `app/Http/Controllers/SettingController.php`, `app/Http/Controllers/PaymentSettingController.php`, `app/Http/Controllers/AppSettingController.php`, `routes/web.php`, `tests/Feature/Security/`, `tests/Support/Security/bin/` |
+| Queue references | S42, S44, S45 |
 | Database / migration | None expected. F7 depends on zid_stores, which has no migration (GATE F). |
-| Compatibility impact | Admin API responses keep their shape; staff without the permission get a refusal that is not a 401 (the shipped app forces a logout on 401). |
+| Compatibility impact | Admin API: the five secret-bearing handlers answer a user who is neither the operator, the owner nor holding `Manage Setting` with HTTP 403 (never 401); responses keep their shape for everyone else. Web: the four Settings handlers refuse the same users (403 JSON / redirect with an error). updateStoreOwnerInfo: staff may no longer CHANGE owner_name/owner_email/owner_mobile (resubmitting the stored values is fine). Utility::changeStorageLimit/changeproductStorageLimit: only one literal file inside the owner's part of uploads/ is unlinked - a path outside it (or a wildcard) is ignored, so a file that used to be removed may stay on disk. /zid/{storeId}/orders and /webhooks: operator only. No Flutter route or response shape changes; the live Flutter screens (emailsetting, getemailsetting, testmail) keep working for the owner. |
 
-**Existing implementation status.** NARROWED 2026-10-21: F4 (a shopper charged through another tenant's keys) was split out and CLOSED as P1-SEC-25 (82ba2ea3); the census of the 34 no-argument `getAdminAllSetting()` callers is carried by P1-SEC-25 (the route-store fallback) and P1-SEC-26 (the callers on routes that name no store). WHAT REMAINS HERE IS F5-F7, and nothing in P1-SEC-25 touches them. RECORDED by the P1-SEC-15 sweep review (READ, probable). (F5) `GetEmailSetting` returns `MAIL_PASSWORD` and `GetStripePayment` returns `stripe_secret` (`Api/DashboardController.php:3314-3337`, `:3676-3699`) and their write twins are at `:3257-3312`, `:3598-3674`; the routes carry only `custom.auth` and `resolveOwnedStore` admits anyone whose `creatorId()` owns the store - no `isAbleTo` check, so any STAFF user of a merchant can read and overwrite that merchant's gateway and SMTP secrets (cross-tenant is clean: a different merchant is refused); `SettingController::settingForm` has no permission calls at all. (F6) `DashboardController.php:3441,3537,3633` run `Setting::where(['name'=>'cod_image'])->first()` with no `store_id`, then `File::delete(base_path($Setting->value))`; `Setting` is not in `scoped_models` - any merchant can delete another tenant's image file. (F7) `routes/web.php:1320-1326` expose `/zid/{storeId}/orders` and `/webhooks` behind `auth` only and `app/Services/Zid.php:9-19` decrypts whichever store's stored token is named: any logged-in user reads any connected store's Zid data (the credential is not returned). Also noted: `POST custom-msg/{slug?}` is an anonymous settings writer that fails closed only because `Auth::user()->id` null-dereferences; `GET /` runs `package:migrate`/`package:seed` on an anonymous request when `display_landing` is on (HomeController.php:122-126).
+**Existing implementation status.** NARROWED 2026-10-21: F4 (a shopper charged through another tenant's keys) was split out and CLOSED as P1-SEC-25 (82ba2ea3); the census of the 34 no-argument `getAdminAllSetting()` callers is carried by P1-SEC-25 (the route-store fallback) and P1-SEC-26 (the callers on routes that name no store). WHAT REMAINS HERE IS F5-F7, and nothing in P1-SEC-25 touches them. RECORDED by the P1-SEC-15 sweep review (READ, probable). (F5) `GetEmailSetting` returns `MAIL_PASSWORD` and `GetStripePayment` returns `stripe_secret` (`Api/DashboardController.php:3314-3337`, `:3676-3699`) and their write twins are at `:3257-3312`, `:3598-3674`; the routes carry only `custom.auth` and `resolveOwnedStore` admits anyone whose `creatorId()` owns the store - no `isAbleTo` check, so any STAFF user of a merchant can read and overwrite that merchant's gateway and SMTP secrets (cross-tenant is clean: a different merchant is refused); `SettingController::settingForm` has no permission calls at all. (F6) `DashboardController.php:3441,3537,3633` run `Setting::where(['name'=>'cod_image'])->first()` with no `store_id`, then `File::delete(base_path($Setting->value))`; `Setting` is not in `scoped_models` - any merchant can delete another tenant's image file. (F7) `routes/web.php:1320-1326` expose `/zid/{storeId}/orders` and `/webhooks` behind `auth` only and `app/Services/Zid.php:9-19` decrypts whichever store's stored token is named: any logged-in user reads any connected store's Zid data (the credential is not returned). Also noted: `POST custom-msg/{slug?}` is an anonymous settings writer that fails closed only because `Auth::user()->id` null-dereferences; `GET /` runs `package:migrate`/`package:seed` on an anonymous request when `display_landing` is on (HomeController.php:122-126). CLOSED 2026-10-21 - see the evidence for what two reviews and the tests found beside F5-F7.
 
 **Acceptance criteria.**
-- [ ] The admin API's gateway/SMTP settings reads and writes check an operator-first permission, and a staff user without it is refused with a non-401
-- [ ] The image-delete paths scope the Setting lookup to the caller's store
-- [ ] The Zid routes check that the named store belongs to the caller
+- [x] The admin API's gateway/SMTP settings reads and writes check an operator-first permission, and a staff user without it is refused with a non-401 (and so do the web twins)
+- [x] The image-delete paths scope the Setting lookup to the caller's store and cannot unlink outside the owner's part of uploads/
+- [x] The Zid routes are limited to the platform operator (zid_stores has no tenant column to check ownership against)
+- [x] Staff cannot change the store owner's identity through updateStoreOwnerInfo; no path is built from a raw request store id
 
 **Required tests.**
 - Per site: a two-tenant fixture where the wrong tenant's value is returned/deleted today
 - Staff probes with and without the permission
 - Removal check on each predicate
 
-**Evidence.** None yet - READY.
+**Evidence.** DONE 2026-10-21. Commit 4c6ade05. F5 (STAFF reach a merchant's gateway and SMTP secrets): the five secret-bearing admin-API handlers (EmailSetting, GetEmailSetting, StripePayment, GetStripePayment, TestMail) and their four web twins (SettingController::settingForm, getEmailSettingFields, saveEmailSettings, PaymentSettingController::update) now ask App\Services\StoreSettingsAccess::permits(): the platform operator (normalised `super admin`, first because `isAbleTo()` alone refuses the operator), the tenant OWNER (`creatorId() === id`, so a merchant whose role rows were never seeded is not locked out), then `isAbleTo('Manage Setting')` - the permission behind the web 'Settings' menu entry. The first draft used `Manage Store Setting`; the review showed that belongs to the separate 'Store Setting' entry (route app-setting.index) and would have admitted a role holding only that to the SMTP password while refusing one holding `Manage Setting`. A refusal is HTTP 403, never 401 (the shipped app forces a logout on 401); the API returns `$this->error($data, 'fail', 403)` - the code is the THIRD argument. F6 (a merchant updating their own image deleted another tenant's file): the three admin-API image lookups (cod_image, bank_transfer_image, stripe_image) AND the five AppSettingController ones (metaimage, theme_logo, invoice_logo, theme_favicon, theme_image - the web twin, found by the review) are scoped to the caller's store, and the unlink goes through App\Services\StoredUpload. F7: `/zid/{storeId}/orders` and `/webhooks` are `auth` + PlatformOperatorOnly - `zid_stores.store_id` is Zid's own id and the row links to a Delivery Syria merchant, so there is no column to write an ownership predicate against; no view, script or the admin app calls them. FOUND BESIDE THE TICKET, all EXECUTED and fixed: (1) CRITICAL - `Utility::changeStorageLimit($owner, $path)`, called with a database path by ~35 handlers, did `File::glob(base_path($path))` and `File::delete()` of every match; the web's generic settings writers (`/customize-settings`, ...) take any name/value for the caller's store, so a STAFF member could store `logo_dark = config/*` and then save a logo - every file directly in config/ unlinked (test: WebSettingsSecretsTest, sandbox directory). Fixed centrally: changeStorageLimit AND its sibling changeproductStorageLimit (also a glob; the ImportExport CSV writes product path columns raw) now act on one LITERAL file inside base_path('uploads') that is not another tenant's folder (`uploads/<id>/...` and the product gallery's doubled `uploads/uploads/<id>/...`), NUL bytes refused - StoredUpload::resolve(). (2) HIGH - `updateStoreOwnerInfo` admitted staff through resolveOwnedStore() and wrote `owner_name`/`owner_email`/`owner_mobile` onto the OWNER's user row: the owner's login email is where a password reset goes, so staff-to-owner takeover in two requests. Now only the owner and the operator may CHANGE those fields; staff may resubmit the stored values (a prefilled form) and keep every store-level field. (3) `updateStoreOwnerInfo` built `public_path('uploads/' . $storeId)` from the RAW request string; EXECUTED ON MySQL 8.0.46 (tests/Support/Security/bin/verify-store-id-coercion-on-mysql.php, strict and non-strict) `Store::where('id', '5/../../x')` matches store 5, so the destination directory could be walked out of public/uploads (image extensions only: Laravel's validator blocks .php/.phtml/.phar uploads, executed); SQLite does not match, so the suite is blind to it. Now the path and rows use the id the lookup returned. TESTS: AdminApiSettingsSecretsTest (38 tests / 96 assertions), WebSettingsSecretsTest (21 / 50), StoredUploadTest (24 / 153), ZidAdminRoutesOperatorOnlyTest (8); every control RED first through the real routes and removal-checked with a mutation harness of ~50 mutants (each gate, each of the eight lookups, each unlink, every StoredUpload rule, the owner/operator limbs, the permission name, the owner-identity fields, the Zid middleware) - all bite. The operator limb is NOT an equivalent mutant (creatorId() compares exactly; ' Super Admin ' passes only that limb, as it does every other operator check) and has a test. REVIEWS: two independent read-only tenant-authz reviews; round 1 found the wrong permission, that scoping alone widened the delete, the owner takeover and the open web doors; round 2 found the doubled uploads/ prefix, the product-path glob, the raw store id in a path, the NUL byte and the operator-limb claim - all acted on. GATE: Feature 3313 passed / 2 declared failures / 17 declared skips (known-outcome exit 0), Unit 339, Contract 26, the five CI guards exit 0, on 4c6ade05. INCIDENT, disclosed: two of this session's own test drafts deleted TRACKED files from the working tree - a teardown that removed `uploads/<store id>` collided with real tracked folders (72 files), and a mutation run with the glob re-enabled plus a test pattern of `*` wiped the repository root and 131 tracked uploads. Both were restored with `git checkout`; no commit contains a deletion; the tests now use only sandbox paths and store ids 987001/987002, and the harness restores after every mutant. NOT DONE, recorded: staff can still write any setting by NAME through the web's generic writers and the admin API's Cod/Bank/Currency/Loyalty writers have no permission check (P1-SEC-27); ~25 direct `File::delete(base_path(<db value>))` sites remain, some in vendored modules that cannot be edited, and files with no store segment have no owner to compare with (P1-SEC-28); 407 user uploads are committed to the repository (P1-OWN-10). SQLite only for the Feature tests; the write handlers use MySQL-only `insert ... ON DUPLICATE KEY UPDATE` so 'allowed' writes are asserted as 'not 403'.
 
 ### `P1-SEC-19` — POST /setting-form rendered the platform's shared ChatGPT/OpenAI keys to any logged-in merchant or staff member
 
@@ -1288,6 +1292,95 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 - Removal check on each
 
 **Evidence.** None yet - READY.
+
+### `P1-SEC-27` — Staff (and any logged-in user of the store) can still write any setting by NAME: gateway and SMTP keys, the bank-transfer destination, domains; the admin API's Cod/Bank/Loyalty/currency writers have no permission check
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | high |
+| Workstream | Security & Identity |
+| GitHub issue | #101 |
+| Owner decision required | no |
+| Depends on | `P1-SEC-18` |
+| Scope | `app/Http/Controllers/SettingController.php`, `app/Http/Controllers/AppSettingController.php`, `app/Http/Controllers/Api/DashboardController.php`, `app/Models/Setting.php`, `routes/web.php`, `tests/Feature/Security/` |
+| Queue references | S45 |
+| Database / migration | None expected. If a unique key on settings(name, store_id) is added it is a migration and needs the owner (read the live indexes first). |
+| Compatibility impact | An allow-list per generic writer rejects names a screen never posts; a screen that posts an unexpected name would lose it (find them by running every settings form). The permission check on Cod/Bank/Loyalty/currency refuses staff without `Manage Setting` with a 403 (never 401). |
+
+**Existing implementation status.** RECORDED by the P1-SEC-18 reviews (READ, and EXECUTED where stated). P1-SEC-18 closes the dedicated doors to the SMTP and Stripe secrets; it does not close the doors that write the same rows BY NAME. (a) `SettingController::CustomizeSetting` (:824), `SystemSettings` (:979), `currencySettings` (:1354), `CookieSettings` (:638), `SEOSetting` (:1764) and `AppSettingController::seoSettings/shippingLabelSettings` take every posted name/value into `settings` for `getCurrentStore()` - no allow-list, no permission (EXECUTED: a staff member stored an arbitrary `logo_dark`). A staff member can set `MAIL_HOST`/`MAIL_USERNAME`/`MAIL_PASSWORD` to their own SMTP server (storefront mail, shoppers' reset links included, then goes through it) or replace the Stripe keys so card payments settle to them; they never need to read the old value. (b) The admin API's `CodPayment`, `BankPayment` (`bank_transfer` is the text shoppers pay into), `LoyalitySetting` and the currency handlers (`updateCurrencyApi` ~:6722-7048) have only resolveOwnedStore() and no permission check. (c) PLAUSIBLE, unexecuted, depends on Webuzo being configured: `AppSettingController::ThemeSettings` reads `domains` and `enable_domain` from the store's own settings (both writable by name) and calls `WebuzoDomainService::deleteDomain($oldDomain)` against the hosting panel. (d) `settings` has NO unique key on (name, store_id) in its migration (2023_12_11_100148), so the API writers' `INSERT ... ON DUPLICATE KEY UPDATE` appends a new row on every save on MySQL unless production differs (owner read-only check: `SHOW INDEX FROM settings`); readers that `pluck` see the newest row, the F6 `->first()` the oldest. (e) `GET /` runs `package:migrate`/`package:seed` on an anonymous request when `display_landing` is on (HomeController:122-126), and `POST custom-msg/{slug?}` is an anonymous settings writer that fails closed only because `Auth::user()->id` null-dereferences (carried over from P1-SEC-18's record).
+
+**Acceptance criteria.**
+- [ ] Each generic settings writer accepts only the names its screen posts (an allow-list), and a secret-bearing name is only writable through the gated handlers
+- [ ] The admin API's Cod, Bank, Loyalty and currency writers check StoreSettingsAccess and refuse with a 403
+- [ ] ThemeSettings cannot be made to delete a domain by a name-written `domains` / `enable_domain`
+- [ ] The settings table's real indexes are read on the live database and the write path is decided (owner)
+
+**Required tests.**
+- Staff POST of MAIL_PASSWORD / stripe_secret_key / bank_transfer by name through each writer is refused or ignored (RED first)
+- Each screen's real form still saves (run the forms)
+- Staff probes with and without `Manage Setting` on the API writers
+- Removal check on each allow-list and gate
+
+**Evidence.** None yet - READY.
+
+### `P1-SEC-28` — Unlinks of a path read from the database or the request that bypass StoredUpload: product images (ImportExport writes them raw), vendored module deleters, a shared vendored asset deleted as collateral, files with no store segment
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | high |
+| Workstream | Security & Identity |
+| GitHub issue | #102 |
+| Owner decision required | no |
+| Depends on | `P1-SEC-18` |
+| Scope | `app/Http/Controllers/ProductController.php`, `app/Models/Product.php`, `app/Http/Controllers/Api/DashboardController.php`, `app/Http/Controllers/Api/ApiController.php`, `app/Http/Controllers/AccountProfileController.php`, `app/Services/StoredUpload.php`, `app/Models/Setting.php`, `tests/Feature/Security/` |
+| Queue references | S45 |
+| Database / migration | None. |
+| Compatibility impact | A path outside the owner's part of uploads/ is no longer unlinked (the row is still removed): a file that used to be deleted stays on disk. The vendored deleters cannot be changed, so containment is a write-side rule on the rows they read. |
+
+**Existing implementation status.** RECORDED by the P1-SEC-18 second review (READ unless stated; all were reachable only after the central fix in Utility::changeStorageLimit/changeproductStorageLimit, which they bypass). Unlinks of a path read from the database or the request that do NOT go through StoredUpload: HOST - ProductController `:1123, :1264, :1792, :1820, :1828`, Product.php `:650, :670`, Api\DashboardController `deleteProductFile :2012-2031` (routed `DELETE /api/admin/deleteproduct`), `:2421`, `:2477`; the writer of the product path columns is the ImportExport CSV importer (`ProductsImportData.php:131, :145-147` write `cover_image_path`, `preview_content`, `downloadable_product` raw; `fileImport` has no `isAbleTo`), so a staff member with the module can import `cover_image = .env` and then delete the product. VENDORED, cannot be edited: DigitalProduct `:376, :546-587`, AuctionProduct `:922, :1050, :1527-1550`, and SignInWithLinkedIn `:29-34` / SignInWithFacebook `:99-105`, which run `Setting::where(['name' => ...])->first()` with NO store predicate and then `File::delete(base_path($Setting->value))` - cross-tenant AND arbitrary-file, the value being writable by name (P1-SEC-27). Only a host guard can fix those: a `Setting::saving` rule for file-named settings, a `Product::saving` rule for the path columns, or a guarded Filesystem binding - an architecture choice. COLLATERAL with no attacker: ImportExport defaults `cover_image_path` to `packages/workdo/ImportExport/src/resources/assets/img/img.png`, which exists, and ProductController `:1122-1124`/`:1827-1828` and DashboardController `:2476-2478` delete that shared vendored asset when an imported product is updated or deleted. SHOPPER-REACHABLE: `ApiController::update_user_image :6529-6531` deletes `base_path($user->profile_image)` whose default is `avatar.png`, a file in the repository root (the value is not forgeable, so an integrity nuisance); `AccountProfileController::attachmentDestroy :840-847` is reachable with a web+customer session, `SupportTicket::find($id)` is unscoped (IDOR) and its paths are `uploads/uploads/<store>/tickets/...`. RESIDUAL OF THE CENTRAL FIX: a file with no store segment - the two files directly in uploads/ (`uploads/22_..._1000219049.jpg`, `uploads/68_...`) and shared folders such as `uploads/profile/` - has no owner to compare with, so a tenant who can name it can still have it removed by a handler that routes through StoredUpload.
+
+**Acceptance criteria.**
+- [ ] Every host unlink of a database-derived path goes through StoredUpload (a census test pins the list)
+- [ ] A write-side rule keeps file-named settings and product path columns inside uploads/ so the vendored deleters read only safe values (design chosen and tested)
+- [ ] ImportExport's default image is never deleted as a product's own file
+- [ ] attachmentDestroy scopes the ticket to the caller; update_user_image does not delete the shared default avatar
+- [ ] The files with no store segment are either given an owner or the residual is accepted in writing
+
+**Required tests.**
+- A product whose cover_image_path is poisoned (as the CSV importer writes it) is deleted without unlinking anything outside the owner's uploads/ (RED first, through the real route)
+- A poisoned linkedin/facebook image setting does not let the vendored handler delete outside uploads/
+- Removal check on each
+
+**Evidence.** None yet - READY.
+
+### `P1-OWN-10` — 407 user-uploaded files are committed to the repository (uploads/, including screenshots, a receipt and profile images)
+
+| field | value |
+|---|---|
+| Status | **BLOCKED** |
+| Risk | medium |
+| Workstream | Security & Identity |
+| GitHub issue | #103 |
+| Owner decision required | **yes** |
+| Blocked on | Owner decision. Whether those files may stay in the repository's history (they are readable by everyone with repository access and cannot be removed by a normal commit), whether to purge them (a history rewrite, which this project's protocol forbids without approval) and whether /uploads/ should be ignored like /public/uploads/. Engineering will not rewrite history or delete tracked files. |
+| Depends on | — |
+| Scope | `docs/security/`, `.gitignore` |
+| Queue references | S45 |
+| Database / migration | None. |
+| Compatibility impact | Ignoring /uploads/ stops FUTURE commits from adding uploaded files; purging history changes every commit hash and invalidates PR #3's references. |
+
+**Existing implementation status.** RECORDED while fixing P1-SEC-18 (READ, counts measured). `uploads/` is a TRACKED directory: `git ls-files uploads` lists 407 files (uploads/2: 188, uploads/uploads/<store>/...: 105, uploads/15: 45, uploads/11: 25, ...; 162 .jpg, 157 .png, 17 .svg), including screenshots named like merchant screenshots, a `receipt` folder and profile images - committed wholesale by the commit 'Update: Controllers, DataTables and Helper adjustments on server' (f33e8525). `.gitignore` excludes `/public/uploads/` but not `/uploads/`. They are in the repository's history for everyone with read access. Not inspected for content. Two consequences for engineering regardless of the decision: tests must never treat `uploads/` as scratch (two drafts in this session deleted tracked files from it - restored), and any code that unlinks under `uploads/` is deleting files git considers part of the project.
+
+**Acceptance criteria.**
+- [ ] The owner has decided keep / purge / ignore, and the decision is recorded
+- [ ] If /uploads/ is ignored or purged, no test or handler in the repository depends on a tracked file there
+
+**Required tests.**
+- None until the decision is made.
+
+**Evidence.** None yet - BLOCKED on the owner.
 
 ---
 

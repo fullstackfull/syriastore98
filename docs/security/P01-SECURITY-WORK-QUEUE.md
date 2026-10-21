@@ -4171,6 +4171,32 @@ pinned (it fails, with the instruction to override the view first, if `module_is
 | `HomeController::Pricing()` configures the public captcha from the lowest-id merchant's settings instead of the platform's | P1-SEC-26 |
 | F5 staff read/overwrite a merchant's gateway and SMTP secrets through the admin API; F6 cross-tenant image delete (`cod_image`); F7 Zid routes | **P1-SEC-18** (narrowed) |
 
+## S45 — Staff and the secrets, and a file-delete primitive found while closing it — **P1-SEC-18 CLOSED; P1-SEC-27, -28 READY; P1-OWN-10 BLOCKED (owner)**
+
+*Found 2026-10-21: F5–F7 by the S41 sweep (READ); everything marked EXECUTED by a test through the real route (or, for the MySQL row, by a script on MySQL 8.0.46); the rest by two read-only reviews of the fix. Gate: Feature 3313 passed / 2 declared failures / 17 declared skips (known-outcome exit 0), Unit 339, Contract 26, the five CI guards exit 0, on 4c6ade05*
+
+| # | Finding | State |
+|---|---|---|
+| **CRITICAL** | `Utility::changeStorageLimit($owner, $path)` — ~35 callers — did `File::glob(base_path($path))` + `File::delete()` of every match; the web's generic settings writers take any name/value, so a **staff member** could store `logo_dark = config/*`, save a logo, and unlink the application's config (EXECUTED, sandbox dir). `changeproductStorageLimit` had the same glob (ImportExport writes product paths raw) | **fixed**: one literal file inside the owner's part of `uploads/` (`StoredUpload`) |
+| HIGH | `updateStoreOwnerInfo` let **staff** rewrite the owner's name, **login email** and mobile — password-reset takeover in two requests (EXECUTED) | **fixed**: owner/operator only; staff may resubmit stored values |
+| MEDIUM | F5 — staff read and overwrite a merchant's SMTP password / Stripe secret through the admin API (5 handlers) **and the web Settings screens** (4 handlers) — no `isAbleTo` anywhere (EXECUTED) | **fixed**: `StoreSettingsAccess` (operator → owner → `Manage Setting`); 403, never 401. First draft used the wrong permission (`Manage Store Setting` is the *Store Setting* screen) |
+| MEDIUM | F6 — saving your own COD/bank/Stripe image, **or a theme logo/favicon/SEO image in the web**, deleted the *lowest-id tenant's* file (unscoped `Setting::where(name)->first()`; 3 API + 5 web sites, EXECUTED) | **fixed**: scoped; unlink via `StoredUpload` (scoping alone would have let a tenant aim the delete) |
+| MEDIUM | `updateStoreOwnerInfo` built `public_path('uploads/'.$storeId)` from the raw request string; **MySQL matches `'5/../../x'` to store 5 (EXECUTED on MySQL 8.0.46, strict and non-strict; SQLite does not, so the suite is blind to it)** — image files could be written outside `public/uploads` (Laravel's validator blocks `.php/.phtml/.phar`, EXECUTED) | **fixed**: the id the lookup returned |
+| MEDIUM | F7 — `/zid/{storeId}/orders` and `/webhooks`: any logged-in user read any connected Zid store's data | **fixed**: operator-only (`zid_stores` has no tenant column) |
+| — | the review's `/pricing` claim (S44) was refuted; the reviews' other claims are in the tasks below | |
+
+**Not closed, and why it matters**
+
+| Residue | Task |
+|---|---|
+| Staff can still write any setting **by name** through the web's generic writers (gateway keys, SMTP host, domains → a Webuzo delete gadget) and the admin API's Cod/Bank/Loyalty/currency writers have **no** permission check; `settings` has no unique key on (name, store_id) in its migration | **P1-SEC-27** |
+| ~25 direct `File::delete(base_path(<db value>))` sites bypass `StoredUpload` — host (`ProductController`, `Product`, `DashboardController`) and **vendored** (DigitalProduct, AuctionProduct, SignInWithLinkedIn/Facebook, which also read the lowest-id tenant's row); ImportExport's default image is deleted as collateral; files with no store segment have no owner to compare | **P1-SEC-28** |
+| 407 user-uploaded files are committed to the repository (`uploads/` is tracked; `.gitignore` only excludes `/public/uploads/`) | **P1-OWN-10** (owner) |
+
+**An incident worth knowing about:** two of this session's own test drafts deleted *tracked* files from the working tree (72 files from a teardown that
+collided with `uploads/<store id>`; then the repository root plus 131 uploads when a mutation re-enabled the glob and a test passed `*`). Both were restored
+from git before any commit; the tests now touch only sandbox paths.
+
 ## Cross-repository row, carried over
 
 **B8 — a merchant can read their own webhook secret and forge events for their own store.**
