@@ -187,6 +187,14 @@ run_one verify-refund-freshness-lock-and-limiter-keys-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_DATABASE=fresh_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
+# P1-SEC-23. whatsapp() queued a guest's basket clear as `customer_id = ''`; guest rows carry customer_id 0 and
+# are told apart only by cookie_session_id. SQLite reads `'' = 0` as false (nothing cleared), MySQL in
+# production's non-strict mode reads it as TRUE (every guest's row for the product deleted), and strict mode
+# raises 1292. The script runs the exact statement shape in both modes.
+run_one verify-guest-cart-clear-coercion-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=cartclear_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

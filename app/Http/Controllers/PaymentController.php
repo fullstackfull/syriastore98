@@ -2347,6 +2347,7 @@ public function handlePaymeraTrigger00($orderId)
                  */
                 $cartLinesToClear[] = [
                     'customer_id' => $request->customer_id,
+                    'cookie_session_id' => Cookie::get('cart'),
                     'product_id' => $product_id,
                     'variant_id' => $variant_id,
                     'store_id' => $store->id,
@@ -3053,10 +3054,12 @@ $result = app(\App\Services\StoreNotificationService::class)
         ];
         // P1-SEC-21 (b). With no arguments getAdminAllSetting() resolves the user from `auth()->user()` (the
         // `web` guard -- null for every storefront shopper) and falls through to the LOWEST-ID MERCHANT ON
-        // THE PLATFORM, so every store's order message used the first merchant's `whatsapp_content`. Named
-        // for the store's owner and the store, as the Khalti return does.
-        $settings = getAdminAllSetting($store->created_by, $store->id);
-        $resp = Utility::replaceVariable(($settings['whatsapp_content'] ?? null), $arr) ?? null;
+        // THE PLATFORM, so every store's order message used the first merchant's `whatsapp_content`.
+        // Read by name AND store, like the other settings this handler reads (`whatsapp_number`,
+        // `telegram_*`, `whatsapp_item_variable`): NOT through getAdminAllSetting($owner, $store), which also
+        // filters on `created_by`, and SettingController::customMassage upserts on [name, store_id] and
+        // stamps `created_by` with whoever saved last -- a template saved by a staff member would be missed.
+        $resp = Utility::replaceVariable(Utility::GetValueByName('whatsapp_content', $store->id), $arr) ?? null;
 
         if ($request['data']['type'] == 'telegram') {
             $this->sendTelegramOrderMessage($telegram_access_token, $telegram_chat_id, $resp, $store->id);
@@ -3684,6 +3687,7 @@ $result = app(\App\Services\StoreNotificationService::class)
                  */
                 $cartLinesToClear[] = [
                     'customer_id' => $request->customer_id,
+                    'cookie_session_id' => Cookie::get('cart'),
                     'product_id' => $product_id,
                     'variant_id' => $variant_id,
                     'store_id' => $store->id,
@@ -4183,11 +4187,25 @@ $result = app(\App\Services\StoreNotificationService::class)
     {
         foreach ($lines as $line) {
             try {
-                Cart::where('customer_id', $line['customer_id'])
-                    ->where('product_id', $line['product_id'])
+                $query = Cart::where('product_id', $line['product_id'])
                     ->where('variant_id', $line['variant_id'])
-                    ->where('store_id', $line['store_id'])
-                    ->delete();
+                    ->where('store_id', $line['store_id']);
+
+                // P1-SEC-23. A customer's rows are theirs by `customer_id`. A GUEST has no customer id
+                // (whatsapp() pins it to '') and their rows carry customer_id 0, told apart ONLY by
+                // `cookie_session_id`; matching `customer_id = ''` made MySQL (non-strict, production)
+                // read it as 0 and delete EVERY guest's row for the product in the store. No customer and
+                // no cookie means there is nothing of this shopper's to clear -- skipped, never matched
+                // against 0.
+                if (is_numeric($line['customer_id'] ?? null) && (int) $line['customer_id'] > 0) {
+                    $query->where('customer_id', (int) $line['customer_id']);
+                } elseif (is_string($line['cookie_session_id'] ?? null) && $line['cookie_session_id'] !== '') {
+                    $query->where('cookie_session_id', $line['cookie_session_id']);
+                } else {
+                    continue;
+                }
+
+                $query->delete();
             } catch (\Throwable $e) {
                 \Log::error('Could not clear a cart line after a committed order', [
                     'product_id' => $line['product_id'] ?? null,

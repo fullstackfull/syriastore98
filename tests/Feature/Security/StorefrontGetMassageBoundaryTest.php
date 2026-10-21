@@ -215,6 +215,41 @@ class StorefrontGetMassageBoundaryTest extends SecurityTestCase
         $this->assertSame(0, self::cartLinesOf($customer->id, $product->id), 'The customer\'s own basket line was no longer cleared.');
     }
 
+    /**
+     * THE AUTHENTICATED ARM. A guest's `process-order` stores the request in the session, a POSTED
+     * `customer_id` included (nothing overwrites it on the guest arm); if that guest then logs in on the
+     * same session, `get-massage` takes the authenticated arm and merges the stored state over the request,
+     * so the OLD `$request->customer_id` was the victim's id again. The owner of the lines being cleared is
+     * the principal, not the session state. (Found by the review of the first version of this fix; the guest
+     * tests alone could not distinguish `auth('customers')->id()` from the stored id.)
+     */
+    public function test_a_logged_in_customer_cannot_clear_another_customers_line_through_stored_state(): void
+    {
+        [, $store] = $this->tenant('Order {order_no}: {item_variable}');
+        $product = $this->productIn($store);
+        $attacker = $this->victimIn($store);
+        $victim = $this->victimIn($store);
+
+        foreach ([$attacker, $victim] as $customer) {
+            Cart::forceCreate([
+                'customer_id' => $customer->id, 'product_id' => $product->id, 'variant_id' => 0,
+                'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+            ]);
+        }
+
+        $state = $this->state($store);
+        $state['customer_id'] = $victim->id;   // what a guest process-order stored from a posted field
+
+        $response = $this->actingAs($attacker, 'customers')
+            ->withSession(['request_data' => $state])
+            ->post('/' . $store->slug . '/get-massage', ['data' => ['type' => 'whatsapp', 'order_id' => 'ORD-1']]);
+
+        $this->assertStringStartsWith('https://api.whatsapp.com/send', (string) $response->getContent(),
+            'Premise: the authenticated arm ran to its end (HTTP ' . $response->getStatusCode() . '). Body: ' . substr((string) $response->getContent(), 0, 300));
+        $this->assertSame(1, self::cartLinesOf($victim->id, $product->id), 'A logged-in customer cleared another customer\'s line through the stored session state.');
+        $this->assertSame(0, self::cartLinesOf($attacker->id, $product->id), 'Premise: the caller\'s OWN line is the one cleared.');
+    }
+
     // ---------------------------------------------------------------------------------------------
     // (b) whose message template
     // ---------------------------------------------------------------------------------------------
@@ -228,6 +263,22 @@ class StorefrontGetMassageBoundaryTest extends SecurityTestCase
         parse_str((string) parse_url((string) $response->getContent(), PHP_URL_QUERY), $query);
 
         return (string) ($query['text'] ?? '');
+    }
+
+    /**
+     * customMassage upserts on [name, store_id] and stamps `created_by` with whoever saved last, so a
+     * template saved by a staff member (or the operator) belongs to that user id. The lookup is by store.
+     */
+    public function test_a_template_saved_by_staff_is_still_the_stores_template(): void
+    {
+        [$merchant, $store] = $this->tenant('OWNER-SAVED-TEMPLATE {order_no}');
+        $staff = $this->makeStaff($merchant);
+
+        DB::table('settings')->where('store_id', $store->id)->where('name', 'whatsapp_content')
+            ->update(['value' => 'STAFF-SAVED-TEMPLATE {order_no}', 'created_by' => $staff->id]);
+
+        $this->assertStringContainsString('STAFF-SAVED-TEMPLATE', $this->messageFor($store),
+            'A template saved by someone other than the store owner was not used.');
     }
 
     public function test_the_message_uses_the_stores_own_template_not_the_first_merchants(): void
