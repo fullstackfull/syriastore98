@@ -52,12 +52,14 @@ class PaymentListSecretDisclosureTest extends SecurityTestCase
         'paymentwall_private_key', 'paynow_pay_integration_key', 'paypal_secret', 'paystack_secret',
         'paytabs_server_key', 'paytm_merchant_key', 'paytr_merchant_key', 'paytr_salt_key',
         'payu_merchant_key', 'payu_salt_key', 'phonepe_client_secret', 'powertranz_pay_processing_password',
-        'razorpay_secret_key', 'secretKey', 'senang_pay_secret_key', 'sofort_secret_key_key',
+        'razorpay_secret_key', 'senang_pay_secret_key', 'sofort_secret_key_key',
         'sslcommerz_pay_secret_key', 'stripe_secret_key', 'tap_secret_key', 'telegram_access_token',
         'yookassa_secret_key',
     ];
 
     private const KEEP_FIELDS = [
+        // The on/off flag the vendor code mislabels (ApiController:2361,2380); verified by reading, kept so the value is unchanged.
+        'secretKey',
         'Senangpay_mode', 'aamarpay_description', 'aamarpay_store_id', 'authorizenet_login_id',
         'authorizenet_mode', 'benefit_mode', 'braintree_mode', 'braintree_pay_merchant_id',
         'braintree_pay_public_key', 'categoryCode', 'cinet_pay_site_id', 'coingate_mode',
@@ -147,6 +149,7 @@ class PaymentListSecretDisclosureTest extends SecurityTestCase
 
         $body = (string) $this->paymentList($store, $token)->getContent();
 
+        $this->assertStringContainsString(self::STRIPE_PUBLISHABLE, $body, 'Positive control: the list must still be returned to the store\'s own shopper.');
         $this->assertStringNotContainsString(self::STRIPE_SECRET, $body);
         $this->assertStringNotContainsString(self::PAYSTACK_SECRET, $body);
     }
@@ -172,6 +175,7 @@ class PaymentListSecretDisclosureTest extends SecurityTestCase
 
         $body = (string) $this->paymentList($victim, (string) $token)->getContent();
 
+        $this->assertStringContainsString(self::STRIPE_PUBLISHABLE, $body, 'Positive control: the list must still be returned.');
         $this->assertStringNotContainsString(self::STRIPE_SECRET, $body,
             'An anonymous visitor registered on their own store and read another store\'s Stripe SECRET key.');
     }
@@ -214,5 +218,33 @@ class PaymentListSecretDisclosureTest extends SecurityTestCase
             $this->assertSame('VALUE-' . $name, $out[$name], "'{$name}' is public and was removed: the checkout needs it.");
         }
         $this->assertSame(array_keys($entry), array_keys($out), 'The keys must stay: clients decode this into typed models.');
+    }
+
+    /** The redactor is a deny-list by NAME, so the names a gateway might use tomorrow are pinned too. */
+    public function test_the_redactor_also_catches_the_names_a_future_gateway_would_use(): void
+    {
+        $future = ['telegram_bot_token', 'acme_apikey', 'acme_api_key', 'acme_pwd', 'acme_credentials', 'bearer_token', 'ACME_PRIVATE_KEY'];
+
+        $entry = [];
+        foreach ($future as $name) {
+            $entry[$name] = 'VALUE-' . $name;
+        }
+
+        foreach (\App\Services\GatewaySecretRedactor::redact($entry) as $name => $value) {
+            $this->assertNull($value, "'{$name}' looks like a credential and was returned.");
+        }
+    }
+
+    /** The web checkout's twin builder redacts too (defence in depth: its caller renders only display fields today). */
+    public function test_the_web_checkout_builder_does_not_carry_secrets_either(): void
+    {
+        $store = $this->victimStore();
+
+        $payments = \App\Models\Setting::paymentList($store->slug);
+
+        $flat = json_encode($payments);
+        $this->assertStringContainsString(self::STRIPE_PUBLISHABLE, $flat, 'Positive control: the builder must still list the gateway.');
+        $this->assertStringNotContainsString(self::STRIPE_SECRET, $flat);
+        $this->assertStringNotContainsString(self::PAYSTACK_SECRET, $flat);
     }
 }

@@ -1078,7 +1078,11 @@ $is_paymera_enabled = Utility::GetValueByName('is_Paymera_enabled', $store->id);
 
 
         if (!empty($Setting_array)) {
-            return $Setting_array;
+            // P1-SEC-15 defence in depth. This is the web checkout's twin of ApiController::payment_list and
+            // builds the same gateway array, secrets included. Its one caller (HomeController::checkout) renders
+            // only name/status/detail/image today; nulling the secrets here means a future `@json($payments)`
+            // or `{{ $payment['stripe_secret_key'] }}` cannot put them in a public page.
+            return \App\Services\GatewaySecretRedactor::redactAll($Setting_array);
         } else {
             return [];
         }

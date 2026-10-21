@@ -21,13 +21,24 @@ namespace App\Services;
  */
 final class GatewaySecretRedactor
 {
-    private const SECRET_NAME = '/secret|private|salt|auth_code|auth_token|access_token|token_key|company_token|api_key|server_key|transaction_key|signature|password|merchant_key|integration_key/i';
+    private const SECRET_NAME = '/secret|private|salt|auth_code|token|api_?key|server_key|transaction_key|signature|password|pwd|merchant_key|integration_key|credential/i';
 
     /** Names that are secrets but carry none of the words above. */
     private const SECRET_EXACT = ['cashfree_key'];
 
+    /**
+     * Names that CONTAIN a secret-looking word but carry none. `secretKey` is what ApiController assigns
+     * from `is_sspay_enabled` / `is_toyyibpay_enabled` (lines 2361 and 2380) -- the on/off flag, a vendor
+     * mislabel, read by the sweep review. Nulling it would change a value no credential ever occupied.
+     */
+    private const PUBLIC_EXACT = ['secretKey'];
+
     public static function isSecret(string $name): bool
     {
+        if (in_array($name, self::PUBLIC_EXACT, true)) {
+            return false;
+        }
+
         return in_array($name, self::SECRET_EXACT, true) || preg_match(self::SECRET_NAME, $name) === 1;
     }
 
