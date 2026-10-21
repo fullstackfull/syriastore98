@@ -110,6 +110,10 @@ return Application::configure(basePath: dirname(__DIR__))
         // That last point corrects an earlier claim here that the auction permissions are not
         // seeded: the MODULE ships its own PermissionTableSeeder and the enable path runs it.
         $middleware->appendToGroup('web', \App\Http\Middleware\ModuleOrderMutationGuard::class);
+        // P1-SEC-17 F1. Two vendored modules (Donation, LotteryPrizes) return `https://api.telegram.org/
+        // bot<TOKEN>/sendMessage` -- the merchant's bot token -- to an anonymous caller from their own
+        // `getWhatsappUrl()`. Closed here for the same reasons as the guards above; see the class.
+        $middleware->appendToGroup('web', \App\Http\Middleware\WithholdTelegramBotUrl::class);
         // P1-INV-17. FOUR CROSS-TENANT WRITES BEHIND AuctionProduct's Route::resource routes,
         // and two of them are not auction tables at all: AuctionProductController::update:861
         // and destroy:1509 resolve App\Models\Product::find($id) -- the HOST catalogue model,

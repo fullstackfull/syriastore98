@@ -3046,27 +3046,15 @@ $result = app(\App\Services\StoreNotificationService::class)
         $resp = Utility::replaceVariable(($settings['whatsapp_content'] ?? null), $arr) ?? null;
 
         if ($request['data']['type'] == 'telegram') {
-            $msg = $resp;
-            // Set your Bot ID and Chat ID.
-            $telegrambot = $telegram_access_token;
-            $telegramchatid = $telegram_chat_id;
+            $this->sendTelegramOrderMessage($telegram_access_token, $telegram_chat_id, $resp, $store->id);
 
-            // Function call with your own text or variable
-            $url = 'https://api.telegram.org/bot' . $telegrambot . '/sendMessage';
-            $data = array(
-                'chat_id' => $telegramchatid,
-                'text' => $msg,
-            );
-            $options = array(
-                'http' => array(
-                    'method' => 'POST',
-                    'header' => "Content-Type:application/x-www-form-urlencoded\r\n",
-                    'content' => http_build_query($data),
-                ),
-            );
-            $context = stream_context_create($options);
-            $result = file_get_contents($url, false, $context);
-            $url = $url;
+            // P1-SEC-17 F1. This used to return the request URL it had just posted to --
+            // `https://api.telegram.org/bot<TOKEN>/sendMessage` -- to an ANONYMOUS caller. The only
+            // page that calls this for Telegram (resources/views/payment/telegram.blade.php) stores
+            // the body in a hidden input that nothing reads; the message is sent here, by the server.
+            // So the body had no use except to hand out the merchant's bot token. The WhatsApp branch
+            // below still returns its link, which the WhatsApp page does open.
+            $url = '';
         } else {
             $url = 'https://api.whatsapp.com/send?phone=' . $whatsapp_number . '&text=' . urlencode(string: $resp);
         }
@@ -3074,7 +3062,52 @@ $result = app(\App\Services\StoreNotificationService::class)
         return $url;
     }
 
-    
+    /**
+     * Post the order text to the merchant's Telegram bot. P1-SEC-17 F1.
+     *
+     * Through the Http client, not `file_get_contents()`, for two reasons that are both about the
+     * token. A refused call (a revoked or mistyped token answers 401) made `file_get_contents()`
+     * raise a PHP warning whose MESSAGE is the full request URL, i.e. the bot token, and that text
+     * became the exception message -- which is written to the log and reported to the error
+     * tracker. And a connection error from the Http client carries the URL too, so a failure is
+     * recorded here by CLASS and status only, never by message and never as the exception object.
+     *
+     * A failure no longer fails the request: the shopper's page ignores the answer (it has no error
+     * handler) and the order itself is written by whatsapp(), not here.
+     */
+    private function sendTelegramOrderMessage($token, $chatId, $text, $storeId): void
+    {
+        if (empty($token) || empty($chatId)) {
+            \Illuminate\Support\Facades\Log::warning('Telegram order message not sent: the store has no bot token or chat id', [
+                'store_id' => $storeId,
+            ]);
+
+            return;
+        }
+
+        try {
+            $answer = \Illuminate\Support\Facades\Http::asForm()
+                ->timeout(10)
+                ->post('https://api.telegram.org/bot' . $token . '/sendMessage', [
+                    'chat_id' => $chatId,
+                    'text' => $text,
+                ]);
+
+            if (! $answer->successful()) {
+                \Illuminate\Support\Facades\Log::warning('Telegram refused an order message', [
+                    'store_id' => $storeId,
+                    'status' => $answer->status(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Telegram order message could not be sent', [
+                'store_id' => $storeId,
+                'class' => get_class($e),
+            ]);
+        }
+    }
+
+
 
     /**
      * THE WHATSAPP / TELEGRAM ORDER WRITER. P01-COMMERCE-SEC-02.

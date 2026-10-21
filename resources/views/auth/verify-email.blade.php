@@ -83,11 +83,11 @@ config([
     @if (isset($adminSetting['NOCAPTCHA_VERSON']) && $adminSetting['NOCAPTCHA_VERSON'] == 'v2')
             {!! NoCaptcha::renderJs() !!}
     @else
-        <script src="https://www.google.com/recaptcha/api.js?render={{ $adminSetting['NOCAPTCHA_SECRET'] }}"></script>
+        <script src="https://www.google.com/recaptcha/api.js?render={{ $adminSetting['NOCAPTCHA_SITEKEY'] }}"></script>
         <script>
             $(document).ready(function() {
                 grecaptcha.ready(function() {
-                    grecaptcha.execute('{{ $adminSetting['NOCAPTCHA_SECRET'] }}', {
+                    grecaptcha.execute('{{ $adminSetting['NOCAPTCHA_SITEKEY'] }}', {
                         action: 'submit'
                     }).then(function(token) {
                         $('#g-recaptcha-response').val(token);

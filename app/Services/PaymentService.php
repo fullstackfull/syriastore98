@@ -2078,7 +2078,8 @@ private function processPaymera00000($request, $slug)
             }
             $data = [
                 'snap_token' => $snapToken,
-                'midtrans_secret' => $midtrans_secret_key,
+                // P1-SEC-17 F2: the SERVER key is no longer handed to the view. It was printed as
+                // `data-client-key` and, through route($fallback_url, $data), into the form action URL.
                 'order_id' => $orderID,
                 'slug' => $slug,
                 'amount' => $cartlist_final_price,
