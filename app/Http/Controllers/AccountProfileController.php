@@ -996,8 +996,26 @@ public function city_list(Request $request, $slug)
                 ]
             );
         }
-        $order = Order::order_detail($request->order_id);
-        $o_data = Order::where('id', $request->order_id)->first();
+        // P1-ORD-10. The order is the signed-in shopper's own, in THIS store (id + store + customer, the predicate every handler of this
+        // group uses -- ownedOrder()). It used to be a raw request integer: a shopper of any store could name any store's order and have
+        // that store's SMTP relay mail the order's customer a link the shopper chose. The refusal keeps the handler's own error shape.
+        $customer = $this->shopper($store);
+        $o_data = $this->ownedOrder($store, $customer, $request->order_id);
+
+        // The link is derived from the ORDER'S OWN product rows, never from the request.
+        $downloadLink = $o_data === null ? null : $this->downloadLinkFor($o_data);
+
+        if ($o_data === null || $downloadLink === null) {
+            return response()->json(
+                [
+                    'status' => __('error'),
+                    'msg' => __('Please contact your shop owner'),
+                    'message' => $o_data === null ? __('Order Not Found.') : __('There is nothing to download on this order.'),
+                ]
+            );
+        }
+
+        $order = Order::order_detail($o_data->id);
 
         $settings = Setting::where('store_id', $o_data->store_id)->pluck('value', 'name')->toArray();
         if ($o_data->delivered_status == 1) {
@@ -1022,7 +1040,7 @@ public function city_list(Request $request, $slug)
                         [
                             $order['billing_informations']['email'],
                         ]
-                    )->send(new ProdcutMail($order, $request['download_product'], $store));
+                    )->send(new ProdcutMail($order, $downloadLink, $store));
 
                     return response()->json(
                         [
@@ -1050,6 +1068,38 @@ public function city_list(Request $request, $slug)
                 );
             }
         }
+    }
+
+    /**
+     * The download link for an order, from its own product rows: the first line whose variant (or, failing that, product) of THIS store carries
+     * a `downloadable_product` file. Null when nothing on the order is downloadable. P1-ORD-10.
+     */
+    private function downloadLinkFor(Order $order): ?string
+    {
+        $lines = json_decode((string) $order->product_json, true);
+
+        foreach (is_array($lines) ? $lines : [] as $line) {
+            if (! is_array($line) || empty($line['product_id'])) {
+                continue;
+            }
+
+            $path = null;
+
+            if (! empty($line['variant_id'])) {
+                $path = \App\Models\ProductVariant::where('id', $line['variant_id'])->where('product_id', $line['product_id'])
+                    ->where('store_id', $order->store_id)->value('downloadable_product');
+            }
+
+            if (empty($path)) {
+                $path = Product::where('id', $line['product_id'])->where('store_id', $order->store_id)->value('downloadable_product');
+            }
+
+            if (! empty($path)) {
+                return get_file($path);
+            }
+        }
+
+        return null;
     }
 
     /**
