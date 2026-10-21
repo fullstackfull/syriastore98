@@ -16,7 +16,7 @@ use Laravel\Paddle\Billable;
 use GeneaLabs\LaravelModelCaching\Traits\Cachable;
 use Illuminate\Support\Facades\Cache;
 
-class User extends Authenticatable implements LaratrustUser, MustVerifyEmail
+class User extends Authenticatable implements LaratrustUser, MustVerifyEmail, \LaraBug\Concerns\Larabugable
 {
     use Cachable {
         Cachable::flushCache as cachableFlushCache;
@@ -389,5 +389,14 @@ class User extends Authenticatable implements LaratrustUser, MustVerifyEmail
     public function canBeImpersonated(): bool
     {
         return $this->type !== \App\Policies\UserPolicy::PLATFORM_ADMIN;
+    }
+
+    /**
+     * P1-SEC-14: what the error tracker is told about the signed-in user. The default was `toArray()`: every non-hidden column -- the e-mail
+     * address, and the plaintext `google2fa_secret` the GoogleAuthentication module's migration adds -- outside the tracker's key filter.
+     */
+    public function toLarabug()
+    {
+        return ['id' => $this->id, 'type' => $this->type, 'created_by' => $this->created_by];
     }
 }

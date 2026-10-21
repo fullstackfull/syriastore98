@@ -107,7 +107,29 @@ return [
         '*cvv*',
         '*iban*',
         '*name*',
-        '*email*'
+        '*email*',
+        // P1-SEC-14: what the first list missed -- cookies and sessions (the session id, `remember_web_*`, the raw `cookie` header), every
+        // gateway secret and key (`stripe_secret_key`, `google2fa_secret`, `*_api_key`), card numbers and expiries under every spelling the
+        // payment forms use (`nmi_card_number`, `cardNumber`, `PowerTranz_card_number`, `cc_number`, `exp_month`, `expiry`), one-time codes
+        // and pins, signatures and CSRF values.
+        '*cookie*',
+        '*session*',
+        '*remember*',
+        '*secret*',
+        '*key*',
+        '*card*',
+        '*cc_*',
+        '*number*',
+        '*expir*',
+        '*exp_month*',
+        '*exp_year*',
+        '*otp*',
+        'pin',
+        '*_pin',
+        '*signature*',
+        '*csrf*',
+        '*bearer*',
+        '*login*',
     ],
 
     /*

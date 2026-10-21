@@ -24,6 +24,15 @@ class AppServiceProvider extends ServiceProvider
 
         // P1-SEC-13. Replaces the package's own binding (package providers register before app providers)
         // with a subclass that does not persist the request body or credential headers. See the class.
+        // P1-SEC-14. The error tracker's payload carried cookies, the session, the request body and the user model; this subclass scrubs it
+        // (package providers register first, so this replaces the package's own 'larabug' binding, as the visitor binding below does).
+        $this->app->singleton('larabug', function () {
+            return new \App\Services\ScrubbedLaraBug(new \LaraBug\Http\Client(
+                config('larabug.login_key', 'login_key'),
+                config('larabug.project_key', 'project_key')
+            ));
+        });
+
         $this->app->singleton('shetabit-visitor', function () {
             return new \App\Services\SanitisedVisitor(app(\Illuminate\Http\Request::class), config('visitor'));
         });
