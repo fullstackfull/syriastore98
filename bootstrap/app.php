@@ -243,6 +243,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->appendToGroup('web', \App\Http\Middleware\LotteryTicketWriteGuard::class);
         $middleware->appendToGroup('web', \App\Http\Middleware\LotteryRefundOwnershipGuard::class);
         $middleware->appendToGroup('web', \App\Http\Middleware\LotteryMailTemplatePrerequisite::class);
+        // P1-SEC-35. The Duo2FA module's `/duologin` logged an ANONYMOUS caller in as any user, the platform operator included, from a
+        // forged "Duo response" (EXECUTED: tests/Feature/Security/Duo2FALoginForgeryTest). The module is vendored, so the control is a route
+        // guard: a signed-in user, naming themselves in both the request and both halves of the response, on a store whose Duo keys are set.
+        $middleware->appendToGroup('web', \App\Http\Middleware\Duo2FALoginGuard::class);
         // P1-INV-22 item 5. `POST lotteryproduct` -> LotteryPrizesController::store():90-137 writes
         // `lottery_settings` rows whose `lottery_products` is a CALLER-SUPPLIED product id, with no
         // check that the product is the caller's. REPRODUCED BY EXECUTION: a merchant holding
