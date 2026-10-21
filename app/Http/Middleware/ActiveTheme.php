@@ -24,7 +24,13 @@ class ActiveTheme
            // return abort('403', 'The store is not active.');
        // }
         if($store && $store->theme_id) {
-            visitor()->visit($store);
+            // P1-SEC-13. A page-view counter must never be able to fail the page: the visit row JSON-encodes
+            // request-derived strings (invalid UTF-8 threw) and needs a table that may be unavailable.
+            try {
+                visitor()->visit($store);
+            } catch (\Throwable $e) {
+                report($e);
+            }
             $themeName = $store->theme_id;
         } else {
             $themeName = $this->getThemeNameFromUrl($request);

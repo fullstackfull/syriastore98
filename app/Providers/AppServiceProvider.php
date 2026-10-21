@@ -21,6 +21,12 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton('module', function ($app) {
             return new Module();
         });
+
+        // P1-SEC-13. Replaces the package's own binding (package providers register before app providers)
+        // with a subclass that does not persist the request body or credential headers. See the class.
+        $this->app->singleton('shetabit-visitor', function () {
+            return new \App\Services\SanitisedVisitor(app(\Illuminate\Http\Request::class), config('visitor'));
+        });
        
     }
 
