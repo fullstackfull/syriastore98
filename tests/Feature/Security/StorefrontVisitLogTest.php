@@ -34,7 +34,7 @@ class StorefrontVisitLogTest extends SecurityTestCase
 {
     use RefreshDatabase;
 
-    private const PASSWORD = 'PW-SENTINEL-4471';
+    private const PASSWORD = 'PW-FIXTURE-SENTINEL-4471';
     private const COOKIE = 'COOKIE-SENTINEL-9902';
     private const CARD = '4111111111119876';
     private const CVV = '737';

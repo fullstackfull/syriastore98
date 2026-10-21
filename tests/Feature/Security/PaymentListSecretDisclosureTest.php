@@ -28,9 +28,9 @@ class PaymentListSecretDisclosureTest extends SecurityTestCase
 {
     use RefreshDatabase;
 
-    private const STRIPE_SECRET = 'sk_live_SENTINEL_9d41';
+    private const STRIPE_SECRET = 'sk_live_FIXTURE_SENTINEL_9d41';
     private const STRIPE_PUBLISHABLE = 'pk_live_PUBLIC_77aa';
-    private const PAYSTACK_SECRET = 'sk_paystack_SENTINEL_31c2';
+    private const PAYSTACK_SECRET = 'sk_paystack_FIXTURE_SENTINEL_31c2';
 
     /**
      * EVERY field name the endpoint can return, classified BY A HUMAN (harvested from the live response
