@@ -7735,6 +7735,14 @@ public function updateStoreOwnerInfo(Request $request)
             return response()->json(['status' => 'error', 'message' => 'Permission denied.', 'data' => null], 403);
         }
 
+        // P1-SEC-27 (third review). `currency_name` decides what a shopper is charged in -- on MySQL the writer below addresses the
+        // CURRENCY_NAME row -- so a CHANGE to it needs the Settings permission like every other currency door. Staff may still
+        // resubmit the stored value (a prefilled form) and change every other store-level field.
+        if ($request->filled('currency_name')
+            && \App\Services\StoreSettingsAccess::deniesRestrictedWrite(['CURRENCY_NAME' => $request->input('currency_name')], $adminUser, $store->id)) {
+            return response()->json(['status' => 'error', 'message' => 'Permission denied.', 'data' => null], 403);
+        }
+
         $validated = $request->validate([
             'store_name' => 'nullable|string|max:255',
             'store_email' => 'nullable|email|max:255',

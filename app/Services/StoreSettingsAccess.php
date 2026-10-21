@@ -62,7 +62,7 @@ final class StoreSettingsAccess
      * (GatewaySecretRedactor), every `mail_*`, `s3_*`, `wasabi_*` and `local_storage_*` (where uploads go), every field of every gateway
      * in PaymentSettingController::getPaymentGateways() plus each gateway's tile image (the names Setting::paymentList reads), the
      * admin API's Stripe/COD/bank names, the store currency and the loyalty reward (what a shopper is charged and what a point is worth),
-     * the integrations' endpoints and identifiers (`shopify_*`, `woocommerce_*`, `twilio_*`, `whatsapp_*`, `firebase_*`, `fcm_*`: a
+     * the integrations' endpoints and identifiers (`shopify_*`, `woocommerce_*`, `twilio_*`, `whatsapp_*`, `firebase_*`, `fcm_*`, the social-login audience pins that decide whose ID token the storefront accepts: a
      * stored token is sent to whatever URL is stored next to it), and the names the host lookup routes a request by (a domain is a
      * hosting-panel call and decides which store answers a host).
      *
@@ -75,6 +75,7 @@ final class StoreSettingsAccess
         'is_cod_enabled', 'cod_info', 'cod_image', 'benefit_mode',
         'currency', 'currency_name', 'defult_currancy', 'defult_currancy_symbol', 'site_currency_symbol_position',
         'loyality_program_enabled', 'reward_point',
+        'google_api_audiences', 'google_client_id', 'apple_client_ids', 'facebook_client_id',
         'domains', 'enable_domain', 'subdomain', 'enable_subdomain', 'enable_storelink',
         'storage_setting',
     ];

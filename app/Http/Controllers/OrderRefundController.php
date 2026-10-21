@@ -296,6 +296,11 @@ class OrderRefundController extends Controller
 
     public function updateStatus(Request $request)
     {
+        // P1-SEC-27 (third review). The refund-policy tab of the Settings screen, which settingForm() refuses to a user without
+        // `Manage Setting`; the route (`refund.settings`) wrote one row per posted name for any logged-in user of the store.
+        if (! \App\Services\StoreSettingsAccess::permits(Auth::user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
         session()->put(['setting_tab' => 'refund_setting']);
         $post = $request->all();
         unset($post['_token']);

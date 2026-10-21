@@ -872,12 +872,12 @@ $u->save();
 
     public function LoyalityProgramSettings(Request $request)
     {
-        session()->put(['setting_tab' => 'loyality_pro_setting']);
         // P1-SEC-27. The web twin of Api\DashboardController::LoyalitySetting, which asks the same question; the reward point decides
         // what a shopper's points are worth.
         if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
+        session()->put(['setting_tab' => 'loyality_pro_setting']);
         $theme_id = !empty(APP_THEME()) ? APP_THEME() : APP_THEME();
 
         $loyality_program_enabled = !empty($request->loyality_program_enabled) ? $request->loyality_program_enabled : 'off';
@@ -1115,6 +1115,11 @@ $u->save();
 
     public function StockSettings(Request $request)
     {
+        // P1-SEC-27 (third review). A tab of the Settings screen, which settingForm() refuses to a user without `Manage Setting`;
+        // its POST target had no check at all.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
         session()->put(['setting_tab' => 'stock_setting']);
         $theme_id = !empty(APP_THEME()) ? APP_THEME() : '';
         $validator = \Validator::make(

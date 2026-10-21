@@ -133,6 +133,8 @@ class SettingsRestrictedWriteTest extends SecurityTestCase
             // where an integration's stored token is sent
             'shopify_store_url', 'shopify_setting_enabled', 'woocommerce_store_url', 'woocommerce_consumer_key', 'twilio_sid', 'twilio_from',
             'twilio_notification_number', 'whatsapp_phone_number_id', 'whatsapp_contact_number', 'fcm_Key', 'firebase_enabled',
+            // whose ID token the storefront accepts
+            'google_api_audiences', 'Google_client_id', 'apple_client_ids', 'facebook_client_id',
         ]);
     }
 
@@ -658,24 +660,23 @@ class SettingsRestrictedWriteTest extends SecurityTestCase
     {
         $out = [];
         foreach (['domain', 'subdomain', 'storelink'] as $mode) {
-            // no token: NOTHING may reach the hosting panel, not even a read
-            $out["home tab, {$mode}"] = [$mode, ['app_setting_tab' => 'pills-home-tab', 'theme_name' => 'Renamed', 'email' => 'new@example.test', 'default_language' => 'en'], true];
-            $out["checkout tab, {$mode}"] = [$mode, ['app_setting_tab' => 'pills-checkout-tab', 'additional_notes' => 'on', 'is_checkout_login_required' => 'off'], true];
+            $out["home tab, {$mode}"] = [$mode, ['app_setting_tab' => 'pills-home-tab', 'theme_name' => 'Renamed', 'email' => 'new@example.test', 'default_language' => 'en']];
+            $out["checkout tab, {$mode}"] = [$mode, ['app_setting_tab' => 'pills-checkout-tab', 'additional_notes' => 'on', 'is_checkout_login_required' => 'off']];
         }
         // the Custom tab with the radios and inputs a plan that allows the feature renders (the readonly sub-domain input posts the CURRENT slug)
-        // with the token: the handler may READ the panel (domainExists) for the stored sub-domain, as it does for the owner, but change nothing
-        $out['custom tab on the stored custom domain'] = ['domain', ['app_setting_tab' => 'pills-custom-tab', 'enable_domain' => 'enable_domain', 'domains' => 'shop.example.test', 'subdomain' => 'slug', 'storecss' => 'a{}'], false];
-        $out['custom tab on the stored sub-domain'] = ['subdomain', ['app_setting_tab' => 'pills-custom-tab', 'enable_domain' => 'enable_subdomain', 'subdomain' => 'myshop', 'storecss' => 'a{}'], false];
-        $out['custom tab on the stored sub-domain after a slug change'] = ['subdomain', ['app_setting_tab' => 'pills-custom-tab', 'enable_domain' => 'enable_subdomain', 'subdomain' => 'renamed-slug', 'storecss' => 'a{}'], false];
-        $out['custom tab on the store link'] = ['storelink', ['app_setting_tab' => 'pills-custom-tab', 'enable_domain' => 'enable_storelink', 'domains' => '', 'subdomain' => 'slug', 'storecss' => 'a{}'], false];
+        // with the token (the handler would call domainExists / addSubdomain for the owner): for a user without Manage Setting, nothing
+        $out['custom tab on the stored custom domain'] = ['domain', ['app_setting_tab' => 'pills-custom-tab', 'enable_domain' => 'enable_domain', 'domains' => 'shop.example.test', 'subdomain' => 'slug', 'storecss' => 'a{}']];
+        $out['custom tab on the stored sub-domain'] = ['subdomain', ['app_setting_tab' => 'pills-custom-tab', 'enable_domain' => 'enable_subdomain', 'subdomain' => 'myshop', 'storecss' => 'a{}']];
+        $out['custom tab on the stored sub-domain after a slug change'] = ['subdomain', ['app_setting_tab' => 'pills-custom-tab', 'enable_domain' => 'enable_subdomain', 'subdomain' => 'renamed-slug', 'storecss' => 'a{}']];
+        $out['custom tab on the store link'] = ['storelink', ['app_setting_tab' => 'pills-custom-tab', 'enable_domain' => 'enable_storelink', 'domains' => '', 'subdomain' => 'slug', 'storecss' => 'a{}']];
         // a plan with no domain feature renders no radio, but the domain input of a stored custom domain may still be posted
-        $out['custom domain posted with no token'] = ['domain', ['app_setting_tab' => 'pills-custom-tab', 'domains' => 'shop.example.test', 'storecss' => 'a{}'], true];
+        $out['custom domain posted with no token'] = ['domain', ['app_setting_tab' => 'pills-custom-tab', 'domains' => 'shop.example.test', 'storecss' => 'a{}']];
 
         return $out;
     }
 
     /** @dataProvider modesAndHonestShapes */
-    public function test_an_honest_post_still_saves_for_staff_without_manage_setting_and_touches_neither_the_panel_nor_the_routing(string $mode, array $post, bool $noPanelCallAtAll): void
+    public function test_an_honest_post_still_saves_for_staff_without_manage_setting_and_touches_neither_the_panel_nor_the_routing(string $mode, array $post): void
     {
         $this->routingMode($mode);
         $fake = $this->recordingWebuzo();
@@ -684,11 +685,31 @@ class SettingsRestrictedWriteTest extends SecurityTestCase
         $this->actingAs($this->storeStaff)->post('/theme-settings', $post + ['_token' => 'csrf', 'store_city' => "Aleppo-{$mode}"])->assertSessionMissing('error');
 
         $this->assertTrue($this->everStored('store_city', "Aleppo-{$mode}"), 'The ordinary field of the honest post did not save.');
-        $this->assertSame([], $this->panelCalls($fake), 'An honest post by a user who may not change routing changed something at the hosting panel.');
-        if ($noPanelCallAtAll) {
-            $this->assertSame([], $fake->calls, 'A post with no token reached the hosting panel (a read, but nothing it asked for).');
-        }
+        $this->assertSame([], $fake->calls, 'A user who may not change routing reached the hosting panel (a read or a write).');
         $this->assertSame($before, $this->routingRows(), 'An honest post wrote a routing row (a shadow row owned by the staff member), or changed one.');
+    }
+
+    /**
+     * Review round 3. A stored domain that is not in the form the handler would write ('WWW.Shop.Example.test': hand-edited, or written
+     * by an older build) makes the handler's `$oldDomain !== $newDomain` true on an HONEST post, so it would add the normalised
+     * domain at the hosting panel and delete the stored one -- the same host. A user who may not change routing must not reach the
+     * panel at all, whatever is stored.
+     */
+    public function test_a_non_canonical_stored_domain_does_not_send_a_user_without_manage_setting_to_the_panel(): void
+    {
+        $this->routingMode('domain');
+        DB::table('settings')->where('store_id', $this->store->id)->where('name', 'domains')->update(['value' => 'WWW.Shop.Example.test']);
+        $fake = $this->recordingWebuzo();
+
+        foreach ([
+            ['app_setting_tab' => 'pills-home-tab', 'theme_name' => 'X1'],
+            ['app_setting_tab' => 'pills-custom-tab', 'enable_domain' => 'enable_domain', 'domains' => 'WWW.Shop.Example.test'],
+        ] as $post) {
+            $this->actingAs($this->storeStaff)->post('/theme-settings', $post)->assertSessionMissing('error');
+        }
+
+        $this->assertSame([], $fake->calls, 'The hosting panel was reached for a user who may not change routing.');
+        $this->assertSame('WWW.Shop.Example.test', $this->stored('domains'));
     }
 
     /** The Store Setting form posts a store name too: the store's own columns are not settings and still save. */
@@ -788,10 +809,103 @@ class SettingsRestrictedWriteTest extends SecurityTestCase
     }
 
     // ---------------------------------------------------------------------------------------------
+    // the sibling doors the third review found: same rows, other routes
+    // ---------------------------------------------------------------------------------------------
+
+    /** The web twin of updateCurrencyRateApi / toggleCurrencyStatusApi (route `currency-rates.update`, `auth` only). */
+    public function test_a_currency_rate_is_changed_only_by_a_user_holding_manage_setting(): void
+    {
+        $eur = DB::table('currency_rates')->insertGetId(['store_id' => $this->store->id, 'currency_code' => 'EUR', 'currency_name' => 'Euro', 'symbol' => 'E', 'rate_per_usd' => 0.9, 'is_active' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        $rate = fn () => (float) DB::table('currency_rates')->where('id', $eur)->value('rate_per_usd');
+
+        foreach ([$this->staff, $this->storeStaff] as $who) {
+            $this->actingAs($who)->post("/currency-rates/{$eur}", ['rate_per_usd' => 0.00000001, 'is_active' => 0])->assertSessionHas('error');
+        }
+        $this->assertEquals(0.9, $rate(), 'A user without Manage Setting changed a currency rate.');
+        $this->assertSame(1, (int) DB::table('currency_rates')->where('id', $eur)->value('is_active'));
+
+        $this->actingAs($this->settingsStaff)->post("/currency-rates/{$eur}", ['rate_per_usd' => 0.8, 'is_active' => 1])->assertSessionMissing('error');
+        $this->assertEquals(0.8, $rate());
+        $this->actingAs($this->merchant)->post("/currency-rates/{$eur}", ['rate_per_usd' => 0.7, 'is_active' => 1])->assertSessionMissing('error');
+        $this->assertEquals(0.7, $rate());
+    }
+
+    /** Tabs of the Settings screen whose POST targets had no check although settingForm() refuses the tab itself. */
+    public function test_the_stock_and_refund_tabs_need_manage_setting(): void
+    {
+        $stock = ['low_stock_threshold' => '3', 'out_of_stock_threshold' => '1', 'notification' => ['mail'], 'stock_management' => 'on'];
+
+        foreach ([$this->staff, $this->storeStaff] as $who) {
+            $this->actingAs($who)->post('/stock-settings', $stock)->assertSessionHas('error');
+            $this->actingAs($who)->post('/refund-settings', ['refund_by_zz' => '1'])->assertSessionHas('error');
+        }
+        $this->assertNull($this->stored('low_stock_threshold'));
+        $this->assertSame(0, DB::table('order_refund_settings')->where('store_id', $this->store->id)->count());
+
+        $this->actingAs($this->settingsStaff)->post('/stock-settings', $stock)->assertSessionMissing('error');
+        $this->assertTrue($this->everStored('low_stock_threshold', '3'), 'Premise: the permitted user must still save the stock tab.');
+        $this->actingAs($this->merchant)->post('/refund-settings', ['refund_by_zz' => '1'])->assertSessionMissing('error');
+        $this->assertSame(1, DB::table('order_refund_settings')->where('store_id', $this->store->id)->where('name', 'refund_by_zz')->count(), 'Premise: the owner must still save the refund tab.');
+    }
+
+    /** `currency_name` decides what a card is charged in (on MySQL it addresses the CURRENCY_NAME row). */
+    public function test_staff_cannot_change_the_charged_currency_through_the_store_owner_info_api(): void
+    {
+        DB::table('settings')->insert(['name' => 'CURRENCY_NAME', 'value' => 'USD', 'created_by' => $this->merchant->id, 'store_id' => $this->store->id, 'created_at' => now(), 'updated_at' => now()]);
+        $url = '/api/admin/updateStoreOwnerInfo?store_id=' . $this->store->id;
+        $written = fn () => DB::table('settings')->where('store_id', $this->store->id)->whereRaw('LOWER(name) = ?', ['currency_name'])->pluck('value')->contains('JPY');
+
+        foreach ([$this->staff, $this->storeStaff] as $who) {
+            $this->postJson($url, ['currency_name' => 'JPY', 'store_name' => 'Renamed By Staff'], $this->headers($who))->assertStatus(403);
+        }
+        $this->assertFalse($written(), 'A user without Manage Setting changed the charged currency.');
+
+        // a prefilled form resubmits the stored value next to a store-level change: not a change
+        $response = $this->postJson($url, ['currency_name' => 'USD', 'store_name' => 'Prefilled Save'], $this->headers($this->storeStaff));
+        $this->assertNotContains($response->getStatusCode(), [401, 403], $response->getContent());
+        $this->assertSame('Prefilled Save', Store::find($this->store->id)->name);
+
+        foreach ([$this->settingsStaff, $this->merchant] as $who) {
+            $this->assertNotContains($this->postJson($url, ['currency_name' => 'JPY'], $this->headers($who))->getStatusCode(), [401, 403], 'A principal who may change the currency was refused.');
+        }
+    }
+
+    /**
+     * `custom.auth` logs a Sanctum token's owner into the guard that matches its CLASS, so a Customer's or a DeliveryBoy's token
+     * passes it while `Auth::user()` stays null. A customer-token probe alone proves nothing (it would pass for the wrong reason),
+     * so all three classes are driven at every gated API writer: the two non-merchant classes must write nothing.
+     *
+     * @dataProvider apiWriters
+     */
+    public function test_a_customer_or_driver_token_writes_nothing_through_the_api_writers(string $verb, string $uri, array $data): void
+    {
+        $customer = \App\Models\Customer::forceCreate([
+            'first_name' => 'Tok', 'last_name' => 'Cust', 'email' => 'tok-' . uniqid() . '@example.test',
+            'mobile' => '555' . random_int(100000, 999999), 'password' => bcrypt('secret123'),
+            'store_id' => $this->store->id, 'status' => 1, 'register_type' => 'email',
+        ]);
+        $driver = \App\Models\DeliveryBoy::forceCreate([
+            'name' => 'Driver ' . uniqid(), 'email' => 'driver' . uniqid() . '@example.test', 'password' => bcrypt('x'),
+            'contact' => '0000000', 'created_by' => $this->store->created_by, 'store_id' => $this->store->id,
+        ]);
+        $before = DB::table('settings')->where('store_id', $this->store->id)->count();
+
+        foreach ([$customer, $driver] as $principal) {
+            $response = $this->callApi($principal, $verb, $uri, $data);
+
+            // ApiResponser::error() answers HTTP 200 with {status: 0} by default (CLAUDE.md), so a refusal is "HTTP >= 400 OR status 0".
+            $this->assertTrue($response->getStatusCode() >= 400 || (int) $response->json('status') === 0,
+                "{$uri}: a " . class_basename($principal) . ' token was served: ' . substr($response->getContent(), 0, 160));
+        }
+        $this->assertSame($before, DB::table('settings')->where('store_id', $this->store->id)->count(), "{$uri}: a non-merchant token wrote a setting.");
+        $this->assertSame('ORIGINAL-BANK-ACCOUNT', $this->stored('bank_transfer'));
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // the admin API's ungated writers
     // ---------------------------------------------------------------------------------------------
 
-    private function headers(User $u): array
+    private function headers($u): array
     {
         return ['Authorization' => 'Bearer ' . $u->createToken('t')->plainTextToken, 'Accept' => 'application/json'];
     }
@@ -809,7 +923,7 @@ class SettingsRestrictedWriteTest extends SecurityTestCase
         ];
     }
 
-    private function callApi(User $as, string $verb, string $uri, array $data)
+    private function callApi($as, string $verb, string $uri, array $data)
     {
         $data += ['store_id' => $this->store->id];
 

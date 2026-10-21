@@ -530,6 +530,11 @@ class AppSettingController extends Controller
             if ($neutral === null) {
                 return redirect()->back()->with('error', __('Permission denied.'));
             }
+            // Two independent controls keep this user away from the hosting panel: these merged inputs (the handler then derives the
+            // stored state and a "switch" never happens) and the `$mayChangeRouting` condition on its three panel blocks below. Either
+            // alone is enough -- which is why a mutation harness can only show them in combination -- and each covers what the other
+            // could miss (a stored domain that is not in canonical form defeats the first; a future edit that changes the token
+            // handling defeats the second).
             $request->merge($neutral);
         }
         if (\App\Services\StoreSettingsAccess::refusesRestrictedPost($request, $routingUser, getCurrentStore(), \App\Services\StoreSettingsAccess::DOMAIN_ROUTING)) {
@@ -737,7 +742,8 @@ $oldCustomDomainEnabled = ($settings['enable_domain'] ?? 'off') === 'on';
 | Custom Domain
 |--------------------------------------------------------------------------
 */
-if ($request->enable_domain === 'enable_domain') {
+// P1-SEC-27: the hosting panel is for a user who may change routing; for everyone else NOTHING below reaches it, whatever is posted.
+if ($mayChangeRouting && $request->enable_domain === 'enable_domain') {
 
     $webuzo = app(WebuzoDomainService::class);
 
@@ -840,7 +846,8 @@ if ($request->enable_domain === 'enable_domain') {
 |--------------------------------------------------------------------------
 */
 if (
-    $oldCustomDomainEnabled
+    $mayChangeRouting
+    && $oldCustomDomainEnabled
     && $request->enable_domain !== 'enable_domain'
     && !empty($oldDomain)
 ) {
@@ -870,7 +877,7 @@ if (
 
 
 
-if ($request->enable_domain === 'enable_subdomain') {
+if ($mayChangeRouting && $request->enable_domain === 'enable_subdomain') {
 
     $input = env('APP_URL');
     $input = trim($input, '/');
