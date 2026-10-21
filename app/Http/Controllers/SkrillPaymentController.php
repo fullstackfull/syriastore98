@@ -103,7 +103,7 @@ class SkrillPaymentController extends Controller
                 {
 
                     $orderID = time();
-                    Order::create(
+                    PlanOrder::create(
                         [
                             'order_id' => $orderID,
                             'name' => null,
@@ -121,7 +121,7 @@ class SkrillPaymentController extends Controller
                             'receipt' => null,
                             'user_id' => $authuser->id,
                         ]
-                    );
+                    );   // P1-PLT-02: a plan sale is a plan_orders row; Order::create wrote a blank host order with store_id NULL
                     $assignPlan = $authuser->assignPlan($plan->id);
 
                     return redirect()->route('plan.index')->with('success', __('Plan activated Successfully!'));

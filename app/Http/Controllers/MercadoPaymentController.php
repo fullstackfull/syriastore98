@@ -83,7 +83,7 @@ class MercadoPaymentController extends Controller
 
                     $orderID = time();
 
-                    Order::create(
+                    PlanOrder::create(
                         [
                             'order_id' => $orderID,
                             'name' => null,
@@ -101,7 +101,7 @@ class MercadoPaymentController extends Controller
                             'receipt' => null,
                             'user_id' => $authuser->id,
                         ]
-                    );
+                    );   // P1-PLT-02: a plan sale is a plan_orders row; Order::create wrote a blank host order with store_id NULL
                     $res['msg'] = __("Plan successfully upgraded.");
                     $res['flag'] = 2;
 
