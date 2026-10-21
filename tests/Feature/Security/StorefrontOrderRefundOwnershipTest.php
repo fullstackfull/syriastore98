@@ -657,27 +657,112 @@ class StorefrontOrderRefundOwnershipTest extends SecurityTestCase
     }
 
     /**
-     * REPAIRED (review D-1). The first version GET /order-refund/987654 and asserted `!== 500`.
-     * It could not fail: `OrderDocumentAccessGuard` resolves `{id}` as `orders.id`, finds no order
-     * 987654 and answers 403 before the handler runs, so reverting the null-dereference fix left the
-     * test green. To REACH the handler the id must equal an order the caller owns -- here order #1
-     * -- while no refund row #1 exists. Then the only thing standing between the request and
-     * `$order_refunds->order_id` on null is the fix, and the answer is exactly 404.
+     * THE HANDLER'S OWN 404, reached by calling it DIRECTLY. Since P1-ORD-12 the guard resolves `{id}` through `order_refunds` on this branch,
+     * so an unknown refund id never reaches the handler over HTTP (it is refused at the door, below); the null-dereference fix and the
+     * handler's ownership check stay pinned here so that either control alone is enough and neither can rot unseen.
      */
-    public function test_an_unknown_refund_id_is_a_404_not_a_null_dereference(): void
+    public function test_the_handler_answers_404_for_an_unknown_refund_and_for_a_foreign_one(): void
     {
         [, $store] = $this->makeTenant();
         $owner = $this->shopper($store);
-        $order = $this->refundableOrder($store, $owner);     // orders.id = 1; there is NO order_refunds row
+        $sibling = $this->shopper($store);
+        $siblingOrder = $this->refundableOrder($store, $sibling);
+        $siblingRefund = $this->seedRefund($store, $siblingOrder, 'x');
+
+        $this->actingAs($owner, 'customers');
+        $controller = app(\App\Http\Controllers\AccountProfileController::class);
+
+        foreach ([987654, $siblingRefund] as $id) {
+            try {
+                $controller->order_refund(request(), $store->slug, $id);
+                $this->fail("order_refund({$id}) answered instead of refusing.");
+            } catch (\Symfony\Component\HttpKernel\Exception\NotFoundHttpException $e) {
+                $this->assertSame(404, $e->getStatusCode());
+            }
+        }
+    }
+
+    public function test_an_unknown_refund_id_is_refused_at_the_door(): void
+    {
+        [, $store] = $this->makeTenant();
+        $owner = $this->shopper($store);
+        $this->refundableOrder($store, $owner);     // orders.id = 1; there is NO order_refunds row
 
         $this->assertSame(0, $this->refundRows(), 'Fixture premise: no refund row may exist.');
 
-        $response = $this->actingAs($owner, 'customers')
-            ->get('/' . $store->slug . '/order-refund/' . $order->id);
+        $response = $this->actingAs($owner, 'customers')->get('/' . $store->slug . '/order-refund/1');
 
-        $this->assertSame(404, $response->getStatusCode(),
-            '`OrderRefund::find($id)->order_id` on null: an owned-order id with no refund behind it must be a 404, '
-            . 'and a 403 would mean the guard answered and the handler was never reached.');
+        $this->assertSame(403, $response->getStatusCode(), 'An id with no refund behind it must be refused by the guard, whatever order shares its number.');
+    }
+
+    // ---- P1-ORD-12: the guard resolves {id} through order_refunds on the refund-view branch --------------------------------
+
+    /** orders.id = 2 for the owner, order_refunds.id = 1: the two numbers do NOT coincide. */
+    private function ownerWithNonCoincidentRefund(): array
+    {
+        [, $store] = $this->makeTenant();
+        $owner = $this->shopper($store);
+        $other = $this->shopper($store);
+        $filler = $this->refundableOrder($store, $other, ['product_order_id' => 'FILLER-ORD-1']);      // orders.id = 1
+        $order = $this->refundableOrder($store, $owner, ['product_order_id' => 'NONCOINCIDENT7']);      // orders.id = 2
+        $refund = $this->seedRefund($store, $order, 'mine');                                           // order_refunds.id = 1
+
+        $this->assertNotSame((int) $order->id, $refund, 'Fixture premise: the refund id must not equal the owner\'s order id.');
+
+        return [$store, $owner, $order, $refund, $filler];
+    }
+
+    public function test_an_owner_opens_their_own_refund_request_when_the_ids_do_not_coincide(): void
+    {
+        [$store, $owner, , $refund] = $this->ownerWithNonCoincidentRefund();
+
+        $response = $this->actingAs($owner, 'customers')->get('/' . $store->slug . '/order-refund/' . $refund);
+
+        $this->assertSame(200, $response->getStatusCode(), 'A shopper cannot open their own refund request.');
+        $this->assertStringContainsString('NONCOINCIDENT7', (string) $response->getContent());
+    }
+
+    public function test_a_sibling_shopper_is_refused_the_same_refund_request(): void
+    {
+        [$store, , , $refund, $filler] = $this->ownerWithNonCoincidentRefund();
+        $siblingShopper = Customer::find($filler->customer_id);
+
+        $response = $this->actingAs($siblingShopper, 'customers')->get('/' . $store->slug . '/order-refund/' . $refund);
+
+        $this->assertContains($response->getStatusCode(), [403, 404]);
+        $this->assertStringNotContainsString('NONCOINCIDENT7', (string) $response->getContent());
+    }
+
+    public function test_a_shopper_of_another_store_is_refused_the_same_refund_request(): void
+    {
+        [$store, , , $refund] = $this->ownerWithNonCoincidentRefund();
+        [, $otherStore] = $this->makeTenant();
+        $stranger = $this->shopper($otherStore);
+
+        $response = $this->actingAs($stranger, 'customers')->get('/' . $store->slug . '/order-refund/' . $refund);
+
+        $this->assertContains($response->getStatusCode(), [403, 404]);
+        $this->assertStringNotContainsString('NONCOINCIDENT7', (string) $response->getContent());
+    }
+
+    public function test_the_refund_true_branch_still_reads_the_id_as_an_order_id(): void
+    {
+        [$store, $owner, $order] = $this->ownerWithNonCoincidentRefund();
+
+        $response = $this->actingAs($owner, 'customers')->get('/' . $store->slug . '/order-refund/' . $order->id . '?refund=true');
+
+        $this->assertSame(200, $response->getStatusCode(), 'The refund=true form (where {id} IS an order id) stopped working.');
+        $this->assertStringContainsString('NONCOINCIDENT7', (string) $response->getContent());
+    }
+
+    public function test_the_refund_true_branch_still_refuses_a_foreign_order_id(): void
+    {
+        [$store, $owner, , , $filler] = $this->ownerWithNonCoincidentRefund();
+
+        $response = $this->actingAs($owner, 'customers')->get('/' . $store->slug . '/order-refund/' . $filler->id . '?refund=true');
+
+        $this->assertContains($response->getStatusCode(), [403, 404]);
+        $this->assertStringNotContainsString('FILLER-ORD-1', (string) $response->getContent());
     }
 
     // =========================================================================================

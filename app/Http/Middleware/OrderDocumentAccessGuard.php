@@ -260,6 +260,16 @@ class OrderDocumentAccessGuard
         'invoices/preview/{template}/{color}' => ['table' => null, 'param' => null],
     ];
 
+    /** The route whose `{id}` is a refund id unless `refund` is truthy (P1-ORD-12). */
+    private const REFUND_VIEW_URI = '{storeSlug?}/order-refund/{id}';
+
+    private function usableOrderId(mixed $value): ?int
+    {
+        $id = is_scalar($value) && ! is_bool($value) ? filter_var((string) $value, FILTER_VALIDATE_INT) : false;
+
+        return ($id === false || $id <= 0) ? null : $id;
+    }
+
     public function handle(Request $request, Closure $next): Response
     {
         // FIRST STATEMENT, so this guard is inert on every other route in the application.
@@ -305,6 +315,16 @@ class OrderDocumentAccessGuard
 
         if ($orderId === null) {
             return $this->deny($request);
+        }
+
+        // P1-ORD-12. `{id}` on `order-refund/{id}` is an ORDER id only on the `refund=true` branch (the form that starts a refund). On the
+        // other branch (the shopper's "eye" button on their refund list) it is a REFUND id, and asking "does order #<refundId> belong to me?"
+        // refused a shopper their own refund request unless the two numbers happened to coincide - and answered the attacker's question for
+        // them. The branch condition is the handler's own (AccountProfileController::order_refund), copied, not reinterpreted. A refund
+        // that does not exist is refused like one that is not yours.
+        if ($route->uri() === self::REFUND_VIEW_URI && ! (isset($request->refund) && $request->refund == true)) {
+            // a refund with no order (or no refund) leaves null here, and the row read below then finds nothing and denies
+            $orderId = $this->usableOrderId(DB::table('order_refunds')->where('id', $orderId)->value('order_id'));
         }
 
         // FAIL CLOSED ON A BROKEN READ, NEVER OPEN. In practice a module's table exists
