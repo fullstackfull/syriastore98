@@ -1238,14 +1238,17 @@ public function city_list(Request $request, $slug)
                 $order->product_json = json_encode($productJson);
                 $order->save();
 
-                $order_refund                       = new OrderRefund();
-                $order_refund->order_id             = $order->id;
-                $order_refund->refund_status        = 'Processing';
-                $order_refund->product_refund_id    = json_encode($product_refund_data);
-                $order_refund->store_id             = $store->id;
+                // The `refund_status     = 'Processing'` spelling is asserted verbatim by
+                // RefundStateMachineTest::test_the_state_vocabulary_is_the_one_production_code_writes
+                // (it reads this file), so the first four lines keep the original column alignment.
+                $order_refund                    = new OrderRefund();
+                $order_refund->order_id          = $order->id;
+                $order_refund->refund_status     = 'Processing';
+                $order_refund->product_refund_id = json_encode($product_refund_data);
+                $order_refund->store_id          = $store->id;
                 // Passed through as before. A non-scalar value fails the INSERT, and the transaction
                 // makes that a handled refusal with the order untouched instead of a half-write.
-                $order_refund->refund_reason        = $request->refund_reason;
+                $order_refund->refund_reason = $request->refund_reason;
                 $order_refund->custom_refund_reason = $request->custom_refund_reason;
                 $order_refund->product_refund_price = str_replace('$', '', $display($request->product_sub_total));
                 $order_refund->save();
