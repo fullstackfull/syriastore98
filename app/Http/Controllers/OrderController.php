@@ -695,6 +695,22 @@ public function store(Request $request)
             $id = crypt::decrypt($id);
             $order = Order::order_detail($id);
             $settings = Utility::Setting();
+
+            // P1-SEC-11. The "FROM" block is THE ORDER'S STORE's address. Utility::Setting() resolves the viewer's tenant and CURRENT store and,
+            // when that store has no rows of its own, falls back to every row of user id 1 across ALL stores (last row wins) -- so a label for
+            // merchant A's order printed the address of whichever store the platform user configured last (EXECUTED:
+            // ShippingLabelStoreSettingsTest). Read the five address names for the order's own store; a store with none prints an empty block,
+            // never another store's.
+            // Read the rows directly: Utility::GetValueByName() falls back to the same Utility::Setting() when the store has no row.
+            $orderStore = (int) Order::where('id', $id)->value('store_id');
+            $addressNames = ['store_address', 'store_city', 'store_state', 'store_zipcode', 'store_country'];
+            $ownRows = $orderStore > 0
+                ? \Illuminate\Support\Facades\DB::table('settings')->where('store_id', $orderStore)->whereIn('name', $addressNames)->orderBy('id')->pluck('value', 'name')->all()
+                : [];
+            foreach ($addressNames as $addressName) {
+                $settings[$addressName] = (string) ($ownRows[$addressName] ?? '');
+            }
+
             $product = [];
             $products = [];
             foreach ($order['product'] as $product_item) {
