@@ -2568,8 +2568,12 @@ $products_weight_array[] = [
                  * The predicate is unchanged, including `store_id`, so no row
                  * outside the shopper's own cart in this store is touched.
                  */
+                // P1-SEC-23/24. The AUTHENTICATED customer's id, or the guest's own cart cookie -- not
+                // `$request->customer_id`, which for a guest is the id of the Customer found or created from the
+                // billing e-mail they typed (see PaymentController::clearCartLines()).
                 $cartLinesToClear[] = [
-                    'customer_id' => $request->customer_id,
+                    'customer_id' => auth('customers')->id(),
+                    'cookie_session_id' => Cookie::get('cart'),
                     'product_id' => $product_id,
                     'variant_id' => $variant_id,
                     'store_id' => $store->id,
@@ -3010,7 +3014,7 @@ $products_weight_array[] = [
         // add in Order Tax Detail table end
         if (!empty($order) && !empty($OrderBillingDetail)) {
             $cart = Cookie::get('cart');
-            $cart = Cart::where('cookie_session_id', $cart)->delete();
+            $cart = Cart::forGuestCookie($cart)->delete();
             // $order_array['order_id'] = $order->id;
             // $cart_array = [];
             // $cart_json = json_encode($cart_array);
@@ -4857,11 +4861,20 @@ private function webhook_backup($order, $r, $products_weight = []) {
     {
         foreach ($lines as $line) {
             try {
-                Cart::where('customer_id', $line['customer_id'])
-                    ->where('product_id', $line['product_id'])
+                $query = Cart::where('product_id', $line['product_id'])
                     ->where('variant_id', $line['variant_id'])
-                    ->where('store_id', $line['store_id'])
-                    ->delete();
+                    ->where('store_id', $line['store_id']);
+
+                // A customer's lines by id, a guest's by their cart cookie, neither -> nothing (never against 0).
+                if (is_numeric($line['customer_id'] ?? null) && (int) $line['customer_id'] > 0) {
+                    $query->forCustomer((int) $line['customer_id']);
+                } elseif (is_string($line['cookie_session_id'] ?? null) && $line['cookie_session_id'] !== '') {
+                    $query->forGuestCookie($line['cookie_session_id']);
+                } else {
+                    continue;
+                }
+
+                $query->delete();
             } catch (\Throwable $e) {
                 \Log::error('Could not clear a cart line after a committed order', [
                     'product_id' => $line['product_id'] ?? null,

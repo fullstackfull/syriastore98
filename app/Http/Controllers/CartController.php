@@ -93,7 +93,7 @@ class CartController extends Controller
         $store = getStore($slug);
         if (auth('customers')->guest()) {
             $Carts = Cookie::get('cart');
-            $cart = Cart::where('cookie_session_id', $Carts)->where('product_id',$request->product_id)->where('variant_id',$request->variant_id)->delete();
+            $cart = Cart::forGuestCookie($Carts)->where('product_id',$request->product_id)->where('variant_id',$request->variant_id)->delete();
             Cookie::queue('cart', $Carts, 1440);
         } else {
             $cart = Cart::where('id', $request->cart_id)->first();
@@ -125,7 +125,7 @@ class CartController extends Controller
         
         if (auth('customers')->guest()) {
             $cartId = Cookie::get('cart');
-            $cart = Cart::where('cookie_session_id', $cartId)->delete();
+            $cart = Cart::forGuestCookie($cartId)->delete();
             Cookie::queue('cart', $cartId, 1440);
         } else {
             $carts = Cart::where('customer_id', auth('customers')->id())->delete();
@@ -350,7 +350,7 @@ class CartController extends Controller
             }
 
             $session_id = session()->getId();
-            $cart = Cart::where('cookie_session_id', $session_id)
+            $cart = Cart::forGuestCookie($session_id)
                 ->where('product_id', $request->product_id)
                 ->where('variant_id', $variant_id)
                 ->where('store_id', $store->id)
@@ -507,7 +507,7 @@ class CartController extends Controller
         $cart->save();
 
         if (!$customer) {
-            $cart_count = Cart::where('cookie_session_id', $session_id)->count();
+            $cart_count = Cart::forGuestCookie($session_id)->count();
             Cookie::queue('cart', $session_id, 1440);
         } else {
             $cart_count = Cart::where('customer_id', $customer_id)->where('store_id', $store->id)->count();

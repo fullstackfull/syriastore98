@@ -123,6 +123,46 @@ class GuestBasketClearTest extends SecurityTestCase
         $this->assertSame(1, self::rowsFor($other), 'One guest\'s order cleared another guest\'s basket.');
     }
 
+    /**
+     * THE REAL GUEST FLOW. `processOrder` finds or creates a Customer from the billing e-mail the guest TYPES and
+     * stores its id in the session, so `whatsapp()` queues a guest's lines with a POSITIVE customer id -- the id
+     * of whoever's e-mail was typed. (Which order that id is written on is an owner decision, S32; what a line
+     * clears is not.) Keyed on that id, a stranger who typed a registered customer's e-mail deleted the
+     * customer's basket lines for every product in the stranger's own basket. The lines to clear belong to the
+     * AUTHENTICATED principal; a guest clears their own, by cookie. Found by the review of P1-SEC-23.
+     */
+    public function test_a_guest_who_types_a_customers_email_clears_their_own_basket_not_the_customers(): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store);
+
+        $victim = Customer::forceCreate([
+            'first_name' => 'Gbc', 'last_name' => 'Victim', 'email' => 'gbc-victim-' . uniqid() . '@example.test',
+            'mobile' => '555' . random_int(100000, 999999), 'password' => bcrypt('not-a-real-password'),
+            'store_id' => $store->id, 'status' => 1, 'register_type' => 'email',
+        ]);
+        Cart::forceCreate([
+            'customer_id' => $victim->id, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+        ]);
+
+        $mine = 'gbc-typed-' . uniqid();
+        $this->guestRow($store, $product, $mine);
+
+        $orders = (int) DB::table('orders')->count();
+
+        // What a guest process-order leaves in the session: the customer id found by the typed e-mail.
+        $response = $this->withCookie('cart', $mine)
+            ->withSession(['request_data' => $this->state($store, $victim->id)])
+            ->post('/' . $store->slug . '/whatsapp', ['wts_number' => '123456789']);
+
+        $this->assertSame($orders + 1, (int) DB::table('orders')->count(),
+            'Premise: no order was written (HTTP ' . $response->getStatusCode() . '). Body: ' . substr((string) $response->getContent(), 0, 300));
+
+        $this->assertSame(1, (int) DB::table('carts')->where('customer_id', $victim->id)->count(), 'A guest who typed a customer\'s e-mail deleted that customer\'s basket line.');
+        $this->assertSame(0, self::rowsFor($mine), 'The guest\'s own basket line was not cleared.');
+    }
+
     /** The numeric branch is untouched: a logged-in customer's order clears their own lines and not a stranger's. */
     public function test_a_logged_in_customers_order_still_clears_only_their_own_lines(): void
     {

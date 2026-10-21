@@ -2345,8 +2345,12 @@ public function handlePaymeraTrigger00($orderId)
                  * The predicate is unchanged, including `store_id`, so no row
                  * outside the shopper's own cart in this store is touched.
                  */
+                // P1-SEC-23. The owner of the lines to clear is the AUTHENTICATED customer, or -- for a guest --
+                // the basket named by their own cart cookie. NOT `$request->customer_id`: for a guest that is
+                // the id of the Customer processOrder() found or created from the billing e-mail they TYPED,
+                // so keying the clear on it let a stranger delete a registered customer's basket lines.
                 $cartLinesToClear[] = [
-                    'customer_id' => $request->customer_id,
+                    'customer_id' => auth('customers')->id(),
                     'cookie_session_id' => Cookie::get('cart'),
                     'product_id' => $product_id,
                     'variant_id' => $variant_id,
@@ -2840,7 +2844,7 @@ $result = app(\App\Services\StoreNotificationService::class)
             // $cart_json = json_encode($cart_array);
             // Cookie::queue('cart', $cart_json, 1440);
             $cart = Cookie::get('cart');
-            $cart = Cart::where('cookie_session_id', $cart)->delete();
+            $cart = Cart::forGuestCookie($cart)->delete();
             if (auth('customers')->user()) {
                 event(new AddRewardClubPoint($requests_data, $order, $slug));
             }
@@ -2996,7 +3000,7 @@ $result = app(\App\Services\StoreNotificationService::class)
                 // customer_id 0, which the old `IS NULL` lookup never matched), so with no customer this is
                 // skipped -- NOT run with 0, which would delete every guest's rows for the product.
                 if ($cartOwnerId > 0) {
-                    Cart::where('customer_id', $cartOwnerId)->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id', $store->id)->delete();
+                    Cart::forCustomer($cartOwnerId)->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id', $store->id)->delete();
                 }
             }
         }
@@ -3685,8 +3689,12 @@ $result = app(\App\Services\StoreNotificationService::class)
                  * The predicate is unchanged, including `store_id`, so no row
                  * outside the shopper's own cart in this store is touched.
                  */
+                // P1-SEC-23. The owner of the lines to clear is the AUTHENTICATED customer, or -- for a guest --
+                // the basket named by their own cart cookie. NOT `$request->customer_id`: for a guest that is
+                // the id of the Customer processOrder() found or created from the billing e-mail they TYPED,
+                // so keying the clear on it let a stranger delete a registered customer's basket lines.
                 $cartLinesToClear[] = [
-                    'customer_id' => $request->customer_id,
+                    'customer_id' => auth('customers')->id(),
                     'cookie_session_id' => Cookie::get('cart'),
                     'product_id' => $product_id,
                     'variant_id' => $variant_id,
@@ -4191,16 +4199,16 @@ $result = app(\App\Services\StoreNotificationService::class)
                     ->where('variant_id', $line['variant_id'])
                     ->where('store_id', $line['store_id']);
 
-                // P1-SEC-23. A customer's rows are theirs by `customer_id`. A GUEST has no customer id
-                // (whatsapp() pins it to '') and their rows carry customer_id 0, told apart ONLY by
-                // `cookie_session_id`; matching `customer_id = ''` made MySQL (non-strict, production)
-                // read it as 0 and delete EVERY guest's row for the product in the store. No customer and
-                // no cookie means there is nothing of this shopper's to clear -- skipped, never matched
-                // against 0.
+                // P1-SEC-23. A customer's rows are theirs by `customer_id`. A GUEST's rows carry customer_id 0
+                // and are told apart ONLY by `cookie_session_id`. The callers queue the AUTHENTICATED
+                // customer's id (null for a guest), so a guest never reaches the numeric branch; matching
+                // `customer_id = ''` used to make MySQL (non-strict, production) read it as 0 and delete EVERY
+                // guest's row for the product in the store. No customer and no cookie means there is nothing
+                // of this shopper's to clear -- skipped, never matched against 0.
                 if (is_numeric($line['customer_id'] ?? null) && (int) $line['customer_id'] > 0) {
-                    $query->where('customer_id', (int) $line['customer_id']);
+                    $query->forCustomer((int) $line['customer_id']);
                 } elseif (is_string($line['cookie_session_id'] ?? null) && $line['cookie_session_id'] !== '') {
-                    $query->where('cookie_session_id', $line['cookie_session_id']);
+                    $query->forGuestCookie($line['cookie_session_id']);
                 } else {
                     continue;
                 }

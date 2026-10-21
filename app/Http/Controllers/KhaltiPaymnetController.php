@@ -616,7 +616,9 @@ class KhaltiPaymnetController extends Controller
                     }
                 }
                 // remove from cart
-                Cart::where('customer_id', $request->customer_id)->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id',$store->id)->delete();
+                // P1-SEC-24: the buyer's basket is the AUTHENTICATED customer's. `$request->customer_id` here is the stored checkout
+                // state -- '' for a guest (MySQL reads '' = 0) or the id of whoever's e-mail was typed -- and is not an owner.
+                Cart::forCustomer(auth('customers')->id())->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id',$store->id)->delete();
             }
         }
         if (isset($request->customer_id) && !empty($request->customer_id)) {
@@ -630,7 +632,7 @@ class KhaltiPaymnetController extends Controller
             // other store's rows survive with and without it. It is recorded as a residual rather
             // than shipped unproven, because null_tenant is 'open': a principal that resolved NO
             // tenant would get no predicate from either source. See the package report.
-            Cart::where('customer_id', $request->customer_id)->delete();
+            Cart::forCustomer(auth('customers')->id())->delete();
         }
         // Order stock decrease end
         if (!empty($prodduct_id_array)) {

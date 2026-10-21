@@ -811,7 +811,9 @@ class NMIPayController extends Controller
                         }
                     }
                     // remove from cart
-                    Cart::where('customer_id', $customer_id)->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id',$store->id)->delete();
+                    // P1-SEC-24: the buyer's basket is the AUTHENTICATED customer's. `$request->customer_id` here is the stored checkout
+                    // state -- '' for a guest (MySQL reads '' = 0) or the id of whoever's e-mail was typed -- and is not an owner.
+                    Cart::forCustomer(auth('customers')->id())->where('product_id', $product_id)->where('variant_id', $variant_id)->where('store_id',$store->id)->delete();
                 }
             }
             if (isset($request->customer_id) && !empty($request->customer_id)) {
@@ -824,7 +826,7 @@ class NMIPayController extends Controller
                  * config/tenancy.php sets `null_tenant => 'open'`, so a principal that resolves
                  * no tenant gets no predicate from the scope either.
                  */
-                Cart::where('customer_id', $request->customer_id)->where('store_id', $store->id)->delete();
+                Cart::forCustomer(auth('customers')->id())->where('store_id', $store->id)->delete();
             }
             // Order stock decrease end
             if (!empty($prodduct_id_array)) {
@@ -1208,7 +1210,7 @@ class NMIPayController extends Controller
                 // $cart_json = json_encode($cart_array);
                 // Cookie::queue('cart', $cart_json, 1440);
                 $cart = Cookie::get('cart');
-                $cart = Cart::where('cookie_session_id', $cart)->delete();
+                $cart = Cart::forGuestCookie($cart)->delete();
                 if (auth('customers')->user()) {
                     event(new AddRewardClubPoint($requests_data,$order,$slug));
                 }

@@ -20,6 +20,50 @@ class Cart extends Model
         'customer_id', 'product_id', 'variant_id', 'qty', 'price', 'cookie_session_id','store_id'
     ];
 
+    /**
+     * The rows of ONE guest basket, named by the `cart` cookie (a session id). P1-SEC-24.
+     *
+     * A LOGGED-IN customer's basket rows carry `cookie_session_id` NULL, and Laravel turns
+     * `where('cookie_session_id', null)` into `whereNull` -- so every query that read the cookie with
+     * `Cookie::get('cart')` and used it unchecked selected EVERY logged-in customer's rows the moment the
+     * cookie was absent, which for a logged-in customer is the normal case. Deleted, reassigned or altered
+     * depending on the caller: an order's cart clear, the login-time merge, a guest's cart-clear / remove /
+     * quantity change (see NullCookieCartTest). A missing, empty or non-string cookie names NO basket, so
+     * it matches nothing.
+     *
+     * The only place in app/ that may name `cookie_session_id` in a where() -- a census test pins that.
+     */
+    public function scopeForGuestCookie($query, $cookie)
+    {
+        if (! is_string($cookie) || $cookie === '') {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->where('cookie_session_id', $cookie);
+    }
+
+    /**
+     * The rows of ONE logged-in customer's basket. P1-SEC-24 / P1-SEC-23.
+     *
+     * `customer_id` is `integer default 0`, and a guest's rows carry 0. Two inputs reach a `where('customer_id', $x)`
+     * that a basket-clearing path must never honour: the empty string a guest checkout pins (MySQL in production's
+     * non-strict mode reads `'' = 0` as true, so every guest's row for the product matched and was deleted), and a
+     * positive id that was merely TYPED (a guest's billing e-mail resolves to a registered Customer, and keying the
+     * clear on that id deleted that customer's basket). Pass the AUTHENTICATED principal's id; anything that is not
+     * a positive integer names no basket and matches nothing.
+     */
+    public function scopeForCustomer($query, $customerId)
+    {
+        $positive = (is_int($customerId) && $customerId > 0)
+            || (is_string($customerId) && ctype_digit($customerId) && (int) $customerId > 0);
+
+        if (! $positive) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->where('customer_id', (int) $customerId);
+    }
+
     public function product_data()
     {
         return $this->hasOne(Product::class, 'id', 'product_id');
@@ -163,23 +207,23 @@ class Cart extends Model
             'cookie_session_id' => $session_id, 
             'created_at' => now(),
         ];
-        $cart_Cookie = Cart::where('cookie_session_id', $session_id)->where('store_id',$store_id)->get();
+        $cart_Cookie = Cart::forGuestCookie($session_id)->where('store_id',$store_id)->get();
         if (!empty($cart_Cookie)) {
             foreach ($cart_Cookie as $cart_data) {
                 if ($cart_data->product_id == $product_id && $cart_data->variant_id == $variant_id) {
                     $new_qty = $cart_data->qty + $qty;
     
                     Cart::where('id', $cart_data->id)->update(['qty' => $new_qty]);
-                    $cart_count = Cart::where('cookie_session_id', $cart_item['cookie_session_id'])->count();
+                    $cart_count = Cart::forGuestCookie($cart_item['cookie_session_id'])->count();
                     Cookie::queue('cart', $cart_item['cookie_session_id'], 1440); 
                     return Utility::success(['message' => $product->name . ' quantity updated successfully.', 'count' => $cart_count]);
                 }
             }
             Cart::create($cart_item);
-            $cart_count = Cart::where('cookie_session_id', $cart_item['cookie_session_id'])->count(); 
+            $cart_count = Cart::forGuestCookie($cart_item['cookie_session_id'])->count(); 
             Cookie::queue('cart', $cart_item['cookie_session_id'], 1440);
         } else {
-            $cart_count = Cart::where('cookie_session_id', $session_id)->count();
+            $cart_count = Cart::forGuestCookie($session_id)->count();
             Cart::create($cart_item);
             Cookie::queue('cart', $session_id, 1440);
         }
@@ -205,7 +249,7 @@ class Cart extends Model
             $na = [];
             $Carts = json_encode($na);
         }
-        $Carts = Cart::where('cookie_session_id', $Carts)->where('store_id',$store_id)->get();
+        $Carts = Cart::forGuestCookie($Carts)->where('store_id',$store_id)->get();
         if (!empty($Carts)) {
             foreach ($Carts as $key => $cart_value) {
                 if ($cart_value->store_id != $store_id) {
@@ -711,13 +755,16 @@ class Cart extends Model
 
         // $cart_array = json_decode($cart);
         $Carts = Cookie::get('cart');
-        $cart_array = Cart::where('cookie_session_id', $Carts)->where('product_id',$request->product_id)->where('variant_id',$request->variant_id)->first();
+        $cart_array = Cart::forGuestCookie($Carts)->where('product_id',$request->product_id)->where('variant_id',$request->variant_id)->first();
         $cart_count = 1;
-        
-        $settings = Setting::where('store_id', $cart_array->store_id)->pluck('value', 'name')->toArray();
+
         if (empty($cart_array)) {
             return Utility::error(['message' => 'Product not found.'], 'fail', 200, 0, $cart_count);
         } else {
+            // P1-SEC-24. Read AFTER the check above: the row was dereferenced (`$cart_array->store_id`) before
+            // it, so a missing basket was a null-property 500 instead of the "Product not found." written for it.
+            $settings = Setting::where('store_id', $cart_array->store_id)->pluck('value', 'name')->toArray();
+
             if ($request->quantity_type == 'increase') {
                 if (!empty($request->variant_id) || $request->variant_id != 0) {
 
