@@ -34,11 +34,11 @@ class LaraBugPayloadTest extends SecurityTestCase
     private const SESSION_ID = 'SESSIONID-SENTINEL-77310';
     private const REMEMBER = 'REMEMBER-SENTINEL-55821';
     private const CARD = '4111111111116024';
-    private const SECRET = 'SECRETKEY-SENTINEL-90417';
+    private const SECRET = 'FIXTURE-SECRETKEY-SENTINEL-90417';
     private const EXPIRY = 'EXPIRY-SENTINEL-1229';
     private const QUERY_TOKEN = 'QUERYTOKEN-SENTINEL-30192';
     private const BOUND_CARD = '5555444433332201';
-    private const USER_SECRET = 'GOOGLE2FA-SENTINEL-66205';
+    private const USER_SECRET = 'FIXTURE-GOOGLE2FA-SENTINEL-66205';
     // A constant, never a literal beside the throw: the payload carries the source lines around the exception, this file's included.
     private const USER_EMAIL = 'sentinel-user-email@example.test';
 
