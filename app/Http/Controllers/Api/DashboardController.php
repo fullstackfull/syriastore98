@@ -3261,6 +3261,10 @@ public function DeleteReview($id)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
+        }
+
         $user = Auth::user();
         if ($user) {
 
@@ -3316,6 +3320,10 @@ public function DeleteReview($id)
         $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
+        }
+
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
         }
 
         $emaildata = [];
@@ -3438,12 +3446,14 @@ public function DeleteReview($id)
                     return $this->error($image['message']);
                 } else {
                     $where = ['name' => 'cod_image'];
-                    $Setting = Setting::where($where)->first();
+                    // P1-SEC-18 F6: this store's row. Unscoped, ->first() was the LOWEST-ID row on the platform -- some other
+                    // tenant's -- and the delete removed their file. (`Setting` is not in scoped_models.) And the stored value is
+                    // data a tenant can write, so the unlink goes through StoredUpload, which refuses a path that does not resolve
+                    // inside uploads/.
+                    $Setting = Setting::where($where)->where('store_id', $store->id)->first();
 
                     if (!empty($Setting)) {
-                        if (File::exists(base_path($Setting->value))) {
-                            File::delete(base_path($Setting->value));
-                        }
+                        \App\Services\StoredUpload::delete($Setting->value, $user->creatorId());
                     }
                     $post['cod_image'] = $image['image_path'];
                 }
@@ -3534,12 +3544,14 @@ public function DeleteReview($id)
                     return $this->error($image['message']);
                 } else {
                     $where = ['name' => 'bank_transfer_image'];
-                    $Setting = Setting::where($where)->first();
+                    // P1-SEC-18 F6: this store's row. Unscoped, ->first() was the LOWEST-ID row on the platform -- some other
+                    // tenant's -- and the delete removed their file. (`Setting` is not in scoped_models.) And the stored value is
+                    // data a tenant can write, so the unlink goes through StoredUpload, which refuses a path that does not resolve
+                    // inside uploads/.
+                    $Setting = Setting::where($where)->where('store_id', $store->id)->first();
 
                     if (!empty($Setting)) {
-                        if (File::exists(base_path($Setting->value))) {
-                            File::delete(base_path($Setting->value));
-                        }
+                        \App\Services\StoredUpload::delete($Setting->value, $user->creatorId());
                     }
                     $post['bank_transfer_image'] = $image['image_path'];
                 }
@@ -3602,6 +3614,10 @@ public function DeleteReview($id)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
+        }
+
         $user = Auth::user();
         if ($user) {
             $rules = [
@@ -3630,12 +3646,14 @@ public function DeleteReview($id)
                     return $this->error($image['message']);
                 } else {
                     $where = ['name' => 'stripe_image'];
-                    $Setting = Setting::where($where)->first();
+                    // P1-SEC-18 F6: this store's row. Unscoped, ->first() was the LOWEST-ID row on the platform -- some other
+                    // tenant's -- and the delete removed their file. (`Setting` is not in scoped_models.) And the stored value is
+                    // data a tenant can write, so the unlink goes through StoredUpload, which refuses a path that does not resolve
+                    // inside uploads/.
+                    $Setting = Setting::where($where)->where('store_id', $store->id)->first();
 
                     if (!empty($Setting)) {
-                        if (File::exists(base_path($Setting->value))) {
-                            File::delete(base_path($Setting->value));
-                        }
+                        \App\Services\StoredUpload::delete($Setting->value, $user->creatorId());
                     }
                     $post['stripe_image'] = $image['image_path'];
                 }
@@ -3680,6 +3698,10 @@ public function DeleteReview($id)
             return $this->error(['message' => __('Store not found!')]);
         }
 
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
+        }
+
         $stripedata = [];
         $settings = Setting::where('store_id', $request->store_id)->pluck('value', 'name')->toArray();
 
@@ -3703,6 +3725,10 @@ public function DeleteReview($id)
         $store = $this->resolveOwnedStore($request->store_id);
         if (empty($store)) {
             return $this->error(['message' => __('Store not found!')]);
+        }
+
+        if ($refusal = $this->refuseUnlessMayAdministerStoreSettings()) {
+            return $refusal;
         }
 
         $rules = [
@@ -3743,6 +3769,50 @@ public function DeleteReview($id)
             return $this->error(['message' => $smtp_error]);
         }
         return $this->success(['message' => __('Email send Successfully.')]);
+    }
+
+    /**
+     * P1-SEC-18 F5 -- the gate for the handlers that read, write or USE a store's gateway and SMTP credentials
+     * (EmailSetting, GetEmailSetting, StripePayment, GetStripePayment, TestMail).
+     *
+     * resolveOwnedStore() is an OWNERSHIP check, and creatorId() resolves a staff member to their employer, so it admits
+     * every staff user of the merchant whatever role the merchant gave them. The decision (operator, then tenant owner, then
+     * `Manage Setting` -- the permission behind the web "Settings" menu entry) is App\Services\StoreSettingsAccess, shared
+     * with the web twins of these handlers so the two doors cannot drift apart.
+     *
+     * A refusal is HTTP 403 and never 401: the shipped Flutter app forces a logout on any 401 (network.dart:285-288). Note
+     * the arguments -- ApiResponser::error($data, $message, $code); the code is the THIRD one.
+     *
+     * @return \Illuminate\Http\JsonResponse|null  a refusal, or null when the caller may proceed
+     */
+    private function refuseUnlessMayAdministerStoreSettings()
+    {
+        if (\App\Services\StoreSettingsAccess::permits(\Auth::user())) {
+            return null;
+        }
+
+        return $this->error(['message' => __('Permission denied.')], 'fail', 403);
+    }
+
+    /**
+     * May this caller write the store OWNER's name, login email or mobile?  The owner themselves and the platform operator may;
+     * anyone else (staff, whom resolveOwnedStore() admits as their employer) may only resubmit what is already stored.
+     */
+    private function mayChangeOwnerIdentity($caller, $store, Request $request): bool
+    {
+        if (strtolower(trim((string) $caller->type)) === 'super admin' || (int) $caller->id === (int) $store->created_by) {
+            return true;
+        }
+
+        $owner = \App\Models\User::find($store->created_by);
+
+        foreach (['owner_name' => 'name', 'owner_email' => 'email', 'owner_mobile' => 'mobile'] as $field => $column) {
+            if ($request->has($field) && (string) $request->input($field) !== (string) ($owner->{$column} ?? '')) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -7632,6 +7702,15 @@ public function updateStoreOwnerInfo(Request $request)
             return response()->json(['status' => 'error', 'message' => 'Permission denied.', 'data' => null], 403);
         }
 
+        // P1-SEC-18 (found by the F5 review). resolveOwnedStore() admits the owner's STAFF, and everything below writes
+        // `owner_name`, `owner_email` and `owner_mobile` onto the OWNER's user row -- the owner's login email is where a password
+        // reset goes, so a staff member could take the account over in two requests. The owner's identity is the owner's (and the
+        // platform operator's). Staff may still resubmit the values already stored (a prefilled form) and may still change every
+        // store-level field; only a CHANGE to the owner is refused.
+        if (! $this->mayChangeOwnerIdentity($adminUser, $store, $request)) {
+            return response()->json(['status' => 'error', 'message' => 'Permission denied.', 'data' => null], 403);
+        }
+
         $validated = $request->validate([
             'store_name' => 'nullable|string|max:255',
             'store_email' => 'nullable|email|max:255',
@@ -7720,6 +7799,11 @@ public function updateStoreOwnerInfo(Request $request)
                 $settingsToUpdate['custom_store_url'] = rtrim($validated['custom_store_url'], '/');
             }
 
+            // P1-SEC-18 (second review). `$storeId` is the raw request string: resolveOwnedStore() matched it with
+            // `Store::where('id', $storeId)`, and on MySQL an integer column compared with '5/../../x' coerces to 5 and matches --
+            // so the DESTINATION DIRECTORY below could be walked out of public/uploads. The path and the rows use the store the
+            // lookup returned. (SQLite compares the string unconverted and never matches, so the suite cannot show the coercion.)
+            $storeId = $store->id;
             $uploadPath = public_path('uploads/' . $storeId);
 
             if ($request->hasFile('invoice_logo')) {

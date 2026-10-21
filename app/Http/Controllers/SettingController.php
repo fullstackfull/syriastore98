@@ -510,6 +510,10 @@ $u->save();
     public function saveEmailSettings(Request $request)
     {
         session()->put(['setting_tab' => 'email_setting']);
+        // P1-SEC-18 F5. Overwrites the SMTP credentials; see settingForm().
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
         // Validate the incoming request data
         $validator = \Validator::make(
             $request->all(),
@@ -1499,6 +1503,11 @@ if ($newCurrency !== 'USD' && (float) $currencyRate->rate_per_usd <= 1) {
 
     public function getEmailSettingFields(Request $request)
     {
+        // P1-SEC-18 F5. Renders MAIL_PASSWORD into the form for whoever is logged in; see settingForm().
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return response()->json(['is_success' => false, 'message' => __('Permission denied.'), 'html' => ''], 403);
+        }
+
         if (auth()->user()->type == 'super admin') {
             $setting = getSuperAdminAllSetting();
             $folder = 'SuperAdmin';
@@ -1519,6 +1528,13 @@ if ($newCurrency !== 'USD' && (float) $currencyRate->rate_per_usd <= 1) {
     {
         try {
             $user = auth()->user();
+            // P1-SEC-18 F5. This renders EVERY settings tab, the payment tab with every gateway key in it. The Settings menu entry
+            // is hidden unless the user holds `Manage Setting`, but the route was open to anyone logged in -- including the
+            // merchant's staff, whose getAdminAllSetting() resolves to their employer's settings. 403, never 401 (the shipped
+            // app forces a logout on 401); the shape is the one the chat_gpt_setting refusal below already uses.
+            if (! \App\Services\StoreSettingsAccess::permits($user)) {
+                return response()->json(['is_success' => false, 'msg' => __('Permission denied.'), 'data' => ['content' => null]], 403);
+            }
             $timezones = config('timezones');
             $setting = ($user->type == 'super admin') ? getSuperAdminAllSetting() : getAdminAllSetting();
 

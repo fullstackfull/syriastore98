@@ -1317,13 +1317,18 @@ Route::get(
 
 // Was registered with no middleware at all: an anonymous caller could read any
 // store's Zid orders using that merchant's stored Zid credentials.
+//
+// P1-SEC-18 F7: `auth` alone still let ANY logged-in user -- a merchant, a merchant's staff -- read whichever connected
+// store's orders they named. `zid_stores.store_id` is Zid's own store id and the row links to a Delivery Syria merchant,
+// not to a StoreSyria tenant, so there is no column to write an ownership predicate against: these are operator tooling,
+// referenced by no view, script or the admin app, and are limited to the platform operator (403, never 401).
 Route::get('/zid/{storeId}/orders', function ($storeId) {
     return Zid::store($storeId)->get('/managers/store/orders')->json();
-})->middleware(['auth']);
+})->middleware(['auth', \App\Http\Middleware\PlatformOperatorOnly::class]);
 
 Route::get('/zid/{storeId}/webhooks', function ($storeId) {
     return \App\Services\Zid::store($storeId)->get('/managers/webhooks')->json();
-})->middleware('auth');
+})->middleware(['auth', \App\Http\Middleware\PlatformOperatorOnly::class]);
 
 
 Route::post('/zid/events/{v?}', function (\Illuminate\Http\Request $r) {

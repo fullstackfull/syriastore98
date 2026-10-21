@@ -801,7 +801,7 @@ class Utility extends Model
 
     public static function  changeStorageLimit($createdId, $file_path)
     {
-        $files =  \File::glob(base_path($file_path));
+        $files = \App\Services\StoredUpload::resolveAll($file_path, $createdId); // P1-SEC-18 F6: one literal file inside this tenant's uploads/ -- never a glob of a stored value
         $fileSize = 0;
         foreach ($files as $file) {
             $fileSize += \File::size($file);
@@ -858,8 +858,8 @@ class Utility extends Model
     {
         $files = [];
         foreach ($file_path as $key => $file_p) {
-            $pattern = base_path($file_p);
-            $files1 = \File::glob($pattern);
+            $files1 = \App\Services\StoredUpload::resolveAll($file_p, $company_id); // P1-SEC-18 F6: the same defect as changeStorageLimit() --
+            // a stored product path (ImportExport writes it straight from a CSV column) was a glob; it is now one literal file in this tenant's uploads/.
             if (!empty($files1)) {
                 $files = array_merge($files, $files1);
             }

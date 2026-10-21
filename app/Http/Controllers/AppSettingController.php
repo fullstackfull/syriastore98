@@ -279,12 +279,13 @@ class AppSettingController extends Controller
                 return redirect()->back()->with('error', $path['msg']);
             } else {
                 $where = ['name' => 'metaimage'];
-                $Setting = Setting::where($where)->first();
+                // P1-SEC-18 F6 (web twin of the admin API fix): THIS store's row. Unscoped, ->first() was the lowest-id row on the
+                // platform -- some other tenant's -- so saving your own file deleted theirs and charged their size to your plan. The
+                // value is data a tenant can write, so the unlink goes through StoredUpload (refuses a path outside uploads/).
+                $Setting = Setting::where($where)->where('store_id', getCurrentStore())->first();
 
                 if (!empty($Setting)) {
-                    if (File::exists(base_path($Setting->value))) {
-                        File::delete(base_path($Setting->value));
-                    }
+                    \App\Services\StoredUpload::delete($Setting->value, \Auth::user()->creatorId());
                 }
 
                 $post['metaimage'] = $path['url'];
@@ -598,13 +599,14 @@ $oldCustomDomainEnabled = ($settings['enable_domain'] ?? 'off') === 'on';
                 return redirect()->back()->with('error', $path['msg']);
             } else {
                 $where = ['name' => 'theme_logo'];
-                $Setting = Setting::where($where)->first();
+                // P1-SEC-18 F6 (web twin of the admin API fix): THIS store's row. Unscoped, ->first() was the lowest-id row on the
+                // platform -- some other tenant's -- so saving your own file deleted theirs and charged their size to your plan. The
+                // value is data a tenant can write, so the unlink goes through StoredUpload (refuses a path outside uploads/).
+                $Setting = Setting::where($where)->where('store_id', getCurrentStore())->first();
 
                 if (!empty($Setting)) {
                     Utility::changeStorageLimit(\Auth::user()->creatorId(), $Setting->value);
-                    if (File::exists(base_path($Setting->value))) {
-                        File::delete(base_path($Setting->value));
-                    }
+                    \App\Services\StoredUpload::delete($Setting->value, \Auth::user()->creatorId());
                 }
 
                 $post['theme_logo'] = $path['url'] ?? null;
@@ -619,13 +621,14 @@ $oldCustomDomainEnabled = ($settings['enable_domain'] ?? 'off') === 'on';
                 return redirect()->back()->with('error', $path['msg']);
             } else {
                 $where = ['name' => 'invoice_logo'];
-                $Setting = Setting::where($where)->first();
+                // P1-SEC-18 F6 (web twin of the admin API fix): THIS store's row. Unscoped, ->first() was the lowest-id row on the
+                // platform -- some other tenant's -- so saving your own file deleted theirs and charged their size to your plan. The
+                // value is data a tenant can write, so the unlink goes through StoredUpload (refuses a path outside uploads/).
+                $Setting = Setting::where($where)->where('store_id', getCurrentStore())->first();
 
                 if (!empty($Setting)) {
                     Utility::changeStorageLimit(\Auth::user()->creatorId(), $Setting->value);
-                    if (File::exists(base_path($Setting->value))) {
-                        File::delete(base_path($Setting->value));
-                    }
+                    \App\Services\StoredUpload::delete($Setting->value, \Auth::user()->creatorId());
                 }
                 $post['invoice_logo'] = $path['url'] ?? null;
             }
@@ -640,13 +643,14 @@ $oldCustomDomainEnabled = ($settings['enable_domain'] ?? 'off') === 'on';
                 return redirect()->back()->with('error', $path['msg']);
             } else {
                 $where = ['name' => 'theme_favicon'];
-                $Setting = Setting::where($where)->first();
+                // P1-SEC-18 F6 (web twin of the admin API fix): THIS store's row. Unscoped, ->first() was the lowest-id row on the
+                // platform -- some other tenant's -- so saving your own file deleted theirs and charged their size to your plan. The
+                // value is data a tenant can write, so the unlink goes through StoredUpload (refuses a path outside uploads/).
+                $Setting = Setting::where($where)->where('store_id', getCurrentStore())->first();
 
                 if (!empty($Setting)) {
                     Utility::changeStorageLimit(\Auth::user()->creatorId(), $Setting->value);
-                    if (File::exists(base_path($Setting->value))) {
-                        File::delete(base_path($Setting->value));
-                    }
+                    \App\Services\StoredUpload::delete($Setting->value, \Auth::user()->creatorId());
                 }
 
                 $post['theme_favicon'] = $path['url'] ?? null;
@@ -663,13 +667,14 @@ $oldCustomDomainEnabled = ($settings['enable_domain'] ?? 'off') === 'on';
                 return redirect()->back()->with('error', $path['msg']);
             } else {
                 $where = ['name' => 'theme_image'];
-                $Setting = Setting::where($where)->first();
+                // P1-SEC-18 F6 (web twin of the admin API fix): THIS store's row. Unscoped, ->first() was the lowest-id row on the
+                // platform -- some other tenant's -- so saving your own file deleted theirs and charged their size to your plan. The
+                // value is data a tenant can write, so the unlink goes through StoredUpload (refuses a path outside uploads/).
+                $Setting = Setting::where($where)->where('store_id', getCurrentStore())->first();
 
                 if (!empty($Setting)) {
                     Utility::changeStorageLimit(\Auth::user()->creatorId(), $Setting->value);
-                    if (File::exists(base_path($Setting->value))) {
-                        File::delete(base_path($Setting->value));
-                    }
+                    \App\Services\StoredUpload::delete($Setting->value, \Auth::user()->creatorId());
                 }
 
                 $post['theme_image'] = $path['url'] ?? null;
