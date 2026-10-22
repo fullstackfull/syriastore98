@@ -318,14 +318,59 @@ class MerchantCategoryOwnershipTest extends SecurityTestCase
         $this->assertSame(302, $response->status());
     }
 
-    /** THE POSITIVE CONTROL: the owner can still delete their own category and its media. */
+    /**
+     * THE POSITIVE CONTROL: the owner can still delete their own category, its media and its
+     * integration mappings.
+     *
+     * RE-POINTED BY OWNER DECISION D13, and the re-pointing is the whole note. This control used
+     * to delete a category WITH a product in it and assert the product's variant rows and media
+     * were cleaned up — i.e. it asserted the cascade as correct behaviour. D13 forbids exactly
+     * that, so the fixture is now an empty category and the liveness evidence moved to the parts
+     * of the handler that are still supposed to run below the guard: `categoryImageDelete()`
+     * (which debits the quota for the icon and cover), the Woo/Shopify mapping deletes, and the
+     * row delete itself.
+     *
+     * Without those three, "an empty category deletes" is satisfied by a handler that returns 302
+     * and does nothing, and the product-refusal tests below would prove nothing.
+     */
     public function test_a_merchant_can_still_delete_their_own_category(): void
     {
         [$merchantA, $storeA] = $this->makeTenant();
         $this->grantPermission($merchantA, 'Delete Product Category');
 
+        [$iconRel, $iconAbs] = $this->fileFor($storeA, 'own-category-icon');
+        [$coverRel, $coverAbs] = $this->fileFor($storeA, 'own-category-cover');
+
         $own = $this->categoryIn($storeA, 'own-category');
-        $fixture = $this->productWithEverything($storeA, $own, 'ownprod');
+        $own->icon_path = $iconRel;
+        $own->image_path = $coverRel;
+        $own->save();
+
+        // The integration mappings `destroy()` clears, one per connector, keyed the way the
+        // handler keys them (`module` = 'category', `original_id` = the category id).
+        $wooId = DB::table('woocommerce_conections')->insertGetId([
+            'module' => 'category',
+            'original_id' => $own->id,
+            'woocomerce_id' => 9001,
+            'store_id' => $storeA->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $shopifyId = DB::table('shopify_conections')->insertGetId([
+            'module' => 'category',
+            'original_id' => $own->id,
+            'shopify_id' => 9002,
+            'store_id' => $storeA->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->assertSame(
+            0,
+            \App\Models\Product::withoutGlobalScopes()->where('category_id', $own->id)->count(),
+            'premise: the category is empty, so the D13 guard is not what answers this request'
+        );
+        $this->assertFileExists($iconAbs, 'premise: the icon is on disk before the delete');
 
         $response = $this->actingAs($merchantA)->delete('/category/' . $own->id);
 
@@ -334,16 +379,109 @@ class MerchantCategoryOwnershipTest extends SecurityTestCase
         $this->assertNull(Category::withoutGlobalScopes()->find($own->id),
             'The owner can no longer delete their own category, so the refusal tests above prove '
             . 'nothing. Session error: ' . json_encode(session('error')));
+
+        // The destructive path below the guard really ran: the mappings are gone.
         $this->assertNull(
-            DB::table('product_variants')->where('id', $fixture['variant_id'])->first(),
-            'The owner\'s own variant rows were not cleaned up, so this control does not show '
-            . 'the destructive path running.');
-        foreach ($fixture['files'] as $path) {
-            $this->assertFileDoesNotExist($path,
-                'The owner\'s own media was not unlinked, so this control does not show the '
-                . 'filesystem path running at all — which is the path the negative tests claim '
-                . 'is blocked.');
-        }
+            DB::table('woocommerce_conections')->where('id', $wooId)->first(),
+            'The WooCommerce category mapping survived, so the handler returned before its own '
+            . 'cleanup and this control does not show the destructive path running.');
+        $this->assertNull(
+            DB::table('shopify_conections')->where('id', $shopifyId)->first(),
+            'The Shopify category mapping survived, so the handler returned before its own '
+            . 'cleanup and this control does not show the destructive path running.');
+    }
+
+    /**
+     * OWNER DECISION D13, 2026-10-22: "Do not cascade-delete products when a merchant deletes a
+     * category. Refuse category deletion while associated products remain."
+     *
+     * WHY THIS NEEDS AN APPLICATION GUARD AND CANNOT BE LEFT TO THE SCHEMA. `products.category_id`
+     * carries `onDelete('cascade')` to `categories`
+     * (database/migrations/2023_12_26_092822_create_products_table.php:55), so the products are
+     * removed by the DATABASE, below anything the application does. `testimonials.category_id` has
+     * the same cascade. Changing those constraints is a migration that needs the real schema (D15),
+     * so until then the only thing standing between a merchant and the loss of every product in a
+     * category is this refusal.
+     *
+     * AND THE LOSS IS WORSE THAN THE ROW DELETION. Before the cascade even fires, `destroy()` loops
+     * the category's products through `Product::productImageDelete()`, which UNLINKS FROM DISK every
+     * product image, the cover image, the downloadable file and the preview video. Disk unlinking is
+     * not recoverable from the application and no database rollback undoes it — which is why the
+     * guard must sit ABOVE that loop, not merely above `$category->delete()`.
+     */
+    public function test_a_category_with_products_is_refused_and_nothing_is_destroyed(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Delete Product Category');
+
+        $own = $this->categoryIn($storeA, 'own-with-products');
+        $fixture = $this->productWithEverything($storeA, $own, 'keptprod');
+
+        $response = $this->actingAs($merchantA)->delete('/category/' . $own->id);
+
+        $this->assertSame(302, $response->status());
+
+        // the category survives
+        $this->assertNotNull(
+            Category::withoutGlobalScopes()->find($own->id),
+            'the category was deleted while it still had products (owner decision D13)'
+        );
+
+        // and so does everything the destructive path would have taken with it
+        $this->assertVictimIntact($fixture, $own, 'a category with products was deleted');
+    }
+
+    /**
+     * The positive control, now with an EMPTY category, because the one above re-points what
+     * "deleting your own category" means. An empty category must still delete, or the refusal above
+     * is indistinguishable from a broken endpoint.
+     */
+    public function test_a_merchant_can_still_delete_their_own_empty_category(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Delete Product Category');
+
+        $own = $this->categoryIn($storeA, 'own-empty-category');
+
+        $this->assertSame(
+            0,
+            \App\Models\Product::withoutGlobalScopes()->where('category_id', $own->id)->count(),
+            'premise: the category really is empty'
+        );
+
+        $response = $this->actingAs($merchantA)->delete('/category/' . $own->id);
+
+        $this->assertSame(302, $response->status(), 'Body: ' . substr((string) $response->getContent(), 0, 200));
+        $this->assertNull(
+            Category::withoutGlobalScopes()->find($own->id),
+            'an EMPTY category can no longer be deleted either, so the refusal above proves nothing. '
+                . 'Session error: ' . json_encode(session('error'))
+        );
+    }
+
+    /**
+     * The refusal applies to the PLATFORM OPERATOR too. D13 is a data-integrity rule, not a
+     * permission one: the operator has no more ability to un-delete a cascade than a merchant does,
+     * and the operator exemption exists for the ownership and child guards rather than for this.
+     */
+    public function test_the_operator_is_also_refused_on_a_category_with_products(): void
+    {
+        $operator = $this->makePlatformAdmin();
+        $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $this->grantPermission($operator, 'Delete Product Category');
+
+        $leaf = $this->categoryIn($storeB, 'operator-leaf-with-products');
+        $fixture = $this->productWithEverything($storeB, $leaf, 'operatorkeptprod');
+
+        $response = $this->actingAs($operator)->delete('/category/' . $leaf->id);
+
+        $this->assertSame(302, $response->status());
+        $this->assertNotNull(
+            Category::withoutGlobalScopes()->find($leaf->id),
+            'the operator deleted a category that still had products'
+        );
+        $this->assertVictimIntact($fixture, $leaf, 'the operator destroyed a populated category');
     }
 
     /**
@@ -503,8 +641,25 @@ class MerchantCategoryOwnershipTest extends SecurityTestCase
         $this->grantPermission($operator, 'Delete Product Category');
 
         $leaf = $this->categoryIn($storeB, 'operator-leaf');
-        $fixture = $this->productWithEverything($storeB, $leaf, 'operatorleafprod');
 
+        // RE-POINTED BY D13: this fixture used to be `productWithEverything()` and the control
+        // asserted the operator's delete cleaned the product's variant rows up. D13 refuses a
+        // populated category for the operator too (see the test above), so the control now uses an
+        // empty leaf and takes its liveness evidence from the mapping delete instead.
+        $wooId = DB::table('woocommerce_conections')->insertGetId([
+            'module' => 'category',
+            'original_id' => $leaf->id,
+            'woocomerce_id' => 9101,
+            'store_id' => $storeB->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->assertSame(
+            0,
+            \App\Models\Product::withoutGlobalScopes()->where('category_id', $leaf->id)->count(),
+            'premise: the leaf is empty, so it is the exemption and not the D13 guard being measured'
+        );
         $this->assertNotSame((int) $storeB->id, (int) getCurrentStore($operator->id),
             'The victim store is the operator\'s resolved store, so this control would pass even '
             . 'without the exemption.');
@@ -517,7 +672,7 @@ class MerchantCategoryOwnershipTest extends SecurityTestCase
             . 'the OWNERSHIP guard refused -- not that the child guard did. Session error: '
             . json_encode(session('error')));
         $this->assertNull(
-            DB::table('product_variants')->where('id', $fixture['variant_id'])->first(),
+            DB::table('woocommerce_conections')->where('id', $wooId)->first(),
             'The destructive path did not run for the operator.');
     }
 
@@ -591,17 +746,41 @@ class MerchantCategoryOwnershipTest extends SecurityTestCase
     }
 
     /**
-     * A FOREIGN PRODUCT SHARING THE CALLER'S CATEGORY IS NOT SWEPT UP.
+     * THE D13 GUARD COUNTS THE TABLE, NOT THE CALLER'S SLICE OF IT.
+     * ==========================================================================================
      *
-     * Raised by review as LATENT, and tested as latent rather than claimed as exploitable: the
-     * `product_details` relation filters by `category_id` only, so after the ownership guard the
-     * category is the caller's but the products are not necessarily. There is no shipped write
-     * path that plants such a row today -- the one that could re-tenant a product,
-     * `WoocomProductController::edit`, is an open task (#30) -- so this fixture writes the row
-     * directly, which is the honest way to test a latent exposure: it measures the predicate,
-     * not a reachable attack.
+     * RE-POINTED BY OWNER DECISION D13, and what it used to measure is worth recording because it
+     * is the reason the guard is written the way it is.
+     *
+     * BEFORE D13 this test drove a LEGITIMATE own-category delete with two products in the
+     * category -- the caller's own, and a store-B row whose `category_id` had been pointed at the
+     * caller's category. It asserted that the caller's product was swept up (the loop ran) while
+     * the foreign product's FILES stayed on disk (the loop's `store_id` predicate held). It also
+     * pinned, as a labelled known-bad, that the foreign product's ROW and its variants went
+     * anyway: `products.category_id` is `ON DELETE CASCADE` against `categories.id`
+     * (database/migrations/2023_12_26_092822_create_products_table.php:55) and
+     * `product_variants.product_id` cascades again off `products`, so `$category->delete()`
+     * removed them below the application, where no predicate in this controller can reach.
+     *
+     * Verified on the real engine rather than inferred from SQLite:
+     * tests/Support/Security/bin/verify-category-product-cascade-on-mysql.php -- 3 checks, 0
+     * failures on MySQL 8.0.46, including `information_schema.REFERENTIAL_CONSTRAINTS` reporting
+     * DELETE_RULE = CASCADE. That is the measurement D13 asks for ("Verify actual MySQL
+     * foreign-key behavior"), and it is what makes an application refusal the only control
+     * available until the constraint itself is changed by an approved migration (D15).
+     *
+     * SO THE PREDICATE MOVED, AND THIS TEST FOLLOWS IT. The guard counts `products` rows carrying
+     * the `category_id` with NO store predicate, deliberately wider than the loop below it: the
+     * foreign key does not read `store_id`, so a store-B row pointed at store A's category is
+     * cascade-deleted just the same. Narrowing the guard to the caller's store would let exactly
+     * the row this test plants be destroyed by a delete the guard waved through.
+     *
+     * The fixture is still written directly, which is still the honest way to test a latent
+     * exposure: no shipped write path plants such a row today (the one that could re-tenant a
+     * product, `WoocomProductController::edit`, is open as #30), so this measures the predicate
+     * rather than a reachable attack.
      */
-    public function test_a_foreign_product_in_the_callers_category_keeps_its_media(): void
+    public function test_a_foreign_product_in_the_callers_category_blocks_the_delete(): void
     {
         [$merchantA, $storeA] = $this->makeTenant();
         [, $storeB] = $this->makeTenant();
@@ -609,66 +788,41 @@ class MerchantCategoryOwnershipTest extends SecurityTestCase
 
         $own = $this->categoryIn($storeA, 'shared-category');
 
-        // The caller's own product in their own category: must still be cleaned up.
-        $mine = $this->productWithEverything($storeA, $own, 'mineinshared');
-
-        // A store-B product pointed at store A's category. Anomalous by construction.
+        // ONLY a store-B product sits in the caller's category. The caller's own slice is EMPTY,
+        // which is the whole point: a guard scoped to `$category->store_id` would count zero here
+        // and proceed, and the cascade would take the foreign row and its variants with it.
         $foreign = $this->productWithEverything($storeB, $own, 'foreigninshared');
         \Illuminate\Support\Facades\DB::table('products')
             ->where('id', $foreign['product']->id)
             ->update(['category_id' => $own->id, 'store_id' => $storeB->id]);
 
+        $this->assertSame(
+            0,
+            \App\Models\Product::withoutGlobalScopes()
+                ->where('category_id', $own->id)
+                ->where('store_id', $storeA->id)
+                ->count(),
+            'premise: the CALLER has no product in this category, so a store-scoped guard would '
+                . 'read zero and this test measures the widened predicate rather than the narrow one'
+        );
+        $this->assertSame(
+            1,
+            \App\Models\Product::withoutGlobalScopes()->where('category_id', $own->id)->count(),
+            'premise: the foreign row really does carry the caller\'s category_id'
+        );
+
         $response = $this->actingAs($merchantA)->delete('/category/' . $own->id);
 
         $this->assertSame(302, $response->status());
 
-        // The premise: the delete really ran, so "the foreign row survived" is not just a refusal.
-        $this->assertNull(Category::withoutGlobalScopes()->find($own->id),
-            'The category was not deleted, so this test shows a refusal rather than a narrowed '
-            . 'loop. Session error: ' . json_encode(session('error')));
-        $this->assertNull(DB::table('product_variants')->where('id', $mine['variant_id'])->first(),
-            'The caller\'s own product was not cleaned up, so the loop did not run at all.');
-        foreach ($mine['files'] as $path) {
-            $this->assertFileDoesNotExist($path,
-                'The caller\'s own media was not unlinked, so the loop did not reach the '
-                . 'filesystem and the assertion below measures nothing.');
-        }
+        $this->assertNotNull(
+            Category::withoutGlobalScopes()->find($own->id),
+            'The delete was carried out although a product -- another store\'s -- still pointed at '
+                . 'this category, so the FK cascade destroyed it. Session error: '
+                . json_encode(session('error')));
 
-        // WHAT THE PREDICATE BUYS: the foreign product's FILES are still on disk. That is the
-        // irreversible half, and it is the half the loop controls.
-        foreach ($foreign['files'] as $path) {
-            $this->assertFileExists($path,
-                'Another store\'s product media was unlinked by a legitimate own-category '
-                . 'delete: ' . $path);
-        }
-
-        /*
-         * AND WHAT IT CANNOT BUY, PINNED HERE SO IT IS NOT MISTAKEN FOR SAFETY.
-         *
-         * `products.category_id` is declared `ON DELETE CASCADE` against `categories.id`
-         * (`database/migrations/..._create_products_table.php:55`), and
-         * `product_variants.product_id` cascades again off `products`. So `$category->delete()`
-         * removes EVERY product row in the category and every variant under it, whatever the
-         * store, below the application entirely — no predicate in this controller can reach it.
-         *
-         * Verified on the real engine, not inferred from SQLite:
-         * tests/Support/Security/bin/verify-category-product-cascade-on-mysql.php — 3 checks, 0
-         * failures on MySQL 8.0.46, including `information_schema.REFERENTIAL_CONSTRAINTS`
-         * reporting DELETE_RULE = CASCADE.
-         *
-         * These two assertions therefore pin a KNOWN-BAD behaviour rather than a control, which
-         * is why they are labelled: if a later change makes the cascade stop firing, this test
-         * fails and the next reader is sent here instead of discovering it in production. The
-         * cascade is raised as its own task — it also means an earlier draft of S38-1 and of #49
-         * was WRONG to say "the products rows themselves survive"; they do not.
-         */
-        $this->assertNull(
-            Product::withoutGlobalScopes()->find($foreign['product']->id),
-            'The FK cascade no longer removes a foreign product when its category is deleted. '
-            . 'That is an IMPROVEMENT, not a regression — but it changes a documented limit, so '
-            . 'update this test, the S38-1 queue entry and the cascade task before going green.');
-        $this->assertNull(
-            DB::table('product_variants')->where('id', $foreign['variant_id'])->first(),
-            'The product_variants cascade off products no longer fires. Same note as above.');
+        // Nothing was destroyed on either side: not the row, not the variants, not the files.
+        $this->assertVictimIntact($foreign, $own,
+            'A foreign product sharing the caller\'s category was swept up by the delete');
     }
 }

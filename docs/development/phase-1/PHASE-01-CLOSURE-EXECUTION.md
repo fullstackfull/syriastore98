@@ -210,6 +210,14 @@ Every command below is **read-only**: no `UPDATE`, no `DELETE`, no `ALTER`, no m
 | **P1-PAY-03** | gateway verification | provider sandbox credentials in the environment, then the per-gateway harness | one callback per gateway proving server-side verification |
 | **P1-SEC-26**(1) | acceptance criterion 3 | the settings read on a route naming no store, observed against live data | which merchant's settings a store-less route returns |
 | **P1-OWN-06** | branch protection on `main` | repository setting — owner action in GitHub | required checks recorded |
+| **P1-INV-12** | the **live** `products.category_id` delete rule, now that D13 is implemented | `SELECT CONSTRAINT_NAME, DELETE_RULE, UPDATE_RULE FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'products';` and the same for `TABLE_NAME = 'testimonials'` | `CASCADE` confirms the refusals are load-bearing in production; **anything else means the live schema differs from the migration and the finding changes**. Read-only: `information_schema` only, no DDL |
+
+**P1-INV-12's row is the one case where a CASCADE answer is the GOOD one.** The three refusals
+shipped for D13 are an application control standing in front of a database constraint. If the live
+`DELETE_RULE` is `CASCADE`, as `2023_12_26_092822_create_products_table.php:55` declares and as
+MySQL 8.0.46 confirms for that migration, then the control is needed and is in the right place. If it
+is anything else, the live schema has drifted from the migrations — which is GATE F's whole premise —
+and the task needs re-reading rather than closing.
 
 **P1-OWN-03 carries an instruction, not just a question.** If that `curl -I` returns `200`, an
 unauthenticated log containing plaintext passwords and bearer tokens is being served right now. That
@@ -366,6 +374,91 @@ constructor for both models, strips comments, and asserts its own reachability.
 
 **Auction restriction retained:** `auction:order` **is not activated and not scheduled.** That is
 recorded owner decision D-03 and nothing here changes it.
+
+---
+
+## 7a. Work completed under the final decisions (D1 … D18)
+
+### P1-INV-12 · D13 — a category that still holds products is no longer deletable
+
+**The decision.** D13: *"Do not cascade-delete products when a merchant deletes a category. Refuse
+category deletion while associated products remain. Provide a safe reassignment option before
+deletion. Verify actual MySQL foreign-key behavior and change constraints through an approved
+migration."* That answered the one question the task was blocked on — cascade, `SET NULL`, or
+refuse-while-non-empty — and it chose the third.
+
+**The census is the part worth reading.** The ledger named one path. A sweep for every site that
+deletes a `categories` row found **three**, and the one the ledger had never named is the one a
+client actually calls:
+
+| Path | How it fires the cascade | Guard placed |
+|---|---|---|
+| `CategoryController::destroy` | `$category->delete()` | after the existing `$hasChild` refusal, **above `Category::categoryImageDelete()`** |
+| the BulkDelete addon route | `Category::whereIn('id', $request->ids)->delete()` (`BulkDeleteController:116`) — **never reaches the controller** | `app/Http/Middleware/BulkDeleteTenantGuard.php`, host-side |
+| `DELETE api/admin/deletecategory` | `$Category->delete()` in `Api\DashboardController::DeleteCategory` — **the endpoint the shipped admin app calls**, previously unguarded | inside the `if (! empty($Category))` branch |
+
+Three store-wide wipes were deliberately **excluded**: `Category::where('store_id', $store->id)->delete()`
+at `Api\DashboardController` ~4194 and ~4297 and `StoreController:806`. Deleting or resetting a
+whole store is meant to take its catalogue with it; D13 is about deleting *a category*.
+
+**Why placement, not just presence, is the finding.** By the time `CategoryController::destroy`
+reaches `$category->delete()` it has already unlinked the category icon and cover and looped every
+product through `Product::productImageDelete()`, which unlinks each product's images, cover,
+downloadable file and preview video **from disk**. A refusal above `$category->delete()` alone would
+have been a refusal after the irreversible part. A removal check pins it: moving the guard below the
+image deletes fails the two "nothing is destroyed" tests and nothing else.
+
+**Three things each refusal does the same way, and each for a measured reason.**
+
+1. **Raw `DB::table` count.** `Product` is `Cachable`; a stale Eloquent count reads zero against a
+   populated category and waves the delete through. The cache can only make this guard *permissive*,
+   never wrongly restrictive, so raw is the conservative read.
+2. **No store predicate.** The foreign key does not read `store_id`, so a row carrying this
+   `category_id` and another store's `store_id` is cascade-deleted just the same. Narrowing the
+   guard to one store fails exactly the cross-store test.
+3. **Not a permission check.** D13 is data integrity, so the **platform operator is refused too** —
+   which in `BulkDeleteTenantGuard` makes it the one check in the file placed **above** the operator
+   bypass. Moving it below leaves every other test in that file green, which is why that mutant exists.
+
+**Compatibility held.** The API path keeps `ApiResponser::error()` — HTTP **200** with `status: 0`,
+the same envelope the app already renders for *"Maincategory data not found."* No new status code,
+and specifically **not a 401**: repo B's `lib/network/network.dart` forces a logout that clears
+preferences on any 401. The bulk route answers **409** (the caller's permission is fine; the request
+conflicts with the data), which the addon's own script renders from `response.message`.
+
+**No information leak.** The bulk guard's tenant-side check is asked of the ownership-narrowed
+`$owned` list rather than raw input, so a merchant ticking their own empty category alongside another
+store's populated one gets their own delete — not a refusal that tells them something about store B.
+Asking it of raw input fails exactly that test.
+
+**`scalarIds()` does not validate, on purpose, and that is measured.** The vendored controller passes
+the same `ids` list into `whereIn('id', …)->delete()`. MySQL coerces `'1abc'` to row 1 inside
+`WHERE id IN (…)` while PHP's `FILTER_VALIDATE_INT` rejects it — so validating in PHP first would
+count products for a *different* set than the delete removes. Both halves are now checks 4–6 of
+`verify-category-product-cascade-on-mysql.php`.
+
+**Three existing tests were re-pointed, not deleted.** Two positive controls and the foreign-product
+test all deleted categories **with** products — they asserted the cascade as correct behaviour, which
+is exactly what D13 forbids. Their liveness evidence moved to the integration-mapping deletes (the
+part of the handler still meant to run), and the foreign-product test now measures the guard's
+widened predicate instead of the loop's narrow one.
+
+**The pre-existing product loop is now unreachable-by-design and kept on purpose**, documented in
+place: it is the last line of defence for an irreversible disk operation if the guard is ever
+narrowed, moved or removed, and it costs one query returning no rows.
+
+**What remains, and it is not engineering.** D13's *"safe reassignment option"*: there is no bulk
+re-category UI, so a merchant moves products one at a time from the product edit form. All three
+refusal messages say so rather than leaving them at a dead end. And the FK constraint itself is
+**unchanged** — D13 permits changing it only *"through an approved migration"*, and that is D15's
+business and needs the real schema dump. The live `DELETE_RULE` check is §3's new row.
+
+**Evidence.** 13 / 83 in `MerchantCategoryOwnershipTest`, 27 / 225 in `BulkDeleteAuthorizationTest`,
+29 / 84 in `AdminApiTenancyTest`, 130 passed across the seven-suite blast radius, Unit 351,
+Contract 26, and 6 checks / 0 failures on MySQL 8.0.46. **Seven mutants, all bite.** One of them
+failed to apply on the first attempt and reported *29 passed on unmutated code* — discarded, then
+re-run with the mutation proved present in the file first, which is the third time that failure mode
+has appeared in this project.
 
 ---
 

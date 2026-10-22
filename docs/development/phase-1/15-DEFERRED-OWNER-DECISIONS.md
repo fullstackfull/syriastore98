@@ -259,6 +259,73 @@ and nothing will without the four conditions met and verified.
 
 ---
 
+## FINAL OWNER-APPROVED EXECUTION DECISIONS — 2026-10-22 (D1 … D18)
+
+The owner's final Phase 01 directive. **These are settled: do not re-ask any of them.** They are
+recorded here, in the authoritative register, rather than only in the directive, because several
+**supersede standing project rules** and later work has to be able to find that out.
+
+### D9 supersedes a `CLAUDE.md` prohibition, and that is the most consequential line in the set
+
+`CLAUDE.md` says **"Never edit `packages/workdo/`"** — a blanket prohibition, enforced by a local
+PreToolUse hook and by `.github/scripts/guard-no-workdo-changes.sh` in CI, "which is the authority".
+
+**D9 now permits a controlled, project-specific vendor patch** where a safe host-side solution cannot
+close a verified issue, subject to: host-side protections preferred first; the smallest targeted
+change; independent security and compatibility review; a reproducible patch and reapplication
+mechanism across upgrades; the exact original version and patch checksum tracked; affected module
+routes, permissions, tenant isolation and payments tested; never a silent untracked edit; and no
+deployment without the required verification.
+
+**What that means in practice, stated so nobody mistakes the scope:** the CI guard still exists and
+still fails on an unexplained vendored change, which is correct — the authorization is for
+*independently reviewed, narrowly scoped, reproducible* patches, not for editing vendored files. Any
+such patch needs the patch-and-reapply mechanism built **first**, because an unreproducible edit is
+exactly what the prohibition existed to prevent and D9 explicitly keeps that prohibition for
+untracked edits. **No vendor patch has been made under this authorization.**
+
+### The rest, and which previously-blocked question each closes
+
+| | Decision | Closes |
+|---|---|---|
+| **D1** | **COD**: creation stays Pending/Unpaid; collector may be merchant, courier or delivery company, and the **actual collector and verified collection event are recorded**; five things kept distinct — order status, payment status, cash collection, collector liability, merchant settlement; Paid only on trustworthy evidence; no wallet credit for creation *or* for "Delivered"; per-store workflows; **idempotent** financial operations | `P1-PAY-04` (extends D-06 — note it now explicitly rejects *marked-Delivered* as sufficient, which the shipped machine currently uses) |
+| **D2** | **Gateways**: a return URL, redirect or client flag proves nothing; require provider-side verification of ownership, reference, amount, currency and status; replay/duplicate protection; an unverifiable gateway stays Pending and writes **no paid ledger entry**; compatibility rollout; surface gateways that must be disabled | `P1-PAY-03`, and it hardens recorded **D-05** |
+| **D3** | **Refunds**: a request is **intent only**; never overwrite original totals; track approval, execution and adjustment separately; adjust only on reliable execution; return stock only on defined conditions; no duplicate refunds or restocks | `P1-ORD-11`, `P1-ORD-14` |
+| **D4** | **Domains**: a globally unique **permanent numeric public subdomain** (e.g. `1001.storesyria.com`), independent of slug/name/custom domain, **not assumed equal to the PK**; custom domains retained behind **DNS ownership verification**; apex and infrastructure labels reserved; **forced release/transfer is operator-only after verifying ownership, with previous holder, new holder, operator, reason and time in the audit log**; DNS change alone never transfers a claim; existing links preserved by gradual redirect; legacy routes kept compatible; **host-scoped cookies**; wildcard DNS, certificate coverage and hosting verified before production | **`P1-SEC-32` entirely, including (d)** — the last open owner decision in the phase |
+| **D5** | **Retention**: 24 months default for eligible operational records; financial, tax, dispute, audit and legally required records follow their own obligations; legal holds; document per-table disposition; **no blind global DELETE** | `P1-ORD-03` (with D14) |
+| **D6** | **Historical sensitive data**: inventory, preserve evidence under restricted access, rehearse on a restored backup, clean request/header fields, invalidate sessions, force password resets for affected accounts, review old logs and backups, verify inaccessibility — population from **evidence, not assumption**; and **retention must not preserve exposed plaintext credentials** | `P1-OWN-08` (direction; execution needs the restored backup) |
+| **D7** | **No production key rotation now.** Residual risk accepted and to be **documented without claiming remediation**; keep fixing disclosure in code; never print secret values | `P1-OWN-02`, `P1-OWN-09` |
+| **D8** | **Tokens**: narrow abilities to real client roles; preserve installed-app compatibility; expiring tokens plus a secure refresh via staged rollout; **no sudden mass device invalidation**; avoid blanket `['*']` | `P1-OWN-04`, and bears on `P1-ORD-09` |
+| **D10** | **JS/CSS**: **preserve** the existing delegation — any holder of `Manage Store Setting` may edit permitted store JS/CSS and analytics; **do not narrow it to the owner or invent a new mandatory permission**; but enforce tenant ownership and authentication, keep CSRF, prevent crossing into another merchant's or the operator's origin, no access to server-side secrets, and **document the delegation risk** | `P1-OWN-12` — and note this is the **opposite** of the narrowing this project had recommended |
+| **D11** | **Uploads in git**: leave them in the tree **and in history**; no deletion, no history rewrite, no force-push; prevent **new** user uploads being committed; document residual exposure; identify files needing separate legal/security handling; **do not claim preservation removes confidentiality risk** | `P1-OWN-10` |
+| **D12** | **Legacy/dormant modules**: retain stored records; keep unsafe routes disabled until corrected; **`auction:order` still needs separate authorization**; retired Chatwoot data **not** destructively dropped | `P1-INV-20/21/22`, and it re-affirms recorded **D-03** |
+| **D13** | **Category deletion**: **no cascade-delete of products**; refuse deletion while products remain; offer safe reassignment first; verify real MySQL FK behaviour and change constraints by approved migration | `P1-INV-12` |
+| **D14** | **Account deletion**: retain order, invoice and financial records; remove or anonymise unnecessary personal data; respect retention, legal obligations and open disputes | `P1-ORD-03` |
+| **D15** | **GATE F / production migrations approved**, execution conditioned on ten objective prerequisites (target environment, real dump from a restored backup, NULL `store_id` inventory, real constraints, dump-wins comparison, verified recoverable backup, rehearsal, COD/payment prerequisites, data-preservation and ordering, rollback, mandatory tests). **Do not promote guessed schemas from `_gate_f_pending`**; if the real schema or tested recovery is unavailable, **leave production unchanged and record the exact environment blocker** | `P1-MIG-01…04` (policy; the prerequisites remain) |
+| **D16** | **Merge to `main` approved as a goal**, in sequence, and **separate from deployment**: finish implementation, complete acceptance, confirm CI and MySQL evidence, review risk, clean mergeable PR, merge only when branch/release gates permit, verify main, **do not auto-deploy**, prepare a separate deployment runbook. **If gates do not pass, do not merge** | the merge question |
+| **D17** | **BackupRestore kept disabled/isolated** until server exposure is checked; no public access to backups, logs or sensitive storage paths; diagnostics preserved without exposing secrets | `P1-OWN-01`, `P1-OWN-03`, and it answers `P1-PLT-04`'s log-and-continue question |
+| **D18** | **Platform OpenAI key is operator-only**; merchants and ordinary staff must not consume it; future merchant AI needs merchant credentials/entitlements/billing; **do not break operator access** | `P1-SEC-22(e)` — already implemented in `e326f0b3`, and this confirms it |
+
+### Two places where a final decision contradicts what this project had concluded
+
+Recorded because silently absorbing them would hide a real change of direction.
+
+1. **D10 vs `P1-OWN-12`.** This project recommended requiring a *second, higher* permission for the
+   script-bearing setting names, on the grounds that `storejs`/`storecss` is script injection into a
+   payment page. **The owner has decided the opposite**: the existing `Manage Store Setting`
+   delegation stands. The current implementation already matches that — `SettingsRestrictedWriteTest`
+   records that the script-bearing names deliberately "stay open to `Manage Store Setting` holders and
+   are the owner's decision (P1-OWN-12)" — so **no narrowing is to be introduced**, and the risk is
+   documented instead, as D10 requires.
+2. **D1 vs the shipped COD machine.** `e54e4bff` settles a COD order to Paid when the merchant **marks
+   it Delivered**. D1 says explicitly: *"Do not credit a merchant wallet merely because the order was
+   created or marked Delivered"*, and requires the **actual collector and a verified collection
+   event** to be recorded. So marked-Delivered is **no longer sufficient**, and the current trigger is
+   a partial implementation rather than a complete one. This is recorded as outstanding work, not as
+   done.
+
+---
+
 ## Standing constraints, restated because they bound everything above
 
 No merge into `main`. No deployment. No persistent migrations. No destructive data operations. No

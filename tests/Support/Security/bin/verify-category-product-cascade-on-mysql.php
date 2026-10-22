@@ -149,15 +149,73 @@ $check(
     $rule === 'CASCADE'
 );
 
+// =============================================================================================
+//  SECTION B -- OWNER DECISION D13: WHAT AN ID LIST HAS TO BE ASKED, AND WHAT IT MUST NOT BE
+// =============================================================================================
+//
+// Added with the D13 refusal (P1-INV-12). The three refusals that now stand in front of this
+// cascade all count `products` rows for a list of category ids, and two of them get that list
+// from request input:
+//
+//   - CategoryController::destroy          -- one id, from the route parameter
+//   - BulkDeleteTenantGuard                -- an array, from the posted `ids`
+//   - Api\DashboardController::DeleteCategory -- one id, from the posted `category_id`
+//
+// The bulk path is the one that matters here, because the vendored controller passes the SAME
+// list straight into `whereIn('id', $request->ids)->delete()`. If the guard's count and the
+// controller's delete disagree about which rows a value names, the guard reads zero and the
+// delete still cascades. So `BulkDeleteTenantGuard::scalarIds()` deliberately does NOT run
+// FILTER_VALIDATE_INT -- it hands the raw strings to the same engine the delete will use.
+//
+// These two checks measure that the risk is real on MySQL rather than asserting it, and that the
+// mitigation (asking the database, not PHP) actually answers it. SQLite cannot show either: its
+// comparison is not MySQL's.
+
+$pdo->exec("USE `{$database}`");
+
+// Section A's cascade test ended with `DELETE FROM categories`, so a row has to be put back
+// before anything can be asked about matching one. The first draft of this section asked against
+// the emptied table and read 0 -- a FAIL that said nothing about coercion.
+$pdo->exec("INSERT INTO categories (id, name, store_id) VALUES (1, 'coercion-probe', 1)");
+
+$probeRows = (int) $pdo->query('SELECT COUNT(*) FROM categories WHERE id = 1')->fetchColumn();
+
+$check(
+    "the coercion probe row really exists (found {$probeRows}), so the two checks below are "
+    . 'asked of a populated table rather than an empty one',
+    $probeRows === 1
+);
+
+$coerced = $pdo->query("SELECT COUNT(*) FROM categories WHERE id IN ('1abc')")->fetchColumn();
+
+$check(
+    "MySQL coerces '1abc' to 1 inside WHERE id IN (...) (matched {$coerced} row(s)), so a guard "
+    . 'that validated ids in PHP first would have counted products for a DIFFERENT set than the '
+    . 'delete removes -- which is why scalarIds() passes the raw values through',
+    (int) $coerced === 1
+);
+
+$phpValidated = filter_var('1abc', FILTER_VALIDATE_INT);
+
+$check(
+    'and FILTER_VALIDATE_INT rejects that same value in PHP, so the two layers genuinely '
+    . 'disagree: the mismatch is not hypothetical',
+    $phpValidated === false
+);
+
 $pdo->exec("DROP DATABASE `{$database}`");
 
-printf("\n%d checks, %d failure(s) on MySQL %s\n", 3, $failures, $version);
+printf("\n%d checks, %d failure(s) on MySQL %s\n", 6, $failures, $version);
 
 if ($failures === 0) {
-    echo "\nThe cascade is production behaviour. The regression test in\n"
-        . "tests/Feature/Security/MerchantCategoryOwnershipTest.php pins it deliberately; the\n"
-        . "cross-tenant path into it is closed by P1-INV-08's ownership guard, but the cascade\n"
-        . "itself is tracked separately -- no controller predicate can reach it.\n";
+    echo "\nThe cascade is production behaviour, so an application refusal is the only control\n"
+        . "available until the constraint itself is changed by an approved migration (D15).\n"
+        . "The three refusals are pinned by MerchantCategoryOwnershipTest (controller),\n"
+        . "BulkDeleteAuthorizationTest (the addon route) and AdminApiTenancyTest (the endpoint\n"
+        . "the shipped admin app calls). Section B is why the bulk guard asks the DATABASE which\n"
+        . "rows an id list names instead of validating the list in PHP.\n\n"
+        . "This asserts nothing about the live Store Syria database, whose schema this script\n"
+        . "never touches and cannot see.\n";
 }
 
 exit($failures === 0 ? 0 : 1);

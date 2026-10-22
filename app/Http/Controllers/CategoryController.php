@@ -462,6 +462,73 @@ class CategoryController extends Controller
                     return redirect()->back()->with('error', __('This category has child categories and cannot be deleted.'));
                 }
                 
+                /*
+                 * OWNER DECISION D13 -- A CATEGORY WITH PRODUCTS IN IT IS NOT DELETABLE. P1-INV-12.
+                 *
+                 * `products.category_id` carries `onDelete('cascade')` to `categories.id`
+                 * (2023_12_26_092822_create_products_table.php:55), so `$category->delete()` below
+                 * removes every product in the category IN THE DATABASE, beneath the application:
+                 * no model event, no log line, no confirmation. The merchant asked to delete a
+                 * label and lost a catalogue.
+                 *
+                 * WHY THE REFUSAL SITS HERE AND NOT ABOVE `$category->delete()`. By the time
+                 * control reaches that call the damage is already done and is NOT recoverable from
+                 * the application: `categoryImageDelete()` unlinks the category icon and cover,
+                 * and the loop below calls `Product::productImageDelete()` for every product,
+                 * which unlinks each product's images, cover, downloadable file and preview video
+                 * FROM DISK and deletes its `product_images` and `product_variants` rows. So the
+                 * guard must precede the first call that touches a file.
+                 *
+                 * ASKED OF THE TABLE, NOT OF THE RELATION. Three deliberate differences from the
+                 * product loop twenty lines down:
+                 *
+                 *   - NO STORE PREDICATE. The loop narrows to `$category->store_id` because it is
+                 *     choosing what to unlink, and narrowing is the safe direction for an
+                 *     irreversible disk write. This guard is choosing whether to proceed at all,
+                 *     and the FOREIGN KEY does not read `store_id` -- a `products` row carrying
+                 *     this `category_id` and some other store's `store_id` is cascade-deleted just
+                 *     the same. Widening is the safe direction for a refusal.
+                 *
+                 *   - RAW QUERY. `Product` is `Cachable`, and a stale count here would read zero
+                 *     against a populated category and wave the deletion through. The cache cannot
+                 *     make this guard refuse a delete it should allow, only allow one it should
+                 *     refuse, so the raw count is the conservative read.
+                 *
+                 *   - NOT A PERMISSION CHECK, so it applies to the platform operator too. D13 is a
+                 *     data-integrity rule: cascading a catalogue away is wrong whoever asked for
+                 *     it, and an operator has no more need of it than a merchant.
+                 *
+                 * REMAINING WORK, recorded rather than implied: D13 also calls for "a safe
+                 * reassignment option before deletion". There is no bulk re-category UI yet, so
+                 * today the merchant moves the products one at a time from the product edit form.
+                 * The message says so instead of leaving them at a dead end. See P1-INV-12.
+                 *
+                 * `testimonials.category_id` cascades identically
+                 * (2023_12_26_095726_create_testimonials_table.php:27). D13 names products, and a
+                 * refusal over a testimonial would block deletes that are legitimate today, so
+                 * that cascade is recorded as an open observation and not guarded here.
+                 */
+                $productsInCategory = \Illuminate\Support\Facades\DB::table('products')
+                    ->where('category_id', $category->id)
+                    ->count();
+
+                if ($productsInCategory > 0) {
+                    \Illuminate\Support\Facades\Log::warning(
+                        'category delete refused: products would be cascade-deleted with it',
+                        [
+                            'category_id' => $category->id,
+                            'category_store_id' => $category->store_id ?? null,
+                            'products_in_category' => $productsInCategory,
+                            'user_id' => optional(auth()->user())->id,
+                        ]
+                    );
+
+                    return redirect()->back()->with(
+                        'error',
+                        __('This category still contains :count product(s) and cannot be deleted. Move those products to another category first.', ['count' => $productsInCategory])
+                    );
+                }
+
                 Category::categoryImageDelete($category);
 
                 /*
@@ -485,6 +552,15 @@ class CategoryController extends Controller
                  * A NULL-store product sharing the category is deliberately NOT cleaned up here:
                  * narrowing is the safe direction for an irreversible disk operation, and such a
                  * row is already an anomaly rather than something a merchant created.
+                 *
+                 * THIS LOOP IS NOW UNREACHABLE-BY-DESIGN, AND IS KEPT ON PURPOSE. The D13 guard
+                 * above refuses whenever ANY `products` row carries this `category_id`, so by the
+                 * time control arrives here the set is always empty. It is retained as the last
+                 * line of defence for an irreversible disk operation: if the guard is ever
+                 * narrowed, moved or removed, this predicate is what still keeps another store's
+                 * media off the unlink path. The cost is one query returning no rows. A removal
+                 * check for the guard's own width is in MerchantCategoryOwnershipTest
+                 * (`test_a_foreign_product_in_the_callers_category_blocks_the_delete`).
                  */
                 $products = $mainCategory->product_details()
                     ->where('store_id', $category->store_id)

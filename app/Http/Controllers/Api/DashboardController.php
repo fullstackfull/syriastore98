@@ -1344,6 +1344,48 @@ public function OrderList(Request $request)
             ->first();
 
         if (!empty($Category)) {
+            /*
+             * OWNER DECISION D13 -- THE THIRD CATEGORY-DELETE PATH, AND THE ONE A CLIENT CALLS.
+             * P1-INV-12.
+             *
+             * `products.category_id` is `ON DELETE CASCADE` against `categories.id`
+             * (database/migrations/2023_12_26_092822_create_products_table.php:55), so
+             * `$Category->delete()` below removes every product in the category IN THE DATABASE.
+             * This endpoint, `DELETE api/admin/deletecategory`, is the one the shipped admin
+             * Flutter app calls -- so of the three paths that can fire that cascade
+             * (CategoryController::destroy, the BulkDelete addon route, and this) it is the one a
+             * merchant is most likely to reach, and it had no refusal at all.
+             *
+             * SHAPE DELIBERATELY UNCHANGED. `ApiResponser::error()` answers HTTP 200 with
+             * `{status: 0, message}`, which is the envelope the app already renders for
+             * "Maincategory data not found." two lines down. No new status code, and specifically
+             * NOT a 401: repo B's lib/network/network.dart forces a logout that clears
+             * preferences on any 401.
+             *
+             * RAW COUNT, no store predicate: the foreign key does not read `store_id`, and
+             * `Product` is `Cachable`, so a stale Eloquent read could report zero against a
+             * populated category. Same reasoning as the guard in CategoryController::destroy.
+             */
+            $productsInCategory = \Illuminate\Support\Facades\DB::table('products')
+                ->where('category_id', $Category->id)
+                ->count();
+
+            if ($productsInCategory > 0) {
+                \Illuminate\Support\Facades\Log::warning(
+                    'api category delete refused: products would be cascade-deleted with it',
+                    [
+                        'category_id' => $Category->id,
+                        'store_id' => $store->id,
+                        'products_in_category' => $productsInCategory,
+                        'user_id' => optional(auth()->user())->id,
+                    ]
+                );
+
+                return $this->error([
+                    'message' => __('This category still contains :count product(s) and cannot be deleted. Move those products to another category first.', ['count' => $productsInCategory]),
+                ]);
+            }
+
             \App\Services\StoredUpload::delete($Category->image_path, auth()->user()?->creatorId());
             \App\Services\StoredUpload::delete($Category->icon_path, auth()->user()?->creatorId());
 

@@ -785,4 +785,91 @@ class AdminApiTenancyTest extends SecurityTestCase
             'assignOrders' => ['POST', '/api/admin/assignOrders', ['order_id' => 1, 'delivery_boy' => 1]],
         ];
     }
+    // =========================================================================================
+    //  OWNER DECISION D13 ON THE PATH THE SHIPPED APP CALLS
+    // =========================================================================================
+
+    /**
+     * `DELETE api/admin/deletecategory` IS THE THIRD CASCADE PATH, AND THE LIVE ONE. P1-INV-12.
+     *
+     * `products.category_id` is `ON DELETE CASCADE` against `categories.id`
+     * (database/migrations/2023_12_26_092822_create_products_table.php:55), so `$Category->delete()`
+     * in `DeleteCategory` removed every product in the category BELOW the application -- no model
+     * event, no log line, nothing to roll back. `CategoryController::destroy` and the BulkDelete
+     * addon route fire the same cascade and are guarded in their own suites; this one is the
+     * endpoint repo B's admin app actually calls, and it had no refusal at all.
+     *
+     * Cascade measured, not assumed: tests/Support/Security/bin/verify-category-product-cascade-on-mysql.php
+     * reports DELETE_RULE = CASCADE from `information_schema.REFERENTIAL_CONSTRAINTS` on MySQL
+     * 8.0.46 (3 checks, 0 failures), and a probe on this suite's own SQLite confirmed the cascade
+     * fires here too -- so the product assertion below is a real assertion on both engines.
+     *
+     * THE ENVELOPE IS PINNED, not just the refusal. `ApiResponser::error()` answers HTTP 200 with
+     * `{status: 0}`, the same shape the app already renders for "Maincategory data not found.". A
+     * 401 here would be a user-visible regression: repo B's lib/network/network.dart forces a
+     * logout that clears preferences on any 401.
+     */
+    public function test_the_api_refuses_to_delete_a_category_that_still_has_products(): void
+    {
+        [$merchantA, $storeA, $tokenA] = $this->twoTenants();
+
+        $categoryId = \Illuminate\Support\Facades\DB::table('categories')->insertGetId([
+            'name' => 'api-populated', 'slug' => 'api-populated-' . uniqid(), 'parent_id' => 0,
+            'status' => 1, 'store_id' => $storeA->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $productId = \Illuminate\Support\Facades\DB::table('products')->insertGetId([
+            'name' => 'api-kept', 'slug' => 'api-kept-' . uniqid(), 'track_stock' => 0,
+            'category_id' => $categoryId, 'created_by' => $merchantA->id,
+            'store_id' => $storeA->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $response = $this->withToken($tokenA)->deleteJson('/api/admin/deletecategory', [
+            'store_id' => $storeA->id,
+            'category_id' => $categoryId,
+        ]);
+
+        $this->assertSame(200, $response->getStatusCode(),
+            'The refusal changed the HTTP status, which the shipped app does not expect.');
+        $this->assertSame(0, (int) $response->json('status'),
+            'The API reported success for a delete it must refuse. Body: '
+            . substr((string) $response->getContent(), 0, 300));
+
+        $this->assertNotNull(
+            \Illuminate\Support\Facades\DB::table('categories')->where('id', $categoryId)->first(),
+            'The category was deleted although it still held a product (owner decision D13).');
+        $this->assertNotNull(
+            \Illuminate\Support\Facades\DB::table('products')->where('id', $productId)->first(),
+            'The FK cascade took the merchant\'s product with the category.');
+    }
+
+    /**
+     * THE POSITIVE CONTROL. Without it the test above is satisfied by an endpoint that refuses
+     * every category delete, or by one that 500s for everyone -- and `error()` answers 200, so a
+     * status-code assertion alone would not notice.
+     */
+    public function test_the_api_can_still_delete_an_empty_category(): void
+    {
+        [, $storeA, $tokenA] = $this->twoTenants();
+
+        $categoryId = \Illuminate\Support\Facades\DB::table('categories')->insertGetId([
+            'name' => 'api-empty', 'slug' => 'api-empty-' . uniqid(), 'parent_id' => 0,
+            'status' => 1, 'store_id' => $storeA->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->assertSame(0,
+            \Illuminate\Support\Facades\DB::table('products')->where('category_id', $categoryId)->count(),
+            'premise: the category is empty');
+
+        $response = $this->withToken($tokenA)->deleteJson('/api/admin/deletecategory', [
+            'store_id' => $storeA->id,
+            'category_id' => $categoryId,
+        ]);
+
+        $this->assertSame(1, (int) $response->json('status'),
+            'An EMPTY category can no longer be deleted through the API either, so the refusal '
+            . 'above proves nothing. Body: ' . substr((string) $response->getContent(), 0, 300));
+        $this->assertNull(
+            \Illuminate\Support\Facades\DB::table('categories')->where('id', $categoryId)->first(),
+            'The endpoint answered success without deleting the row.');
+    }
 }
