@@ -3412,7 +3412,45 @@ private function webhook_backup($order, $r, $products_weight = []) {
         $store = getStore($slug);
         
         $other_info = is_string($request->billing_info) ? (array) json_decode($request->billing_info) : $request->billing_info;
-        $admin_payment_setting = getAdminAllSetting();
+        /*
+         * P1-SEC-26: READ THE SETTINGS OF THE STORE BEING PAID, NOT THE CALLER'S.
+         *
+         * {storeSlug}/process-order carries no `auth` and processOrder() treats a web principal as a guest, so a merchant, staff
+         * user or super admin with a `web` session is admitted here. A no-argument getAdminAllSetting() then takes its FIRST
+         * branch -- Setting::where('created_by', $user->id)->where('store_id', $user->current_store) -- and answers with THAT
+         * user's own store. For an anonymous or `customers`-guard shopper it is already correct, via P1-SEC-18 F4's
+         * getRouteStoreId() fallback.
+         *
+         * WHY NOT getAdminAllSetting AT ALL, which took two attempts to get right and is the whole point of this comment:
+         *   - getAdminAllSetting() with no arguments is the defect above.
+         *   - getAdminAllSetting(null, $storeId) returns an EMPTY array, measured: the first branch still filters
+         *     `created_by = $user->id`, so a foreign store id matches no rows.
+         *   - getAdminAllSetting($store->created_by, $storeId) looked right and is ALSO wrong, found by the read-only review of this
+         *     fix. `settings.created_by` is not the store's owner -- it is WHOEVER SAVED LAST: PaymentSettingController::saveSettings
+         *     keys updateOrCreate on ['name','store_id'] only and rewrites `created_by` to auth()->user()->id (:162-173), and
+         *     StoreSettingsAccess admits a STAFF member holding the permission. So for a store whose payment tab was last saved by
+         *     staff, that pair matches no rows either.
+         * The `created_by` limb buys nothing here in any case: every settings writer already scopes `store_id` to its own tenant, so
+         * a row carrying this store's id can only have been written by an insider of this store. Dropping it is exactly the predicate
+         * the canonical per-store reader uses (Utility::GetValueByName, app/Models/Utility.php:181-196) and that Setting::paymentList
+         * and the admin API already use for these same keys -- so the storefront's "SSLCommerz is enabled" and this read now agree.
+         * StorelessCredentialReadTest pins every form side by side.
+         *
+         * Resolved from getRouteStoreId() and not from $store: the line below overwrites this method's own $slug parameter with the
+         * request body's `slug`, which the checkout form does not post, so $store is null on the legitimate flow. With no resolvable
+         * store (a job, a console run) the ternary falls back to the previous behaviour, which is the right answer there.
+         *
+         * SCOPE, stated so the next reader is not misled: because of that same $slug overwrite the method dies at the CURRENCY_NAME
+         * read below for EVERY caller unless the body carries `slug`, so this correction is live only for that request shape -- which
+         * is also the only shape that reaches the gateway, and the shape the original defect needed. Fixing the overwrite is a
+         * separate change (it moves currency resolution) and is recorded on #99, not done here. Note also that credentials now come
+         * from the PATH store while the currency and success_url still come from the BODY store; previously the pair was (caller's
+         * store, body store).
+         */
+        $sec26Store = \App\Models\Store::find(getRouteStoreId());
+        $admin_payment_setting = $sec26Store
+            ? \App\Models\Setting::where('store_id', $sec26Store->id)->pluck('value', 'name')->toArray()
+            : getAdminAllSetting();
 
         $currency = \App\Models\Utility::GetValueByName('CURRENCY_NAME', $store->id);
         $api_key = isset($admin_payment_setting['nepalste_public_key']) ? $admin_payment_setting['nepalste_public_key'] : '';
@@ -3601,7 +3639,45 @@ private function webhook_backup($order, $r, $products_weight = []) {
         $store = getStore($slug);
         
         $other_info = is_string($request->billing_info) ? (array) json_decode($request->billing_info) : $request->billing_info;
-        $admin_payment_setting = getAdminAllSetting();
+        /*
+         * P1-SEC-26: READ THE SETTINGS OF THE STORE BEING PAID, NOT THE CALLER'S.
+         *
+         * {storeSlug}/process-order carries no `auth` and processOrder() treats a web principal as a guest, so a merchant, staff
+         * user or super admin with a `web` session is admitted here. A no-argument getAdminAllSetting() then takes its FIRST
+         * branch -- Setting::where('created_by', $user->id)->where('store_id', $user->current_store) -- and answers with THAT
+         * user's own store. For an anonymous or `customers`-guard shopper it is already correct, via P1-SEC-18 F4's
+         * getRouteStoreId() fallback.
+         *
+         * WHY NOT getAdminAllSetting AT ALL, which took two attempts to get right and is the whole point of this comment:
+         *   - getAdminAllSetting() with no arguments is the defect above.
+         *   - getAdminAllSetting(null, $storeId) returns an EMPTY array, measured: the first branch still filters
+         *     `created_by = $user->id`, so a foreign store id matches no rows.
+         *   - getAdminAllSetting($store->created_by, $storeId) looked right and is ALSO wrong, found by the read-only review of this
+         *     fix. `settings.created_by` is not the store's owner -- it is WHOEVER SAVED LAST: PaymentSettingController::saveSettings
+         *     keys updateOrCreate on ['name','store_id'] only and rewrites `created_by` to auth()->user()->id (:162-173), and
+         *     StoreSettingsAccess admits a STAFF member holding the permission. So for a store whose payment tab was last saved by
+         *     staff, that pair matches no rows either.
+         * The `created_by` limb buys nothing here in any case: every settings writer already scopes `store_id` to its own tenant, so
+         * a row carrying this store's id can only have been written by an insider of this store. Dropping it is exactly the predicate
+         * the canonical per-store reader uses (Utility::GetValueByName, app/Models/Utility.php:181-196) and that Setting::paymentList
+         * and the admin API already use for these same keys -- so the storefront's "SSLCommerz is enabled" and this read now agree.
+         * StorelessCredentialReadTest pins every form side by side.
+         *
+         * Resolved from getRouteStoreId() and not from $store: the line below overwrites this method's own $slug parameter with the
+         * request body's `slug`, which the checkout form does not post, so $store is null on the legitimate flow. With no resolvable
+         * store (a job, a console run) the ternary falls back to the previous behaviour, which is the right answer there.
+         *
+         * SCOPE, stated so the next reader is not misled: because of that same $slug overwrite the method dies at the CURRENCY_NAME
+         * read below for EVERY caller unless the body carries `slug`, so this correction is live only for that request shape -- which
+         * is also the only shape that reaches the gateway, and the shape the original defect needed. Fixing the overwrite is a
+         * separate change (it moves currency resolution) and is recorded on #99, not done here. Note also that credentials now come
+         * from the PATH store while the currency and success_url still come from the BODY store; previously the pair was (caller's
+         * store, body store).
+         */
+        $sec26Store = \App\Models\Store::find(getRouteStoreId());
+        $admin_payment_setting = $sec26Store
+            ? \App\Models\Setting::where('store_id', $sec26Store->id)->pluck('value', 'name')->toArray()
+            : getAdminAllSetting();
 
         $currency = \App\Models\Utility::GetValueByName('CURRENCY_NAME', $store->id);
 
@@ -4769,7 +4845,47 @@ private function webhook_backup($order, $r, $products_weight = []) {
     }
     public function processSSLCommerz($request, $slug, $response)
     {
-        $payment_setting        = getAdminAllSetting();
+        /*
+         * P1-SEC-26: READ THE SETTINGS OF THE STORE BEING PAID, NOT THE CALLER'S.
+         *
+         * {storeSlug}/process-order carries no `auth` and processOrder() treats a web principal as a guest, so a merchant, staff
+         * user or super admin with a `web` session is admitted here. A no-argument getAdminAllSetting() then takes its FIRST
+         * branch -- Setting::where('created_by', $user->id)->where('store_id', $user->current_store) -- and answers with THAT
+         * user's own store. For an anonymous or `customers`-guard shopper it is already correct, via P1-SEC-18 F4's
+         * getRouteStoreId() fallback.
+         *
+         * WHY NOT getAdminAllSetting AT ALL, which took two attempts to get right and is the whole point of this comment:
+         *   - getAdminAllSetting() with no arguments is the defect above.
+         *   - getAdminAllSetting(null, $storeId) returns an EMPTY array, measured: the first branch still filters
+         *     `created_by = $user->id`, so a foreign store id matches no rows.
+         *   - getAdminAllSetting($store->created_by, $storeId) looked right and is ALSO wrong, found by the read-only review of this
+         *     fix. `settings.created_by` is not the store's owner -- it is WHOEVER SAVED LAST: PaymentSettingController::saveSettings
+         *     keys updateOrCreate on ['name','store_id'] only and rewrites `created_by` to auth()->user()->id (:162-173), and
+         *     StoreSettingsAccess admits a STAFF member holding the permission. So for a store whose payment tab was last saved by
+         *     staff, that pair matches no rows either.
+         * The `created_by` limb buys nothing here in any case: every settings writer already scopes `store_id` to its own tenant, so
+         * a row carrying this store's id can only have been written by an insider of this store. Dropping it is exactly the predicate
+         * the canonical per-store reader uses (Utility::GetValueByName, app/Models/Utility.php:181-196) and that Setting::paymentList
+         * and the admin API already use for these same keys -- so the storefront's "SSLCommerz is enabled" and this read now agree.
+         * StorelessCredentialReadTest pins every form side by side.
+         *
+         * Resolved from getRouteStoreId() and not from $store: the line below overwrites this method's own $slug parameter with the
+         * request body's `slug`, which the checkout form does not post, so $store is null on the legitimate flow. With no resolvable
+         * store (a job, a console run) the ternary falls back to the previous behaviour, which is the right answer there.
+         *
+         * SCOPE, stated so the next reader is not misled: because of that same $slug overwrite the method dies at the CURRENCY_NAME
+         * read below for EVERY caller unless the body carries `slug`, so this correction is live only for that request shape -- which
+         * is also the only shape that reaches the gateway, and the shape the original defect needed. Fixing the overwrite is a
+         * separate change (it moves currency resolution) and is recorded on #99, not done here. Note also that credentials now come
+         * from the PATH store while the currency and success_url still come from the BODY store; previously the pair was (caller's
+         * store, body store).
+         */
+        $sec26Store = \App\Models\Store::find(getRouteStoreId());
+        // This is the money-bearing one of the three: sslcommerz_pay_store_id and sslcommerz_pay_secret_key below are posted to the
+        // gateway as store_id/store_passwd, so the wrong row here creates the payment against the signed-in merchant's OWN account.
+        $payment_setting        = $sec26Store
+            ? \App\Models\Setting::where('store_id', $sec26Store->id)->pluck('value', 'name')->toArray()
+            : getAdminAllSetting();
         $slug = !empty($request->slug) ? $request->slug : '';
         $store = getStore($slug);
         
@@ -4787,8 +4903,10 @@ private function webhook_backup($order, $r, $products_weight = []) {
         }
         $user = \Auth::user();
         
-        $sslcommerz_pay_store_id = $payment_setting['sslcommerz_pay_store_id'];
-        $sslcommerz_pay_secret_key = $payment_setting['sslcommerz_pay_secret_key'];
+        // `?? ''` because these two were the only unguarded dereferences of the array (their siblings all use isset), so an empty
+        // read 500'd here instead of failing the gateway call. Defensive either way; the store-scoped read above is the actual fix.
+        $sslcommerz_pay_store_id = $payment_setting['sslcommerz_pay_store_id'] ?? '';
+        $sslcommerz_pay_secret_key = $payment_setting['sslcommerz_pay_secret_key'] ?? '';
 
         $sslcommerz_data = [
             "store_id"      => $sslcommerz_pay_store_id,

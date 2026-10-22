@@ -288,4 +288,225 @@ class StorelessCredentialReadTest extends SecurityTestCase
 
         $this->assertSame('FIXTURE-OZOW-SITE-MINE', $response->json('value'));
     }
+
+    // =============================================================================================
+    //  P1-SEC-26 -- THE SITES P1-SEC-18 F4's CENTRAL FALLBACK CANNOT REACH
+    // =============================================================================================
+
+    /**
+     * THE MECHANISM, pinned. The fallback above answers for a caller with no `web` session. It does NOT answer for one WITH a web
+     * session, because getAdminAllSetting()'s first branch wins: `!empty($user)` -> Setting::where('created_by',$user->id)
+     * ->where('store_id', $user->current_store). The storefront routes {storeSlug}/process-order and the stock screens admit exactly
+     * that principal, so the fix at those call sites is to name the store explicitly. This proves the two forms differ for that caller,
+     * and that the explicit form answers with the ROUTE's store.
+     */
+    public function test_a_web_session_makes_the_no_argument_form_answer_with_its_own_store_and_the_named_form_with_the_routes(): void
+    {
+        Route::middleware('web')->get('{storeSlug}/zz-sec26-probe', function () {
+            $storeId = getRouteStoreId();
+            $owner = \App\Models\Store::find($storeId)?->created_by;
+
+            return response()->json([
+                'no_args' => getAdminAllSetting()['ozow_pay_Site_key'] ?? null,
+                // store id ALONE is not enough: the first branch still filters created_by = the signed-in user
+                'store_only' => getAdminAllSetting(null, $storeId)['ozow_pay_Site_key'] ?? null,
+                // the store's OWNER plus the store id -- the pair the rows are actually written with
+                'owner_and_store' => getAdminAllSetting($owner, $storeId)['ozow_pay_Site_key'] ?? null,
+                // the central per-name accessor P1-SEC-25 established, which carries no created_by predicate at all
+                'by_name' => Utility::GetValueByName('ozow_pay_Site_key', $storeId),
+                'route_store' => $storeId,
+            ]);
+        });
+
+        // a merchant of store B, signed in on the `web` guard, visiting store A's storefront
+        $merchantOfB = \App\Models\User::where('current_store', $this->stores['B']->id)->firstOrFail();
+
+        $response = $this->actingAs($merchantOfB)->get('/' . $this->stores['A']->slug . '/zz-sec26-probe');
+
+        $response->assertOk();
+        $this->assertSame($this->stores['A']->id, $response->json('route_store'), 'Premise: the route resolves store A.');
+        $this->assertSame('FIXTURE-OZOW-SITE-B', $response->json('no_args'),
+            'Premise of the defect: with a web session the no-argument form answers with the CALLER\'s store, not the route\'s.');
+        // THE TRAP, pinned so the next reader does not repeat it: naming the store ALONE does not fix this call. With a web session
+        // getAdminAllSetting()'s first branch still filters `created_by = $user->id`, so a foreign store id matches NO rows and the
+        // caller silently gets nothing -- for SSLCommerz that would mean EMPTY gateway credentials rather than the right ones.
+        $this->assertNull($response->json('store_only'),
+            'If this stops being null the helper changed; re-read which forms the payment initiators may use.');
+
+        // The two forms that DO answer correctly.
+        $this->assertSame('FIXTURE-OZOW-SITE-A', $response->json('owner_and_store'),
+            "The store's owner plus the store id is the pair the settings rows are written with.");
+        $this->assertSame('FIXTURE-OZOW-SITE-A', $response->json('by_name'),
+            'Utility::GetValueByName with an explicit store id carries no created_by predicate, which is why P1-SEC-25 used it for the '
+            . 'Ozow and Easebuzz initiators.');
+    }
+
+    /**
+     * THE THREE STOREFRONT PAYMENT INITIATORS, at source and with comments stripped.
+     *
+     * A functional test would have to drive a whole gateway handshake; what matters and what regresses is that these three reads name a
+     * store at all. Comment lines are stripped first, because this file's own docblocks and the guards' own comments quote the exact
+     * string being grepped for -- a ratchet a docblock can satisfy is not a ratchet (it has happened in this project).
+     */
+    public function test_the_three_storefront_payment_initiators_name_the_routes_store(): void
+    {
+        $code = $this->codeOnly(base_path('app/Services/PaymentService.php'));
+
+        foreach (['processNepalste', 'processAuthorizeNet', 'processSSLCommerz'] as $method) {
+            $i = strpos($code, 'function ' . $method . '(');
+            $this->assertNotFalse($i, "{$method}() is gone from PaymentService -- re-read P1-SEC-26 before deleting this.");
+
+            $next = strpos($code, ' function ', $i + 10);
+            $slice = substr($code, $i, ($next === false ? strlen($code) : $next) - $i);
+
+            // The no-argument form may appear ONLY as the ternary's no-route fallback (a job or console run, where there is no
+            // storefront to name and the previous behaviour is the right answer). Counting rather than forbidding keeps the ratchet
+            // meaningful: a bare primary read is still caught, and the documented fallback is still allowed.
+            $this->assertSame(
+                substr_count($slice, ': getAdminAllSetting();'),
+                substr_count($slice, 'getAdminAllSetting()'),
+                "{$method}() reads settings with NO store named outside the no-route fallback. {storeSlug}/process-order carries no "
+                . '`auth` and processOrder() treats a web principal as a guest, so that form answers with the signed-in merchant\'s own '
+                . 'store instead of the store being paid.'
+            );
+            $this->assertStringContainsString("Setting::where('store_id', \$sec26Store->id)", $slice,
+                "{$method}() no longer reads the settings of the store being paid. It must be a STORE-ONLY read: `settings.created_by` is "
+                . 'whoever saved last (PaymentSettingController keys updateOrCreate on name+store_id and rewrites created_by, and staff '
+                . 'can save), so ANY created_by predicate here -- including the store owner\'s -- can match no rows and hand the gateway '
+                . 'empty credentials. See the forms compared in '
+                . 'test_a_web_session_makes_the_no_argument_form_answer_with_its_own_store_and_the_named_form_with_the_routes().');
+            $this->assertStringContainsString('Store::find(getRouteStoreId())', $slice,
+                "{$method}() must resolve the store from the ROUTE. Its own \$slug parameter is overwritten on the next line with the "
+                . 'request body\'s `slug`, which the checkout form does not post.');
+        }
+    }
+
+    /** The two stock screens must judge stock by the threshold of the store whose rows they list. */
+    public function test_the_stock_screens_read_the_threshold_of_the_store_they_list(): void
+    {
+        foreach ([
+            'app/DataTables/ProductDataTable.php' => 'dataTable',
+            'app/Http/Controllers/ReportController.php' => 'getOutOfStockProducts',
+        ] as $file => $method) {
+            $code = $this->codeOnly(base_path($file));
+            $i = strpos($code, 'function ' . $method . '(');
+            $this->assertNotFalse($i, "{$method}() is gone from {$file}.");
+            $slice = substr($code, $i, 2600);
+
+            $this->assertStringContainsString('getAdminAllSetting(null, getCurrentStore())', $slice,
+                "{$file}::{$method}() must read out_of_stock_threshold from the same store its own query filters on. The no-argument "
+                . 'form resolves it from the caller, and for a STAFF member getAdminAllSetting() walks up to created_by and then reads '
+                . "the OWNER's current_store -- a different store's threshold.");
+        }
+    }
+
+    /**
+     * The out-of-stock screen, driven for real: the threshold that decides the list is the LISTED store's, even when the caller's own
+     * resolution would have produced another store's.
+     */
+    /**
+     * The out-of-stock screen, driven for real. THE PRINCIPAL IS THE POINT, and the first version of this test got it wrong: it drove the
+     * OWNER of the listed store, for whom the reverted form and the fixed form resolve the SAME store, so it passed either way and only
+     * the source ratchet was carrying site 4. It must drive a STAFF member whose OWNER is currently in a different store, because that is
+     * the principal the defect exists for -- getAdminAllSetting() walks $user up to created_by and then reads the OWNER's current_store.
+     */
+    public function test_the_out_of_stock_screen_uses_the_listed_stores_threshold(): void
+    {
+        $owner = \App\Models\User::where('current_store', $this->stores['A']->id)->firstOrFail();
+
+        // the owner is currently in store B; the staff member is working in store A
+        $owner->current_store = $this->stores['B']->id;
+        $owner->save();
+        $staff = $this->makeStaff($owner, ['current_store' => $this->stores['A']->id]);
+
+        // PRECONDITION, and assertOk() below is what caught its absence: P1-SEC-09 put every report handler behind
+        // App\Http\Middleware\ReportPermission, which wants 'Manage Stock Reports' for this one. Without it the staff member is
+        // redirected and the negative assertion below would have passed having tested nothing.
+        $this->grantPermission($staff, 'Manage Stock Reports');
+
+        // A says 5, B says 500 -- both written by the OWNER, which is the normal shape. A product with 100 in stock is out of stock
+        // only under B's threshold, so the listed row answers which store's threshold was used.
+        foreach ([['A', '5'], ['B', '500']] as [$label, $value]) {
+            DB::table('settings')->insert([
+                'name' => 'out_of_stock_threshold', 'value' => $value, 'created_by' => $owner->id,
+                'store_id' => $this->stores[$label]->id, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        $category = (int) DB::table('categories')->insertGetId([
+            'name' => 'c-' . uniqid(), 'slug' => 'c-' . uniqid(), 'store_id' => $this->stores['A']->id,
+        ]);
+        DB::table('products')->insert([
+            'name' => 'SEC26 PLENTY IN STOCK', 'slug' => 'sec26-' . uniqid(), 'store_id' => $this->stores['A']->id,
+            'created_by' => $owner->id, 'product_stock' => 100, 'track_stock' => 1, 'variant_product' => 0,
+            'category_id' => $category, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $response = $this->actingAs($staff->fresh())->get('/stock-report/out-stock');
+
+        // assertOk and not just "not 404": this route's group carries `verified`, and a 302 off it would satisfy the negative
+        // assertion below while proving nothing.
+        $response->assertOk();
+        $this->assertSame((int) $this->stores['A']->id, (int) getCurrentStore($staff->id),
+            "Premise: the staff member's current store is A, while their owner's is B.");
+        $this->assertStringNotContainsString('SEC26 PLENTY IN STOCK', (string) $response->getContent(),
+            'A product with 100 in stock was reported out of stock, so the threshold came from the OWNER\'s current store (B, 500) '
+            . 'rather than the store being listed (A, 5).');
+    }
+    /** The DPO plan screen is a PLATFORM context -- its own sibling planPayWithDPOPay() already reads it as one. */
+    public function test_the_dpo_plan_screen_reads_the_platform_settings_not_a_merchants(): void
+    {
+        // getSuperAdminAllSetting() reads (created_by = the super admin, store_id = THAT USER'S current_store), behind a
+        // `super_admin_details` cache -- so the fixture must use that exact pair and must flush the cache, or the accessor answers from a
+        // User captured before this row existed (the `admin_details` trap CLAUDE.md records).
+        $operator = $this->makePlatformAdmin(['current_store' => $this->stores['C']->id]);
+        DB::table('settings')->insert([
+            'name' => 'CURRENCY_NAME', 'value' => 'PLATFORM-CUR',
+            'created_by' => $operator->id, 'store_id' => $operator->current_store,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        \Illuminate\Support\Facades\Cache::forget('super_admin_details');
+        $this->assertSame('PLATFORM-CUR', getSuperAdminAllSetting()['CURRENCY_NAME'] ?? null,
+            'Premise: the platform fixture is what getSuperAdminAllSetting() actually reads.');
+
+        $merchantOfB = \App\Models\User::where('current_store', $this->stores['B']->id)->firstOrFail();
+
+        $response = $this->actingAs($merchantOfB)->get('/plan-pay-with/DPO/create?total_price=10');
+
+        $this->assertNotSame(404, $response->status(), 'Premise: plan.dpo.view exists.');
+
+        // ASSERT ON THE ONE ELEMENT THIS SETTING FEEDS, not on the whole page: DPO/pay.blade.php:285 renders it inside
+        // <div class="Payment-amount">, and the surrounding admin layout prints the signed-in merchant's own currency from other
+        // sources entirely -- a whole-page search would pass or fail for reasons that have nothing to do with this read.
+        // Locate the ELEMENT, not the stylesheet: the page's own CSS declares a `.Payment-amount span{...}` rule earlier in the document,
+        // and a bare strpos('Payment-amount') lands there and reads nothing.
+        $content = (string) $response->getContent();
+        $at = strpos($content, '<div class="Payment-amount">');
+        $this->assertNotFalse($at, 'Premise: the DPO amount block rendered, so the setting was actually read.');
+        $block = substr($content, $at, 400);
+
+        $this->assertStringNotContainsString('CUR-B', $block,
+            "The plan screen labelled the amount in the signed-in merchant's OWN store currency. It is a PLATFORM purchase -- its own "
+            . 'sibling planPayWithDPOPay() already reads getSuperAdminAllSetting().');
+        $this->assertStringContainsString('PLATFORM-CUR', $block,
+            'The plan screen must label the amount in the platform currency.');
+    }
+
+    /** Source with every comment line removed, so a docblock cannot satisfy a ratchet that greps for a code string. */
+    private function codeOnly(string $path): string
+    {
+        $out = [];
+
+        foreach (preg_split('/\R/', (string) file_get_contents($path)) ?: [] as $line) {
+            $t = ltrim($line);
+
+            if ($t === '' || str_starts_with($t, '*') || str_starts_with($t, '//') || str_starts_with($t, '/*') || str_starts_with($t, '#')) {
+                continue;
+            }
+
+            $out[] = $line;
+        }
+
+        return implode("\n", $out);
+    }
 }

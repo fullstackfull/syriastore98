@@ -21,7 +21,10 @@ class ProductDataTable extends DataTable
      */
     public function dataTable(QueryBuilder $query): EloquentDataTable
     {
-        $admin = getAdminAllSetting();
+        // P1-SEC-26: same store as query() below (`where('store_id', getCurrentStore())`), so the out_of_stock_threshold that labels a
+        // row comes from the store whose rows are being listed. A no-argument call resolves it from the caller, which for a staff member
+        // is their owner's current_store.
+        $admin = getAdminAllSetting(null, getCurrentStore());
         $dataTable = (new EloquentDataTable($query))
             ->addIndexColumn()
             ->addColumn('action', function (Product $product) {
