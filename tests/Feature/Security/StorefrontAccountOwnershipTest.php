@@ -102,7 +102,7 @@ class StorefrontAccountOwnershipTest extends SecurityTestCase
     }
 
     /**
-     * The SECOND address-read handler, and the one the live UI actually calls.
+     * The SECOND address-read handler, reachable by direct request.
      *
      * `adress-form` (tested above) and `edit-address-form` are two different routes on two different
      * methods -- `addressForm` and `edit_address_form`. The original P1-SEC-12 sweep fixed six
@@ -111,11 +111,25 @@ class StorefrontAccountOwnershipTest extends SecurityTestCase
      * census-failure mode 4 from the project skill: "an exemption scoped to the methods somebody
      * happened to look at".
      *
-     * It is not a dormant surface. `front_end/sections/addressbook.blade.php` links the Edit control
-     * on every row of the shipped address book to `route('edit.address.form')`, so this is the read
-     * path a signed-in shopper exercises normally, and it rendered any address row on the platform
-     * by bare id: no customer predicate, no store predicate, and `DeliveryAddress` carries no global
-     * scope and is absent from `config/tenancy.php`'s `scoped_models`, so nothing else supplied one.
+     * HOW IT IS REACHED -- CORRECTED AFTER REVIEW, because the first version of this docblock, and the
+     * commit message that shipped it, were WRONG. Both said `addressbook.blade.php` links the Edit
+     * control on every row of the shipped address book and that this is "the read path a signed-in
+     * shopper exercises normally". MEASURED: that view is the only one naming `edit.address.form`, and
+     * it is rendered from NOWHERE -- no `@include` and no `view()` call anywhere in app/ or resources/
+     * -- and it could not render if it were, because its `route('add.address.form', ...)` names a route
+     * declared in no route file at all. The LIVE address page is `front_end/pages/address.blade.php`,
+     * which wires Edit to `address-form`, a handler the earlier sweep had already guarded.
+     *
+     * THE HOLE WAS STILL REAL AND LIVE, which is why the fix stands and the severity does not drop: the
+     * route is declared, `EnsureCustomerAuthenticated` admits any `customers` session, and
+     * `GET /{slug}/edit-address-form?id=N` reaches the handler directly. An attacker needs no UI. It
+     * rendered any address row on the platform by bare id: no customer predicate, no store predicate,
+     * and `DeliveryAddress` carries no global scope and is absent from `config/tenancy.php`'s
+     * `scoped_models`, so nothing else supplied one.
+     *
+     * Recorded rather than quietly edited, because an overclaim about REACHABILITY is how a severity
+     * gets set wrong, and this is the third time this project has had to correct a claim that was keyed
+     * on reading rather than on measurement.
      */
     public function test_a_shopper_cannot_read_another_shoppers_address_through_the_edit_address_form(): void
     {
@@ -130,12 +144,20 @@ class StorefrontAccountOwnershipTest extends SecurityTestCase
             // satisfy the leak assertion for the wrong reason (census-failure mode 2).
             $this->assertNotSame(404, $response->status(), "{$who}: the route is missing, so this test proves nothing");
 
+            // `<name> Street` is the `address` column, which the view binds via Form::text('address') --
+            // corroborated by the positive control below, which asserts the identical string IS present
+            // for the owner. So this one assertion genuinely distinguishes fixed from vulnerable.
+            //
+            // A second assertion on `'Owner ' . first_name` (the full_name column) was REMOVED after
+            // review: addressbook_edit.blade.php renders only title, address, postcode, country, state
+            // and city -- there is no full_name or phone field -- so it could never fail, against
+            // vulnerable or fixed code alike. A vacuous assertion sitting beside a real one makes the
+            // real one look better corroborated than it is, which is worse than having one assertion.
             $this->assertStringNotContainsString($victim->first_name . ' Street', (string) $response->getContent(), "{$who}'s street leaked");
-            $this->assertStringNotContainsString('Owner ' . $victim->first_name, (string) $response->getContent(), "{$who}'s name leaked");
         }
     }
 
-    /** The positive control for the same route: the fix must not break the shipped address book for its owner. */
+    /** The positive control for the same route: the fix must not break the owner's own read. */
     public function test_a_shopper_can_still_read_their_own_address_through_the_edit_address_form(): void
     {
         [$a, , $mallory] = $this->world();
@@ -148,12 +170,15 @@ class StorefrontAccountOwnershipTest extends SecurityTestCase
     }
 
     /**
-     * The guard-class trap on this route. `EnsureCustomerAuthenticated` is a `customers`-guard check,
-     * so a merchant session does not reach the handler -- but the handler's own `auth('customers')`
-     * presence test is what the fix replaces, and a presence test is what the whole finding is about.
-     * Driving a non-customer principal records that the refusal does not depend on which limb fires.
+     * A MIDDLEWARE RECORD, NOT A REGRESSION TEST, and renamed after review to say so.
+     *
+     * `EnsureCustomerAuthenticated` refuses a `web`-guard session before the controller runs, so this
+     * passes against the UNFIXED handler too -- by this project's own rule ("revert the fix; does the
+     * test fail?") the answer here is NO. It is kept because the guard-class trap is this codebase's
+     * most productive defect pattern and it is worth pinning that on THIS route the middleware, not the
+     * handler, is what refuses a merchant. The two tests above are the ones that bite on the fix.
      */
-    public function test_a_merchant_session_cannot_read_an_address_through_the_edit_address_form(): void
+    public function test_a_merchant_session_is_refused_by_middleware_before_the_edit_address_form_handler(): void
     {
         [$a, , $mallory] = $this->world();
         $own = $this->addressOf($mallory, $a->id);

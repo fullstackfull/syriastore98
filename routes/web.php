@@ -1046,7 +1046,11 @@ Route::get(
     // AI tool Route
     Route::get('generate/{template_name}', [AITemplateController::class, 'create'])->name('generate');
     Route::post('generate/keywords/{id}', [AITemplateController::class, 'getKeywords'])->name('generate.keywords');
-    Route::post('generate/response', [AITemplateController::class, 'aiGenerate'])->name('generate.response');
+    // P1-SEC-22(e): throttled -- this endpoint spends an OpenAI key. See RouteServiceProvider's
+    // `ai-generate` limiter; keyed on the authenticated user, since the route is behind `auth`.
+    Route::post('generate/response', [AITemplateController::class, 'aiGenerate'])
+        ->middleware('throttle:ai-generate')
+        ->name('generate.response');
 
     // Customer Route
     Route::resource('customer', CustomerController::class);

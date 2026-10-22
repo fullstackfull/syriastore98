@@ -101,6 +101,22 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(12)->by($request->ip() . '|' . $slug);
         });
 
+        /**
+         * P1-SEC-22(e). `POST generate/response` spends an OpenAI key and carried no throttle at all, so
+         * bounding the spend PER CALL would have left the spend per minute unbounded -- the same bill in
+         * smaller pieces.
+         *
+         * Keyed on the authenticated user, not the IP: this route sits behind `auth`, several staff of one
+         * merchant legitimately share an office IP, and an attacker here is a signed-in principal rather
+         * than an anonymous one. Falls back to the IP when no user resolves, so the limiter can never key
+         * every caller onto one bucket.
+         */
+        RateLimiter::for('ai-generate', function (Request $request) {
+            $actor = $request->user();
+
+            return Limit::perMinute(20)->by($actor ? 'u' . $actor->id : 'ip' . $request->ip());
+        });
+
         $this->routes(function () {
             Route::middleware('api')
                 ->prefix('api')

@@ -1529,27 +1529,37 @@ public function city_list(Request $request, $slug)
         // customer of some store is signed in and nothing more, and `DeliveryAddress::find($request->id)`
         // then rendered any address row on the platform -- no customer predicate, no store predicate, and
         // the model carries no global scope and is absent from `scoped_models`, so nothing supplied one.
-        // This is the handler the shipped address book's Edit control calls (addressbook.blade.php), and
-        // the first sweep missed it by keying on handler names instead of on the routed actions.
+        // The first sweep missed this one by keying on handler names instead of on the routed actions.
+        //
+        // HOW IT IS REACHED, corrected after review. An earlier version of this comment said this is the
+        // handler the shipped address book's Edit control calls. That is FALSE, and measured:
+        // `front_end/sections/addressbook.blade.php` is the only view naming `edit.address.form`, and it is
+        // rendered from nowhere -- no `@include`, no `view()` call -- and could not render if it were,
+        // because its `route('add.address.form', ...)` names a route declared in no route file. The LIVE
+        // address page is `front_end/pages/address.blade.php`, which wires Edit to `address-form`
+        // (`addressForm`), one of the handlers already guarded.
+        //
+        // The hole was real and live regardless: the route is declared, `EnsureCustomerAuthenticated`
+        // admits any `customers` session, and an attacker issues `GET /{slug}/edit-address-form?id=N`
+        // directly. It needs no UI. But "the path a shopper exercises normally" was an overclaim.
+        //
+        // `input()` rather than `get()`: Symfony 7.4 deprecates `Request::get()`, and on this route the two
+        // are equivalent (there is no `{id}` route segment, and route parameters never reach `get()`).
+        // If an `{id}` segment is ever added, read `$request->route('id')` as `addressForm` does.
         $store = getStore($slug);
-        $DeliveryAddress = $this->ownedAddress($store, $this->shopper($store), $request->get('id'));
+        $DeliveryAddress = $this->ownedAddress($store, $this->shopper($store), $request->input('id'));
         if (empty($DeliveryAddress)) {
             // The same uniform refusal the other six handlers give: a redirect-with-error, never a 401
             // (the shipped clients log the user out on a 401) and never a message that distinguishes
-            // "not yours" from "no such row", so the id space cannot be enumerated.
+            // "not yours" from "no such row", so the id space cannot be enumerated. Review confirmed the
+            // two cases are indistinguishable in status, target, flash key, message and query count.
             return redirect()->back()->with('error', __('Address not found.'));
         }
+
         $country_option = Country::orderBy('name','ASC')->pluck('name', 'id');
-        $return['html'] = '';
-        if (empty($DeliveryAddress)) {
-            $DeliveryAddress = [];
-        } else {
-            $DeliveryAddress->country = $DeliveryAddress->country_id;
-            $DeliveryAddress->state = $DeliveryAddress->state_id;
-            $DeliveryAddress->city = $DeliveryAddress->city_id;
-
-        }
-
+        $DeliveryAddress->country = $DeliveryAddress->country_id;
+        $DeliveryAddress->state = $DeliveryAddress->state_id;
+        $DeliveryAddress->city = $DeliveryAddress->city_id;
 
         return view('front_end.sections.addressbook_edit', compact('slug', 'DeliveryAddress', 'country_option'));
     }
