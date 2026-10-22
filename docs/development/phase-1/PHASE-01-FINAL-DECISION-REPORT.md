@@ -1162,7 +1162,7 @@ group 7) is what converts them into assertions, and why criterion A3 cannot be m
 | `guard-gate-f-containment.sh` | **exit 0** — 235 migration files scanned across both trees; **0 of the 6 money tables** created by any discoverable migration, all 6 still have a parked non-runnable draft |
 | `guard-test-isolation.sh` | **exit 0** — `phpunit.xml` pins the suite to sqlite `:memory:` |
 | `guard-no-env-files.sh` | **exit 0** — no live `.env` in the checkout or the index |
-| `scan-secrets.sh` | **exit 0** — *SKIP: no base ref given*, so this run scanned no diff. CI gives it a base ref; the local run is therefore not evidence about the diff, and that is stated rather than counted as a pass. |
+| `scan-secrets.sh` | **exit 0 — and that pass was worthless, which this table said at the time and CI then proved.** See H.7. |
 | `check-contrast.py` | **exit 0** — **all 40 pairs pass, light and dark**; the `auto` scope is identical to `dark` across 35 tokens |
 | `.github/known-test-outcomes.json` | **unmodified** (`git diff --stat` empty) |
 
@@ -1261,6 +1261,83 @@ corrections on tasks that already have issues, and belong as comments on those i
 into #55. Avoiding issue proliferation was an explicit instruction, and these are the case it was
 written for.
 
+### H.7 The one thing in this report that was predicted in writing and then happened
+
+**This section exists because it is the strongest evidence in the report for the discipline the rest
+of it is written in: recording what you did *not* verify.**
+
+The guard table in H.4 originally read, of the secret scanner: *"exit 0 — SKIP: no base ref given,
+so this run scanned no diff. CI gives it a base ref; the local run is therefore not evidence about
+the diff, and that is stated rather than counted as a pass."*
+
+**Then the diff it had not scanned went red.** CI run 39835585655, *Secret scan*, exit 1:
+
+```
+HIT [aws-access-key-id] tests/Unit/Ci/SecretScannerCoverageTest.php:160
+```
+
+Reproduced locally in one command, which is the form the gate should have been using all along:
+
+```bash
+bash .github/scripts/scan-secrets.sh "$(git merge-base origin/main HEAD)" .
+```
+
+**The hit is P1-SEC-05's own test fixture, and it is a hit by design.** Line 160 plants
+`AKIAIOSFODNN7EXAMPLE` so that `test_a_high_confidence_credential_in_the_test_tree_still_fails` can
+assert the build **fails** — and that assertion is the entire justification for the structural
+`tests/*` skip P1-SEC-05 gave the generic rule. A narrowing is only defensible while the unnarrowed
+rules still bite in the narrowed tree, and that test is what proves they do.
+
+**The usual remedy does not exist for this file**, and the change engages with the recorded norm
+rather than quietly contradicting it. `PlanPaymentFailClosedTest:476` says a flagged fixture is
+*"fixed by changing the VALUE, never by widening the regex or excluding this path — those narrowings
+exist precisely so a real credential cannot hide behind an exclusion."* That norm is right and still
+stands for every ordinary fixture. It does not reach this one for a reason that is a property of the
+rule: SenangPay's value was renameable because `generic-assigned-secret` has a self-labelling
+vocabulary to be renamed *into*; `aws-access-key-id` has none and is **deliberately** exempt from the
+placeholder filter as well, because — in the script's own words — suppressing a high-confidence
+shape *"because the line happens to contain the word example is how a real key gets through."* **No
+value is simultaneously a hit, which the test requires, and not a hit, which the build requires.**
+
+So the fix is the exclusion the script already applies to itself, extended to one more file of the
+same kind: `EXCLUDE_RE` already skips `scan-secrets.sh` and `gitleaks.toml` as *"by their nature
+files full of credential-shaped patterns and documented example keys"* — verified there, because
+without it the scanner reports its own comment about that same AWS key. The scanner's own **test** is
+the third such file.
+
+**And the hole is tested, because an exclusion is a hole by construction and the norm's concern is
+exactly right.** Two new tests, three biting mutants:
+
+| | |
+|---|---|
+| `test_the_exclusion_for_this_file_is_exactly_one_file_wide` | plants the **same** AWS key at the excluded path and at a sibling path in the same directory; the first must pass, the second must fail. **Behavioural**, not a read of the regex, because the regex's spelling is not the property that matters. |
+| `test_the_exclusion_list_names_exactly_the_three_self_referential_files` | pins the list by name and count. Its own first version was wrong in an instructive way: `/\^([^\|]+?)\$/` reported one anchor where there are two, stopping at the `\|` inside `(scripts/scan-secrets\.sh\|gitleaks\.toml)`; and `/\^[^^$]*\$/` has the opposite fault, starting at the `^` inside `(^\|/)` and running into the next alternative's `$`. Only depth-aware splitting on **top-level** `\|` is right. |
+
+Mutants: widening the exclusion to the directory fails **two** tests, removing it fails **two**, and
+quietly adding a fourth path fails **one** — which is that test's only job. **21 mutants, 21 bite,
+across this range.**
+
+**And the process finding I first wrote here was wrong, which is worth more than if it had been
+right.** The first version of this section said the protocol's gate recipe omits the base ref, *"so
+every local gate run in this project has been scanning nothing"*, and recommended changing it. **The
+protocol is correct.** `13-PHASE-01-EXECUTION-PROTOCOL.md:81` already reads
+
+```bash
+bash .github/scripts/scan-secrets.sh "$(git merge-base origin/main HEAD)" .
+```
+
+— the exact form that reproduces the failure. What omitted the base ref was **my own gate script for
+this session**, which wrote `bash .github/scripts/scan-secrets.sh` bare and so silently ran the
+scan-nothing path. The defect was not following the documented recipe.
+
+That is the more useful finding, and the less flattering one: **a guard can be documented correctly
+and still be bypassed by the person re-typing it from memory into an ad-hoc script.** The protocol
+needs no change. What would actually prevent a recurrence is the gate being a committed script that
+is run rather than a code block that is copied — the same reasoning that put `ledger-tool.py` in the
+repository instead of leaving the ledger to be hand-edited. **Recommended as a small Phase 01 item:
+move §4's block into `.github/scripts/local-gate.sh` and have the protocol tell a session to run
+that.** Not done here, because changing the project's gate definition is wider than this task.
+
 ---
 
 ## I. The Phase 01 acceptance matrix
@@ -1349,9 +1426,9 @@ explicit that a sum of task tests is not the same thing.
 | G7 | Flutter admin and Lynomia Chat contracts | **PASS** | Contract suite **26 passed / 83 assertions**, executed here. **Its limit, stated:** it replays a committed artifact of Lynomia's producer output; it does not reach a live Lynomia. |
 | G8 | Storefront and theme compatibility, Arabic (RTL) and English (LTR), contrast-checked | **NOT VERIFIED** | No UI changed in this session — P1-INV-10's empty-group fix was deliberately made in the controller so `attribute_combinations.blade.php` did not have to be touched. The token-level contrast gate (F6) is in CI; rendered-page checking is not. |
 | G9 | MySQL-specific validation for anything schema-sensitive | **NOT VERIFIED** | F4. |
-| G10 | CI and the security attestation on the final head | **PARTIAL** | The local gate is green on the committed tree (H.4) and PR #3 carries the §21 attestation for this range. **GitHub Actions CI on the final head had not reported when this report was written** — it is pushed and watched, and the result belongs in the next update rather than being predicted here. |
+| G10 | CI and the security attestation on the final head | **PARTIAL** | PR #3 carries the §21 attestation for this range (posted as a comment, not a body edit — the body is 43 KB and records a classifier truncating a full-body rewrite once). **CI on the first pushed head FAILED**: *Secret scan* exit 1 on the scanner's own test fixture — see H.7, which is the finding this row is actually about. Fixed and re-pushed; the attestation runs were `success` throughout. The post-fix CI result belongs in the next update rather than being predicted here. |
 
-### H. Honest limits — recorded, as the criterion requires
+### Criteria group H — "Honest limits", recorded as the criterion requires
 
 **PASS.** All four classes are recorded, and this is the criterion that makes the rest of the matrix
 readable rather than decorative:
