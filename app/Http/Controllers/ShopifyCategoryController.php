@@ -22,7 +22,7 @@ class ShopifyCategoryController extends Controller
             if(isset($setting['shopify_setting_enabled']) && $setting['shopify_setting_enabled'] == 'on')
             {
                 try {
-                    $shopify_store_url = \App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore());
+                    $shopify_store_url = \App\Services\ImportStoreUrl::shopifyLabel(\App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore()));
                     $shopify_access_token = \App\Models\Utility::GetValueByName('shopify_access_token', getCurrentStore());
                    
                     $curl = curl_init();
@@ -78,7 +78,7 @@ class ShopifyCategoryController extends Controller
         
         if (auth()->user() && auth()->user()->isAbleTo('Create Shopify Category')) {
             try {
-                $shopify_store_url = \App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore());
+                $shopify_store_url = \App\Services\ImportStoreUrl::shopifyLabel(\App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore()));
                 $shopify_access_token = \App\Models\Utility::GetValueByName('shopify_access_token', getCurrentStore());
                 
                 $curl = curl_init();
@@ -188,7 +188,7 @@ class ShopifyCategoryController extends Controller
         
         if (auth()->user() && auth()->user()->isAbleTo('Edit Shopify Category')) {
             try {
-                $shopify_store_url = \App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore());
+                $shopify_store_url = \App\Services\ImportStoreUrl::shopifyLabel(\App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore()));
                 $shopify_access_token = \App\Models\Utility::GetValueByName('shopify_access_token', getCurrentStore());
                
                 $curl = curl_init();

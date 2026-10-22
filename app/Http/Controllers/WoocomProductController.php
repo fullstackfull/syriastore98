@@ -36,7 +36,7 @@ class WoocomProductController extends Controller
         if(isset($setting['woocommerce_setting_enabled']) && $setting['woocommerce_setting_enabled'] == 'on')
         {
             try{               
-                $woocommerce_store_url =Utility::GetValueByName('woocommerce_store_url',getCurrentStore());
+                $woocommerce_store_url =\App\Services\ImportStoreUrl::woocommerceBase(Utility::GetValueByName('woocommerce_store_url',getCurrentStore()));
                 $woocommerce_consumer_secret =Utility::GetValueByName('woocommerce_consumer_secret',getCurrentStore());
                 $woocommerce_consumer_key =Utility::GetValueByName('woocommerce_consumer_key',getCurrentStore());
 
@@ -105,7 +105,7 @@ class WoocomProductController extends Controller
                 return redirect()->back()->with('error', __('Your Product limit is over, Please upgrade plan'));
             }
             
-            $woocommerce_store_url =Utility::GetValueByName('woocommerce_store_url', getCurrentStore());
+            $woocommerce_store_url =\App\Services\ImportStoreUrl::woocommerceBase(Utility::GetValueByName('woocommerce_store_url', getCurrentStore()));
             $woocommerce_consumer_secret =Utility::GetValueByName('woocommerce_consumer_secret', getCurrentStore());
             $woocommerce_consumer_key =Utility::GetValueByName('woocommerce_consumer_key', getCurrentStore());
 
@@ -299,7 +299,7 @@ class WoocomProductController extends Controller
         
         if(auth()->user() && auth()->user()->isAbleTo('Edit Woocommerce Product'))
         {
-            $woocommerce_store_url = Utility::GetValueByName('woocommerce_store_url',getCurrentStore());
+            $woocommerce_store_url = \App\Services\ImportStoreUrl::woocommerceBase(Utility::GetValueByName('woocommerce_store_url',getCurrentStore()));
             $woocommerce_consumer_secret = Utility::GetValueByName('woocommerce_consumer_secret',getCurrentStore());
             $woocommerce_consumer_key = Utility::GetValueByName('woocommerce_consumer_key',getCurrentStore());
 

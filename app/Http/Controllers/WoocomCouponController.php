@@ -26,7 +26,7 @@ class WoocomCouponController extends Controller
             {
                 try{
                     $theme_name = !empty(APP_THEME()) ? APP_THEME() : env('DATA_INSERT_APP_THEME');
-                    $woocommerce_store_url = Utility::GetValueByName('woocommerce_store_url',$theme_name, getCurrentStore());
+                    $woocommerce_store_url = \App\Services\ImportStoreUrl::woocommerceBase(Utility::GetValueByName('woocommerce_store_url',$theme_name, getCurrentStore()));
                     $woocommerce_consumer_secret = Utility::GetValueByName('woocommerce_consumer_secret',$theme_name, getCurrentStore());
                     $woocommerce_consumer_key = Utility::GetValueByName('woocommerce_consumer_key',$theme_name, getCurrentStore());
 
@@ -124,7 +124,7 @@ class WoocomCouponController extends Controller
         if (auth()->user() && auth()->user()->isAbleTo('Create Woocommerce Coupon'))
         {
             $theme_name = !empty(APP_THEME()) ? APP_THEME() : env('DATA_INSERT_APP_THEME');
-            $woocommerce_store_url = Utility::GetValueByName('woocommerce_store_url',$theme_name, getCurrentStore());
+            $woocommerce_store_url = \App\Services\ImportStoreUrl::woocommerceBase(Utility::GetValueByName('woocommerce_store_url',$theme_name, getCurrentStore()));
             $woocommerce_consumer_secret = Utility::GetValueByName('woocommerce_consumer_secret',$theme_name, getCurrentStore());
             $woocommerce_consumer_key = Utility::GetValueByName('woocommerce_consumer_key',$theme_name, getCurrentStore());
 
@@ -179,7 +179,7 @@ class WoocomCouponController extends Controller
         if(auth()->user() && auth()->user()->isAbleTo('Edit Woocommerce Coupon'))
         {
             $theme_name = !empty(APP_THEME()) ? APP_THEME() : env('DATA_INSERT_APP_THEME');
-            $woocommerce_store_url = Utility::GetValueByName('woocommerce_store_url',$theme_name, getCurrentStore());
+            $woocommerce_store_url = \App\Services\ImportStoreUrl::woocommerceBase(Utility::GetValueByName('woocommerce_store_url',$theme_name, getCurrentStore()));
             $woocommerce_consumer_secret = Utility::GetValueByName('woocommerce_consumer_secret',$theme_name, getCurrentStore());
             $woocommerce_consumer_key = Utility::GetValueByName('woocommerce_consumer_key',$theme_name, getCurrentStore());
 

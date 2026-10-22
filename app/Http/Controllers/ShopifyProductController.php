@@ -31,7 +31,7 @@ class ShopifyProductController extends Controller
             $setting = getAdminAllsetting();
             if (isset($setting['shopify_setting_enabled']) && $setting['shopify_setting_enabled'] == 'on') {
                 try {
-                    $shopify_store_url = \App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore());
+                    $shopify_store_url = \App\Services\ImportStoreUrl::shopifyLabel(\App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore()));
                     $shopify_access_token = \App\Models\Utility::GetValueByName('shopify_access_token', getCurrentStore());
 
                     $limit = $request->input('limit', 10);
@@ -163,7 +163,7 @@ class ShopifyProductController extends Controller
                     return redirect()->back()->with('error', __('Your Product limit is over, Please upgrade plan'));
                 }
                 $store_id = getStoreById(getCurrentStore());
-                $shopify_store_url = \App\Models\Utility::GetValueByName('shopify_store_url',  getCurrentStore());
+                $shopify_store_url = \App\Services\ImportStoreUrl::shopifyLabel(\App\Models\Utility::GetValueByName('shopify_store_url',  getCurrentStore()));
                 $shopify_access_token = \App\Models\Utility::GetValueByName('shopify_access_token',  getCurrentStore());
 
                 $curl = curl_init();
@@ -463,7 +463,7 @@ class ShopifyProductController extends Controller
         if (auth()->user() && auth()->user()->isAbleTo('Edit Shopify Product')) {
             try {
                 $store_id = getStoreById(getCurrentStore());
-                $shopify_store_url = \App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore());
+                $shopify_store_url = \App\Services\ImportStoreUrl::shopifyLabel(\App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore()));
                 $shopify_access_token = \App\Models\Utility::GetValueByName('shopify_access_token', getCurrentStore());
 
                 $curl = curl_init();

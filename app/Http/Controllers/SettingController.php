@@ -933,7 +933,18 @@ $u->save();
             $validator = \Validator::make(
                 $request->all(),
                 [
-                    'woocommerce_store_url' => 'required|string',
+                    // P1-SEC-06. `required|string` accepted anything, and the value is interpolated into
+                    // the importers' outbound base address, so it had to be judged somewhere. It IS judged
+                    // at the read (ImportStoreUrl::woocommerceBase, which fails closed), and this is the
+                    // layer that gives the merchant a readable reason instead of a failed import.
+                    'woocommerce_store_url' => ['required', 'string', 'max:255', function ($attribute, $value, $fail) {
+                        // SYNTAX ONLY, no DNS -- see ImportStoreUrl::isWellFormedWoocommerceBase for why
+                        // a write-time resolution is both an availability regression and a TOCTOU check
+                        // that buys nothing. The address itself is judged immediately before each fetch.
+                        if (! \App\Services\ImportStoreUrl::isWellFormedWoocommerceBase($value)) {
+                            $fail(__('The WooCommerce store URL must be an http or https address with no credentials in it.'));
+                        }
+                    }],
                     'woocommerce_consumer_key' => 'required|string',
                     'woocommerce_consumer_secret' => 'required|string',
                 ]
@@ -989,7 +1000,16 @@ $u->save();
             $validator = \Validator::make(
                 $request->all(),
                 [
-                    'shopify_store_url' => 'required|string',
+                    // P1-SEC-06. This field is a shop NAME -- one DNS label -- and `required|string` let a
+                    // value like `169.254.169.254#` be stored, which ends the host and comments the
+                    // `.myshopify.com` suffix out of the thirteen URLs built from it. Judged at the read
+                    // too (ImportStoreUrl::shopifyLabel, which fails closed); this layer is the readable
+                    // refusal.
+                    'shopify_store_url' => ['required', 'string', 'max:63', function ($attribute, $value, $fail) {
+                        if (! \App\Services\ImportStoreUrl::isValidShopifyLabel($value)) {
+                            $fail(__('The Shopify store name must be the shop name only -- letters, digits and hyphens, with no dots, scheme or slashes.'));
+                        }
+                    }],
                     'shopify_access_token' => 'required|string',
                 ]
             );

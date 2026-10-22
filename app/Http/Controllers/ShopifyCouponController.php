@@ -21,7 +21,7 @@ class ShopifyCouponController extends Controller
             {
                 try {
                     $theme_name = !empty(APP_THEME()) ? APP_THEME() : env('DATA_INSERT_APP_THEME');
-                    $shopify_store_url = \App\Models\Utility::GetValueByName('shopify_store_url', $theme_name, getCurrentStore());
+                    $shopify_store_url = \App\Services\ImportStoreUrl::shopifyLabel(\App\Models\Utility::GetValueByName('shopify_store_url', $theme_name, getCurrentStore()));
                     $shopify_access_token = \App\Models\Utility::GetValueByName('shopify_access_token', $theme_name, getCurrentStore());
                   
                     $curl = curl_init();
@@ -99,7 +99,7 @@ class ShopifyCouponController extends Controller
         
         if (auth()->user() && auth()->user()->isAbleTo('Create Shopify Coupon')) {
             $theme_name = !empty(APP_THEME()) ? APP_THEME() : env('DATA_INSERT_APP_THEME');
-            $shopify_store_url = \App\Models\Utility::GetValueByName('shopify_store_url', $theme_name, getCurrentStore());
+            $shopify_store_url = \App\Services\ImportStoreUrl::shopifyLabel(\App\Models\Utility::GetValueByName('shopify_store_url', $theme_name, getCurrentStore()));
             $shopify_access_token = \App\Models\Utility::GetValueByName('shopify_access_token', $theme_name, getCurrentStore());
             
             $curl = curl_init();
@@ -173,7 +173,7 @@ class ShopifyCouponController extends Controller
             try {
                 $theme_name = !empty(APP_THEME()) ? APP_THEME() : env('DATA_INSERT_APP_THEME');
                 $store_id = getStoreById(getCurrentStore());
-                $shopify_store_url = \App\Models\Utility::GetValueByName('shopify_store_url', $theme_name, getCurrentStore());
+                $shopify_store_url = \App\Services\ImportStoreUrl::shopifyLabel(\App\Models\Utility::GetValueByName('shopify_store_url', $theme_name, getCurrentStore()));
                 $shopify_access_token = \App\Models\Utility::GetValueByName('shopify_access_token', $theme_name, getCurrentStore());
 
                 $curl = curl_init();
