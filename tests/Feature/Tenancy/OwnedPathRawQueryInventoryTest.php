@@ -197,10 +197,13 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             // ("every member refuses cross-tenant access") holds for it only because of P1-SEC-34: before that fix the two storefront
             // routes DERIVED a tenant without ever refusing on one, which is the exact drift that made 'derivation' a separate category.
             //
-            // The file's five reads are not all one shape, and this inventory keys on the PATH, so they are named here instead:
+            // The file's six reads are not all one shape, and this inventory keys on the PATH, so they are named here instead:
             //   COMPARISON  `customers` (customerBelongsTo) -- fetches the customer's `store_id` with no predicate precisely so it can be
-            //               compared with the caller's store and the request refused; the shopper-comment, merchant-reply and
-            //               thread-read/delete rules all turn on it.
+            //               compared with the caller's store and the request refused; the merchant-reply and thread-read/delete rules
+            //               turn on it.
+            //   TENANT      `customers` (sameShopperInStore, the P1-SEC-34 follow-up) -- carries its own `store_id` predicate: it resolves
+            //               the SLUG STORE'S OWN row for the signed-in shopper, so a comment is always filed under a customer of the store
+            //               being written, without refusing a shopper the storefront has already told is signed in there.
             //   TENANT      `products` (productOfStoreOrAbsent) -- carries its own `store_id` predicate; a named product must belong to
             //               the slug's store or the request is refused.
             //   DERIVATION  `stores` x3 -- the two {storeSlug} resolutions and the thread read's by-id lookup. These fetch the
@@ -387,7 +390,9 @@ class OwnedPathRawQueryInventoryTest extends TestCase
         // refund-id -> order-id read (P1-ORD-12, in a file already classified 'comparison').
         // 26 -> 31: ModuleStorefrontInputGuard's five reads (`customers`, `products`, `stores` x3), which cdc213bd added to the stack and
         // did not record here -- the omission that failed this assertion and the two totals in RawQueryTenancyInventoryTest.
-        $this->assertCount(31, $sites, "The owned-path raw query inventory changed:\n  "
+        // 31 -> 32 with the P1-SEC-34 follow-up's sameShopperInStore() -- a sixth read in the same file, 'comparison' like the rest of it:
+        // it resolves the slug store's OWN customer for the signed-in shopper so the write is always a customer of the store being written.
+        $this->assertCount(32, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry

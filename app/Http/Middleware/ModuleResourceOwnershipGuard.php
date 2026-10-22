@@ -242,6 +242,57 @@ class ModuleResourceOwnershipGuard
             'parameter' => 'id',
             'permission' => 'Edit Digital Product',
         ],
+
+        /*
+         * --- ProductReview: THE THIRD CLONE OF THE SAME SHAPE, P1-SEC-34 FOLLOW-UP ---
+         *
+         * Found by the read-only multi-lens review of the P1-SEC-34 fix, which CORRECTED that commit's own record. P1-SEC-34 called the
+         * merchant-side review routes "authenticated, same-tenant ... a staff member able to put script on the owner's screen". That is
+         * true of store() (ProductReviewController.php:69 sets store_id = getCurrentStore()) and FALSE of update(), which is CROSS-TENANT:
+         *
+         *   Workdo\ProductReview\app\Models\ProductReview uses only HasFactory + Cachable -- NO BelongsToStore -- and the model is absent
+         *   from config/tenancy.php `scoped_models`, so by StoreScope::isActiveFor it adds NO predicate for ANY principal. All three
+         *   handlers are therefore `ProductReview::find($id)` on a shared auto-increment id:
+         *     edit()    :87  -- NO PERMISSION CHECK AT ALL, renders the row into a Form::model() view (another store's review text)
+         *     update()  :118 -- checks 'Edit Product Review', never the owner, and never sets store_id, so another store's row is
+         *                       rewritten IN PLACE and keeps ITS store_id
+         *     destroy() :143 -- checks 'Delete Product Review', never the owner
+         *
+         * WHY update() IS THE SEVERE ONE, and why it is this guard's business rather than the input guard's: `description` is in
+         * ProductReviewDataTable's rawColumns (:59) on a displayed column (:87), i.e. opted OUT of Yajra's default escaping. So a merchant
+         * of store A rewrote store B's review with markup, the row kept store_id = B, and B's own Product Review screen then rendered it as
+         * live HTML in B's admin origin under B's session. Closing the OWNERSHIP question closes that; the markup question on the routes a
+         * merchant legitimately owns is separate and is recorded, not fixed, against P1-OWN-12 (#108).
+         *
+         * `product_reviews.store_id` is NULLABLE (its migration :22), and readRowStore returns null for such a row, so a legacy review with
+         * no store is refused to everyone rather than offered to the first caller. That is the correct direction: an unowned row has no
+         * owner to compare against.
+         *
+         * NO FALSE DENIAL on the edit read: the module gates its Edit button on 'Edit Product Review'
+         * (resources/views/product-review/action.blade.php:4-5, a Laratrust @permission, which resolves through hasPermission() and not
+         * Laravel's Gate, so `permissions_as_gates => false` does not make it vacuous), so everyone who legitimately reaches the screen
+         * already holds the name -- and the trait tests the operator FIRST, which is the one principal isAbleTo() refuses.
+         */
+        'GET product-review/{product_review}/edit' => [
+            'table' => 'product_reviews',
+            'parameter' => 'product_review',
+            'permission' => 'Edit Product Review',
+        ],
+        'PUT product-review/{product_review}' => [
+            'table' => 'product_reviews',
+            'parameter' => 'product_review',
+            'permission' => 'Edit Product Review',
+        ],
+        'PATCH product-review/{product_review}' => [
+            'table' => 'product_reviews',
+            'parameter' => 'product_review',
+            'permission' => 'Edit Product Review',
+        ],
+        'DELETE product-review/{product_review}' => [
+            'table' => 'product_reviews',
+            'parameter' => 'product_review',
+            'permission' => 'Delete Product Review',
+        ],
     ];
 
     public function handle(Request $request, Closure $next): Response

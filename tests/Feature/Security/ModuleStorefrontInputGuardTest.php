@@ -396,6 +396,32 @@ class ModuleStorefrontInputGuardTest extends SecurityTestCase
         $this->assertSame(1, DB::table('product_comments')->count());
     }
 
+    public function test_a_shopper_registered_at_both_stores_still_comments_and_the_row_is_the_slug_stores_own_customer(): void
+    {
+        // THE REGRESSION THE FIRST VERSION OF THIS FIX INTRODUCED, found by its review. Customer e-mail uniqueness is per
+        // (email, store_id), so one person legitimately holds a row at each store; `Utility::CustomerAuthCheck()` then answers "signed in
+        // here" on store B BY E-MAIL while auth('customers') is still A's row, SpamPrevent's widget renders on that basis, and the widget's
+        // send AJAX has no error callback -- so a 403 was invisible. The guard must RESOLVE, not refuse.
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $atA = $this->shopper($storeA);
+        $atB = Customer::forceCreate([
+            'first_name' => 'Same', 'last_name' => 'Person', 'email' => $atA->email,   // the SAME address, legitimately, in store B
+            'mobile' => '555' . random_int(100000, 999999), 'password' => bcrypt('not-a-real-password'),
+            'store_id' => $storeB->id, 'status' => 1, 'register_type' => 'email',
+        ]);
+
+        $this->actingAs($atA, 'customers')->post('/' . $storeB->slug . '/spamprevent', ['comment' => 'hello from B'])->assertOk();
+
+        $row = DB::table('product_comments')->first();
+        $this->assertNotNull($row, 'The journey the storefront offers was refused.');
+        $this->assertSame($storeB->id, (int) $row->store_id);
+        $this->assertSame($atB->id, (int) $row->customer_id, "The comment was filed under store A's customer, which is the cross-tenant write.");
+        $this->assertSame($atB->id, (int) $row->created_by);
+        $this->assertNotSame($atA->id, (int) $row->customer_id);
+    }
+
     public function test_a_comment_naming_another_stores_product_or_one_that_does_not_exist_is_refused(): void
     {
         [$a, $storeA] = $this->makeTenant();
@@ -449,6 +475,56 @@ class ModuleStorefrontInputGuardTest extends SecurityTestCase
         $this->assertStringNotContainsString('<', (string) $row->title);
         $this->assertStringContainsString('good', (string) $row->description);
         $this->assertStringContainsString('nice', (string) $row->title);
+        // ENCODED, not deleted: the tag text must survive as entities, so nothing of the shopper's review is lost
+        $this->assertStringContainsString('&lt;script&gt;', (string) $row->description);
+        $this->assertStringContainsString('product', (string) $row->description);
+        $this->assertStringContainsString('&lt;img', (string) $row->title);
+    }
+
+    /**
+     * The defect the first version of this control had, and the reason it encodes instead of stripping. `strip_tags()` enters tag state on
+     * any '<' not followed by whitespace and discards to the next '>' or end of string, so ordinary reviews lost their tail silently.
+     */
+    public function test_ordinary_review_text_containing_a_less_than_sign_is_not_truncated(): void
+    {
+        [$owner, $store] = $this->makeTenant();
+        $product = $this->productIn($store, $owner);
+        $category = (int) DB::table('categories')->insertGetId(['name' => 'c-' . uniqid(), 'slug' => 'c-' . uniqid(), 'store_id' => $store->id]);
+
+        foreach ([
+            'Arrived in <2 days, great seller' => ['Arrived in', 'days, great seller'],
+            'I ordered <3 items and all were perfect' => ['I ordered', 'items and all were perfect'],
+            'منتج رائع، وصل في <2 أيام' => ['منتج رائع', 'أيام'],
+        ] as $text => $mustSurvive) {
+            DB::table('product_reviews')->delete();
+
+            $this->post('/' . $store->slug . '/product-review', [
+                'description' => $text, 'rating_no' => 5, 'product_id' => $product->id, 'category_id' => $category,
+            ]);
+
+            $stored = (string) (DB::table('product_reviews')->first()->description ?? '');
+            $this->assertNotSame('', $stored, "The review was refused outright: " . $text);
+
+            foreach ($mustSurvive as $fragment) {
+                $this->assertStringContainsString($fragment, $stored, "strip_tags-style truncation lost part of: " . $text);
+            }
+
+            $this->assertStringNotContainsString('<', $stored, 'A raw < reached the rawColumns sink.');
+        }
+    }
+
+    public function test_a_review_whose_text_is_only_markup_is_refused_by_the_modules_own_required_rule(): void
+    {
+        // Encoding keeps this case safe without a special branch: description[] is not a string, so it becomes '' and the module refuses it.
+        [$owner, $store] = $this->makeTenant();
+        $product = $this->productIn($store, $owner);
+        $category = (int) DB::table('categories')->insertGetId(['name' => 'c-' . uniqid(), 'slug' => 'c-' . uniqid(), 'store_id' => $store->id]);
+
+        $this->post('/' . $store->slug . '/product-review', [
+            'description' => ['<script>alert(1)</script>'], 'rating_no' => 5, 'product_id' => $product->id, 'category_id' => $category,
+        ]);
+
+        $this->assertSame(0, DB::table('product_reviews')->count());
     }
 
     public function test_premise_the_vendored_review_table_still_prints_description_unescaped(): void

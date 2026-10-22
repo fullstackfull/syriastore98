@@ -20,9 +20,10 @@ use Symfony\Component\HttpFoundation\Response;
  *       - an anonymous visitor posted a comment as ANY customer id (customer_id and created_by were the body's) with raw HTML in it, and the
  *         merchant's reply modal renders refreshed comments with `${comment.comment}` UNESCAPED (reply.blade.php:302-312): stored script in the
  *         merchant admin origin. Now: a signed-in SHOPPER OF THE SLUG'S STORE only (the widget exists only for one), `customer_id` is the
- *         session's, a `product_id` must belong to that store, and the comment is stripped of markup. The store and product checks are
- *         P1-SEC-34, and they close a cross-tenant WRITE whose downstream exposure is latent rather than live -- the two screens that
- *         read these columns were measured and neither crashes nor leaks (see shopperComment and productOfStoreOrAbsent).
+ *         session's -- RESOLVED to the slug store's own row for that shopper, not merely compared, so the journey the storefront offers
+ *         a shopper registered at two stores survives -- a `product_id` must belong to that store, and the comment is stripped of markup.
+ *         The store and product checks are P1-SEC-34; they close a cross-tenant WRITE whose downstream exposure is latent rather than
+ *         live (the two screens that read these columns were measured and neither crashes nor leaks).
  *   fetch.comments            GET spam-fetch-prevent  (the thread read, used by the shopper's widget AND the merchant's modal)
  *       - read any customer's thread in any store by id, anonymously. Now: a shopper reads their own thread; a merchant-side user reads a thread
  *         of a customer of THEIR current store (the platform operator may read any); anonymous is refused.
@@ -35,7 +36,8 @@ use Symfony\Component\HttpFoundation\Response;
  *       - an anonymous visitor planted a review into ANY store (store_id from the body) with a status of their choosing, and the title and
  *         description went in raw although the merchant's review table prints `description` UNESCAPED through the DataTable's rawColumns
  *         (ProductReviewDataTable:59) -- anonymous stored script in the merchant admin origin. Now: `store_id` is the slug's store,
- *         `status` is the form's own value (1), a `product_id` must belong to that store, and title/description are stripped (P1-SEC-34).
+ *         `status` is the form's own value (1), a `product_id` must belong to that store, and title/description are HTML-ENCODED
+ *         (P1-SEC-34; encoded rather than stripped -- strip_tags truncated ordinary reviews at the first '<', see review()).
  *
  * Every refusal is a 403 JSON / redirect, never a 401. Who the operator is: `users.type` 'super admin', tested first.
  */
@@ -67,15 +69,30 @@ class ModuleStorefrontInputGuard
         $customer = auth('customers')->user();
         $store = is_string($slug) ? DB::table('stores')->where('slug', $slug)->first(['id']) : null;
 
-        // P1-SEC-34. The shopper must be the SLUG STORE'S OWN. `customers` is a session guard on one host, so a shopper signed in at
-        // store A reaches store B's `{storeSlug}/spamprevent` carrying A's session: deriving `customer_id` from that session (which is
-        // what closed the impersonation) still files an A customer under store B, i.e. a cross-tenant WRITE into store B's
-        // `product_comments`. What that row then does downstream was MEASURED, not assumed, and it is less than it looks:
-        // SpamPreventController::index does deref `Customer::find($customerId)->first_name` and `Customer` IS scoped (a foreign
-        // customer resolves to null, confirmed), but in PHP 8.3 a property read on null is a WARNING, not an Error -- the screen
-        // returned 200, including under withoutExceptionHandling(). So the exposure is LATENT: it needs a consumer that reads these
-        // columns without a tenant check, and the ones that exist today do not. The boundary itself is the control.
-        if (! $customer || ! $store || (int) $customer->store_id !== (int) $store->id) {
+        if (! $customer || ! $store) {
+            return $this->deny($request);
+        }
+
+        // P1-SEC-34, as CORRECTED by its own review. The row must be the SLUG STORE'S OWN customer: `customers` is one session guard on
+        // one host, so a shopper signed in at store A reaches store B's `{storeSlug}/spamprevent` carrying A's session, and deriving
+        // `customer_id` from that session -- which is what closed the impersonation -- still files an A customer under store B.
+        //
+        // BUT REFUSING THAT OUTRIGHT DENIES A JOURNEY THE PLATFORM ITSELF OFFERS, which the first version of this fix did. Customer
+        // e-mail uniqueness is per (email, store_id) -- the register validator only rejects an address already present IN THAT STORE
+        // (CustomerLoginController:880-888) -- so one person legitimately holds a row at A and at B. The platform's own "is this shopper
+        // signed in here" helper, `Utility::CustomerAuthCheck()`, answers BY E-MAIL INSIDE THE SLUG STORE (Utility:1054), so on store B it
+        // says yes while `auth('customers')->user()` is still A's row; SpamPrevent's ViewComposer renders the widget on that basis alone
+        // (ViewComposer:25-33 asks only that a customer is signed in and that B enables the feature); and the widget's send AJAX has a
+        // `success` callback and NO `error` one (theme/icon_view.blade.php:363-393), so a 403 showed the shopper nothing at all -- no
+        // toast, textarea not cleared, comment gone.
+        //
+        // So RESOLVE rather than refuse, using the platform's own definition: the slug store's own row for this e-mail. The write is still
+        // always a customer OF THE STORE BEING WRITTEN -- which is the whole point of the check -- and the journey survives.
+        $customerId = (int) $customer->store_id === (int) $store->id
+            ? (int) $customer->id
+            : $this->sameShopperInStore($customer, (int) $store->id);
+
+        if ($customerId === null) {
             return $this->deny($request);
         }
 
@@ -83,9 +100,29 @@ class ModuleStorefrontInputGuard
             return $this->deny($request);
         }
 
-        $request->merge(['customer_id' => (string) $customer->id, 'comment' => $this->plain($request->input('comment'))]);
+        $request->merge(['customer_id' => (string) $customerId, 'comment' => $this->plain($request->input('comment'))]);
 
         return $next($request);
+    }
+
+    /**
+     * The slug store's OWN customer row for the signed-in shopper, matched exactly as `Utility::CustomerAuthCheck()` matches when it tells
+     * the storefront this shopper is signed in here: same `email`, `store_id` = the slug store. Returns null when the store has no such
+     * row, which is the case that still has to be refused -- there is then no customer of that store to attribute the comment to.
+     *
+     * Deliberately NOT a fallback to the session id: that is the cross-tenant write this guard exists to stop.
+     */
+    private function sameShopperInStore(object $customer, int $storeId): ?int
+    {
+        $email = $customer->email ?? null;
+
+        if (! is_string($email) || $email === '' || $storeId <= 0) {
+            return null;
+        }
+
+        $id = DB::table('customers')->where('store_id', $storeId)->where('email', $email)->orderBy('id')->value('id');
+
+        return $id === null ? null : (int) $id;
     }
 
     private function threadRead(Request $request, Closure $next): Response
@@ -174,12 +211,23 @@ class ModuleStorefrontInputGuard
 
         // P1-SEC-34. This route is ANONYMOUS and the merchant's review table prints `description` through the DataTable's
         // rawColumns(['...','description','...']) -- i.e. UNESCAPED into the admin origin (ProductReviewDataTable:59). The module is
-        // vendored, so the markup comes off at the door, exactly as it does on the comment path. `title` gets the same treatment
-        // because the same row is re-rendered by other screens. Only keys the caller actually SENT are rewritten, so an absent
-        // `title` stays absent and the module still writes NULL for it rather than ''.
+        // vendored, so the value is made safe at the door. `title` gets the same treatment because the same row is re-rendered by the
+        // merchant's edit form. Only keys the caller actually SENT are rewritten, so an absent `title` stays absent and the module still
+        // writes NULL for it rather than ''.
+        //
+        // ENCODED, NOT STRIPPED, and that is a correction to this task's first version. `strip_tags()` enters tag state on ANY '<' not
+        // followed by whitespace and discards everything to the next '>' or end of string, so it silently truncated ordinary reviews --
+        // measured on PHP 8.3.6: "Arrived in <2 days, great seller" became "Arrived in", and "<3" became '' and was then refused by the
+        // module's own `description` => `required` rule for text containing no markup at all. The shopper saw the success message either
+        // way. Encoding loses nothing and still executes nothing, because `description`'s only two consumers both decode exactly once:
+        // the rawColumns cell is written with innerHTML, and the merchant's edit form renders through konekt/html's
+        // `e($value, false)` (FormBuilder:573, double_encode OFF), so '&lt;2' stays '&lt;2' in the source and shows as '<2'.
+        //
+        // NOT applied to the comment path's plain(): `product_comments.comment` also has SERVER-escaped `{{ }}` sinks
+        // (SpamPrevent reply.blade.php:169,175 and theme/icon_view.blade.php:286,292), which would then display a literal '&lt;'.
         foreach (['title', 'description'] as $field) {
             if ($request->exists($field)) {
-                $merge[$field] = $this->plain($request->input($field));
+                $merge[$field] = $this->encoded($request->input($field));
             }
         }
 
@@ -245,6 +293,16 @@ class ModuleStorefrontInputGuard
     private function plain(mixed $value): string
     {
         return is_string($value) ? trim(strip_tags($value)) : '';
+    }
+
+    /**
+     * The review's text made inert for an HTML sink WITHOUT losing any of it -- see review()'s note for why encoding rather than
+     * stripping, and for the two consumers that decode it exactly once. A non-string (e.g. `description[]=<script>`) becomes '', which the
+     * module's own `required` rule then refuses, rather than being cast and stored.
+     */
+    private function encoded(mixed $value): string
+    {
+        return is_string($value) ? htmlspecialchars(trim($value), ENT_QUOTES, 'UTF-8') : '';
     }
 
     private function deny(Request $request): Response

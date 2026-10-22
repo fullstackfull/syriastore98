@@ -83,10 +83,14 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
 {
     use RefreshDatabase;
 
-    /** @param list<string> $modules the guard's own census enables DigitalProduct as well (P1-INV-23); every other case needs only the auction */
+    /** @param list<string> $modules the guard's own census also enables DigitalProduct (P1-INV-23) and ProductReview (the P1-SEC-34 follow-up); every other case needs only the auction */
     private function enableModules(array $modules = ['AuctionProduct']): void
     {
-        $packages = ['AuctionProduct' => ['Auction Product', 'auction-product'], 'DigitalProduct' => ['Digital Product', 'digital-product']];
+        $packages = [
+            'AuctionProduct' => ['Auction Product', 'auction-product'],
+            'DigitalProduct' => ['Digital Product', 'digital-product'],
+            'ProductReview' => ['ProductReview', 'product-review'],   // name/package_name as the module's own module.json declares them
+        ];
 
         foreach ($modules as $module) {
             AddOnManager::create([
@@ -646,7 +650,7 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
      */
     public function test_the_guard_targets_and_the_route_table_agree(): void
     {
-        $this->enableModules(['AuctionProduct', 'DigitalProduct']);
+        $this->enableModules(['AuctionProduct', 'DigitalProduct', 'ProductReview']);
 
         $targets = array_keys(
             (new \ReflectionClass(\App\Http\Middleware\ModuleResourceOwnershipGuard::class))
@@ -655,7 +659,11 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
 
         // 9 auction writes + the two `edit` reads the second review found live + DigitalProduct's twin (P1-INV-23): edit read, PUT, PATCH,
         // DELETE on the resource and the anonymous image delete.
-        $this->assertCount(16, $targets);
+        // 16 -> 20 with ProductReview, the THIRD clone of the same shape (the P1-SEC-34 follow-up): edit read, PUT, PATCH, DELETE. Its
+        // update() is the one that matters -- unscoped ProductReview::find() plus no store_id assignment meant another store's review was
+        // rewritten IN PLACE, keeping that store's store_id, and `description` is in ProductReviewDataTable's rawColumns, so the victim
+        // store's own screen then rendered the attacker's markup in ITS admin origin.
+        $this->assertCount(20, $targets);
 
         $registered = [];
 
@@ -697,6 +705,7 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
             'AuctionProductSettingController@update', 'AuctionProductSettingController@destroy',
             'AuctionOrdersController@update', 'AuctionOrdersController@destroy',
             'DigitalProductController@update', 'DigitalProductController@destroy', 'DigitalProductController@file_delete',
+            'ProductReviewController@update', 'ProductReviewController@destroy',
         ];
 
         $unguarded = [];
@@ -731,7 +740,7 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
             . "second uri, a prefix or a rename will land here:\n  "
             . implode("\n  ", $unguarded));
 
-        // THE SCAN MUST BE REACHABLE. Nine action names are listed; if a controller is renamed
+        // THE SCAN MUST BE REACHABLE. Eleven action names are listed; if a controller is renamed
         // upstream the loop above silently matches nothing and passes vacuously.
         $this->assertSame(
             array_values($guardedActions),
@@ -787,16 +796,18 @@ class ModuleResourceOwnershipTest extends SecurityTestCase
             'Delete Auction Product Order',
             'Delete Auction Setting',
             'Delete Digital Product',
+            'Delete Product Review',
             'Edit Auction Product',
             'Edit Auction Setting',
             'Edit Digital Product',
+            'Edit Product Review',
             'Manage Auction Product Order',
         ], $required);
 
         $this->makeGlobalAdminRole();
-        $this->enableModules(['AuctionProduct', 'DigitalProduct']);
+        $this->enableModules(['AuctionProduct', 'DigitalProduct', 'ProductReview']);
 
-        foreach (['AuctionProduct', 'DigitalProduct'] as $module) {
+        foreach (['AuctionProduct', 'DigitalProduct', 'ProductReview'] as $module) {
             \Illuminate\Support\Facades\Artisan::call('db:seed', [
                 '--class' => 'Workdo\\' . $module . '\\database\\seeders\\' . $module . 'DatabaseSeeder',
                 '--force' => true,
