@@ -519,8 +519,28 @@ class OrderRefundController extends Controller
             $units = (int) $units;
             $placed = false;
 
+            // IS THERE A COUNTER FOR THIS PRODUCT AT ALL? (P1-ORD-14, second pass.) The legacy limb below is
+            // deliberately unbounded, for records that predate the counter -- but `refunded_qty` is written
+            // PER LINE by the refund, so a product on two lines where only one has ever been refunded has one
+            // counted line and one legacy line. That is the normal state of any order whose variants were
+            // partly returned, and it let an entry larger than the counted line's counter skip the bound and
+            // land on the legacy sibling instead of being refused: the product HAD a counter and the bound was
+            // still escaped (measured; the order grew from 3 units to 52).
+            //
+            // So the legacy limb is allowed only when NO line of this product carries a counter. Where one
+            // does, that counter is authoritative and an entry exceeding every counted line is refused.
+            $hasCounter = false;
+
+            foreach ($lines as $line) {
+                if (is_array($line) && (string) ($line['product_id'] ?? '') === (string) $productId && array_key_exists('refunded_qty', $line)) {
+                    $hasCounter = true;
+
+                    break;
+                }
+            }
+
             // a line that KEEPS the counter and lost at least this many units is the right one; only then a line that predates it
-            foreach ([true, false] as $counted) {
+            foreach ($hasCounter ? [true] : [true, false] as $counted) {
                 foreach ($lines as $key => $line) {
                     if (isset($plan[$key]) || ! is_array($line) || (string) ($line['product_id'] ?? '') !== (string) $productId
                         || array_key_exists('refunded_qty', $line) !== $counted) {
@@ -547,15 +567,27 @@ class OrderRefundController extends Controller
     }
 
     /**
-     * Product id => the units its order lines have lost to refunds (`refunded_qty`), or null when any line of that product predates the
-     * counter and so says nothing. A product on no line is absent from the map.
+     * Product id => the units its order lines have lost to refunds (`refunded_qty`), or null ONLY when no line
+     * of that product carries the counter. A product on no line is absent from the map.
+     *
+     * P1-ORD-14, second pass. This used to return null as soon as ANY line of a product predated the counter,
+     * and `RefundStock` skips its clamp on null -- so one legacy sibling made the counter unreadable and an
+     * oversized record restocked unbounded. `refunded_qty` is written PER LINE by the refund, so a product on
+     * two lines where only one has ever been refunded hits that every time: the normal state of an order whose
+     * variants were partly returned. Measured: a record claiming 500 units restocked 500 against a counter of 1.
+     *
+     * A counter that EXISTS is now authoritative -- the sum over the counted lines bounds the product, and the
+     * legacy lines contribute nothing rather than erasing the bound. Only a product whose lines are ALL legacy
+     * is unknown, which is the residual criterion 5 permits ("they may be wrong; they must not be able to
+     * inflate"). Same rule as `restorationPlan()`, so the cancel path and the restock path agree.
      *
      * @return array<string, int|null>
      */
     private function unitsLostByProduct(Order $order): array
     {
         $lines = json_decode((string) $order->product_json, true);
-        $lost = [];
+        $counted = [];
+        $seen = [];
 
         foreach (is_array($lines) ? $lines : [] as $line) {
             if (! is_array($line) || ! isset($line['product_id'])) {
@@ -563,12 +595,19 @@ class OrderRefundController extends Controller
             }
 
             $key = (string) $line['product_id'];
+            $seen[$key] = true;
 
-            if (! array_key_exists('refunded_qty', $line)) {
-                $lost[$key] = null;
-            } elseif (! array_key_exists($key, $lost) || $lost[$key] !== null) {
-                $lost[$key] = ($lost[$key] ?? 0) + max(0, (int) $line['refunded_qty']);
+            if (array_key_exists('refunded_qty', $line)) {
+                $counted[$key] = ($counted[$key] ?? 0) + max(0, (int) $line['refunded_qty']);
             }
+        }
+
+        $lost = [];
+
+        foreach (array_keys($seen) as $key) {
+            // a counted line anywhere on the product makes the sum of the counters the bound; no counted line at
+            // all leaves it unknown
+            $lost[$key] = array_key_exists($key, $counted) ? $counted[$key] : null;
         }
 
         return $lost;

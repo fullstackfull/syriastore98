@@ -299,6 +299,78 @@ class RefundRestoreByProductTest extends SecurityTestCase
         $this->assertSame([500.0, 540.0], $this->totals($order));
     }
 
+    /**
+     * THE BOUND IS BYPASSABLE WHEN ONE PRODUCT SITS ON A COUNTED LINE AND A LEGACY LINE, which is an
+     * ordinary order and not an exotic one.
+     *
+     * `restorationPlan()` makes two passes: the first takes lines that KEEP `refunded_qty` and refuses an
+     * entry larger than that counter; the second takes lines that LACK the key -- with no bound at all,
+     * recorded deliberately as a residual for records that predate P1-ORD-07.
+     *
+     * The two interact. `refunded_qty` is written per line BY THE REFUND, so a product on two lines where
+     * only one has ever been refunded has exactly one counted line and one legacy line -- the normal state
+     * of any order whose variants were partly returned. An entry for that product larger than the counted
+     * line's counter then does not get REFUSED: it falls through to the second pass and lands on the
+     * legacy sibling, unbounded. So the product HAS a counter and the bound is still skipped, which is what
+     * acceptance criterion 3 exists to stop ("a recorded quantity larger than the amount the order line has
+     * ever lost is not added back").
+     *
+     * Here: Shirt S (variant 11, qty 2, never refunded, so no counter) and Shirt M (variant 12, qty 1,
+     * lost 1, counter = 1). A hand-written record claiming 50 units of product 501 exceeds M's counter of
+     * 1, so pass 1 rejects M -- and pass 2 hands all 50 to S.
+     */
+    public function test_an_oversized_record_cannot_escape_the_counter_onto_a_legacy_sibling_line(): void
+    {
+        [, $store] = $this->makeTenant();
+        $shopper = $this->shopper($store);
+        $order = $this->order($store, $shopper, [
+            ['product_id' => 501, 'name' => 'Shirt S', 'variant_id' => 11, 'qty' => 2, 'final_price' => 100],
+            ['product_id' => 501, 'name' => 'Shirt M', 'variant_id' => 12, 'qty' => 1, 'final_price' => 50, 'refunded_qty' => 1],
+        ]);
+        DB::table('orders')->where('id', $order->id)->update(['product_price' => 150, 'final_price' => 190]);
+        $before = DB::table('orders')->where('id', $order->id)->first();
+
+        $refund = $this->hand($order, $store, 'Processing', [['product_refund_id' => 501, 'return_price' => 'x', 'quantity' => 50]]);
+
+        $this->asOperator($store);
+        $response = $this->merchantCancel($refund);
+
+        $lines = $this->lines($order);
+        $this->assertSame(
+            [2, 1],
+            [(int) $lines[0]['qty'], (int) $lines[1]['qty']],
+            'an oversized entry escaped the counted line onto its legacy sibling and inflated the order'
+        );
+        $this->assertSame($before->product_json, $lines !== null ? DB::table('orders')->where('id', $order->id)->value('product_json') : null);
+        $this->assertSame((float) $before->final_price, (float) DB::table('orders')->where('id', $order->id)->value('final_price'));
+        $this->assertSame(422, $response->getStatusCode(), 'the refusal should be the same 422 an oversized record gets on a single line');
+    }
+
+    /**
+     * The converse, so the fix above is a bound and not a blanket refusal: when the product has NO counted
+     * line at all, the legacy path still works. That is the residual criterion 5 permits ("they may be
+     * wrong; they must not be able to inflate") and `test_a_line_without_a_counter_...` already covers the
+     * single-line form; this is the two-line form, which must not be collateral damage.
+     */
+    public function test_a_product_whose_lines_are_all_legacy_still_restores(): void
+    {
+        [, $store] = $this->makeTenant();
+        $shopper = $this->shopper($store);
+        $order = $this->order($store, $shopper, [
+            ['product_id' => 501, 'name' => 'Shirt S', 'variant_id' => 11, 'qty' => 2, 'final_price' => 100],
+            ['product_id' => 501, 'name' => 'Shirt M', 'variant_id' => 12, 'qty' => 1, 'final_price' => 50],
+        ]);
+        DB::table('orders')->where('id', $order->id)->update(['product_price' => 150, 'final_price' => 190]);
+
+        $refund = $this->hand($order, $store, 'Processing', [['product_refund_id' => 501, 'return_price' => 'x', 'quantity' => 1]]);
+
+        $this->asOperator($store);
+        $this->assertSame(200, $this->merchantCancel($refund)->getStatusCode());
+
+        $lines = $this->lines($order);
+        $this->assertSame(4, (int) $lines[0]['qty'] + (int) $lines[1]['qty'], 'one unit came back across the two legacy lines');
+    }
+
     // =========================================================================================
     //  RefundStock
     // =========================================================================================
@@ -365,6 +437,39 @@ class RefundRestoreByProductTest extends SecurityTestCase
         $this->restock($refund);
 
         $this->assertSame(12, (int) DB::table('products')->where('id', $product)->value('product_stock'), 'the same two lost units were restocked twice');
+    }
+
+    /**
+     * THE SAME GAP AS THE CANCEL PATH, reached a different way, so criterion 4 ("RefundStock bounds its
+     * restock the same way") needs its own case.
+     *
+     * `unitsLostByProduct()` returns NULL for a product as soon as ANY of its lines predates the counter,
+     * and `RefundStock` skips the clamp entirely on null. But `refunded_qty` is written PER LINE, so a
+     * product on two lines where only one has ever been refunded yields null -- and the restock of an
+     * oversized record goes through unbounded, even though a counter for that product exists and says 1.
+     *
+     * Two lines of one product, one counted (lost 1) and one never refunded. A record claiming 500 units
+     * must restock 1, not 500.
+     */
+    public function test_restock_cannot_escape_the_counter_when_a_sibling_line_is_legacy(): void
+    {
+        [, $store] = $this->makeTenant();
+        $shopper = $this->shopper($store);
+        $product = $this->stockFixture($store, 10);
+        $order = $this->order($store, $shopper, [
+            ['product_id' => $product, 'name' => 'Shirt S', 'variant_id' => 11, 'qty' => 2, 'final_price' => 100],
+            ['product_id' => $product, 'name' => 'Shirt M', 'variant_id' => 12, 'qty' => 1, 'final_price' => 50, 'refunded_qty' => 1],
+        ]);
+        $refund = $this->hand($order, $store, 'Accept', [['product_refund_id' => $product, 'return_price' => 'x', 'quantity' => 500]]);
+
+        $this->asOperator($store);
+        $this->restock($refund);
+
+        $this->assertSame(
+            11,
+            (int) DB::table('products')->where('id', $product)->value('product_stock'),
+            'a legacy sibling line made the counter unreadable and 500 units were conjured'
+        );
     }
 
     public function test_restock_of_a_line_without_a_counter_is_unchanged(): void
