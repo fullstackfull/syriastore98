@@ -177,7 +177,18 @@ class WoocomCustomerController extends Controller
                 return redirect()->back()->with('success', __('Customer successfully Add.'));
             }
             catch(\Exception $e){
-                    return redirect()->back()->with('success', __('This email alredy use.'));
+                    // P1-INV-13. TWO defects in one line. (a) a FAILURE was flashed as `success`, so the
+                    // merchant was told the import worked; (b) every failure was labelled "This email alredy
+                    // use.", and that cause is never the real one -- `customers.email` carries NO unique index
+                    // (no migration declares one), so a duplicate e-mail does not throw, it inserts a second
+                    // row. What reaches here is a QueryException from save() or a null payload field. Flashed
+                    // as an error and logged instead of guessed at.
+                    \Log::error('WooCommerce customer import failed', [
+                        'store_id' => getCurrentStore(),
+                        'error' => $e->getMessage(),
+                    ]);
+
+                    return redirect()->back()->with('error', __('The customer could not be imported. The failure has been logged.'));
             }
             return redirect()->back()->with('success', __('Customer successfully Add.'));
 
@@ -262,8 +273,16 @@ class WoocomCustomerController extends Controller
                 }
             }
             catch(\Exception $e){
-                return redirect()->back()->with('error', __('This email already used.'));
+                // P1-INV-13, the UPDATE path. Same mislabel as the create path: a duplicate e-mail cannot be
+                // the cause, because `customers.email` carries no unique index. Found by the ratchet in
+                // ImportCustomerFailureReportingTest after my own census of these arms missed this one --
+                // I had keyed it on the create-path's catch shape and this one is spelled differently.
+                \Log::error('WooCommerce customer update failed', [
+                    'store_id' => getCurrentStore(),
+                    'error' => $e->getMessage(),
+                ]);
 
+                return redirect()->back()->with('error', __('The customer could not be updated. The failure has been logged.'));
             }
         }
         else

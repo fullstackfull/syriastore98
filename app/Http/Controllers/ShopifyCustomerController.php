@@ -197,7 +197,11 @@ class ShopifyCustomerController extends Controller
 
                                 $Customer->save();
 
-                                return redirect()->back()->with('success', __('Customer successfully Add , We set customer password 1234.'));
+                                // P1-INV-13. The message said "We set customer password 1234." while the line
+                                // above sets Hash::make(Str::random(64)). A merchant reading it would tell their
+                                // customer a password that does not work, and it advertises a trivially guessable
+                                // one. The Woocom twin already says only "Customer successfully Add."
+                                return redirect()->back()->with('success', __('Customer successfully Add. The customer must use password reset to set a password.'));
                             } else {
                                 return redirect()->back()->with('error', __('Customer Not Found.'));
                             }
@@ -205,7 +209,17 @@ class ShopifyCustomerController extends Controller
                     }
                 }
             } catch (\Exception $e) {
-                return redirect()->back()->with('error', 'This email already used.');
+                // P1-INV-13. This reported EVERY failure as "This email already used." -- and that cause is
+                // never the real one: `customers.email` carries NO unique index (no migration declares one),
+                // so a duplicate e-mail does not throw, it inserts a second row. What actually reaches here
+                // is a QueryException from save() (a NOT NULL column, an over-long value) or a null payload
+                // field, reported to the merchant as a duplicate they do not have. Logged rather than guessed.
+                \Log::error('Shopify customer import failed', [
+                    'store_id' => getCurrentStore(),
+                    'error' => $e->getMessage(),
+                ]);
+
+                return redirect()->back()->with('error', __('The customer could not be imported. The failure has been logged.'));
             }
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));
@@ -313,7 +327,17 @@ class ShopifyCustomerController extends Controller
                     }
                 }
             } catch (\Exception $e) {
-                return redirect()->back()->with('error', 'This email already used.');
+                // P1-INV-13. This reported EVERY failure as "This email already used." -- and that cause is
+                // never the real one: `customers.email` carries NO unique index (no migration declares one),
+                // so a duplicate e-mail does not throw, it inserts a second row. What actually reaches here
+                // is a QueryException from save() (a NOT NULL column, an over-long value) or a null payload
+                // field, reported to the merchant as a duplicate they do not have. Logged rather than guessed.
+                \Log::error('Shopify customer import failed', [
+                    'store_id' => getCurrentStore(),
+                    'error' => $e->getMessage(),
+                ]);
+
+                return redirect()->back()->with('error', __('The customer could not be imported. The failure has been logged.'));
             }
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));
