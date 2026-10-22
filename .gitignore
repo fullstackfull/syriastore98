@@ -39,6 +39,7 @@
 # Artefacts that should never have been committed.
 /error_log
 composer.phar
+/_active', 1)
 .DS_Store
 
 # PHPUnit's per-run cache. Regenerated on every run and machine-specific; it has no

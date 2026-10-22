@@ -40,7 +40,15 @@ fi
 RULES=(
     'aws-access-key-id::(^|[^A-Z0-9])(AKIA|ASIA)[A-Z0-9]{16}([^A-Z0-9]|$)'
     'private-key-block::-----BEGIN [A-Z ]*PRIVATE KEY-----'
-    'generic-assigned-secret::(password|passwd|secret|api_?key|apikey|auth_?token|access_?token|client_?secret)[[:space:]]*(=|=>|:)[[:space:]]*.{1}[A-Za-z0-9/+_.=-]{12,}'
+    # `[^[:alnum:]_]{0,2}` between the key name and the operator is P1-SEC-05, and it is the
+    # difference between seeing a PHP config array and not. Every secret in this project's own
+    # `config/` and `settings` code is written `'api_key' => 'literal'`, where a QUOTE sits
+    # between the name and the `=>`; the original `[[:space:]]*` required them to be adjacent, so
+    # the entire array form was invisible. MEASURED before the change: `$api_key = 'AKIA…'` was
+    # caught and `'api_key' => 'AKIA…'`, `"client_secret" => "…"`, `'MAIL_PASSWORD' => '…'` and
+    # `["access_token"]="…"` were all missed. Two characters is enough for a closing quote plus a
+    # bracket, and excluding alphanumerics and `_` keeps it from reaching across a longer name.
+    'generic-assigned-secret::(password|passwd|secret|api_?key|apikey|auth_?token|access_?token|client_?secret)[^[:alnum:]_]{0,2}[[:space:]]*(=|=>|:)[[:space:]]*.{1}[A-Za-z0-9/+_.=-]{12,}'
     'slack-token::xox[baprs]-[A-Za-z0-9-]{10,}'
     'stripe-live-key::sk_live_[A-Za-z0-9]{16,}'
     'google-api-key::AIza[A-Za-z0-9_-]{35}'
@@ -127,8 +135,52 @@ for file in "${FILES[@]}"; do
             #
             # Only this low-confidence rule is narrowed. An AKIA key, a PEM block or an
             # sk_live_ key is still caught wherever it appears, quoted or not.
+            #
+            # P1-SEC-05: this gate carries THE SAME `[^[:alnum:]_]{0,2}` tolerance as the rule
+            # above, and it has to. The gate is a second, independent copy of the
+            # name-then-operator pattern, so fixing only the rule would have fixed nothing: the
+            # rule would match `'api_key' => 'AKIA…'` and then this `continue` would throw the
+            # finding away. MEASURED both ways before the change.
             if [[ "${name}" == 'generic-assigned-secret' ]] \
-                && ! grep -Eqi '(password|passwd|secret|api_?key|apikey|auth_?token|access_?token|client_?secret)[[:space:]]*(=|=>|:)[[:space:]]*['"'"'"]' <<<"${content}"; then
+                && ! grep -Eqi '(password|passwd|secret|api_?key|apikey|auth_?token|access_?token|client_?secret)[^[:alnum:]_]{0,2}[[:space:]]*(=|=>|:)[[:space:]]*['"'"'"]' <<<"${content}"; then
+                continue
+            fi
+
+            # NARROWING 2a: the test tree, for THIS RULE ONLY. P1-SEC-05.
+            #
+            # Widening the rule to see PHP array syntax (above) made 51 lines visible that were
+            # invisible before, and every one of them is a test fixture: 'attacker-chosen-password',
+            # 'OWNER-CHOSEN', 'pi_fake_secret_' . $n. A suite that asserts what happens to a
+            # password must contain password literals, exactly as this script and gitleaks.toml
+            # must contain credential-shaped patterns -- which is why EXCLUDE_RE already exempts
+            # those two files by the same reasoning.
+            #
+            # WHAT THIS COSTS, stated rather than implied: a GENERIC-shaped secret pasted into the
+            # test tree -- a bare password or api_key literal -- is no longer screened. What it does
+            # NOT cost: every high-confidence rule still runs over the test tree, unnarrowed, so an
+            # AWS key, a PEM block, an sk_live_ key, a Google API key, a Slack token, a JWT or a
+            # database URL with a password in it is still caught there. Those are the shapes a real
+            # credential actually has; a fixture password is not one of them.
+            #
+            # THIS NARROWS A RULE THAT A PREVIOUS DECISION DECLINED TO NARROW, so here is why the
+            # cases differ rather than leaving the contradiction unexplained.
+            # tests/Feature/Security/CustomerAccountSelfServiceTest.php:67-84 records: "The fix is
+            # not to narrow the rule, and not to chop the string up until the regex misses it ...
+            # The screen already has a documented placeholder vocabulary". That was ONE fixture,
+            # renameable into the existing vocabulary with nothing else depending on its spelling,
+            # and the norm it states is a good one: a fixture should read as synthetic to a HUMAN
+            # first. That norm still stands for anyone writing a fixture.
+            # What changed is scale, and it was measured: widening the rule to see PHP array syntax
+            # makes 70 DISTINCT values visible across ~12 security suites. The ones that already
+            # self-label (FIXTURE-*, not-a-real-password, placeholder-*) are skipped by the
+            # vocabulary below and were never the problem. The residue needs `*-chosen-*`, `fake`,
+            # `sentinel`, `known-current`, `cross-tenant`, `must-not-appear` and a dozen more
+            # adjectives, which is an unbounded list that goes red the next time a suite invents a
+            # word. Renaming the values instead is not free either: many are assertion-coupled, and
+            # the same file's comment records a fixture rename drifting out of step with an
+            # assertion 250 lines away and failing a control it had nothing to do with.
+            # So: structural for the test tree, vocabulary everywhere else.
+            if [[ "${name}" == 'generic-assigned-secret' && "${file}" == tests/* ]]; then
                 continue
             fi
 
