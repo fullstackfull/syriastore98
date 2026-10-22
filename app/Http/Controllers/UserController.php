@@ -162,10 +162,9 @@ class UserController extends Controller
                 $user->plan_id = $objUser->plan;
                 $user->is_active = 1;
 
-                if (module_is_active('GoogleAuthentication')) {
-                    $user->google2fa_enable = $objUser->google2fa_enable ;
-                    $user->google2fa_secret = $objUser->google2fa_secret;
-                }
+                // P1-SEC-16. This block COPIED the creator's TOTP seed and enable flag onto the new sub-user, so two accounts shared one
+                // authenticator secret: the creator's phone generated the sub-user's codes. A new user starts without two-factor and enrols their
+                // own seed (behaviour change, recorded on the task).
 
                 $user->save();
 

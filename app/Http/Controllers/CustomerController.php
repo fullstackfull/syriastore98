@@ -92,7 +92,7 @@ public function store(Request $request)
         
         return redirect()->back()
             ->withErrors($e->validator)
-            ->withInput()
+            ->withInput($request->except(['password', 'password_confirmation']))
             ->with('error', 'Validation failed: ' . implode(', ', $errorMessages));
             
     } catch (\Exception $e) {
@@ -103,7 +103,7 @@ public function store(Request $request)
         ]);
         return redirect()->back()
             ->with('error', 'Error: ' . $e->getMessage())
-            ->withInput();
+            ->withInput($request->except(['password', 'password_confirmation']));
     }
 }
 

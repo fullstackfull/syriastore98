@@ -66,6 +66,7 @@ class Customer extends Authenticatable implements CanResetPasswordContract
     protected $hidden = [
         'password',
         'remember_token',
+        'password_otp',   // P1-SEC-16: the reset one-time code / hash rode toArray()/JSON
     ];
 
     /**

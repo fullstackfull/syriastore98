@@ -39,12 +39,31 @@ trait RedactsApiLogFields
         'api_key', 'secret', 'authorization',
     ];
 
+    /**
+     * Whole WORDS of a key that mark a credential, matched on its segments (`user_pass`, `cardNumber`, `x-api-key`, `Cookie`) and not as a
+     * substring: `pin` would otherwise redact `shipping`, `key` would redact `monkey`. P1-SEC-16 -- the original list missed every
+     * password written as `pass`/`pwd`, every `key`, card field, `cvv`, `pin`, one-time `code` and `cookie`, so they reached api-*.log
+     * (15-day retention) in plaintext. `code` also redacts coupon and country codes from the log: the diagnostics lost are the cheaper side.
+     */
+    private const REDACT_WORDS = [
+        'pass', 'passwd', 'pwd', 'key', 'card', 'cvv', 'cvc', 'pin', 'code', 'cookie', 'signature', 'session', 'csrf', 'xsrf', 'bearer',
+    ];
+
     protected function shouldRedact(string $key): bool
     {
         $needle = strtolower($key);
 
         foreach (self::REDACT as $sensitive) {
             if (str_contains($needle, $sensitive)) {
+                return true;
+            }
+        }
+
+        // split BEFORE lower-casing so camelCase boundaries survive: cardNumber -> [card, number]
+        $words = preg_split('/[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])/', $key, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        foreach ($words as $word) {
+            if (in_array(strtolower($word), self::REDACT_WORDS, true)) {
                 return true;
             }
         }

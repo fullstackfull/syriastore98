@@ -55,7 +55,7 @@ class DeliveryBoyController extends Controller
 
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first())->withInput();
+                return redirect()->back()->with('error', $messages->first())->withInput($request->except(['password', 'password_confirmation']));
             }
 
             $user = \Auth::user();
@@ -122,7 +122,7 @@ class DeliveryBoyController extends Controller
 
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first())->withInput();
+                return redirect()->back()->with('error', $messages->first())->withInput($request->except(['password', 'password_confirmation']));
             }
 
             $deliveryBoy = DeliveryBoy::find($id);

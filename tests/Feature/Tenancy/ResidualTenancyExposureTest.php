@@ -481,7 +481,7 @@ class ResidualTenancyExposureTest extends TestCase
             // ProductLabel.php:43 declare the same method but implement it with ELOQUENT
             // (`ProductBrand::select()->...`), so they do carry global scopes and are not
             // bypasses. Found by measuring, after a name-based assumption put them on this list.
-            'app/Models/Customer.php:149',
+            'app/Models/Customer.php:150',
             // ^ and this one is UNREACHABLE: Customer.php declares getRelatedSlugs() but contains
             //   no `self::getRelatedSlugs(` caller, unlike the four below. Dead code -- which is
             //   why the one model in this group that IS now scoped has no live bypass.
@@ -491,7 +491,7 @@ class ResidualTenancyExposureTest extends TestCase
             // :155 -> :160 when B4 added the `mobile_verified_at` cast above it. The SET is
             // unchanged -- same method, same DB::table() call, five lines down -- which is what
             // this census measures; the line is only how a site is named.
-            'app/Models/User.php:160',
+            'app/Models/User.php:163',
 
             // ------------------------------------------------------------------------------
             // Utility::cookies(). `DB::table('settings')` filtered on `created_by`, NOT on

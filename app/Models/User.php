@@ -63,6 +63,9 @@ class User extends Authenticatable implements LaratrustUser, MustVerifyEmail, \L
     protected $hidden = [
         'password',
         'remember_token',
+        // P1-SEC-16: secrets that rode toArray()/JSON. Hidden only affects serialisation; attribute access is unchanged.
+        'google2fa_secret',
+        'deliverysyria_secret',
     ];
 
     public static $defalut_theme = [

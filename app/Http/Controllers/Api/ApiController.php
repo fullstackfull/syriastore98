@@ -50,6 +50,7 @@ use App\Models\StoreDevice;
 class ApiController extends Controller
 {
     use ApiResponser;
+    use \App\Http\Middleware\Concerns\RedactsApiLogFields;   // P1-SEC-16: user_detail() logged the whole request body
 
     /*
      * THE SHARED BASKET-OWNERSHIP SEAM. Used for basketHasForeignProduct() only -- the same
@@ -5852,7 +5853,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $user_array['address'] = !empty($DeliveryAddress->address) ? $DeliveryAddress->address : '';
             $user_array['postcode'] = !empty($DeliveryAddress->postcode) ? $DeliveryAddress->postcode : '';
 
-            Log::channel('API_log')->info(json_encode($request->all()));
+            Log::channel('API_log')->info(json_encode($this->scrub($request->all())));
             return $this->success($user_array, __('User address updated successfully.'));
         } else {
             Log::channel('API_log')->info('User not found.');
