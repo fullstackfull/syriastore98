@@ -13,10 +13,55 @@ file is a view of it. If the two disagree, the ledger is right and this file is 
 | | at `fb556cd6` | now |
 |---|---|---|
 | DONE | 48 | **49** |
-| READY | 17 | **16** |
+| READY | 17 | **17** |
 | BACKLOG | 9 | 9 |
-| BLOCKED | 31 | 31 |
+| BLOCKED | 31 | **30** |
 | **total** | 105 | 105 |
+
+(READY returned to 17 and BLOCKED fell to 30 because P1-PAY-04 was unblocked by owner decision D-06,
+not because a task regressed.)
+
+---
+
+## 0. Owner decisions of 2026-10-22, and the release blockers that survive them
+
+Six decisions landed (recorded in full in `15-DEFERRED-OWNER-DECISIONS.md` as **D-06 … D-11**). They
+closed the three questions this tracker named, and the sections below are left as written so the
+before/after is legible rather than rewritten into agreement.
+
+**What they closed:** COD settlement timing (D-06, implemented in `e54e4bff`), numeric subdomains and
+custom-domain proof of control (D-07), the platform OpenAI key (D-08, implemented in `e326f0b3`),
+retention at 24 months (D-09), key rotation deferred with the exposure recorded (D-10), and the
+release path approved in principle (D-11).
+
+### The release blockers that remain — four, and only one is engineering
+
+| | Blocker | Kind | Note |
+|---|---|---|---|
+| **1** | **GATE F schema dump** — `SHOW CREATE TABLE` for 15 tables from a **restored backup**, a read-only NULL census over the 56 `store_id` tables, `SELECT DISTINCT type FROM users` | **environment** | Collapses with D-11's backup + restoration-rehearsal condition into ONE prerequisite. The drafts are **guesses** from `$fillable`; "the dump wins on every disagreement". Promoting a guess is worse than waiting, because `Schema::hasTable()` guards would make the later correct migration a silent no-op and freeze wrong types permanently. |
+| **2** | **Wildcard DNS + SSL verification** for `*.storesyria.com` | **environment** | D-07's own condition. Both Webuzo call sites pass `issueSsl = false`, so anything that path provisions gets **no certificate**, and the credentials are absent so it throws. |
+| **3** | **Three acceptance criteria need a browser or live server** | **environment** | P1-SEC-06 criterion 3 (the Shopify redirect fix needs the live Admin API), P1-SEC-11 criterion 4 and P1-SEC-26 (Arabic RTL / English LTR rendering and contrast). No further engineering reaches DONE on these here — it is one session with a rendered app and staging, or an explicit decision to accept them on test evidence. |
+| **4** | **Who releases a squatted host** — P1-SEC-32(d) | **owner** | D-07 settled reservation and DNS proof of control but not this. Operator action, or a rule (a holder whose DNS stops pointing at the platform loses it)? Engineering will not pick a registrar policy. **The single smallest outstanding owner decision in Phase 01.** |
+
+**The remaining COD engineering sits behind blocker 1**, so it is not separately schedulable: the
+verified-collection trigger (today it is the merchant *marking delivered*, a proxy for collection
+rather than evidence of it), separate courier/settlement tracking, and the per-store workflow all need
+the GATE F tables.
+
+**No longer blockers:** `P1-OWN-02` / `P1-OWN-09` (rotation — deferred by D-10, exposure recorded
+accurately rather than softened), `P1-ORD-03` (retention — D-09; orders are financial records so
+deletion is selective, not a hard delete), `P1-SEC-22(e)` (platform key — done), `P1-SEC-32(a)(b)(c)`
+(D-07).
+
+**One ordering hazard is now discharged, and it is worth knowing why it mattered.** The GATE F README
+warns that creating those tables does not fix a bug — it makes a **silently dead** subsystem start
+working (`OrderFinancialService` throws `QueryException`, `OrderObserver` catches `\Exception`, so all
+financial tracking currently logs and does nothing), and that a premature `Paid` would then credit
+wallets against cash never collected. D-06 plus `e54e4bff` make COD `Pending` at creation, so that
+specific hazard is closed **before** the subsystem is switched on. The README's
+`PaymentService.php:2280` citation was re-verified and is **stale** — that line is coupon logic; of the
+four literal `'Paid'` sites two are already fixed and the fourth is a counter sale where `Paid` is
+correct. All 52 payment arms were **not** re-audited, so D-05 still stands.
 
 ---
 
