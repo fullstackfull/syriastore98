@@ -216,6 +216,18 @@ run_one verify-host-claims-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_DATABASE=hostclaims_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
+# P1-INV-05 / ACCEPTANCE CRITERION E3, which names the engine in its own text: "Concurrent checkout of the last unit cannot oversell --
+# on MySQL (SQLite cannot show it)". Until this script there was no MySQL evidence for E3 and none of the other scripts covered stock.
+# tests/Feature/Commerce/OrderStockConcurrencyTest.php proves the decrement is not a read-modify-write, by giving ten callers the stale
+# read before any writes -- but SQLite serialises writers at the database level, so the interleaving there is modelled in PHP. This
+# observes the row lock itself: A holds an uncommitted decrement of the last unit and B's identical statement BLOCKS (error 1205) instead
+# of deciding on its stale read, then after A commits B's `product_stock >= qty` is re-evaluated against the committed 0 and refused. It
+# also carries its own removal check -- the read-modify-write form the service replaced DOES oversell on this same engine -- and a
+# backorder case, so a too-tight implementation that refused everyone could not pass.
+run_one verify-stock-oversell-concurrency-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=oversell_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then
