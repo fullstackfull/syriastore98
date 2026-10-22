@@ -19,8 +19,10 @@ use Symfony\Component\HttpFoundation\Response;
  *   spamprevent.store         POST {storeSlug}/spamprevent  (SpamPrevent: a shopper's comment on a product)
  *       - an anonymous visitor posted a comment as ANY customer id (customer_id and created_by were the body's) with raw HTML in it, and the
  *         merchant's reply modal renders refreshed comments with `${comment.comment}` UNESCAPED (reply.blade.php:302-312): stored script in the
- *         merchant admin origin. Now: a signed-in SHOPPER only (the widget exists only for one), `customer_id` is the session's, the comment
- *         is stripped of markup.
+ *         merchant admin origin. Now: a signed-in SHOPPER OF THE SLUG'S STORE only (the widget exists only for one), `customer_id` is the
+ *         session's, a `product_id` must belong to that store, and the comment is stripped of markup. The store and product checks are
+ *         P1-SEC-34, and they close a cross-tenant WRITE whose downstream exposure is latent rather than live -- the two screens that
+ *         read these columns were measured and neither crashes nor leaks (see shopperComment and productOfStoreOrAbsent).
  *   fetch.comments            GET spam-fetch-prevent  (the thread read, used by the shopper's widget AND the merchant's modal)
  *       - read any customer's thread in any store by id, anonymously. Now: a shopper reads their own thread; a merchant-side user reads a thread
  *         of a customer of THEIR current store (the platform operator may read any); anonymous is refused.
@@ -30,8 +32,10 @@ use Symfony\Component\HttpFoundation\Response;
  *       - signed-in, plan-entitled users of ANY tenant could read or delete any customer's whole thread. Now: the customer must belong to the
  *         caller's current store (operator exempt).
  *   product_review.store      POST {storeSlug}/product-review  (ProductReview)
- *       - an anonymous visitor planted a review into ANY store (store_id from the body) with a status of their choosing. Now: `store_id` is the
- *         slug's store, `status` is the form's own value (1), and a `product_id` must belong to that store.
+ *       - an anonymous visitor planted a review into ANY store (store_id from the body) with a status of their choosing, and the title and
+ *         description went in raw although the merchant's review table prints `description` UNESCAPED through the DataTable's rawColumns
+ *         (ProductReviewDataTable:59) -- anonymous stored script in the merchant admin origin. Now: `store_id` is the slug's store,
+ *         `status` is the form's own value (1), a `product_id` must belong to that store, and title/description are stripped (P1-SEC-34).
  *
  * Every refusal is a 403 JSON / redirect, never a 401. Who the operator is: `users.type` 'super admin', tested first.
  */
@@ -63,7 +67,19 @@ class ModuleStorefrontInputGuard
         $customer = auth('customers')->user();
         $store = is_string($slug) ? DB::table('stores')->where('slug', $slug)->first(['id']) : null;
 
-        if (! $customer || ! $store) {
+        // P1-SEC-34. The shopper must be the SLUG STORE'S OWN. `customers` is a session guard on one host, so a shopper signed in at
+        // store A reaches store B's `{storeSlug}/spamprevent` carrying A's session: deriving `customer_id` from that session (which is
+        // what closed the impersonation) still files an A customer under store B, i.e. a cross-tenant WRITE into store B's
+        // `product_comments`. What that row then does downstream was MEASURED, not assumed, and it is less than it looks:
+        // SpamPreventController::index does deref `Customer::find($customerId)->first_name` and `Customer` IS scoped (a foreign
+        // customer resolves to null, confirmed), but in PHP 8.3 a property read on null is a WARNING, not an Error -- the screen
+        // returned 200, including under withoutExceptionHandling(). So the exposure is LATENT: it needs a consumer that reads these
+        // columns without a tenant check, and the ones that exist today do not. The boundary itself is the control.
+        if (! $customer || ! $store || (int) $customer->store_id !== (int) $store->id) {
+            return $this->deny($request);
+        }
+
+        if (! $this->productOfStoreOrAbsent($request, (int) $store->id)) {
             return $this->deny($request);
         }
 
@@ -149,20 +165,60 @@ class ModuleStorefrontInputGuard
             return $this->deny($request);
         }
 
-        $productId = $request->input('product_id');
-
-        if ($productId !== null && $productId !== '') {
-            $productId = $this->id($productId);
-
-            if ($productId === null || ! DB::table('products')->where('id', $productId)->where('store_id', $store->id)->exists()) {
-                return $this->deny($request);
-            }
+        if (! $this->productOfStoreOrAbsent($request, (int) $store->id)) {
+            return $this->deny($request);
         }
 
         // `store_id` is the slug's; `status` is the value the module's own form posts (1 = shown), not the visitor's choice
-        $request->merge(['store_id' => (string) $store->id, 'status' => '1']);
+        $merge = ['store_id' => (string) $store->id, 'status' => '1'];
+
+        // P1-SEC-34. This route is ANONYMOUS and the merchant's review table prints `description` through the DataTable's
+        // rawColumns(['...','description','...']) -- i.e. UNESCAPED into the admin origin (ProductReviewDataTable:59). The module is
+        // vendored, so the markup comes off at the door, exactly as it does on the comment path. `title` gets the same treatment
+        // because the same row is re-rendered by other screens. Only keys the caller actually SENT are rewritten, so an absent
+        // `title` stays absent and the module still writes NULL for it rather than ''.
+        foreach (['title', 'description'] as $field) {
+            if ($request->exists($field)) {
+                $merge[$field] = $this->plain($request->input($field));
+            }
+        }
+
+        $request->merge($merge);
 
         return $next($request);
+    }
+
+    /**
+     * `product_id` is optional on BOTH forms (SpamPrevent requires only `comment`, ProductReview only `description`), so absence is
+     * allowed -- but a value that is present must name a product of $storeId. Why that matters: `Product` carries NO global scope at
+     * all (config/tenancy.php `scoped_models`), so an unchecked `product_id` lets a storefront write attach ANY tenant's product to a
+     * row in this one, and nothing further downstream re-asks the ownership question.
+     *
+     * MEASURED, so the comment does not outlive the code it cites: the disclosure this looked like on
+     * SpamPreventController::index does NOT happen there. index() builds `$result` (which is where its unscoped `Product::find()`
+     * lives, derefed with no null check) but `spam-prevent::admin.index` renders only `<x-datatable>` -- `$result` is dead, and the
+     * DataTable's own `product_id` renderer is both null-safe and htmlspecialchars-escaped. Probed with a real foreign product: its
+     * name does not reach the page. The check is the tenant boundary, not a fix for a live leak on that screen.
+     *
+     * Normalises the value it accepts so the module stores the digits that were checked.
+     */
+    private function productOfStoreOrAbsent(Request $request, int $storeId): bool
+    {
+        $productId = $request->input('product_id');
+
+        if ($productId === null || $productId === '') {
+            return true;
+        }
+
+        $productId = $this->id($productId);
+
+        if ($productId === null || ! DB::table('products')->where('id', $productId)->where('store_id', $storeId)->exists()) {
+            return false;
+        }
+
+        $request->merge(['product_id' => (string) $productId]);
+
+        return true;
     }
 
     private function customerBelongsTo(?int $customerId, int $storeId): bool

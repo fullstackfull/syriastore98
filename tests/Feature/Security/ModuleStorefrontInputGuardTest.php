@@ -377,4 +377,111 @@ class ModuleStorefrontInputGuardTest extends SecurityTestCase
         $this->assertRefused($this->post('/no-such-store-' . uniqid() . '/product-review', ['description' => 'x']));
         $this->assertSame(0, DB::table('product_reviews')->count());
     }
+
+    // ---- P1-SEC-34: the two holes the P1-SEC-04 review left open on these same two routes -------
+
+    public function test_a_shopper_of_another_store_cannot_comment_through_this_stores_slug(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $shopperOfA = $this->shopper($storeA);
+
+        // `customers` is ONE session guard on ONE host: A's shopper carries A's session to B's slug. Deriving `customer_id` from the
+        // session (what P1-SEC-04 fixed) is not enough -- the derived customer still has to belong to the store being written.
+        $this->assertRefused($this->actingAs($shopperOfA, 'customers')->post('/' . $storeB->slug . '/spamprevent', ['comment' => 'hi']));
+        $this->assertSame(0, DB::table('product_comments')->count());
+
+        // the positive twin, so the refusal above is not just "this route fails for everyone"
+        $this->actingAs($this->shopper($storeB), 'customers')->post('/' . $storeB->slug . '/spamprevent', ['comment' => 'hi'])->assertOk();
+        $this->assertSame(1, DB::table('product_comments')->count());
+    }
+
+    public function test_a_comment_naming_another_stores_product_or_one_that_does_not_exist_is_refused(): void
+    {
+        [$a, $storeA] = $this->makeTenant();
+        [$b, $storeB] = $this->makeTenant();
+        $me = $this->shopper($storeA);
+        $foreign = $this->productIn($storeB, $b);
+        $own = $this->productIn($storeA, $a);
+
+        $post = fn (array $body) => $this->actingAs($me, 'customers')->post('/' . $storeA->slug . '/spamprevent', $body);
+
+        $this->assertRefused($post(['comment' => 'x', 'product_id' => $foreign->id]));
+        $this->assertRefused($post(['comment' => 'x', 'product_id' => $own->id + 10_000]));
+        // MySQL reads '5abc' as 5 in `where id = '5abc'`, so trailing junk must not name the store's REAL product N
+        $this->assertRefused($post(['comment' => 'x', 'product_id' => $own->id . 'abc']));
+        $this->assertSame(0, DB::table('product_comments')->count(), 'A refused comment was stored anyway.');
+
+        $post(['comment' => 'x', 'product_id' => $own->id])->assertOk();
+        $this->assertSame((string) $own->id, (string) DB::table('product_comments')->first()->product_id);
+    }
+
+    public function test_a_comment_with_no_product_id_is_still_accepted(): void
+    {
+        // The module requires only `comment` and its own screen reads `product_id` as nullable, so the guard must not start demanding one.
+        [, $store] = $this->makeTenant();
+
+        $this->actingAs($this->shopper($store), 'customers')->post('/' . $store->slug . '/spamprevent', ['comment' => 'no product here'])->assertOk();
+
+        $this->assertNull(DB::table('product_comments')->first()->product_id);
+    }
+
+    public function test_a_reviews_description_and_title_are_stored_without_markup(): void
+    {
+        // ProductReviewDataTable:59 puts `description` in rawColumns(), so the merchant's own review table prints it UNESCAPED -- and this
+        // route is anonymous. The module is vendored, so the markup comes off at the door.
+        //
+        // `product_reviews.product_id` is NOT NULL and `category_id` carries an FK to categories, so a review needs both: the attacker
+        // supplies the store's own product and category, which the public product page and the module's own form both hand out.
+        [$owner, $store] = $this->makeTenant();
+        $product = $this->productIn($store, $owner);
+        $category = (int) DB::table('categories')->insertGetId(['name' => 'c-' . uniqid(), 'slug' => 'c-' . uniqid(), 'store_id' => $store->id]);
+
+        $this->post('/' . $store->slug . '/product-review', [
+            'description' => 'good <script>alert(document.cookie)</script><b>product</b>',
+            'title' => '<img src=x onerror=alert(1)>nice',
+            'rating_no' => 5, 'product_id' => $product->id, 'category_id' => $category,
+        ]);
+
+        $row = DB::table('product_reviews')->first();
+        $this->assertNotNull($row, 'The positive control stored nothing: the route fails for everyone.');
+        $this->assertStringNotContainsString('<', (string) $row->description);
+        $this->assertStringNotContainsString('<', (string) $row->title);
+        $this->assertStringContainsString('good', (string) $row->description);
+        $this->assertStringContainsString('nice', (string) $row->title);
+    }
+
+    public function test_premise_the_vendored_review_table_still_prints_description_unescaped(): void
+    {
+        // WHY THE STRIP ABOVE EXISTS, pinned so the reason is auditable and so this turns red if upstream ever escapes the column --
+        // at which point the door-step strip could be reconsidered rather than carried forever on faith.
+        //
+        // Yajra escapes every column by default; rawColumns() is the opt OUT. `description` is in that list, and the route that fills it
+        // is anonymous, so markup stored there would reach the merchant's admin origin as live HTML.
+        $source = (string) file_get_contents(base_path('packages/workdo/ProductReview/src/DataTables/ProductReviewDataTable.php'));
+
+        $this->assertSame(1, preg_match('/->rawColumns\(\[([^\]]*)\]\)/', $source, $m), 'ProductReviewDataTable no longer calls rawColumns().');
+        $this->assertStringContainsString("'description'", $m[1],
+            'ProductReviewDataTable no longer prints `description` unescaped. The guard still strips markup at the door, which is now '
+            . 'belt-and-braces rather than the only control -- re-read P1-SEC-34 before relaxing it.');
+
+        // and the column really is displayed, so the sink is reachable at all
+        $this->assertStringContainsString("'description' => ['title'", $source);
+    }
+
+    public function test_a_review_that_sends_no_title_still_stores_null_rather_than_an_empty_string(): void
+    {
+        // Contract preservation: only keys the caller SENT are rewritten, so the module keeps writing NULL for an absent title.
+        [$owner, $store] = $this->makeTenant();
+        $product = $this->productIn($store, $owner);
+        $category = (int) DB::table('categories')->insertGetId(['name' => 'c-' . uniqid(), 'slug' => 'c-' . uniqid(), 'store_id' => $store->id]);
+
+        $this->post('/' . $store->slug . '/product-review', [
+            'description' => 'plain text', 'rating_no' => 4, 'product_id' => $product->id, 'category_id' => $category,
+        ]);
+
+        $row = DB::table('product_reviews')->first();
+        $this->assertNotNull($row, 'The positive control stored nothing: the route fails for everyone.');
+        $this->assertNull($row->title);
+    }
 }
