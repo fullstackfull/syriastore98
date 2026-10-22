@@ -1,6 +1,8 @@
 # HANDOFF — current state of Store Syria Phase 01
 
 **Written 2026-10-21 for a fresh Claude Code account with no access to the conversations that produced this repository.**
+**REVISED 2026-10-22** — the ledger/GitHub drift of §4 is now FIXED, four unrecorded tasks have rows and issues, and §2's CI line and §9's
+sandbox note are corrected. What changed is marked `[2026-10-22]`; everything unmarked still reads as its author left it.
 It records only what is NOT already in `CLAUDE.md`, the Phase 01 ledger, the security queue or GitHub — and points at those for the rest.
 Read it once, then work from the ledger and GitHub. If this file and the ledger disagree, the ledger (`phase-01-tasks.json`) wins for task
 state and this file wins for *process*; fix whichever is stale and say so in the commit.
@@ -33,11 +35,11 @@ Blade + Tailwind storefront, Arabic (RTL) + English (LTR). Production is MySQL w
 | | |
 |---|---|
 | Phase 01 branch (CLAUDE.md, PR #3 head) | `claude/store-syria-p01a-ci-foundation` |
-| Session branch the harness assigned | `claude/wonderful-gates-60khob` — **keep identical to the branch above** |
+| Session branch the harness assigned | per session. `claude/wonderful-gates-60khob` (the 2026-10-21 session) and `claude/modest-tesla-r74de7` (2026-10-22) — **keep identical to the branch above**. `[2026-10-22]` A harness branch is assigned fresh each session and is NOT created on the remote until you push it: `git fetch origin <new-name>` fails until then, which is expected and is not a lost push. |
 | `main` | `1eebc721`, **never modified**; do not merge |
 | PR | **#3, Draft, never merged**; title starts `⛔ DO NOT MERGE` |
 | Milestone | #1 "Phase 01 — Foundation & Stability" |
-| CI | run 39659848857 on `b0911661`: `success`. Run 39638907346 on `977e61b6`: `success` |
+| CI | `[2026-10-22]` run 39745532680 on `cdc213bd` **FAILED**: `Tests (REQUIRED -- clean install from composer.lock)` went red because `cdc213bd` added `ModuleStorefrontInputGuard` to the middleware stack and recorded its five raw-query sites in NONE of the three inventories (`OwnedPathRawQueryInventoryTest`, and two totals in `RawQueryTenancyInventoryTest`). Fixed in this session's commits. Earlier: run 39659848857 on `b0911661` `success`; run 39638907346 on `977e61b6` `success`. **Read CI back on the head you pushed — do not infer it from an older run.** |
 
 **Branch sync rule.** Both branches carry the same commits. Before pushing: `git fetch origin` then
 `git merge-base --is-ancestor origin/<branch> HEAD` for each; push `HEAD:refs/heads/<branch>` to both; **fast-forward only, never force**.
@@ -56,13 +58,39 @@ The finite checklist is §6 below. Phase 01 is *Foundation & Stability*, not a p
 
 ## 4. Task counts (authoritative ledger = `phase-01-tasks.json`) [VERIFIED]
 
-101 tasks: **35 DONE · 31 READY · 8 BACKLOG · 27 BLOCKED**; 32 carry `owner_decision: true` (some of those are READY/DONE and only *need* an owner input).
-GitHub has 69 open issues. **Known drift between the ledger and GitHub (found, NOT fixed — fix these first, they are label edits only):**
+`[2026-10-22]` **105 tasks: 35 DONE · 25 IN_REVIEW · 9 READY · 9 BACKLOG · 27 BLOCKED**; 32 carry `owner_decision: true` (some of those are READY/DONE and only *need* an owner input).
+
+**The drift below is FIXED.** It was far larger than this section described: between `b0911661` (where this file was written) and `cdc213bd`,
+**24 commits** closed or deferred work and updated **neither** the ledger nor the issues. Reconciled on 2026-10-22:
+
+* **21 rows moved READY/BACKLOG → `IN_REVIEW`** with the implementing commit named in the row's evidence: P1-INV-09, -11, -13, P1-ORD-05, -10,
+  -12, -14, P1-PLT-02, -06, P1-SEC-04, -06, -09, -10, -11, -12, -14, -16, -22, -28, -30, -31. `IN_REVIEW` and not `DONE` on purpose: the
+  reconciliation named the commit and re-ran the gates, it did **not** re-verify each task's acceptance criteria. The owner accepts them.
+* **2 rows moved READY → `BACKLOG`**: P1-INV-16 and P1-ORD-06, which `b1517206` deliberately deferred (the auction-order path is dormant —
+  its only writer is the unscheduled `auction:order` command, owner decision D-03) while leaving the ledger saying READY.
+* **4 tasks had NO row and NO issue at all** and now have both: **P1-SEC-35 (#113, CRITICAL** — `/duologin` logged an anonymous caller in as
+  any account, operator included), **P1-INV-23 (#114)**, **P1-SEC-33 (#115)**, and **P1-SEC-34 (#112)**, the follow-up that closes the two
+  findings `cdc213bd`'s own message recorded as deferred.
+* Issue hygiene: #63 closed (was DONE in the ledger, still open), #71 closed, #66 labelled, #42's `status:ready` corrected to
+  `status:blocked`, and a `status:*`/`ws:*`/`risk:*` set put on the 16 issues that carried none. The 29 stale statuses in the ledger's own
+  **Execution order** list were refreshed from the JSON, and four entries appended (73–76).
+
+The original note read:
 
 * #63 (`P1-INV-17`) is DONE in the ledger but the issue is still open — close it with the evidence.
 * #66 (`P1-TOOL-01`, tooling standardization, DEFERRED) and #71 (reserved-role-name gates, fixed) are open issues with no ledger row — add rows or close with a note.
 * Sixteen issues carry **no `status:*` label**: #50–#56, #59–#63, #67–#70 (ledger says READY/BACKLOG/BLOCKED/DONE as appropriate). #42 (`P1-OWN-01`) is labelled `status:ready` but the ledger says BLOCKED.
-* Check with: the ledger JSON vs `search_issues` (`repo:fullstackfull/syriastore98 is:issue is:open`). **That call returns ~700 KB; the tool saves it to a file — parse it with Python, never print it.**
+* Check with: the ledger JSON vs `search_issues` (`repo:fullstackfull/syriastore98 is:issue is:open`). **That call returns ~700 KB; the tool saves it to a file — parse it with Python, never print it.** `[2026-10-22]` `list_issues` with `fields: ["number","title","state","labels"]` and `perPage: 100` returns the whole open set compactly and is the cheaper check.
+
+`[2026-10-22]` **How to find this drift yourself next time, in one command** — every commit on the branch whose subject starts with a task id,
+cross-referenced with the ledger's status for that id:
+
+```bash
+git log --format='%H%x09%s' origin/main..HEAD   # then match ^P1-[A-Z]+-[0-9]+ in the subject against phase-01-tasks.json
+```
+
+Two commits use a parenthetical form (`P1-SEC-11 (shipping label): …`, `P1-SEC-22 (a)(b): …`), so a pattern that demands the colon straight
+after the id misses them. That is how P1-SEC-11 and P1-SEC-22 were nearly missed again.
 
 ## 5. What is done (grouped; evidence is in each ledger row) [VERIFIED]
 
@@ -75,6 +103,20 @@ GitHub has 69 open issues. **Known drift between the ledger and GitHub (found, N
 ## 6. Finite Phase 01 finish line [PROPOSED — confirm each row against its issue's acceptance criteria; nothing critical or financial is deferred silently]
 
 ### 6a. MUST finish in Phase 01 (release-blocking or required by criteria A–H), in dependency/priority order
+
+> `[2026-10-22]` **Most of the "High, code-doable now" list below is now IN_REVIEW, not READY.** Done since this was written:
+> P1-SEC-06, -12, -14, -28, -31 (and -04, -09, -10, -11, -16, -22, -30), P1-ORD-05, -10, -12, -14, P1-INV-09, -11, -13, P1-PLT-02, -06.
+> P1-INV-16 and P1-ORD-06 went to BACKLOG as dormant (D-03). **Two more left READY moved to BLOCKED**, because every one of their
+> acceptance criteria needs the owner or the server and carrying them as READY invited a session to start work it must not do:
+> **P1-INV-12** (#53 — its engineering deliverable is already committed; what is left is the live `DELETE_RULE` check and the owner's
+> choice between cascade / `SET NULL` / refuse-while-non-empty, and changing an FK delete rule is a migration against live catalogue
+> data) and **P1-OWN-07** (#56 — a read-only reconciliation of residue on the live database, which §6d already classified as production
+> verification while the ledger said READY).
+>
+> **The 7 rows still genuinely READY are:** P1-SEC-26 (#99), P1-SEC-05 (#19), P1-ORD-13 (#82), P1-PAY-01 (#23), P1-PLT-07 (#110) and
+> P1-INV-15 (#60, which carries `owner_decision: true` — read it before starting), all medium, plus P1-INV-10 (#51, low). The BACKLOG
+> rows the acceptance criteria still demand (P1-ORD-01/-02, P1-PAY-02, P1-INV-03/-05, P1-PLT-05, and P1-PLT-03's in-or-out decision) are
+> unchanged.
 High, code-doable now (`READY`): **P1-SEC-06** SSRF in four import handlers (#55) · **P1-SEC-12** storefront account area has no ownership check (#84) · **P1-SEC-14** error tracker is sent cookies/session/input (#89) ·
 **P1-SEC-28** unlinks bypassing `StoredUpload` (#102; fold in BACKLOG **P1-INV-09** #50) · **P1-SEC-31** vendored module writers of `settings`, host-side control (#107) ·
 **P1-ORD-05** order read family, forgeable encrypted id (#59) · **P1-ORD-06** auction status endpoint POSTs order PII to a merchant URL (#62) · **P1-ORD-14** refund restore reads by line position (#83) ·
@@ -134,7 +176,7 @@ Measured at this session: Unit 339 · Contract 26 · Feature 3629 passed / 2 fai
 * **SQLite is blind to MySQL behaviour.** Measured on MySQL 8.0.46, `utf8mb4_unicode_ci`, `strict => false`: names compare **case-, accent- and PAD-SPACE-insensitive** (`dómains` = `domains`, `domains ` = `domains`); control bytes (0x00–0x08, 0x0E–0x1F, 0x7F) are ignorable; printable ASCII folds by case only (94×94 pairs, 94³ contractions measured); `settings.name` is `VARCHAR(255)` and non-strict MySQL **stores a longer name cut to 255 characters** (so `domains`+300 spaces+`x` *is* `domains`) and **ends a name at the first invalid UTF-8 byte** (and, under Laravel's native prepared statements, a `SELECT` on that raw string answers NULL — asking the engine does not catch it); `where id = '5abc'` matches id 5; `where name = 0` matches every non-numeric name; admin-API writers use MySQL-only `insert … on duplicate key update`. Scripts: `tests/Support/Security/bin/` (`run-mysql-verifications.sh` runs all; each creates and drops its own database; **never point one at the dev/prod server**). The cloud sandbox can host a throwaway MySQL 8.0 (`apt-get install -y mysql-server-8.0 && service mysql start`); in the session that wrote this it listened on `/var/run/mysqld/mysqld.sock`.
 * **No WorkDo module loads in a test run** unless the test inserts an `add_on_managers` row — the suite is structurally blind to module routes; enable through the production loader and add a premise test.
 * **A Customer-token probe cannot test the `custom.auth` trap** — drive a merchant and a driver token too. A plain `Customer::find()`/`Cart::find()` in a test answers for the *resolved tenant*, not the table: assert through `withoutGlobalScopes()`. Raw `DB::table('users')->update()` leaves `Cachable` `User` stale.
-* **Local sandbox noise, not defects:** `guard-composer-lock-integrity.sh` exits 1 (two locked `myfatoorah/*` packages are not installed here; `dev.azure.com` is unreachable) — CI is the authority. `guard-no-workdo-changes.sh` needs a base-ref argument. Do not run two suites against one tree, and do not edit files while a suite runs.
+* **Local sandbox noise, not defects:** `guard-composer-lock-integrity.sh` exits 1. `[2026-10-22]` **The two packages it names have changed.** `myfatoorah/library` and `myfatoorah/laravel-package` now install fine; what fails now is **`yoomoney/yookassa-sdk-php`**, because its own manifest pulls `yookassa-sdk-validator` from **`git.yoomoney.ru`**, which this container's network policy denies (`CONNECT tunnel failed, response 403`). `composer install` is all-or-nothing, so it aborts and never writes `vendor/autoload.php` — i.e. **no suite runs at all** until you deal with it. What worked: drop `yoomoney/yookassa-sdk-php` from `composer.json`'s `require` AND its entry from `composer.lock`'s `packages`, `composer install --no-scripts`, then **restore both files from the backups you took first** and `git diff --stat composer.json composer.lock` to prove they are byte-identical again. `vendor/` is gitignored, so a vendor built that way is safe to test against — but the lock guard will correctly report the 2-package drift, and any claim about the locked dependency set belongs to CI, not to that tree. The app does not need the package to boot: `app/Payments/RetiredGateways.php` treats YooKassa as retired. The alternative is to have the owner add `git.yoomoney.ru` to the environment's **Allowed domains** (cloud environment menu → Edit → Network access). `guard-no-workdo-changes.sh` needs a base-ref argument. Do not run two suites against one tree, and do not edit files while a suite runs.
 * **Review findings are claims.** Two read-only review rounds (21–35 agents each) found real HIGH holes in the SEC-29 fix; the one that mattered most (invalid UTF-8) was found by *running the MySQL script*, not by any reviewer. A review that only READ cannot close a MySQL question — execute it.
 * A previous claim that "the Contract suite proves the staff 403s" was **withdrawn**: that suite drives no staff principal.
 
@@ -156,7 +198,8 @@ Process tools added with this handoff (`docs/development/phase-1/tools/`):
 ## 12. Continuing in a fresh Claude Code account — exact steps
 1. `git clone` the repo; `git checkout claude/store-syria-p01a-ci-foundation` (or the branch the harness gives you — then keep both branches identical, §2). `composer install` (two `myfatoorah/*` packages may be unreachable; CI has them). Read §0.
 2. `git fetch origin`; confirm the heads of both branches equal; `git log -5`; read CI on the head with `actions_get`/`pull_request_read get_check_runs` **before** claiming anything about it.
-3. Fix the ledger/GitHub drift in §4 (labels, #63, #66, #71) and record §7b. These are documentation/label edits; they unblock nothing by themselves.
+3. ~~Fix the ledger/GitHub drift in §4 (labels, #63, #66, #71)~~ `[2026-10-22]` **DONE — see §4.** Still owed: **record §7b** (the owner's
+   2026-10-21 directions) in the four rows/issues it names, which is a documentation edit that unblocks nothing by itself and was NOT done.
 4. Produce the checkpoint for the owner: HEAD, counts, the §6 classification confirmed or corrected, owner-gated list, finite plan. **Then** take READY tasks in the order of §6a, one at a time, following protocol §3 (reproduce → RED test → smallest fix → removal check → `tenant-authz-reviewer` → gate → commit with the task id → push both branches → issue + ledger). No parallel edits to one tree.
 5. Before any push: Unit, Contract, Feature + `assert-known-test-outcomes.php`, the guards, and for anything schema- or collation-sensitive the MySQL scripts.
 6. When §6a is done, write **one** consolidated acceptance report with the four lists of §6 kept separate, keep PR #3 Draft, and stop for the owner.
@@ -171,4 +214,8 @@ Process tools added with this handoff (`docs/development/phase-1/tools/`):
 GitHub: milestone #1; PR #3; issues #9–#111 (task number ↔ issue number is in each ledger row); most relevant now: #86, #88 (critical owner), #111, #106, #108 (this session), #101/#104 (closed work with full evidence).
 
 ## 14. Assumptions a new session must NOT make
+* `[2026-10-22]` That a task's ledger status reflects the branch. It did not for 24 commits, and the four most interesting findings of the
+  2026-10-21 session had no row and no issue at all — including a CRITICAL anonymous login bypass. Cross-reference `git log` against the JSON
+  (§4) before trusting either. · That a green CI run on an older head says anything about the head you just pushed: `cdc213bd` added a
+  middleware and left three raw-query inventories unrecorded, and CI was red on it the whole time this file said CI was `success`.
 * That `CLAUDE.md` test counts are current. · That `Product` (or `Order`, `Wishlist`, `DeliveryAddress`, `User`) is tenant-filtered by a global scope. · That a `-guest` route is public (they carry `custom.auth`). · That GitHub status labels match the ledger (they do not, §4). · That a green CI means no failures (2 are declared). · That SQLite results transfer to MySQL. · That an unchanged-looking `Setting` save cannot change what a lookup reads. · That account-level skills or plugins exist. · That an owner direction in §7b is a decision on its details. · That any BLOCKED task may be started because it looks easy.

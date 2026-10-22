@@ -322,7 +322,7 @@
       "title": "Route-census gate: module routes classified public vs administrative",
       "workstream": "security",
       "risk": "medium",
-      "status": "READY",
+      "status": "IN_REVIEW",
       "issue": 18,
       "scope": [
         ".github/scripts/",
@@ -343,7 +343,7 @@
       ],
       "compatibility": "CI only. No application behaviour.",
       "db": "Needs modules enabled to enumerate: see the add_on_managers premise pattern in CLAUDE.md.",
-      "evidence": "S11; packages/workdo/AutomaticOrderPrinting/src/routes/web.php:24-28",
+      "evidence": "S11; packages/workdo/AutomaticOrderPrinting/src/routes/web.php:24-28 | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by cdc213bd (\"P1-SEC-04 / P1-SEC-31: host-side control and a census gate for the modul\"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S11"
       ],
@@ -521,7 +521,7 @@
       "title": "The order read family: a forgeable encrypted id reaches any store's order, and two handlers lock out the operator",
       "workstream": "orders",
       "risk": "high",
-      "status": "READY",
+      "status": "IN_REVIEW",
       "issue": 59,
       "scope": [
         "app/Http/Controllers/OrderController.php",
@@ -543,7 +543,7 @@
       ],
       "compatibility": "Adds refusals where there were none; the operator limb is a widening. Web Blade routes, so a redirect/403 is safe for shipped clients.",
       "db": "None. NOTE: the Crypt half interacts with #43 -- rotating APP_KEY invalidates every encrypted order id already in circulation, including bookmarked URLs. Sequence deliberately.",
-      "evidence": "",
+      "evidence": "RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 2e04e77a (\"P1-ORD-05: the order list and the order screen no longer lock the platfo\"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S37-2"
       ],
@@ -909,7 +909,7 @@
       "title": "Two order writers persist a NULL store_id",
       "workstream": "platform",
       "risk": "high",
-      "status": "READY",
+      "status": "IN_REVIEW",
       "issue": 34,
       "scope": [
         "app/Http/Controllers/MercadoPaymentController.php",
@@ -927,7 +927,7 @@
       ],
       "compatibility": "No contract change.",
       "db": "READ-ONLY on live data: counting only. Reconciling existing rows is a separate owner-gated task.",
-      "evidence": "S6; MercadoPaymentController.php:86, SkrillPaymentController.php:106",
+      "evidence": "S6; MercadoPaymentController.php:86, SkrillPaymentController.php:106 | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 8909272f (\"P1-PLT-02: five plan-payment handlers record a plan sale as a plan order\"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S6"
       ],
@@ -1423,7 +1423,7 @@
       "title": "Stored media paths are expanded as glob patterns and unlinked with no uploads-root containment",
       "workstream": "inventory",
       "risk": "medium",
-      "status": "BACKLOG",
+      "status": "IN_REVIEW",
       "issue": 50,
       "scope": [
         "app/Models/Utility.php",
@@ -1450,7 +1450,7 @@
       ],
       "compatibility": "No contract change. Legitimate media deletion must keep working, including the storage-limit debit.",
       "db": "None.",
-      "evidence": "",
+      "evidence": "RECONCILED 2026-10-22: the ledger carried this as BACKLOG while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by c71c717e (\"P1-SEC-28 (+ P1-INV-09): a path read from the database reaches the files\"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S38-2"
       ],
@@ -1499,7 +1499,7 @@
       "title": "Unvalidated parent_id leaks every store's category names, and admits a tree cycle that fatals",
       "workstream": "inventory",
       "risk": "medium",
-      "status": "READY",
+      "status": "IN_REVIEW",
       "issue": 52,
       "scope": [
         "app/Http/Controllers/CategoryController.php",
@@ -1525,7 +1525,7 @@
       ],
       "compatibility": "Adds a refusal where any value was previously accepted. The UI only ever offers own-store ids, so no legitimate merchant workflow changes -- but any API or import path that sets parent_id must be checked before it ships.",
       "db": "None.",
-      "evidence": "",
+      "evidence": "RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by c23a2255 (\"P1-INV-11: a category's parent_id is 0 or a category of the caller's own\"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S38-4"
       ],
@@ -1537,7 +1537,7 @@
       "title": "Deleting a category deletes every product in it by FK cascade, below the application",
       "workstream": "inventory",
       "risk": "high",
-      "status": "READY",
+      "status": "BLOCKED",
       "issue": 53,
       "scope": [
         "database/migrations/2023_12_25_093024_create_categories_table.php",
@@ -1560,19 +1560,19 @@
       ],
       "compatibility": "The alternatives are NOT equivalent for merchants: a cascade loses products, SET NULL orphans them into an uncategorised state, and refuse-while-non-empty blocks a workflow merchants use today. That is why it is an owner decision.",
       "db": "YES, and deliberately not drafted. Any change alters an FK on `products`, a money-adjacent table holding live catalogue data. Needs the owner's decision and an approved recovery plan first.",
-      "evidence": "",
+      "evidence": "RECONCILED 2026-10-22: moved READY -> BLOCKED. The ENGINEERING deliverable of this task is already complete and committed -- the cascade is established by execution on MySQL 8.0.46 (verify-category-product-cascade-on-mysql.php, 3 checks / 0 failures, with information_schema asked directly so the result does not rest on observed behaviour), the published claim that the `products` rows survive is corrected, and MerchantCategoryOwnershipTest pins the known-bad residue deliberately. What is LEFT is entirely the owner's: the live DELETE_RULE check on the server and the decision between cascade / SET NULL / refuse-while-non-empty. Changing an FK delete rule is a migration against a persistent database holding live catalogue data, which is forbidden here, and the issue body itself states 'I am not proposing a migration here'. Carrying it as READY invited a session to start work it must not do.",
       "queue_refs": [
         "S38-1"
       ],
       "owner_decision": true,
-      "blocked_on": null
+      "blocked_on": "The owner's decision on the intended delete behaviour (cascade / SET NULL with an uncategorised bucket / refuse-while-non-empty), AND a read-only check on the server of the live schema's actual DELETE_RULE for products_category_id_foreign. Both of this task's substantive criteria are one of those two, and the third and fourth are conditional on the first, so nothing here is startable without the owner."
     },
     {
       "id": "P1-INV-13",
       "title": "The Woo/Shopify import family: three more unscoped mapping resolves, one still carrying a store-transfer primitive",
       "workstream": "inventory",
       "risk": "high",
-      "status": "READY",
+      "status": "IN_REVIEW",
       "issue": 54,
       "scope": [
         "app/Http/Controllers/WoocomCouponController.php",
@@ -1601,7 +1601,7 @@
       ],
       "compatibility": "Woo/Shopify sync keeps working for its owner. F1 and F3 add refusals where there were none, so any import automation must be checked first.",
       "db": "None. A foreign key on woocommerce_conections.original_id would be the structural fix and is NOT proposed -- it is polymorphic across four modules.",
-      "evidence": "",
+      "evidence": "RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 73de7656 (\"P1-INV-13: the WooCommerce / Shopify re-sync handlers rewrite only a row\"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S37-4"
       ],
@@ -1675,7 +1675,7 @@
       "title": "AuctionProductOrder::product_return restocks an unscoped Product, has no replay guard, and its non-variant path is a silent no-op",
       "workstream": "inventory",
       "risk": "high",
-      "status": "READY",
+      "status": "BACKLOG",
       "issue": 61,
       "scope": [
         "app/Observers/ (or config/tenancy.php -- vehicle not yet decided)",
@@ -1701,19 +1701,19 @@
       ],
       "compatibility": "A replay guard changes behaviour for any caller that currently returns the same line twice; that is the point, but the refusal must be a refusal and not a 500.",
       "db": "None.",
-      "evidence": null,
+      "evidence": "RECONCILED 2026-10-22: the ledger carried this as READY; b1517206 (\"test(P1-ORD-06, P1-INV-16): pin the premise that makes the auction order\") deferred it deliberately and the ledger was never updated. The defect is reachable only through an existing `auction_product_orders` row the caller's own store owns, and the ONLY writer is the `auction:order` console command, which the owner keeps unscheduled (D-03). AuctionOrderDormancyTest asserts over app/, packages/workdo/, routes/ and bootstrap/ that the command is the only writer, that nothing schedules it and that no route creates an order; each of its three mutants (a second writer, a schedule entry, a controller-side create) fails it. BACKLOG, to be closed before D-03 is revisited; the operator's check for pre-existing rows is a single count.",
       "queue_refs": [
         "S38-7"
       ],
       "owner_decision": "Needed IF the vehicle chosen is adding Product to scoped_models: that closes this and the S19 class in one move but is a broad behavioural change across the application.",
-      "blocked_on": null
+      "blocked_on": "Dormant: close before owner decision D-03 (scheduling `auction:order`) is revisited."
     },
     {
       "id": "P1-ORD-06",
       "title": "auction-order-status-change reads the HOST orders table with an auction id and POSTs the result, PII included, to a merchant-configured URL",
       "workstream": "orders",
       "risk": "high",
-      "status": "READY",
+      "status": "BACKLOG",
       "issue": 62,
       "scope": [
         "app/ (vehicle not yet decided -- the leak is in vendored code)",
@@ -1734,11 +1734,11 @@
       ],
       "compatibility": "A merchant whose webhook currently receives host-order payloads for auction status changes stops receiving them. That payload was the wrong row to begin with, even within one tenant.",
       "db": "None.",
-      "evidence": null,
+      "evidence": "RECONCILED 2026-10-22: the ledger carried this as READY; b1517206 (\"test(P1-ORD-06, P1-INV-16): pin the premise that makes the auction order\") deferred it deliberately and the ledger was never updated. The defect is reachable only through an existing `auction_product_orders` row the caller's own store owns, and the ONLY writer is the `auction:order` console command, which the owner keeps unscheduled (D-03). AuctionOrderDormancyTest asserts over app/, packages/workdo/, routes/ and bootstrap/ that the command is the only writer, that nothing schedules it and that no route creates an order; each of its three mutants (a second writer, a schedule entry, a controller-side create) fails it. BACKLOG, to be closed before D-03 is revisited; the operator's check for pre-existing rows is a single count.",
       "queue_refs": [
         "S39-6"
       ],
-      "blocked_on": null,
+      "blocked_on": "Dormant: close before owner decision D-03 (scheduling `auction:order`) is revisited.",
       "owner_decision": null
     },
     {
@@ -2106,7 +2106,7 @@
       "title": "Authenticated SSRF: four import handlers fetch a merchant-controlled URL and serve the response",
       "workstream": "security",
       "risk": "high",
-      "status": "READY",
+      "status": "IN_REVIEW",
       "issue": 55,
       "scope": [
         "app/Http/Controllers/WoocomProductController.php",
@@ -2133,7 +2133,7 @@
       ],
       "compatibility": "Merchants importing from a public Woo store are unaffected. A merchant whose Woo store is on a PRIVATE network would be, and that needs an explicit decision rather than silently breaking -- a self-hosted Woo on a LAN is a plausible setup.",
       "db": "None.",
-      "evidence": "",
+      "evidence": "RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 7524e844 (\"P1-SEC-06: the WooCommerce/Shopify importers no longer fetch an address \"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S39"
       ],
@@ -2145,7 +2145,7 @@
       "title": "Reconcile data residue from the pre-fix WooCommerce transfer primitive (read-only investigation)",
       "workstream": "owner",
       "risk": "high",
-      "status": "READY",
+      "status": "BLOCKED",
       "issue": 56,
       "scope": [
         "docs/security/"
@@ -2165,12 +2165,12 @@
       ],
       "compatibility": "No code change proposed.",
       "db": "A repair would be a data migration against a persistent database holding live catalogue data. NOT drafted, and it needs the owner's decision plus an approved recovery plan.",
-      "evidence": "",
+      "evidence": "RECONCILED 2026-10-22: moved READY -> BLOCKED. This task is a read-only reconciliation of data residue on the LIVE database and cannot be advanced from the repository at all -- the handoff already classified it under §6d 'Needs PRODUCTION verification', while the ledger carried it as READY. Nothing is startable here without the owner running the read-only queries. (This task has no `### ` block in the ledger markdown, so this row was amended in the JSON directly; ledger-tool.py cannot amend it.)",
       "queue_refs": [
         "S37-4"
       ],
       "owner_decision": true,
-      "blocked_on": null
+      "blocked_on": "Read-only access to the production database to inventory the residue. The repository cannot show which rows the pre-fix WooCommerce transfer primitive moved; HANDOFF-CURRENT.md §6d lists this task under 'Needs PRODUCTION verification'."
     },
     {
       "id": "P1-TST-01",
@@ -2251,7 +2251,7 @@
       "title": "downloadable_prodcut lets any signed-in shopper make any store email its own customer an attacker-chosen link",
       "workstream": "orders",
       "risk": "medium",
-      "status": "READY",
+      "status": "IN_REVIEW",
       "issue": 74,
       "scope": [
         "app/Http/Controllers/AccountProfileController.php",
@@ -2275,7 +2275,7 @@
       ],
       "compatibility": "Web Blade route called by jQuery from two views (front_end/sections/order_view.blade.php:288-315 and front_end/pages/refund_order.blade.php:106), both posting the shopper's OWN order id. The caller has a `success:` handler only and branches on `data.status`, so a refusal should keep the handler's own shape (HTTP 200 {status:'error',msg,message}) rather than a bare 403 that would leave the spinner running. Not an API route: no Flutter force-logout hazard.",
       "db": "None.",
-      "evidence": "None yet. Reproduction recorded in P1-SEC-03's entry (round 1).",
+      "evidence": "None yet. Reproduction recorded in P1-SEC-03's entry (round 1). | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 0cfdd25f (\"P1-ORD-10: downloadable_prodcut mails only the signed-in shopper's own o\"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S14"
       ],
@@ -2324,7 +2324,7 @@
       "title": "ReportController has no authorization on its 27 live order and revenue report handlers",
       "workstream": "security",
       "risk": "medium",
-      "status": "READY",
+      "status": "IN_REVIEW",
       "issue": 76,
       "scope": [
         "app/Http/Controllers/ReportController.php",
@@ -2349,7 +2349,7 @@
       ],
       "compatibility": "Adds refusals where there were none. A tenant OWNER with no role, or a STAFF role lacking the report permission, is newly refused: there is no owner bypass in isAbleTo(), and the ledger has stated this compatibility cost for the same class before (P1-ORD-04). The platform operator must be admitted via the operator-first shape (OrderController::fileExport) or the fix locks them out. Web Blade/AJAX routes; the sidebar already hides these entries, so the UI is unchanged for anyone who could previously reach them legitimately.",
       "db": "None.",
-      "evidence": "None yet. Recovered triage headline above; the transcript is lost.",
+      "evidence": "None yet. Recovered triage headline above; the transcript is lost. | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 41a80aed (\"P1-SEC-09: every report handler is gated by the permission of the menu e\"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S14"
       ],
@@ -2361,7 +2361,7 @@
       "title": "The DeliverySyria order-status endpoint is an unauthenticated, unthrottled, platform-wide order-existence oracle",
       "workstream": "security",
       "risk": "medium",
-      "status": "READY",
+      "status": "IN_REVIEW",
       "issue": 77,
       "scope": [
         "app/Http/Controllers/Api/DeliverySyriaOrderController.php",
@@ -2384,7 +2384,7 @@
       ],
       "compatibility": "Both outcomes already REFUSE, so unifying them changes no successful request. This project has settled the same question twice in favour of uniform denial bodies ('an unknown row denies with the same body as a foreign row, so the guard is not an existence oracle'), so there is precedent to copy. Check the DeliverySyria integration's own expectations of the 404 vs 403 split before collapsing them; the endpoint is not under routes/api.php's `admin` prefix, so the Flutter admin app does not call it.",
       "db": "None.",
-      "evidence": "None yet. Recovered triage measurement above (first 2,048 of 6,559 bytes).",
+      "evidence": "None yet. Recovered triage measurement above (first 2,048 of 6,559 bytes). | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 67187291 (\"P1-SEC-10: the DeliverySyria status endpoints resolve the credential bef\"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S14"
       ],
@@ -2396,7 +2396,7 @@
       "title": "Utility::Setting() falls back to created_by=1 with no store predicate, getCurrentStore() hardcodes 1 for the operator, and a guard compares users.type strictly",
       "workstream": "security",
       "risk": "medium",
-      "status": "READY",
+      "status": "IN_REVIEW",
       "issue": 78,
       "scope": [
         "app/Models/Utility.php",
@@ -2421,7 +2421,7 @@
       ],
       "compatibility": "WIDE BLAST RADIUS and the reason this wants its own task: Utility::Setting() and getCurrentStore() are read by almost every handler, and this project has twice shipped a change to a helper this central as a storefront outage (config/tenancy.php:60-63 records both). Needs both-direction (RTL/LTR) checks on every order document, and the operator definition has to be settled ONCE across the nine normalised and many case-sensitive sites rather than patched here.",
       "db": "None.",
-      "evidence": "None yet. Recovered triage measurement above (first 2,048 of 7,716 bytes).",
+      "evidence": "None yet. Recovered triage measurement above (first 2,048 of 7,716 bytes). | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by fb305b19 (\"P1-SEC-11 (shipping label): the FROM block is the order's own store, nev\"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S14"
       ],
@@ -2526,7 +2526,7 @@
       "title": "OrderDocumentAccessGuard resolves the refund id on order-refund/{id} as an order id: a shopper cannot open their own refund request unless the two numbers coincide",
       "workstream": "orders",
       "risk": "medium",
-      "status": "READY",
+      "status": "IN_REVIEW",
       "issue": 81,
       "scope": [
         "app/Http/Middleware/OrderDocumentAccessGuard.php",
@@ -2550,7 +2550,7 @@
       ],
       "compatibility": "Web Blade route called by the storefront refund list. The guard change only ADMITS a shopper who owns the order behind the refund; every other outcome stays a 403/404. No Flutter/API contract; no 401.",
       "db": "None.",
-      "evidence": "None yet - READY. Reproduction is recorded under P1-ORD-07 (review E4).",
+      "evidence": "None yet - READY. Reproduction is recorded under P1-ORD-07 (review E4). | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by be9317ab (\"P1-ORD-12: a shopper can open their own refund request - the guard resol\"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S14"
       ],
@@ -2600,7 +2600,7 @@
       "title": "Cancelling or restocking a refund reads the refund record by order-line position, so a partial refund restores the wrong line",
       "workstream": "orders",
       "risk": "high",
-      "status": "READY",
+      "status": "IN_REVIEW",
       "issue": 83,
       "scope": [
         "app/Http/Controllers/OrderRefundController.php",
@@ -2625,7 +2625,7 @@
       ],
       "compatibility": "Merchant-side admin routes; the response shapes stay. Records written BEFORE P1-ORD-07 are positionally ambiguous (their quantity came from the wrong slot) and cannot be repaired retroactively - say so in the release note. P1-ORD-11 stays BLOCKED on the owner's workflow decision; this task is the symmetric half of P1-ORD-07's record and does not change when totals move.",
       "db": "None.",
-      "evidence": "None yet - READY. The reproduction (P6 stock inflation before P1-ORD-07, P7 doubled line) is in the P1-ORD-07 review record.",
+      "evidence": "None yet - READY. The reproduction (P6 stock inflation before P1-ORD-07, P7 doubled line) is in the P1-ORD-07 review record. | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 9944a620 (\"P1-ORD-14: cancelling or restocking a refund puts the units back where t\"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S14"
       ],
@@ -2637,7 +2637,7 @@
       "title": "The storefront account area has a login gate and no ownership check: any signed-in shopper of any store can read, overwrite or delete another shopper's addresses and support tickets",
       "workstream": "security",
       "risk": "high",
-      "status": "READY",
+      "status": "IN_REVIEW",
       "issue": 84,
       "scope": [
         "app/Http/Controllers/AccountProfileController.php",
@@ -2658,7 +2658,7 @@
       ],
       "compatibility": "Web Blade routes called by the storefront; every refusal is a 404 or an error redirect, never a 401. Mirrors P1-ORD-07's `ownedOrder` predicate and P01-SEC-11's API address handlers. A shopper keeps full access to their own addresses and tickets.",
       "db": "None.",
-      "evidence": "None yet - READY. Reproductions are in the P1-ORD-07/08 review record (lens E, E6).",
+      "evidence": "None yet - READY. Reproductions are in the P1-ORD-07/08 review record (lens E, E6). | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by c20d8bf3 (\"P1-SEC-12: the storefront account-area address and ticket handlers act o\"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S14"
       ],
@@ -2813,7 +2813,7 @@
       "title": "The error tracker (LaraBug) is sent the request, cookies, session and input on every reported exception, and its blacklist misses cookies, sessions, secrets and card numbers",
       "workstream": "security",
       "risk": "high",
-      "status": "READY",
+      "status": "IN_REVIEW",
       "issue": 89,
       "scope": [
         "config/larabug.php",
@@ -2833,7 +2833,7 @@
       ],
       "compatibility": "Error reports to the tracker lose the redacted keys; nothing user-visible. If the owner decides the tracker should not be used, that is a separate, larger change.",
       "db": "None.",
-      "evidence": "None yet - READY.",
+      "evidence": "None yet - READY. | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 29aeefda (\"P1-SEC-14: the error tracker no longer posts cookies, the session, card \"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S42"
       ],
@@ -2845,7 +2845,7 @@
       "title": "Credentials at rest outside the visit log: the API log's redaction gaps, passwords flashed into the session, a plaintext 2FA seed copied between users, whole checkouts in return URLs",
       "workstream": "security",
       "risk": "medium",
-      "status": "READY",
+      "status": "IN_REVIEW",
       "issue": 90,
       "scope": [
         "app/Http/Middleware/Concerns/RedactsApiLogFields.php",
@@ -2873,7 +2873,7 @@
       ],
       "compatibility": "Logs and session payloads lose credential values; no client contract.",
       "db": "None for the code. A 2FA-seed change would be a data migration - out of scope here.",
-      "evidence": "None yet - READY.",
+      "evidence": "None yet - READY. | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 3885e866 (\"P1-SEC-16: credentials at rest outside the visit log - API log redaction\"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S42"
       ],
@@ -3154,7 +3154,7 @@
       "title": "get-massage residue and sibling credential sinks found by the P1-SEC-17 review: an unthrottled, ungated anonymous Telegram relay, an exception object flashed into the Midtrans page, a password in module page script, the chat id in payment-list",
       "workstream": "security",
       "risk": "medium",
-      "status": "READY",
+      "status": "IN_REVIEW",
       "issue": 96,
       "scope": [
         "routes/customer.php",
@@ -3184,7 +3184,7 @@
       ],
       "compatibility": "A throttle only bites a client that posts get-massage many times a minute; the checkout page posts it once. The flashed message becomes the exception's message (or a fixed string) rather than the exception object. `telegram_chat_id` in payment-list would become null like the other secrets (shape kept).",
       "db": "None expected.",
-      "evidence": "None yet - READY.",
+      "evidence": "None yet - READY. | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by b69c5cb6 (\"P1-SEC-22 (a)(b): the anonymous get-massage relay is gated and throttled\"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S43"
       ],
@@ -3318,7 +3318,7 @@
       "title": "Unlinks of a path read from the database or the request that bypass StoredUpload: product images (ImportExport writes them raw), vendored module deleters, a shared vendored asset deleted as collateral, files with no store segment",
       "workstream": "security",
       "risk": "high",
-      "status": "READY",
+      "status": "IN_REVIEW",
       "issue": 102,
       "scope": [
         "app/Http/Controllers/ProductController.php",
@@ -3348,7 +3348,7 @@
       ],
       "compatibility": "A path outside the owner's part of uploads/ is no longer unlinked (the row is still removed): a file that used to be deleted stays on disk. The vendored deleters cannot be changed, so containment is a write-side rule on the rows they read.",
       "db": "None.",
-      "evidence": "None yet - READY.",
+      "evidence": "None yet - READY. | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by c71c717e (\"P1-SEC-28 (+ P1-INV-09): a path read from the database reaches the files\"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S45"
       ],
@@ -3431,7 +3431,7 @@
       "title": "Fixed-name credential and identity writers have no permission check: storage (S3/Wasabi endpoint and keys), WooCommerce, Shopify, Twilio, WhatsApp, Firebase, and the store's name, e-mail and slug",
       "workstream": "security",
       "risk": "medium",
-      "status": "READY",
+      "status": "IN_REVIEW",
       "issue": 105,
       "scope": [
         "app/Http/Controllers/SettingController.php",
@@ -3455,7 +3455,7 @@
       ],
       "compatibility": "Staff without the screen's permission get a redirect with an error (web) instead of a save; the owner, the operator and staff holding the permission are unaffected. The permission for each screen is the one its menu entry asks (Settings = `Manage Setting`, Store Setting = `Manage Store Setting`) - read from CompanyMenuListener, not assumed.",
       "db": "None.",
-      "evidence": "None yet - READY.",
+      "evidence": "None yet - READY. | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 3f5adf5c (\"P1-SEC-30: the seven fixed-name credential writers ask the permission of\"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S46"
       ],
@@ -3495,7 +3495,7 @@
       "title": "Nine vendored WorkDo module controllers write `settings` by caller-supplied name with no permission check, four of them with no auth or module/plan check; they cannot be edited, so the control has to be host-side",
       "workstream": "security",
       "risk": "high",
-      "status": "READY",
+      "status": "IN_REVIEW",
       "issue": 107,
       "scope": [
         "app/Providers/",
@@ -3519,7 +3519,7 @@
       ],
       "compatibility": "A user without `Manage Setting` (or, for the Store Setting-hosted module tabs, `Manage Store Setting`) can no longer save those module settings; the owner, the operator and staff holding the permission are unaffected. packages/workdo/ is not touched.",
       "db": "None.",
-      "evidence": "None yet - READY.",
+      "evidence": "None yet - READY. | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by cdc213bd (\"P1-SEC-04 / P1-SEC-31: host-side control and a census gate for the modul\"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S46"
       ],
@@ -3562,7 +3562,7 @@
       "title": "Saving the Home or Checkout tab of the Store Setting screen removes the store's custom domain at the hosting panel and blanks it - for the owner too (EXECUTED)",
       "workstream": "platform",
       "risk": "medium",
-      "status": "READY",
+      "status": "IN_REVIEW",
       "issue": 109,
       "scope": [
         "app/Http/Controllers/AppSettingController.php",
@@ -3584,7 +3584,7 @@
       ],
       "compatibility": "Home and Checkout saves stop calling the hosting panel. An explicit switch to Store Link or Sub-domain on the Custom tab still removes the custom domain, as designed. A store whose plan was downgraded keeps its custom domain until the owner switches mode explicitly instead of losing it at the next unrelated save.",
       "db": "None.",
-      "evidence": "None yet - READY.",
+      "evidence": "None yet - READY. | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by d91d5a0f (\"P1-PLT-06: saving the Home or Checkout tab no longer takes the store's c\"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.",
       "queue_refs": [
         "S46"
       ],
@@ -3660,6 +3660,134 @@
       ],
       "owner_decision": true,
       "blocked_on": "Owner decisions: (a) may ANY store ever hold the platform's own host (the APP_URL host) as a custom domain? Today the operator's own store might (P1-OWN-11's second query shows who holds what); if not, engineering adds a one-comparison reservation in HostClaims. (b) Which sub-domain labels are reserved (www, admin, api, mail, ftp, cpanel, webmail, app, ... )? (c) Must a custom domain be PROVEN before it can win a lookup - a DNS TXT challenge, or 'the hosting panel accepted it' on the ThemeSettings path only - or is first-come acceptable? (d) Who releases a host a squatter holds: an operator action (a screen or an artisan command) or a rule (for example a holder whose DNS no longer points at the platform loses it)? Engineering will not pick a registrar-style policy for the business."
+    },
+    {
+      "id": "P1-INV-23",
+      "title": "DigitalProduct, AuctionProduct's twin: an anonymous DELETE removed any tenant's product image and file, and the resource routes checked the permission but never the owner (EXECUTED)",
+      "workstream": "inventory",
+      "risk": "high",
+      "status": "IN_REVIEW",
+      "issue": 114,
+      "scope": [
+        "app/Http/Middleware/ModuleResourceOwnershipGuard.php",
+        "tests/Feature/Security/DigitalProductOwnershipTest.php"
+      ],
+      "existing_status": "FOUND by the read-only review of the P1-SEC-28 fix and REPRODUCED BY EXECUTION (5 of 6 exposure tests failed on the unfixed tree). packages/workdo/DigitalProduct/src/routes/web.php:20 declares DELETE digital-products/{id}/delete in a ['web']-only group with no auth and no plan check: file_delete($id) resolves a DigitalProductImage by bare id, unlinks the file its image_path names and deletes the row. Route::resource('digitalproduct') edit/update/destroy call Product::find($id) against the host catalogue, which carries no effective global scope, and check the permission but never the owner.",
+      "depends_on": [
+        "P1-INV-17"
+      ],
+      "acceptance": [
+        "An anonymous DELETE on the image route is refused and no row or file is removed",
+        "A merchant whose plan carries the module cannot read, rewrite or delete another tenant's digital product, its images or their files",
+        "The owner's own journey and the platform operator are unaffected",
+        "The control is host-side; nothing under packages/workdo/ is edited"
+      ],
+      "tests": [
+        "DigitalProductOwnershipTest: anonymous, other tenant, own, operator, PATCH and permission limbs",
+        "The sibling census covers both modules with 16 targets"
+      ],
+      "compatibility": "No contract change: the routes keep their URIs and response shapes; only requests that were crossing a tenant boundary are refused.",
+      "db": "None.",
+      "evidence": "IN_REVIEW. Implemented by 154b7a89 on claude/store-syria-p01a-ci-foundation. Host-side only: five method+URI entries in ModuleResourceOwnershipGuard::TARGETS -- the edit read, PUT, PATCH and DELETE on the resource (products, 'Edit/Delete Digital Product') and the image delete (digital_product_images, which carries its own store_id). The guard's anonymous limb supplies the authentication requirement for the image route, and the census now ASSERTS that the route lacks Authenticate and says why instead of silently exempting it. Tests: DigitalProductOwnershipTest 11; sibling census 26 pass with both modules enabled; 9 removal checks, and the three that first SURVIVED (the PATCH entry and two permission limbs) now bite. Module guards + Tenancy suites 466 passed / 6 skipped. RECONCILED 2026-10-22: this task had no ledger row and no issue until now -- it was invisible to both. Suites on the reconciled tree: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared), known-outcome gate OK, exit 0. NOT re-verified by this reconciliation, hence IN_REVIEW rather than DONE.",
+      "queue_refs": [],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-SEC-33",
+      "title": "Utility::WebhookCall curls a merchant-saved URL with no protocol, host or timeout limit (SSRF), and the webhook writers rewrote or MOVED any tenant’s webhook by bare id",
+      "workstream": "security",
+      "risk": "high",
+      "status": "IN_REVIEW",
+      "issue": 115,
+      "scope": [
+        "app/Services/SafeWebhook.php",
+        "app/Http/Controllers/WebhookController.php",
+        "tests/Feature/Security/WebhookSafetyTest.php"
+      ],
+      "existing_status": "FOUND by the second read-only review of the P1-SEC-06 / P1-SEC-28 fixes. Utility::WebhookCall does curl_init($url) on the merchant-saved webhook URL with the merchant’s chosen method and no protocol, host or timeout limits, so gopher://, link-local metadata addresses and raw bytes to a local listener were all reachable. Separately, WebhookController::update rewrote any tenant’s webhook by bare id and, through its store_id assignment, MOVED it into the caller’s store; destroy() deleted any tenant’s for any admin-type user.",
+      "depends_on": [
+        "P1-SEC-06"
+      ],
+      "acceptance": [
+        "A webhook call resolves only http/https, is pinned, and is refused for a private or link-local destination on any port",
+        "A webhook row can be updated or deleted only by the store that owns it, and an update cannot move it between stores",
+        "A legitimate merchant webhook to a public https endpoint still fires"
+      ],
+      "tests": [
+        "WebhookSafetyTest: the refused destinations, the pinning, and the two writer paths for own vs other tenant"
+      ],
+      "compatibility": "A merchant webhook pointed at a private or non-HTTP destination stops firing. That is the point of the fix; it is a behaviour change and is recorded as one.",
+      "db": "None.",
+      "evidence": "IN_REVIEW. Implemented by c894a5c7 on claude/store-syria-p01a-ci-foundation, which also carried the P1-SEC-06/28 review follow-ups. The call now goes through App\\Services\\SafeWebhook, which uses SafeRemoteFetch::check (every port), pinned, http/https only; both writers are scoped to the caller's store. Tests: WebhookSafetyTest 39. Removal checks (mutation-harness.py): SafeRemoteFetch 11+7, ImportedImage 13+, policy 18, webhook 20. RECONCILED 2026-10-22: this task had no ledger row and no issue until now. Suites on the reconciled tree: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared), known-outcome gate OK, exit 0. NOT re-verified by this reconciliation, hence IN_REVIEW.",
+      "queue_refs": [],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-SEC-34",
+      "title": "The two storefront-write holes the P1-SEC-04 route-census review left open: an anonymous review's description reaches the merchant's admin origin unescaped (HIGH), and a shopper's comment is tied to no store and no product (MEDIUM)",
+      "workstream": "security",
+      "risk": "high",
+      "status": "IN_REVIEW",
+      "issue": 112,
+      "scope": [
+        "app/Http/Middleware/ModuleStorefrontInputGuard.php",
+        "tests/Feature/Security/ModuleStorefrontInputGuardTest.php"
+      ],
+      "existing_status": "RECORDED VERBATIM in cdc213bd's own commit message as deferred ('Not closed, recorded for the queue: the shopper comment path still does not tie the customer to the slug's store and does not validate product_id, and a review's description/title are not stripped although the merchant's review table prints description unescaped'), and CONFIRMED here. (a) POST /{storeSlug}/product-review is declared in a ['web']-only group -- no auth, no module check, no plan check -- and wrote title and description straight from the body, while packages/workdo/ProductReview/src/DataTables/ProductReviewDataTable.php:59 puts `description` in rawColumns(), i.e. opts it OUT of Yajra's default escaping, in a displayed column of the merchant's review table. (b) POST /{storeSlug}/spamprevent derived customer_id from the session (P1-SEC-04) but never required the shopper to belong to the SLUG'S store -- `customers` is one session guard on one host -- and never validated product_id at all, and Product carries no global scope.",
+      "depends_on": [
+        "P1-SEC-04"
+      ],
+      "acceptance": [
+        "A review's title and description cannot carry markup into the merchant's review table from the anonymous storefront route",
+        "A shopper can comment only through the slug of their own store",
+        "A product_id on either storefront route must name a product of the slug's store, and absence is still allowed because the modules require only `comment` / `description`",
+        "Every refusal is a 403 or a redirect, never a 401",
+        "No file under packages/workdo/ is edited"
+      ],
+      "tests": [
+        "ModuleStorefrontInputGuardTest, driven through the real module routes loaded via the production loader, each negative with a positive twin",
+        "A premise test pinning that the vendored review table still declares `description` in rawColumns(), so the reason for the strip stays auditable"
+      ],
+      "compatibility": "Markup in a storefront review or comment is stored as text instead of as markup. A review whose description was ONLY markup now fails the module's own `required` rule and is refused, which is the intended outcome. An absent title still stores NULL, so the module's own write is unchanged. No URI or response shape changes.",
+      "db": "None.",
+      "evidence": "IN_REVIEW. The follow-up to P1-SEC-04 that closes the two items its review deferred. Fix in app/Http/Middleware/ModuleStorefrontInputGuard.php: shopperComment() now requires (int) $customer->store_id === (int) $store->id, and both storefront routes share one productOfStoreOrAbsent() -- so the fix adds NO new raw-query site; review() strips title and description through the existing plain(), rewriting only keys the caller actually sent. TWO HYPOTHESES MEASURED AND REFUTED, recorded because both looked right from reading: (1) the predicted persistent 500 on the merchant's SpamPrevent screen does NOT happen -- SpamPreventController::index does deref Customer::find()->first_name and Product::find()->id with no null check and Customer IS scoped (so a foreign customer resolves to NULL, measured), but in PHP 8.3 a property read on null is a WARNING, not an Error, and the screen returned 200 even under withoutExceptionHandling(); (2) the predicted cross-tenant product-name disclosure does NOT reach that screen -- index() computes $result, where the unscoped Product::find() lives, but admin/index.blade.php renders only <x-datatable>, so $result is dead, and the DataTable's own product_id renderer is null-safe AND htmlspecialchars-escaped (probed with a real foreign product: the name does not appear). So (b) is a genuine cross-tenant WRITE whose downstream exposure is LATENT, and is MEDIUM; (a) is an anonymous stored XSS in the merchant admin origin and is HIGH. Tests: ModuleStorefrontInputGuardTest 25 tests / 335 assertions. Removal checks (mutation-harness.py): 6 mutants -- customer-store check, comment-path product check, the product check's store_id predicate, the ctype_digit normalisation, the title/description strip, and the strip with title dropped -- ALL SIX BITE, files restored byte-identically. Engine: SQLite :memory:, CACHE_STORE=array, PHP 8.3.6; nothing here is collation- or type-sensitive, so no MySQL script was needed. RESIDUAL, recorded and NOT fixed: the merchant-side product-review.store resource route also writes description into the same rawColumns sink without stripping -- authenticated, same-tenant and gated on 'Create Product Review', so it is a staff member able to put script on the owner's screen; it belongs with P1-OWN-12 (#108). Suites: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared), known-outcome gate OK, exit 0.",
+      "queue_refs": [],
+      "owner_decision": false,
+      "blocked_on": null
+    },
+    {
+      "id": "P1-SEC-35",
+      "title": "/duologin logged an anonymous caller in as ANY account, the platform operator included: no authentication, CSRF-exempt, and the two HMAC halves are compared only with each other (EXECUTED)",
+      "workstream": "security",
+      "risk": "critical",
+      "status": "IN_REVIEW",
+      "issue": 113,
+      "scope": [
+        "app/Http/Middleware/Duo2FALoginGuard.php",
+        "tests/Feature/Security/Duo2FALoginForgeryTest.php"
+      ],
+      "existing_status": "FOUND by the P1-SEC-04 route census (read) and EXECUTED red-then-green. The Duo2FA module's Route::any('duologin') is CSRF-exempt and carries no authentication. Its handler verifies a two-half HMAC 'Duo response' and then calls Auth::loginUsingId() for the e-mail INSIDE that response: the AUTH half is keyed with the secret key of the store of the user named in the REQUEST's user_email -- NULL, i.e. the empty key, for every store that never configured Duo -- the APP half is keyed with a constant committed to the repository, and the halves are compared only with each other. Anyone could mint a response naming any account, the platform operator included, and be signed in as it with no password and no second factor.",
+      "depends_on": [
+        "P1-SEC-04"
+      ],
+      "acceptance": [
+        "An anonymous request to /duologin cannot sign anyone in",
+        "A signed-in user cannot sign in as anyone but themselves through this route",
+        "A store with no Duo keys configured cannot be used as the signing key",
+        "A refusal is a redirect with an error, or 403 for JSON -- never a 401",
+        "The legitimate Duo journey for a store with Duo on and keys set is unchanged"
+      ],
+      "tests": [
+        "Duo2FALoginForgeryTest, module enabled through the production loader with the premise asserted; the post-fix attack is a test of its own"
+      ],
+      "compatibility": "Unchanged for the legitimate flow: the Duo form is shown only to an already signed-in user, only for a store with Duo on and keys set, and it posts that user's own e-mail. The route deliberately stays CSRF-exempt.",
+      "db": "None.",
+      "evidence": "IN_REVIEW. Implemented by 65b815e0 on claude/store-syria-p01a-ci-foundation. packages/workdo/ is vendored, so the control is a host route guard, App\\Http\\Middleware\\Duo2FALoginGuard, matched by the handler's ACTION: a signed-in web user; the request's user_email is that user's own e-mail (exact, read through the module's own accessor, files included); BOTH halves of sig_response name the same user (decoded strictly, exactly 2x3x3 fields); and the user's store holds a Duo integration key AND secret key, since an empty key makes the AUTH half a signature anyone can produce. Tests: Duo2FALoginForgeryTest 19. Removal checks: 17 + 3 mutants, EVERY ONE BITES (two survivors were test gaps and were closed). A read-only review found no remaining request that logs in as another user; its findings were acted on -- the password-only-session switch-off of Duo (duo2fa-setting) went to P1-SEC-04's guard and the trim/case/file differentials were removed. RECONCILED 2026-10-22: the phase's most severe closed finding had NO ledger row and NO issue until now. Suites on the reconciled tree: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared), known-outcome gate OK, exit 0. NOT re-verified by this reconciliation, hence IN_REVIEW.",
+      "queue_refs": [],
+      "owner_decision": false,
+      "blocked_on": null
     }
   ]
 }

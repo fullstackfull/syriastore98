@@ -25,7 +25,7 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 101 — 35 DONE, 31 READY, 8 BACKLOG, 27 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
+| Tasks | 105 — 35 DONE, 7 READY, 9 BACKLOG, 29 BLOCKED, 0 IN_PROGRESS, 25 IN_REVIEW |
 | Requiring an owner decision | 32 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
@@ -119,13 +119,13 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 1. `P1-INV-03` — PosController::store writes product_stock to an absolute value from the POS session *(inventory, BACKLOG, risk high)*
 2. `P1-INV-05` — Concurrency and overselling: reservation semantics across the nine writers *(inventory, BACKLOG, risk medium)*
 3. `P1-INV-06` — Two vendored module cart writers can still plant an unvalidated cart row *(inventory, BLOCKED, risk medium)*
-4. `P1-INV-09` — Stored media paths are expanded as glob patterns and unlinked with no uploads-root containment *(inventory, BACKLOG, risk medium)*
+4. `P1-INV-09` — Stored media paths are expanded as glob patterns and unlinked with no uploads-root containment *(inventory, IN_REVIEW, risk medium)*
 5. `P1-INV-10` — The catalogue cluster: two endpoints that cannot work, an unscoped option lookup, and the missing permission limbs *(inventory, READY, risk low)*
-6. `P1-INV-11` — Unvalidated parent_id leaks every store's category names, and admits a tree cycle that fatals *(inventory, READY, risk medium)*
-7. `P1-INV-12` — Deleting a category deletes every product in it by FK cascade, below the application *(inventory, READY, risk high)*
-8. `P1-INV-13` — The Woo/Shopify import family: three more unscoped mapping resolves, one still carrying a store-transfer primitive *(inventory, READY, risk high)*
+6. `P1-INV-11` — Unvalidated parent_id leaks every store's category names, and admits a tree cycle that fatals *(inventory, IN_REVIEW, risk medium)*
+7. `P1-INV-12` — Deleting a category deletes every product in it by FK cascade, below the application *(inventory, BLOCKED, risk high)*
+8. `P1-INV-13` — The Woo/Shopify import family: three more unscoped mapping resolves, one still carrying a store-transfer primitive *(inventory, IN_REVIEW, risk high)*
 9. `P1-INV-15` — Order::product_return robustness: POS orders 500, no transaction, tax_price zeroed, and a double-credit across the two return endpoints *(inventory, READY, risk medium)*
-10. `P1-INV-16` — AuctionProductOrder::product_return restocks an unscoped Product, has no replay guard, and its non-variant path is a silent no-op *(inventory, READY, risk high)*
+10. `P1-INV-16` — AuctionProductOrder::product_return restocks an unscoped Product, has no replay guard, and its non-variant path is a silent no-op *(inventory, BACKLOG, risk high)*
 11. `P1-INV-20` — four more LotteryPrizes defects: an anonymous ticket writer into any store, an unscoped refund delete, a cross-tenant email-template resolve, and a 500 on every successful draw *(inventory, BLOCKED, risk high)*
 12. `P1-INV-21` — The lottery ticket amount is a client-posted hidden input, so the recorded price is forgeable while the charge is not; and a ticket can be written without paying *(inventory, BLOCKED, risk high)*
 13. `P1-INV-22` — LotteryPrizes: most payment arms are unreachable from its own form, two authorization gates lock out the platform operator, and one is commented out *(inventory, BLOCKED, risk medium)*
@@ -137,57 +137,61 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 19. `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted *(orders, BACKLOG, risk high)*
 20. `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon *(orders, BACKLOG, risk high)*
 21. `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account *(orders, BLOCKED, risk high)*
-22. `P1-ORD-05` — The order read family: a forgeable encrypted id reaches any store's order, and two handlers lock out the operator *(orders, READY, risk high)*
-23. `P1-ORD-06` — auction-order-status-change reads the HOST orders table with an auction id and POSTs the result, PII included, to a merchant-configured URL *(orders, READY, risk high)*
+22. `P1-ORD-05` — The order read family: a forgeable encrypted id reaches any store's order, and two handlers lock out the operator *(orders, IN_REVIEW, risk high)*
+23. `P1-ORD-06` — auction-order-status-change reads the HOST orders table with an auction id and POSTs the result, PII included, to a merchant-configured URL *(orders, BACKLOG, risk high)*
 24. `P1-OWN-01` — BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour *(security, BLOCKED, risk high)*
 25. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
 26. `P1-OWN-03` — The compromised API log on the running server *(security, BLOCKED, risk high)*
 27. `P1-OWN-04` — Token lifetime and abilities for clients already on merchants' phones *(security, BLOCKED, risk high)*
 28. `P1-OWN-05` — Anonymous order-document access (customerpayment) and tooling decisions *(platform, BLOCKED, risk medium)*
 29. `P1-OWN-06` — Branch protection and required checks on main *(platform, BLOCKED, risk medium)*
-30. `P1-OWN-07` — Reconcile data residue from the pre-fix WooCommerce transfer primitive (read-only investigation) *(owner, READY, risk high)*
+30. `P1-OWN-07` — Reconcile data residue from the pre-fix WooCommerce transfer primitive (read-only investigation) *(owner, BLOCKED, risk high)*
 31. `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites *(payments, READY, risk medium)*
 32. `P1-PAY-02` — Idempotency on gateway returns and order writers *(payments, BACKLOG, risk high)*
 33. `P1-PAY-03` — Gateway callback authenticity: no return proves a payment moved *(payments, BLOCKED, risk high)*
-34. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, READY, risk high)*
+34. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, IN_REVIEW, risk high)*
 35. `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites *(platform, BACKLOG, risk high)*
 36. `P1-PLT-04` — Module loading swallows every exception with no log line *(platform, BLOCKED, risk medium)*
 37. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, BACKLOG, risk medium)*
-38. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, READY, risk high)*
-39. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, READY, risk medium)*
-40. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, READY, risk medium)*
+38. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, DONE, risk high)*
+39. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, DONE, risk medium)*
+40. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, IN_REVIEW, risk medium)*
 41. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
-42. `P1-SEC-06` — Authenticated SSRF: four import handlers fetch a merchant-controlled URL and serve the response *(security, READY, risk high)*
+42. `P1-SEC-06` — Authenticated SSRF: four import handlers fetch a merchant-controlled URL and serve the response *(security, IN_REVIEW, risk high)*
 43. `P1-SEC-07` — PLATFORM-WIDE: six modules resolve email templates with no created_by, and a console command reaches the same code with no request and no tenant *(security, BLOCKED, risk high)*
 44. `P1-ORD-09` — The /order/{Crypt::encrypt(id)} details link is the only credential on the order page, and it is forgeable with the leaked APP_KEY *(orders, BLOCKED, risk high)*
-45. `P1-ORD-10` — downloadable_prodcut lets any signed-in shopper make any store email its own customer an attacker-chosen link *(orders, READY, risk medium)*
+45. `P1-ORD-10` — downloadable_prodcut lets any signed-in shopper make any store email its own customer an attacker-chosen link *(orders, IN_REVIEW, risk medium)*
 46. `P1-ORD-11` — A storefront refund REQUEST rewrites the order's totals at request time, before any merchant decision, and is not atomic *(orders, BLOCKED, risk medium)*
-47. `P1-SEC-09` — ReportController has no authorization on its 27 live order and revenue report handlers *(security, READY, risk medium)*
-48. `P1-SEC-10` — The DeliverySyria order-status endpoint is an unauthenticated, unthrottled, platform-wide order-existence oracle *(security, READY, risk medium)*
-49. `P1-SEC-11` — Utility::Setting() falls back to created_by=1 with no store predicate, getCurrentStore() hardcodes 1 for the operator, and a guard compares users.type strictly *(security, READY, risk medium)*
-50. `P1-ORD-12` — OrderDocumentAccessGuard resolves the refund id on order-refund/{id} as an order id: a shopper cannot open their own refund request unless the two numbers coincide *(orders, READY, risk medium)*
+47. `P1-SEC-09` — ReportController has no authorization on its 27 live order and revenue report handlers *(security, IN_REVIEW, risk medium)*
+48. `P1-SEC-10` — The DeliverySyria order-status endpoint is an unauthenticated, unthrottled, platform-wide order-existence oracle *(security, IN_REVIEW, risk medium)*
+49. `P1-SEC-11` — Utility::Setting() falls back to created_by=1 with no store predicate, getCurrentStore() hardcodes 1 for the operator, and a guard compares users.type strictly *(security, IN_REVIEW, risk medium)*
+50. `P1-ORD-12` — OrderDocumentAccessGuard resolves the refund id on order-refund/{id} as an order id: a shopper cannot open their own refund request unless the two numbers coincide *(orders, IN_REVIEW, risk medium)*
 51. `P1-ORD-13` — The thank-you page identifies an order by a non-unique timestamp number: carry the primary key through the gateway returns and close the Paymera replay *(orders, READY, risk medium)*
-52. `P1-ORD-14` — Cancelling or restocking a refund reads the refund record by order-line position, so a partial refund restores the wrong line *(orders, READY, risk high)*
-53. `P1-SEC-12` — The storefront account area has a login gate and no ownership check: any signed-in shopper of any store can read, overwrite or delete another shopper's addresses and support tickets *(security, READY, risk high)*
+52. `P1-ORD-14` — Cancelling or restocking a refund reads the refund record by order-line position, so a partial refund restores the wrong line *(orders, IN_REVIEW, risk high)*
+53. `P1-SEC-12` — The storefront account area has a login gate and no ownership check: any signed-in shopper of any store can read, overwrite or delete another shopper's addresses and support tickets *(security, IN_REVIEW, risk high)*
 54. `P1-OWN-08` — shetabit_visits rows already written hold plaintext customer passwords, session cookies and possibly card fields: scrub or purge, notify, and sequence with the APP_KEY rotation *(security, BLOCKED, risk critical)*
 55. `P1-OWN-09` — Every store's payment-gateway secrets were readable by any internet visitor: treat them as exposed - rotation guidance, access-log check, and the API log files on the server *(security, BLOCKED, risk critical)*
-56. `P1-SEC-14` — The error tracker (LaraBug) is sent the request, cookies, session and input on every reported exception, and its blacklist misses cookies, sessions, secrets and card numbers *(security, READY, risk high)*
-57. `P1-SEC-16` — Credentials at rest outside the visit log: the API log's redaction gaps, passwords flashed into the session, a plaintext 2FA seed copied between users, whole checkouts in return URLs *(security, READY, risk medium)*
-58. `P1-SEC-17` — Credentials handed to the browser: the Telegram bot token to an anonymous shopper, the Midtrans server key in page HTML, the platform reCAPTCHA secret in a script *(security, READY, risk high)*
-59. `P1-SEC-18` — Setting reads and writes with no tenant predicate or no permission: a shopper charged through another tenant's keys, a cross-tenant image delete, staff reading and writing a merchant's gateway and SMTP secrets *(security, READY, risk high)*
-60. `P1-SEC-22` — get-massage residue and sibling credential sinks found by the P1-SEC-17 review: an unthrottled, ungated anonymous Telegram relay, an exception object flashed into the Midtrans page, a password in module page script, the chat id in payment-list *(security, READY, risk medium)*
+56. `P1-SEC-14` — The error tracker (LaraBug) is sent the request, cookies, session and input on every reported exception, and its blacklist misses cookies, sessions, secrets and card numbers *(security, IN_REVIEW, risk high)*
+57. `P1-SEC-16` — Credentials at rest outside the visit log: the API log's redaction gaps, passwords flashed into the session, a plaintext 2FA seed copied between users, whole checkouts in return URLs *(security, IN_REVIEW, risk medium)*
+58. `P1-SEC-17` — Credentials handed to the browser: the Telegram bot token to an anonymous shopper, the Midtrans server key in page HTML, the platform reCAPTCHA secret in a script *(security, DONE, risk high)*
+59. `P1-SEC-18` — Setting reads and writes with no tenant predicate or no permission: a shopper charged through another tenant's keys, a cross-tenant image delete, staff reading and writing a merchant's gateway and SMTP secrets *(security, DONE, risk high)*
+60. `P1-SEC-22` — get-massage residue and sibling credential sinks found by the P1-SEC-17 review: an unthrottled, ungated anonymous Telegram relay, an exception object flashed into the Midtrans page, a password in module page script, the chat id in payment-list *(security, IN_REVIEW, risk medium)*
 61. `P1-SEC-26` — Store-less setting reads on routes that name no store: the lowest-id merchant's settings, the platform's storage and captcha config read through the merchant-shaped call, and an unknown slug that fails open *(security, READY, risk medium)*
-62. `P1-SEC-27` — Staff (and any logged-in user of the store) can still write any setting by NAME: gateway and SMTP keys, the bank-transfer destination, domains; the admin API's Cod/Bank/Loyalty/currency writers have no permission check *(security, READY, risk high)*
-63. `P1-SEC-28` — Unlinks of a path read from the database or the request that bypass StoredUpload: product images (ImportExport writes them raw), vendored module deleters, a shared vendored asset deleted as collateral, files with no store segment *(security, READY, risk high)*
+62. `P1-SEC-27` — Staff (and any logged-in user of the store) can still write any setting by NAME: gateway and SMTP keys, the bank-transfer destination, domains; the admin API's Cod/Bank/Loyalty/currency writers have no permission check *(security, DONE, risk high)*
+63. `P1-SEC-28` — Unlinks of a path read from the database or the request that bypass StoredUpload: product images (ImportExport writes them raw), vendored module deleters, a shared vendored asset deleted as collateral, files with no store segment *(security, IN_REVIEW, risk high)*
 64. `P1-OWN-10` — 407 user-uploaded files are committed to the repository (uploads/, including screenshots, a receipt and profile images) *(security, BLOCKED, risk medium)*
-65. `P1-SEC-29` — A merchant can claim another merchant's custom domain or sub-domain: the host lookup takes the lowest-id `domains`/`subdomain` row of ANY store and nothing keeps the values unique (EXECUTED) *(security, READY, risk high)*
-66. `P1-SEC-30` — Fixed-name credential and identity writers have no permission check: storage (S3/Wasabi endpoint and keys), WooCommerce, Shopify, Twilio, WhatsApp, Firebase, and the store's name, e-mail and slug *(security, READY, risk medium)*
+65. `P1-SEC-29` — A merchant can claim another merchant's custom domain or sub-domain: the host lookup takes the lowest-id `domains`/`subdomain` row of ANY store and nothing keeps the values unique (EXECUTED) *(security, DONE, risk high)*
+66. `P1-SEC-30` — Fixed-name credential and identity writers have no permission check: storage (S3/Wasabi endpoint and keys), WooCommerce, Shopify, Twilio, WhatsApp, Firebase, and the store's name, e-mail and slug *(security, IN_REVIEW, risk medium)*
 67. `P1-OWN-11` — Owner: three read-only checks on the live `settings` table (its real indexes, hosts held by more than one store, rows renamed by a case variant) *(security, BLOCKED, risk medium)*
-68. `P1-SEC-31` — Nine vendored WorkDo module controllers write `settings` by caller-supplied name with no permission check, four of them with no auth or module/plan check; they cannot be edited, so the control has to be host-side *(security, READY, risk high)*
+68. `P1-SEC-31` — Nine vendored WorkDo module controllers write `settings` by caller-supplied name with no permission check, four of them with no auth or module/plan check; they cannot be edited, so the control has to be host-side *(security, IN_REVIEW, risk high)*
 69. `P1-OWN-12` — Owner decision: who may put script and style on every storefront page, checkout included (`storejs`, `storecss`, `google_analytic`, `fbpixel_code`) *(security, BLOCKED, risk medium)*
-70. `P1-PLT-06` — Saving the Home or Checkout tab of the Store Setting screen removes the store's custom domain at the hosting panel and blanks it - for the owner too (EXECUTED) *(platform, READY, risk medium)*
+70. `P1-PLT-06` — Saving the Home or Checkout tab of the Store Setting screen removes the store's custom domain at the hosting panel and blanks it - for the owner too (EXECUTED) *(platform, IN_REVIEW, risk medium)*
 71. `P1-PLT-07` — A save of the Store Setting screen by anyone but the owner re-stamps `created_by` on the owner's rows (or shadows them with new ones), so the owner's own screen shows those fields blank *(platform, READY, risk medium)*
 72. `P1-SEC-32` — Owner: who may hold a host? The platform's own host and reserved sub-domain labels are not reserved, and a host is taken by whoever saves it first with no proof of DNS control and no release path for the rightful owner *(security, BLOCKED, risk medium)*
+73. `P1-SEC-33` — Utility::WebhookCall curls a merchant-saved URL with no protocol, host or timeout limit (SSRF), and the webhook writers rewrote or MOVED any tenant’s webhook by bare id *(security, IN_REVIEW, risk high)*
+74. `P1-SEC-34` — The two storefront-write holes the P1-SEC-04 route-census review left open: an anonymous review's description reaches the merchant's admin origin unescaped (HIGH), and a shopper's comment is tied to no store and no product (MEDIUM) *(security, IN_REVIEW, risk high)*
+75. `P1-SEC-35` — /duologin logged an anonymous caller in as ANY account, the platform operator included: no authentication, CSRF-exempt, and the two HMAC halves are compared only with each other (EXECUTED) *(security, IN_REVIEW, risk critical)*
+76. `P1-INV-23` — DigitalProduct, AuctionProduct's twin: an anonymous DELETE removed any tenant's product image and file, and the resource routes checked the permission but never the owner (EXECUTED) *(inventory, IN_REVIEW, risk high)*
 
 ---
 
@@ -419,7 +423,7 @@ PROCESS LESSONS: (a) Agents returning long strings through a JSON schema failed 
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | medium |
 | Workstream | Security & Identity |
 | GitHub issue | #18 |
@@ -442,7 +446,7 @@ PROCESS LESSONS: (a) Agents returning long strings through a JSON schema failed 
 - The gate fails on a deliberately ungated administrative route (removal check)
 - The gate passes on the current tree
 
-**Evidence.** S11; packages/workdo/AutomaticOrderPrinting/src/routes/web.php:24-28
+**Evidence.** S11; packages/workdo/AutomaticOrderPrinting/src/routes/web.php:24-28 | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by cdc213bd ("P1-SEC-04 / P1-SEC-31: host-side control and a census gate for the modul"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ### `P1-OWN-01` — BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour
 
@@ -626,7 +630,7 @@ PROCESS LESSONS: (a) Agents returning long strings through a JSON schema failed 
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | high |
 | Workstream | Security & Identity |
 | GitHub issue | #55 |
@@ -654,13 +658,13 @@ PROCESS LESSONS: (a) Agents returning long strings through a JSON schema failed 
 - Positive control: a public URL still imports and the cover image is set
 - Removal check on the host check and on the redirect check, separately
 
-**Evidence.** 
+**Evidence.** RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 7524e844 ("P1-SEC-06: the WooCommerce/Shopify importers no longer fetch an address "). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ### `P1-SEC-09` — ReportController has no authorization on its 27 live order and revenue report handlers
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | medium |
 | Workstream | Security & Identity |
 | GitHub issue | #76 |
@@ -693,13 +697,13 @@ Handlers the round-2 critic flagged as order/money-bearing: ReportController.php
 - Pin config(['app.debug' => false]) before reading any body -- an APP_DEBUG query log was nearly mis-filed as a disclosure in round 1
 - Removal check on the gate
 
-**Evidence.** None yet. Recovered triage headline above; the transcript is lost.
+**Evidence.** None yet. Recovered triage headline above; the transcript is lost. | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 41a80aed ("P1-SEC-09: every report handler is gated by the permission of the menu e"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ### `P1-SEC-10` — The DeliverySyria order-status endpoint is an unauthenticated, unthrottled, platform-wide order-existence oracle
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | medium |
 | Workstream | Security & Identity |
 | GitHub issue | #77 |
@@ -730,13 +734,13 @@ NOTE: tests/Feature/Security/DeliverySyriaWebhookTest.php READS AS THOUGH it cov
 - The same pair for the sibling controller
 - Removal check on the reordering and on the throttle
 
-**Evidence.** None yet. Recovered triage measurement above (first 2,048 of 6,559 bytes).
+**Evidence.** None yet. Recovered triage measurement above (first 2,048 of 6,559 bytes). | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 67187291 ("P1-SEC-10: the DeliverySyria status endpoints resolve the credential bef"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ### `P1-SEC-11` — Utility::Setting() falls back to created_by=1 with no store predicate, getCurrentStore() hardcodes 1 for the operator, and a guard compares users.type strictly
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | medium |
 | Workstream | Security & Identity |
 | GitHub issue | #78 |
@@ -770,13 +774,13 @@ AND a third, from round 1's critic: app/Http/Middleware/OrderDocumentAccessGuard
 - Utility::Setting() is memoised and admin_details is cached: Cache::forget between fixture and request or the second read is the first one's answer
 - Removal check on each change
 
-**Evidence.** None yet. Recovered triage measurement above (first 2,048 of 7,716 bytes).
+**Evidence.** None yet. Recovered triage measurement above (first 2,048 of 7,716 bytes). | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by fb305b19 ("P1-SEC-11 (shipping label): the FROM block is the order's own store, nev"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ### `P1-SEC-12` — The storefront account area has a login gate and no ownership check: any signed-in shopper of any store can read, overwrite or delete another shopper's addresses and support tickets
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | high |
 | Workstream | Security & Identity |
 | GitHub issue | #84 |
@@ -800,7 +804,7 @@ AND a third, from round 1's critic: app/Http/Middleware/OrderDocumentAccessGuard
 - Positive per handler: the owner still succeeds
 - Removal check on each ownership predicate, alone
 
-**Evidence.** None yet - READY. Reproductions are in the P1-ORD-07/08 review record (lens E, E6).
+**Evidence.** None yet - READY. Reproductions are in the P1-ORD-07/08 review record (lens E, E6). | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by c20d8bf3 ("P1-SEC-12: the storefront account-area address and ticket handlers act o"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ### `P1-SEC-13` — Every themed storefront request is written to shetabit_visits with its full body and headers: customers' plaintext passwords, session cookies and gateway card fields are stored at rest
 
@@ -936,7 +940,7 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | high |
 | Workstream | Security & Identity |
 | GitHub issue | #89 |
@@ -958,13 +962,13 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 - Build the LaraBug payload for a fake request carrying sentinel cookie/session/card/secret values and assert none appears
 - Removal check on each blacklist entry
 
-**Evidence.** None yet - READY.
+**Evidence.** None yet - READY. | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 29aeefda ("P1-SEC-14: the error tracker no longer posts cookies, the session, card "). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ### `P1-SEC-16` — Credentials at rest outside the visit log: the API log's redaction gaps, passwords flashed into the session, a plaintext 2FA seed copied between users, whole checkouts in return URLs
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | medium |
 | Workstream | Security & Identity |
 | GitHub issue | #90 |
@@ -987,7 +991,7 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 - Per sink: a sentinel secret posted through the handler does not appear in the log/session payload
 - Removal check on each control
 
-**Evidence.** None yet - READY.
+**Evidence.** None yet - READY. | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 3885e866 ("P1-SEC-16: credentials at rest outside the visit log - API log redaction"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ### `P1-SEC-17` — Credentials handed to the browser: the Telegram bot token to an anonymous shopper, the Midtrans server key in page HTML, the platform reCAPTCHA secret in a script
 
@@ -1208,7 +1212,7 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | medium |
 | Workstream | Security & Identity |
 | GitHub issue | #96 |
@@ -1235,7 +1239,7 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 - (c) Reproduce first: fetch the card page anonymously and look for the value
 - (d) The ratchet moves the entry from KEEP to SECRET
 
-**Evidence.** None yet - READY.
+**Evidence.** None yet - READY. | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by b69c5cb6 ("P1-SEC-22 (a)(b): the anonymous get-massage relay is gated and throttled"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ### `P1-SEC-25` — Store-less setting reads answered with another tenant's row: a shopper at store A was charged through store C's gateway keys
 
@@ -1335,7 +1339,7 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | high |
 | Workstream | Security & Identity |
 | GitHub issue | #102 |
@@ -1360,7 +1364,7 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 - A poisoned linkedin/facebook image setting does not let the vendored handler delete outside uploads/
 - Removal check on each
 
-**Evidence.** None yet - READY.
+**Evidence.** None yet - READY. | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by c71c717e ("P1-SEC-28 (+ P1-INV-09): a path read from the database reaches the files"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ### `P1-OWN-10` — 407 user-uploaded files are committed to the repository (uploads/, including screenshots, a receipt and profile images)
 
@@ -1422,7 +1426,7 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | medium |
 | Workstream | Security & Identity |
 | GitHub issue | #105 |
@@ -1445,7 +1449,7 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 - Staff holding it, the owner and the operator still save
 - Removal check on each gate
 
-**Evidence.** None yet - READY.
+**Evidence.** None yet - READY. | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 3f5adf5c ("P1-SEC-30: the seven fixed-name credential writers ask the permission of"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ### `P1-OWN-11` — Owner: three read-only checks on the live `settings` table (its real indexes, hosts held by more than one store, rows renamed by a case variant)
 
@@ -1478,7 +1482,7 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | high |
 | Workstream | Security & Identity |
 | GitHub issue | #107 |
@@ -1501,7 +1505,7 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 - A premise test that the module really is active in the test
 - Removal check on the control
 
-**Evidence.** None yet - READY.
+**Evidence.** None yet - READY. | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by cdc213bd ("P1-SEC-04 / P1-SEC-31: host-side control and a census gate for the modul"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ### `P1-OWN-12` — Owner decision: who may put script and style on every storefront page, checkout included (`storejs`, `storecss`, `google_analytic`, `fbpixel_code`)
 
@@ -1560,6 +1564,92 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 - Removal check on each rule
 
 **Evidence.** None yet - BLOCKED on the owner.
+
+### `P1-SEC-33` — Utility::WebhookCall curls a merchant-saved URL with no protocol, host or timeout limit (SSRF), and the webhook writers rewrote or MOVED any tenant’s webhook by bare id
+
+| field | value |
+|---|---|
+| Status | **IN_REVIEW** |
+| Risk | high |
+| Workstream | Security & Identity |
+| GitHub issue | #115 |
+| Owner decision required | no |
+| Depends on | `P1-SEC-06` |
+| Scope | `app/Services/SafeWebhook.php`, `app/Http/Controllers/WebhookController.php`, `tests/Feature/Security/WebhookSafetyTest.php` |
+| Queue references |  |
+| Database / migration | None. |
+| Compatibility impact | A merchant webhook pointed at a private or non-HTTP destination stops firing. That is the point of the fix; it is a behaviour change and is recorded as one. |
+
+**Existing implementation status.** FOUND by the second read-only review of the P1-SEC-06 / P1-SEC-28 fixes. Utility::WebhookCall does curl_init($url) on the merchant-saved webhook URL with the merchant’s chosen method and no protocol, host or timeout limits, so gopher://, link-local metadata addresses and raw bytes to a local listener were all reachable. Separately, WebhookController::update rewrote any tenant’s webhook by bare id and, through its store_id assignment, MOVED it into the caller’s store; destroy() deleted any tenant’s for any admin-type user.
+
+**Acceptance criteria.**
+- [ ] A webhook call resolves only http/https, is pinned, and is refused for a private or link-local destination on any port
+- [ ] A webhook row can be updated or deleted only by the store that owns it, and an update cannot move it between stores
+- [ ] A legitimate merchant webhook to a public https endpoint still fires
+
+**Required tests.**
+- WebhookSafetyTest: the refused destinations, the pinning, and the two writer paths for own vs other tenant
+
+**Evidence.** IN_REVIEW. Implemented by c894a5c7 on claude/store-syria-p01a-ci-foundation, which also carried the P1-SEC-06/28 review follow-ups. The call now goes through App\Services\SafeWebhook, which uses SafeRemoteFetch::check (every port), pinned, http/https only; both writers are scoped to the caller's store. Tests: WebhookSafetyTest 39. Removal checks (mutation-harness.py): SafeRemoteFetch 11+7, ImportedImage 13+, policy 18, webhook 20. RECONCILED 2026-10-22: this task had no ledger row and no issue until now. Suites on the reconciled tree: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared), known-outcome gate OK, exit 0. NOT re-verified by this reconciliation, hence IN_REVIEW.
+
+### `P1-SEC-34` — The two storefront-write holes the P1-SEC-04 route-census review left open: an anonymous review's description reaches the merchant's admin origin unescaped (HIGH), and a shopper's comment is tied to no store and no product (MEDIUM)
+
+| field | value |
+|---|---|
+| Status | **IN_REVIEW** |
+| Risk | high |
+| Workstream | Security & Identity |
+| GitHub issue | #112 |
+| Owner decision required | no |
+| Depends on | `P1-SEC-04` |
+| Scope | `app/Http/Middleware/ModuleStorefrontInputGuard.php`, `tests/Feature/Security/ModuleStorefrontInputGuardTest.php` |
+| Queue references |  |
+| Database / migration | None. |
+| Compatibility impact | Markup in a storefront review or comment is stored as text instead of as markup. A review whose description was ONLY markup now fails the module's own `required` rule and is refused, which is the intended outcome. An absent title still stores NULL, so the module's own write is unchanged. No URI or response shape changes. |
+
+**Existing implementation status.** RECORDED VERBATIM in cdc213bd's own commit message as deferred ('Not closed, recorded for the queue: the shopper comment path still does not tie the customer to the slug's store and does not validate product_id, and a review's description/title are not stripped although the merchant's review table prints description unescaped'), and CONFIRMED here. (a) POST /{storeSlug}/product-review is declared in a ['web']-only group -- no auth, no module check, no plan check -- and wrote title and description straight from the body, while packages/workdo/ProductReview/src/DataTables/ProductReviewDataTable.php:59 puts `description` in rawColumns(), i.e. opts it OUT of Yajra's default escaping, in a displayed column of the merchant's review table. (b) POST /{storeSlug}/spamprevent derived customer_id from the session (P1-SEC-04) but never required the shopper to belong to the SLUG'S store -- `customers` is one session guard on one host -- and never validated product_id at all, and Product carries no global scope.
+
+**Acceptance criteria.**
+- [x] A review's title and description cannot carry markup into the merchant's review table from the anonymous storefront route
+- [x] A shopper can comment only through the slug of their own store
+- [x] A product_id on either storefront route must name a product of the slug's store, and absence is still allowed because the modules require only `comment` / `description`
+- [x] Every refusal is a 403 or a redirect, never a 401
+- [x] No file under packages/workdo/ is edited
+
+**Required tests.**
+- ModuleStorefrontInputGuardTest, driven through the real module routes loaded via the production loader, each negative with a positive twin
+- A premise test pinning that the vendored review table still declares `description` in rawColumns(), so the reason for the strip stays auditable
+
+**Evidence.** IN_REVIEW. The follow-up to P1-SEC-04 that closes the two items its review deferred. Fix in app/Http/Middleware/ModuleStorefrontInputGuard.php: shopperComment() now requires (int) $customer->store_id === (int) $store->id, and both storefront routes share one productOfStoreOrAbsent() -- so the fix adds NO new raw-query site; review() strips title and description through the existing plain(), rewriting only keys the caller actually sent. TWO HYPOTHESES MEASURED AND REFUTED, recorded because both looked right from reading: (1) the predicted persistent 500 on the merchant's SpamPrevent screen does NOT happen -- SpamPreventController::index does deref Customer::find()->first_name and Product::find()->id with no null check and Customer IS scoped (so a foreign customer resolves to NULL, measured), but in PHP 8.3 a property read on null is a WARNING, not an Error, and the screen returned 200 even under withoutExceptionHandling(); (2) the predicted cross-tenant product-name disclosure does NOT reach that screen -- index() computes $result, where the unscoped Product::find() lives, but admin/index.blade.php renders only <x-datatable>, so $result is dead, and the DataTable's own product_id renderer is null-safe AND htmlspecialchars-escaped (probed with a real foreign product: the name does not appear). So (b) is a genuine cross-tenant WRITE whose downstream exposure is LATENT, and is MEDIUM; (a) is an anonymous stored XSS in the merchant admin origin and is HIGH. Tests: ModuleStorefrontInputGuardTest 25 tests / 335 assertions. Removal checks (mutation-harness.py): 6 mutants -- customer-store check, comment-path product check, the product check's store_id predicate, the ctype_digit normalisation, the title/description strip, and the strip with title dropped -- ALL SIX BITE, files restored byte-identically. Engine: SQLite :memory:, CACHE_STORE=array, PHP 8.3.6; nothing here is collation- or type-sensitive, so no MySQL script was needed. RESIDUAL, recorded and NOT fixed: the merchant-side product-review.store resource route also writes description into the same rawColumns sink without stripping -- authenticated, same-tenant and gated on 'Create Product Review', so it is a staff member able to put script on the owner's screen; it belongs with P1-OWN-12 (#108). Suites: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared), known-outcome gate OK, exit 0.
+
+### `P1-SEC-35` — /duologin logged an anonymous caller in as ANY account, the platform operator included: no authentication, CSRF-exempt, and the two HMAC halves are compared only with each other (EXECUTED)
+
+| field | value |
+|---|---|
+| Status | **IN_REVIEW** |
+| Risk | critical |
+| Workstream | Security & Identity |
+| GitHub issue | #113 |
+| Owner decision required | no |
+| Depends on | `P1-SEC-04` |
+| Scope | `app/Http/Middleware/Duo2FALoginGuard.php`, `tests/Feature/Security/Duo2FALoginForgeryTest.php` |
+| Queue references |  |
+| Database / migration | None. |
+| Compatibility impact | Unchanged for the legitimate flow: the Duo form is shown only to an already signed-in user, only for a store with Duo on and keys set, and it posts that user's own e-mail. The route deliberately stays CSRF-exempt. |
+
+**Existing implementation status.** FOUND by the P1-SEC-04 route census (read) and EXECUTED red-then-green. The Duo2FA module's Route::any('duologin') is CSRF-exempt and carries no authentication. Its handler verifies a two-half HMAC 'Duo response' and then calls Auth::loginUsingId() for the e-mail INSIDE that response: the AUTH half is keyed with the secret key of the store of the user named in the REQUEST's user_email -- NULL, i.e. the empty key, for every store that never configured Duo -- the APP half is keyed with a constant committed to the repository, and the halves are compared only with each other. Anyone could mint a response naming any account, the platform operator included, and be signed in as it with no password and no second factor.
+
+**Acceptance criteria.**
+- [ ] An anonymous request to /duologin cannot sign anyone in
+- [ ] A signed-in user cannot sign in as anyone but themselves through this route
+- [ ] A store with no Duo keys configured cannot be used as the signing key
+- [ ] A refusal is a redirect with an error, or 403 for JSON -- never a 401
+- [ ] The legitimate Duo journey for a store with Duo on and keys set is unchanged
+
+**Required tests.**
+- Duo2FALoginForgeryTest, module enabled through the production loader with the premise asserted; the post-fix attack is a test of its own
+
+**Evidence.** IN_REVIEW. Implemented by 65b815e0 on claude/store-syria-p01a-ci-foundation. packages/workdo/ is vendored, so the control is a host route guard, App\Http\Middleware\Duo2FALoginGuard, matched by the handler's ACTION: a signed-in web user; the request's user_email is that user's own e-mail (exact, read through the module's own accessor, files included); BOTH halves of sig_response name the same user (decoded strictly, exactly 2x3x3 fields); and the user's store holds a Duo integration key AND secret key, since an empty key makes the AUTH half a signature anyone can produce. Tests: Duo2FALoginForgeryTest 19. Removal checks: 17 + 3 mutants, EVERY ONE BITES (two survivors were test gaps and were closed). A read-only review found no remaining request that logs in as another user; its findings were acted on -- the password-only-session switch-off of Duo (duo2fa-setting) went to P1-SEC-04's guard and the trim/case/file differentials were removed. RECONCILED 2026-10-22: the phase's most severe closed finding had NO ledger row and NO issue until now. Suites on the reconciled tree: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared), known-outcome gate OK, exit 0. NOT re-verified by this reconciliation, hence IN_REVIEW.
 
 ---
 
@@ -1807,7 +1897,7 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 
 | field | value |
 |---|---|
-| Status | **BACKLOG** |
+| Status | **IN_REVIEW** |
 | Risk | medium |
 | Workstream | Inventory & Stock |
 | GitHub issue | #50 |
@@ -1833,7 +1923,7 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 - Positive control: a normal uploads/ path is still unlinked and still debited
 - Removal check on the containment helper and on the metacharacter refusal, separately
 
-**Evidence.** 
+**Evidence.** RECONCILED 2026-10-22: the ledger carried this as BACKLOG while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by c71c717e ("P1-SEC-28 (+ P1-INV-09): a path read from the database reaches the files"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ### `P1-INV-10` — The catalogue cluster: two endpoints that cannot work, an unscoped option lookup, and the missing permission limbs
 
@@ -1872,7 +1962,7 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | medium |
 | Workstream | Inventory & Stock |
 | GitHub issue | #52 |
@@ -1899,17 +1989,18 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 - Positive control: a legitimate own-store parent_id is still accepted and still renders in the parent column
 - Removal check on the validation rule and on the cycle check, separately
 
-**Evidence.** 
+**Evidence.** RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by c23a2255 ("P1-INV-11: a category's parent_id is 0 or a category of the caller's own"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ### `P1-INV-12` — Deleting a category deletes every product in it by FK cascade, below the application
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **BLOCKED** |
 | Risk | high |
 | Workstream | Inventory & Stock |
 | GitHub issue | #53 |
 | Owner decision required | **yes** |
+| Blocked on | The owner's decision on the intended delete behaviour (cascade / SET NULL with an uncategorised bucket / refuse-while-non-empty), AND a read-only check on the server of the live schema's actual DELETE_RULE for products_category_id_foreign. Both of this task's substantive criteria are one of those two, and the third and fourth are conditional on the first, so nothing here is startable without the owner. |
 | Depends on | `P1-INV-08` |
 | Scope | `database/migrations/2023_12_25_093024_create_categories_table.php`, `app/Http/Controllers/CategoryController.php` |
 | Queue references | S38-1 |
@@ -1929,13 +2020,13 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 - Negative: a merchant cannot destroy products they did not intend to; the warning or refusal is measured
 - Removal check on whatever control replaces the cascade
 
-**Evidence.** 
+**Evidence.** RECONCILED 2026-10-22: moved READY -> BLOCKED. The ENGINEERING deliverable of this task is already complete and committed -- the cascade is established by execution on MySQL 8.0.46 (verify-category-product-cascade-on-mysql.php, 3 checks / 0 failures, with information_schema asked directly so the result does not rest on observed behaviour), the published claim that the `products` rows survive is corrected, and MerchantCategoryOwnershipTest pins the known-bad residue deliberately. What is LEFT is entirely the owner's: the live DELETE_RULE check on the server and the decision between cascade / SET NULL / refuse-while-non-empty. Changing an FK delete rule is a migration against a persistent database holding live catalogue data, which is forbidden here, and the issue body itself states 'I am not proposing a migration here'. Carrying it as READY invited a session to start work it must not do.
 
 ### `P1-INV-13` — The Woo/Shopify import family: three more unscoped mapping resolves, one still carrying a store-transfer primitive
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | high |
 | Workstream | Inventory & Stock |
 | GitHub issue | #54 |
@@ -1963,7 +2054,7 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 - F3: driven with enforcement effectively off, so the HANDLER's check is measured rather than the scope's
 - Positive control per site; removal check per control, each isolating one
 
-**Evidence.** 
+**Evidence.** RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 73de7656 ("P1-INV-13: the WooCommerce / Shopify re-sync handlers rewrite only a row"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ### `P1-INV-14` — URGENT: SIX unauthenticated vendored admin mutations, two of them calling the host Order model and one a money write
 
@@ -2010,11 +2101,12 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **BACKLOG** |
 | Risk | high |
 | Workstream | Inventory & Stock |
 | GitHub issue | #61 |
 | Owner decision required | **yes** |
+| Blocked on | Dormant: close before owner decision D-03 (scheduling `auction:order`) is revisited. |
 | Depends on | `P1-INV-14`, `P1-INV-02` |
 | Scope | `app/Observers/ (or config/tenancy.php -- vehicle not yet decided)`, `tests/Feature/Security/` |
 | Queue references | S38-7 |
@@ -2036,7 +2128,7 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 - Every assertion reads the raw row via DB::table() -- Product is Cachable and an Eloquent read can serve a mutated in-memory instance (a measured false reproduction in P1-INV-04)
 - Removal checks on each control
 
-**Evidence.** None
+**Evidence.** RECONCILED 2026-10-22: the ledger carried this as READY; b1517206 ("test(P1-ORD-06, P1-INV-16): pin the premise that makes the auction order") deferred it deliberately and the ledger was never updated. The defect is reachable only through an existing `auction_product_orders` row the caller's own store owns, and the ONLY writer is the `auction:order` console command, which the owner keeps unscheduled (D-03). AuctionOrderDormancyTest asserts over app/, packages/workdo/, routes/ and bootstrap/ that the command is the only writer, that nothing schedules it and that no route creates an order; each of its three mutants (a second writer, a schedule entry, a controller-side create) fails it. BACKLOG, to be closed before D-03 is revisited; the operator's check for pre-existing rows is a single count.
 
 ### `P1-INV-17` — four cross-tenant writes behind AuctionProduct's Route::resource routes, two of them on the HOST Product and one that MOVES another store's row
 
@@ -2293,6 +2385,35 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 - Removal check per control
 
 **Evidence.** 
+
+### `P1-INV-23` — DigitalProduct, AuctionProduct's twin: an anonymous DELETE removed any tenant's product image and file, and the resource routes checked the permission but never the owner (EXECUTED)
+
+| field | value |
+|---|---|
+| Status | **IN_REVIEW** |
+| Risk | high |
+| Workstream | Inventory & Stock |
+| GitHub issue | #114 |
+| Owner decision required | no |
+| Depends on | `P1-INV-17` |
+| Scope | `app/Http/Middleware/ModuleResourceOwnershipGuard.php`, `tests/Feature/Security/DigitalProductOwnershipTest.php` |
+| Queue references |  |
+| Database / migration | None. |
+| Compatibility impact | No contract change: the routes keep their URIs and response shapes; only requests that were crossing a tenant boundary are refused. |
+
+**Existing implementation status.** FOUND by the read-only review of the P1-SEC-28 fix and REPRODUCED BY EXECUTION (5 of 6 exposure tests failed on the unfixed tree). packages/workdo/DigitalProduct/src/routes/web.php:20 declares DELETE digital-products/{id}/delete in a ['web']-only group with no auth and no plan check: file_delete($id) resolves a DigitalProductImage by bare id, unlinks the file its image_path names and deletes the row. Route::resource('digitalproduct') edit/update/destroy call Product::find($id) against the host catalogue, which carries no effective global scope, and check the permission but never the owner.
+
+**Acceptance criteria.**
+- [ ] An anonymous DELETE on the image route is refused and no row or file is removed
+- [ ] A merchant whose plan carries the module cannot read, rewrite or delete another tenant's digital product, its images or their files
+- [ ] The owner's own journey and the platform operator are unaffected
+- [ ] The control is host-side; nothing under packages/workdo/ is edited
+
+**Required tests.**
+- DigitalProductOwnershipTest: anonymous, other tenant, own, operator, PATCH and permission limbs
+- The sibling census covers both modules with 16 targets
+
+**Evidence.** IN_REVIEW. Implemented by 154b7a89 on claude/store-syria-p01a-ci-foundation. Host-side only: five method+URI entries in ModuleResourceOwnershipGuard::TARGETS -- the edit read, PUT, PATCH and DELETE on the resource (products, 'Edit/Delete Digital Product') and the image delete (digital_product_images, which carries its own store_id). The guard's anonymous limb supplies the authentication requirement for the image route, and the census now ASSERTS that the route lacks Authenticate and says why instead of silently exempting it. Tests: DigitalProductOwnershipTest 11; sibling census 26 pass with both modules enabled; 9 removal checks, and the three that first SURVIVED (the PATCH entry and two permission limbs) now bite. Module guards + Tenancy suites 466 passed / 6 skipped. RECONCILED 2026-10-22: this task had no ledger row and no issue until now -- it was invisible to both. Suites on the reconciled tree: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared), known-outcome gate OK, exit 0. NOT re-verified by this reconciliation, hence IN_REVIEW rather than DONE.
 
 ---
 
@@ -2562,7 +2683,7 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | high |
 | Workstream | Orders & Checkout |
 | GitHub issue | #59 |
@@ -2587,17 +2708,18 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 - Positive control per handler, and a POSITIVE CONTROL FOR THE OPERATOR on the list and the view -- the assertion that catches the lockout
 - Removal check on each ownership check and each operator limb
 
-**Evidence.** 
+**Evidence.** RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 2e04e77a ("P1-ORD-05: the order list and the order screen no longer lock the platfo"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ### `P1-ORD-06` — auction-order-status-change reads the HOST orders table with an auction id and POSTs the result, PII included, to a merchant-configured URL
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **BACKLOG** |
 | Risk | high |
 | Workstream | Orders & Checkout |
 | GitHub issue | #62 |
 | Owner decision required | no |
+| Blocked on | Dormant: close before owner decision D-03 (scheduling `auction:order`) is revisited. |
 | Depends on | `P1-INV-14` |
 | Scope | `app/ (vehicle not yet decided -- the leak is in vendored code)`, `tests/Feature/Security/` |
 | Queue references | S39-6 |
@@ -2615,7 +2737,7 @@ OBSERVATIONS, recorded not fixed: `store_id` is never populated on a visit row (
 - Negative: the webhook payload for an auction status change contains no row from another store
 - Removal check on whatever control is chosen
 
-**Evidence.** None
+**Evidence.** RECONCILED 2026-10-22: the ledger carried this as READY; b1517206 ("test(P1-ORD-06, P1-INV-16): pin the premise that makes the auction order") deferred it deliberately and the ledger was never updated. The defect is reachable only through an existing `auction_product_orders` row the caller's own store owns, and the ONLY writer is the `auction:order` console command, which the owner keeps unscheduled (D-03). AuctionOrderDormancyTest asserts over app/, packages/workdo/, routes/ and bootstrap/ that the command is the only writer, that nothing schedules it and that no route creates an order; each of its three mutants (a second writer, a schedule entry, a controller-side create) fails it. BACKLOG, to be closed before D-03 is revisited; the operator's check for pre-existing rows is a single count.
 
 ### `P1-ORD-09` — The /order/{Crypt::encrypt(id)} details link is the only credential on the order page, and it is forgeable with the leaked APP_KEY
 
@@ -2656,7 +2778,7 @@ CONSUMER LIST EXTENDED by the P1-ORD-07/08 review (lens E, section 6(1)). The sa
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | medium |
 | Workstream | Orders & Checkout |
 | GitHub issue | #74 |
@@ -2687,7 +2809,7 @@ WHAT THE ROW'S WORDING GOT WRONG: S14 said it 'mails digital products'. It does 
 - Flush the Setting cache after seeding MAIL_* rows, or the positive control passes for the wrong reason
 - Removal check on each control
 
-**Evidence.** None yet. Reproduction recorded in P1-SEC-03's entry (round 1).
+**Evidence.** None yet. Reproduction recorded in P1-SEC-03's entry (round 1). | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 0cfdd25f ("P1-ORD-10: downloadable_prodcut mails only the signed-in shopper's own o"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ### `P1-ORD-11` — A storefront refund REQUEST rewrites the order's totals at request time, before any merchant decision, and is not atomic
 
@@ -2821,7 +2943,7 @@ THE FIX: orderComplete honours a request-supplied id ONLY if it is in the sessio
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | medium |
 | Workstream | Orders & Checkout |
 | GitHub issue | #81 |
@@ -2845,7 +2967,7 @@ THE FIX: orderComplete honours a request-supplied id ONLY if it is in the sessio
 - Negative: sibling shopper, other-store shopper, unknown refund id, coincident-id attacker
 - Removal check on the new refund-id resolution, and OrderDocumentAccessTest / OrderDocumentRouteResolutionTest stay green
 
-**Evidence.** None yet - READY. Reproduction is recorded under P1-ORD-07 (review E4).
+**Evidence.** None yet - READY. Reproduction is recorded under P1-ORD-07 (review E4). | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by be9317ab ("P1-ORD-12: a shopper can open their own refund request - the guard resol"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ### `P1-ORD-13` — The thank-you page identifies an order by a non-unique timestamp number: carry the primary key through the gateway returns and close the Paymera replay
 
@@ -2884,7 +3006,7 @@ SEPARATELY (lens B F2, READ): the Paymera callback `GET /store/paymera/callback/
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | high |
 | Workstream | Orders & Checkout |
 | GitHub issue | #83 |
@@ -2909,7 +3031,7 @@ SEPARATELY (lens B F2, READ): the Paymera callback `GET /store/paymera/callback/
 - Negative: a hand-written record with an inflated quantity does not inflate the order or the stock
 - Removal check on the by-product-id match and on each read-side bound
 
-**Evidence.** None yet - READY. The reproduction (P6 stock inflation before P1-ORD-07, P7 doubled line) is in the P1-ORD-07 review record.
+**Evidence.** None yet - READY. The reproduction (P6 stock inflation before P1-ORD-07, P7 doubled line) is in the P1-ORD-07 review record. | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 9944a620 ("P1-ORD-14: cancelling or restocking a refund puts the units back where t"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ---
 
@@ -3003,7 +3125,7 @@ SEPARATELY (lens B F2, READ): the Paymera callback `GET /store/paymera/callback/
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | high |
 | Workstream | Platform Foundation |
 | GitHub issue | #34 |
@@ -3024,7 +3146,7 @@ SEPARATELY (lens B F2, READ): the Paymera callback `GET /store/paymera/callback/
 - Negative: each writer refuses or resolves a store rather than writing NULL
 - A reporting script counts existing NULL-store rows without changing them
 
-**Evidence.** S6; MercadoPaymentController.php:86, SkrillPaymentController.php:106
+**Evidence.** S6; MercadoPaymentController.php:86, SkrillPaymentController.php:106 | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by 8909272f ("P1-PLT-02: five plan-payment handlers record a plan sale as a plan order"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ### `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites
 
@@ -3167,7 +3289,7 @@ SEPARATELY (lens B F2, READ): the Paymera callback `GET /store/paymera/callback/
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **IN_REVIEW** |
 | Risk | medium |
 | Workstream | Platform Foundation |
 | GitHub issue | #109 |
@@ -3190,7 +3312,7 @@ SEPARATELY (lens B F2, READ): the Paymera callback `GET /store/paymera/callback/
 - Owner: Custom tab switch to Store Link - deleteDomain called once
 - Removal check on the precondition
 
-**Evidence.** None yet - READY.
+**Evidence.** None yet - READY. | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by d91d5a0f ("P1-PLT-06: saving the Home or Checkout tab no longer takes the store's c"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.
 
 ### `P1-PLT-07` — A save of the Store Setting screen by anyone but the owner re-stamps `created_by` on the owner's rows (or shadows them with new ones), so the owner's own screen shows those fields blank
 
