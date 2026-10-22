@@ -503,10 +503,30 @@ class CategoryController extends Controller
                  * today the merchant moves the products one at a time from the product edit form.
                  * The message says so instead of leaving them at a dead end. See P1-INV-12.
                  *
-                 * `testimonials.category_id` cascades identically
-                 * (2023_12_26_095726_create_testimonials_table.php:27). D13 names products, and a
-                 * refusal over a testimonial would block deletes that are legitimate today, so
-                 * that cascade is recorded as an open observation and not guarded here.
+                 * TWO MORE TABLES CASCADE OFF `categories`, and NEITHER is guarded here.
+                 *
+                 *   - `testimonials.category_id`
+                 *     (2023_12_26_095726_create_testimonials_table.php:27)
+                 *   - `product_reviews.category_id`, where the ProductReview addon is installed
+                 *     (packages/workdo/ProductReview/.../create_product_reviews_table.php:25)
+                 *
+                 * The second one was found by the independent review of this change and is worse
+                 * than the first, because THIS REFUSAL'S OWN ADVICE TRIGGERS IT.
+                 * `product_reviews.category_id` is a denormalised COPY of the product's category,
+                 * written once from the review form and never re-pointed when the product moves
+                 * (verified: all seven writes in that module are review-form writes, and no
+                 * product-side path touches it). So: the merchant is refused, told to move the
+                 * products to another category, does so, the count here falls to zero, the delete
+                 * is permitted -- and the reviews cascade away below the application. Exactly the
+                 * loss D13 exists to prevent, on a table it does not name.
+                 *
+                 * DELIBERATELY NOT GUARDED, for the same reason testimonials is not: a stale
+                 * review row pointing at this category is one the merchant cannot see or clear
+                 * from any screen, so refusing on it would make the category permanently
+                 * undeletable. Widening a refusal onto data the user cannot reach is not a
+                 * control, it is a dead end. Recorded as its own task instead -- the real fix is
+                 * either to re-point the copy when a product moves or to change the constraint,
+                 * and both live in vendored module territory or in a migration (D15).
                  */
                 $productsInCategory = \Illuminate\Support\Facades\DB::table('products')
                     ->where('category_id', $category->id)

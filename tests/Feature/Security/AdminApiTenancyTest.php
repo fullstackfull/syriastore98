@@ -843,9 +843,65 @@ class AdminApiTenancyTest extends SecurityTestCase
     }
 
     /**
-     * THE POSITIVE CONTROL. Without it the test above is satisfied by an endpoint that refuses
+     * THE CHILD GUARD THE WEB TWIN HAD AND THIS PATH DID NOT.
+     *
+     * Raised by the independent authorization review of the D13 change and verified separately:
+     * `CategoryController::destroy` has refused a category with child categories since P1-INV-08
+     * (CategoryController.php:460-463), and `DeleteCategory` had no such predicate anywhere.
+     *
+     * ORPHANED, NOT CASCADED, which is why this is integrity rather than loss and why the
+     * assertions below are about the CHILD surviving a parent that should not have gone.
+     * `categories.parent_id` carries NO foreign key (2023_12_25_093024_create_categories_table.php:21
+     * is a plain `unsignedBigInteger` defaulting to 0), so the children survive holding a
+     * `parent_id` that resolves to nothing -- and `buildCategoryTree()` walks by `parent_id`, so
+     * such a child drops out of the UI while remaining a real row with real products under it.
+     *
+     * The parent here is EMPTY of products on purpose: it isolates the child guard from the D13
+     * product refusal, so this test fails if and only if the child predicate is missing.
+     */
+    public function test_the_api_refuses_to_delete_a_category_that_still_has_children(): void
+    {
+        [, $storeA, $tokenA] = $this->twoTenants();
+
+        $parentId = \Illuminate\Support\Facades\DB::table('categories')->insertGetId([
+            'name' => 'api-parent', 'slug' => 'api-parent-' . uniqid(), 'parent_id' => 0,
+            'status' => 1, 'store_id' => $storeA->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $childId = \Illuminate\Support\Facades\DB::table('categories')->insertGetId([
+            'name' => 'api-child', 'slug' => 'api-child-' . uniqid(), 'parent_id' => $parentId,
+            'status' => 1, 'store_id' => $storeA->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->assertSame(0,
+            \Illuminate\Support\Facades\DB::table('products')->where('category_id', $parentId)->count(),
+            'premise: the parent holds no products, so it is the CHILD guard being measured and '
+                . 'not the D13 product refusal');
+
+        $response = $this->withToken($tokenA)->deleteJson('/api/admin/deletecategory', [
+            'store_id' => $storeA->id,
+            'category_id' => $parentId,
+        ]);
+
+        $this->assertSame(200, $response->getStatusCode(),
+            'the refusal changed the HTTP status, which the shipped app does not expect');
+        $this->assertSame(0, (int) $response->json('status'),
+            'the API deleted a parent category and orphaned its children. Body: '
+                . substr((string) $response->getContent(), 0, 300));
+
+        $this->assertNotNull(
+            \Illuminate\Support\Facades\DB::table('categories')->where('id', $parentId)->first(),
+            'the parent was deleted although it still had a child category');
+        $child = \Illuminate\Support\Facades\DB::table('categories')->where('id', $childId)->first();
+        $this->assertNotNull($child, 'premise: parent_id carries no FK, so the child must survive either way');
+        $this->assertSame((int) $parentId, (int) $child->parent_id,
+            'the child\'s parent_id was rewritten');
+    }
+
+    /**
+     * THE POSITIVE CONTROL. Without it the tests above are satisfied by an endpoint that refuses
      * every category delete, or by one that 500s for everyone -- and `error()` answers 200, so a
-     * status-code assertion alone would not notice.
+     * status-code assertion alone would not notice. The fixture is a LEAF with no products, so it
+     * clears both refusals.
      */
     public function test_the_api_can_still_delete_an_empty_category(): void
     {

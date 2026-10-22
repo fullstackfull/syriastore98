@@ -310,6 +310,7 @@ class OwnedPathRawQueryInventoryTest extends TestCase
 
         $unclassified = [];
         $missingPredicate = [];
+        $declaredHits = [];
 
         foreach ($sites as $site => $source) {
             $file = substr($site, 0, (int) strrpos($site, ':'));
@@ -344,9 +345,40 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             // coupons.store_id). The assertion below proves every entry in that constant names
             // 'store_id', so the variable cannot stand for something weaker.
             if (!str_contains($statement, 'store_id') && !str_contains($statement, '$relatedColumn')) {
+                // A DECLARED store-less statement is not a missing predicate. See
+                // STORE_LESS_BY_DESIGN: it is keyed by file AND by a fragment of the statement,
+                // and every declaration is asserted to still match a real site below, so a
+                // declaration cannot outlive the statement it was written for.
+                if ($this->declaredStoreLess($file, $statement)) {
+                    $declaredHits[] = $file . '::' . $this->declarationFor($file, $statement);
+                    continue;
+                }
+
                 $missingPredicate[] = $site . '   ' . $source;
             }
         }
+
+        // EVERY DECLARATION MUST STILL BE EARNED. A declaration whose statement has gained a
+        // store_id predicate, been rewritten or been deleted is a stale exemption, and a stale
+        // exemption in an inventory is exactly the hand-carved exception this class refuses to
+        // carry. Asserted as a SET, in both directions.
+        $declared = [];
+
+        foreach (self::STORE_LESS_BY_DESIGN as $declaredFile => $fragments) {
+            foreach (array_keys($fragments) as $fragment) {
+                $declared[] = $declaredFile . '::' . $fragment;
+            }
+        }
+
+        sort($declared);
+        sort($declaredHits);
+
+        $this->assertSame($declared, $declaredHits,
+            "The declared store-less statements are not the ones this run found. A declaration "
+            . "that matched nothing is stale -- the statement gained a predicate, was rewritten "
+            . "or was deleted -- and must be removed from STORE_LESS_BY_DESIGN rather than left "
+            . "exempting nothing.\n  declared: " . implode("\n  declared: ", $declared)
+            . "\n  found:    " . implode("\n  found:    ", $declaredHits));
 
         $this->assertSame([], $unclassified,
             "A raw query entry point appeared in an owned path that this inventory does not "
@@ -392,7 +424,11 @@ class OwnedPathRawQueryInventoryTest extends TestCase
         // did not record here -- the omission that failed this assertion and the two totals in RawQueryTenancyInventoryTest.
         // 31 -> 32 with the P1-SEC-34 follow-up's sameShopperInStore() -- a sixth read in the same file, 'comparison' like the rest of it:
         // it resolves the slug store's OWN customer for the signed-in shopper so the write is always a customer of the store being written.
-        $this->assertCount(32, $sites, "The owned-path raw query inventory changed:\n  "
+        // 32 -> 33 with OWNER DECISION D13 / P1-INV-12: BulkDeleteTenantGuard::categoriesStillHoldingProducts(), which counts the `products`
+        // rows a bulk category delete would cascade away. It is the first statement in this inventory declared STORE-LESS BY DESIGN rather
+        // than carrying a predicate -- see STORE_LESS_BY_DESIGN for why a predicate here would read zero and PERMIT the cascade, and for the
+        // two-directional ratchet that stops that declaration outliving its statement.
+        $this->assertCount(33, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry
@@ -671,6 +707,66 @@ class OwnedPathRawQueryInventoryTest extends TestCase
      * The whole statement a `path:line` site belongs to, so a fluent chain's predicate on the
      * next line is not missed.
      */
+    /**
+     * Raw statements in a `tenant`-classified file that deliberately carry NO `store_id`
+     * predicate, each with the reason it must not have one.
+     *
+     * WHY THIS EXISTS AT ALL, given that this class elsewhere refuses hand-carved exceptions.
+     * The rule above -- every raw query in a tenant file names `store_id` -- is right for a
+     * statement that READS OR WRITES rows. It is wrong for one whose whole purpose is to ask a
+     * question WIDER than the caller's tenant, and reclassifying the file to escape it would
+     * exempt that file's real tenancy queries too. So the exemption is per STATEMENT, it carries
+     * its reason, and it is ratcheted in both directions: the test above asserts the set of
+     * declarations equals the set of store-less statements actually found, so a declaration
+     * cannot outlive its statement and a new store-less statement cannot hide behind one.
+     *
+     * Keyed by a FRAGMENT of the statement rather than by line number, so an edit anywhere above
+     * it cannot silently slide the declaration onto a different query.
+     */
+    private const STORE_LESS_BY_DESIGN = [
+        'app/Http/Middleware/BulkDeleteTenantGuard.php' => [
+            "whereIn('category_id', \$ids)" =>
+                // OWNER DECISION D13 / P1-INV-12. `categoriesStillHoldingProducts()` counts the
+                // `products` rows that the vendored BulkDelete controller's
+                // `Category::whereIn('id', $ids)->delete()` would cascade away.
+                //
+                // IT MUST NOT CARRY A store_id PREDICATE, and that is the opposite of the usual
+                // remedy. The FOREIGN KEY does not read `store_id`
+                // (2023_12_26_092822_create_products_table.php:55 is ON DELETE CASCADE on
+                // `category_id` alone), so a `products` row carrying another store's `store_id`
+                // and this `category_id` is destroyed just the same. Narrowing this count to the
+                // caller's store would make it read zero and wave that deletion through --
+                // measured: mutant B of the task's removal check adds the predicate and fails
+                // exactly the cross-store test.
+                //
+                // AND IT IS NOT AN EXPOSURE. It returns a COUNT, not rows, and the integer is
+                // used only to REFUSE. The 409 body carries no ids (ids go to the log only), and
+                // the tenant-side caller passes the ownership-narrowed `$owned` list, so no
+                // merchant can learn anything about another store's catalogue through it. The
+                // only principal whose raw input reaches this is the platform operator.
+                'D13: counts the products a category delete would cascade; the FK ignores store_id, '
+                . 'so narrowing it would read zero and permit the cascade. Returns a count, never rows.',
+        ],
+    ];
+
+    /** Is this store-less statement one of the declared ones? */
+    private function declaredStoreLess(string $file, string $statement): bool
+    {
+        return $this->declarationFor($file, $statement) !== null;
+    }
+
+    /** The declared fragment this statement matches, or null. */
+    private function declarationFor(string $file, string $statement): ?string
+    {
+        foreach (self::STORE_LESS_BY_DESIGN[$file] ?? [] as $fragment => $reason) {
+            if (str_contains($statement, $fragment)) {
+                return $fragment;
+            }
+        }
+
+        return null;
+    }
+
     private function statementAt(string $site): string
     {
         [$relative, $line] = explode(':', $site);

@@ -222,7 +222,23 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // customer row for the signed-in shopper (same e-mail, `store_id` = that store) instead of refusing a shopper the storefront has
         // already told is signed in. It carries its own store_id predicate; widening it to ignore the store re-opens the cross-tenant
         // write and is caught by two tests (mutant F of the task's removal check).
-        $this->assertSame(['app' => 136, 'packages' => 45], $perDir,
+        // 136 -> 139 with OWNER DECISION D13 / P1-INV-12: THREE raw `products` counts, one on each path that can
+        // delete a `categories` row and so fire the `products.category_id` ON DELETE CASCADE --
+        // CategoryController::destroy, BulkDeleteTenantGuard::categoriesStillHoldingProducts() and
+        // Api\DashboardController::DeleteCategory. All three are store-less BY DESIGN and that is the opposite of
+        // this census's usual remedy: the foreign key does not read `store_id`
+        // (2023_12_26_092822_create_products_table.php:55 cascades on `category_id` alone), so a predicate would make
+        // the count read zero against a populated category and PERMIT the cascade. Measured -- adding the predicate is
+        // mutant B of the task's removal check and fails exactly the cross-store test. They are also raw rather than
+        // Eloquent on purpose: `Product` is Cachable, and a stale model count would read zero the same way. Each
+        // returns a COUNT used only to refuse, never rows; the refusal bodies carry no ids.
+        // 139 -> 140 with the FOLLOW-UP to the D13 review: the child-category guard the API path was missing. The web
+        // twin has refused a category with child categories since P1-INV-08 (CategoryController:460); this handler had
+        // no such predicate, so the shipped app could delete a parent and ORPHAN its children -- `categories.parent_id`
+        // carries no foreign key, so they survive pointing at nothing and drop out of `buildCategoryTree()`. Unlike the
+        // three product counts, this statement DOES carry a `store_id` predicate (the category's OWN store, as the web
+        // twin does), so the no-store_id column below does not move for `categories`.
+        $this->assertSame(['app' => 140, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -230,7 +246,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
 
         // 168 -> 175: seven new raw sites (see the per-directory note above)
         // 175 -> 180: the five ModuleStorefrontInputGuard sites above; 180 -> 181 with sameShopperInStore (the follow-up)
-        $this->assertSame(181, array_sum($perDir));
+        // 181 -> 184: the three D13 category-delete product counts (see the note on the per-directory assertion above)
+        // 184 -> 185 with the API path's missing child-category guard, which DOES carry a store_id predicate
+        $this->assertSame(185, array_sum($perDir));
     }
 
     /**
@@ -257,7 +275,14 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // would refuse a bid the page invited. `product_id` is globally unique, since `Product`
             // carries no scope at all, so keying on it does identify one store's product.
             'auction_product_bids' => [1, 1],
-            'campaigns' => [1, 1],        // P1-SEC-04: ModuleAdministrativeRouteGuard::ownsCampaign (the row named by `id`; compared to the caller's tenant)
+            'campaigns' => [1, 1],
+            // NEW WITH THE D13 REVIEW FOLLOW-UP, and store-AWARE: the child-category guard added to
+            // Api\DashboardController::DeleteCategory, which the web twin has had since P1-INV-08. Raw because the
+            // question is "does any child exist", scoped to the category's OWN store -- asking the CALLER's store
+            // whether the victim's category has children is the P1-INV-08 bug, and for an own-store category the two
+            // values are the same. Counted as aware, not exposed, which is why its second number is 0.
+            'categories' => [1, 0],
+        // P1-SEC-04: ModuleAdministrativeRouteGuard::ownsCampaign (the row named by `id`; compared to the caller's tenant)
             'coupon_requests' => [3, 3],
             'coupons' => [2, 0],
             'currency' => [3, 3],
@@ -317,7 +342,19 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // derive the bid's store from the row instead of from the caller. The real control is
             // asserted per-site in OwnedPathRawQueryInventoryTest, where the file is classified
             // 'comparison'.
-            'products' => [2, 0],    // 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own
+            // `products` 2 -> 5 and ITS NO-store_id COLUMN 0 -> 3 WITH OWNER DECISION D13 / P1-INV-12, and this is the
+            // one entry in this table where a RISE in the second number is the correct outcome rather than a regression.
+            // The three sites are the product counts in front of each path that can delete a `categories` row:
+            //     app/Http/Controllers/CategoryController.php           (destroy(), above categoryImageDelete())
+            //     app/Http/Middleware/BulkDeleteTenantGuard.php         (categoriesStillHoldingProducts())
+            //     app/Http/Controllers/Api/DashboardController.php      (DeleteCategory(), the endpoint repo B calls)
+            // `products.category_id` is ON DELETE CASCADE against `categories.id`, and the constraint does NOT read
+            // `store_id` -- so a row carrying another store's `store_id` and this `category_id` is destroyed just the
+            // same. A `store_id` predicate on these counts would therefore read zero and PERMIT the cascade: the usual
+            // remedy is, uniquely here, the defect. Verified on MySQL 8.0.46 by
+            // tests/Support/Security/bin/verify-category-product-cascade-on-mysql.php (6 checks, 0 failures) and by
+            // mutant B of the removal check. None of the three returns rows -- each is a COUNT read only to refuse.
+            'products' => [5, 3],    // 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own
             'settings' => [16, 5],   // 15 -> 16 with P1-SEC-11 (OrderController::shippinglabel reads the order store's five address rows, WITH a store_id predicate); earlier: 15 -> 16 with P1-SEC-27 (StoreSettingsAccess::storedRows, WITH a store_id predicate); 16 -> 15 and 9 -> 5 with P1-SEC-29 (HostClaims)
             'shetabit_visits' => [16, 0],
             'side_menus_option' => [28, 0],
@@ -394,12 +431,17 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // 140 -> 147 with the seven sites of P1-SEC-10/11/04/12 (all name their table literally); the unscoped sum below moves by their no-store_id
         // count: campaigns, helpdesk_tickets, email_templates, user_email_templates, order_refunds, stores x2 added; zid_orders 11 -> 9.
         // 147 -> 152 with the five ModuleStorefrontInputGuard sites (all name their table literally); 152 -> 153 with sameShopperInStore
-        $this->assertSame(153, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '153 literal-table sites of the 181 entry points; the other 28 build their table name '
+        // 153 -> 156 with the three D13 category-delete product counts, which all name `products` literally
+        // 156 -> 157 with the API child-category guard, which names `categories` literally
+        $this->assertSame(157, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            '157 literal-table sites of the 185 entry points; the other 28 build their table name '
             . 'from a variable and so cannot be attributed (see LIMIT 2 in this class docblock).');
         // 66 -> 71: +9 (campaigns 1, helpdesk_tickets 1, email_templates 1, user_email_templates 1, order_refunds 1, stores 2, plus the Duo/credential reads) and -2 (zid_orders)
         // 71 -> 73: of the five new sites only the two `stores` slug resolutions carry no `store_id` in their statement
-        $this->assertSame(73, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        // 73 -> 76 with the three D13 category-delete product counts, which carry no `store_id` DELIBERATELY -- see the
+        // `products` note above: the cascading foreign key does not read the column, so a predicate would make each
+        // count read zero against a populated category and permit the very cascade the refusal exists to stop.
+        $this->assertSame(76, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**
@@ -474,6 +516,19 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // as aware, not exposed.
             'customers' => 3,
             'order_refunds' => 1,
+            // `products` => 3 IS NEW WITH OWNER DECISION D13 / P1-INV-12, and it is the second entry in this list that
+            // is NOT a live exposure -- stated here because the list's own header tells a reader to check the per-table
+            // note before treating any entry as one.
+            //
+            // The three statements are the product counts in front of the three paths that can delete a `categories`
+            // row (named in the per-table row above). They are store-less deliberately and must stay that way: the
+            // `products.category_id` foreign key is ON DELETE CASCADE and does not read `store_id`, so a predicate here
+            // would read zero against a populated category and permit exactly the cross-tenant cascade the refusal
+            // exists to stop. What makes them not an exposure is what they return: COUNT(*), never rows, consumed only
+            // to produce a refusal. The refusal bodies carry no identifiers -- the category ids go to Log::warning
+            // only -- and on the bulk path the tenant-side caller passes the ownership-narrowed `$owned` list, so the
+            // only principal whose raw input reaches an unnarrowed count is the platform operator.
+            'products' => 3,
             // `notify_users` => 1 WAS HERE AND IS NOT ANY MORE, and it is not reclassified: it
             // has left the population this list describes, because P01-SEC-14 Work Package C
             // deleted both of its raw statements outright. The note is preserved because it was

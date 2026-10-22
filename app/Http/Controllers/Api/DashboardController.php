@@ -1366,6 +1366,37 @@ public function OrderList(Request $request)
              * `Product` is `Cachable`, so a stale Eloquent read could report zero against a
              * populated category. Same reasoning as the guard in CategoryController::destroy.
              */
+            /*
+             * AND THE CHILD GUARD THE WEB TWIN HAS AND THIS PATH DID NOT. Raised by the
+             * independent authorization review of the D13 change and verified separately.
+             *
+             * `CategoryController::destroy` refuses a category that has child categories
+             * (CategoryController.php:460-463). This handler had no such predicate, so a merchant
+             * could delete a parent through the shipped app and leave its children behind.
+             *
+             * ORPHANED, NOT CASCADED, and the difference is why this is integrity rather than
+             * loss: `categories.parent_id` carries NO foreign key
+             * (2023_12_25_093024_create_categories_table.php:21 is a plain `unsignedBigInteger`
+             * defaulting to 0), so the children survive holding a `parent_id` that resolves to
+             * nothing. `buildCategoryTree()` (app/Helper/helper.php) walks by `parent_id`, so such
+             * a child drops out of the tree while remaining a real row with real products under
+             * it -- invisible in the UI and impossible to reach.
+             *
+             * Scoped to the category's OWN store, like the web twin: for an own-store category the
+             * two values are the same, and asking the attacker's store whether the victim's
+             * category has children is the bug P1-INV-08 fixed there.
+             */
+            $hasChildCategory = \Illuminate\Support\Facades\DB::table('categories')
+                ->where('parent_id', $Category->id)
+                ->where('store_id', $Category->store_id)
+                ->exists();
+
+            if ($hasChildCategory) {
+                return $this->error([
+                    'message' => __('This category has child categories and cannot be deleted.'),
+                ]);
+            }
+
             $productsInCategory = \Illuminate\Support\Facades\DB::table('products')
                 ->where('category_id', $Category->id)
                 ->count();

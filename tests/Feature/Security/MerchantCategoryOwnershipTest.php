@@ -250,6 +250,16 @@ class MerchantCategoryOwnershipTest extends SecurityTestCase
     /** Everything the victim had, still there. Scopes off, deliberately — see the class docblock. */
     private function assertVictimIntact(array $fixture, Category $category, string $why): void
     {
+        // D13's actual subject, asserted by name. Raised by review: this helper proved the
+        // CATEGORY row survived and inferred the rest, so a failure read "the category went"
+        // when what the reader needs to know is "the cascade fired and a product is gone".
+        // Raw, not Eloquent: `Product` is Cachable and a model read can serve a cached instance
+        // of a row the cascade has already removed.
+        $this->assertNotNull(
+            DB::table('products')->where('id', $fixture['product']->id)->first(),
+            $why . ': the product row itself is gone, so the FK cascade fired'
+        );
+
         foreach ($fixture['files'] as $path) {
             $this->assertFileExists($path, $why . ' — a file was unlinked from disk: ' . $path);
         }

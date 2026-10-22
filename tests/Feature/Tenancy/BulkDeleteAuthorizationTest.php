@@ -263,6 +263,28 @@ class BulkDeleteAuthorizationTest extends SecurityTestCase
      * against Utility::addNewData(), AND against the single-record controller it was copied from,
      * so the bulk path can never require more than the per-record screen already does.
      */
+    /**
+     * `CATEGORY_TYPE` is the key the two D13 blocks switch on, so it has to name a real type in
+     * the map and that type has to be the product-category model. Raised by review: an upstream
+     * rename is already caught by the whole-map comparison above and by the behavioural tests
+     * posting the literal 'main-category', but neither failure says "D13 is unhooked".
+     */
+    public function test_the_d13_category_type_names_the_product_category_model(): void
+    {
+        $this->assertArrayHasKey(
+            BulkDeleteTenantGuard::CATEGORY_TYPE,
+            BulkDeleteTenantGuard::MODEL_MAP,
+            'CATEGORY_TYPE is not a type this guard maps, so both D13 blocks are dead code'
+        );
+
+        $this->assertSame(
+            \App\Models\Category::class,
+            BulkDeleteTenantGuard::MODEL_MAP[BulkDeleteTenantGuard::CATEGORY_TYPE],
+            'CATEGORY_TYPE no longer names the product-category model, so the D13 refusal is '
+                . 'guarding the wrong table'
+        );
+    }
+
     public function test_every_permission_name_this_guard_requires_is_created_by_the_seeder(): void
     {
         $utility = file_get_contents(base_path('app/Models/Utility.php'));

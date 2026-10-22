@@ -523,7 +523,28 @@ class BulkDeleteTenantGuard
         return $query->pluck('id')->map(fn ($value) => (string) $value)->all();
     }
 
-    /** Is this principal the platform operator? Same string comparison the bypass has always used. */
+    /**
+     * Is this principal the platform operator? Same string comparison the bypass has always used.
+     *
+     * THIS MUST AGREE WITH `StoreScope`, NOT WITH `UserPolicy`, AND THAT IS NOT AN OVERSIGHT.
+     * It is character-identical to `StoreScope::isSuperAdmin()` (app/Scopes/StoreScope.php:1231),
+     * which is the function this guard's own comment claims lockstep with -- and it has to be,
+     * because section D below defers to `StoreScope::resolveTenant()` and refuses any principal
+     * whose mode is not `MODE_TENANT`.
+     *
+     * Do NOT "unify" this with the project-canonical `App\Policies\UserPolicy::isOperator()`.
+     * That one uses `rtrim($x, ' ')` to match MySQL's PAD SPACE collation, which keeps a LEADING
+     * space -- so `' super admin'` is an operator to `trim()` and not to `rtrim()`. Switching
+     * here would NARROW who counts as operator, which sounds safe and is a LOCKOUT: such a
+     * principal would fail this check, fall into the tenant path, and then `resolveTenant()`
+     * would classify them `MODE_SUPER_ADMIN` and section D would answer 403. Bulk delete would
+     * simply stop working for that account.
+     *
+     * The two helpers legitimately differ because they answer different questions: this one must
+     * agree with the scope that decides what rows this request can see, and `UserPolicy`'s must
+     * agree with the collation that decides what the database considers equal. Raised and
+     * verified by the independent authorization review of the D13 change.
+     */
     private function isOperator($user): bool
     {
         return isset($user->type) && strtolower(trim((string) $user->type)) === 'super admin';
