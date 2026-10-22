@@ -723,15 +723,57 @@ class SettingsRestrictedWriteTest extends SecurityTestCase
         $this->assertSame('Renamed Store', Store::find($this->store->id)->name);
     }
 
-    /** Premise for the honest-post tests above: the same Home post by the OWNER on a custom-domain store really does call the panel. */
-    public function test_premise_the_unrelated_tab_post_reaches_the_domain_branch_for_the_owner(): void
+    // ---- P1-PLT-06: an unrelated tab's save no longer takes the store's custom domain off the hosting panel ------------------------
+
+    private function storedDomain(): ?string
+    {
+        $value = DB::table('settings')->where('store_id', $this->store->id)->where('name', 'domains')->orderByDesc('id')->value('value');
+
+        return $value === null ? null : (string) $value;
+    }
+
+    public static function postsThatNameNoRoutingMode(): array
+    {
+        return [
+            'the Home tab (a rename)' => [['app_setting_tab' => 'pills-home-tab', 'theme_name' => 'Renamed']],
+            'a Checkout toggle' => [['app_setting_tab' => 'pills-checkout-tab', 'is_checkout_login_required' => 'on']],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('postsThatNameNoRoutingMode')]
+    public function test_a_save_that_names_no_routing_mode_leaves_the_owners_custom_domain_alone(array $post): void
     {
         $this->routingMode('domain');
         $fake = $this->recordingWebuzo();
 
-        $this->actingAs($this->merchant)->post('/theme-settings', ['app_setting_tab' => 'pills-home-tab', 'theme_name' => 'Renamed']);
+        $this->actingAs($this->merchant)->post('/theme-settings', $post);
 
-        $this->assertNotSame([], $this->panelCalls($fake), 'Premise: if the unrelated-tab post never reaches the domain branch, the honest-post tests prove nothing.');
+        $this->assertSame([], $this->panelCalls($fake), 'A post that names no routing mode called the hosting panel (it used to delete the store\'s own domain).');
+        $this->assertSame('shop.example.test', $this->storedDomain(), 'A post that names no routing mode blanked the stored domain.');
+        $this->assertTrue($this->everStored('enable_domain', 'on'));
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('postsThatNameNoRoutingMode')]
+    public function test_the_same_save_by_staff_holding_manage_setting_leaves_it_alone_too(array $post): void
+    {
+        $this->routingMode('domain');
+        $fake = $this->recordingWebuzo();
+
+        $this->actingAs($this->settingsStaff)->post('/theme-settings', $post);
+
+        $this->assertSame([], $this->panelCalls($fake));
+        $this->assertSame('shop.example.test', $this->storedDomain());
+    }
+
+    public function test_the_explicit_switch_away_from_the_custom_domain_still_removes_it(): void
+    {
+        $this->routingMode('domain');
+        $fake = $this->recordingWebuzo();
+
+        $this->actingAs($this->merchant)->post('/theme-settings', ['enable_domain' => 'enable_storelink'])->assertSessionMissing('error');
+
+        $this->assertSame([['deleteDomain', 'shop.example.test']], $this->panelCalls($fake), 'The explicit switch must call the panel exactly once.');
+        $this->assertSame('', $this->storedDomain(), 'The explicit switch must blank the stored domain.');
     }
 
     public function test_staff_holding_manage_setting_can_still_change_the_routing(): void

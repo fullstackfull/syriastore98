@@ -868,9 +868,15 @@ if ($mayChangeRouting && $request->enable_domain === 'enable_domain') {
 | المستخدم ألغى Custom Domain واختار Store Link أو Subdomain
 |--------------------------------------------------------------------------
 */
+// P1-PLT-06. ONLY WHEN THE POST NAMES ANOTHER MODE. The Home and Checkout tabs post no routing field at all (and the Custom tab posts none on a
+// plan that allows neither domain nor sub-domain), so `enable_domain` is ABSENT there, and absent is not "the user cancelled the custom domain":
+// it used to delete the store's own domain at the hosting panel and blank `domains` on a rename or a checkout toggle. `is_string` is the
+// whole test: absent and an empty string are both null by the time they get here (ConvertEmptyStringsToNull), and the mode flags a few lines
+// down are only rewritten `if ($request->enable_domain)`, so this branch now agrees with that.
 if (
     $mayChangeRouting
     && $oldCustomDomainEnabled
+    && is_string($request->enable_domain)
     && $request->enable_domain !== 'enable_domain'
     && !empty($oldDomain)
     && !\App\Services\HostClaims::heldByAnotherStore($oldDomain, $store->id)   // P1-SEC-29: the panel account is shared
