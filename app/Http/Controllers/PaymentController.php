@@ -2171,7 +2171,7 @@ public function handlePaymeraTrigger00($orderId)
                 if (($settings['stock_management'] ?? null) === 'on') {
                     if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
                         $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();
-                        $variationOptions = explode(',', $ProductStock->variation_option);
+                        $variationOptions = explode(',', (string) ($ProductStock->variation_option ?? ''));   // P1-PAY-01: null-safe; a bare deref here throws ErrorException
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductStock)) {
                             if ($option == true) {
@@ -2800,7 +2800,7 @@ $result = app(\App\Services\StoreNotificationService::class)
                     }
                 } else {
                     $variant_data = ProductVariant::find($product->variant_id);
-                    $variationOptions = explode(',', $variant_data->variation_option);
+                    $variationOptions = explode(',', (string) ($variant_data->variation_option ?? ''));   // P1-PAY-01: null-safe; a bare deref here throws ErrorException
                     $option = in_array('manage_stock', $variationOptions);
                     if ($option == true) {
                         OrderNote::order_note_data([
@@ -3529,7 +3529,7 @@ $result = app(\App\Services\StoreNotificationService::class)
                 if (($settings['stock_management'] ?? null) === 'on') {
                     if (!empty($product_id) && !empty($variant_id) && $product_id != 0 && $variant_id != 0) {
                         $ProductStock = ProductVariant::where('id', $variant_id)->where('product_id', $product_id)->first();
-                        $variationOptions = explode(',', $ProductStock->variation_option);
+                        $variationOptions = explode(',', (string) ($ProductStock->variation_option ?? ''));   // P1-PAY-01: null-safe; a bare deref here throws ErrorException
                         $option = in_array('manage_stock', $variationOptions);
                         if (!empty($ProductStock)) {
                             if ($option == true) {
@@ -4115,7 +4115,7 @@ $result = app(\App\Services\StoreNotificationService::class)
                     }
                 } else {
                     $variant_data = ProductVariant::find($product->variant_id);
-                    $variationOptions = explode(',', $variant_data->variation_option);
+                    $variationOptions = explode(',', (string) ($variant_data->variation_option ?? ''));   // P1-PAY-01: null-safe; a bare deref here throws ErrorException
                     $option = in_array('manage_stock', $variationOptions);
                     if ($option == true) {
                         OrderNote::order_note_data([
