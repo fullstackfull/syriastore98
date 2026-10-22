@@ -74,11 +74,16 @@ Counted from `docs/development/phase-1/phase-01-tasks.json` and from
 | status | ledger rows | open issues carrying that label |
 |---|---|---|
 | DONE | 48 (36 + 3 completed here + 9 reclassified by the audit) | 1 open (#110, by design — see below) |
-| IN_REVIEW | **0** — all 25 reclassified in section I.2 | 25 labels to update |
-| READY | 17 (P1-INV-15 #60, P1-ORD-13 #82, + 15 reclassified) | 2 |
+| IN_REVIEW | **0** — all 25 reclassified in section I.2 | **0** |
+| READY | 17 (P1-INV-15 #60, P1-ORD-13 #82, + 15 reclassified) | 17 |
 | BACKLOG | 9 | 9 + **1 issue with no ledger row** |
-| BLOCKED | 31 (30 + P1-PLT-02) | 30 |
+| BLOCKED | 31 (30 + P1-PLT-02) | 31 |
 | **total** | **105** | **71 open** |
+
+**The label column is current, not aspirational.** All 28 `status:` labels were updated in this
+session — the 25 reclassified tasks plus #19, #23 and #51 — so the GitHub view and the ledger agree
+row for row. The issue bodies were **not** rewritten; the reasoning lives in the ledger's `evidence`
+field and in section I.2, and only #51 and #66 received a comment.
 
 105 ledger rows, 71 open issues, 34 closed. The reconciliation is clean except for two items, both
 reported rather than silently corrected:
