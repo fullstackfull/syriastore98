@@ -22,7 +22,9 @@ class OrderPolicy
 
     protected function isPlatformAdmin(?User $actor): bool
     {
-        return $actor !== null && $actor->type === self::PLATFORM_ADMIN;
+        // P1-SEC-11 criterion 3: one helper, normalised. `$actor->type === self::PLATFORM_ADMIN` was a
+        // strict comparison against a locally duplicated constant -- two copies of the same decision.
+        return \App\Policies\UserPolicy::isOperator($actor);
     }
 
     /**

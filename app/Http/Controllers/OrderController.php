@@ -1462,7 +1462,9 @@ public function store(Request $request)
     public function fileExport()
     {
         $user = auth()->user();
-        $isOperator = $user && strtolower(trim((string) $user->type)) === 'super admin';
+        // P1-SEC-11 criterion 3: this was already normalised but against a HARDCODED LITERAL rather
+        // than the constant -- correct behaviour via a fourth copy of the decision.
+        $isOperator = \App\Policies\UserPolicy::isOperator($user);
 
         if (!$user || (!$isOperator && !$user->isAbleTo('Manage Order'))) {
             return redirect()->back()->with('error', __('Permission denied.'));

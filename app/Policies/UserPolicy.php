@@ -50,7 +50,73 @@ class UserPolicy
 
     protected function isPlatformAdmin(?User $actor): bool
     {
-        return $actor !== null && $actor->type === self::PLATFORM_ADMIN;
+        return self::isOperator($actor);
+    }
+
+    /**
+     * THE ONE OPERATOR TEST. P1-SEC-11, acceptance criterion 3 ("the operator is defined once:
+     * normalised comparison, one helper"). Static and nullable-tolerant so the three sites the
+     * criterion names -- OrderController::fileExport, OrderDocumentAccessGuard and
+     * OrderPolicy::isPlatformAdmin -- can all reach it without an instance.
+     *
+     * WHY NORMALISED, measured rather than argued. `users.type` is a varchar under the project's
+     * `utf8mb4_unicode_ci`, and on MySQL 8.0.46 that collation folds case AND trailing space:
+     *
+     *     SELECT 'Super Admin'  = 'super admin';   -- 1
+     *     SELECT 'super admin ' = 'super admin';   -- 1
+     *
+     * So a row typed `'Super Admin'` IS the operator to every SQL query -- `User::where('type',
+     * 'super admin')` returns it -- while a PHP `===` against the literal refuses it. The two layers
+     * then disagree about who the operator is, in the direction that locks the operator out of their
+     * own dashboard. `App\Http\Middleware\FinancePermission` records that exact lockout happening
+     * once already, for six unseeded finance names.
+     *
+     * IT MATCHES THE ENGINE EXACTLY, AND `trim()` DID NOT. The first version of this helper used
+     * `strtolower(trim($type))`, and measuring it side by side against MySQL showed `trim()` is WIDER
+     * than the collation:
+     *
+     *     value            engine = 'super admin'   trim() helper
+     *     'Super Admin'    1                        true    (agree)
+     *     'super admin '   1                        true    (agree -- PAD SPACE ignores TRAILING space)
+     *     ' super admin'   0                        true    <-- WIDER THAN THE ENGINE
+     *     'superadmin'     0                        false   (agree)
+     *     'super  admin'   0                        false   (agree -- inner whitespace is not folded)
+     *
+     * A LEADING space is not ignored by PAD SPACE, so `' super admin'` is NOT the operator to the
+     * database -- and `trim()` would have granted operator status to a row every SQL query refuses.
+     * That is the opposite failure from the lockout and a worse one. Since the whole rationale here is
+     * to AGREE with the engine, the helper strips trailing spaces only, exactly as PAD SPACE does.
+     * (Unreachable in practice either way -- `RolePolicy::RESERVED_NAMES` is checked through a gate
+     * that trims, so no tenant can create such a role -- but a control whose rule differs from the
+     * engine's is a control nobody can reason about.)
+     *
+     * So normalising cannot widen access: every value this accepts, the engine also treats as equal.
+     *
+     * HOW LIVE IS THE LOCKOUT, stated because it decides the scope: LATENT, not live. The only
+     * writers of `users.type` are `'admin'` (RegisteredUserController:124, :261,
+     * StoreController:265), `'customer'`, the seeder's exact `'super admin'`
+     * (PermissionTableSeeder:33), and a role NAME at UserController:154/:305 -- and that last is
+     * gated by `RolePolicy::RESERVED_NAMES` through a check that LOWERCASES THE NEEDLE, so no tenant
+     * can name a role into any case variant of operator status. Reaching the lockout needs a
+     * hand-edited row.
+     *
+     * That is why this is one helper at the named sites plus a census ratchet, and NOT a conversion
+     * of the 101 non-normalised comparisons across ~35 files: a large blast radius for a latent
+     * defect. The ratchet (OperatorCheckCensusTest) is what stops that count growing.
+     *
+     * @param  \App\Models\User|\Illuminate\Contracts\Auth\Authenticatable|string|null  $actor  a principal, or a type string
+     */
+    public static function isOperator($actor): bool
+    {
+        if ($actor === null) {
+            return false;
+        }
+
+        $type = is_object($actor) ? ($actor->type ?? null) : $actor;
+
+        // rtrim of SPACE only, matching MySQL's PAD SPACE: a trailing space is ignored by the engine,
+        // a leading one is not, and neither is a tab. Measured -- see the table above.
+        return $type !== null && strtolower(rtrim((string) $type, ' ')) === self::PLATFORM_ADMIN;
     }
 
     /**

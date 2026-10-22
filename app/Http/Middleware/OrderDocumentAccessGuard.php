@@ -412,7 +412,9 @@ class OrderDocumentAccessGuard
         // be admitted if EITHER of them owns the document; being admitted by neither is the only
         // correct refusal.
         if ($user !== null) {
-            if ($user->type === self::PLATFORM_ADMIN) {
+            // P1-SEC-11 criterion 3: one helper, normalised (was a strict comparison against a third
+            // copy of the constant). The operator limb stays FIRST, as the project skill requires.
+            if (\App\Policies\UserPolicy::isOperator($user)) {
                 return true;
             }
 
