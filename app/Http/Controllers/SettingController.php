@@ -1160,25 +1160,12 @@ $u->save();
         $post['out_of_stock_threshold'] = $request->out_of_stock_threshold;
         $post['stock_management'] = $request->has('stock_management') ? $request->stock_management : 'off';
         $post['notification'] =  json_encode($request->input('notification'));
-        $settingQuery = Setting::query();
         foreach ($post as $key => $data) {
-            $status = (clone $settingQuery)->updateOrCreate(
-                [
-                    'name' => $key,
-                    
-                    'store_id'      => getCurrentStore(),
-                    'created_by' => auth()->user()->id
-                ],
-                [
-                    'value'         => $data,
-                    'name'          => $key,
-                    
-                    'store_id'      => getCurrentStore(),
-                    'created_by'    => auth()->user()->id,
-                    'created_at'    => now(),
-                    'updated_at'    => now(),
-                ]
-            );
+            // P1-PLT-07: addressed by (name, store), not by the saving user -- with `created_by` in the match key a staff save
+            // inserted a second row for the same name in the same store instead of updating the owner's. Ownership is settled by
+            // App\Services\SettingOwnership, and putForStore() lands on the row the readers serve rather than on the oldest one
+            // updateOrCreate would find; its docblock carries the measurement.
+            $status = Setting::putForStore($key, $data, getCurrentStore(), auth()->user()->id);
         }
         if (isset($status)) {
             return redirect()->back()->with('success', __('Stock setting successfully updated.'));

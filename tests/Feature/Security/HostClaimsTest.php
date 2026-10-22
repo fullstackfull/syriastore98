@@ -831,13 +831,25 @@ class HostClaimsTest extends SecurityTestCase
     {
         $this->recordingWebuzo();
         DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'enable_domain')->update(['value' => 'off']);
-        // a second writer's stale row names the victim's host: the early check reads the stored `domains` of the posting user only
-        $this->giveRows($this->olderStore, $this->victimOwner, ['domains' => self::HOST]);
+
+        // A second writer's stale row names the victim's host, and the early check reads the stored `domains` of the posting user only.
+        //
+        // P1-PLT-07 PINNED THE ROW ORDER HERE, and the reason is worth stating because it changes which legacy states are reachable.
+        // ThemeSettings writes `domains` on EVERY save -- `$post['domains']` is set from the request even when the form posts none, so
+        // it lands as '' -- and the writer now addresses the row the READERS serve, i.e. the newest. So a stale duplicate can only
+        // survive a save if it is the OLDER row; when it was the newer one (as this fixture first had it) the save overwrote the very
+        // row that triggers the refusal, and there was nothing left to refuse. That is not a weakened control: the store stops naming
+        // the victim's host, so the victim keeps it either way -- what changes is that this particular legacy shape no longer blocks
+        // the flag for ever. The shape below is the one P1-OWN-11's duplicate query describes and is still reachable.
+        DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'domains')->delete();
+        $this->giveRows($this->olderStore, $this->victimOwner, ['domains' => self::HOST]);                  // older: the stale row
+        $this->giveRows($this->olderStore, $this->olderOwner, ['domains' => 'older-shop.example.test']);    // newer: what a save lands on
 
         $response = $this->actingAs($this->olderOwner)->post('/theme-settings', ['enable_domain' => 'enable_domain', 'domains' => 'free.example.test', 'storecss' => 'z{}']);
 
         $response->assertSessionHas('error', 'This domain is already used by another store.');
-        $this->assertSame('older-shop.example.test', $this->stored($this->olderStore, 'domains'), 'The host written before the refused flag stayed saved.');
+        $this->assertSame(self::HOST, $this->stored($this->olderStore, 'domains'), 'The stale row the hook refused on is still there, unchanged by the rolled-back save.');
+        $this->assertSame('older-shop.example.test', DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'domains')->orderByDesc('id')->value('value'), 'The host written before the refused flag was undone.');
         $this->assertNull($this->stored($this->olderStore, 'storecss'));
         $this->assertSame('off', $this->stored($this->olderStore, 'enable_domain'));
     }

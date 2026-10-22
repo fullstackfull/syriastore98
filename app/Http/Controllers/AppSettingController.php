@@ -1144,26 +1144,19 @@ if ($mayChangeRouting && $request->enable_domain === 'enable_subdomain') {
         // derived above and so already come last.
         $post = array_merge(array_intersect_key($post, ['domains' => true]), $post);
 
-        $settingQuery = Setting::query();
         // P1-SEC-29: all or nothing. The Setting model refuses a host another store holds (App\Services\HostClaims); without a transaction
         // the keys written before the refused one stay saved, and the merchant is left half-applied with no message (this page prints
         // session('error'), not $errors).
         try {
-            \Illuminate\Support\Facades\DB::transaction(function () use ($post, $settingQuery) {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($post) {
                 foreach ($post as $key => $data) {
-                    (clone $settingQuery)->updateOrCreate(
-                        [
-                            'name' => $key,
-                            'store_id'      => getCurrentStore(),
-                            'created_by' => auth()->user()->id
-                        ],
-                        [
-                            'value'         => $data,
-                            'name'          => $key,
-                            'store_id'      => getCurrentStore(),
-                            'created_by'    => auth()->user()->id,
-                        ]
-                    );
+                    // P1-PLT-07: addressed by (name, store) -- NOT by the saving user. With `created_by` in the match key a staff
+                    // member's save never found the owner's row and INSERTED a second one for the same name in the same store;
+                    // `settings` has no unique index, so both survived and every pluck() reader took whichever came last. Who the row
+                    // belongs to is settled by App\Services\SettingOwnership on the way through the model. putForStore() rather than
+                    // updateOrCreate() because on a store that ALREADY carries duplicates the two disagree about which row is live --
+                    // see its docblock, where the measurement is.
+                    Setting::putForStore($key, $data, getCurrentStore(), auth()->user()->id);
                 }
             });
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -1189,17 +1182,12 @@ if ($mayChangeRouting && $request->enable_domain === 'enable_subdomain') {
 
         $post['firebase_enabled'] = $firebase_enabled;
         $post['fcm_Key'] = $fcm_Key;
-        $settingQuery = Setting::query();
         foreach ($post as $key => $data) {
-            (clone $settingQuery)->updateOrCreate(
-                ['name' => $key, 'created_by' => auth()->user()->id],
-                [
-                    'value'         => $data,
-                    'name'          => $key,
-                    'store_id'      => getCurrentStore(),
-                    'created_by'    => auth()->user()->id,
-                ]
-            );
+            // P1-PLT-07: this write was addressed by (name, saving user) with NO `store_id` AT ALL. For a merchant who runs more than
+            // one store that found the row they had written in ANOTHER of their stores, and the payload's `store_id` then MOVED it here
+            // -- so saving Firebase settings in one store blanked them in the other. Addressed by (name, store) now, like every other
+            // writer, with ownership settled by App\Services\SettingOwnership.
+            Setting::putForStore($key, $data, getCurrentStore(), auth()->user()->id);
         }
 
         return redirect()->back()->with('success', __('Setting successfully updated.'));
