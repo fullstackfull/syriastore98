@@ -34,6 +34,34 @@ custom-domain proof of control (D-07), the platform OpenAI key (D-08, implemente
 retention at 24 months (D-09), key rotation deferred with the exposure recorded (D-10), and the
 release path approved in principle (D-11).
 
+### P1-SEC-28, scoped but not started — and one finding that measured FALSE
+
+Investigated read-only. `app/Services/StoredUpload.php` (`resolve`/`resolveAll`/`delete`) and
+`app/Services/StoredPathPolicy.php` both already exist, so criteria 1–2 have their machinery; the work
+is the census test pinning which unlinks are database-derived, plus the three named items
+(`ImportExport`'s default image, `attachmentDestroy`'s ticket scoping, `update_user_image`'s shared
+avatar). `ProductController:2198` is already guarded by `isInsideUploadsRoot()`.
+
+**And a candidate defect that did NOT survive measurement, recorded because a plausible-looking
+non-defect costs as much attention as a real one.** `LanguageController::destroyLang($lang)` validates
+nothing and does `unlink($langDir . $lang . '.json')` — the shape of a path traversal, with only an
+`isAbleTo('Delete Language')` check and that permission seeded to merchant roles. Measured against the
+real router:
+
+| request | result |
+|---|---|
+| `DELETE lang/en` | matches, `lang='en'` |
+| `DELETE lang/../../composer` | **no match** |
+| `DELETE lang/..%2F..%2Fcomposer` | **no match** |
+| `DELETE lang/%2e%2e%2f%2e%2e%2fcomposer` | **no match** |
+| `DELETE lang/..` | matches, `lang='..'` → targets a file literally named `...json` |
+
+The route is `lang/{lang}` and Laravel's default segment pattern is `[^/]+`, so no value containing a
+separator reaches the handler in raw or encoded form. **Not a traversal.** A validation rule would be
+reasonable hardening; it is not the defect it resembles and is not logged as one.
+
+---
+
 ### The release blockers that remain — four, and only one is engineering
 
 | | Blocker | Kind | Note |
