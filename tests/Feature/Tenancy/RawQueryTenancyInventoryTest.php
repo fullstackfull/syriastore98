@@ -212,14 +212,21 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // ModuleAdministrativeRouteGuard (campaigns, helpdesk_tickets, email_templates x1, user_email_templates, stores: ownership of the NAMED row,
         // compared to the caller's tenant); OrderController::shippinglabel (settings, WITH a store_id predicate); OrderDocumentAccessGuard
         // (order_refunds: refund id -> order id, and the ORDER's store is then what is compared to the caller).
-        $this->assertSame(['app' => 130, 'packages' => 45], $perDir,
+        // 130 -> 135 with P1-SEC-04's ModuleStorefrontInputGuard, which cdc213bd added to the middleware stack but did NOT record here
+        // (the commit updated this file for ModuleAdministrativeRouteGuard only, so CI went red on the three inventories). Its five reads:
+        // `stores` by slug twice (the comment route and the review route each resolve {storeSlug} -- there is no store to predicate on until
+        // the slug IS resolved, that read being the resolution), `stores` by id once (the thread read, whose id comes from the body and is
+        // then compared, never trusted), `products` once WITH a store_id predicate (the product must belong to the slug's store) and
+        // `customers` once, reading `store_id` as the VALUE so the customer's store can be compared with the caller's.
+        $this->assertSame(['app' => 135, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
             . 'a raw query became Eloquent, which is an improvement worth recording here.');
 
         // 168 -> 175: seven new raw sites (see the per-directory note above)
-        $this->assertSame(175, array_sum($perDir));
+        // 175 -> 180: the five ModuleStorefrontInputGuard sites above
+        $this->assertSame(180, array_sum($perDir));
     }
 
     /**
@@ -250,7 +257,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             'coupon_requests' => [3, 3],
             'coupons' => [2, 0],
             'currency' => [3, 3],
-            'customers' => [5, 3],
+            'customers' => [6, 3],   // 5 -> 6 with P1-SEC-04 ModuleStorefrontInputGuard::customerBelongsTo; it READS `store_id` as the value to compare, so the unscoped column does not move
             // NEW WITH P1-INV-20, and the only WRITE in this population.
             // LotteryMailTemplatePrerequisite inserts the authenticated merchant's own
             // `Lottery Win` / `Lottery Fail` / `Lottery Remainder` rows before a draw, because
@@ -306,7 +313,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // derive the bid's store from the row instead of from the caller. The real control is
             // asserted per-site in OwnedPathRawQueryInventoryTest, where the file is classified
             // 'comparison'.
-            'products' => [1, 0],
+            'products' => [2, 0],    // 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own
             'settings' => [16, 5],   // 15 -> 16 with P1-SEC-11 (OrderController::shippinglabel reads the order store's five address rows, WITH a store_id predicate); earlier: 15 -> 16 with P1-SEC-27 (StoreSettingsAccess::storedRows, WITH a store_id predicate); 16 -> 15 and 9 -> 5 with P1-SEC-29 (HostClaims)
             'shetabit_visits' => [16, 0],
             'side_menus_option' => [28, 0],
@@ -325,7 +332,8 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // Note the shape of this row generally: 18 of 19 `stores` sites are 'unscoped' for the
             // same structural reason, which is why a rising count on THIS table is not by itself a
             // finding -- the per-site classification is.
-            'stores' => [20, 20],    // P1-SEC-10 (DeliverySyriaCredential: stores created by a matched owner) and P1-SEC-04 (Duo setting rule); the Zid controller's own stores read is gone
+            'stores' => [23, 22],    // P1-SEC-10 (DeliverySyriaCredential: stores created by a matched owner) and P1-SEC-04 (Duo setting rule); the Zid controller's own stores read is gone.
+                                     // 20 -> 23 and 20 -> 22 with ModuleStorefrontInputGuard: two slug resolutions (no store_id to predicate on yet) and the thread read's by-id lookup, whose statement names `store_id` because the id comes from the body and is compared, not trusted
             'theme_customizes' => [2, 0],
             'user_email_templates' => [1, 1], // P1-SEC-04: ModuleAdministrativeRouteGuard::ownsEmailTemplate (the row named in the body)
             'users' => [5, 5],
@@ -381,11 +389,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // 141 -> 140 and 70 -> 66 with P1-SEC-29: four unscoped `settings` host lookups out, three store-aware reads in (HostClaims).
         // 140 -> 147 with the seven sites of P1-SEC-10/11/04/12 (all name their table literally); the unscoped sum below moves by their no-store_id
         // count: campaigns, helpdesk_tickets, email_templates, user_email_templates, order_refunds, stores x2 added; zid_orders 11 -> 9.
-        $this->assertSame(147, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '147 literal-table sites of the 175 entry points; the other 28 build their table name '
+        // 147 -> 152 with the five ModuleStorefrontInputGuard sites (all name their table literally)
+        $this->assertSame(152, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            '152 literal-table sites of the 180 entry points; the other 28 build their table name '
             . 'from a variable and so cannot be attributed (see LIMIT 2 in this class docblock).');
         // 66 -> 71: +9 (campaigns 1, helpdesk_tickets 1, email_templates 1, user_email_templates 1, order_refunds 1, stores 2, plus the Duo/credential reads) and -2 (zid_orders)
-        $this->assertSame(71, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        // 71 -> 73: of the five new sites only the two `stores` slug resolutions carry no `store_id` in their statement
+        $this->assertSame(73, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**

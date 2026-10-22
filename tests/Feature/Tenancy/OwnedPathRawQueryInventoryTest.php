@@ -192,6 +192,21 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             // it and the request REFUSED. A store_id predicate would collapse "another tenant's row" into "no such row" and these module
             // tables (campaigns, helpdesk_tickets) have no store_id to put one on. The tenant compared against is never read from the request.
             'app/Http/Middleware/ModuleAdministrativeRouteGuard.php' => 'comparison',
+            // P1-SEC-04's SIBLING GUARD, and the entry cdc213bd FORGOT -- which is why CI went red on this inventory and on the two
+            // platform-wide counts in RawQueryTenancyInventoryTest. 'comparison', like the administrative guard, and the bucket's promise
+            // ("every member refuses cross-tenant access") holds for it only because of P1-SEC-34: before that fix the two storefront
+            // routes DERIVED a tenant without ever refusing on one, which is the exact drift that made 'derivation' a separate category.
+            //
+            // The file's five reads are not all one shape, and this inventory keys on the PATH, so they are named here instead:
+            //   COMPARISON  `customers` (customerBelongsTo) -- fetches the customer's `store_id` with no predicate precisely so it can be
+            //               compared with the caller's store and the request refused; the shopper-comment, merchant-reply and
+            //               thread-read/delete rules all turn on it.
+            //   TENANT      `products` (productOfStoreOrAbsent) -- carries its own `store_id` predicate; a named product must belong to
+            //               the slug's store or the request is refused.
+            //   DERIVATION  `stores` x3 -- the two {storeSlug} resolutions and the thread read's by-id lookup. These fetch the
+            //               authoritative store and OVERWRITE whatever `store_id` the body sent; a store predicate is meaningless on the
+            //               tenant REGISTRY, and the slug lookup IS the tenant resolution, so there is nothing to predicate on yet.
+            'app/Http/Middleware/ModuleStorefrontInputGuard.php' => 'comparison',
             // P1-INV-20's REFUND GUARD. 'comparison', and the classification is the FILE's, not
             // the site's -- this inventory keys on the path. The first draft of this entry split
             // its two reads into two categories, which the inventory cannot express; the entry now
@@ -370,7 +385,9 @@ class OwnedPathRawQueryInventoryTest extends TestCase
         // module's own cross-store bidding and close nothing.
         // 20 -> 26: ModuleAdministrativeRouteGuard's five reads (P1-SEC-04, 'comparison' - see its classification) and OrderDocumentAccessGuard's
         // refund-id -> order-id read (P1-ORD-12, in a file already classified 'comparison').
-        $this->assertCount(26, $sites, "The owned-path raw query inventory changed:\n  "
+        // 26 -> 31: ModuleStorefrontInputGuard's five reads (`customers`, `products`, `stores` x3), which cdc213bd added to the stack and
+        // did not record here -- the omission that failed this assertion and the two totals in RawQueryTenancyInventoryTest.
+        $this->assertCount(31, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry
