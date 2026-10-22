@@ -228,6 +228,18 @@ run_one verify-stock-oversell-concurrency-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_DATABASE=oversell_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
+# The domain-identity audit (docs/development/phase-1/P01-DOMAIN-IDENTITY-AUDIT.md). Two of that audit's claims are engine-dependent and
+# the Feature suite runs on SQLite, so the suite is the wrong instrument for both. This script settled one of them AGAINST the audit's
+# first draft -- it claimed a null slug is stored and that getStore() then fails open through whereNull, citing production's
+# strict => false; MySQL refuses the row under strict AND non-strict, so the real consequence is a 500 on store creation with no
+# cross-tenant reading, and the audit was corrected. It also found a collision class the audit did not have: under utf8mb4_unicode_ci
+# the lookup folds case, accents and trailing space, so 'Damascus' IS the stored 'damascus' and the de-duplication's own LIKE cannot
+# hand out a case variant as free. Carries a removal check -- the proposed UNIQUE index is what refuses all three -- so the control is
+# shown to be the cause and not merely correlated.
+run_one verify-store-slug-identity-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=slug_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

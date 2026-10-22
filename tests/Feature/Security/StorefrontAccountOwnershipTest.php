@@ -101,6 +101,69 @@ class StorefrontAccountOwnershipTest extends SecurityTestCase
         }
     }
 
+    /**
+     * The SECOND address-read handler, and the one the live UI actually calls.
+     *
+     * `adress-form` (tested above) and `edit-address-form` are two different routes on two different
+     * methods -- `addressForm` and `edit_address_form`. The original P1-SEC-12 sweep fixed six
+     * handlers and `ApiController::update_address`, and left this one untouched, because it keyed on
+     * the handler NAMES somebody had already listed rather than on the routed actions. This is
+     * census-failure mode 4 from the project skill: "an exemption scoped to the methods somebody
+     * happened to look at".
+     *
+     * It is not a dormant surface. `front_end/sections/addressbook.blade.php` links the Edit control
+     * on every row of the shipped address book to `route('edit.address.form')`, so this is the read
+     * path a signed-in shopper exercises normally, and it rendered any address row on the platform
+     * by bare id: no customer predicate, no store predicate, and `DeliveryAddress` carries no global
+     * scope and is absent from `config/tenancy.php`'s `scoped_models`, so nothing else supplied one.
+     */
+    public function test_a_shopper_cannot_read_another_shoppers_address_through_the_edit_address_form(): void
+    {
+        [$a, $b, $mallory, $sibling, $stranger] = $this->world();
+
+        foreach ($this->victims($a, $sibling, $b, $stranger) as $who => [$victim, $victimStore]) {
+            $address = $this->addressOf($victim, $victimStore->id);
+
+            $response = $this->actingAs($mallory, 'customers')->get("/{$a->slug}/edit-address-form?id={$address->id}");
+
+            // premise: the route exists and the guard let this shopper through -- a 404 here would
+            // satisfy the leak assertion for the wrong reason (census-failure mode 2).
+            $this->assertNotSame(404, $response->status(), "{$who}: the route is missing, so this test proves nothing");
+
+            $this->assertStringNotContainsString($victim->first_name . ' Street', (string) $response->getContent(), "{$who}'s street leaked");
+            $this->assertStringNotContainsString('Owner ' . $victim->first_name, (string) $response->getContent(), "{$who}'s name leaked");
+        }
+    }
+
+    /** The positive control for the same route: the fix must not break the shipped address book for its owner. */
+    public function test_a_shopper_can_still_read_their_own_address_through_the_edit_address_form(): void
+    {
+        [$a, , $mallory] = $this->world();
+        $own = $this->addressOf($mallory, $a->id);
+
+        $response = $this->actingAs($mallory, 'customers')->get("/{$a->slug}/edit-address-form?id={$own->id}");
+
+        $this->assertSame(200, $response->status());
+        $this->assertStringContainsString('1 Mallory Street', (string) $response->getContent(), 'the owner can no longer see their own address');
+    }
+
+    /**
+     * The guard-class trap on this route. `EnsureCustomerAuthenticated` is a `customers`-guard check,
+     * so a merchant session does not reach the handler -- but the handler's own `auth('customers')`
+     * presence test is what the fix replaces, and a presence test is what the whole finding is about.
+     * Driving a non-customer principal records that the refusal does not depend on which limb fires.
+     */
+    public function test_a_merchant_session_cannot_read_an_address_through_the_edit_address_form(): void
+    {
+        [$a, , $mallory] = $this->world();
+        $own = $this->addressOf($mallory, $a->id);
+        $merchant = \App\Models\User::find($a->created_by);
+
+        $response = $this->actingAs($merchant, 'web')->get("/{$a->slug}/edit-address-form?id={$own->id}");
+
+        $this->assertStringNotContainsString('1 Mallory Street', (string) $response->getContent(), 'a merchant session read a shopper address');
+    }
+
     public function test_a_shopper_cannot_overwrite_or_reparent_another_shoppers_address(): void
     {
         [$a, $b, $mallory, $sibling, $stranger] = $this->world();
@@ -316,15 +379,40 @@ class StorefrontAccountOwnershipTest extends SecurityTestCase
         }
     }
 
-    /** the census: no handler of this controller reads or deletes an address or a ticket by a bare request id any more */
+    /**
+     * the census: no handler of this controller reads or deletes an address or a ticket by a bare request id any more.
+     *
+     * WHY THIS LIST GREW. As first written it forbade five `DeliveryAddress::where('id', ...)` spellings
+     * and `SupportTicket::find(` -- and not `DeliveryAddress::find(`, which is what the one handler the
+     * sweep missed actually used. So the ratchet was green over a live cross-tenant read for as long as
+     * that handler existed. The lesson is the project skill's: a census keyed on the spellings somebody
+     * happened to write down is not a census. It now forbids the bare-id CONSTRUCTOR on both models and
+     * asserts its own reachability, so a rename of either model cannot make it pass vacuously.
+     *
+     * Comments are stripped before the grep. The docblocks in that controller now quote
+     * `DeliveryAddress::find($request->id)` to explain the finding, and a ratchet that a sentence of
+     * prose can fail -- or satisfy -- is measuring the wrong file.
+     */
     public function test_no_address_or_ticket_handler_resolves_a_row_by_a_bare_id(): void
     {
-        $source = (string) file_get_contents(app_path('Http/Controllers/AccountProfileController.php'));
+        $raw = (string) file_get_contents(app_path('Http/Controllers/AccountProfileController.php'));
 
-        foreach (['SupportTicket::find(', "SupportTicket::where('id', \$id)->delete", "SupportTicket::where('id', '=', \$id)", "DeliveryAddress::where('id', \$request->id)",
-                  "DeliveryAddress::where('id',\$request->get('id'))", "DeliveryAddress::where('id', \$id)->first()"] as $forbidden) {
+        $source = '';
+        foreach (token_get_all($raw) as $token) {
+            if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                continue;
+            }
+            $source .= is_array($token) ? $token[1] : $token;
+        }
+
+        // reachability: if the live code no longer mentions either model, every assertion below is vacuous
+        $this->assertStringContainsString('DeliveryAddress::', $source, 'the comment-stripped source no longer names DeliveryAddress -- this census is vacuous');
+        $this->assertStringContainsString('SupportTicket::', $source, 'the comment-stripped source no longer names SupportTicket -- this census is vacuous');
+
+        foreach (['SupportTicket::find(', 'DeliveryAddress::find(', "SupportTicket::where('id', \$id)->delete", "SupportTicket::where('id', '=', \$id)",
+                  "DeliveryAddress::where('id', \$request->id)", "DeliveryAddress::where('id',\$request->get('id'))", "DeliveryAddress::where('id', \$id)->first()"] as $forbidden) {
             $this->assertStringNotContainsString($forbidden, $source, 'A handler resolves a row by a bare id: ' . $forbidden);
         }
-        $this->assertSame(11, preg_match_all('/\$this->owned(?:Address|Ticket)\(/', $source), 'The number of ownership-checked handlers changed.');
+        $this->assertSame(12, preg_match_all('/\$this->owned(?:Address|Ticket)\(/', $source), 'The number of ownership-checked handlers changed.');
     }
 }

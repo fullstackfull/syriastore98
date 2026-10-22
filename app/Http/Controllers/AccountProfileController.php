@@ -1525,12 +1525,21 @@ public function city_list(Request $request, $slug)
 
     public function edit_address_form(Request $request, $slug)
     {
-        if (!auth('customers')->user()) {
-            return redirect()->back()->with('error', __('Unauthenticated.'));
-        }
+        // P1-SEC-12. `auth('customers')->user()` is a PRESENCE test, not an identity test: it proves some
+        // customer of some store is signed in and nothing more, and `DeliveryAddress::find($request->id)`
+        // then rendered any address row on the platform -- no customer predicate, no store predicate, and
+        // the model carries no global scope and is absent from `scoped_models`, so nothing supplied one.
+        // This is the handler the shipped address book's Edit control calls (addressbook.blade.php), and
+        // the first sweep missed it by keying on handler names instead of on the routed actions.
         $store = getStore($slug);
+        $DeliveryAddress = $this->ownedAddress($store, $this->shopper($store), $request->get('id'));
+        if (empty($DeliveryAddress)) {
+            // The same uniform refusal the other six handlers give: a redirect-with-error, never a 401
+            // (the shipped clients log the user out on a 401) and never a message that distinguishes
+            // "not yours" from "no such row", so the id space cannot be enumerated.
+            return redirect()->back()->with('error', __('Address not found.'));
+        }
         $country_option = Country::orderBy('name','ASC')->pluck('name', 'id');
-        $DeliveryAddress = DeliveryAddress::find($request->id);
         $return['html'] = '';
         if (empty($DeliveryAddress)) {
             $DeliveryAddress = [];
