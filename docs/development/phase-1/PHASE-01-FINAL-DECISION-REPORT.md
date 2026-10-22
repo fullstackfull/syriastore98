@@ -1283,7 +1283,7 @@ bash .github/scripts/scan-secrets.sh "$(git merge-base origin/main HEAD)" .
 ```
 
 **The hit is P1-SEC-05's own test fixture, and it is a hit by design.** Line 160 plants
-`AKIAIOSFODNN7EXAMPLE` so that `test_a_high_confidence_credential_in_the_test_tree_still_fails` can
+`AKIA…(16 uppercase alphanumerics)` so that `test_a_high_confidence_credential_in_the_test_tree_still_fails` can
 assert the build **fails** — and that assertion is the entire justification for the structural
 `tests/*` skip P1-SEC-05 gave the generic rule. A narrowing is only defensible while the unnarrowed
 rules still bite in the narrowed tree, and that test is what proves they do.
