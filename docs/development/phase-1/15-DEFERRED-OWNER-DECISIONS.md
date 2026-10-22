@@ -128,6 +128,137 @@ design. Issues #67, #68, and §7 of PR #3.
 
 ---
 
+## D-06 — COD settlement timing. **DECIDED 2026-10-22. APPROVED.**
+
+Was `P1-PAY-04` (#26), and was the one decision actually blocking acceptance: GATE F could not be
+released without it, and Phase 01 could not be accepted without GATE F.
+
+**The decision, as given:**
+
+- COD orders start **Unpaid**.
+- `Paid` only after actual cash collection is **verified**.
+- Courier collection and merchant settlement are tracked **separately**.
+- **No merchant wallet credit at order creation.**
+- Collection and settlement workflows configurable per store, *but* uncollected money must never be
+  reportable as paid.
+- Proceed with the GATE F development prerequisites and the required MySQL verification.
+
+**What this unblocks:** `P1-MIG-01` (GATE F, the six money-bearing tables) and with it `P1-MIG-03`.
+Sequence unchanged: MIG-02 → MIG-03 → MIG-01 → MIG-04, each with a rehearsed rollback.
+
+**Note for whoever implements it:** this decision and recorded D-05 now interact. D-05 says no gateway
+return proves a payment moved and that enforcing it would stop wallet credits for 51 live payment
+methods. This decision says COD must not credit a wallet at creation. They agree in direction —
+neither permits an unverified `Paid` — so the COD path should be built on the same
+`PaymentVerificationService` seam rather than a parallel one.
+
+---
+
+## D-07 — numeric subdomains. **DECIDED 2026-10-22. APPROVED.**
+
+**This is the entry the register did not have.** Before this date there was no owner-approved domain
+architecture anywhere in the repository: this register held nothing on domains, the only recommendation
+on file (`docs/discovery/10-OPEN-QUESTIONS-AND-DECISIONS.md` row **D-08**) was *unratified* and
+recommended the **opposite** ("drop custom domains; merchants get `storesyria.com/{slug}` only"), and
+#111 held open questions. That gap is recorded in
+`docs/development/phase-1/P01-DOMAIN-IDENTITY-AUDIT.md` §0 and is now closed by this entry.
+
+**The decision, as given:**
+
+- Every merchant gets a **unique, permanent numeric subdomain**, independent of the editable slug.
+- **Custom domains stay supported**, subject to **DNS ownership verification**.
+- **Platform-owned hosts and system labels are reserved.**
+- **Session cookies isolated by host.**
+- Existing merchant URLs and integrations **preserved** during migration.
+- **Wildcard DNS and SSL verified before production activation.**
+
+**This supersedes discovery recommendation D-08(a).** Recorded explicitly so the project stops holding
+two opposed positions, which is what the audit asked for.
+
+**It also settles `P1-SEC-32`,** whose four sub-questions map onto it: (a) the platform host is reserved
+— engineering had already determined this is not a business call; (b) reserved labels — the conventional
+list ships; (c) **proof of control is required** (DNS verification), which was the open owner question;
+(d) release of a squatted host still needs an operator path, and is the one piece this decision does not
+name — see the blocker list.
+
+**Cookie isolation by host is the answer the audit recommended** (per-host scope, not `.storesyria.com`),
+so no merchant is logged out at cutover.
+
+**Engineering consequences already measured and now in scope** (audit §3, with executable evidence in
+`tests/Feature/Platform/StoreSlugIdentityTest.php` and
+`tests/Support/Security/bin/verify-store-slug-identity-on-mysql.php`):
+
+- `stores.slug` has **no unique index**, and uniqueness is advisory only.
+- An Arabic store name collapses: `متجر الشام` → `-`, `سوق دمشق` → `-`, `مـتجر!!!` → empty. Every
+  Arabic-named store contends for `-`, then `--1`, `--2`; the 101st returns `null` and store creation
+  **500s**.
+- The collision class is **collation-wide**: `getStore('Damascus')` resolves a stored `damascus`.
+- The identifier must **not** be the primary key — `getCurrentStore()` hardcodes `1` for the operator,
+  so PK 1 is already an authorization sentinel.
+
+---
+
+## D-08 — the platform's OpenAI key. **DECIDED 2026-10-22. NOT AUTHORIZED for merchant use.**
+
+Was `P1-SEC-22(e)` (#96).
+
+**The decision, as given:** merchants must not consume the platform's OpenAI API key; enforce without
+breaking platform-operator functionality; design separate merchant credentials, entitlements or billing
+for future use.
+
+**Implemented**: `AITemplateController::resolveApiKeyForActor()` now reaches the platform key for the
+**operator only**. A merchant, or their staff, with no key of their own is refused and gets the
+handler's existing "no key configured" message. Judged with the shared operator helper (P1-SEC-11) so
+it agrees with the engine on case and trailing space. Driven for a merchant **and** a staff member,
+because `creatorId()` resolves staff to their merchant; removal check bites on both.
+
+**Still open and now a product item, not a defect:** separate merchant credentials / entitlements /
+billing. Not a Phase 01 blocker.
+
+---
+
+## D-09 — data retention. **DECIDED 2026-10-22.**
+
+Default eligible-data retention **24 months**, subject to applicable legal retention and preservation
+obligations.
+
+**Resolves** `P1-ORD-03` (#86-adjacent: `user_delete` hard-deletes orders while soft-deleting the
+account). Orders are financial records; the 24-month default plus the legal-obligation carve-out means
+deletion must be **selective**, not a hard delete of order rows. **Also bounds `P1-OWN-08`**: the
+`shetabit_visits` scrub has a retention rule to cite.
+
+---
+
+## D-10 — production key rotation. **DECIDED 2026-10-22. DO NOT ROTATE NOW.**
+
+"Do not rotate existing production keys at this time. Record the outstanding exposure accurately."
+
+**So `P1-OWN-02` (#43, `APP_KEY`) and `P1-OWN-09` (#88, gateway secrets) are deferred by decision, not
+blocked.** Recorded accurately, as instructed:
+
+- **`APP_KEY` is in git history and unrotated.** `Crypt::encrypt()` is therefore an **encoding, not a
+  control** — any encrypted id in a URL is forgeable. `P1-ORD-09`'s order-details link rests on it.
+- **Every store's payment-gateway secrets were readable by any internet visitor** (`P1-OWN-09`). The
+  endpoint is closed; what was already disclosed cannot be undisclosed. **Treat as exposed.**
+- **Platform keys** (reCAPTCHA, OpenAI) are owner-only to rotate and need no merchant coordination —
+  the cheapest item on that list whenever the decision changes.
+- **Ordering constraint that still holds when it does:** inventory encrypted-at-rest columns **before**
+  rotating `APP_KEY`, or every encrypted column is corrupted. Inventory → re-encrypt → rotate.
+
+---
+
+## D-11 — production migrations and release. **APPROVED IN PRINCIPLE 2026-10-22, conditional.**
+
+Contingent on **verified backups**, **restoration rehearsal**, **passing required tests** and **safe
+migration sequencing**. And: *"do not make destructive production changes without an independently
+verified recovery path."*
+
+**This does not lift the session constraints below** — it authorises the release path, not ad-hoc
+production work from a development session. Nothing in this repository has run a persistent migration,
+and nothing will without the four conditions met and verified.
+
+---
+
 ## Standing constraints, restated because they bound everything above
 
 No merge into `main`. No deployment. No persistent migrations. No destructive data operations. No

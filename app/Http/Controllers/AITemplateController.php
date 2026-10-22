@@ -43,8 +43,23 @@ class AITemplateController extends Controller
             return $own;
         }
 
-        // The platform's own key. Scoped to operator accounts by type, so a merchant row can never be
-        // mistaken for the platform's however `created_by` is populated.
+        // OWNER DECISION, 2026-10-22: "Merchants must not consume the platform's OpenAI API key. Enforce
+        // this without breaking platform-operator functionality."
+        //
+        // So the platform limb below is reachable by the OPERATOR ONLY. A merchant -- or their staff --
+        // with no key of their own is refused, and gets the handler's existing "no key configured"
+        // message rather than spending the platform's budget. This replaces the interim behaviour, which
+        // deliberately preserved the platform fallback for every caller while the decision was open.
+        //
+        // Judged with the shared operator helper (P1-SEC-11), so this agrees with the engine on case and
+        // trailing space rather than carrying a fifth copy of the comparison.
+        if (! \App\Policies\UserPolicy::isOperator($actor)) {
+            return null;
+        }
+
+        // The platform's own key, for the operator. Scoped to operator accounts by type, so a merchant row
+        // can never be mistaken for the platform's however `created_by` is populated -- the operator may
+        // hold the key under a different operator account than the one signed in.
         //
         // `whereRaw`, NOT `whereIn(DB::raw(...))`. `User` is Cachable, and laravel-model-caching's CacheKey
         // cannot stringify an Expression inside an IN clause -- it throws "Object of class

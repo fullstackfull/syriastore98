@@ -170,6 +170,55 @@ class AiGenerateKeyAndQuotaTest extends SecurityTestCase
     }
 
     /**
+     * OWNER DECISION, 2026-10-22: merchants must not consume the platform's OpenAI key.
+     *
+     * The interim fix deliberately PRESERVED the platform fallback for every caller, because the
+     * decision was open and no AI permission is seeded (so a permission gate would have been a
+     * permanent 403). The decision closed it: a merchant with no key of their own is refused even
+     * though a platform key exists and is reachable.
+     *
+     * Driven for a merchant AND for their staff member, because `creatorId()` resolves staff to their
+     * merchant and a fix keyed on the signed-in row alone would let staff through.
+     */
+    public function test_a_merchant_cannot_spend_the_platform_key(): void
+    {
+        [$merchant] = $this->makeTenant();
+        $template = $this->template();
+
+        // a real platform key exists and is reachable -- that is the point of the test
+        $operator = User::factory()->create([
+            'type' => 'super admin', 'created_by' => 0, 'is_active' => 1, 'email_verified_at' => now(),
+        ]);
+        ApikeySetiings::forceCreate(['key' => 'sk-not-a-real-platform-key', 'created_by' => $operator->id]);
+        $this->assertSame(1, DB::table('apikey_setiings')->count(), 'premise: the platform key is there to be taken');
+
+        $response = $this->generate($merchant, $this->payload($template));
+
+        $this->assertSame('error', $response->json('status'), 'a merchant spent the platform key');
+        $this->assertStringContainsString('Api Key', (string) $response->json('message'));
+    }
+
+    /** the same for a merchant's STAFF member, whom creatorId() resolves to the merchant */
+    public function test_a_staff_member_cannot_spend_the_platform_key_either(): void
+    {
+        [$merchant] = $this->makeTenant();
+        $template = $this->template();
+
+        $operator = User::factory()->create([
+            'type' => 'super admin', 'created_by' => 0, 'is_active' => 1, 'email_verified_at' => now(),
+        ]);
+        ApikeySetiings::forceCreate(['key' => 'sk-not-a-real-platform-key', 'created_by' => $operator->id]);
+
+        $staff = User::factory()->create([
+            'type' => 'staff', 'created_by' => $merchant->id, 'is_active' => 1, 'email_verified_at' => now(),
+        ]);
+
+        $response = $this->generate($staff, $this->payload($template));
+
+        $this->assertSame('error', $response->json('status'), 'a staff member spent the platform key');
+    }
+
+    /**
      * The platform operator's key remains usable by the operator. Guards against a fix that scopes so
      * tightly it locks out the one principal who certainly may spend it -- the lockout shape the project
      * skill records for `isAbleTo()` ordering, in a different guise.
