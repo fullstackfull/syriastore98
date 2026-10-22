@@ -247,6 +247,13 @@ return Application::configure(basePath: dirname(__DIR__))
         // forged "Duo response" (EXECUTED: tests/Feature/Security/Duo2FALoginForgeryTest). The module is vendored, so the control is a route
         // guard: a signed-in user, naming themselves in both the request and both halves of the response, on a store whose Duo keys are set.
         $middleware->appendToGroup('web', \App\Http\Middleware\Duo2FALoginGuard::class);
+        // P1-SEC-04. Administrative module routes that carried no authentication at all (the census found 452 module routes that answer
+        // an anonymous caller; six had a real anonymous effect, EXECUTED in AnonymousAdministrativeModuleRoutesTest). The classification is
+        // App\Support\ModuleRouteManifest; RouteCensusGateTest fails when a module route is in neither of its two tables.
+        $middleware->appendToGroup('web', \App\Http\Middleware\ModuleAdministrativeRouteGuard::class);
+        // P1-SEC-04 review follow-up: the SpamPrevent and ProductReview storefront handlers wrote customer_id / store_id / status from the body
+        // (anonymous comments as any customer with raw HTML, reviews planted into any store). Derived from the session or the slug instead.
+        $middleware->appendToGroup('web', \App\Http\Middleware\ModuleStorefrontInputGuard::class);
         // P1-INV-22 item 5. `POST lotteryproduct` -> LotteryPrizesController::store():90-137 writes
         // `lottery_settings` rows whose `lottery_products` is a CALLER-SUPPLIED product id, with no
         // check that the product is the caller's. REPRODUCED BY EXECUTION: a merchant holding

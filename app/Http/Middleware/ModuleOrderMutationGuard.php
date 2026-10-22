@@ -206,6 +206,24 @@ class ModuleOrderMutationGuard
             'keys' => ['auctionId'],
             'permission' => 'Edit Auction Setting',
         ],
+
+        // --- P1-SEC-04, found by the module-route census and EXECUTED (AnonymousAdministrativeModuleRoutesTest): two more routes that
+        //     change another tenant's row by a bare id from an unauthenticated `['web']` group. Both tables carry store_id. ---
+        // PartialPayments: payment_status_change() sets `order_partial_payments.payment_status` to any string for the row named by `id`
+        // (the shopper's "pay balance" button and the amount due are driven by that status). 'Edit Partial Payment' is seeded by the
+        // module's PermissionTableSeeder and granted to the admin role; the permission limb is existence-conditional, see the trait.
+        'payment-status-change/{id}' => [
+            'table' => 'order_partial_payments',
+            'keys' => ['id'],
+            'permission' => 'Edit Partial Payment',
+        ],
+        // PDFVouchers: status() accepts or rejects the coupon request named by `id` (an accept mails a PDF of the store's live coupons).
+        // The module seeds no permission of its own, so the row's store is the whole check.
+        'coupencode/Status/store' => [
+            'table' => 'coupon_requests',
+            'keys' => ['id'],
+            'permission' => null,
+        ],
     ];
 
     public function handle(Request $request, Closure $next): Response

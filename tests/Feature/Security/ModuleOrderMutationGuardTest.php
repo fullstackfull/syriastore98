@@ -278,15 +278,26 @@ class ModuleOrderMutationGuardTest extends SecurityTestCase
     {
         $this->enableModules();
 
+        // P1-SEC-04 added two more targets, in modules this file does not otherwise drive (their behaviour is
+        // AnonymousAdministrativeModuleRoutesTest's): the registered-route check below covers them too, so load those modules here.
+        foreach ([['PartialPayments', 'Partial Payments', 'partial-payments'], ['PDFVouchers', 'PDF Vouchers', 'pdf-vouchers']] as [$module, $name, $package]) {
+            AddOnManager::create(['module' => $module, 'name' => $name, 'monthly_price' => 0, 'yearly_price' => 0, 'is_enable' => 1, 'package_name' => $package]);
+        }
+        Cache::flush();
+        $provider = new \App\Providers\PackageServiceProvider($this->app);
+        $loadAddons = new \ReflectionMethod($provider, 'loadAddons');
+        $loadAddons->setAccessible(true);
+        $loadAddons->invoke($provider, ['PartialPayments', 'PDFVouchers']);
+
         $targets = array_keys(
             (new \ReflectionClass(\App\Http\Middleware\ModuleOrderMutationGuard::class))
                 ->getConstant('TARGETS')
         );
 
         $this->assertSame(
-            array_keys(self::ROUTES),
+            array_merge(array_keys(self::ROUTES), ['payment-status-change/{id}', 'coupencode/Status/store']),
             $targets,
-            'The guard\'s TARGETS no longer match the six uris this file drives.'
+            'The guard\'s TARGETS no longer match the six uris this file drives plus the two P1-SEC-04 entries.'
         );
 
         $posts = Route::getRoutes()->getRoutesByMethod()['POST'] ?? [];

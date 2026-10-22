@@ -186,6 +186,12 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             // fell through to the route segment, each found by review rather than by a test, so a
             // second copy would have inherited whichever version was current that day.
             'app/Http/Middleware/Concerns/ComparesRowOwnership.php' => 'comparison',
+            // P1-SEC-04's ModuleAdministrativeRouteGuard. 'comparison', for the same reason as the sibling guards: its five raw reads
+            // (campaigns, helpdesk_tickets, email_templates, user_email_templates, and the caller's own store for the Duo rule) fetch the
+            // OWNER of the row the request NAMES - created_by / user_id - so that the caller's tenant (User::creatorId()) can be compared with
+            // it and the request REFUSED. A store_id predicate would collapse "another tenant's row" into "no such row" and these module
+            // tables (campaigns, helpdesk_tickets) have no store_id to put one on. The tenant compared against is never read from the request.
+            'app/Http/Middleware/ModuleAdministrativeRouteGuard.php' => 'comparison',
             // P1-INV-20's REFUND GUARD. 'comparison', and the classification is the FILE's, not
             // the site's -- this inventory keys on the path. The first draft of this entry split
             // its two reads into two categories, which the inventory cannot express; the entry now
@@ -362,7 +368,9 @@ class OwnedPathRawQueryInventoryTest extends TestCase
         // Both are 'comparison' sites and both deliberately carry no store predicate -- see the
         // classification above, where the reason is that a store predicate would break the
         // module's own cross-store bidding and close nothing.
-        $this->assertCount(20, $sites, "The owned-path raw query inventory changed:\n  "
+        // 20 -> 26: ModuleAdministrativeRouteGuard's five reads (P1-SEC-04, 'comparison' - see its classification) and OrderDocumentAccessGuard's
+        // refund-id -> order-id read (P1-ORD-12, in a file already classified 'comparison').
+        $this->assertCount(26, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry

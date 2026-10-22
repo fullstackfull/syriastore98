@@ -207,13 +207,19 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // came back in HostClaims -- row() and heldByAnotherStore(), whose statements name the store through the matching flag's
         // subquery, and assertFree()'s read of the store's own saved host. The per-table row for `settings` moves 16 -> 15 and its
         // no-store_id column 9 -> 5: a REDUCTION in raw exposure, and the lookup now resolves only a row whose store has the flag on.
-        $this->assertSame(['app' => 123, 'packages' => 45], $perDir,
+        // 123 -> 130 across P1-SEC-10/11/35/04/12 (each raw read is deliberate and named in its own docblock): DeliverySyriaCredential (users, stores:
+        // the secret -> owner -> stores resolution, no store to predicate on until it is resolved) and the Zid status controller (two statements fewer);
+        // ModuleAdministrativeRouteGuard (campaigns, helpdesk_tickets, email_templates x1, user_email_templates, stores: ownership of the NAMED row,
+        // compared to the caller's tenant); OrderController::shippinglabel (settings, WITH a store_id predicate); OrderDocumentAccessGuard
+        // (order_refunds: refund id -> order id, and the ORDER's store is then what is compared to the caller).
+        $this->assertSame(['app' => 130, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
             . 'a raw query became Eloquent, which is an improvement worth recording here.');
 
-        $this->assertSame(168, array_sum($perDir));
+        // 168 -> 175: seven new raw sites (see the per-directory note above)
+        $this->assertSame(175, array_sum($perDir));
     }
 
     /**
@@ -240,6 +246,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // would refuse a bid the page invited. `product_id` is globally unique, since `Product`
             // carries no scope at all, so keying on it does identify one store's product.
             'auction_product_bids' => [1, 1],
+            'campaigns' => [1, 1],        // P1-SEC-04: ModuleAdministrativeRouteGuard::ownsCampaign (the row named by `id`; compared to the caller's tenant)
             'coupon_requests' => [3, 3],
             'coupons' => [2, 0],
             'currency' => [3, 3],
@@ -259,12 +266,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // as unscoped by construction; the real control is asserted per-site in
             // tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest, where the file is classified
             // 'platform' and the owner-id derivation is pinned.
-            'email_templates' => [2, 2],
+            'email_templates' => [3, 3],  // 2 -> 3 with P1-SEC-04 ModuleAdministrativeRouteGuard::ownsEmailTemplate (same shape)
             // NEW WITH P1-INV-21, and unscoped BY DESIGN. EnforceLotteryTicketPrice reads
             // `ticket_price` for the ticket's own `lottery_id` by PRIMARY KEY, which is already
             // unique -- and the only `store_id` the listener could add to the predicate is the one
             // on the model being written, i.e. the untrusted side. The question it asks is "what
             // does THAT lottery charge", and the primary key answers it exactly.
+            'helpdesk_tickets' => [1, 1], // P1-SEC-04: ModuleAdministrativeRouteGuard::ownsTicket
             'lottery_settings' => [1, 1],
             'migrations' => [1, 1],
             // `notify_users` USED TO BE LISTED HERE AT [2, 1] AND HAS LEFT THIS POPULATION
@@ -283,6 +291,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             'order_billing_details' => [1, 0],
             // NEW WITH P1-ORD-07's review fix, and SCOPED: the FOR UPDATE freshness read in
             // AccountProfileController::order_refund_request (id + store_id + customer_id).
+            'order_refunds' => [1, 1],    // P1-ORD-12: OrderDocumentAccessGuard resolves a refund id to its order id; the ORDER's store is what is compared to the caller
             'orders' => [1, 0],
             'owner_menu_items' => [1, 1],
             'owner_menu_settings' => [1, 1],
@@ -298,7 +307,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // asserted per-site in OwnedPathRawQueryInventoryTest, where the file is classified
             // 'comparison'.
             'products' => [1, 0],
-            'settings' => [15, 5],   // 15 -> 16 with P1-SEC-27 (StoreSettingsAccess::storedRows, WITH a store_id predicate); 16 -> 15 and 9 -> 5 with P1-SEC-29 (HostClaims)
+            'settings' => [16, 5],   // 15 -> 16 with P1-SEC-11 (OrderController::shippinglabel reads the order store's five address rows, WITH a store_id predicate); earlier: 15 -> 16 with P1-SEC-27 (StoreSettingsAccess::storedRows, WITH a store_id predicate); 16 -> 15 and 9 -> 5 with P1-SEC-29 (HostClaims)
             'shetabit_visits' => [16, 0],
             'side_menus_option' => [28, 0],
             'store_devices' => [2, 1],
@@ -316,11 +325,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // Note the shape of this row generally: 18 of 19 `stores` sites are 'unscoped' for the
             // same structural reason, which is why a rising count on THIS table is not by itself a
             // finding -- the per-site classification is.
-            'stores' => [19, 18],
+            'stores' => [20, 20],    // P1-SEC-10 (DeliverySyriaCredential: stores created by a matched owner) and P1-SEC-04 (Duo setting rule); the Zid controller's own stores read is gone
             'theme_customizes' => [2, 0],
+            'user_email_templates' => [1, 1], // P1-SEC-04: ModuleAdministrativeRouteGuard::ownsEmailTemplate (the row named in the body)
             'users' => [5, 5],
             'zid_events' => [2, 2],
-            'zid_orders' => [11, 11],
+            'zid_orders' => [11, 9],   // 11 -> 9 with P1-SEC-10: the lookup and the local status write now carry the authenticated stores
             'zid_stores' => [7, 2],
         ], $actual, 'The per-table raw-query inventory changed. If a `no-store_id` count went UP, '
             . 'a raw cross-tenant query was added where no global scope can reach it.');
@@ -349,9 +359,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // The 27 are DashboardController.php:3302, :3374, :3468, :3564, :3665,
         // StoreFinanceController.php:302, BulkDeleteTenantGuard.php:431, :454, :469,
         // OrderDocumentAccessGuard.php:319, ComparesRowOwnership.php x3 (readRowStore plus the
-        // two limbs of the set predicate), Customer.php:149,
+        // two limbs of the set predicate), Customer.php:150,
         // Product.php:97,
-        // ProductAttribute.php:48, Tag.php:47, User.php:160, Utility.php:3171, :3173, :3196,
+        // ProductAttribute.php:48, Tag.php:47, User.php:163, Utility.php:3171, :3173, :3196,
         // :3198, :3212, :3214, OrderFinancialService.php:289, :402 and
         // packages/workdo/Marketing/src/app/Models/Storefield.php:36.
         // 133 -> 136 and 65 -> 68 with P1-INV-20: the `stores` slug lookup and the TWO
@@ -369,10 +379,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // 140 -> 141 with P1-SEC-27: StoreSettingsAccess::storedRows(), a `settings` read WITH a store_id predicate, so the
         // unscoped sum below does not move.
         // 141 -> 140 and 70 -> 66 with P1-SEC-29: four unscoped `settings` host lookups out, three store-aware reads in (HostClaims).
-        $this->assertSame(140, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '140 literal-table sites of the 168 entry points; the other 28 build their table name '
+        // 140 -> 147 with the seven sites of P1-SEC-10/11/04/12 (all name their table literally); the unscoped sum below moves by their no-store_id
+        // count: campaigns, helpdesk_tickets, email_templates, user_email_templates, order_refunds, stores x2 added; zid_orders 11 -> 9.
+        $this->assertSame(147, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            '147 literal-table sites of the 175 entry points; the other 28 build their table name '
             . 'from a variable and so cannot be attributed (see LIMIT 2 in this class docblock).');
-        $this->assertSame(66, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        // 66 -> 71: +9 (campaigns 1, helpdesk_tickets 1, email_templates 1, user_email_templates 1, order_refunds 1, stores 2, plus the Duo/credential reads) and -2 (zid_orders)
+        $this->assertSame(71, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**
@@ -446,6 +459,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // validators -- both carry `->where('store_id', $storeId)` and are correctly counted
             // as aware, not exposed.
             'customers' => 3,
+            'order_refunds' => 1,
             // `notify_users` => 1 WAS HERE AND IS NOT ANY MORE, and it is not reclassified: it
             // has left the population this list describes, because P01-SEC-14 Work Package C
             // deleted both of its raw statements outright. The note is preserved because it was
@@ -489,6 +503,8 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             //     packages/workdo/Donation/.../DonationController.php:187
             //     packages/workdo/PartialPayments/.../PartialPaymentsController.php:459, :470
             'settings' => 5,
+            // `order_refunds` => 1 (P1-ORD-12): OrderDocumentAccessGuard::handle() maps a refund id to its order id so that the ORDER's ownership is
+            // what gets judged; it returns no refund data to anyone.
             // `store_devices` -- app/Services/StoreNotificationService.php:195. Push-notification
             // device tokens, read with no store predicate. One statement, genuinely unscoped.
             'store_devices' => 1,
@@ -567,6 +583,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             'owner_menus',
             'personal_access_tokens',  // platform; tokens belong to a user, not a store
             'stores',                  // the tenant REGISTRY itself -- ownership, not scoping
+            'user_email_templates',    // no store_id column: per-USER rows; P1-SEC-04's ownership rule compares the row's user to the caller's tenant
             'users',                   // no store_id column at all; see the DO-NOT-SCOPE list
         ], $notDiscriminated, 'A table moved between "has store_id" and "does not". That changes '
             . 'what the 65 unscoped statements mean, so re-read the classification above.');
@@ -596,7 +613,11 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // `store_id` and `customer_id` are derived from the product row and the authenticated
             // principal, pinned in OwnedPathRawQueryInventoryTest.
             'auction_product_bids',
+            // `campaigns` and `helpdesk_tickets` (P1-SEC-04's ModuleAdministrativeRouteGuard reads each row's owner) are declared only by their
+            // PACKAGE module's migrations, like `coupon_requests`: absent from a fresh database until the module is in `add_on_managers`.
+            'campaigns',
             'coupon_requests',
+            'helpdesk_tickets',
             // NEW WITH P1-INV-21, and it belongs HERE rather than in the no-store_id list above --
             // which is where I put it first, and the assertion was right to reject that.
             // `lottery_settings` DOES carry `store_id`
