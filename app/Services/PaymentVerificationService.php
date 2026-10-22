@@ -72,7 +72,13 @@ class PaymentVerificationService
      * courier collected the cash yet".
      */
     public const OFFLINE_PAYMENT_TYPES = [
-        'cod',
+        // 'cod' WAS HERE AND IS DELIBERATELY GONE (owner decision D-06, 2026-10-22). This list means
+        // "settles off-platform by arrangement, so record Paid at once", and COD no longer does: it has
+        // its own state machine and is Pending until collection. The COD branch in
+        // resolveOrderPaymentStatus() runs FIRST, so leaving 'cod' here changed no behaviour -- which is
+        // exactly why it had to go. A constant that lists a type whose behaviour contradicts the
+        // constant's own meaning is a trap for the next reader, and it was already misleading one test
+        // into asserting COD is Paid.
         'bank_transfer',
         'whatsapp',
     ];
@@ -88,13 +94,14 @@ class PaymentVerificationService
     public const COD_PAYMENT_TYPES = ['cod', 'cash_on_delivery', 'cash'];
 
     /**
-     * COD settles AT ORDER TIME: the order is recorded Paid the moment it is
-     * placed, before the courier has collected anything.
+     * RETIRED VALUE, kept only to recognise and reject it. Owner decision D-06, 2026-10-22.
      *
-     * This is the pre-existing behaviour and it stays the DEFAULT, because when
-     * an order counts as paid decides when a merchant's wallet is credited and
-     * which orders appear in a revenue report. That is a business change for the
-     * owner to choose, not a defect fix to impose.
+     * This used to mean "record a COD order Paid the moment it is placed", and it used to be the
+     * DEFAULT, because when an order counts as paid decides when a merchant's wallet is credited -- a
+     * business change for the owner to choose rather than a defect to impose. The owner chose: COD
+     * starts unpaid, and uncollected money may never be reported as paid. So this value is no longer
+     * honoured anywhere; `codSettlementPolicy()` recognises it solely in order to log loudly that a
+     * deployment still configuring it is being ignored.
      */
     public const COD_SETTLEMENT_AT_ORDER = 'order';
 
@@ -178,22 +185,40 @@ class PaymentVerificationService
 
         if ($this->isCashOnDelivery($type)) {
             /*
-             * COD has its own state machine. See COD_SETTLEMENT_ON_DELIVERY for
-             * why settling on delivery is the correct one, and why settling at
-             * order time nonetheless remains the default.
+             * OWNER DECISION D-06, 2026-10-22: "COD orders start as Unpaid. Payment becomes Paid only
+             * after actual cash collection is verified. Do not credit a merchant wallet at order
+             * creation. Make collection and settlement workflows configurable per store WITHOUT
+             * ALLOWING UNCOLLECTED MONEY TO BE REPORTED AS PAID."
+             *
+             * That last clause is why this is no longer a policy BRANCH. Settle-at-order was previously
+             * the default and remained selectable, because when an order counts as paid decides when a
+             * merchant's wallet is credited -- a business decision the owner had not yet made. It is made
+             * now, and it forecloses the option: a COD order recorded Paid before collection IS
+             * uncollected money reported as paid, so no per-store setting may produce it.
+             *
+             * What stays configurable per store is the collection and settlement WORKFLOW -- who collects,
+             * and when the merchant is settled -- which needs the courier-collection and settlement
+             * records GATE F has not released yet. The state at creation is not part of that.
+             *
+             * `Pending`, not a new `Unpaid` state: 'Pending' is this codebase's existing state for money
+             * that has not arrived (BankTransferController uses it for exactly that), while 'Unpaid' is
+             * what `Order::order_status_change` writes on CANCELLATION (app/Models/Order.php:550). Both
+             * satisfy "not paid"; reusing the arrival state keeps cancellation semantics distinct.
+             *
+             * THIS ALSO SATISFIES "no wallet credit at order creation" WITH NO SEPARATE GUARD, and that is
+             * worth recording because it is not obvious: `OrderObserver::created()` credits the wallet
+             * only when the order is already Paid at creation ("إذا كان الطلب Paid تضيفه للمحفظة فوراً").
+             * An order created Pending credits nothing; `OrderObserver::updated()` then syncs the wallet
+             * when `payment_status` changes, so settlement credits it at delivery instead.
              */
-            if ($this->codSettlementPolicy() === self::COD_SETTLEMENT_ON_DELIVERY) {
-                Log::info('COD order recorded as pending collection', [
-                    'site' => $site,
-                    'payment_type' => $type,
-                    'expected_total' => (string) $expectedTotal,
-                    'note' => 'Becomes Paid when the order is marked delivered.',
-                ]);
+            Log::info('COD order recorded as pending collection', [
+                'site' => $site,
+                'payment_type' => $type,
+                'expected_total' => (string) $expectedTotal,
+                'note' => 'Becomes Paid when collection is recorded. Owner decision D-06.',
+            ]);
 
-                return self::STATUS_PENDING;
-            }
-
-            return self::STATUS_PAID;
+            return self::STATUS_PENDING;
         }
 
         if (in_array($type, self::OFFLINE_PAYMENT_TYPES, true)) {
@@ -535,22 +560,30 @@ class PaymentVerificationService
     public function codSettlementPolicy(): string
     {
         $policy = strtolower(trim(
-            (string) config('services.cod.settlement', self::COD_SETTLEMENT_AT_ORDER)
+            (string) config('services.cod.settlement', self::COD_SETTLEMENT_ON_DELIVERY)
         ));
 
-        if ($policy === self::COD_SETTLEMENT_ON_DELIVERY) {
-            return self::COD_SETTLEMENT_ON_DELIVERY;
-        }
-
-        if ($policy !== self::COD_SETTLEMENT_AT_ORDER && $policy !== '') {
-            Log::warning('Unrecognised COD settlement policy; falling back to settle-at-order', [
+        // NO LONGER A SWITCH (owner decision D-06). Settle-on-delivery is the only COD behaviour, and
+        // this method is retained for one reason: a deployment whose .env still carries
+        // COD_SETTLEMENT=order must find out LOUDLY that the value is no longer honoured, rather than
+        // believing it still settles at order time. Silently ignoring a configured value is how an
+        // operator ends up with a wrong mental model of when their merchants get paid.
+        if ($policy === self::COD_SETTLEMENT_AT_ORDER) {
+            Log::warning('COD_SETTLEMENT=order is NO LONGER HONOURED and is ignored', [
+                'config_key' => 'services.cod.settlement',
+                'configured' => $policy,
+                'effective' => self::COD_SETTLEMENT_ON_DELIVERY,
+                'reason' => 'Owner decision D-06, 2026-10-22: uncollected money may not be reported as paid.',
+                'action' => 'Remove COD_SETTLEMENT from the environment.',
+            ]);
+        } elseif ($policy !== self::COD_SETTLEMENT_ON_DELIVERY && $policy !== '') {
+            Log::warning('Unrecognised COD settlement policy; settle-on-delivery is in force regardless', [
                 'configured' => $policy,
                 'config_key' => 'services.cod.settlement',
-                'recognised' => [self::COD_SETTLEMENT_AT_ORDER, self::COD_SETTLEMENT_ON_DELIVERY],
             ]);
         }
 
-        return self::COD_SETTLEMENT_AT_ORDER;
+        return self::COD_SETTLEMENT_ON_DELIVERY;
     }
 
     /**
@@ -569,10 +602,8 @@ class PaymentVerificationService
      */
     public function codShouldSettleOnDelivery($order): bool
     {
-        if ($this->codSettlementPolicy() !== self::COD_SETTLEMENT_ON_DELIVERY) {
-            return false;
-        }
-
+        // No policy gate (owner decision D-06): settle-on-delivery is the only COD behaviour, so this
+        // transition is live rather than inert-until-opted-in.
         if ($order === null || !$this->isCashOnDelivery($order->payment_type ?? null)) {
             return false;
         }

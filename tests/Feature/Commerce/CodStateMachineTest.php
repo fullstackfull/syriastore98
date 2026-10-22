@@ -57,74 +57,108 @@ class CodStateMachineTest extends TestCase
     */
 
     /**
-     * With nothing configured, the policy is settle-at-order.
+     * OWNER DECISION D-06, 2026-10-22: settle on delivery, and settle-at-order is NO LONGER a
+     * permitted value.
      *
-     * BOTH defaults are pinned, deliberately. `config/services.php` declares
-     * `'settlement' => env('COD_SETTLEMENT', 'order')`, so the CONFIG FILE's
-     * default is what actually governs and the PHP fallback in
-     * codSettlementPolicy() is never reached while the key is declared. A test
-     * that only exercised the helper would stay green if the config file were
-     * changed to 'delivery' -- measured, not assumed: flipping the helper's PHP
-     * fallback to COD_SETTLEMENT_ON_DELIVERY produced NO failure at all, which
-     * is how this gap was found. So the config value is asserted directly.
+     * These five tests previously asserted the OPPOSITE -- that the default was settle-at-order and
+     * the delivery transition inert -- because when an order counts as paid decides when a merchant's
+     * wallet is credited, and that was the owner's call to make. It is made, so they now assert the
+     * decision. Their failing when the implementation changed is the signal the suite was built to
+     * give, not a regression.
+     *
+     * BOTH defaults are still pinned, and the reason is worth keeping: `config/services.php` declares
+     * the key, so the CONFIG FILE's default is what actually governs and the PHP fallback in
+     * codSettlementPolicy() is never reached while the key is declared. A test exercising only the
+     * helper would stay green if the config file disagreed -- measured, not assumed, when this suite
+     * was first written: flipping the helper's fallback alone produced NO failure at all. So the
+     * config value is asserted directly.
      */
-    public function test_the_default_policy_is_settle_at_order(): void
+    public function test_the_default_policy_is_settle_on_delivery(): void
     {
         $this->assertSame(
-            PaymentVerificationService::COD_SETTLEMENT_AT_ORDER,
+            PaymentVerificationService::COD_SETTLEMENT_ON_DELIVERY,
             config('services.cod.settlement'),
-            'config/services.php must default COD to settle-at-order, because that '
-                . 'declared value is what governs -- not the helper fallback'
+            'config/services.php must default COD to settle-on-delivery (owner decision D-06), because '
+                . 'that declared value is what governs -- not the helper fallback'
         );
 
         $this->assertSame(
-            PaymentVerificationService::COD_SETTLEMENT_AT_ORDER,
+            PaymentVerificationService::COD_SETTLEMENT_ON_DELIVERY,
             $this->verifier->codSettlementPolicy(),
-            'the resolved policy must be the pre-existing behaviour'
+            'the resolved policy must be settle-on-delivery'
         );
     }
 
     /**
-     * The helper's own fallback, exercised by removing the declared key.
-     *
-     * This is the path a deployment with an older config/services.php takes, and
-     * it must also land on the pre-existing behaviour.
+     * The helper's own fallback, exercised by removing the declared key. This is the path a deployment
+     * with an older config/services.php takes, and it must ALSO land on settle-on-delivery -- otherwise
+     * a stale config file would silently reinstate the behaviour the decision forecloses.
      */
-    public function test_the_helper_falls_back_to_settle_at_order_when_the_key_is_absent(): void
+    public function test_the_helper_falls_back_to_settle_on_delivery_when_the_key_is_absent(): void
     {
         config(['services.cod' => null]);
 
         $this->assertSame(
-            PaymentVerificationService::COD_SETTLEMENT_AT_ORDER,
+            PaymentVerificationService::COD_SETTLEMENT_ON_DELIVERY,
             $this->verifier->codSettlementPolicy(),
-            'an undeclared key must still mean the pre-existing behaviour'
+            'an undeclared key must still mean settle-on-delivery'
         );
     }
 
-    /** With the default policy a COD order is still recorded Paid at once. */
+    /**
+     * THE CLAUSE THAT MAKES THIS MORE THAN A DEFAULT FLIP. The decision says the workflow is
+     * configurable per store "WITHOUT ALLOWING UNCOLLECTED MONEY TO BE REPORTED AS PAID", so
+     * settle-at-order is not merely off -- it is unreachable. A deployment that still carries
+     * COD_SETTLEMENT=order gets settle-on-delivery anyway.
+     */
     #[DataProvider('codSpellings')]
-    public function test_cod_is_still_paid_at_order_time_by_default(string $spelling): void
+    public function test_a_stale_settle_at_order_setting_cannot_report_cod_as_paid(string $spelling): void
+    {
+        config(['services.cod.settlement' => PaymentVerificationService::COD_SETTLEMENT_AT_ORDER]);
+
+        $this->assertSame(
+            PaymentVerificationService::COD_SETTLEMENT_ON_DELIVERY,
+            $this->verifier->codSettlementPolicy(),
+            'the retired value must not be honoured'
+        );
+
+        $this->assertSame(
+            PaymentVerificationService::STATUS_PENDING,
+            $this->verifier->resolveOrderPaymentStatus($spelling, null, '100.00', __METHOD__),
+            'a stale COD_SETTLEMENT=order reported uncollected money as paid'
+        );
+    }
+
+    /** A COD order is Pending when placed, on every spelling, with nothing configured. */
+    #[DataProvider('codSpellings')]
+    public function test_cod_is_pending_at_order_time(string $spelling): void
     {
         $this->assertSame(
-            PaymentVerificationService::STATUS_PAID,
+            PaymentVerificationService::STATUS_PENDING,
             $this->verifier->resolveOrderPaymentStatus($spelling, null, '100.00', __METHOD__),
-            'default COD behaviour must be byte-for-byte what it was'
+            'COD must not be recorded Paid before collection (owner decision D-06)'
         );
     }
 
-    /** And the delivery-side transition is inert under the default policy. */
-    public function test_the_delivery_transition_is_inert_by_default(): void
+    /**
+     * And the delivery-side transition is LIVE, not inert -- the inverse of what this asserted before.
+     * An unpaid COD order settles; one already Paid does not settle twice.
+     */
+    public function test_the_delivery_transition_is_live(): void
     {
-        $order = $this->codOrder('Paid');
+        $this->assertTrue(
+            $this->verifier->codShouldSettleOnDelivery($this->codOrder('Unpaid')),
+            'an unpaid COD order must settle when delivered'
+        );
 
-        $this->assertFalse(
-            $this->verifier->codShouldSettleOnDelivery($order),
-            'nothing may settle on delivery while the default policy is in force'
+        $this->assertTrue(
+            $this->verifier->codShouldSettleOnDelivery($this->codOrder('Pending')),
+            'a pending COD order -- the state it is now created in -- must settle when delivered'
         );
 
         $this->assertFalse(
-            $this->verifier->codShouldSettleOnDelivery($this->codOrder('Unpaid')),
-            'not even an unpaid COD order, while the policy is settle-at-order'
+            $this->verifier->codShouldSettleOnDelivery($this->codOrder('Paid')),
+            'an already-paid order must not settle a second time on a replayed status change'
         );
     }
 
@@ -222,17 +256,21 @@ class CodStateMachineTest extends TestCase
      * Failing closed here would mean a misconfigured key stops a shop recording
      * orders correctly, which is worse than the thing being guarded.
      */
-    public function test_an_unrecognised_policy_falls_back_to_the_default(): void
+    public function test_an_unrecognised_policy_still_settles_on_delivery(): void
     {
+        // The fallback direction is the point. A typo in the environment used to mean settle-at-order,
+        // i.e. a misconfiguration silently reported uncollected money as paid. It now falls the safe
+        // way: an unreadable value cannot produce the state the owner's decision forecloses.
         config(['services.cod.settlement' => 'on-delivery-ish']);
 
         $this->assertSame(
-            PaymentVerificationService::COD_SETTLEMENT_AT_ORDER,
+            PaymentVerificationService::COD_SETTLEMENT_ON_DELIVERY,
             $this->verifier->codSettlementPolicy()
         );
         $this->assertSame(
-            PaymentVerificationService::STATUS_PAID,
-            $this->verifier->resolveOrderPaymentStatus('cod', null, '100.00', __METHOD__)
+            PaymentVerificationService::STATUS_PENDING,
+            $this->verifier->resolveOrderPaymentStatus('cod', null, '100.00', __METHOD__),
+            'a typo in COD_SETTLEMENT must not report uncollected money as paid'
         );
     }
 

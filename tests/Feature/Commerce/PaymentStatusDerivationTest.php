@@ -164,6 +164,13 @@ class PaymentStatusDerivationTest extends TestCase
      */
     public function test_offline_and_unseamed_payment_types_keep_their_behaviour(): void
     {
+        // COD IS DELIBERATELY NOT IN THIS LIST ANY MORE (owner decision D-06): it has its own state
+        // machine and is Pending until collection, so it is not an "offline settles-immediately" type.
+        // This assertion is what caught the constant still listing it -- the COD branch runs first in
+        // resolveOrderPaymentStatus(), so the stale entry changed no behaviour and only misled readers.
+        $this->assertNotContains('cod', PaymentVerificationService::OFFLINE_PAYMENT_TYPES,
+            'COD must not be listed as an offline type that records Paid at once');
+
         foreach (PaymentVerificationService::OFFLINE_PAYMENT_TYPES as $type) {
             $this->assertSame(
                 PaymentVerificationService::STATUS_PAID,
