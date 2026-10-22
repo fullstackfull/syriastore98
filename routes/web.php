@@ -903,7 +903,21 @@ Route::get(
     Route::delete('products/{id}/delete', [ProductController::class, 'file_delete'])->name('products.file.detele');
 
     Route::put('products/attribute_combination/edit', [ProductController::class, 'attribute_combination_edit'])->name('products.attribute_combination_edit');
-    Route::put('products/sku_combination/edit', [ProductController::class, 'sku_combination_edit'])->name('products.sku_combination_edit');
+    /*
+     * `PUT products/sku_combination/edit` IS GONE. P1-INV-10 (b).
+     *
+     * It pointed at `ProductController::sku_combination_edit`, which does not exist -- grep over
+     * app/, routes/, resources/ and packages/ found the name in that route declaration and
+     * nowhere else -- so every request to it raised BadMethodCallException, a 500. The twin of
+     * S36's addToCartVariant.
+     *
+     * REMOVED rather than pointed at a method, because nothing calls it: `route(
+     * 'products.sku_combination_edit')` appears in no Blade template and no JavaScript (0 hits in
+     * resources/ and public/). The POST sibling `products.sku_combination` -> `sku_combination()`
+     * is left alone: its method exists, so it does not 500, and it is likewise unreferenced by
+     * any view -- removing a route that works is a contract change this task was not asked to
+     * make.
+     */
     Route::any('products/attribute_combination_data/edit', [ProductController::class, 'attribute_combination_data'])->name('products.attribute_combination_data');
 
     Route::delete('product-attribute-delete/{id}', [ProductController::class, 'product_attribute_delete'])->name('product.attribute.delete');
@@ -1097,7 +1111,23 @@ Route::get(
     Route::post('empty-cart', [ProductController::class, 'emptyCart'])->name('empty-cart');
     // POS variant Route
     Route::get('pos/product-variant/{id}/{session}', [ProductController::class, 'productVariant'])->name('pos.product.variant');
-    Route::get('pos/add-cart-variant/{id}/{session}/{variation_id?}', [ProductController::class, 'addToCartVariant'])->name('addToCartVariant');
+    /*
+     * `GET pos/add-cart-variant/...` IS GONE TOO. P1-INV-10 (b), the recorded twin.
+     *
+     * S36 found this one first and only wrote it down: "routes/web.php:1100 points at
+     * ProductController::addToCartVariant, which does not exist anywhere in app/ (a dead route
+     * that 500s on call, not a security gap)" -- P01-SECURITY-WORK-QUEUE.md:3369-3371. No task
+     * row was ever opened for it, so it was still live. S38-3b then recorded the sku_combination
+     * twin above and called it "the twin of addToCartVariant recorded in S36", which is how both
+     * ended up in one task. Same one-line removal, same controller, already measured: closing
+     * only the newer of two identical findings is census-failure mode 4.
+     *
+     * Unreferenced: `route('addToCartVariant')` and the literal uri appear in no Blade template,
+     * no JavaScript and no module (0 hits in resources/, public/ and packages/). That check is
+     * the one that matters for a removal -- a view calling `route()` on a name that no longer
+     * exists throws RouteNotFoundException and 500s the whole page, which would be worse than
+     * the dead route.
+     */
     Route::get('get-products-variant-quantity', [ProductController::class, 'getProductsVariantQuantity'])->name('get.products.variant.quantity');
 
     Route::resource('contacts', ContactController::class)->except(['store']);

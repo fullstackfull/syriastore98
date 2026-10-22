@@ -90,8 +90,23 @@ use App\Models\StoreNotification;
  * 62 occurrences; 3 are inside explanatory comments, leaving 59 live code sites
  * in 59 distinct methods. 55 are routed in routes/api.php; the other 4
  * (OrderList_backup, ViewOrder_backup, DeleteProduct_backup, DeleteStore_backup)
- * are unrouted dead code and were repaired anyway so they cannot be wired up
- * later and reintroduce the hole.
+ * were unrouted dead code and were repaired anyway so they could not be wired
+ * up later and reintroduce the hole.
+ *
+ * THAT LAST CLAIM WAS HALF TRUE, and P1-INV-10 (d) measured which half. The
+ * repair reached the STORE resolution in all four, and the per-ROW predicate in
+ * only two: OrderList_backup (`Order::where('store_id', $store->id)`) and
+ * DeleteStore_backup (every delete scoped to `$store->id`) really were safe to
+ * wire up. ViewOrder_backup passed `$request->order_id` straight into
+ * `Order::order_detail()`, which is `Order::find($order_id)` with no tenant
+ * predicate (app/Models/Order.php:279-281), and DeleteProduct_backup keyed
+ * `ProductImage`, `Cart`, `Wishlist` and the `Product` delete itself on a bare
+ * `$request->product_id` -- so both would have reintroduced exactly the hole
+ * they were kept to be safe from. Dead code cannot be relied on to stay
+ * repaired, so those two are DELETED rather than fixed a second time; the two
+ * that are genuinely tenant-scoped are left in place, which is what this
+ * paragraph now records. Neither removed method was routed in routes/api.php or
+ * referenced anywhere in app/, resources/ or tests/ (grep: 0 hits each).
  *
  * The brief named 17 sites. The real number is 59. That is reported as measured
  * rather than quoted.
@@ -1710,13 +1725,47 @@ public function UpdateCoupon(Request $request)
             ]);
         }
 
-        $ProductVariant             = new ProductVariant();
-        $ProductVariant->name       = $request->name;
-        $ProductVariant->type       = $request->type;
-        $ProductVariant->store_id   = $request->store_id;
-        $ProductVariant->save();
-
-        return $this->success(['message' => __('Product Variant added successfully!')]);
+        /*
+         * THIS ENDPOINT CANNOT CREATE A VARIANT, AND NEVER COULD. P1-INV-10 (a).
+         *
+         * It used to run:
+         *
+         *     $ProductVariant = new ProductVariant();
+         *     $ProductVariant->name = $request->name;   // no such column
+         *     $ProductVariant->type = $request->type;   // no such column
+         *     $ProductVariant->store_id = $request->store_id;
+         *     $ProductVariant->save();
+         *
+         * `product_variants` has NEITHER `name` NOR `type`
+         * (database/migrations/2024_01_01_104858_create_product_variants_table.php; no later
+         * migration alters the table, and grep finds no reader of either attribute anywhere in
+         * app/ -- the real label column is `variant`, which is what
+         * SalesDownloadableProductDataTable.php:40 reads). Direct property assignment bypasses
+         * `$fillable`, so both landed in the INSERT and MySQL answered
+         * `Unknown column 'name' in 'field list'` -- an unhandled QueryException, i.e. a 500 for
+         * every caller including the store's own owner. The same class as CLAUDE.md's
+         * `delivery_boys.commission_percentage` note.
+         *
+         * AND THE CONTRACT CANNOT BE REPAIRED FROM HERE. `product_id`, `variant`, `sku` and
+         * `price` are all NOT NULL with no default, and `product_id` carries a foreign key to
+         * `products`. The validator above asks for `name` and `type` only: there is no product to
+         * attach the variant to, no sku and no price anywhere in the request. Writing "columns
+         * that exist" would mean inventing a request contract -- which product? which sku? which
+         * price? -- and securing a new cross-tenant write path for it. That is a feature, and
+         * this is a remediation task, so the endpoint is refused instead.
+         *
+         * WHAT CHANGES FOR CLIENTS: nothing that worked stops working, because nothing worked.
+         * `api/admin/addvariant` is called by no client in either repository (grep over
+         * StoreSyria_app98/lib for `addvariant`, `variantlist`, `updatevariant` and
+         * `deletevariant`: 0 hits -- the Flutter app creates variants through the product
+         * endpoints' `variant_attribute`/`variant_id` fields). A caller that did reach it saw a
+         * 500 and now sees this file's ordinary `error()` envelope, which is HTTP 200 with
+         * `status: 0` -- deliberately NOT a 401, the code repo-B's lib/network/network.dart turns
+         * into a forced logout.
+         */
+        return $this->error([
+            'message' => __('This endpoint is not available: a product variant cannot be created without a product.'),
+        ]);
     }
 
     public function UpdateVariant(Request $request)
@@ -1759,9 +1808,25 @@ public function UpdateCoupon(Request $request)
         if (!empty($request->name)) {
             $ProductVariant->variant       = $request->name;
         }
-        if (!empty($request->type)) {
-            $ProductVariant->type       = $request->type;
-        }
+
+        /*
+         * THE `type` WRITE IS GONE, FOR THE SAME REASON AS AddVariant's. P1-INV-10 (a).
+         *
+         * This method is not in the task row -- the row named AddVariant -- and it carried half
+         * the same defect: `$ProductVariant->type = $request->type` on a table with no `type`
+         * column. Because it sat behind `if (!empty($request->type))` the endpoint worked when
+         * the caller sent `name` alone and threw `Unknown column 'type'` the moment `type` was
+         * sent, which is the harder failure to notice. The `name` -> `variant` mapping above is
+         * also what settles AddVariant's intent: the API's `name` parameter means
+         * `product_variants.variant`.
+         *
+         * Dropping the write rather than refusing the parameter: `name` alone already succeeded,
+         * so refusing would break a call that works today, while a caller that sent `type` got a
+         * 500 and no update at all and now gets its `variant` update applied. `type` is accepted
+         * and has nowhere to be stored; if it ever needs to be, it needs a migration, not an
+         * assignment.
+         */
+
         $ProductVariant->save();
 
         return $this->success(['message' => __('Product Variant Updated successfully!')]);
@@ -1965,36 +2030,6 @@ public function ViewOrder(Request $request)
 
 
 
-    public function ViewOrder_backup(Request $request)
-    {
-        $store = $this->resolveOwnedStore($request->store_id);
-
-        if (empty($store)) {
-            return $this->error(['message' => __('Store not found!')]);
-        }
-
-        $validator = \Validator::make(
-            $request->all(),
-            [
-                'order_id' => 'required',
-            ]
-        );
-
-        if ($validator->fails()) {
-            $messages = $validator->getMessageBag();
-            return $this->error([
-                'message' => $messages->first()
-            ]);
-        }
-        $order = Order::order_detail($request->order_id);
-
-        if (!empty($order['message'])) {
-            return $this->error($order);
-        } else {
-            return $this->success($order);
-        }
-    }
-
 
 
 
@@ -2132,65 +2167,6 @@ public function DeleteProduct(Request $request)
 
 
 
-
-    public function DeleteProduct_backup(Request $request)
-    {
-        $store = $this->resolveOwnedStore($request->store_id);
-        if (empty($store)) {
-            return $this->error(['message' => __('Store not found!')]);
-        }
-
-        $rules = [
-            'product_id' => 'required'
-        ];
-
-        $validator = \Validator::make($request->all(), $rules);
-        if ($validator->fails()) {
-            $messages = $validator->getMessageBag();
-            return $this->error([
-                'message' => $messages->first()
-            ]);
-        }
-
-        $ProductImages = ProductImage::where('product_id', $request->product_id)->get();
-
-        if (!empty($ProductImages)) {
-            // image remove from product variant image
-            foreach ($ProductImages as $key => $ProductImage) {
-                \App\Services\StoredUpload::delete($ProductImage->image_path, auth()->user()?->creatorId());
-            }
-        }
-
-        ProductImage::where('product_id', $request->product_id)->delete();
-
-
-
-        $Product = Product::find($request->product_id);
-        if (!empty($Product)) {
-            // image remove from description json
-            $description_json = $Product->other_description_api;
-            if (!empty($description_json)) {
-                $description_json = json_decode($Product->other_description_api, true);
-                foreach ($description_json['product-other-description'] as $key => $value) {
-                    if ($value['field_type'] == 'photo upload') {
-                        \App\Services\StoredUpload::delete($value['value'], auth()->user()?->creatorId());
-                    }
-                }
-            }
-
-            // image remove from cover image
-            \App\Services\StoredUpload::delete($Product->cover_image_path, auth()->user()?->creatorId());
-
-            Cart::where('product_id', $request->product_id)->delete();
-            Wishlist::where('product_id', $request->product_id)->delete();
-
-            Product::where('id', $request->product_id)->delete();
-        } else {
-            return $this->error(['message' => __('Product not found.')]);
-        }
-
-        return $this->success(['message' => __('Product deleted successfully!.')]);
-    }
 
 public function AddProduct(Request $request)
 {

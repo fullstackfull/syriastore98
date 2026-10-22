@@ -45,14 +45,23 @@ use Illuminate\Support\Facades\DB;
  * The third field set was named by an adversarial review of this file: the first version of this
  * docblock said "these three" and listed two.
  *
- * `grantPermission(..., 'Edit Products')` IS LOAD-BEARING FOR ONLY THREE OF THESE ROUTES.
- * `update()`, `edit()` and `show()` call `isAbleTo('Edit Products')`, so without the grant they
- * refuse before ownership is ever consulted and every cross-store assertion below would pass
- * vacuously. The P1-INV-07 routes -- `file_delete`, `product_attribute_delete` and
- * `attribute_combination_edit` -- call `isAbleTo` NOWHERE (verified: zero occurrences in all
- * three method bodies), which is itself a finding (queued separately: the missing permission
- * limbs). The grant is kept in those tests only so the principal is identical across the file;
- * removing it there changes no outcome, so do not read it as the control.
+ * `grantPermission(..., 'Edit Products')` IS NOW LOAD-BEARING FOR ALL OF THESE ROUTES, and it
+ * used to be load-bearing for only three. `update()` calls `isAbleTo('Edit Products')`, so
+ * without the grant it refuses before ownership is ever consulted and the cross-store assertions
+ * would pass vacuously. The P1-INV-07 routes -- `file_delete`, `product_attribute_delete` and
+ * `attribute_combination_edit` -- called `isAbleTo` NOWHERE, which this docblock recorded as a
+ * finding and which **P1-INV-10 (e) has since closed**: all three now carry a permission limb
+ * through `ProductController::lacksProductPermission()`, operator-first. So the grant in those
+ * tests is no longer decoration, and the paragraph that said "removing it there changes no
+ * outcome" is no longer true -- removing it turns those tests into the permission-refusal tests
+ * at the foot of this file.
+ *
+ * `edit()` and `show()` are the surprise in that sentence and are left as found. Neither calls
+ * `isAbleTo` at all (:934 and :881 -- only `index()`, `store()`, `update()` and `destroy()` do),
+ * so the product edit and view SCREENS carry no permission requirement of their own. That is why
+ * (e)'s limb on `attribute_combination_edit` accepts `Manage Products` as well as
+ * `Edit Products`: show.blade.php:730 PUTs to it from a screen a view-only staff role can reach,
+ * and gating a render on `Edit Products` alone would take the variations panel away from them.
  */
 class MerchantProductOwnershipTest extends SecurityTestCase
 {
@@ -517,5 +526,390 @@ class MerchantProductOwnershipTest extends SecurityTestCase
             (string) $response->getContent(),
             'The owner\'s own variant stock is not in their own combination screen, so the '
             . 'cross-store assertion on that same value measures nothing.');
+    }
+
+    // =============================================================================================
+    // P1-INV-10 (c) — the unscoped attribute-option lookup
+    // =============================================================================================
+
+    /**
+     * An attribute option row with a `terms` value that appears nowhere else on the page.
+     *
+     * `attribute_combination()` (the POST sibling of the PUT handler tested above) differs from it
+     * in exactly the way that matters here: it treats `attribute_options_<no>` as a list of option
+     * IDS, looks each one up and echoes the row's `terms`. The PUT handler takes the posted values
+     * as the names directly. So the leak this item closes is only reachable through the POST.
+     *
+     * @return array{0: int, 1: string} the option id and its terms
+     */
+    private function attributeOptionIn($store, string $marker): array
+    {
+        $attributeId = DB::table('product_attributes')->insertGetId([
+            'name' => 'attr-' . $marker, 'slug' => 'attr-' . uniqid(),
+            'store_id' => $store->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $terms = 'TERMS-' . strtoupper($marker) . '-' . uniqid();
+
+        $optionId = DB::table('product_attribute_options')->insertGetId([
+            'attribute_id' => $attributeId, 'terms' => $terms, 'order' => 0,
+            'store_id' => $store->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        return [$optionId, $terms];
+    }
+
+    /**
+     * The POST form that makes `attribute_combination` resolve ONE option id.
+     *
+     * Same three load-bearing keys as `combinationRequest()`, and for the same reason: drop
+     * `for_variation_7` or let `attribute_options_7` be a scalar and the `foreach` never runs, so
+     * a "the victim's terms are absent" assertion passes against an empty combination table
+     * whether the predicate is there or not.
+     */
+    private function optionCombinationRequest(int $optionId): array
+    {
+        return [
+            'attribute_no' => ['7'],
+            'for_variation_7' => 1,
+            'attribute_options_7' => [$optionId],
+            'price' => 100.00,
+            'sku' => 'combo',
+            'product_stock' => 5,
+        ];
+    }
+
+    /**
+     * ANOTHER STORE'S OPTION TERMS DO NOT REACH THE COMBINATION TABLE. P1-INV-10 (c).
+     *
+     * `ProductAttributeOption::where('id', $id)->first()` carried no store predicate, while the
+     * sibling that POPULATES the very dropdown these ids come from (`attribute_option()`, :1841)
+     * and `ProductAttributeOptionController::ownedOption()` both do. `ProductAttributeOption`
+     * registers no StoreScope and is absent from `config/tenancy.php`'s `scoped_models`, so
+     * nothing else narrowed it: a merchant who posted another tenant's option ids got that
+     * tenant's `terms` rendered back.
+     *
+     * A read, and only of attribute term strings. Recorded as what it is.
+     */
+    public function test_another_stores_attribute_option_contributes_no_terms(): void
+    {
+        [$merchantA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Edit Products');
+
+        [$victimOptionId, $victimTerms] = $this->attributeOptionIn($storeB, 'victim');
+
+        $response = $this->actingAs($merchantA)
+            ->post('/products/attribute_combination', $this->optionCombinationRequest($victimOptionId));
+
+        // The leak assertion first, so a removal check reports the defect rather than a status.
+        $this->assertStringNotContainsString(
+            $victimTerms,
+            (string) $response->getContent(),
+            "Another store's attribute option terms were rendered into this merchant's "
+            . 'combination table.'
+        );
+        $this->assertNotSame(404, $response->status(),
+            'Route gone: the absence assertion above would pass against a 404 (census-failure '
+            . 'mode 2).');
+        $this->assertNotSame(500, $response->status(),
+            'The handler now fails for everyone, so the absence assertion proves nothing. Body: '
+            . substr((string) $response->getContent(), 0, 300));
+    }
+
+    /**
+     * THE POSITIVE CONTROL: the merchant's OWN option still builds a combination.
+     *
+     * This is the assertion that catches the predicate being too tight -- which is the failure
+     * this phase has already shipped twice. Without it, "the terms are absent" would pass by
+     * refusing everybody.
+     */
+    public function test_the_owners_own_attribute_options_still_build_combinations(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Edit Products');
+
+        [$ownOptionId, $ownTerms] = $this->attributeOptionIn($storeA, 'own');
+
+        $response = $this->actingAs($merchantA)
+            ->post('/products/attribute_combination', $this->optionCombinationRequest($ownOptionId));
+
+        $this->assertSame(200, $response->status(),
+            'The owner is no longer served their own combination table. Body: '
+            . substr((string) $response->getContent(), 0, 300));
+        $this->assertStringContainsString(
+            $ownTerms,
+            (string) $response->getContent(),
+            "The merchant's own option terms are missing from their own combination table, so "
+            . 'the cross-store assertion on that same kind of value measures nothing.'
+        );
+    }
+
+    // =============================================================================================
+    // P1-INV-10 (e) — the permission limbs, and the lockout control on each of them
+    // =============================================================================================
+    //
+    // Each pair below is one route. The NEGATIVE drives a merchant who owns the target and holds
+    // no product permission: before (e) that call succeeded, because ownership was the only
+    // question these three handlers asked. The POSITIVE CONTROL drives the PLATFORM OPERATOR with
+    // no permission grant at all, which is the assertion that catches the lockout: Laratrust has
+    // no super-admin bypass (CLAUDE.md), so an `isAbleTo`-only limb would refuse the operator and
+    // every negative test above would still pass.
+
+    /** A merchant who OWNS the image but holds no product permission is refused. */
+    public function test_a_merchant_without_edit_products_cannot_delete_their_own_product_image(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+        // No grantPermission() call: that omission IS the test.
+
+        $own = $this->productIn($storeA, 'own-img-no-permission', 50);
+        [$imageId, $relative] = $this->imageFor($own, 'own-no-perm');
+
+        $response = $this->actingAs($merchantA)->delete('/products/' . $imageId . '/delete');
+
+        $this->assertSame(403, $response->status(),
+            'A merchant with no product permission still reached file_delete. Body: '
+            . substr((string) $response->getContent(), 0, 200));
+        $this->assertFileExists(base_path($relative), 'The file was unlinked anyway.');
+        $this->assertDatabaseHas('product_images', ['id' => $imageId]);
+    }
+
+    /**
+     * THE LOCKOUT CONTROL. The platform operator holds no role and is still served.
+     *
+     * `makePlatformAdmin()` creates `type = 'super admin'` with no role and therefore no
+     * permissions at all, which is the live shape measured in
+     * verify-product-ownership-on-mysql.php. If this test fails, `lacksProductPermission()` has
+     * been reordered to put `isAbleTo` first and the operator can no longer manage product media
+     * anywhere on the platform.
+     */
+    public function test_the_platform_operator_can_still_delete_a_product_image(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        $operator = $this->makePlatformAdmin();
+
+        $this->assertFalse($operator->isAbleTo('Edit Products'),
+            'fixture: the operator must hold NO product permission, or this test cannot '
+            . 'distinguish the exemption from an ordinary grant.');
+
+        $product = $this->productIn($storeA, 'operator-img', 50);
+        [$imageId, $relative] = $this->imageFor($product, 'operator');
+
+        $response = $this->actingAs($operator)->delete('/products/' . $imageId . '/delete');
+
+        $this->assertSame(200, $response->status(),
+            'THE PLATFORM OPERATOR IS LOCKED OUT of product media management. Body: '
+            . substr((string) $response->getContent(), 0, 200));
+        $this->assertFileDoesNotExist(base_path($relative));
+        $this->assertDatabaseMissing('product_images', ['id' => $imageId]);
+    }
+
+    /** A merchant who OWNS the variant but holds no product permission is refused. */
+    public function test_a_merchant_without_edit_products_cannot_delete_their_own_variant(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+
+        $own = $this->productIn($storeA, 'own-variant-no-permission', 50);
+        $variantId = $this->variantFor($own, 'red', self::OWN_VARIANT_STOCK);
+
+        $response = $this->actingAs($merchantA)->delete('/product-attribute-delete/' . $variantId);
+
+        $this->assertSame(403, $response->status(),
+            'A merchant with no product permission still reached product_attribute_delete. '
+            . 'Body: ' . substr((string) $response->getContent(), 0, 200));
+        $this->assertDatabaseHas('product_variants', ['id' => $variantId]);
+    }
+
+    /**
+     * THE LOCKOUT CONTROL for the variant delete.
+     *
+     * Also the assertion that the limb was placed BEFORE `findOrFail()` without breaking the
+     * 404 a genuinely missing id has always produced -- see the companion test below.
+     */
+    public function test_the_platform_operator_can_still_delete_a_product_variant(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        $operator = $this->makePlatformAdmin();
+
+        $product = $this->productIn($storeA, 'operator-variant', 50);
+        $variantId = $this->variantFor($product, 'red', self::OWN_VARIANT_STOCK);
+
+        $response = $this->actingAs($operator)->delete('/product-attribute-delete/' . $variantId);
+
+        $this->assertSame(200, $response->status(),
+            'THE PLATFORM OPERATOR IS LOCKED OUT of variant management. Body: '
+            . substr((string) $response->getContent(), 0, 200));
+        $this->assertDatabaseMissing('product_variants', ['id' => $variantId]);
+    }
+
+    /**
+     * A PERMITTED CALLER STILL GETS 404 FOR AN ID THAT DOES NOT EXIST.
+     *
+     * The permission limb sits ahead of `findOrFail($id)` so that a caller WITHOUT permission
+     * cannot use 404-vs-403 to enumerate variant ids. The cost of that ordering would be turning
+     * every missing id into a 403 for everybody, which would read as a permission problem when it
+     * is not. This asserts the ordering kept both answers.
+     */
+    public function test_a_permitted_caller_still_gets_404_for_a_variant_that_does_not_exist(): void
+    {
+        [$merchantA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Edit Products');
+
+        $absent = (int) (DB::table('product_variants')->max('id') ?? 0) + 5000;
+
+        $response = $this->actingAs($merchantA)->delete('/product-attribute-delete/' . $absent);
+
+        $this->assertSame(404, $response->status(),
+            'A missing variant id now answers ' . $response->status() . ' for a caller who '
+            . 'holds the permission, so findOrFail no longer reports absence as absence.');
+    }
+
+    /** A merchant with NEITHER product permission cannot open the combination screen. */
+    public function test_a_merchant_without_any_product_permission_cannot_open_a_combination_screen(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+
+        $own = $this->productIn($storeA, 'own-combo-no-permission', 50);
+        $this->variantFor($own, 'Red', self::OWN_VARIANT_STOCK);
+
+        $response = $this->actingAs($merchantA)
+            ->put('/products/attribute_combination/edit', $this->combinationRequest($own->id));
+
+        $this->assertSame(302, $response->status(),
+            'A merchant with no product permission still reached attribute_combination_edit. '
+            . 'Body: ' . substr((string) $response->getContent(), 0, 200));
+        $this->assertStringNotContainsString((string) self::OWN_VARIANT_STOCK,
+            (string) $response->getContent(),
+            'The refusal still rendered the combination view.');
+    }
+
+    /**
+     * THE COMPATIBILITY CONTROL: `Manage Products` ALONE is enough for the render.
+     *
+     * This is the assertion the limb's shape exists for. `show()` (:881) and `edit()` (:934) call
+     * `isAbleTo` nowhere, and show.blade.php:730 PUTs to this route from the read-only screen, so
+     * a staff role holding `Manage Products` for the catalogue list and nothing more must still
+     * see the variations panel. If this fails, the limb was narrowed to `Edit Products` and that
+     * role lost a screen it had before this task.
+     */
+    public function test_manage_products_alone_opens_the_combination_screen(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Manage Products');
+
+        $this->assertFalse($merchantA->fresh()->isAbleTo('Edit Products'),
+            'fixture: this principal must NOT hold Edit Products, or the test cannot tell the '
+            . 'two names apart.');
+
+        $own = $this->productIn($storeA, 'own-combo-manage-only', 50);
+        $this->variantFor($own, 'Red', self::OWN_VARIANT_STOCK);
+
+        $response = $this->actingAs($merchantA->fresh())
+            ->put('/products/attribute_combination/edit', $this->combinationRequest($own->id));
+
+        $this->assertSame(200, $response->status(),
+            'A Manage Products-only role lost the variations panel. Session error: '
+            . json_encode(session('error')) . ' Body: '
+            . substr((string) $response->getContent(), 0, 200));
+    }
+
+    /**
+     * A STORE-LESS SESSION GETS NO OPTION TERMS. P1-INV-10 (c), the fail-open edge.
+     *
+     * ADDED BECAUSE A MUTANT SURVIVED. Removing the `empty($currentStore)` guard while keeping
+     * `->where('store_id', $currentStore)` left all 22 tests passing, because none of them drove a
+     * principal with no current store. That is the exact shape the guard exists for: Laravel turns
+     * `where($column, null)` into `whereNull`, so without the guard a store-less caller matches
+     * every option row whose own `store_id` is NULL — fail OPEN, not closed.
+     *
+     * THE FIXTURE IS THE DELICATE PART. `getCurrentStore()` (app/Helper/helper.php:401-415) does
+     * not simply read `current_store`: when it is empty it falls back to
+     * `Store::where('created_by', $user->id)->first()`. So `makeTenant()` cannot be used here —
+     * its merchant owns a store and would resolve one. This uses `makeMerchant()`, which creates
+     * the user and no store, and asserts the premise rather than assuming it.
+     */
+    public function test_a_store_less_session_gets_no_option_terms(): void
+    {
+        $merchant = $this->makeMerchant();
+        $this->grantPermission($merchant, 'Edit Products');
+
+        $this->assertNull(
+            getCurrentStore($merchant->id),
+            'FIXTURE PREMISE: this principal must resolve NO current store, or the guard under '
+            . 'test is never reached and this test passes for the wrong reason. getCurrentStore() '
+            . 'falls back to an owned Store, so the merchant must own none.'
+        );
+
+        // A store-less option row: exactly what `whereNull('store_id')` would match.
+        $attributeId = DB::table('product_attributes')->insertGetId([
+            'name' => 'attr-orphan', 'slug' => 'attr-' . uniqid(),
+            'store_id' => null,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $orphanTerms = 'TERMS-ORPHAN-' . uniqid();
+        $orphanOptionId = DB::table('product_attribute_options')->insertGetId([
+            'attribute_id' => $attributeId, 'terms' => $orphanTerms, 'order' => 0,
+            'store_id' => null,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $response = $this->actingAs($merchant->fresh())
+            ->post('/products/attribute_combination', $this->optionCombinationRequest($orphanOptionId));
+
+        $this->assertStringNotContainsString(
+            $orphanTerms,
+            (string) $response->getContent(),
+            'A caller with no store resolved an option row that belongs to no store. '
+            . "`where('store_id', null)` is `whereNull`, not `matches nothing`."
+        );
+        $this->assertNotSame(500, $response->status(),
+            'The handler now fails for a store-less caller, so the absence assertion above proves '
+            . 'nothing. Body: ' . substr((string) $response->getContent(), 0, 300));
+    }
+
+    /**
+     * A CALLER WITHOUT PERMISSION CANNOT TELL A MISSING VARIANT FROM A PRESENT ONE. P1-INV-10 (e).
+     *
+     * ADDED BECAUSE A MUTANT SURVIVED. Moving the permission limb to AFTER `findOrFail($id)` left
+     * all 22 tests passing: the refusal test above drives an EXISTING variant (403 either way) and
+     * the 404 test drives a PERMITTED caller (404 either way). Only the remaining combination —
+     * no permission, absent id — distinguishes the two orderings, and nothing drove it.
+     *
+     * Without the ordering, 403-vs-404 is an enumeration oracle: a caller who may touch nothing
+     * still learns which variant ids exist.
+     */
+    public function test_an_unpermitted_caller_gets_403_not_404_for_a_missing_variant(): void
+    {
+        [$merchantA] = $this->makeTenant();
+        // No grantPermission(): that omission and the absent id together ARE the test.
+
+        $absent = (int) (DB::table('product_variants')->max('id') ?? 0) + 5000;
+
+        $response = $this->actingAs($merchantA)->delete('/product-attribute-delete/' . $absent);
+
+        $this->assertSame(403, $response->status(),
+            'A caller with no product permission got ' . $response->status() . ' for an absent '
+            . 'variant id. If that is 404, the permission limb runs after findOrFail() and '
+            . '403-vs-404 tells an unpermitted caller which ids exist.');
+    }
+
+    /** THE LOCKOUT CONTROL for the combination screen. */
+    public function test_the_platform_operator_can_still_open_a_combination_screen(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        $operator = $this->makePlatformAdmin();
+
+        $product = $this->productIn($storeA, 'operator-combo', 50);
+        $this->variantFor($product, 'Red', self::OWN_VARIANT_STOCK);
+
+        $response = $this->actingAs($operator)
+            ->put('/products/attribute_combination/edit', $this->combinationRequest($product->id));
+
+        $this->assertSame(200, $response->status(),
+            'THE PLATFORM OPERATOR IS LOCKED OUT of the combination screen. Session error: '
+            . json_encode(session('error')) . ' Body: '
+            . substr((string) $response->getContent(), 0, 200));
     }
 }

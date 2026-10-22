@@ -1847,6 +1847,28 @@ $Product->cost_price = $request->cost_price;
     public function attribute_combination(Request $request)
     {
 
+        /*
+         * THE TENANT, RESOLVED ONCE. P1-INV-10 (c).
+         *
+         * The option lookup below read `ProductAttributeOption::where('id', $id)->first()` with
+         * no store predicate at all, while its own sibling `attribute_option()` three methods up
+         * (:1841) and `ProductAttributeOptionController::ownedOption()` (:54-61) both carry one --
+         * so a merchant who posted another tenant's option ids got that tenant's `terms` echoed
+         * back into the combination table. `ProductAttributeOption` registers no StoreScope and
+         * is not in config/tenancy.php's `scoped_models`, so nothing else narrowed it.
+         *
+         * Not a privilege escalation and not a write: the leak is the option TERM strings ("Red",
+         * "XL") of another store's attributes. It is recorded as the read it is.
+         *
+         * AN EMPTY CURRENT STORE CONTRIBUTES NOTHING, and the explicit check is not redundant.
+         * Laravel's `where($column, null)` becomes `whereNull`, so `where('store_id', null)`
+         * would match every STORE-LESS option row rather than nothing -- a fail-OPEN edge that
+         * `ProductAttributeOptionController::ownedOption()` already guards against for this same
+         * model, with a docblock that happens to misstate the mechanism ("would match nothing")
+         * while getting the guard right. This copies the guard, not the explanation.
+         */
+        $currentStore = getCurrentStore();
+
         $options = array();
         $unit_price = !empty($request->price) ? $request->price : 0;
         $product_name = !empty($request->sku) ? $request->sku : '';
@@ -1866,14 +1888,42 @@ $Product->cost_price = $request->cost_price;
                         $optionValues = [];
 
                         foreach ($request[$name] as $id) {
-                            $option = ProductAttributeOption::where('id', $id)->first();
+                            $option = empty($currentStore)
+                                ? null
+                                : ProductAttributeOption::where('id', $id)
+                                    ->where('store_id', $currentStore)
+                                    ->first();
 
                             if ($option) {
                                 $optionValues[] = $option->terms;
                             }
                         }
 
-                        array_push($options, $optionValues);
+                        /*
+                         * AN ATTRIBUTE THAT RESOLVED NO OPTIONS CONTRIBUTES NOTHING, rather than
+                         * contributing an empty group. P1-INV-10 (c), found by the (c) negative
+                         * test and PRE-EXISTING -- the store predicate above only made it
+                         * reachable with a foreign id.
+                         *
+                         * `array_push($options, [])` put an empty group into the cartesian
+                         * product, and `combination([[]])` returns `[]`, so
+                         * attribute_combinations.blade.php:1 -- `count($combinations[0]) > 0` --
+                         * raised `Undefined array key 0`: a ViewException, a 500. It fired for
+                         * ANY option id that did not resolve (a deleted option would do it) long
+                         * before this task; narrowing the lookup to the caller's store would have
+                         * turned a cross-tenant leak into a cross-tenant 500, which is not a
+                         * clean refusal.
+                         *
+                         * With the group omitted, `$options` stays empty, `combination([])`
+                         * returns `[[]]`, `$combinations[0]` is `[]` and the view's own guard
+                         * renders nothing -- a 200 with an empty combination table, which is what
+                         * "these options are not yours" should look like. A legitimate post that
+                         * mixes one attribute with options and one without now builds the
+                         * combinations of the first instead of 500ing on both.
+                         */
+                        if ($optionValues !== []) {
+                            array_push($options, $optionValues);
+                        }
                     }
                 }
             }
@@ -1964,6 +2014,71 @@ $Product->cost_price = $request->cost_price;
      * tests/Support/Security/bin/verify-product-ownership-on-mysql.php. These three methods have
      * no permission wrapper, so here it is live.
      */
+    /**
+     * Does the signed-in user hold NONE of these product permissions?
+     *
+     * P1-INV-10 (e). `file_delete()`, `attribute_combination_edit()` and
+     * `product_attribute_delete()` called `isAbleTo` NOWHERE -- zero occurrences in all three
+     * method bodies, recorded by MerchantProductOwnershipTest's own docblock. P1-INV-07 gave
+     * those three OWNERSHIP, which answers *whose row is this*, and never *may this user touch
+     * product media and variants at all*: any authenticated user of any role reached all three.
+     * Extracted once for exactly the three methods `productIsOutsideCurrentStore()` already
+     * serves, rather than copied a fourth, fifth and sixth time.
+     *
+     * THE OPERATOR LIMB COMES FIRST, and that ordering is the whole point. Laratrust runs with
+     * `permissions_as_gates => false` and there is NO super-admin bypass (CLAUDE.md), so
+     * `isAbleTo()` alone REFUSES the platform operator -- an `isAbleTo`-only limb here would be a
+     * lockout, not a tightening. `App\Http\Middleware\FinancePermission` records that happening
+     * once already, for six unseeded finance names. `update()` (:1014) and `destroy()` (:1751)
+     * are wrapped `isAbleTo`-FIRST and therefore do exclude the operator; that is pre-existing
+     * and measured in tests/Support/Security/bin/verify-product-ownership-on-mysql.php, and this
+     * task does not change it.
+     *
+     * The comparison is normalised rather than the bare `===` one method below, matching
+     * `Api\DashboardController::resolveOwnedStore()` and `PlatformOperatorOnly::handle()`: an
+     * operator row whose `type` is `Super Admin` or carries whitespace must not be locked out by
+     * a string-equality accident.
+     *
+     * ANY of the named permissions suffices, and only one caller passes more than one.
+     * `attribute_combination_edit()` RENDERS -- it returns a view and writes nothing -- and it is
+     * reached from the read-only show screen as well as the edit screen
+     * (resources/views/product/show.blade.php:730 calls `update_attribute()`, which PUTs to it).
+     * Neither screen carries a permission wrapper of its own: `show()` (:881) and `edit()` (:934)
+     * call `isAbleTo` nowhere, so there is no screen permission to inherit. Gating that render on
+     * `Edit Products` alone would take the variations panel away from a staff role that holds
+     * `Manage Products` for the catalogue list and nothing more. The destructive endpoints BEHIND
+     * the render are gated on `Edit Products` on their own, so render-on-Manage /
+     * mutate-on-Edit gives up no control.
+     *
+     * Both names are seeded: `Utility::addNewData()` creates `Manage Products` and
+     * `Edit Products` and grants both to the `admin` role (:2679/:2681) and to the `super admin`
+     * role (:3008/:3010), so a DEFAULT merchant is unaffected in either direction. A permission
+     * no row exists for can be held by no role and would make this a permanent 403 -- that is why
+     * the seeding was checked before the limb was written, not after.
+     *
+     * @param list<string> $permissions
+     */
+    private function lacksProductPermission(array $permissions): bool
+    {
+        $actor = auth()->user();
+
+        if ($actor === null) {
+            return true;
+        }
+
+        if (strtolower(trim((string) $actor->type)) === \App\Policies\UserPolicy::PLATFORM_ADMIN) {
+            return false;
+        }
+
+        foreach ($permissions as $permission) {
+            if ($actor->isAbleTo($permission)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private function productIsOutsideCurrentStore($product): bool
     {
         $actor = auth()->user();
@@ -2008,6 +2123,24 @@ $Product->cost_price = $request->cost_price;
 
     public function file_delete($id)
     {
+        /*
+         * PERMISSION, BEFORE THE ROW IS EVEN LOOKED UP. P1-INV-10 (e).
+         *
+         * `Edit Products` alone: this unlinks media from an EXISTING product, and the only live
+         * caller is the edit screen. create.blade.php:650 binds `.deleteRecord` with a direct
+         * (non-delegated) handler and that template renders no `.deleteRecord` element -- the
+         * thumbnail+delete block lives only in edit.blade.php:351-365 -- so the create-screen
+         * binding matches nothing and a `Create Product`-only role loses nothing here.
+         *
+         * Before the id is resolved, so a caller without the permission cannot learn from a 404
+         * whether an image id exists.
+         */
+        if ($this->lacksProductPermission(['Edit Products'])) {
+            return response()->json([
+                'flag' => 'error',
+                'msg' => __('Permission denied.'),
+            ], 403);
+        }
 
         $product_img_id = ProductImage::find($id);
         if ($product_img_id) {
@@ -2084,6 +2217,19 @@ $Product->cost_price = $request->cost_price;
 
     public function attribute_combination_edit(Request $request)
     {
+        /*
+         * PERMISSION. P1-INV-10 (e). `Manage Products` OR `Edit Products` -- see
+         * lacksProductPermission() for why a render reached from the ungated show screen cannot
+         * be gated on `Edit Products` alone.
+         *
+         * `redirect()->back()->with('error', ...)`, the shape the ownership refusal below already
+         * uses, so a permission denial and an ownership denial are indistinguishable to the
+         * caller and neither confirms that the product id exists.
+         */
+        if ($this->lacksProductPermission(['Manage Products', 'Edit Products'])) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         $product = Product::find($request->id);
 
         /*
@@ -2135,6 +2281,21 @@ $Product->cost_price = $request->cost_price;
 
     public function product_attribute_delete($id)
     {
+        /*
+         * PERMISSION, BEFORE findOrFail. P1-INV-10 (e).
+         *
+         * `Edit Products`: this deletes a variant row and the stock it carries. Placed ahead of
+         * `findOrFail($id)` deliberately -- otherwise a caller with no permission at all would
+         * still learn from 404-vs-403 which variant ids exist. A caller who HOLDS the permission
+         * still gets the 404 that `findOrFail` has always produced for a genuinely missing id.
+         */
+        if ($this->lacksProductPermission(['Edit Products'])) {
+            return response()->json([
+                'flag' => 'error',
+                'msg' => __('Permission denied.'),
+            ], 403);
+        }
+
         $attribute = ProductVariant::findOrFail($id);
 
         /*
