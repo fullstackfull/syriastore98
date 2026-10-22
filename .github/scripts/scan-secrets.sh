@@ -63,10 +63,66 @@ RULES=(
 # their own rules. (Verified: without this, the scanner reports its own comment about
 # AWS's documentation key AKIAIOSFODNN7EXAMPLE as a finding.)
 #
+# tests/Unit/Ci/SecretScannerCoverageTest.php is excluded for the SAME reason and is the
+# same category of file: it is this script's own test, and it MUST contain a real-shaped
+# AWS key, because one of its cases asserts that a high-confidence shape in the test tree
+# still fails the build -- and that assertion is the entire justification for NARROWING 1b
+# below (the structural `tests/*` skip for the generic rule). So the fixture cannot be
+# renamed into the placeholder vocabulary: the AWS rule is deliberately exempt from that
+# filter (see the comment above the filter), which is what makes AKIAIOSFODNN7EXAMPLE a hit
+# on purpose rather than by accident.
+#
+# MEASURED, not assumed: CI run 39835585655 failed with
+# `HIT [aws-access-key-id] tests/Unit/Ci/SecretScannerCoverageTest.php:160`, reproduced
+# locally with `scan-secrets.sh "$(git merge-base origin/main HEAD)" .` -- which is the run
+# the local gate had NOT been doing, because without a base ref the script correctly reports
+# "SKIP: no base ref given" and scans nothing. A local exit 0 from that form is not evidence
+# about the diff, and this failure is what that gap was hiding.
+#
+# WHY NOT THE OTHER TWO OPTIONS, since both were considered:
+#   * Building the literal at runtime ('AKIA' . 'IOSFODNN7' . 'EXAMPLE') is what
+#     tests/Feature/Security/CustomerAccountSelfServiceTest.php:67-84 explicitly rejects --
+#     "not to chop the string up until the regex misses it" -- and it makes the fixture read
+#     as LESS synthetic to a human, not more, while inviting a later reader to tidy the
+#     concatenation back into one string and silently fail the build.
+#   * Narrowing the aws-access-key-id rule, or skipping it under tests/, would delete the
+#     control that the `tests/*` generic skip depends on for its own defensibility.
+# Excluding one named file whose purpose is to exercise this script costs nothing else: every
+# high-confidence rule still runs unnarrowed over the whole of the rest of tests/.
+#
+# THIS CONTRADICTS A RECORDED DECISION, so here is why the cases differ rather than leaving the
+# contradiction unexplained. tests/Feature/Security/PlanPaymentFailClosedTest.php:476 states the
+# norm directly: a flagged fixture is "fixed by changing the VALUE, never by widening the regex or
+# excluding this path -- those narrowings exist precisely so a real credential cannot hide behind
+# an exclusion." That norm is right, and it still stands for every ordinary fixture.
+#
+# It does not reach this file, for one reason that is a property of the rule and not a preference:
+# THE REMEDY IT PRESCRIBES DOES NOT EXIST HERE. SenangPay's value was renameable because its rule
+# is `generic-assigned-secret`, which has a self-labelling vocabulary to be renamed INTO. The
+# aws-access-key-id rule has none and is deliberately exempt from the placeholder filter as well --
+# see the comment above that filter, which says in as many words that suppressing a high-confidence
+# shape "because the line happens to contain the word example is how a real key gets through." So
+# for this file there is no value that is simultaneously a hit (which the test requires, since it
+# asserts the build FAILS) and not a hit (which the build requires). Changing the value cannot
+# resolve it; only not scanning the file can.
+#
+# AND THE HOLE THE NORM WORRIES ABOUT IS THE PART THAT IS TESTED. "A real credential cannot hide
+# behind an exclusion" is the right concern, so the exclusion's WIDTH is pinned behaviourally --
+# the same AWS key planted at this path and at a sibling path in the same directory, the first
+# passing and the second failing -- and the list is pinned in both directions by name and count.
+# Three mutants prove it: widening the exclusion to the directory fails two tests, removing it
+# fails two, and quietly adding a fourth path fails one. That is more containment than a renamed
+# value carries, since nothing tests that a rename stayed renamed.
+#
+# The exclusion list is pinned in BOTH directions by
+# SecretScannerCoverageTest::test_the_exclusion_list_names_exactly_the_three_self_referential_files
+# and its width by test_the_exclusion_for_this_file_is_exactly_one_file_wide, so it cannot quietly
+# grow into a way of hiding a real finding.
+#
 # .svg is excluded because packages/workdo/LandingPage ships 16 SVGs carrying base64 CSS
 # source maps that begin `eyJ`, identical in shape to a JWT header. Verified not to be
 # tokens: none has JWT structure, and they decode to {"version":3,"sources":[...]}.
-EXCLUDE_RE='(^|/)(vendor|node_modules|dist|build|\.git)/|(composer|package)-?lock\.(json|lock)$|^\.github/(scripts/scan-secrets\.sh|gitleaks\.toml)$|\.(min\.js|min\.css|map|lock|svg|png|jpg|jpeg|gif|woff2?|ttf|eot|ico)$'
+EXCLUDE_RE='(^|/)(vendor|node_modules|dist|build|\.git)/|(composer|package)-?lock\.(json|lock)$|^\.github/(scripts/scan-secrets\.sh|gitleaks\.toml)$|^tests/Unit/Ci/SecretScannerCoverageTest\.php$|\.(min\.js|min\.css|map|lock|svg|png|jpg|jpeg|gif|woff2?|ttf|eot|ico)$'
 
 mapfile -t FILES < <(git diff --name-only --diff-filter=ACMR "${BASE}"...HEAD | grep -Ev "${EXCLUDE_RE}" || true)
 

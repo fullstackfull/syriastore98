@@ -167,6 +167,145 @@ class SecretScannerCoverageTest extends TestCase
         $this->assertStringContainsString('aws-access-key-id', $out);
     }
 
+    /**
+     * THE EXCLUSION FOR THIS FILE IS EXACTLY ONE FILE WIDE, AND THAT IS ASSERTED BOTH WAYS.
+     *
+     * WHY THE EXCLUSION EXISTS. This file must contain a real-shaped AWS key, because
+     * test_a_high_confidence_credential_in_the_test_tree_still_fails asserts that such a shape in
+     * the test tree still fails the build -- and that assertion is the whole justification for the
+     * structural `tests/*` skip the generic rule now carries. The key cannot be renamed into the
+     * placeholder vocabulary either: the AWS rule is deliberately exempt from that filter, which is
+     * precisely what makes AKIAIOSFODNN7EXAMPLE a hit on purpose. So the file is in `EXCLUDE_RE`,
+     * the same way the script and the gitleaks config already are, and for the reason the script's
+     * own comment gives: a file that is by its nature full of credential-shaped patterns matches
+     * its own rules.
+     *
+     * FOUND BY CI, NOT BY READING. Run 39835585655 failed with
+     * `HIT [aws-access-key-id] tests/Unit/Ci/SecretScannerCoverageTest.php:160` on the very commit
+     * that added this file. The local gate had reported `scan-secrets.sh exit=0` -- but with
+     * "SKIP: no base ref given", so it had scanned nothing. The lesson belongs in a test and not
+     * only in a comment: a scanner exclusion is a hole by construction, so its width is a control.
+     *
+     * ASSERTED BEHAVIOURALLY RATHER THAN BY READING THE REGEX, because the regex's spelling is not
+     * the property that matters -- what matters is which paths the scanner refuses to look at. The
+     * same credential is planted at the excluded path and at a sibling path in the same directory;
+     * the first must pass and the second must fail. A broadened exclusion (`tests/Unit/Ci/`, or
+     * `tests/`, or an accidental unanchored match) fails the second half immediately.
+     */
+    public function test_the_exclusion_for_this_file_is_exactly_one_file_wide(): void
+    {
+        [$repo, $base] = $this->throwawayRepo();
+
+        mkdir($repo . '/tests/Unit/Ci', 0777, true);
+
+        // The excluded path: this file's own name. Must NOT block the build.
+        file_put_contents(
+            $repo . '/tests/Unit/Ci/SecretScannerCoverageTest.php',
+            "<?php\n\$k = 'AKIAIOSFODNN7EXAMPLE';\n"
+        );
+        // A sibling in the same directory, carrying the IDENTICAL value. Must block it.
+        file_put_contents(
+            $repo . '/tests/Unit/Ci/SomeOtherCiTest.php',
+            "<?php\n\$k = 'AKIAIOSFODNN7EXAMPLE';\n"
+        );
+        $this->commitAll($repo);
+
+        [$code, $out] = $this->runScanner($repo, $base);
+
+        $this->assertSame(1, $code,
+            'An AWS key in tests/Unit/Ci/SomeOtherCiTest.php must still fail the build -- the '
+            . "exclusion is for THIS file only, not for its directory.\n" . $out);
+        $this->assertStringContainsString('SomeOtherCiTest.php', $out,
+            'The sibling file must be the reported hit.');
+        $this->assertStringNotContainsString('SecretScannerCoverageTest.php', $out,
+            'This file is excluded, so it must not be reported -- otherwise the exclusion is not '
+            . "working and the build it is meant to unblock stays red.\n" . $out);
+    }
+
+    /**
+     * AND NO FOURTH FILE JOINED THE LIST WITHOUT SAYING SO.
+     *
+     * The behavioural test above proves the exclusion is not too WIDE for this one path; this one
+     * proves the LIST has not grown. Two path-anchored alternatives, covering three files: the
+     * script and the gitleaks config in one group, and this file. An exclusion list is the one
+     * place in this screen where adding a line silently REDUCES coverage, so it is pinned -- the
+     * same both-directions discipline .github/known-test-outcomes.json uses, for the same reason.
+     */
+    public function test_the_exclusion_list_names_exactly_the_three_self_referential_files(): void
+    {
+        $script = file_get_contents(self::SCRIPT);
+        $this->assertNotFalse($script);
+
+        $line = null;
+        foreach (preg_split('/\R/', $script) as $candidate) {
+            if (str_starts_with($candidate, 'EXCLUDE_RE=')) {
+                $line = $candidate;
+                break;
+            }
+        }
+        $this->assertNotNull($line, 'EXCLUDE_RE has been renamed or removed.');
+
+        // Split the pattern on TOP-LEVEL `|` only, then keep the alternatives anchored to a
+        // specific repo-relative path (`^...$`). Depth matters: a naive
+        // `preg_match_all('/\^([^|]+?)\$/')` stops at the `|` INSIDE
+        // `(scripts/scan-secrets\.sh|gitleaks\.toml)` and silently reports one anchor where there
+        // are two -- which is how the first version of this test failed. A naive `/\^[^^$]*\$/`
+        // has the opposite fault: it starts at the `^` inside `(^|/)` and runs on into the next
+        // alternative's `$`.
+        $value = substr($line, strlen('EXCLUDE_RE='));
+        $value = trim($value, "'");
+
+        $parts = [];
+        $buffer = '';
+        $depth = 0;
+        $escaped = false;
+
+        foreach (str_split($value) as $char) {
+            if ($escaped) {
+                $buffer .= $char;
+                $escaped = false;
+                continue;
+            }
+            if ($char === '\\') {
+                $buffer .= $char;
+                $escaped = true;
+                continue;
+            }
+            if ($char === '(') {
+                $depth++;
+            } elseif ($char === ')') {
+                $depth--;
+            }
+            if ($char === '|' && $depth === 0) {
+                $parts[] = $buffer;
+                $buffer = '';
+                continue;
+            }
+            $buffer .= $char;
+        }
+        $parts[] = $buffer;
+
+        $anchored = [];
+        foreach ($parts as $part) {
+            if (str_starts_with($part, '^') && str_ends_with($part, '$')) {
+                $anchored[] = substr($part, 1, -1);
+            }
+        }
+
+        $this->assertSame(
+            [
+                '\.github/(scripts/scan-secrets\.sh|gitleaks\.toml)',
+                'tests/Unit/Ci/SecretScannerCoverageTest\.php',
+            ],
+            $anchored,
+            'The path-anchored exclusions changed. Each one is a path this screen refuses to look '
+            . 'at, so each needs a recorded reason in the comment above EXCLUDE_RE -- and the only '
+            . 'reason accepted so far is that the file is itself full of credential-shaped patterns '
+            . 'because its job is to describe or exercise this script. Three files qualify. If a '
+            . 'fourth genuinely does, say why there and update this list; do not add it quietly.'
+        );
+    }
+
     // ---------------------------------------------------------------------------------------------
 
     /** @return array{0:string,1:string} the repo path and its base commit sha */
