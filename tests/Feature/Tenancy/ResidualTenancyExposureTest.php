@@ -510,12 +510,19 @@ class ResidualTenancyExposureTest extends TestCase
             // Platform-global data with no store_id at all, so tenancy does not apply. Listed so
             // this inventory is exhaustive rather than curated -- a filtered inventory is how a
             // site gets missed.
-            'app/Models/Utility.php:3173',
-            'app/Models/Utility.php:3175',
-            'app/Models/Utility.php:3198',
-            'app/Models/Utility.php:3200',
-            'app/Models/Utility.php:3214',
-            'app/Models/Utility.php:3216',
+            // LINE NUMBERS SHIFTED BY 56 on 2026-10-23 (P1-ORD-01): a docblock was added to
+            // Utility::paymentWebhook() above these sites. The SITES ARE UNCHANGED -- each
+            // entry below was verified to point at the same construct it named before -- and
+            // nothing was added to or removed from this inventory. A census keyed on line
+            // numbers moves whenever a comment does, which is why the D13 store-less
+            // declaration in OwnedPathRawQueryInventoryTest keys on a statement fragment
+            // instead.
+            'app/Models/Utility.php:3229',
+            'app/Models/Utility.php:3231',
+            'app/Models/Utility.php:3254',
+            'app/Models/Utility.php:3256',
+            'app/Models/Utility.php:3270',
+            'app/Models/Utility.php:3272',
 
         ], $sites, 'The raw-query inventory in the owned models changed. A NEW site here is '
             . 'invisible to every global scope and needs an explicit predicate written at the '

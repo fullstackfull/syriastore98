@@ -5,7 +5,12 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\CartController;
 use App\Models\AppSetting;
-use App\Models\{ActivityLog, City, State, Country, DeliveryAddress, OrderNote, Product, ProductVariant, Store, ProductImage, Testimonial, Shipping};
+// P1-ORD-01: `OrderCouponDetail` and `UserCoupon` were MISSING from this list while
+// `place_order()` instantiates both (:3755, :3768). Unimported, `new OrderCouponDetail()`
+// resolves to `App\Http\Controllers\Api\OrderCouponDetail`, which does not exist, so the
+// whole coupon branch was a fatal -- twice over, consecutively. See the comment at the
+// coupon block for what that meant in practice.
+use App\Models\{ActivityLog, City, State, Country, DeliveryAddress, OrderCouponDetail, OrderNote, Product, ProductVariant, Store, ProductImage, Testimonial, Shipping, UserCoupon};
 use App\Models\Tax;
 use App\Models\Category;
 use App\Models\{Utility, Wishlist, FlashSale};

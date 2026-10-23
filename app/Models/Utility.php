@@ -2104,10 +2104,66 @@ class Utility extends Model
         }
     }
 
+    /**
+     * Fire the New Order webhook for the store the ORDER belongs to.
+     *
+     * P1-ORD-01, found while building a test for place_order's totals: every assertion about the
+     * stored total was unreachable because the request never returned 200.
+     *
+     * THIS METHOD WAS A GUARANTEED FATAL ON THE ONE PATH THAT STILL CALLS IT. The first act was
+     * `Store::find(getCurrentStore())->id` with no null check, and `getCurrentStore()` resolves
+     * through `auth()->user()` -- the **web** guard (app/Helper/helper.php:398). On a storefront
+     * API request the shopper is authenticated by a Sanctum token that `custom.auth` logs into the
+     * **customers** guard, so `auth()->user()` is null, `getCurrentStore()` falls off the end
+     * returning null, and `Store::find(null)` is null. Reading `->id` on it threw
+     * "Attempt to read property \"id\" on null". There is no storefront request on which
+     * `getCurrentStore()` CAN resolve, so this was not an edge case.
+     *
+     * AND THE ORDER IS ALREADY WRITTEN WHEN IT FIRES (ApiController::place_order:3690), which is
+     * what made it worse than a 500: the row exists, the caller is told the request failed, and a
+     * client that retries on error places the order twice -- for COD, two deliveries. Measured.
+     *
+     * THE EVIDENCE THAT THIS WAS KNOWN: `grep -rn paymentWebhook app/` finds TEN call sites and
+     * NINE are commented out -- PaymentService, PaymentController x2, AuthorizeNet, PayU, NMI,
+     * Khalti, Easebuzz, PaiementPro, CinetPay. Only place_order's is live. The crash was worked
+     * around by disabling the callers, and this one was missed.
+     *
+     * THE STORE NOW COMES FROM THE ORDER, which is the right answer independently of the crash: it
+     * is the order's own store whose webhook should fire, and an ambient merchant session is not
+     * what decides that -- the same "derive the target from the subject, not from context"
+     * rule the tenancy work applies everywhere else. `getCurrentStore()` is kept only as a
+     * fallback for a caller whose order carries no `store_id`, and when neither resolves the
+     * method returns without calling anything, because there is no webhook to look up.
+     */
     public static function paymentWebhook($order)
     {
         $module = 'New Order';
-        $store = Store::find(getCurrentStore());
+
+        $storeId = is_object($order) ? ($order->store_id ?? null) : null;
+
+        if (empty($storeId)) {
+            $storeId = getCurrentStore();
+        }
+
+        if (empty($storeId)) {
+            \Log::warning('New Order webhook skipped: no store could be resolved for the order', [
+                'order_id' => is_object($order) ? ($order->id ?? null) : null,
+            ]);
+
+            return;
+        }
+
+        $store = Store::find($storeId);
+
+        if (empty($store)) {
+            \Log::warning('New Order webhook skipped: the resolved store does not exist', [
+                'order_id' => is_object($order) ? ($order->id ?? null) : null,
+                'store_id' => $storeId,
+            ]);
+
+            return;
+        }
+
         $webhook =  Utility::webhook($module, $store->id);
         if ($webhook) {
             $parameter = json_encode($order);

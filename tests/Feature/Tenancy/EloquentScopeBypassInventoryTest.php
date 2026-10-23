@@ -209,9 +209,16 @@ class EloquentScopeBypassInventoryTest extends SecurityTestCase
         // The three known-good sites: platform-global geographic reference data, no `store_id`,
         // no BelongsToStore trait, not allowlisted.
         $this->assertSame([
-            'app/Models/Utility.php:3174',   // City::truncate()
-            'app/Models/Utility.php:3199',   // State::truncate()
-            'app/Models/Utility.php:3215',   // Country::truncate()
+            // LINE NUMBERS SHIFTED BY 56 on 2026-10-23 (P1-ORD-01): a docblock was added to
+            // Utility::paymentWebhook() above these sites. The SITES ARE UNCHANGED -- each
+            // entry below was verified to point at the same construct it named before -- and
+            // nothing was added to or removed from this inventory. A census keyed on line
+            // numbers moves whenever a comment does, which is why the D13 store-less
+            // declaration in OwnedPathRawQueryInventoryTest keys on a statement fragment
+            // instead.
+            'app/Models/Utility.php:3230',   // City::truncate()
+            'app/Models/Utility.php:3255',   // State::truncate()
+            'app/Models/Utility.php:3271',   // Country::truncate()
         ], $hits, 'The truncate inventory changed. `truncate()` is forwarded straight to the base '
             . 'query builder (Builder.php:2123) and so empties the WHOLE TABLE for EVERY tenant. '
             . 'A new site is only acceptable on a model with no tenant discriminator -- verify '
