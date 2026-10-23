@@ -74,15 +74,15 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/DeliverySyriaStatusController.php:95` | Delivery Syria status webhook: invalid credentials. |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:179` | Zid store not found for order status sync. |
 | `app/Http/Controllers/ESewaPaymentController.php:196` | Plan payment return rejected: claimed amount does not match the plan price. |
-| `app/Http/Controllers/OrderController.php:1583` | Order assignment refused: the delivery boy is not in a store this caller owns |
+| `app/Http/Controllers/OrderController.php:1610` | Order assignment refused: the delivery boy is not in a store this caller owns |
 | `app/Http/Controllers/OrderController.php:306` | Manual order total did not match its components; the computed total was stored |
-| `app/Http/Controllers/OrderController.php:960` | Return approval restored no stock: order carries no readable product_json |
-| `app/Http/Controllers/OrderController.php:996` | Return approval skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1017` | Return approval skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1043` | Return approval skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1380` | Order cancellation skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1395` | Order cancellation skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1417` | Order cancellation skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:987` | Return approval restored no stock: order carries no readable product_json |
+| `app/Http/Controllers/OrderController.php:1023` | Return approval skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1044` | Return approval skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1070` | Return approval skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:1407` | Order cancellation skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1422` | Order cancellation skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1444` | Order cancellation skipped a line whose variant does not belong to its product |
 | `app/Http/Controllers/OrderRefundController.php:180` | Refund transition refused: unrecognised current state |
 | `app/Http/Controllers/OrderRefundController.php:202` | Refund transition refused: illegal transition |
 | `app/Http/Controllers/OrderRefundController.php:416` | Refund cancellation refused: the record does not match the order |

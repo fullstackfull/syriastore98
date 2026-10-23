@@ -167,7 +167,26 @@ if (!function_exists('get_file')) {
         }
 
         try {
-            if (isset($settings) && (count($settings) > 0) && $settings['storage_setting'] == 'wasabi') {
+            // UNDEFINED-KEY GUARD -- NEW-get-file-blanks-every-url-without-storage-setting, the third
+            // sibling of the two null guards above and MEASURED, not inferred
+            // (tests/Feature/Security/StoredFileUrlResolutionTest.php).
+            //
+            // This read was `$settings['storage_setting']`, unguarded, behind nothing but
+            // `count($settings) > 0`. Those are different questions: `$settings` is EVERY settings row of
+            // the super admin's current store, so one row of any name satisfies the count while
+            // `storage_setting` is absent. PHP 8 raises "Undefined array key", Laravel's error handler
+            // promotes a warning to ErrorException, and this function's own `catch (\Throwable)` swallows
+            // it and returns ''. So `get_file()` answers an EMPTY STRING for every path -- every logo,
+            // avatar, product image and invoice mark in the panel at once -- instead of the local URL the
+            // `else` limb below is there to produce. `storage_setting` is not NOT NULL anywhere and the
+            // settings screen writes it only when storage is configured, so a store that never visited
+            // that screen is in exactly this state.
+            //
+            // Byte-identical whenever the key exists; the fallback is local storage, which is what an
+            // unset `storage_setting` means.
+            $storageSetting = (string) ($settings['storage_setting'] ?? '');
+
+            if ($storageSetting === 'wasabi') {
                 config(
                     [
                         'filesystems.disks.wasabi.key' => $settings['wasabi_key'],
@@ -185,7 +204,7 @@ if (!function_exists('get_file')) {
                 // Construct the correct URL manually
                 return "{$endpoint}/{$bucket}/{$path}";
                 // return \Storage::disk($settings['storage_setting'])->url($path);
-            } elseif (isset($settings) && (count($settings) > 0) && $settings['storage_setting'] == 's3') {
+            } elseif ($storageSetting === 's3') {
                 config(
                     [
                         'filesystems.disks.s3.key' => $settings['s3_key'],

@@ -782,7 +782,26 @@ public function store(Request $request)
             if (!empty($order['message'])) {
                 return redirect()->back()->with('error', __('Order Not Found.'));
             }
-            return view('order.shippinglabel', compact('order', 'product_sum', 'settings'));
+            /*
+             * P1-SEC-11 criterion 4, and criterion 1's remainder. The document is printed FOR AN ORDER, so
+             * every setting it renders belongs to that order's store -- which criterion 1 established for
+             * the five address names above and not for the other two things this view reads:
+             *
+             *   * `invoice_logo`, which the view fetched as `GetValueByName('invoice_logo')` with NO store
+             *     id. That resolves `getCurrentStore()`, the VIEWER's store, so the platform operator
+             *     printing a merchant's label got the OPERATOR's logo on it.
+             *   * `SITE_RTL`, which the view did not read at all: its `<html>` was a hardcoded
+             *     `lang="en"` with no `dir`, so the block of `html[dir="rtl"]` rules at the bottom of its
+             *     stylesheet could never match and an Arabic store's label was always laid out
+             *     left-to-right. That is criterion 4.
+             *
+             * Both are resolved HERE, from the order's own store, rather than in the view.
+             */
+            $documentLocale = \App\Services\DocumentDirection::localeFor($orderStore);
+            $documentRtl = \App\Services\DocumentDirection::isRtl($orderStore);
+            $invoice_logo = \App\Services\DocumentDirection::invoiceLogoFor($orderStore);
+
+            return view('order.shippinglabel', compact('order', 'product_sum', 'settings', 'documentLocale', 'documentRtl', 'invoice_logo'));
         } catch (DecryptException $e) {
             return redirect()->back()->with('error', __('Something was wrong.'));
         }
@@ -797,7 +816,15 @@ public function store(Request $request)
             if (!empty($order['message'])) {
                 return redirect()->back()->with('error', __('Order Not Found.'));
             }
-            return view('order.receipt', compact('order'));
+
+            // P1-SEC-11 criteria 1 and 4 -- see the shipping label above for the full argument. Same two
+            // reads, same two defects, resolved from the order's own store.
+            $orderStore = (int) Order::where('id', $id)->value('store_id');
+            $documentLocale = \App\Services\DocumentDirection::localeFor($orderStore);
+            $documentRtl = \App\Services\DocumentDirection::isRtl($orderStore);
+            $invoice_logo = \App\Services\DocumentDirection::invoiceLogoFor($orderStore);
+
+            return view('order.receipt', compact('order', 'documentLocale', 'documentRtl', 'invoice_logo'));
         } catch (DecryptException $e) {
             return redirect()->back()->with('error', __('Something was wrong.'));
         } catch (\Exception $e) {

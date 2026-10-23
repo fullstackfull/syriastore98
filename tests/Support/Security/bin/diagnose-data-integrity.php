@@ -375,6 +375,74 @@ if (! missing('delivery_boys')) {
     }
 }
 
+echo "\n" . str_repeat('-', 78) . "\n";
+echo "P1-SEC-11  stores whose language disagrees with their direction flag\n\n";
+
+/*
+ * THE ONE QUESTION P1-SEC-11 CRITERION 4 LEAVES TO THE OWNER, and the reason it is a count rather
+ * than a code change.
+ *
+ * Every order document now takes its direction from the store's own `SITE_RTL` setting, because that
+ * is what the whole application keys direction on (resources/views/layouts/app.blade.php:54). So a
+ * store whose `default_language` is Arabic while its `SITE_RTL` is off is laid out LEFT TO RIGHT --
+ * on the order documents and on every other screen alike, consistently, by its own configuration.
+ *
+ * Whether that combination is a misconfiguration (the merchant chose Arabic and never found the
+ * direction switch) or a deliberate choice (an Arabic-language catalogue presented left-to-right) is
+ * not answerable from the repository. Inferring direction from the language would silently reverse
+ * every such store's layout, so this counts them instead and the decision stays the owner's.
+ *
+ * READ ONLY. SELECTs only, like every section above.
+ */
+section('P1-SEC-11 — stores whose default_language is right-to-left while SITE_RTL is off');
+
+if (! missing('stores')) {
+    $rtlCodes = ['ar', 'he', 'fa', 'ur'];
+
+    $stores = DB::table('stores')->select('id', 'name', 'default_language')->get();
+
+    echo "  stores: " . count($stores) . "\n";
+
+    $disagree = [];
+    $agree = 0;
+
+    foreach ($stores as $store) {
+        $language = strtolower(substr(str_replace('_', '-', trim((string) $store->default_language)), 0, 2));
+        $flagRow = DB::table('settings')->where('store_id', $store->id)->where('name', 'SITE_RTL')->value('value');
+        // An ABSENT row means the default, which Utility::Setting() states as 'off'.
+        $flagOn = strtolower(trim((string) ($flagRow ?? 'off'))) === 'on';
+        $languageIsRtl = in_array($language, $rtlCodes, true);
+
+        if ($languageIsRtl === $flagOn) {
+            $agree++;
+            continue;
+        }
+
+        $disagree[] = [$store->id, (string) $store->name, $language === '' ? '(unset)' : $language,
+            $flagOn ? 'on' : ($flagRow === null ? 'off (no row)' : 'off'), $languageIsRtl];
+    }
+
+    printf("  language and flag agree      : %d\n", $agree);
+    printf("  language and flag DISAGREE   : %d\n", count($disagree));
+
+    if ($disagree !== []) {
+        echo "\n";
+        printf("    %-6s %-30s %-10s %-14s %s\n", 'store', 'name', 'language', 'SITE_RTL', 'reads');
+        foreach ($disagree as [$id, $name, $language, $flag, $languageIsRtl]) {
+            printf("    %-6s %-30s %-10s %-14s %s\n", (string) $id, substr($name, 0, 30), $language, $flag,
+                $languageIsRtl ? 'LTR, in a right-to-left language' : 'RTL, in a left-to-right language');
+        }
+
+        echo "\n  MEANING: nothing is broken and no data is wrong. These stores' order documents are laid\n";
+        echo "  out the way the rest of their panel is, which is what the flag says. The owner's call is\n";
+        echo "  whether to (a) leave the flag authoritative, (b) correct these stores' flags one by one,\n";
+        echo "  or (c) make the language authoritative everywhere -- which would reverse the layout of\n";
+        echo "  every store in this list at once, on every screen, not only on the documents.\n";
+    } else {
+        echo "\n  MEANING: no store is in the ambiguous state, so the owner has nothing to decide here.\n";
+    }
+}
+
 echo "\n" . str_repeat('=', 78) . "\n";
 echo "Diagnostic complete. Nothing was written.\n";
 
