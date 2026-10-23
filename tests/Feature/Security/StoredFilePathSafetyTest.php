@@ -382,6 +382,63 @@ class StoredFilePathSafetyTest extends SecurityTestCase
         $this->assertFileExists(base_path(StoredPathPolicy::IMPORT_EXPORT_DEFAULT), 'Premise: the bundled default image exists in this checkout.');
     }
 
+    /**
+     * THE PLATFORM DEFAULT INSIDE uploads/, which the test above does NOT cover.  P1-SEC-28 acceptance 5.
+     *
+     * The test above proves two things: a decoy at the repository ROOT is refused (rule 2 -- outside uploads/), and
+     * ImportExport's bundled image is refused (also rule 2 -- it lives under packages/). Neither touches the file that is
+     * actually at risk. `uploads/profile/avatar.png` is the shared default `profile_image` written for every new user and
+     * delivery boy (RegisteredUserController:123, Api\DeliveryBoyApiController:157), it is the ONLY file in that folder, and it
+     * sits INSIDE the uploads root with no digit segment -- so rule 2 passes it and rule 3 has no owner to compare against.
+     * A merchant storing it as `logo_dark` and then saving a logo would unlink it, breaking the avatar of every account that
+     * never uploaded one, platform-wide.
+     *
+     * Refused for EVERY caller, the platform operator included: a platform default is not an editable file, and replacing it is
+     * a deployment step rather than a settings save.
+     */
+    public function test_the_shared_default_avatar_inside_uploads_is_never_unlinked_by_anyone(): void
+    {
+        $avatar = base_path('uploads/profile/avatar.png');
+
+        $this->assertFileExists($avatar, 'Premise: the shared default avatar exists in this checkout, so the refusal below is about a real file.');
+
+        [$merchant, $store] = $this->makeTenant();
+        $operator = $this->makePlatformAdmin();
+
+        foreach (['no owner' => null, 'a merchant' => $merchant->creatorId(), 'the platform operator' => $operator->creatorId()] as $who => $ownerId) {
+            $this->assertNull(StoredUpload::resolve('uploads/profile/avatar.png', $ownerId),
+                "The shared default avatar resolved for {$who}.");
+            $this->assertFalse(StoredUpload::delete('uploads/profile/avatar.png', $ownerId),
+                "The shared default avatar was unlinked for {$who}.");
+        }
+
+        // and the traversal spellings of the same file are the same answer, because the comparison is on the resolved path
+        foreach (['uploads/./profile/avatar.png', 'uploads/profile/../profile/avatar.png', 'uploads/' . $store->id . '/../profile/avatar.png'] as $spelling) {
+            $this->assertNull(StoredUpload::resolve($spelling, $merchant->creatorId()),
+                "'{$spelling}' reached the shared default avatar.");
+        }
+
+        $this->assertFileExists($avatar, 'The shared default avatar was removed from disk.');
+    }
+
+    /**
+     * POSITIVE CONTROL for the rule above: an ordinary file in the SAME store-less folder is still resolvable, so the refusal is
+     * the named default and not "nothing under uploads/profile may be touched". That distinction is the accepted residual: this
+     * file has no owner encoded anywhere in its path, so rule 3 cannot judge it either way.
+     */
+    public function test_an_ordinary_file_in_the_same_store_less_folder_is_still_resolvable(): void
+    {
+        [$merchant] = $this->makeTenant();
+
+        $ordinary = base_path('uploads/profile/p1sec28-not-the-default.png');
+        file_put_contents($ordinary, 'x');
+        $this->scratch[] = $ordinary;
+
+        $this->assertNotNull(StoredUpload::resolve('uploads/profile/p1sec28-not-the-default.png', $merchant->creatorId()),
+            'The platform-default rule must name one file, not blanket the folder -- otherwise a user could never replace their '
+            . 'own profile image.');
+    }
+
     // ---------------------------------------------------------------------------------------------
     // the census
     // ---------------------------------------------------------------------------------------------

@@ -28,13 +28,35 @@ use Illuminate\Support\Facades\Log;
  *     the product gallery, whose helper prepends the prefix twice -- so when the owner is known, the numeric segment after any
  *     leading `uploads` must be one of that owner's stores (the platform operator, who legitimately edits any store's files, is
  *     exempt). Ownership of the ROW is the callers' business; this stops a poisoned row from naming someone else's folder.
- *     RESIDUAL: a file with no store segment -- the two files sitting directly in uploads/, the shared uploads/profile and
- *     similar folders -- has no owner to compare with and is not protected from a tenant who names it (P1-SEC-28).
+ *     RESIDUAL, measured and accepted in writing under P1-SEC-28 acceptance 5: a path whose first segment after any leading
+ *     `uploads` is NOT a run of digits -- `uploads/profile/`, `uploads/receipt/`, `uploads/logo/`, `uploads/stylique/`,
+ *     `uploads/is_cover_image/` and the loose files sitting directly in `uploads/` -- encodes no owner anywhere in the path,
+ *     so there is nothing for rule 3 to compare and a tenant who gets such a value into one of their own rows can make the
+ *     application unlink it. The measurement, the blast radius and why those files cannot be given an owner from inside
+ *     this phase are in docs/security/P01-SEC-28-STORE-LESS-UPLOAD-RESIDUAL.md.
+ *  4. NEVER A PLATFORM DEFAULT. One part of that residual is NOT accepted, because it has a single, named, high-value target:
+ *     `uploads/profile/avatar.png` is the shared default `profile_image` written for every new user and delivery boy
+ *     (RegisteredUserController:123, Api\DeliveryBoyApiController:157) and it is the only file in that folder. Unlinking it
+ *     breaks the avatar of every account that never uploaded one, platform-wide, from one tenant's own logo save. The
+ *     never-unlink list below refuses it for EVERY caller, the operator included -- a platform default is not an editable
+ *     file, and a legitimate replacement is a deployment step rather than a settings save.
  *
  * It does not decide whether the CALLER may touch the row: that is each handler's tenancy check.
  */
 final class StoredUpload
 {
+    /**
+     * Paths that are PLATFORM DEFAULTS, not any tenant's file. Refused for every caller, before the owner is even looked at.
+     *
+     * Compared on the resolved real path, not on the stored string, so `uploads/./profile/avatar.png`,
+     * `uploads/2/../profile/avatar.png` and a symlink to it are the same answer. `StoredPathPolicy::IMPORT_EXPORT_DEFAULT` is
+     * not listed because it lives under packages/ and rule 2 already refuses it; this list is for defaults that sit INSIDE
+     * the uploads root, where rule 2 does not help and rule 3 has no owner to read.
+     *
+     * @var list<string>
+     */
+    private const PLATFORM_DEFAULTS = ['uploads/profile/avatar.png'];
+
     /**
      * @param  int|string|null  $ownerId  the tenant owner's user id (User::creatorId()); null skips rule 3
      * @return string|null the real, absolute path of an existing file that may be touched; null otherwise
@@ -59,6 +81,16 @@ final class StoredUpload
             Log::warning('a stored upload path points outside the uploads directory and was not touched', ['path' => $relativePath]);
 
             return null;
+        }
+
+        foreach (self::PLATFORM_DEFAULTS as $default) {
+            $defaultReal = realpath(base_path($default));
+
+            if ($defaultReal !== false && $real === $defaultReal) {
+                Log::warning('a stored upload path names a platform default and was not touched', ['path' => $relativePath]);
+
+                return null;
+            }
         }
 
         if ($ownerId !== null) {

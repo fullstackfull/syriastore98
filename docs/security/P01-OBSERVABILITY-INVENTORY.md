@@ -47,7 +47,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/ProductStockService.php:127` | Stock decremented below zero on an order path that cannot refuse |
 | `app/Services/ProductStockService.php:210` | Stock decremented below zero on an order path that cannot refuse |
 
-### `warning` — 84 lines
+### `warning` — 85 lines
 
 | line | message |
 |---|---|
@@ -132,8 +132,9 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/SocialIdentity/JwksProvider.php:74` | social-identity: provider key fetch failed |
 | `app/Services/SocialIdentity/SocialIdentityVerifier.php:239` | social-identity: facebook debug_token call failed |
 | `app/Services/StoreNotificationService.php:157` | No active Firebase devices found for store. |
-| `app/Services/StoredUpload.php:59` | a stored upload path points outside the uploads directory and was not touched |
-| `app/Services/StoredUpload.php:76` | a stored upload path names another tenant |
+| `app/Services/StoredUpload.php:90` | a stored upload path names a platform default and was not touched |
+| `app/Services/StoredUpload.php:81` | a stored upload path points outside the uploads directory and was not touched |
+| `app/Services/StoredUpload.php:108` | a stored upload path names another tenant |
 | `app/Services/WebuzoDomainService.php:170` | New Webuzo domain added but old domain could not be deleted |
 
 <!-- counts: error=95 info=22 debug=1 -->
