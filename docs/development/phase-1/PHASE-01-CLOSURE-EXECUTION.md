@@ -570,6 +570,73 @@ silently removed.
 
 ---
 
+### P1-PAY-02 · payment idempotency — promoted from BACKLOG and closed
+
+`767a05db`. **One checkout and one payment now produce at most one order.** Each of the seven
+storefront return handlers already made its stored checkout state single-use with
+`Session::forget()`, which stops a SEQUENTIAL replay — and
+`GatewayReturnTrustBoundaryTest::test_replaying_a_return_cannot_multiply_orders` already pinned
+that, while saying in its own docblock what it did not pin: *"It does NOT claim the handlers have
+an idempotency key. They do not."*
+
+**The session cannot stop two returns that OVERLAP.** Laravel holds no session lock for the life of
+these requests, so both readers hold a valid copy of the state and both proceed — the identical
+read-check-use straddle already fixed on the Paymera path, where it was measured to produce a
+second order, a second stock decrement and a second wallet credit.
+
+`PaymentService::process()` (one caller, `PaymentController:1778`) now stamps a `checkout_nonce`,
+which all 46 `Session::put('request_data', ...)` sites inherit through their own `except()`. On the
+way back, `claimGatewayReturn()` takes one or two keys with `Cache::add()` — the nonce for "one
+checkout, one order", and the gateway's own transaction reference for "one PAYMENT, one order",
+which the nonce cannot answer. **The payment key covers khalti and cinetpay, the only two whose
+return carries a reference their own code reads**; the other four read none, which is the
+unverified-payment blocker's territory, not this task's, and is recorded as a residual rather than
+papered over.
+
+Three regressions in the fix, found by the authorization review — see section 8.
+
+### P1-PLT-05 · security and financial observability — promoted from BACKLOG and closed
+
+`5909c12b`. **92 security log lines (11 `critical`, 81 `warning`) enumerated in
+`docs/security/P01-OBSERVABILITY-INVENTORY.md`, with a two-directional ratchet.** Phase 01 added
+every one of them with its own justification; nobody had asked where they LAND.
+
+**One file, unrotated, mixed with everything else, and nothing alerts.** `LOG_CHANNEL=stack` →
+`LOG_STACK=single` → `storage_path('logs/laravel.log')` at `LOG_LEVEL=debug`. The rotating `daily`
+driver exists and nothing selects it. The expectation is RECORDED and `config/logging.php` is
+deliberately NOT changed: logging configuration is deployment configuration.
+
+**And the larabug review produced a finding larger than the blacklist.** The blacklist is in good
+order (P1-SEC-14 extended it) and is now pinned. But `LaraBugHandler::write()` discards every
+record whose context carries no exception, so **enabling larabug would deliver none of the 92**.
+Measured by driving the handler with a real record and asking the fake what it received, with a
+positive control — not by reading the vendor source.
+
+### P1-PLT-03 · tenant-scope adoption — promoted from BACKLOG and closed
+
+Two documents and two tests. **The row's title is a complaint that turned out to be wrong**, which
+is a better outcome than sprinkling hatch calls to make a count go up: the operator already
+resolves `MODE_SUPER_ADMIN` with no predicate, a multi-store merchant already crosses through
+`admissibleStoreIds()`, and the storefront, both non-web guards, jobs and commands resolve no
+tenant with `null_tenant => 'open'`. **There is nothing to escape from.** So criterion 1's
+deliverable is a PROPERTY — `TenantScopeHatchAdoptionTest` fails on the first out-of-request query
+on an enforced model — rather than a call site.
+
+Criterion 2 was **already satisfied** by `TenantModelClassificationTest`, which is a better
+artifact than a document and was built to avoid the second drifting copy a new document would
+create. **The audit closed its one hole:** `DeliveryBoy` was named as an unscoped trait-carrier and
+explained nowhere. Measured — both writers set `store_id`, driver login is on a guard the scope
+cannot see, and 22 of 26 read sites have no filter — so it is an unclassified *enforcement
+candidate*, now recorded with a new exhaustiveness assertion and raised as **P1-PLT-08 (#119)**.
+Enforcing it changes an authentication provider's visibility and needs its own full-suite evidence.
+
+Criterion 3 is **measured, not argued**: `TENANCY_NULL_TENANT=closed` over the two isolation suites
+gives **202 failures of 4061** (19 Tenancy, 183 Security, against 0 under `open`) — and the shape
+matters more than the count. Every failing name is authenticated `customers`-guard traffic or a
+guest cart, not anonymous browsing, which points straight at the narrow fix the proposal
+recommends: teach `resolveTenant()` to consult the `customers` and `deliveryboy` guards, where the
+principal is known and carries a real `store_id`.
+
 ## 8. Verification state
 
 Everything below was executed. Where a number differs from an earlier claim of mine, the earlier
@@ -585,9 +652,11 @@ claim was wrong and the correction is noted.
 | Guards + contrast | 4 guards, exit 0 |
 | **Secret scan** | **exit 0 over 351 changed files, with the PR's real base ref** |
 | **MySQL (8.0.46)** | **runner green; + 18 new checks for store-slug identity** |
-| Mutation | **45 mutants, 45 bite** (24 + 10 for P1-INV-12/D13 + 6 for P1-ORD-11/D3 + 5 for P1-INV-03) |
-| **MySQL 8.0.46, this session** | cascade verifier **6 checks / 0 failures**; stock-oversell concurrency **12 checks / 0 failures**, including the removal check showing the replaced read-modify-write DOES oversell |
-| **CI** | green on every head pushed this session: `c53cb55b`, `92244cfc`, `1d5d4eed`, `91ea82a4`, `f91e4b8d`, `eaa53d97` |
+| Mutation | **73 mutants, 73 bite** — 45 earlier (24 + 10 for P1-INV-12/D13 + 6 for P1-ORD-11/D3 + 5 for P1-INV-03) + **18 for P1-PAY-02** + **5 for P1-PLT-05** + **6 for P1-PLT-03**. Two SURVIVORS were resolved rather than excused: an array limb in `stampCheckoutNonce()` was DEAD CODE and was deleted (a census showed `process()` has one caller passing a typed `Request`), and the store-scoping of the payment claim key had no test, so a test was written to stage the property it hardens. A third mutant **failed to apply semantically** — `[] ?: [...]` returns its second operand, so the list it was meant to empty was untouched; re-pointed and re-run, because a mutant that cannot be applied proves nothing. Fourth occurrence of that failure mode in this project. |
+| **MySQL 8.0.46, this session** | cascade verifier **6 checks / 0 failures**; stock-oversell concurrency **14 checks / 0 failures** (section F added — the read-modify-write restock LOSES one of two concurrent returns, the atomic increment keeps both); **gateway-return claim 12 checks / 0 failures** (new: B blocks on the row lock, error 1205, rather than deciding on a stale read). Each carries its own removal check. |
+| **A MySQL script that LIED TO ME, and was corrected** | the claim verifier's section C plants a row by hand to hold an uncommitted insert. The first version planted the RAW key while `Cache::add()` writes `cache.prefix . $key`, so the two connections contended for two DIFFERENT rows — B's insert succeeded and the two checks after it then passed for the wrong reason. **One failing check is what exposed it.** |
+| **CI** | green on every head pushed this session: `c53cb55b`, `92244cfc`, `1d5d4eed`, `91ea82a4`, `f91e4b8d`, `eaa53d97`, `dbfc2ea7`, `98c53b8a`, `c25b2745`, `767a05db`, `5909c12b` |
+| **An authorization review that found three live regressions IN THE FIX** | the `tenant-authz-reviewer` on P1-PAY-02. All three were one defect: a claim is CONSUMED, so taking it on a path that takes no money kills a live checkout. A declined NMI card became unretryable; one cross-site GET could permanently kill an in-flight NMI checkout (`Route::any`, CSRF does not apply to reads, and the card-expiry check returns before the forget); and a payment reported PENDING by PhonePe/toyyibpay was refused as a replay when it completed. **All three confirmed by reading the code before acting**, all three fixed, each with its own test and mutant. The review also found WHY the suite could not see the first one: an existing test asserting exactly the broken retry PASSED, because its fixture predates the nonce. |
 | **A gate that FAILED and was not worked around** | the first full run on `1b386890` returned **exit 1, four undeclared failures** — the raw-query inventories catching three new store-less counts. Declared with reasons, with a new two-directional declaration ratchet; **nothing added to `.github/known-test-outcomes.json`** |
 
 ### Corrections this session, kept visible on purpose

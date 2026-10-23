@@ -25,7 +25,7 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 108 — 54 DONE, 20 READY, 6 BACKLOG, 28 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
+| Tasks | 109 — 55 DONE, 21 READY, 5 BACKLOG, 28 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
 | Requiring an owner decision | 34 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
@@ -192,6 +192,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 74. `P1-SEC-34` — The two storefront-write holes the P1-SEC-04 route-census review left open: an anonymous review's description reaches the merchant's admin origin unescaped (HIGH), and a shopper's comment is tied to no store and no product (MEDIUM) *(security, IN_REVIEW, risk high)*
 75. `P1-SEC-35` — /duologin logged an anonymous caller in as ANY account, the platform operator included: no authentication, CSRF-exempt, and the two HMAC halves are compared only with each other (EXECUTED) *(security, IN_REVIEW, risk critical)*
 76. `P1-INV-23` — DigitalProduct, AuctionProduct's twin: an anonymous DELETE removed any tenant's product image and file, and the resource routes checked the permission but never the owner (EXECUTED) *(inventory, IN_REVIEW, risk high)*
+77. `P1-PLT-08` — DeliveryBoy is an unclassified enforcement candidate - allowlist it, with full-suite evidence *(platform, READY, risk medium)*
 
 ---
 
@@ -3288,13 +3289,13 @@ SEPARATELY (lens B F2, READ): the Paymera callback `GET /store/paymera/callback/
 
 | field | value |
 |---|---|
-| Status | **BACKLOG** |
+| Status | **DONE** |
 | Risk | high |
 | Workstream | Platform Foundation |
 | GitHub issue | #35 |
 | Owner decision required | no |
 | Depends on | `P1-PLT-02` |
-| Scope | `config/tenancy.php`, `app/Models/Concerns/BelongsToStore.php` |
+| Scope | `docs/security/P01-TENANT-SCOPE-ADOPTION.md`, `docs/security/P01-NULL-TENANT-TIGHTENING-PROPOSAL.md`, `tests/Feature/Tenancy/TenantScopeHatchAdoptionTest.php`, `tests/Feature/Tenancy/TenantModelClassificationTest.php` |
 | Queue references | S6 |
 | Database / migration | None. |
 | Compatibility impact | Tightening the scope wrongly empties the storefront and stops every job — that is why this is staged. |
@@ -3302,15 +3303,17 @@ SEPARATELY (lens B F2, READ): the Paymera callback `GET /store/paymera/callback/
 **Existing implementation status.** PARTIAL. 10 of 93 models enforced; null_tenant is 'open' and the helpers that must precede tightening it are unused.
 
 **Acceptance criteria.**
-- [ ] The cross-tenant escape hatches are used explicitly wherever a query must cross tenants
-- [ ] A documented inventory of which models are scoped and which are deliberately not
-- [ ] null_tenant tightening is a separate, evidence-backed proposal
+- [x] DONE, as a MEASURED NEGATIVE rather than by adding calls: the escape hatches are used explicitly wherever a query must cross tenants -- and there is no such query today, because every context that would need one is already covered by a built-in branch (the operator bypass emits no predicate; a multi-store merchant already gets admissibleStoreIds(); the storefront, both non-web guards, jobs and commands resolve no tenant and null_tenant is open). Adding hatch calls to make the count non-zero would make the code say something untrue. The property is instead held by TenantScopeHatchAdoptionTest, which fails on the FIRST out-of-request query on an enforced model
+- [x] DONE: a documented inventory of which models are scoped and which are deliberately not -- it already existed as tests/Feature/Tenancy/TenantModelClassificationTest (93 models, read from the live migrated schema, with three reasoned exclusion lists), which is a better artifact than a document and was built to avoid exactly the second drifting copy a new document would create. docs/security/P01-TENANT-SCOPE-ADOPTION.md records where it is and what was verified against it, and the audit CLOSED THE ONE HOLE: DeliveryBoy was named as an unscoped trait-carrier and explained nowhere
+- [x] DONE: null_tenant tightening is a separate, evidence-backed proposal -- docs/security/P01-NULL-TENANT-TIGHTENING-PROPOSAL.md, with the flip MEASURED rather than argued
 
 **Required tests.**
-- Tenancy suite stays green
-- A test that fails if a scoped model gains an implicit cross-tenant read
+- tests/Feature/Tenancy/TenantScopeHatchAdoptionTest.php -- 4 tests / 9 assertions, new
+- tests/Feature/Tenancy/TenantModelClassificationTest.php -- 15 tests / 176 assertions (1 new: the exhaustiveness assertion that closes the DeliveryBoy hole)
+- THE MEASUREMENT for criterion 3: TENANCY_NULL_TENANT=closed over tests/Feature/Tenancy + tests/Feature/Security -- 202 failures of 4061 (19 in Tenancy, 183 in Security), against 0 under open
+- SIX MUTANTS, all biting, each failing only its own limb: DeliveryBoy loses its recorded reason; Product loses its public-storefront reason; a console command queries an enforced model with no hatch; the forStoreContext hatch is renamed away; the operator bypass is narrowed; the enforced-model list becomes unreadable
 
-**Evidence.** S6; config/tenancy.php:391
+**Evidence.** DONE 2026-10-23. PROMOTED FROM BACKLOG: the owner's directive names tenant isolation among the BACKLOG items to promote, and the row carried no blocker. THE ROW'S TITLE IS A COMPLAINT -- "forStoreContext/allowCrossTenant have zero call sites" -- and THE COMPLAINT IS WRONG, which is a better outcome than sprinkling hatch calls to make a count go up. config/tenancy.php names four contexts where no tenant resolves, and every one is already covered: the platform operator resolves MODE_SUPER_ADMIN with store_ids => [] and NO predicate (StoreScope:536-548); a multi-store merchant already crosses between their stores through admissibleStoreIds(); and the storefront, the customers and deliveryboy guards, queued jobs and console commands resolve no web principal, so null_tenant decides -- and it is 'open', which adds no predicate at all. There is nothing to escape FROM. Adding hatch calls would make the code assert a tenant boundary that is not being crossed. SO THE DELIVERABLE FOR CRITERION 1 IS A PROPERTY, NOT A CALL SITE. TenantScopeHatchAdoptionTest asserts that both hatches still exist and are public static (so "absent from production code" cannot be confused with "renamed"); that the census is REACHABLE before concluding anything from an empty result, because four censuses in this project have passed vacuously on a spelling that had changed; that no code in app/Console/Commands, app/Jobs, app/Observers or app/Listeners queries an ENFORCED model without opening a hatch -- empty today, and the first job or command that does will be told which hatch to use; and that the operator bypass still emits no predicate, which is the tripwire for the change that would make allowCrossTenant() necessary everywhere. The scan strips comment lines first, because a docblock naming a model would otherwise satisfy it. CRITERION 2 WAS ALREADY SATISFIED, AND SAYING SO IS THE RIGHT ANSWER. tests/Feature/Tenancy/TenantModelClassificationTest is the inventory -- its own docblock says it is "the brief's item 1, turned into a durable test instead of a document that drifts". It classifies all 93 models from the LIVE MIGRATED SCHEMA (Schema::hasColumn, not $fillable, which lies for several models): 56 tenant-discriminated, 25 platform-global, 14 with no table, asserted exhaustive, with three reasoned exclusion lists. Writing a second document restating it would create exactly the rotting copy it was built to avoid, so P01-TENANT-SCOPE-ADOPTION.md records where it is and what was verified against it. AND THE AUDIT FOUND ONE REAL HOLE. 17 models carry BelongsToStore, 10 are enforced; six of the remaining seven are accounted for (Product, Category, Shipping are public storefront content; StoreWallet, StoreWalletTransaction and StoreWithdrawal are GATE F models with NO TABLE to scope -- which is why three money-bearing unscoped carriers are not the alarm they look like). DELIVERYBOY WAS THE SEVENTH, named in BelongsToStore's docblock as one of the seven and explained NOWHERE. Measured rather than left: delivery_boys.store_id exists and is nullable, but it is NOT the Role nullable trap -- both writers set it (DeliveryBoyApiController:160, DeliveryBoyController:71) -- driver login is unaffected because a driver authenticates on the deliveryboy guard that auth()->user() on web cannot see, and of 26 DeliveryBoy:: query sites only 4 carry a store filter. So it is an unclassified ENFORCEMENT CANDIDATE, not a deliberate exclusion. Recorded as such in the classification test, with a new EXHAUSTIVENESS assertion so a trait-carrier with no recorded reason fails -- attaching the trait is behaviour-neutral, which is why DeliveryBoy sat unexplained for months. ENFORCING it is raised as P1-PLT-08 (#119) and NOT done here: it changes the visibility of an AUTHENTICATION PROVIDER, the class of change that has twice broken this codebase without raising an error, and the evidence it needs is a full-suite run with the model allowlisted. CRITERION 3 IS MEASURED, NOT ARGUED, and the number is the point. Setting TENANCY_NULL_TENANT=closed and running the two suites built to pin isolation: 202 FAILURES OF 4061 -- 19 in Tenancy (409 passed/0 failed under open -> 390/19 under closed) and 183 in Security. Five percent of the isolation suites. The env route was verified to reach config() before the run rather than assumed. AND THE SHAPE OF THE 202 MATTERS MORE THAN THE COUNT: read the names and they are one population -- "a shopper still reads their own addresses", "a shopper can place their own order", "one guests request does not clear another guests basket" -- ALL authenticated customers-guard traffic plus guest carts, NOT anonymous catalogue browsing. Several are tests whose names assert ISOLATION and which fail because under closed the handler returns nothing and the positive control inside the test breaks: the "a control that takes the shop offline gets switched off" argument, measured. SO THE PROPOSAL RECOMMENDS THE NARROW FIX THE MEASUREMENT POINTS AT, not the switch: keep the default at open (recorded as a decision rather than an unchosen default); offer closed to admin-only deployments, which is now a measured statement; and open the real work as its own task -- teaching resolveTenant() to consult the customers and deliveryboy guards, where the principal is KNOWN and carries a real store_id and the scope ignores it only because getCurrentStore() reads the web guard alone (helper.php:398). That would close almost all of the 202 while leaving anonymous traffic on open, which is where closed does its damage. WHAT WAS NOT DONE, STATED: no hatch calls added, no model moved on or off the allowlist, null_tenant unchanged, and the closed run was NOT done on MySQL -- the setting decides whether a predicate is appended rather than how it compares, so SQLite is the right instrument, said explicitly because this project has been bitten by the opposite assumption.
 
 ### `P1-PLT-04` — Module loading swallows every exception with no log line
 
@@ -3496,6 +3499,36 @@ FIXING (1) BROKE A P1-SEC-29 TEST AND THAT IS THE INSTRUCTIVE PART. HostClaimsTe
 EVIDENCE. `tests/Feature/Security/SettingsCreatedByOwnershipTest.php`, 16 tests / 48 assertions, driving the real /seo-setting, /shipping-label-setting, /theme-settings, /firebase-settings and /stock-settings routes. RED FIRST: 8 failed against the unfixed code, each with its measurement in the message (`created_by` 1 -> 2 on both re-stamp tabs; both readers returning null and '' respectively; a staff-created row invisible to the owner; two rows left by /theme-settings). MY FIRST RUN WAS RED FOR THE WRONG REASON, which is why the file leads with two premise tests: PHP's `+` keeps the LEFT operand on a key collision and the shared `seoFields()` helper already defines `metakeyword` and `metadesc`, so every override was silently discarded and the writes never carried the value being asserted. REMOVAL CHECKS (mutation-harness.py): 9 mutants, ALL BITE, all four files restored byte-identically (cmp), plus 2 mutants on the P1-SEC-29 controls this change touches, both biting. GATE on c8c3f43a: Unit 339 passed, Contract 26 passed, Feature 5193 passed / 2 failed (both declared) / 17 skipped (all declared), 27029 assertions with `assert-known-test-outcomes.php` exit 0, and the five CI guards exit 0; Security + Tenancy 3926 passed / 10 skipped separately. SQLite only.
 
 NOT CLAIMED, AND EACH IS OUTSIDE THE THREE CRITERIA. The five RAW admin-API writers above still re-stamp, so the same symptom stays live for the admin API's mail and payment names for a staff token -- recorded on #110 rather than fixed, because converting a raw upsert to Eloquent changes its concurrency behaviour and belongs with P1-OWN-11's unique index; it may warrant its own row and that is the owner's call. The other 36 writers keep `updateOrCreate` and so keep the oldest-row/newest-reader mismatch described above. Rows already re-stamped are NOT repaired: data, P1-OWN-11's third query shows the symptom class. An operator saving a merchant's tab still takes the row on CREATE, pinned by a test. No settings handler checks that `getCurrentStore()` is a store the caller owns, which is the control the operator case really wants. Behaviour on MySQL was not run; the change is an integer column assignment, two match-key predicates and an ORDER BY, and SQLite was the engine.
+
+### `P1-PLT-08` — DeliveryBoy is an unclassified enforcement candidate -- allowlist it, with full-suite evidence
+
+| field | value |
+|---|---|
+| Status | **READY** |
+| Risk | medium |
+| Workstream | Platform Foundation |
+| GitHub issue | #119 |
+| Owner decision required | no |
+| Depends on | — |
+| Scope | `config/tenancy.php`, `tests/Feature/Tenancy/TenantModelClassificationTest.php` |
+| Queue references | raised by P1-PLT-03 |
+| Database / migration | None. A config allowlist entry, not a schema change. |
+| Compatibility impact | Narrows what a merchant's web-guard queries see on delivery_boys. Driver login is on the deliveryboy guard and resolves no web tenant, so it is unaffected; a LEGACY row with store_id IS NULL would become invisible to its own merchant, which is the operator's single-count precondition. |
+
+**Existing implementation status.** NOT STARTED. The model carries BelongsToStore and is not in config/tenancy.php scoped_models, so the scope adds no predicate for any principal.
+
+**Acceptance criteria.**
+- [ ] A full Feature suite run with App\Models\DeliveryBoy::class added to scoped_models, against the known-outcome manifest -- no undeclared failure
+- [ ] The merchant-facing driver list, driver assignment on an order, and the driver's own API are each driven explicitly, because 22 of 26 read sites have no filter today and the scope becomes the control of record for them
+- [ ] A legacy-row precondition stated for the operator: SELECT COUNT(*) FROM delivery_boys WHERE store_id IS NULL. This codebase writes no such row, but an existing deployment may hold one from before, and it would become invisible to its own merchant
+- [ ] A removal check: reverting the allowlist entry must fail at least one test, so the entry is shown to be the cause and not merely correlated
+- [ ] DeliveryBoy moves out of enforcementCandidates() in TenantModelClassificationTest, keeping the exhaustiveness assertion honest
+
+**Required tests.**
+- TenantModelClassificationTest::test_every_trait_carrier_is_either_enforced_or_explained already fails if DeliveryBoy is neither enforced nor explained, so this row cannot be silently dropped
+- Cross-tenant isolation tests for the driver list and driver assignment, in the shape Batch2ModelIsolationTest uses for the batch-2 allowlisted models
+
+**Evidence.** RAISED 2026-10-23 by P1-PLT-03, which found it while completing that row's model inventory. FOUR MEASUREMENTS support it: delivery_boys.store_id exists and is nullable()->index(); it is NOT the Role nullable trap, because both writers set it (DeliveryBoyApiController:160, DeliveryBoyController:71); driver login is unaffected, because a driver authenticates on the deliveryboy guard which auth()->user() on web cannot see, so the lookup resolves MODE_UNRESOLVED and null_tenant => open adds no predicate; and of 26 DeliveryBoy:: query sites in app/ only 4 carry a store filter, so enforcement would add real protection. NOT DONE INSIDE P1-PLT-03 deliberately: it changes the visibility of an AUTHENTICATION PROVIDER, which is the class of change that has twice broken this codebase without raising an error (scoping Menu blanked the storefront navigation), and the evidence it needs is a full-suite run rather than a reading. See docs/security/P01-TENANT-SCOPE-ADOPTION.md section 2.
 
 ---
 
