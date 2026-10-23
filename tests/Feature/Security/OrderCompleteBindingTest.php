@@ -113,15 +113,94 @@ class OrderCompleteBindingTest extends TestCase
     }
 
     /**
-     * EVERY GATEWAY RETURN THAT FLASHES THE NUMBER ALSO BINDS THE PRIMARY KEY.
+     * EVERY PRODUCER OF THE THANK-YOU PAGE IS DISCOVERED, AND EACH ONE BINDS.
      *
-     * Keyed on the two constructs together, per file: a `->with('data', ...)` redirect to
-     * `order.complete` and a `OrderCompleteBinding::remember(` call. Comments are stripped first --
-     * a docblock naming either would otherwise satisfy this, which is the trap this project records
-     * for source ratchets.
+     * TWO ASSERTIONS, BECAUSE THE FIRST CUT OF THIS TEST HAD ONLY THE SECOND AND ITS DOCBLOCK
+     * CLAIMED BOTH. It said it was "keyed on the two constructs together" and then counted
+     * `OrderCompleteBinding::` calls against a HARD-CODED FILE LIST -- so a new file that sends a
+     * shopper to `order.complete` without binding was not detected at all, and the list itself was
+     * the only census. That is recorded in this project's skill as the way censuses fail: keyed on
+     * the spelling somebody happened to look at, not on the thing being counted. The tenant-authz
+     * review of the first cut found it, and found the one real gap it was hiding: Khalti.
      *
-     * The count is EXACT. A floor would let one of PaymentController's three sites lose its binding
-     * unnoticed.
+     *   (1) DISCOVERY. Every file under app/ that names `order.complete` after comments are
+     *       stripped must either carry an OrderCompleteBinding call or be listed below with the
+     *       reason it needs none. A new gateway return fails this until somebody decides which.
+     *   (2) DRIFT. The per-file counts, exact. A floor would let one of PaymentController's sites
+     *       lose its binding unnoticed.
+     *
+     * Comments are stripped for both -- a docblock naming either construct would otherwise satisfy
+     * them, which is this project's recorded trap for source ratchets. It is also what keeps
+     * app/Events/CinetPayPayment.php out of the discovered set: it names `order.complete` only in
+     * prose.
+     */
+    public function test_every_producer_of_the_thank_you_page_is_discovered_and_binds(): void
+    {
+        /** Files that reach the thank-you page but write no order, so there is nothing to bind. */
+        $noOrderWritten = [];
+
+        $discovered = [];
+
+        foreach ($this->phpFilesUnder(app_path()) as $absolute) {
+            $code = $this->withoutComments((string) file_get_contents($absolute));
+
+            if (str_contains($code, 'order.complete') || str_contains($code, 'khalti_order_id')) {
+                $relative = ltrim(str_replace(base_path(), '', $absolute), '/');
+
+                if (! in_array($relative, $noOrderWritten, true)) {
+                    $discovered[] = $relative;
+                }
+            }
+        }
+
+        sort($discovered);
+
+        $this->assertGreaterThanOrEqual(9, count($discovered),
+            'The discovery scan found almost nothing, so the assertion below would be vacuous. The '
+            . 'scan, not the codebase, is the likely cause. Found: ' . implode(', ', $discovered));
+
+        $unbound = [];
+
+        foreach ($discovered as $relative) {
+            $code = $this->withoutComments((string) file_get_contents(base_path($relative)));
+
+            if (preg_match('/OrderCompleteBinding::(remember|holds|bound)\s*\(/', $code) !== 1) {
+                $unbound[] = $relative;
+            }
+        }
+
+        $this->assertSame([], $unbound,
+            "These files send a shopper to the thank-you page and bind no primary key, so a "
+            . "same-second collision in one store is unresolvable for them -- the buyer is refused "
+            . "the order they just paid for:\n  " . implode("\n  ", $unbound));
+
+        // OrderController is the page's READER, discovered because it reads khalti_order_id.
+        $this->assertContains('app/Http/Controllers/OrderController.php', $discovered);
+        $this->assertContains('app/Http/Controllers/KhaltiPaymnetController.php', $discovered,
+            'Khalti was the one producer with no binding; it must stay in the discovered set.');
+    }
+
+    /** @return list<string> */
+    private function phpFilesUnder(string $root): array
+    {
+        $files = [];
+
+        $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS));
+
+        foreach ($iterator as $entry) {
+            if ($entry->isFile() && $entry->getExtension() === 'php') {
+                $files[] = $entry->getPathname();
+            }
+        }
+
+        sort($files);
+
+        return $files;
+    }
+
+    /**
+     * The per-file counts, exact, so a site cannot quietly lose its binding while the file keeps one
+     * elsewhere. This is the DRIFT half; discovery is the test above.
      */
     public function test_every_gateway_return_binds_the_order_it_flashes(): void
     {
@@ -134,13 +213,21 @@ class OrderCompleteBindingTest extends TestCase
             'app/Http/Controllers/PaiementProPaymentController.php' => 1,
             'app/Http/Controllers/CinetPayController.php' => 1,
             /*
-             * FIVE, and the count is worth spelling out because the first version of this test said
-             * six and failed: the file also NAMES the service in a comment, and `withoutComments()`
-             * removes that before counting. The five real calls are the two Paymera replay branches
-             * (holds), the Paymera pending-record read (bound), the generic storefront writer and
-             * the whatsapp/telegram binding (remember).
+             * SIX, and the count is worth spelling out because the first version of this test said
+             * six when the real number was five and failed: the file also NAMES the service in a
+             * comment, and `withoutComments()` removes that before counting. The calls are the two
+             * Paymera replay branches (holds), the generic storefront writer and the
+             * whatsapp/telegram binding (remember), and bound() TWICE in orderWrittenBy() -- the
+             * before/after pair that names the order a write created without trusting "the latest in
+             * the store". SESSION_KEY is referenced there too and is deliberately NOT counted: the
+             * pattern asks for calls, and a constant read is not one.
              */
-            'app/Http/Controllers/PaymentController.php' => 5,
+            'app/Http/Controllers/PaymentController.php' => 6,
+            // P1-ORD-13 FOLLOW-UP: the one provider that had none (the buyer's order is written in
+            // the buyer's own session here, so the key is recordable exactly as at the other nine).
+            'app/Http/Controllers/KhaltiPaymnetController.php' => 1,
+            // the page's READER: orderCompleteBoundIds() is the single place the ids are read back.
+            'app/Http/Controllers/OrderController.php' => 1,
         ];
 
         foreach ($expected as $relative => $count) {

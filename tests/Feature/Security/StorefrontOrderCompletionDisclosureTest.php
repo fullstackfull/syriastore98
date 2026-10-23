@@ -504,6 +504,73 @@ class StorefrontOrderCompletionDisclosureTest extends SecurityTestCase
             . 'wrong order or refused their own.');
     }
 
+    /**
+     * KHALTI, the one provider the first cut left on the double refusal.
+     *
+     * Khalti does not redirect: its handler returns JSON that the blade navigates with, and it puts
+     * the order NUMBER in `khalti_order_id` (KhaltiPaymnetController). So the thank-you page's khalti
+     * limb resolved that number through soleStoreOrderByNumber() -- which, in a same-second
+     * collision, correctly refuses, and therefore sent BOTH Khalti buyers back to the landing page
+     * having just paid. Found by the tenant-authz review of the first cut: every other producer had
+     * been given a binding and this one had not. It now records the primary key as well, and the
+     * khalti limb prefers it exactly as the flashed limb does.
+     */
+    public function test_each_khalti_buyer_in_a_same_second_collision_sees_their_own_order(): void
+    {
+        [, $store] = $this->makeTenant();
+
+        $first = $this->placedOrder($store, 'KHALTI13A', [], 'khalti-first@buyer.test');
+        $second = $this->placedOrder($store, 'KHALTI13A', [], 'khalti-second@buyer.test');
+
+        $this->assertSame($first->product_order_id, $second->product_order_id, 'Fixture premise: the numbers must collide.');
+
+        foreach ([$first, $second] as $buyer) {
+            $response = $this->complete($store, [], [
+                'khalti_order_id' => $buyer->product_order_id,
+                \App\Services\OrderCompleteBinding::SESSION_KEY => [$buyer->id],
+            ]);
+
+            $response->assertOk();
+            $this->assertSame((int) $buyer->id, $this->renderedOrderId((string) $response->getContent()),
+                'A Khalti buyer in a same-second collision was refused their own order, or shown the other buyer\'s.');
+        }
+    }
+
+    /**
+     * And the number lookup is still the fallback, so a Khalti session placed before the binding
+     * existed is served -- an unambiguous number resolves with no binding at all.
+     */
+    public function test_an_unambiguous_khalti_number_still_resolves_without_a_binding(): void
+    {
+        [, $store] = $this->makeTenant();
+        $order = $this->placedOrder($store, 'KHALTI13B', [], 'khalti-legacy@buyer.test');
+
+        $response = $this->complete($store, [], ['khalti_order_id' => $order->product_order_id]);
+
+        $response->assertOk();
+        $this->assertSame((int) $order->id, $this->renderedOrderId((string) $response->getContent()));
+    }
+
+    /** A Khalti binding for ANOTHER store's order does not unlock this store's colliding number. */
+    public function test_a_khalti_binding_from_another_store_does_not_resolve_a_collision_here(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $mine = $this->placedOrder($storeA, 'KHALTI13C', [], 'ka@buyer.test');
+        $theirs = $this->placedOrder($storeA, 'KHALTI13C', [], 'kb@buyer.test');
+        $elsewhere = $this->placedOrder($storeB, 'KHALTI13C', [], 'kc@buyer.test');
+
+        $response = $this->complete($storeA, [], [
+            'khalti_order_id' => $mine->product_order_id,
+            \App\Services\OrderCompleteBinding::SESSION_KEY => [$elsewhere->id],
+        ]);
+
+        $response->assertRedirect();
+        $this->assertNotSame((int) $mine->id, $this->renderedOrderId((string) $response->getContent()));
+        $this->assertNotSame((int) $theirs->id, $this->renderedOrderId((string) $response->getContent()));
+    }
+
     /** A binding for ANOTHER store's order does not unlock this store's colliding number. */
     public function test_a_binding_from_another_store_does_not_resolve_a_collision_here(): void
     {

@@ -996,6 +996,15 @@ class KhaltiPaymnetController extends Controller
                 'store_complete'=>route('order.complete',$slug),
             ];
             \Session::put('khalti_order_id', $order->product_order_id);
+            /*
+             * P1-ORD-13 FOLLOW-UP. Khalti was the ONE thank-you-page producer with no binding, so
+             * its buyers were left on the P1-ORD-08 double refusal: `khalti_order_id` holds the
+             * NUMBER, and two orders placed in one store in one second share it, so
+             * soleStoreOrderByNumber() refuses and both buyers are sent back to the landing page
+             * having just paid. The order is created in the buyer's own session by this handler, so
+             * the primary key is recordable here exactly as it is at the other nine sites.
+             */
+            \App\Services\OrderCompleteBinding::remember($order->id);
             return $arr;
         } else {
             return $this->error(['message' => __('Somthing went wrong.')]);

@@ -25,7 +25,8 @@ use Throwable;
  *   3. App\Models\User::toLarabug() sends an id and a type, not the model.
  *
  * What it does not do: a secret under a key nobody blacklisted is still sent; the layers above shrink that surface, they do not close it.
- * Whether the tracker is keyed in production (LB_KEY) is the owner's to confirm (P1-SEC-14 acceptance 3).
+ * Whether the tracker is keyed in production (LB_KEY) is the owner's to confirm (P1-SEC-14 acceptance 3); until they do,
+ * isConfigured() below means an unkeyed instance posts nothing at all, so the unanswered question is not an exposure.
  */
 class ScrubbedLaraBug extends LaraBug
 {
@@ -43,7 +44,36 @@ class ScrubbedLaraBug extends LaraBug
             return false;
         }
 
+        if (! self::isConfigured()) {
+            return false;
+        }
+
         return parent::handle($exception, $fileType, $customData);
+    }
+
+    /**
+     * Is a tracker account configured at all?
+     *
+     * WHAT THE SCRUBBER ABOVE DOES NOT COVER, and why this gate is a second control rather than a
+     * tidy-up. `LaraBug\Http\Client::report()` POSTs to `config('larabug.server')` -- by default
+     * `https://www.larabug.com/api/log`, a third party -- with `Authorization: Bearer ` and an empty
+     * `project` when `LB_KEY` and `LB_PROJECT_KEY` are unset. It checks neither. The scrubber removes
+     * the values the REQUEST carried; the payload still holds `executor` (the twelve source lines
+     * either side of the throw, verbatim), `exception` (the trace string), `file`, `line`, `class`,
+     * the route name and the URL. So on an unkeyed production instance this application would ship
+     * its own source code and stack traces outbound on every reported exception, to an account
+     * nobody owns -- a disclosure the key-name glob cannot reach, because none of it is a request
+     * variable.
+     *
+     * P1-SEC-14 acceptance 3 asks whether the tracker is keyed in production. `.env` is not in this
+     * repository and cannot be read from here, so that half stays the owner's to answer. This gate
+     * makes the unanswered half harmless: unkeyed means nothing is posted, so the honest answer
+     * "we do not know" no longer describes an exposure. It changes nothing for a keyed instance.
+     */
+    public static function isConfigured(): bool
+    {
+        return trim((string) config('larabug.login_key')) !== ''
+            && trim((string) config('larabug.project_key')) !== '';
     }
 
     public function getExceptionData(Throwable $exception)

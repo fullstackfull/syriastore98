@@ -67,12 +67,19 @@ class LaraBugPayloadTest extends SecurityTestCase
         return new ScrubbedLaraBug($client);
     }
 
+    /**
+     * "Enabled" means BOTH gates open: the environment is listed, and an account is configured.
+     * The keys are part of it because ScrubbedLaraBug::isConfigured() refuses to report without
+     * them -- see test_an_unkeyed_tracker_posts_nothing_at_all for why that gate exists.
+     */
     private function enableTracker(): void
     {
         config([
             'larabug.environments' => ['testing'],
             'larabug.sleep' => 0,
             'larabug.except' => [],
+            'larabug.login_key' => 'FIXTURE-LB-KEY',
+            'larabug.project_key' => 'FIXTURE-LB-PROJECT',
         ]);
     }
 
@@ -519,6 +526,68 @@ class LaraBugPayloadTest extends SecurityTestCase
 
         $this->assertFalse($result, 'a javascript report is refused outright');
         $this->assertNull($this->reported, 'and nothing is posted');
+    }
+
+    // =========================================================================================
+    //  THE UNKEYED INSTANCE
+    // =========================================================================================
+
+    /**
+     * WHAT THE SCRUBBER CANNOT REACH.  P1-SEC-14 acceptance 3.
+     *
+     * `LaraBug\Http\Client::report()` POSTs to config('larabug.server') -- by default
+     * https://www.larabug.com/api/log, a third party -- with `Authorization: Bearer ` and an empty
+     * `project` when LB_KEY and LB_PROJECT_KEY are unset. It checks neither. Everything above
+     * removes values the REQUEST carried; the payload still holds `executor` (the source lines
+     * either side of the throw, verbatim), the trace, the file, the line and the class. None of
+     * those is a request variable, so no key-name glob can touch them.
+     *
+     * So an unkeyed production instance would ship this application's own source and stack traces
+     * outbound on every reported exception, to an account nobody owns. `.env` is not in this
+     * repository, so whether production is keyed stays the owner's to answer -- this gate is what
+     * makes the unanswered half harmless rather than unknown.
+     */
+    public function test_an_unkeyed_tracker_posts_nothing_at_all(): void
+    {
+        $this->bindRequest(HttpRequest::create('/x', 'GET'));
+        config(['larabug.login_key' => '', 'larabug.project_key' => '']);
+
+        $result = $this->tracker()->handle(new \LogicException('would have gone out'));
+
+        $this->assertFalse($result, 'An unkeyed tracker still reported.');
+        $this->assertNull($this->reported, 'An unkeyed instance posted the exception to the tracker.');
+    }
+
+    /** Either key alone is not an account: both must be present. */
+    public function test_half_a_configuration_is_not_a_configuration(): void
+    {
+        $this->bindRequest(HttpRequest::create('/x', 'GET'));
+
+        foreach ([['FIXTURE-LB-KEY', ''], ['', 'FIXTURE-LB-PROJECT'], ['   ', '   ']] as [$login, $project]) {
+            $this->reported = null;
+            config(['larabug.login_key' => $login, 'larabug.project_key' => $project]);
+
+            $this->assertFalse($this->tracker()->handle(new \LogicException('x')),
+                "login_key='{$login}' project_key='{$project}' was treated as a configured account.");
+            $this->assertNull($this->reported);
+        }
+    }
+
+    /**
+     * And the payload a KEYED instance posts really does carry the source lines -- the premise for
+     * the two above. Without this, "nothing is posted" could be true because nothing interesting
+     * was ever in the payload.
+     */
+    public function test_a_keyed_instance_posts_the_source_lines_which_is_why_the_gate_matters(): void
+    {
+        $this->bindRequest(HttpRequest::create('/x', 'GET'));
+
+        $this->tracker()->handle(new \LogicException('keyed'));
+
+        $this->assertNotNull($this->reported);
+        $this->assertNotEmpty($this->reported['exception']['executor'] ?? [],
+            'The payload carries no source lines, so this test file\'s premise for the key gate is wrong.');
+        $this->assertStringContainsString('LaraBugPayloadTest.php', (string) ($this->reported['exception']['file'] ?? ''));
     }
 
     /** Positive control for the two above: an ordinary PHP exception report still goes out through the same instance. */

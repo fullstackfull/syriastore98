@@ -684,11 +684,6 @@ public function handlePaymeraCallback(Request $request, string $orderId)
          * مهم جدًا:
          * نعيد Response الخاصة بإنشاء الطلب مباشرة.
          */
-        $response = $this->getProductStatus(
-            $request,
-            $pending['slug']
-        );
-
         /*
          * P1-ORD-13 criterion 3. WHICH ORDER DID THIS CALLBACK JUST CREATE?
          *
@@ -697,14 +692,20 @@ public function handlePaymeraCallback(Request $request, string $orderId)
          * concurrent Paymera payments in one store each record the OTHER buyer's number, and the
          * record is what the replay branch above hands back.
          *
-         * `getProductStatus()` above ends at the order writer, which records the order's primary
-         * key against THIS session (OrderCompleteBinding::remember). So the answer is exact and
-         * comes from the same request rather than from a global ordering. The store and payment
-         * type are still checked, as defence in depth and so that a stale binding from an earlier
-         * checkout in the same session cannot be mistaken for this one.
+         * `getProductStatus()` ends at the order writer, which records the order's primary key
+         * against THIS session (OrderCompleteBinding::remember), so the answer comes from this very
+         * request rather than from a global ordering. The buyer's browser IS the caller here, so
+         * the binding stays -- that is what makes their own thank-you page resolvable. The store
+         * and payment type are still checked as defence in depth.
+         *
+         * `orderWrittenBy()` rather than `end(bound())`: the review of the first cut showed that
+         * `end()` names an EARLIER order of the same session when the writer creates nothing, which
+         * writes the wrong order into the pending record. The before/after difference cannot.
          */
-        $createdId = \App\Services\OrderCompleteBinding::bound();
-        $createdId = $createdId === [] ? null : end($createdId);
+        $response = null;
+        $createdId = $this->orderWrittenBy(function () use (&$response, $request, $pending) {
+            $response = $this->getProductStatus($request, $pending['slug']);
+        }, true);
 
         $latestOrder = $createdId === null ? null : Order::where('id', $createdId)
             ->where('store_id', $requestData['store_id'] ?? null)
@@ -918,6 +919,58 @@ public function handlePaymeraCallback_backup($orderId)
 
 
 
+/**
+ * Run the order writer and name the order it created -- for a caller who may not be the buyer.
+ *
+ * P1-ORD-13 FOLLOW-UP (tenant-authz review, B1/N2/N4). Two separate defects, one cause.
+ *
+ * (a) WHO HOLDS THE BINDING. `OrderCompleteBinding::remember()` lives inside the shared order
+ *     writer (`getProductStatus()`), and `remember()` writes through the `session()` helper, which
+ *     resolves THE CURRENT HTTP REQUEST'S session -- not the synthetic `Request::create(...)` the
+ *     trigger hands the writer. The Paymera trigger
+ *     (`POST /store/paymera/trigger/{orderId}`, routes/web.php:514) is ANONYMOUS and CSRF-exempt
+ *     (bootstrap/app.php:373); it is a server-to-server URL given to the gateway at initiation. So
+ *     an anonymous caller who POSTs it with a live `paymera_<uniqid>` reference -- a value that is
+ *     in the buyer's history, the access log and any Referer, which is the threat model the replay
+ *     refusal above is written against -- had the VICTIM'S order bound into THEIR OWN session, and
+ *     could then read the number and the minted `/order/<encrypted>` link off the thank-you page
+ *     with no query string at all. A machine caller is not a buyer and must keep no binding.
+ *
+ * (b) WHICH ORDER. `end(bound())` is "the most recently first-seen id in this session", which is
+ *     the new order only when a new order was written. If the writer returns without creating one
+ *     (its own failure arm), `end()` is an EARLIER order from the same session's earlier checkout,
+ *     the store and payment-type checks both pass, and the pending record is written naming the
+ *     wrong order -- so the buyer's replay shows a previous order as this payment's confirmation.
+ *     The difference between the list before and after the write answers both exactly.
+ *
+ * `$sessionPlacedIt` is false for a machine caller: the list is restored to what it was, so the
+ * writer's binding is used to identify the order and then dropped. `request_data` is restored with
+ * it, because the trigger puts the BUYER'S cart and billing details into the caller's session a few
+ * lines above for the writer to read.
+ */
+private function orderWrittenBy(callable $write, bool $sessionPlacedIt): ?int
+{
+    $before = \App\Services\OrderCompleteBinding::bound();
+    $hadRequestData = \Illuminate\Support\Facades\Session::exists('request_data');
+    $requestDataBefore = \Illuminate\Support\Facades\Session::get('request_data');
+
+    $write();
+
+    $created = array_values(array_diff(\App\Services\OrderCompleteBinding::bound(), $before));
+
+    if (! $sessionPlacedIt) {
+        session()->put(\App\Services\OrderCompleteBinding::SESSION_KEY, $before);
+
+        if ($hadRequestData) {
+            \Illuminate\Support\Facades\Session::put('request_data', $requestDataBefore);
+        } else {
+            \Illuminate\Support\Facades\Session::forget('request_data');
+        }
+    }
+
+    return $created === [] ? null : (int) end($created);
+}
+
 public function handlePaymeraTrigger($orderId)
 {
     $pending = Cache::get('paymera_pending_' . $orderId);
@@ -994,13 +1047,32 @@ public function handlePaymeraTrigger($orderId)
 
                 Session::put('request_data', $pending['request_data']);
                 $freshRequest = Request::create('/', 'POST', $pending['request_data']);
-                $this->getProductStatus($freshRequest, $pending['slug']);
+
+                /*
+                 * P1-ORD-13 FOLLOW-UP. This caller is the GATEWAY, not the buyer: the route is
+                 * anonymous and CSRF-exempt. The writer's session binding identifies the order it
+                 * created and is then dropped, so an anonymous POST cannot acquire a stranger's
+                 * order; and the order is named from the before/after difference rather than from
+                 * "the latest paymera order in this store", which recorded the OTHER buyer's order
+                 * whenever two Paymera payments ran at once in one store. See orderWrittenBy().
+                 */
+                $createdId = $this->orderWrittenBy(
+                    fn () => $this->getProductStatus($freshRequest, $pending['slug']),
+                    false
+                );
 
                 // Close the double-processing window the callback relies on.
-                $latestOrder = Order::where('store_id', $pending['request_data']['store_id'] ?? null)
+                $latestOrder = $createdId === null ? null : Order::where('id', $createdId)
+                    ->where('store_id', $pending['request_data']['store_id'] ?? null)
                     ->where('payment_type', 'paymera')
-                    ->latest('id')
                     ->first();
+
+                if ($latestOrder === null) {
+                    \Log::warning('Paymera trigger could not identify the order it created; the pending record names none', [
+                        'paymera_reference' => $orderId,
+                        'store_id' => $pending['request_data']['store_id'] ?? null,
+                    ]);
+                }
 
                 $pending['processed'] = true;
                 $pending['order_id'] = $latestOrder?->id;

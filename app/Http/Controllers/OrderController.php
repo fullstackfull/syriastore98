@@ -718,7 +718,15 @@ public function store(Request $request)
                 ->where('store_id', $store->id)
                 ->first();
         } elseif ($khalti && is_scalar($khalti)) {
-            $order = $this->soleStoreOrderByNumber($store, $khalti);
+            /*
+             * Same precedence as the flashed limb above, for the same reason: `khalti_order_id` is a
+             * NUMBER two same-second orders in one store share. Khalti now binds the primary key as
+             * well (KhaltiPaymnetController), so the collision resolves per buyer; the number lookup
+             * stays as the fallback for a session placed before that, and still refuses an ambiguous
+             * number rather than guessing.
+             */
+            $order = $boundHere->firstWhere('product_order_id', (string) $khalti)
+                ?? $this->soleStoreOrderByNumber($store, $khalti);
         }
 
         if (isset($order) && !empty($order)) {

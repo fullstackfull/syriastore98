@@ -23,12 +23,28 @@ namespace App\Services;
  * it.
  *
  * WHY A SESSION LIST AND NOT A SIGNED TOKEN. `APP_KEY` is in this repository's git history and
- * unrotated (CLAUDE.md), so `Crypt::encrypt($id)` is an encoding rather than a control and a
- * forged token would be accepted. A session id is random, server-held and not derivable from the
- * key, so an attacker cannot mint one. This is the mechanism P1-ORD-08 already introduced for the
- * WhatsApp/Telegram redirect (PaymentController::whatsapp); P1-ORD-13 lifts it out of that one
- * handler so every gateway return can use it, and so there is one definition of "this session
- * placed that order" rather than ten copies.
+ * unrotated (CLAUDE.md), so `Crypt::encrypt($id)` is an encoding rather than a control: a forged
+ * token would be accepted, and forging one needs only the leaked key. The session's PAYLOAD is
+ * server-held and is not derivable from the key, so an attacker cannot mint a session that already
+ * holds an id. Stated precisely, because the first draft of this comment overclaimed: the session
+ * ID itself travels in a cookie encrypted with that same leaked key, so an attacker CAN mint a
+ * valid cookie naming an id of their choosing -- it just yields an EMPTY session. Using it needs
+ * the victim's browser to adopt that id (XSS, a sibling subdomain, plaintext HTTP), which is the
+ * generic session-fixation precondition and not something this mechanism introduces. The control
+ * rests on the payload, not on the id.
+ *
+ * This is the mechanism P1-ORD-08 already introduced for the WhatsApp/Telegram redirect
+ * (PaymentController::whatsapp); P1-ORD-13 lifts it out of that one handler so every gateway return
+ * can use it, and so there is one definition of "this session placed that order" rather than ten
+ * copies.
+ *
+ * WHAT THE LIST IS NOT. It is not proof of identity beyond "whoever holds this session cookie". Two
+ * consequences, both recorded on the task rather than fixed here: with nothing flashed, the
+ * thank-you page becomes a re-readable view of the session's most recent order in that store for the
+ * session's life (120 min idle), so on a shared browser the next person reads the previous buyer's
+ * order number and minted link; and `remember()` must never be reached by a caller who is not the
+ * buyer -- see PaymentController::orderWrittenBy(), which is what keeps the anonymous Paymera
+ * trigger from acquiring one.
  *
  * THE CAP IS DELIBERATE. A long-lived session must not grow an unbounded list, and a buyer only
  * ever needs the orders they placed recently -- the thank-you page is read once, immediately after

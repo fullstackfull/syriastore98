@@ -34,6 +34,16 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
         // Append middleware to the 'web' group
         $middleware->appendToGroup('web', \App\Http\Middleware\SetLocate::class);
+        // P1-SEC-16, acceptance 2. `withInput()` with no argument flashes the WHOLE request body into
+        // `_old_input`, and session encryption is off with the database driver, so a credential the form
+        // posted sits in `sessions.payload` in plaintext. Four host-app sites were changed to
+        // `withInput($request->except([...]))`; the census found five more, ALL of them in
+        // packages/workdo/ -- EMailBox's mailbox-settings save flashes `emailbox_mail_password` on its
+        // catch branch -- which is vendored and cannot be edited. Appended to the group so that on the
+        // RESPONSE leg it runs before StartSession writes the payload (StartSession::saveSession is called
+        // after $next inside handle(), and a group member appended last unwinds first), and so no module's
+        // later route declaration can take the slot. Inert unless the session holds `_old_input`.
+        $middleware->appendToGroup('web', \App\Http\Middleware\FlashedCredentialScrubber::class);
         // NEW-BULKDELETE-01. The addon route
         // packages/workdo/BulkDelete/src/routes/web.php:17-18 is gated only by `auth` +
         // PlanModuleCheck, and its controller deletes by bare id over 61 models with no tenant
