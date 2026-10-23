@@ -4048,10 +4048,18 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                             $api = new ApiController();
                             // $slug was omitted, so the nested call resolved no store. Its three
                             // sibling call sites all pass it, and the merge above shows the intent.
-                            // NOT verified end to end: apply_coupon cannot be reached in the test
+                            //
+                            // CORRECTED 2026-10-23 (P1-ORD-01). This note used to end: "NOT
+                            // verified end to end: apply_coupon cannot be reached in the test
                             // environment at all, because the coupon lookup uses the MySQL-only
-                            // `BINARY` keyword, which SQLite rejects outright -- see the note in
-                            // docs/security/P01-SECURITY-WORK-QUEUE.md S19.
+                            // `BINARY` keyword, which SQLite rejects outright". THAT IS NO LONGER
+                            // TRUE, and leaving it was costly: P01-SEC-14 C4 replaced the lookup
+                            // with the portable `Coupon::findByExactCode` (see :3979-3982), so
+                            // apply_coupon IS reachable from the suite. A stale note saying a path
+                            // cannot be tested discourages exactly the testing that finds what is
+                            // wrong with it -- driving this endpoint is how the three fatals in
+                            // place_order and the two coupon-refusal causes were measured.
+                            // tests/Feature/Commerce/OrderTotalCouponTest.php now drives it.
                             $data = $api->cart_list($request, $slug);
                             $response = $data->getData();
                         }

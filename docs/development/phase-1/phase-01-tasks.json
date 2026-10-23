@@ -390,6 +390,7 @@
       "status": "BACKLOG",
       "issue": 20,
       "scope": [
+        "app/Models/Utility.php",
         "app/Http/Controllers/Api/ApiController.php",
         "app/Models/Cart.php",
         "app/Services/OrderTotalReconciler.php"
@@ -399,19 +400,23 @@
         "P1-ORD-02"
       ],
       "acceptance": [
-        "A coupon reduces the charged total on every writer that prints it",
-        "apply_coupon honours all coupon types it claims to support",
-        "final_sub_total is overwritten with the server's figure wherever sub_total already is",
-        "No writer charges full price while printing a discount"
+        "NOT DONE: a coupon reduces the charged total on every writer that prints it -- apply_coupon still REFUSES the coupon outright, so there is no discount to carry into the total yet",
+        "NOT DONE: apply_coupon honours all coupon types it claims to support",
+        "NOT DONE: final_sub_total is overwritten with the server's figure wherever sub_total already is",
+        "NOT DONE: no writer charges full price while printing a discount",
+        "DONE, and it is what made the above measurable at all: api/{slug}/place-order no longer 500s. Three fatals fixed -- a null-store dereference in Utility::paymentWebhook that fired on EVERY order, and two unimported models that made the coupon branch fatal twice over",
+        "DONE: the coupon refusal is MEASURED and reproduced rather than described, with the two distinct causes named",
+        "DONE: the stored order reconciles against its own components through the existing OrderTotalReconciler, asserted on every order place_order writes"
       ],
       "tests": [
-        "Positive: each coupon type reduces the charged total by the stated amount",
-        "Negative: a caller-supplied sub_total or final_sub_total cannot change the charge",
-        "Regression: place_order and ordersave agree on the same basket"
+        "tests/Feature/Commerce/OrderTotalCouponTest.php -- 6 tests / 18 assertions, new. Covers the three crashes, the reconciliation property, and the coupon refusal pinned as KNOWN-BAD",
+        "Two mutants, both bite: reverting paymentWebhook to the session-derived store fails 5 tests; dropping the two model imports fails 2",
+        "Blast radius 951 passed / 13 skipped across Commerce plus the storefront-order, payment-sheet, cart and tenancy suites",
+        "STILL OWED when the coupon arithmetic is fixed: a positive test per coupon type, a negative proving a caller-supplied sub_total or final_sub_total cannot change the charge, and a regression proving place_order and ordersave agree on one basket"
       ],
-      "compatibility": "CHANGES CHARGED AMOUNTS. Needs the owner's explicit acceptance of the behaviour change before it ships.",
+      "compatibility": "CHANGES CHARGED AMOUNTS once the coupon arithmetic lands -- unchanged, and still needs the owner to accept that before it ships. What SHIPPED here changes no charged amount: it stops the endpoint crashing after it has already written the order. A client that previously saw a 500 on a successful order now sees the success, which removes a retry-duplication hazard rather than creating one.",
       "db": "None.",
-      "evidence": "S21 (four measured defects), S24",
+      "evidence": "PARTIAL 2026-10-23, commit 1d5d4eed, CI green on all 9 checks. STATUS DELIBERATELY LEFT BACKLOG: three fatals are fixed, the coupon arithmetic is not. HOW IT STARTED: writing a test for the stored total found that api/{slug}/place-order NEVER RETURNS 200 -- every assertion about a total was unreachable behind a 500. THREE FATALS, ALL ON THE SAME REQUEST, EACH MEASURED. (1) Utility::paymentWebhook() opened with Store::find(getCurrentStore())->id and no null check. getCurrentStore() resolves through auth()->user() -- the WEB guard (helper.php:398) -- while a storefront shopper is authenticated by a Sanctum token that custom.auth logs into the CUSTOMERS guard. auth()->user() is null, getCurrentStore() falls off the end returning null, Store::find(null) is null, ->id is fatal. There is NO storefront request on which that resolver can succeed, so it fired on every order. (2) OrderCouponDetail was missing from ApiController's use App\\Models{...} list while place_order does new OrderCouponDetail() (:3755) -- unimported it resolves to App\\Http\\Controllers\\Api\\OrderCouponDetail, which does not exist. (3) UserCoupon likewise thirteen lines later (:3768), the next statement in the same branch, so the coupon branch was fatal twice over. THE ORDER IS ALREADY WRITTEN WHEN ALL THREE FIRE, which is what makes them worse than a 500: the row exists with correct totals, the caller is told the request failed, and a client that retries places the order twice -- for COD, two deliveries. Measured directly (status=500 order_written=YES final_price=200). CORROBORATION for (1): grep -rn paymentWebhook app/ finds TEN call sites and NINE are commented out (PaymentService, PaymentController x2, AuthorizeNet, PayU, NMI, Khalti, Easebuzz, PaiementPro, CinetPay); only place_order's was live. The crash was worked around by disabling callers and this one was missed. THE FIX derives the store from $order->store_id rather than an ambient session -- the right answer independently of the crash, and the same derive-from-the-subject rule the tenancy work applies everywhere; getCurrentStore() remains only as a fallback and an unresolvable store returns without calling anything. THE COUPON REFUSAL, NOW MEASURED AND SHARPER THAN THIS ROW'S ORIGINAL DESCRIPTION. Driving api/{slug}/apply-coupon with a flat coupon on a 200.00 basket: with coupon_limit = 0 -- THE MIGRATION'S OWN DEFAULT (create_coupons_table.php:27) -- it answers 'This coupon has expired.', because the expiry query is whereDate(expiry >= today)->where('coupon_limit','>',$uses) and with no uses that is 0 > 0, false. With coupon_limit = 10 and minimum_spend = null it answers ' The minimum spend for this coupon is $0,00.': there are TWO minimum/maximum-spend gate pairs in apply_coupon, the one at :4021-4022 correctly null-tolerant (|| minimum_spend == null) and a second whose else arms at :4310/:4313 are NOT, so an unset optional threshold becomes a blocking condition. Both are the same shape -- an optional constraint left unset treated as a failing one. NOT FIXED, DELIBERATELY: correcting it is the order-calculation change two previous packages explicitly declined to start (ApiController:3323-3357), inside a ~700-line method with two parallel gate structures, and a half-finished rewrite of a money method is worse than the defect. PINNED AS KNOWN-BAD instead, the same idiom MerchantCategoryOwnershipTest used for the FK cascade before D13 answered it, so the fix will fail the test and name this task. A VACUOUS TEST OF MY OWN, caught before commit: the reconciliation test never asserted the response status, so it was reconciling a row written moments before a 500 with no coupon applied -- it would have passed against entirely broken code. Premise added. TWO LINE-NUMBER CENSUSES RENUMBERED, NOT WEAKENED: the docblock added to paymentWebhook shifted everything below it by 56 lines, and EloquentScopeBypassInventoryTest and ResidualTenancyExposureTest both pin Utility.php sites BY LINE. Each entry was verified to point at the same construct (City/State/Country::truncate and the FOREIGN_KEY_CHECKS statements around them); nothing added or removed. A census keyed on line numbers moves whenever a comment does, which is why the D13 store-less declaration keys on a statement fragment instead. TWO DEFECTS RECORDED, NOT FIXED, because neither is this task's: place_order writes the posted billing_state and billing_country NAMES into cities.state_id and cities.country_id, which are foreign keys -- SQLite refuses, MySQL's non-strict connection would coerce both to 0 and store a city in country 0, state 0; and the comment at ApiController:4048 still claims apply_coupon 'cannot be reached in the test environment at all' because of a MySQL-only BINARY keyword, which P01-SEC-14 C4 fixed (Coupon::findByExactCode is portable) -- a stale note that actively discourages the testing which found everything above. VERIFICATION: OrderTotalCouponTest 6/18; blast radius 951 passed / 13 skipped; Unit 351; Contract 26; two mutants, both bite. CI green on 1d5d4eed, all 9 checks.",
       "queue_refs": [
         "S21",
         "S24"
@@ -3868,6 +3873,39 @@
       "blocked_on": "",
       "depends_on": [],
       "issue": 116
+    },
+    {
+      "id": "P1-ORD-15",
+      "title": "place_order writes the posted state and country NAMES into cities.state_id and cities.country_id, which are foreign keys",
+      "workstream": "orders",
+      "risk": "medium",
+      "status": "READY",
+      "issue": 118,
+      "scope": [
+        "app/Http/Controllers/Api/ApiController.php",
+        "app/Services/PaymentService.php",
+        "app/Http/Controllers/AuthorizeNetPaymnetController.php"
+      ],
+      "existing_status": "FOUND 2026-10-23 while building the P1-ORD-01 total tests, and measured rather than read. `place_order` looks a city up BY NAME and, not finding it, inserts one: `$new_billing_city->state_id = $billing['billing_state']` and `->country_id = $billing['billing_country']` (ApiController:3700-3706, and the delivery twin at :3711-3721). Those request fields are NAMES -- the same block reads `billing_city` as a name one line above -- while `cities.state_id` and `cities.country_id` are FOREIGN KEYS. MEASURED on SQLite: the insert is refused outright, 'SQLSTATE[23000] FOREIGN KEY constraint failed', and `place_order` 500s AFTER writing the order. On MySQL's non-strict connection (config/database.php:55, the production setting) the same insert COERCES both names to 0 and succeeds, storing a city that belongs to country 0 and state 0 -- so production does not crash, it accumulates junk geography that no country or state row backs. This is the P1-INV-01/S37-1 pattern again, in the other direction: the engine difference hides it in the suite and lands it in production. THE SAME THREE-LINE SHAPE APPEARS AT TWO MORE SITES, both on gateway return paths: PaymentService:2734 and :2749, and AuthorizeNetPaymnetController:928 and :943. A fourth, ApiController:8753, was not read. NOT the same defect as P1-ORD-01 and deliberately not fixed with it: the question here is what the client is supposed to POST -- ids or names -- which is an API-contract decision touching repo B, not an arithmetic one.",
+      "acceptance": [
+        "What the client actually sends for billing_state / billing_country is established from repo B (StoreSyria_app98) rather than assumed -- ids and names need different fixes",
+        "If names: the insert resolves them to ids, or refuses, instead of writing a name into a foreign-key column",
+        "If ids: the city LOOKUP (currently by name) is made consistent with them",
+        "The same correction is applied to the sibling sites in PaymentService and AuthorizeNetPaymnetController, or each is explicitly excluded with a reason",
+        "Existing rows written with country_id = 0 / state_id = 0 are counted on the live database (read-only) so the owner can decide whether they need repair"
+      ],
+      "tests": [
+        "A place-order drive with a city name that does NOT already exist, asserting no foreign-key violation and no zero-valued geography",
+        "The same on real MySQL via tests/Support/Security/bin/, because the engines disagree: SQLite refuses the insert and MySQL coerces it",
+        "Removal check on whichever resolution is chosen"
+      ],
+      "compatibility": "Touches what the storefront API accepts for three billing fields, so it is an API-contract change and needs repo B checked before it ships. Behaviour for an EXISTING city name is unchanged -- that path takes the lookup branch and never reaches the insert.",
+      "db": "NO SCHEMA CHANGE. Possibly a data question: how many cities rows already carry country_id = 0 or state_id = 0. Read-only, and listed as an acceptance criterion rather than a migration.",
+      "evidence": "",
+      "queue_refs": [],
+      "owner_decision": false,
+      "blocked_on": "",
+      "depends_on": []
     }
   ]
 }
