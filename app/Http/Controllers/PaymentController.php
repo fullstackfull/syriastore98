@@ -1349,9 +1349,17 @@ public function handlePaymeraTrigger00($orderId)
         $address->full_name = $billing['firstname'] ?? null;
         $address->title = isset($billing['firstname']) ? strtolower($billing['firstname']) : null;
         $address->address = $billing['billing_address'] ?? null;
-        $address->country_id = $billing['billing_country'] ?? null;
-        $address->state_id = $billing['billing_state'] ?? null;
-        $address->city_id = $billing['billing_city'] ?? null;
+        // P1-ORD-15: delivery_addresses.country_id / state_id / city_id are foreign keys, and
+        // these three took request input verbatim -- so a caller posting NAMES made this write a
+        // foreign-key violation mid-checkout, on the registration path. Resolved, never created.
+        $addressGeography = \App\Services\BillingGeography::resolveIds(
+            $billing['billing_city'] ?? null,
+            $billing['billing_state'] ?? null,
+            $billing['billing_country'] ?? null
+        );
+        $address->country_id = $addressGeography['country_id'];
+        $address->state_id = $addressGeography['state_id'];
+        $address->city_id = $addressGeography['city_id'];
         $address->postcode = $billing['billing_postecode'] ?? null;
         $address->phone = $billing['billing_user_telephone'] ?? null;
         $address->default_address = 1;
@@ -2563,35 +2571,21 @@ public function handlePaymeraTrigger00($orderId)
             }
             // Utility::paymentWebhook($order);
 
-            $billing_city_id = $billing['billing_city'] ?? 0;
-            if (!empty($billing['billing_city'])) {
-                $cityy = City::where('id', $billing['billing_city'])->first();
-                if (!empty($cityy)) {
-                    $billing_city_id = $cityy->id;
-                } else {
-                    $new_billing_city = new City();
-                    $new_billing_city->name = $billing['billing_city'];
-                    $new_billing_city->state_id = $billing['billing_state'];
-                    $new_billing_city->country_id = $billing['billing_country'];
-                    $new_billing_city->save();
-                    $billing_city_id = $new_billing_city->id;
-                }
-            }
+            // P1-ORD-15: the posted values are IDS and this looked the city up by NAME. One resolver,
+            // which also keeps a posted NAME out of cities.state_id / country_id (foreign keys).
+            $billing_city_id = \App\Services\BillingGeography::resolveCityId(
+                $billing['billing_city'] ?? null,
+                $billing['billing_state'] ?? null,
+                $billing['billing_country'] ?? null
+            );
 
-            $delivery_city_id = $billing['delivery_city'] ?? 0;
-            if (!empty($billing['delivery_city'])) {
-                $d_cityy = City::where('id', $billing['delivery_city'])->first();
-                if (!empty($d_cityy)) {
-                    $delivery_city_id = $d_cityy->id;
-                } else {
-                    $new_delivery_city = new City();
-                    $new_delivery_city->name = $billing['delivery_city'];
-                    $new_delivery_city->state_id = $billing['delivery_state'];
-                    $new_delivery_city->country_id = $billing['delivery_country'];
-                    $new_delivery_city->save();
-                    $delivery_city_id = $new_delivery_city->id;
-                }
-            }
+            // P1-ORD-15: the posted values are IDS and this looked the city up by NAME. One resolver,
+            // which also keeps a posted NAME out of cities.state_id / country_id (foreign keys).
+            $delivery_city_id = \App\Services\BillingGeography::resolveCityId(
+                $billing['delivery_city'] ?? null,
+                $billing['delivery_state'] ?? null,
+                $billing['delivery_country'] ?? null
+            );
 
             $OrderBillingDetail = new OrderBillingDetail();
             $OrderBillingDetail->order_id = $order->id;
@@ -3896,35 +3890,21 @@ $result = app(\App\Services\StoreNotificationService::class)
         }
         // Utility::paymentWebhook($order);
 
-        $billing_city_id = 0;
-        if (!empty($billing['billing_city'])) {
-            $cityy = City::where('name', $billing['billing_city'])->first();
-            if (!empty($cityy)) {
-                $billing_city_id = $cityy->id;
-            } else {
-                $new_billing_city = new City();
-                $new_billing_city->name = $billing['billing_city'];
-                $new_billing_city->state_id = $billing['billing_state'];
-                $new_billing_city->country_id = $billing['billing_country'];
-                $new_billing_city->save();
-                $billing_city_id = $new_billing_city->id;
-            }
-        }
+        // P1-ORD-15: the posted values are IDS and this looked the city up by NAME. One resolver,
+        // which also keeps a posted NAME out of cities.state_id / country_id (foreign keys).
+        $billing_city_id = \App\Services\BillingGeography::resolveCityId(
+            $billing['billing_city'] ?? null,
+            $billing['billing_state'] ?? null,
+            $billing['billing_country'] ?? null
+        );
 
-        $delivery_city_id = 0;
-        if (!empty($billing['delivery_city'])) {
-            $d_cityy = City::where('name', $billing['delivery_city'])->first();
-            if (!empty($d_cityy)) {
-                $delivery_city_id = $d_cityy->id;
-            } else {
-                $new_delivery_city = new City();
-                $new_delivery_city->name = $billing['delivery_city'];
-                $new_delivery_city->state_id = $billing['delivery_state'];
-                $new_delivery_city->country_id = $billing['delivery_country'];
-                $new_delivery_city->save();
-                $delivery_city_id = $new_delivery_city->id;
-            }
-        }
+        // P1-ORD-15: the posted values are IDS and this looked the city up by NAME. One resolver,
+        // which also keeps a posted NAME out of cities.state_id / country_id (foreign keys).
+        $delivery_city_id = \App\Services\BillingGeography::resolveCityId(
+            $billing['delivery_city'] ?? null,
+            $billing['delivery_state'] ?? null,
+            $billing['delivery_country'] ?? null
+        );
         event(new AddAdditionalFields($order, $request->all(), $store));
         $OrderBillingDetail = new OrderBillingDetail();
         $OrderBillingDetail->order_id = $order->id;

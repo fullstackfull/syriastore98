@@ -3696,35 +3696,29 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         // add in  Order table end
 
         // add in  Order Billing Detail table start
-        $billing_city_id = 0;
-        if (!empty($billing['billing_city'])) {
-            $cityy = City::where('name', $billing['billing_city'])->first();
-            if (!empty($cityy)) {
-                $billing_city_id = $cityy->id;
-            } else {
-                $new_billing_city = new City();
-                $new_billing_city->name = $billing['billing_city'];
-                $new_billing_city->state_id = $billing['billing_state'];
-                $new_billing_city->country_id = $billing['billing_country'];
-                $new_billing_city->save();
-                $billing_city_id = $new_billing_city->id;
-            }
-        }
+        // P1-ORD-15: the posted values are IDS and this looked the city up by NAME, so every
+        // order inserted a city named after an id. The state and country ids are kept too: the
+        // order_billing_details columns below are joined to cities.id / states.id / countries.id
+        // and the shipped admin app renders them through those relations, so a posted NAME stored
+        // there displays as an empty field.
+        $billingGeography = \App\Services\BillingGeography::resolveBilling(
+            $billing['billing_city'] ?? null,
+            $billing['billing_state'] ?? null,
+            $billing['billing_country'] ?? null
+        );
+        $billing_city_id = $billingGeography['city_id'];
 
-        $delivery_city_id = 0;
-        if (!empty($billing['delivery_city'])) {
-            $d_cityy = City::where('name', $billing['delivery_city'])->first();
-            if (!empty($d_cityy)) {
-                $delivery_city_id = $d_cityy->id;
-            } else {
-                $new_delivery_city = new City();
-                $new_delivery_city->name = $billing['delivery_city'];
-                $new_delivery_city->state_id = $billing['delivery_state'];
-                $new_delivery_city->country_id = $billing['delivery_country'];
-                $new_delivery_city->save();
-                $delivery_city_id = $new_delivery_city->id;
-            }
-        }
+        // P1-ORD-15: the posted values are IDS and this looked the city up by NAME, so every
+        // order inserted a city named after an id. The state and country ids are kept too: the
+        // order_billing_details columns below are joined to cities.id / states.id / countries.id
+        // and the shipped admin app renders them through those relations, so a posted NAME stored
+        // there displays as an empty field.
+        $deliveryGeography = \App\Services\BillingGeography::resolveBilling(
+            $billing['delivery_city'] ?? null,
+            $billing['delivery_state'] ?? null,
+            $billing['delivery_country'] ?? null
+        );
+        $delivery_city_id = $deliveryGeography['city_id'];
         if (is_string($request->billing_info)) {
             $other_info = json_decode($request->billing_info);
         } else {
@@ -3740,14 +3734,19 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $OrderBillingDetail->telephone = $other_info->billing_user_telephone;
         $OrderBillingDetail->address = $other_info->billing_address;
         $OrderBillingDetail->postcode = $other_info->billing_postecode;
-        $OrderBillingDetail->country = $other_info->billing_country;
-        $OrderBillingDetail->state = $other_info->billing_state;
-        $OrderBillingDetail->city = $other_info->billing_city;
+        // P1-ORD-15: the RESOLVED ids. This handler already resolved the city above and then
+        // DISCARDED it, writing the raw posted value into all six of these columns -- which are
+        // strings joined to countries.id / states.id / cities.id by OrderBillingDetail's relations
+        // and rendered through them by Order::order_detail(), the payload /api/admin/vieworder
+        // serves to the shipped admin app. A posted name therefore displayed as an empty field.
+        $OrderBillingDetail->country = $billingGeography['country_id'];
+        $OrderBillingDetail->state = $billingGeography['state_id'];
+        $OrderBillingDetail->city = $billing_city_id;
         $OrderBillingDetail->delivery_address = $other_info->delivery_address;
-        $OrderBillingDetail->delivery_city = $other_info->delivery_city;
+        $OrderBillingDetail->delivery_city = $delivery_city_id;
         $OrderBillingDetail->delivery_postcode = $other_info->delivery_postcode;
-        $OrderBillingDetail->delivery_country = $other_info->delivery_country;
-        $OrderBillingDetail->delivery_state = $other_info->delivery_state;
+        $OrderBillingDetail->delivery_country = $deliveryGeography['country_id'];
+        $OrderBillingDetail->delivery_state = $deliveryGeography['state_id'];
         $OrderBillingDetail->save();
         // add in Order Billing Detail table end
 
@@ -8756,36 +8755,29 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $order->additional_note = !empty($request->additional_note) ? $request->additional_note : '-';
         $order->store_id = $store->id;
         $order->save();
-        $billing_city_id = 0;
-        if (!empty($billing['billing_city'])) {
-            $cityy = City::where('name', $billing['billing_city'])->first();
+        // P1-ORD-15: the posted values are IDS and this looked the city up by NAME, so every
+        // order inserted a city named after an id. The state and country ids are kept too: the
+        // order_billing_details columns below are joined to cities.id / states.id / countries.id
+        // and the shipped admin app renders them through those relations, so a posted NAME stored
+        // there displays as an empty field.
+        $billingGeography = \App\Services\BillingGeography::resolveBilling(
+            $billing['billing_city'] ?? null,
+            $billing['billing_state'] ?? null,
+            $billing['billing_country'] ?? null
+        );
+        $billing_city_id = $billingGeography['city_id'];
 
-            if (!empty($cityy)) {
-                $billing_city_id = $cityy->id;
-            } else {
-                $new_billing_city = new City();
-                $new_billing_city->name = $billing['billing_city'];
-                $new_billing_city->state_id = $billing['billing_state'];
-                $new_billing_city->country_id = $billing['billing_country'];
-                $new_billing_city->save();
-                $billing_city_id = $new_billing_city->id;
-            }
-        }
-
-        $delivery_city_id = 0;
-        if (!empty($billing['delivery_city'])) {
-            $d_cityy = City::where('name', $billing['delivery_city'])->first();
-            if (!empty($d_cityy)) {
-                $delivery_city_id = $d_cityy->id;
-            } else {
-                $new_delivery_city = new City();
-                $new_delivery_city->name = $billing['delivery_city'];
-                $new_delivery_city->state_id = $billing['delivery_state'];
-                $new_delivery_city->country_id = $billing['delivery_country'];
-                $new_delivery_city->save();
-                $delivery_city_id = $new_delivery_city->id;
-            }
-        }
+        // P1-ORD-15: the posted values are IDS and this looked the city up by NAME, so every
+        // order inserted a city named after an id. The state and country ids are kept too: the
+        // order_billing_details columns below are joined to cities.id / states.id / countries.id
+        // and the shipped admin app renders them through those relations, so a posted NAME stored
+        // there displays as an empty field.
+        $deliveryGeography = \App\Services\BillingGeography::resolveBilling(
+            $billing['delivery_city'] ?? null,
+            $billing['delivery_state'] ?? null,
+            $billing['delivery_country'] ?? null
+        );
+        $delivery_city_id = $deliveryGeography['city_id'];
 
         $OrderBillingDetail = new OrderBillingDetail();
         $OrderBillingDetail->order_id = $order->id;
@@ -8796,15 +8788,16 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $OrderBillingDetail->telephone = !empty($billing['billing_user_telephone']) ? $billing['billing_user_telephone'] : '';
         $OrderBillingDetail->address = !empty($billing['billing_address']) ? $billing['billing_address'] : '';
         $OrderBillingDetail->postcode = !empty($billing['billing_postecode']) ? $billing['billing_postecode'] : '';
-        $OrderBillingDetail->country = !empty($billing['billing_country']) ? $billing['billing_country'] : '';
-        $OrderBillingDetail->state = !empty($billing['billing_state']) ? $billing['billing_state'] : '';
+        // P1-ORD-15: the resolved ids, for the reason given at the resolver call above.
+        $OrderBillingDetail->country = $billingGeography['country_id'];
+        $OrderBillingDetail->state = $billingGeography['state_id'];
         $OrderBillingDetail->city = $billing_city_id;
         
         $OrderBillingDetail->delivery_address = !empty($billing['delivery_address']) ? $billing['delivery_address'] : '';
         $OrderBillingDetail->delivery_city = $delivery_city_id;
         $OrderBillingDetail->delivery_postcode = !empty($billing['delivery_postcode']) ? $billing['delivery_postcode'] : '';
-        $OrderBillingDetail->delivery_country = !empty($billing['delivery_country']) ? $billing['delivery_country'] : '';
-        $OrderBillingDetail->delivery_state = !empty($billing['delivery_state']) ? $billing['delivery_state'] : '';
+        $OrderBillingDetail->delivery_country = $deliveryGeography['country_id'];
+        $OrderBillingDetail->delivery_state = $deliveryGeography['state_id'];
         $OrderBillingDetail->save();
 
         // add in Order Coupon Detail table start

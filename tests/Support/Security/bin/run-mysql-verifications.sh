@@ -250,6 +250,10 @@ run_one verify-gateway-return-claim-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_DATABASE=claim_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
+run_one verify-ord15-billing-geography-on-mysql \
+  "ORD15_MYSQL_SOCKET=${SOCK}" "ORD15_MYSQL_HOST=${HOST}" "ORD15_MYSQL_PORT=${PORT}" \
+  "ORD15_MYSQL_DATABASE=ord15_verify" "ORD15_MYSQL_USERNAME=${USER_NAME}" "ORD15_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

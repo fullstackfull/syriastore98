@@ -207,6 +207,110 @@ if (! missing('orders')) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+//  P1-ORD-15 -- the geography the order writers have already stored.
+// ---------------------------------------------------------------------------------------------
+
+echo "\n" . str_repeat('-', 78) . "\n";
+echo "P1-ORD-15  cities and order_billing_details rows written before the resolver\n\n";
+
+if (! missing('cities')) {
+    $zeroGeography = DB::table('cities')
+        ->where(fn ($q) => $q->where('state_id', 0)->orWhere('country_id', 0))
+        ->count();
+
+    $nullGeography = DB::table('cities')
+        ->where(fn ($q) => $q->whereNull('state_id')->orWhereNull('country_id'))
+        ->count();
+
+    /*
+     * The junk the name-keyed lookup produced: the posted value was a city ID, the lookup was by
+     * NAME, so it never matched and a city whose NAME is that number was inserted per order.
+     *
+     * DRIVER-SPECIFIC, and branched rather than assumed: MySQL has REGEXP and SQLite does not
+     * (it answers "no such function: REGEXP" and, because this script bootstraps the framework,
+     * Laravel's exception handler would RENDER that and exit 0 -- the silent half-run the MySQL
+     * runner's own header warns about). Anything else says so instead of guessing.
+     */
+    $numericNames = null;
+    $driver = $connection->getDriverName();
+
+    try {
+        if ($driver === 'mysql') {
+            $numericNames = (int) DB::table('cities')
+                ->whereRaw("TRIM(COALESCE(name, '')) REGEXP '^[0-9]+$'")
+                ->count();
+        } elseif ($driver === 'sqlite') {
+            $numericNames = (int) DB::table('cities')
+                ->whereRaw("TRIM(COALESCE(name, '')) GLOB '[0-9]*'")
+                ->whereRaw("NOT TRIM(COALESCE(name, '')) GLOB '*[^0-9]*'")
+                ->count();
+        }
+    } catch (\Throwable $e) {
+        $numericNames = null;
+    }
+
+    printf("  cities total                                   : %d\n", DB::table('cities')->count());
+    printf("  cities with state_id = 0 or country_id = 0     : %d\n", $zeroGeography);
+    printf("  cities with state_id NULL or country_id NULL   : %d\n", $nullGeography);
+    printf("  cities whose NAME is entirely digits           : %s\n",
+        $numericNames === null ? "not counted on driver '{$driver}'" : (string) $numericNames);
+
+    if ($zeroGeography > 0) {
+        echo "\n  MEANING (state_id/country_id = 0): a city pointing at country 0 or state 0, which no\n";
+        echo "  countries or states row carries. MEASURED on MySQL 8.0.46 by\n";
+        echo "  verify-ord15-billing-geography-on-mysql.php: this is only producible where the\n";
+        echo "  declared foreign keys are ABSENT -- with them present the insert is refused with\n";
+        echo "  error 1452. So a non-zero count here is also evidence about the live schema.\n";
+        echo "  REPAIR IS AN OWNER DECISION: these rows are referenced by order_billing_details, so\n";
+        echo "  deleting them would blank the city on historical orders. Re-pointing them needs a\n";
+        echo "  judgement about which state each city belongs to.\n";
+    }
+
+    if (($numericNames ?? 0) > 0) {
+        echo "\n  MEANING (numeric names): each of these is one order's worth of junk from the\n";
+        echo "  name-keyed lookup P1-ORD-15 replaced. Their state_id and country_id ARE valid, so\n";
+        echo "  the only harm is a city list polluted with numbers and an order detail that shows a\n";
+        echo "  number where the city should be. The count is roughly the number of affected orders.\n";
+    }
+}
+
+if (! missing('order_billing_details')) {
+    // These three string columns are joined to countries.id / states.id / cities.id by
+    // OrderBillingDetail's relations, so a value that resolves to no row displays as blank.
+    $unresolvable = [];
+
+    foreach ([['city', 'cities'], ['state', 'states'], ['country', 'countries'],
+              ['delivery_city', 'cities'], ['delivery_state', 'states'], ['delivery_country', 'countries']] as [$column, $table]) {
+        if (missing($table)) {
+            continue;
+        }
+
+        $unresolvable[$column] = DB::table('order_billing_details')
+            ->whereNotNull($column)
+            ->where($column, '!=', '')
+            ->where($column, '!=', '0')
+            ->whereNotExists(fn ($q) => $q->selectRaw('1')->from($table)
+                ->whereColumn($table . '.id', 'order_billing_details.' . $column))
+            ->count();
+    }
+
+    printf("\n  order_billing_details total                    : %d\n", DB::table('order_billing_details')->count());
+
+    foreach ($unresolvable as $column => $count) {
+        printf("  %-45s: %d\n", $column . ' resolving to no row', $count);
+    }
+
+    if (array_sum($unresolvable) > 0) {
+        echo "\n  MEANING: these orders carry a value in an id-joined column that matches no row --\n";
+        echo "  a posted NAME, most likely, from a caller of the storefront API. Order::order_detail()\n";
+        echo "  renders these through the relations, so the merchant sees an EMPTY field for each.\n";
+        echo "  The data is not lost: the name is still in the column and can be resolved to an id\n";
+        echo "  by matching it against states/countries/cities. That is a data migration, and it is\n";
+        echo "  the owner's decision whether these historical orders are worth repairing.\n";
+    }
+}
+
 echo "\n" . str_repeat('=', 78) . "\n";
 echo "Diagnostic complete. Nothing was written.\n";
 

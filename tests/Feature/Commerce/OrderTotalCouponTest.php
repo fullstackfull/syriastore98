@@ -110,14 +110,20 @@ class OrderTotalCouponTest extends SecurityTestCase
     /**
      * `billing_postecode` is misspelled in the handler, and every `delivery_*` key is required too.
      *
-     * THE CITY NAME MUST BE ONE THAT ALREADY EXISTS, and the reason is a defect in its own right.
-     * `place_order` (ApiController:3696-3707) looks a city up BY NAME and, not finding it, inserts
-     * one writing `billing_state` and `billing_country` -- which are NAMES -- straight into
-     * `cities.state_id` and `cities.country_id`, which are foreign keys. SQLite refuses with a
-     * foreign-key violation; MySQL's non-strict connection would coerce both to 0 and store a city
-     * belonging to country 0, state 0. Using the seeded 'Damascus' takes the lookup branch so this
-     * suite measures order TOTALS rather than that defect. Recorded separately -- it is not
-     * P1-ORD-01's to fix, and a test that tripped over it would be measuring the wrong thing.
+     * THE CITY NAME USED TO HAVE TO BE ONE THAT ALREADY EXISTS, and the reason was a defect in its
+     * own right, CLOSED by P1-ORD-15 (App\Services\BillingGeography). The fixture is left as it
+     * was -- the lookup branch is still what this suite wants, so that it measures order TOTALS --
+     * but two claims this docblock made are corrected rather than left standing:
+     *
+     *   1. `billing_state` and `billing_country` are NOT names. Every shipped client posts IDS,
+     *      which this fixture itself does (101 and 1). The deciding evidence is
+     *      `OrderBillingDetail::BillingState()` -- `hasOne(State::class, 'id', 'state')` -- so even
+     *      the string columns hold ids. The defect was that the city LOOKUP was keyed on `name`
+     *      while the posted value is an id, so every order inserted a city named after a number.
+     *   2. MySQL does NOT coerce to 0 and succeed where the foreign keys are declared. MEASURED on
+     *      MySQL 8.0.46 by tests/Support/Security/bin/verify-ord15-billing-geography-on-mysql.php:
+     *      error 1452, the insert refused, exactly as SQLite refuses it. The coercion to 0 happens
+     *      only with the constraints absent.
      */
     private function billing(): array
     {
