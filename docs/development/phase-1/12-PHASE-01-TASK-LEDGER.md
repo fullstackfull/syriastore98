@@ -2448,7 +2448,7 @@ NOT CLAIMED. That every store-less read now names its store - `check_file`/`dele
 | Status | **READY** |
 | Risk | medium |
 | Workstream | Inventory & Stock |
-| GitHub issue | _pending_ |
+| GitHub issue | #117 |
 | Owner decision required | **yes** |
 | Depends on | `P1-INV-12` |
 | Scope | `packages/workdo/ProductReview/src/database/migrations/2024_03_22_062715_create_product_reviews_table.php`, `packages/workdo/ProductReview/src/app/Http/Controllers/ProductReviewController.php`, `app/Http/Controllers/CategoryController.php` |
@@ -2480,7 +2480,7 @@ NOT CLAIMED. That every store-less read now names its store - `check_file`/`dele
 | Status | **READY** |
 | Risk | medium |
 | Workstream | Inventory & Stock |
-| GitHub issue | _pending_ |
+| GitHub issue | #116 |
 | Owner decision required | no |
 | Depends on | — |
 | Scope | `app/Http/Controllers/Api/DashboardController.php`, `app/Http/Controllers/StoreController.php` |
