@@ -348,6 +348,54 @@ if (!function_exists('getSuperAdminAllSetting')) {
     }
 }
 
+if (!function_exists('withoutPageExposedCredentials')) {
+    /**
+     * A settings bag without the one key that a vendored view prints into a public page.  P1-SEC-22 (c).
+     *
+     * TRACED, which is what that criterion asked for, and the answer is NOT "public, no change".
+     *
+     *   WHAT THE VALUE IS. `Workdo\Marketing`'s business-card screen has a "page password" field
+     *   (store/index.blade.php:2014) whose write VALIDATES IT WITH `Rules\Password::defaults()`
+     *   (StoreController.php:1726-1735) and stores it in `settings` under the name `password`. So it is a
+     *   real, strength-checked password that a merchant chose -- and therefore one they may well reuse.
+     *
+     *   WHERE IT WENT. Two vendored views print it into a JavaScript variable:
+     *   layouts/theme_script.blade.php:108 (`Appoinment::Marketing("password")`, which is
+     *   `getAdminAllSetting()[$var]`) and card/theme2/index.blade.php:1374 (`$company_setting["password"]`,
+     *   from StoreController:40). The browser then compares the typed value to that variable
+     *   (theme_script.blade.php:127), so the "protection" was always readable in View Source.
+     *
+     *   WHO COULD SEE IT. `GET /cards/{slug}` is declared in a `Route::middleware(['web'])` group with NO
+     *   `auth` and NO `PlanModuleCheck` (Marketing/src/routes/web.php:62-66) -- anonymous. And the print is
+     *   inside `@if (!Auth::check())`, so it was shown to ANONYMOUS VISITORS ONLY and never to the merchant
+     *   looking at their own card, which is why it went unnoticed.
+     *
+     * WHY THE FIX IS HERE AND IS THIS NARROW. The views are vendored and cannot be edited; this helper is
+     * the host-side chokepoint both read sites pass through. The key is dropped BY EXACT NAME rather than by
+     * the project's credential-name predicate, because `getAdminAllSetting()` is how `PaymentService` reads
+     * gateway credentials at thirty call sites and guest checkout is anonymous -- a predicate here would
+     * empty those and break the storefront, which this phase is told not to do. Measured: the only consumers
+     * of a SETTINGS key named `password` are the six Marketing view lines above.
+     *
+     * WHAT CHANGES FOR A MERCHANT, disclosed: the card's password modal now compares against an empty
+     * string, so an empty input passes it. No real protection is lost -- the value was in the page source,
+     * so the modal was bypassable by anyone who looked -- but the modal is now bypassable without looking.
+     * Whether that feature should exist at all, or be checked server-side, is a question about a vendored
+     * module's behaviour and belongs with the owner. The merchant's own settings FORM renders an empty field
+     * behind its `****` placeholder, and saving without retyping PRESERVES the stored value, because the
+     * writer is guarded on `if ($request->password && $request->is_password_enabled)`.
+     *
+     * @param  array<string, mixed>  $settings
+     * @return array<string, mixed>
+     */
+    function withoutPageExposedCredentials(array $settings): array
+    {
+        unset($settings['password']);
+
+        return $settings;
+    }
+}
+
 if (!function_exists('getAdminAllSetting')) {
     function getAdminAllSetting($user_id = null, $store_id = null)
     {
@@ -373,16 +421,16 @@ if (!function_exists('getAdminAllSetting')) {
             $settings = [];
             $settings = Setting::where('created_by', $user->id)->where('store_id', $store_id)->pluck('value', 'name')->toArray();
 
-            return $settings;
+            return withoutPageExposedCredentials($settings);
         } elseif (!empty($store_id)) {
             $settings = [];
             $settings = Setting::where('store_id', $store_id)->pluck('value', 'name')->toArray();
-            return $settings;
+            return withoutPageExposedCredentials($settings);
         } else {
             $settings = [];
             $user = User::where('type', 'admin')->first();
             $settings = Setting::where('created_by', $user->id)->pluck('value', 'name')->toArray();
-            return $settings;
+            return withoutPageExposedCredentials($settings);
         }
         return [];
     }

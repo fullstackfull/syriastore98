@@ -47,7 +47,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/ProductStockService.php:127` | Stock decremented below zero on an order path that cannot refuse |
 | `app/Services/ProductStockService.php:210` | Stock decremented below zero on an order path that cannot refuse |
 
-### `warning` — 88 lines
+### `warning` — 90 lines
 
 | line | message |
 |---|---|
@@ -69,6 +69,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:793` | Gateway return refused: basket names a product from another store. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:814` | Gateway return refused: basket holds a non-positive quantity. |
 | `app/Http/Controllers/Concerns/GuardsPlanActivation.php:85` | Plan activation refused: provider is disabled pending verification. |
+| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:941` | Newsletter subscription failed during customer registration |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:716` | customer login: refused a social row still holding its module-assigned password |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:95` | Delivery Syria status webhook: invalid credentials. |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:179` | Zid store not found for order status sync. |
@@ -108,6 +109,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/SofortController.php:106` | Sofort return rejected: plaintext plan parameter disagrees with the signed token. |
 | `app/Http/Controllers/SofortController.php:233` | Plan payment return rejected: claimed amount does not match the plan price. |
 | `app/Http/Controllers/ZidOAuthController.php:31` | DS exchange failed |
+| `app/Http/Middleware/FlashedMessageSafety.php:74` | an exception object was flashed to a session and was replaced before it could be rendered |
 | `app/Http/Middleware/ActiveTheme.php:35` | Storefront visit log failed |
 | `app/Http/Middleware/LotteryDrawOwnershipGuard.php:260` | lottery draw refused |
 | `app/Http/Middleware/ModuleOrderMutationGuard.php:378` | module order mutation refused |
@@ -133,8 +135,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/SocialIdentity/JwksProvider.php:74` | social-identity: provider key fetch failed |
 | `app/Services/SocialIdentity/SocialIdentityVerifier.php:239` | social-identity: facebook debug_token call failed |
 | `app/Services/StoreNotificationService.php:157` | No active Firebase devices found for store. |
-| `app/Services/ShopifyAdminApi.php:122` | a Shopify Admin API address was refused before the request was made |
-| `app/Services/ShopifyAdminApi.php:154` | a Shopify Admin API call answered with a redirect, which was not followed |
+| `app/Services/ShopifyAdminApi.php:137` | a Shopify Admin API address was refused before the request was made |
+| `app/Services/ShopifyAdminApi.php:173` | a Shopify Admin API call answered with a redirect, which was not followed |
 | `app/Services/StoredUpload.php:90` | a stored upload path names a platform default and was not touched |
 | `app/Services/StoredUpload.php:81` | a stored upload path points outside the uploads directory and was not touched |
 | `app/Services/StoredUpload.php:108` | a stored upload path names another tenant |

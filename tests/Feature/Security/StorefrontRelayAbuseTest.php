@@ -109,24 +109,54 @@ class StorefrontRelayAbuseTest extends SecurityTestCase
         \Illuminate\Support\Facades\Log::shouldHaveReceived('warning')->once()->withArgs(fn ($message, $context) => $context['gateway'] === 'midtrans' && $context['exception'] === \RuntimeException::class);
     }
 
-    /** The ratchet: no handler under app/ may hand a caught exception itself to the session. */
+    /**
+     * THE RATCHET: no first-party handler may hand a caught exception itself to the session.
+     *
+     * COMMENT-STRIPPED, and the reason is the INVERSE of the trap this project has recorded. The usual
+     * failure is prose SATISFYING a ratchet; here prose FAILED one -- the first cut read the file line by
+     * line, so `App\Http\Middleware\FlashedMessageSafety`'s docblock, which quotes the vulnerable
+     * construction in order to explain it, reported the middleware that CLOSES this as an offender. Same
+     * root cause either way: a census that reads prose is measuring the wrong thing.
+     *
+     * TWO SHAPES, not one. `->with('error', $e)` hands over the object. `->with('error', __($e))` reaches
+     * `Translator::get(string $key, ...)` and raises a TypeError instead, so it is a 500 rather than a
+     * disclosure -- still wrong, and still a first-party handler flashing an exception, so both are
+     * forbidden here. Six vendored sites of each remain and cannot be edited; the middleware is the net
+     * for those, and this ratchet is what keeps the host app's own count at zero.
+     */
     public function test_no_handler_flashes_a_caught_exception_object(): void
     {
         $offenders = [];
 
-        $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(base_path('app'), \FilesystemIterator::SKIP_DOTS));
-
-        foreach ($files as $file) {
-            if ($file->getExtension() !== 'php') {
+        foreach ([base_path('app'), base_path('packages/workdo/LynomiaChat')] as $root) {
+            if (! is_dir($root)) {
                 continue;
             }
 
-            foreach (file($file->getPathname()) as $n => $line) {
-                if (preg_match('/->with\(\s*[\'"]error[\'"]\s*,\s*\$e\s*\)/', $line)) {
-                    $offenders[] = str_replace(base_path() . '/', '', $file->getPathname()) . ':' . ($n + 1);
+            $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS));
+
+            foreach ($files as $file) {
+                if ($file->getExtension() !== 'php') {
+                    continue;
+                }
+
+                $code = '';
+
+                foreach (token_get_all((string) file_get_contents($file->getPathname())) as $token) {
+                    if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                        continue;
+                    }
+
+                    $code .= is_array($token) ? $token[1] : $token;
+                }
+
+                if (preg_match('/->with\(\s*[\'"]\w+[\'"]\s*,\s*(__\(\s*)?\$e\s*\)/', $code)) {
+                    $offenders[] = str_replace(base_path() . '/', '', $file->getPathname());
                 }
             }
         }
+
+        sort($offenders);
 
         $this->assertSame([], $offenders, "These hand the exception object to the session (printed unescaped by the layouts, stack trace included):\n" . implode("\n", $offenders));
     }

@@ -37,13 +37,18 @@ use Illuminate\Support\Facades\Log;
  * PLATFORM'S server, so a breakout reaches the PLATFORM's cloud IAM credentials -- merchant versus
  * platform, regardless of tenancy.
  *
- * THE RETURN SHAPE IS THE CALL SITES' EXISTING ONE. Every one of the thirteen handlers already reads
+ * THE RETURN SHAPE IS THE CALL SITES' EXISTING ONE. Twelve of the thirteen handlers already read
  *
  *     $response = curl_exec($curl);
  *     if ($response == false) { return redirect()->back()->with('error', 'Something went wrong.'); }
  *
  * so this returns the raw body or `false` and no handler needs new control flow -- the same reasoning
- * that made `ImportStoreUrl` a one-line change at each read site.
+ * that made `ImportStoreUrl` a one-line change at each read site. The thirteenth is
+ * `ShopifyCouponController::show`, which never tests `$response` at all: it tests
+ * `isset($customer['errors'])` against an UNDEFINED variable, and `json_decode(false, true)` is null, so
+ * its `!empty($coupons)` test is false and the handler answers "Coupon Not Found." with no write and no
+ * 500. Safe -- but it is twelve, not thirteen, corrected after a review caught the overclaim, because a
+ * census that says "every one" and means "all but one" is how the next reader is misled.
  */
 final class ShopifyAdminApi
 {
@@ -69,6 +74,16 @@ final class ShopifyAdminApi
         if ($label === '') {
             return null;
         }
+
+        /*
+         * Control characters stripped, matching what `shopifyLabel()` does to the label and
+         * `woocommerceBase()` to a whole URL. Several call sites interpolate request-derived values into
+         * the path (`?ids=$id`, `&page_info=$page_info`) and Laravel raw-url-decodes route parameters, so
+         * a CRLF can arrive here. Modern libcurl refuses a URL containing one, which would fail closed
+         * through the existing `== false` branch -- but relying on the transport to reject what this layer
+         * can remove is the weaker arrangement, and the sibling helpers already remove it.
+         */
+        $path = str_replace(["\0", "\r", "\n", "\t"], '', $path);
 
         return 'https://' . $label . '.myshopify.com/' . ltrim($path, '/');
     }
@@ -143,6 +158,10 @@ final class ShopifyAdminApi
             CURLOPT_CUSTOMREQUEST => 'GET',
             CURLOPT_HTTPHEADER => ['X-Shopify-Access-Token: ' . (string) $accessToken],
             CURLOPT_HEADER => $withHeaders,
+            // Parity with SafeRemoteFetch::requestOptions(), which caps a GET body. The peer is a host
+            // check() has judged public under a fixed suffix, so a decompression bomb needs Shopify to
+            // serve one -- but CURLOPT_ENCODING is '' above, and the cap costs nothing.
+            CURLOPT_MAXFILESIZE => SafeRemoteFetch::MAX_BYTES,
         ]);
 
         $raw = curl_exec($curl);

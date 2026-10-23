@@ -240,6 +240,16 @@ class DeliveryBoyController extends Controller
                 'password' => Hash::make($request->password),
             ])->save();
 
+            /*
+             * P1-PLT-08 FOLLOW-UP (tenant-authz review, N1). The API sibling
+             * (Api\DeliveryBoyApiController::resetPassword) revokes the driver's Sanctum tokens after the
+             * write and this one did not -- so a merchant forcing a reset because a driver's account was
+             * compromised left the attacker's bearer working. This project configures no Sanctum expiry
+             * (there is no config/sanctum.php), so that token never lapses on its own. Same write, same
+             * revocation.
+             */
+            $deliveryBoy->tokens()->delete();
+
             return redirect()->back()->with('success', __('Delivery Boy successfully updated!'));
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));

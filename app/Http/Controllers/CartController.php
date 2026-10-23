@@ -1152,6 +1152,18 @@ foreach ($response->data->product_list as $item) {
 
         if (auth()->user()->isAbleTo('Abandon Cart')) {
             $cart  = Cart::find($request->cart_id);
+
+            /*
+             * P1-SEC-22 (f). `Cart` is allowlisted in config/tenancy.php, so this bare-id read returns
+             * null for another tenant's row rather than that row -- which is the containment the task
+             * row asked for, and it is P1-PLT-03's doing rather than this handler's. What was left is
+             * the null: `$cart->customer_id` on a miss is a 500 where a refusal belongs, and a 500 is
+             * also the shape that lets a regression test pass for the wrong reason.
+             */
+            if (! $cart) {
+                return response()->json(['is_success' => false, 'message' => __('Cart not found.')], 404);
+            }
+
             $user_id = $cart->customer_id;
             $cart_product = Cart::where('customer_id', $user_id)->get();
             $email = $cart->UserData->email;
@@ -1202,51 +1214,63 @@ foreach ($response->data->product_list as $item) {
 
     public function abandon_carts_messsend(Request $request)
     {
-        $cart  = Cart::find($request->cart_id);
+        /*
+         * P1-SEC-22 (f). THE PERMISSION CHECK USED TO COME THIRD. `Cart::find()`, `$cart->customer_id`
+         * and `$cart->UserData` all ran before `isAbleTo('Abandon Cart')`, so a merchant's staff member
+         * without that permission still drove the lookup and the relation load -- and a missing row made
+         * the handler 500 before it ever reached the refusal. The tenant scope contained the READ (Cart is
+         * allowlisted), so this was not a cross-tenant disclosure; it was authorization running after the
+         * work it is supposed to gate. Order fixed, and a missing row now refuses.
+         */
+        if (! auth()->user() || ! auth()->user()->isAbleTo('Abandon Cart')) {
+            return response()->json(['is_success' => false, 'message' => __('Permission denied.')], 403);
+        }
+
+        $cart = Cart::find($request->cart_id);
+
+        if (! $cart) {
+            return response()->json(['is_success' => false, 'message' => __('Cart not found.')], 404);
+        }
+
         $customer_id = $cart->customer_id;
         $mobile = $cart->UserData;
-        if (auth()->user()->isAbleTo('Abandon Cart')) {
 
-            try {
-                $dArr = Cart::where('customer_id', $customer_id)->pluck('product_id')->toArray();
+        try {
+            $dArr = Cart::where('customer_id', $customer_id)->pluck('product_id')->toArray();
 
-                $product = [];
-                foreach ($dArr as $item) {
-                    $product[] = Product::where('id', $item)->pluck('name')->first();
-                }
-                $product_name = implode(',', $product);
-                $store = getStoreById(getCurrentStore());
-                $msg = __("We noticed that you recently visited our $store->name site and added some fantastic items to your shopping cart. We are thrilled that you found products you love! However, it seems like you did not finish your purchase.You finish your order process as soon as possible, Added Product name : $product_name");
-                $resp  = Utility::SendMsgs('Abandon Cart', $mobile, $msg);
+            $product = [];
+            foreach ($dArr as $item) {
+                $product[] = Product::where('id', $item)->pluck('name')->first();
+            }
+            $product_name = implode(',', $product);
+            $store = getStoreById(getCurrentStore());
+            $msg = __("We noticed that you recently visited our $store->name site and added some fantastic items to your shopping cart. We are thrilled that you found products you love! However, it seems like you did not finish your purchase.You finish your order process as soon as possible, Added Product name : $product_name");
+            $resp  = Utility::SendMsgs('Abandon Cart', $mobile, $msg);
 
-                // $return = 'Mail send successfully';
-                if ($resp  == false) {
-                    return response()->json(
-                        [
-                            'is_success' => false,
-                            'message' => __("Invalid Auth access token - Cannot parse access token"),
-                        ]
-                    );
-                } else {
-                    return response()->json(
-                        [
-                            'is_success' => true,
-                            'message' => __('Message send successfully'),
-                        ]
-                    );
-                }
-            } catch (\Exception $e) {
-
-                $smtp_error = __('Invalid Auth access token - Cannot parse access token');
+            if ($resp == false) {
                 return response()->json(
                     [
                         'is_success' => false,
-                        'message' => $smtp_error,
+                        'message' => __("Invalid Auth access token - Cannot parse access token"),
                     ]
                 );
             }
-        } else {
-            return redirect()->back()->with('error', __('Permission denied.'));
+
+            return response()->json(
+                [
+                    'is_success' => true,
+                    'message' => __('Message send successfully'),
+                ]
+            );
+        } catch (\Exception $e) {
+            $smtp_error = __('Invalid Auth access token - Cannot parse access token');
+
+            return response()->json(
+                [
+                    'is_success' => false,
+                    'message' => $smtp_error,
+                ]
+            );
         }
     }
 }

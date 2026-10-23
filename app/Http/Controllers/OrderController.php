@@ -1591,16 +1591,22 @@ public function store(Request $request)
              * four lines up throws an AuthorizationException, and the success arm returns JSON, so a
              * redirect would be the odd one out on an AJAX endpoint.
              *
-             * RECORDED, not fixed here: the caller
-             * (resources/views/order/view.blade.php:712-724) has a `success` callback and NO `error`
-             * one, so a 403 shows the merchant nothing -- the same gap P1-SEC-34 found in SpamPrevent's
-             * widget. It costs nothing legitimate: the dropdown is built from the order's own store
-             * (OrderController:535, itself scoped now), so the only way to reach this refusal is to
-             * tamper with the request. Adding the error callback is a UI change outside this row.
+             * AND THE MERCHANT IS SHOWN IT, which the first cut got wrong twice over. That cut said the
+             * refusal was unreachable without tampering "because the dropdown is built from the order's
+             * own store (OrderController:535)". It is not: :533-535 reads `getStoreById(getCurrentStore())`
+             * -- the caller's CURRENT store, not the order's. Both are the caller's, so there is no
+             * isolation defect, but a multi-store merchant viewing an order in a non-current owned store
+             * is offered the CURRENT store's drivers, so the refusal is reachable by ordinary use. The
+             * AJAX caller had a `success` callback and no `error` one (the same gap P1-SEC-34 found in
+             * SpamPrevent's widget), so the merchant would have seen nothing at all; the callback is
+             * added in resources/views/order/view.blade.php.
              */
             return response()->json([
                 'status' => 'error',
-                'message' => __('That delivery boy is not available in this store.'),
+                // "not one of your stores'" rather than "not in this store": the predicate the scope
+                // applies is the caller's OWNED stores, which is wider than OrderPolicy::sameStore()'s
+                // current-store test. Saying "this store" overstated what was checked (review N4).
+                'message' => __('That delivery boy is not one of your stores\' drivers.'),
             ], 403);
         }
 
@@ -1608,7 +1614,21 @@ public function store(Request $request)
             \App\Models\DeliveryEarning::where('order_id', $order->id)->delete();
         }
 
-        $order->deliveryboy_id = $request->delivery_boy;
+        /*
+         * The RESOLVED driver, not the request value (review N3).
+         *
+         * MEASURED AS AN EQUIVALENT MUTANT, and recorded as that rather than claimed as a fix: putting
+         * `$request->delivery_boy` back here fails no test, and it should not, because the two cannot
+         * differ. The row was fetched BY that id, so they agree numerically; and the shape that would
+         * separate them on MySQL -- a junk-suffixed `'7abc'`, which `WHERE id = ?` coerces to row 7 while
+         * the write stores the string -- is rejected by this handler's own `'delivery_boy' =>
+         * 'required|integer|exists:delivery_boys,id'` before any of this runs.
+         *
+         * It is changed anyway because the guard above exists precisely because this line used to read
+         * request input, and leaving it reading request input makes the next person re-derive that
+         * equivalence argument from scratch.
+         */
+        $order->deliveryboy_id = $deliveryBoy->id;
         $order->save();
 
         $shippingMethod = \App\Models\ShippingMethod::find($order->delivery_id);

@@ -56,6 +56,9 @@ class PaymentListSecretDisclosureTest extends SecurityTestCase
         'payu_merchant_key', 'payu_salt_key', 'phonepe_client_secret', 'powertranz_pay_processing_password',
         'razorpay_secret_key', 'senang_pay_secret_key', 'sofort_secret_key_key',
         'sslcommerz_pay_secret_key', 'stripe_secret_key', 'tap_secret_key', 'telegram_access_token',
+        // P1-SEC-22 (d): MOVED from KEEP_FIELDS. The destination half of the bot credential -- the token half
+        // was already here, and the pair is the whole thing. The shape is kept: the key is still returned, nulled.
+        'telegram_chat_id',
         'yookassa_secret_key',
     ];
 
@@ -80,7 +83,9 @@ class PaymentListSecretDisclosureTest extends SecurityTestCase
         'phonepe_client_version', 'phonepe_mode', 'powertranz_mode', 'powertranz_pay_merchant_id',
         'powertranz_pay_production_url', 'public_key', 'razorpay_public_key', 'senang_pay_merchant_id',
         'skrill_email', 'sofort_publishable_key', 'sslcommerz_mode', 'sslcommerz_pay_store_id', 'status',
-        'stripe_publishable_key', 'telegram_chat_id', 'whatsapp_number', 'yookassa_shop_id_key',
+        // `whatsapp_number` stays: the shop's published contact number, printed on the storefront by design.
+        // `telegram_chat_id` LEFT this list in P1-SEC-22 (d).
+        'stripe_publishable_key', 'whatsapp_number', 'yookassa_shop_id_key',
     ];
 
     private function victimStore(): Store

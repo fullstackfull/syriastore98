@@ -170,12 +170,18 @@
     <!-- SweetAlert JS -->
     @if ($message = Session::get('success'))
         <script>
-            show_toastr('success', '{!! $message !!}');
+            {{-- P1-SEC-22 (b). This line used to interpolate the flashed message UNESCAPED, inside single
+             quotes, into a JavaScript string literal -- so an apostrophe ended the literal and a closing
+             script tag ended the block. An injection sink, not merely an HTML-escaping gap. Js::from()
+             emits a JSON literal INCLUDING its own quotes, which is why the surrounding ones are gone.
+             (The vulnerable construct is deliberately not spelled out here: a docblock that quotes what
+             a ratchet greps for makes the ratchet satisfiable by prose, which this project records.) --}}
+            show_toastr('success', {{ \Illuminate\Support\Js::from($message) }});
         </script>
     @endif
     @if ($message = Session::get('error'))
         <script>
-            show_toastr('error', '{!! $message !!}');
+            show_toastr('error', {{ \Illuminate\Support\Js::from($message) }});
         </script>
     @endif
     @stack('script-page')

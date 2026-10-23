@@ -34,7 +34,7 @@ class ModuleStorefrontInputGuardTest extends SecurityTestCase
     {
         parent::setUp();
 
-        $failed = $this->enableWorkdoModules(['SpamPrevent', 'ProductReview']);
+        $failed = $this->enableWorkdoModules(['SpamPrevent', 'ProductReview', 'SkipCart']);
 
         foreach (\App\Http\Middleware\ModuleStorefrontInputGuard::ROUTE_NAMES as $name) {
             $this->assertTrue(Route::has($name), "Premise: the route {$name} is not loaded, so this test reaches nothing. Failed migrations: " . implode('; ', $failed));
@@ -75,6 +75,105 @@ class ModuleStorefrontInputGuardTest extends SecurityTestCase
     {
         DB::table('user_active_modules')->insert(['user_id' => $owner->id, 'module' => $module, 'created_at' => now(), 'updated_at' => now()]);
         $this->assertContains($module, ActivatedModule($owner->id), 'The entitlement fixture did not take.');
+    }
+
+    // =================================================================================================
+    //  P1-SEC-22 (f) -- "empty my basket" must mean MINE
+    // =================================================================================================
+
+    private function basketRow(int $customerId, int $storeId, int $productId = 7): int
+    {
+        return (int) \Illuminate\Support\Facades\DB::table('carts')->insertGetId([
+            'customer_id' => $customerId, 'product_id' => $productId, 'variant_id' => 0, 'qty' => 1,
+            'price' => 10, 'store_id' => $storeId, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    /**
+     * THE WHOLE EXPOSURE IN ONE TEST, and the task row understated it twice.
+     *
+     * `SkipCart::emptyCart` deletes by `$request->customer_id` behind nothing but
+     * `Auth::guard('customers')->check()`. The row said the route is "behind `auth`" and that the damage
+     * is bounded to "their stores". Measured: the route is in a `Route::middleware(['web'])` group with no
+     * `auth` and no `PlanModuleCheck`, and `Cart`'s allowlist entry contributes NOTHING here, because
+     * `resolveTenant()` does not consult the `customers` guard and the uri carries no `{storeSlug}` -- so
+     * the request is MODE_UNRESOLVED, `null_tenant => 'open'` adds no predicate, and the delete reaches
+     * every store on the platform.
+     */
+    public function test_a_shopper_cannot_empty_another_customers_basket_in_another_store(): void
+    {
+        [$ownerA, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $this->entitle($ownerA, 'SkipCart');
+
+        $attacker = $this->shopper($storeA);
+        $victim = $this->shopper($storeB);
+
+        $mine = $this->basketRow($attacker->id, $storeA->id);
+        $theirs = $this->basketRow($victim->id, $storeB->id);
+
+        $response = $this->actingAs($attacker, 'customers')
+            ->post('/skip-empty-cart', ['customer_id' => $victim->id]);
+
+        $this->assertNotSame(404, $response->getStatusCode(), 'the route must exist');
+
+        $this->assertNotNull(\Illuminate\Support\Facades\DB::table('carts')->where('id', $theirs)->first(),
+            "a shopper of store A emptied a customer of store B's basket");
+        $this->assertNull(\Illuminate\Support\Facades\DB::table('carts')->where('id', $mine)->first(),
+            'and the shopper\'s OWN basket was not emptied, so the guard refused instead of redirecting the id');
+    }
+
+    /**
+     * The guest-wipe half: `customer_id = ''` is 0 on MySQL, and guest rows carry 0 or NULL. Driven with
+     * the empty string because that is the value a caller actually posts.
+     */
+    public function test_an_empty_customer_id_does_not_wipe_the_guest_baskets(): void
+    {
+        [$ownerA, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $this->entitle($ownerA, 'SkipCart');
+
+        $shopper = $this->shopper($storeA);
+        $guestHere = $this->basketRow(0, $storeA->id);
+        $guestElsewhere = $this->basketRow(0, $storeB->id);
+
+        $this->actingAs($shopper, 'customers')->post('/skip-empty-cart', ['customer_id' => '']);
+
+        foreach (['in this store' => $guestHere, 'in another store' => $guestElsewhere] as $where => $id) {
+            $this->assertNotNull(\Illuminate\Support\Facades\DB::table('carts')->where('id', $id)->first(),
+                "an empty customer_id wiped the guest basket {$where}");
+        }
+    }
+
+    /** POSITIVE CONTROL: a shopper CAN still empty their own basket, which is what the endpoint is for. */
+    public function test_a_shopper_can_still_empty_their_own_basket(): void
+    {
+        [$ownerA, $storeA] = $this->makeTenant();
+        $this->entitle($ownerA, 'SkipCart');
+
+        $shopper = $this->shopper($storeA);
+        $mine = $this->basketRow($shopper->id, $storeA->id);
+
+        $response = $this->actingAs($shopper, 'customers')
+            ->post('/skip-empty-cart', ['customer_id' => $shopper->id]);
+
+        $this->assertSame(200, $response->getStatusCode(), 'the shopper can no longer empty their own basket');
+        $this->assertNull(\Illuminate\Support\Facades\DB::table('carts')->where('id', $mine)->first());
+    }
+
+    /** And an anonymous caller is refused rather than passed through with a posted id. */
+    public function test_an_anonymous_caller_cannot_empty_anybodys_basket(): void
+    {
+        [$ownerA, $storeA] = $this->makeTenant();
+        $this->entitle($ownerA, 'SkipCart');
+
+        $victim = $this->shopper($storeA);
+        $theirs = $this->basketRow($victim->id, $storeA->id);
+
+        $response = $this->post('/skip-empty-cart', ['customer_id' => $victim->id]);
+
+        $this->assertRefused($response);
+        $this->assertNotNull(\Illuminate\Support\Facades\DB::table('carts')->where('id', $theirs)->first());
     }
 
     private function assertRefused($response): void

@@ -27,8 +27,15 @@ final class GatewaySecretRedactor
      * Names that are secrets but carry none of the words above. `PAYMERA_USERNAME` is what Paymera sends as
      * `Authorization: Bearer <username>` (PaymentService.php:394,416-417; PaymentController.php calls it "the
      * bearer credential for Paymera's status API") -- it is in Setting::paymentList's entry 52 only.
+     *
+     * `telegram_chat_id` is the DESTINATION half of a bot credential, added under P1-SEC-22 (d). The token half
+     * (`telegram_access_token`) was already nulled by the pattern above, and on its own a chat id posts nothing.
+     * But the two together are the whole credential, the token is reachable by other means (P1-SEC-17 found it
+     * served to an anonymous shopper before that was closed), and a chat id is in any case the merchant's private
+     * channel identifier rather than anything a storefront client needs. `whatsapp_number` is deliberately NOT
+     * here: it is the shop's published contact number, printed on the storefront by design.
      */
-    private const SECRET_EXACT = ['cashfree_key', 'PAYMERA_USERNAME'];
+    private const SECRET_EXACT = ['cashfree_key', 'PAYMERA_USERNAME', 'telegram_chat_id'];
 
     /**
      * Names that CONTAIN a secret-looking word but, as built today, carry a plain on/off flag. `secretKey` is what

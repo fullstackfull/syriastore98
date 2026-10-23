@@ -932,7 +932,18 @@ private function normalizePhone($phone)
             }
             catch(\Exception $e)
             {
-                return redirect()->back()->with('error', __($e));
+                /*
+                 * P1-SEC-22 (b). This was `__($e)`, which resolves to `Translator::get(string $key, ...)`
+                 * and so raises a TypeError on a Throwable -- the registration crashed with a 500 instead
+                 * of flashing anything, and a shopper whose newsletter row failed to insert lost the
+                 * account they had just created. The reason goes to the log; the shopper gets a message.
+                 */
+                \Log::warning('Newsletter subscription failed during customer registration', [
+                    'store_id' => $store->id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                return redirect()->back()->with('error', __('Something went wrong. Please try again.'));
             }
         }
 

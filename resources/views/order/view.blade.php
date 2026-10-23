@@ -721,6 +721,19 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                     show_toastr('{{ __('Success') }}', data.message, 'success')
 
 
+                },
+                {{-- P1-PLT-08. There was no error callback, so a refusal from this endpoint -- the 403 the
+                     assignment guard returns, or the one authorize('assign') already threw -- showed the
+                     merchant nothing: no toast, and the dropdown left showing a driver that was not saved.
+                     The same gap P1-SEC-34 found in SpamPrevent's widget. --}}
+                error: function(xhr) {
+                    $('#loader').fadeOut();
+
+                    var message = (xhr.responseJSON && xhr.responseJSON.message)
+                        ? xhr.responseJSON.message
+                        : '{{ __('The delivery boy could not be assigned.') }}';
+
+                    show_toastr('{{ __('Error') }}', message, 'error');
                 }
             });
         });

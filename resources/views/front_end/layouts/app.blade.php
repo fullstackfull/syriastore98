@@ -81,7 +81,13 @@
    @if ($message = Session::get('success'))
         <script>
             var site_url = $('meta[name="base-url"]').attr('content');
-            notifier.show('Success', '{!! $message !!}', 'success', site_url +
+            {{-- P1-SEC-22 (b). This line used to interpolate the flashed message UNESCAPED, inside single
+             quotes, into a JavaScript string literal -- so an apostrophe ended the literal and a closing
+             script tag ended the block. An injection sink, not merely an HTML-escaping gap. Js::from()
+             emits a JSON literal INCLUDING its own quotes, which is why the surrounding ones are gone.
+             (The vulnerable construct is deliberately not spelled out here: a docblock that quotes what
+             a ratchet greps for makes the ratchet satisfiable by prose, which this project records.) --}}
+            notifier.show('Success', {{ \Illuminate\Support\Js::from($message) }}, 'success', site_url +
                 '/public/assets/images/notification/ok-48.png', 4000);
         </script>
     @endif
@@ -89,7 +95,7 @@
     @if ($message = Session::get('error'))
         <script>
             var site_url = $('meta[name="base-url"]').attr('content');
-            notifier.show('Error', '{!! $message !!}', 'danger', site_url +
+            notifier.show('Error', {{ \Illuminate\Support\Js::from($message) }}, 'danger', site_url +
                 '/public/assets/images/notification/high_priority-48.png', 4000);
         </script>
     @endif

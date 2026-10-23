@@ -44,6 +44,14 @@ return Application::configure(basePath: dirname(__DIR__))
         // after $next inside handle(), and a group member appended last unwinds first), and so no module's
         // later route declaration can take the slot. Inert unless the session holds `_old_input`.
         $middleware->appendToGroup('web', \App\Http\Middleware\FlashedCredentialScrubber::class);
+        // P1-SEC-22 (b). Six vendored payment/voucher services end a failed checkout with
+        // `->with('error', $e)` -- the EXCEPTION OBJECT -- and the three layouts that render a flashed
+        // message interpolate it, so the shopper was shown the message, file, line and STACK TRACE, and
+        // it was written into the unencrypted `sessions.payload`. All six are under packages/workdo/;
+        // the host app's own count is zero. Keyed on the TYPE (a Throwable is never a message under any
+        // flash key) rather than on the key names, and registered here for the same reasons as the
+        // scrubber above. The real exception goes to the log instead.
+        $middleware->appendToGroup('web', \App\Http\Middleware\FlashedMessageSafety::class);
         // NEW-BULKDELETE-01. The addon route
         // packages/workdo/BulkDelete/src/routes/web.php:17-18 is gated only by `auth` +
         // PlanModuleCheck, and its controller deletes by bare id over 61 models with no tenant

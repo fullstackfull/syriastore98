@@ -90,6 +90,28 @@ public function index(Request $request)
         ], 404);
     }
 
+    /*
+     * P1-PLT-08 FOLLOW-UP (tenant-authz review, B1). THIS WAS THE EXISTENCE CHECK AND NOTHING ELSE.
+     * `Store::where('id', $store_id)->exists()` proves the store is real, not that the caller owns it --
+     * and three sibling methods on this controller already had refuseUnlessOperatorOwns() while this one
+     * and destroy() did not.
+     *
+     * AND THE TENANT SCOPE DOES NOT COVER IT, which is why allowlisting DeliveryBoy was not the fix.
+     * `custom.auth` logs a token's owner into the guard matching its TOKENABLE CLASS
+     * (App\Http\Middleware\CustomAuth:78-86), so a Customer's token lands on `customers` and a
+     * DeliveryBoy's on `deliveryboy`, leaving the DEFAULT guard empty. `StoreScope::resolveTenant()`
+     * reads the default guard, so for those principals it returns MODE_UNRESOLVED and
+     * `null_tenant => 'open'` adds NO predicate. The scope narrows this read for a merchant's `User`
+     * token and for nobody else -- the mirror of the trap CLAUDE.md records, and the reason a
+     * customer-token probe is the one that finds it.
+     *
+     * What went out: `DeliveryBoy::...->get()` serialises the whole model and the model declares no
+     * `$hidden`, so every driver's login e-mail and bcrypt `password` hash were in the JSON.
+     */
+    if ($refusal = $this->refuseUnlessOperatorOwns($store_id)) {
+        return $refusal;
+    }
+
     $deliveryboys = DeliveryBoy::where('store_id', $store_id)->get();
 
     return response()->json([
@@ -245,6 +267,17 @@ public function update(Request $request, $id)
         ], 400);
     }
 
+
+    /*
+     * P1-PLT-08 FOLLOW-UP (tenant-authz review, B1). Same gap as index(), and worse because the write is
+     * IRREVERSIBLE: the predicate was `store_id = <the caller's own query parameter>`, which compares the
+     * caller's two values and authorises nothing. See index() for why the tenant scope does not cover it
+     * -- and note additionally that `Model::delete()` goes through `newModelQuery()`, which carries NO
+     * global scopes, so even a narrowed read would not have constrained the DELETE.
+     */
+    if ($refusal = $this->refuseUnlessOperatorOwns($store_id)) {
+        return $refusal;
+    }
 
     $deliveryBoy = \App\Models\DeliveryBoy::where('id', $id)
                                           ->where('store_id', $store_id)

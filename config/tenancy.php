@@ -344,10 +344,33 @@ return [
         | skill, because `actingAs($x, 'deliveryboy')` DOES call `shouldUse()` and would hand the
         | test a tenant production never resolves.
         |
-        | THE ONE PRECONDITION THAT IS THE OPERATOR'S: a LEGACY row with `store_id IS NULL` becomes
+        | THE ONE PRECONDITION THAT IS THE OPERATOR'S: a LEGACY row with `store_id` NULL *or* 0 becomes
         | invisible to its own merchant. This codebase writes no such row, but a deployment may hold
         | one from before the column existed. The count is a read-only SELECT in
-        | tests/Support/Security/bin/diagnose-data-integrity.php.
+        | tests/Support/Security/bin/diagnose-data-integrity.php, which also counts rows naming a
+        | store that no longer exists.
+        |
+        | THREE THINGS THIS PREDICATE DOES NOT DO, added after a read-only review of the first cut,
+        | because the conditions above otherwise read as though it always applies to a web principal:
+        |
+        |   * IT IS INERT FOR A CUSTOMER'S OR A DRIVER'S SANCTUM TOKEN. `custom.auth` logs a token's
+        |     owner into the guard matching its tokenable class, so those principals leave the DEFAULT
+        |     guard empty, `resolveTenant()` returns MODE_UNRESOLVED and `null_tenant => 'open'` adds
+        |     nothing. The admin API's handlers must therefore carry their own ownership test -- see
+        |     `Api\DeliveryBoyApiController::refuseUnlessOperatorOwns()`, which all five methods now
+        |     call; two of them did not until a review of this entry found it. Condition 3's reading of
+        |     `:93` is about the SQL, not about the principal.
+        |
+        |   * IT IS INERT FOR A STAFF MEMBER WITH AN EMPTY `current_store`. `getCurrentStore()` falls
+        |     back to `Store::where('created_by', $user->id)` -- the staff member's OWN id, not
+        |     `creatorId()` -- which is null for staff, so `resolveTenant()` returns MODE_UNRESOLVED.
+        |     Pre-existing and not fixable from an allowlist; recorded so the predicate is not read as
+        |     universal.
+        |
+        |   * AND THE DRIVER APP NOW DEPENDS ON `null_tenant => 'open'`. Setting
+        |     TENANCY_NULL_TENANT=closed would take down driver login and every driver API endpoint as
+        |     well as the storefront. The 'closed' prose further down names the storefront, the customer
+        |     API and queued jobs; the driver app is new with this entry and is named here.
         |
         */
 

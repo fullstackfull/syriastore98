@@ -987,6 +987,28 @@ class KhaltiPaymnetController extends Controller
         if (!empty($order) && !empty($OrderBillingDetail)) {
 
             $order_array['order_id'] = $order->id;
+
+            /*
+             * P1-SEC-22 (f). KHALTI WAS THE ONE GATEWAY THAT LEFT THE GUEST'S CART ROWS BEHIND, and the
+             * task row had the mechanism backwards: it said the other gateways "end with the cookie clear"
+             * and Khalti does not. MEASURED, the opposite is true. Eight host sites run
+             *
+             *     $cart = Cookie::get('cart'); Cart::forGuestCookie($cart)->delete();
+             *
+             * (PaymentService:3053, PaymentController:2982, AuthorizeNet:1179, PayU:881, NMI:1221,
+             * Easebuzz:1026, PaiementPro:991, CinetPay:1043) -- they DELETE the rows, and the cookie poke
+             * those four still carry is COMMENTED OUT as the older, weaker idiom. Khalti did only the poke.
+             *
+             * The cookie holds a guest's `cookie_session_id` (Cart.php:218-228), so poking it to `'[]'`
+             * makes the basket unreachable from the browser but leaves the rows in `carts` -- where they
+             * sit as ABANDONED-CART rows for an order that was in fact paid. A merchant chasing abandoned
+             * baskets would chase a customer who had already bought. The delete is added here so all nine
+             * agree; the poke is kept because Khalti's client navigates from a JSON response rather than a
+             * redirect and nothing establishes that it is redundant there.
+             */
+            $guestCartCookie = \Cookie::get('cart');
+            Cart::forGuestCookie($guestCartCookie)->delete();
+
             $cart_array = [];
             $cart_json = json_encode($cart_array);
             \Cookie::queue('cart', $cart_json, 1440);

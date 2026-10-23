@@ -38,7 +38,7 @@ class DeliveryBoyScopeTest extends SecurityTestCase
     use RefreshDatabase;
 
     /** The guard's own message, so a crash and a refusal cannot be confused with each other. */
-    private const REFUSAL = 'That delivery boy is not available in this store.';
+    private const REFUSAL = "That delivery boy is not one of your stores' drivers.";
 
     private function makeDriver(Store $store, string $name, string $email, string $password = 'driver-password-fixture'): DeliveryBoy
     {
@@ -298,6 +298,156 @@ class DeliveryBoyScopeTest extends SecurityTestCase
         $this->assertNull(auth()->user(), 'Premise: no web principal.');
         $this->assertNotNull(DeliveryBoy::find($driver->id),
             'a driver row became unreadable when no tenant resolves, which is every driver API request');
+    }
+
+    // =================================================================================================
+    //  THE PRINCIPAL THE SCOPE CANNOT REACH -- the admin API, driven with a non-User token
+    // =================================================================================================
+
+    /**
+     * WHY THESE EXIST, and they are the half the first cut of this suite was missing.
+     *
+     * A read-only review pointed out that this file drove a MERCHANT on the web guard and a DRIVER on the
+     * login endpoint, and never drove a non-`User` token at the merchant-facing admin API -- which is the
+     * one principal pair for which the new scope is INERT. `custom.auth` logs a token's owner into the
+     * guard matching its tokenable class (CustomAuth:78-86), so a Customer's token lands on `customers`
+     * and a DeliveryBoy's on `deliveryboy`, the DEFAULT guard stays empty, `resolveTenant()` returns
+     * MODE_UNRESOLVED and `null_tenant => 'open'` adds NO predicate.
+     *
+     * `index()` and `destroy()` had no ownership test of their own -- only `Store::...->exists()`, which
+     * proves the store is real, not that the caller owns it -- while three siblings on the same controller
+     * did. So any valid token could list every driver in any store (the model declared no `$hidden`, so the
+     * bcrypt hash and the login e-mail were in the JSON) and DELETE any driver, irreversibly.
+     *
+     * This is CLAUDE.md's recorded trap in the mirror direction: "a customer-token probe cannot test the
+     * trap ... drive a merchant and a driver token too". Here the merchant token is the SAFE one.
+     */
+    private function tokenFor($principal): array
+    {
+        return ['Authorization' => 'Bearer ' . $principal->createToken('p1plt08')->plainTextToken, 'Accept' => 'application/json'];
+    }
+
+    private function makeShopper($store): \App\Models\Customer
+    {
+        return \App\Models\Customer::forceCreate([
+            'first_name' => 'Shopper', 'last_name' => uniqid(),
+            'email' => 'shopper-' . uniqid() . '@example.test',
+            'mobile' => '555' . random_int(100000, 999999),
+            'password' => Hash::make('not-a-real-password'),
+            'store_id' => $store->id, 'status' => 1, 'register_type' => 'email',
+        ]);
+    }
+
+    public function test_a_customers_token_cannot_list_another_stores_drivers(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $shopper = $this->makeShopper($storeA);
+        $driver = $this->makeDriver($storeB, 'DRIVER-APIINDEX-FIXTURE', 'apiindex-fixture@example.test');
+
+        $response = $this->getJson('/api/admin/deliveryboysIndex?store_id=' . $storeB->id, $this->tokenFor($shopper));
+
+        $this->assertNotSame(404, $response->getStatusCode(), 'the route must exist, or a content assertion is satisfied by a 404');
+        $this->assertContains($response->getStatusCode(), [401, 404],
+            'a shopper listed another store\'s drivers: ' . $response->getContent());
+        $this->assertStringNotContainsString('apiindex-fixture@example.test', (string) $response->getContent());
+        $this->assertStringNotContainsString((string) $driver->password, (string) $response->getContent(),
+            "a driver's bcrypt hash was in the response");
+    }
+
+    public function test_a_drivers_own_token_cannot_list_the_roster_either(): void
+    {
+        [, $storeA] = $this->makeTenant();
+
+        $driver = $this->makeDriver($storeA, 'DRIVER-SELF-FIXTURE', 'self-fixture@example.test');
+        $colleague = $this->makeDriver($storeA, 'DRIVER-COLLEAGUE-FIXTURE', 'colleague-fixture@example.test');
+
+        $response = $this->getJson('/api/admin/deliveryboysIndex?store_id=' . $storeA->id, $this->tokenFor($driver));
+
+        $this->assertContains($response->getStatusCode(), [401, 404],
+            'a driver read the whole roster: ' . $response->getContent());
+        $this->assertStringNotContainsString('colleague-fixture@example.test', (string) $response->getContent());
+    }
+
+    /** The irreversible one. */
+    public function test_a_customers_token_cannot_delete_a_driver(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $shopper = $this->makeShopper($storeA);
+        $driver = $this->makeDriver($storeB, 'DRIVER-APIDEL-FIXTURE', 'apidel-fixture@example.test');
+
+        $response = $this->deleteJson('/api/admin/deliveryboysDestroy/' . $driver->id . '?store_id=' . $storeB->id,
+            [], $this->tokenFor($shopper));
+
+        $this->assertNotSame(404, $response->getStatusCode(), 'the route must exist');
+        $this->assertNotNull(DB::table('delivery_boys')->where('id', $driver->id)->first(),
+            'a shopper deleted a delivery driver');
+    }
+
+    /** And a MERCHANT who does not own the named store is refused by the same test. */
+    public function test_a_merchant_cannot_list_a_store_they_do_not_own(): void
+    {
+        [$merchantA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $this->makeDriver($storeB, 'DRIVER-FOREIGN-FIXTURE', 'foreign-fixture@example.test');
+
+        $response = $this->getJson('/api/admin/deliveryboysIndex?store_id=' . $storeB->id, $this->tokenFor($merchantA->fresh()));
+
+        $this->assertSame(404, $response->getStatusCode(), 'a merchant listed another merchant\'s drivers');
+        $this->assertStringNotContainsString('foreign-fixture@example.test', (string) $response->getContent());
+    }
+
+    /** POSITIVE CONTROL: the merchant who owns the store still gets their roster -- and no password hash. */
+    public function test_the_owning_merchant_still_gets_their_roster_without_any_password_hash(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+
+        $driver = $this->makeDriver($storeA, 'DRIVER-OWNROSTER-FIXTURE', 'ownroster-fixture@example.test');
+
+        $response = $this->getJson('/api/admin/deliveryboysIndex?store_id=' . $storeA->id, $this->tokenFor($merchantA->fresh()));
+
+        $this->assertSame(200, $response->getStatusCode(),
+            'the owning merchant can no longer read their own roster: ' . $response->getContent());
+        $this->assertStringContainsString('ownroster-fixture@example.test', (string) $response->getContent());
+
+        $body = (string) $response->getContent();
+
+        $this->assertStringNotContainsString((string) DB::table('delivery_boys')->where('id', $driver->id)->value('password'), $body,
+            'the bcrypt hash is still serialised -- DeliveryBoy::$hidden is not doing its job');
+        $this->assertStringNotContainsString('"password"', $body);
+    }
+
+    /**
+     * THE CENSUS, keyed on the method rather than on the three somebody happened to read: every public
+     * handler on that controller that takes a store id from the request must call the ownership test.
+     */
+    public function test_every_handler_on_the_admin_api_controller_checks_ownership(): void
+    {
+        $source = (string) file_get_contents(app_path('Http/Controllers/Api/DeliveryBoyApiController.php'));
+
+        $code = '';
+
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                continue;
+            }
+
+            $code .= is_array($token) ? $token[1] : $token;
+        }
+
+        $handlers = preg_match_all('/public function (\w+)\s*\(/', $code, $names) ? $names[1] : [];
+
+        $this->assertSame(['index', 'store', 'update', 'destroy', 'resetPassword'], $handlers,
+            'the set of public handlers changed; each one that reads a store id from the request needs the test');
+
+        $this->assertSame(count($handlers), preg_match_all('/\$this->refuseUnlessOperatorOwns\(/', $code),
+            'a handler on this controller does not check that the caller owns the store it names. The tenant '
+            . 'scope is NOT the control here: custom.auth admits customer and driver tokens, which leave the '
+            . 'default guard empty, so the scope adds no predicate for them.');
     }
 
     // =================================================================================================

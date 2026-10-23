@@ -44,7 +44,7 @@ use Symfony\Component\HttpFoundation\Response;
 class ModuleStorefrontInputGuard
 {
     /** The route NAMES this guard acts on (RouteCensusGateTest reads it to prove a manifest `guarded:ModuleStorefrontInputGuard` key is really covered). */
-    public const ROUTE_NAMES = ['spamprevent.store', 'fetch.comments', 'spamprevent.admin.store', 'spamprevent.edit', 'spamprevent.destroy', 'product_review.store'];
+    public const ROUTE_NAMES = ['spamprevent.store', 'fetch.comments', 'spamprevent.admin.store', 'spamprevent.edit', 'spamprevent.destroy', 'product_review.store', 'skip.cart.empty'];
 
     public function handle(Request $request, Closure $next): Response
     {
@@ -61,7 +61,52 @@ class ModuleStorefrontInputGuard
             'spamprevent.admin.store' => $this->merchantReply($request, $next),
             'spamprevent.edit', 'spamprevent.destroy' => $this->threadOfOwnCustomer($request, $next, $route->parameter('spamprevent')),
             'product_review.store' => $this->review($request, $next, $route->parameter('storeSlug')),
+            'skip.cart.empty' => $this->emptyOwnCart($request, $next),
         };
+    }
+
+    /**
+     * A SHOPPER MAY EMPTY THEIR OWN BASKET AND NOBODY ELSE'S.  P1-SEC-22 (f).
+     *
+     * `Workdo\SkipCart`'s `emptyCart` runs
+     *
+     *     if (\Auth::guard('customers')->check()) { Cart::where('customer_id', $request->customer_id)->delete(); }
+     *
+     * -- the id from the REQUEST, with the guard check proving only that SOMEBODY is signed in. The task
+     * row recorded this as "behind `auth` ... can delete any customer's basket IN THEIR STORES", and both
+     * halves are measurably wrong, in the direction that matters:
+     *
+     *   * THE ROUTE CARRIES NO `auth`. `Route::post('/skip-empty-cart', ...)` sits in a
+     *     `Route::middleware(['web'])` group with no `auth` and no `PlanModuleCheck`
+     *     (SkipCart/src/routes/web.php:20-26), so the customers-guard check is the ONLY gate.
+     *   * AND IT IS NOT CONTAINED BY TENANCY. `Cart` is allowlisted in config/tenancy.php, but
+     *     `StoreScope::resolveTenant()` deliberately does not consult the `customers` guard (it would
+     *     re-enter the Customer provider), and the uri carries no `{storeSlug}` for the storefront branch
+     *     to resolve. So the request is MODE_UNRESOLVED, `null_tenant => 'open'` adds NO predicate, and
+     *     the delete reaches EVERY store.
+     *
+     * So any shopper signed in at any store could empty any customer's basket anywhere on the platform,
+     * and `customer_id = ''` -- which MySQL reads as 0 -- would wipe every GUEST basket on the platform.
+     *
+     * The endpoint's own purpose is "empty my basket", so the fix is the same one this guard applies to
+     * every other module storefront write: derive the identity from the principal and refuse without one.
+     * A guest has no `customer_id` at all and takes the module's own cookie branch, which is why the
+     * absence of a principal is a refusal here rather than a pass-through -- the module only reaches the
+     * delete when it believes a customer is signed in.
+     */
+    private function emptyOwnCart(Request $request, Closure $next): Response
+    {
+        $customer = auth('customers')->user();
+
+        if (! $customer) {
+            // No customers-guard principal: the module would take its cookie branch anyway, and letting
+            // the request through with a posted customer_id is the hole. Refuse.
+            return $this->deny($request);
+        }
+
+        $request->merge(['customer_id' => (string) $customer->id]);
+
+        return $next($request);
     }
 
     private function shopperComment(Request $request, Closure $next, mixed $slug): Response
