@@ -1476,8 +1476,41 @@ public function city_list(Request $request, $slug)
                     return null;
                 }
 
-                $order->final_price = $grand_total_price;
-                $order->product_price = $total_product_price;
+                /*
+                 * OWNER DECISION D3 -- THE TOTALS ARE NOT WRITTEN HERE ANY MORE. P1-ORD-11.
+                 *
+                 * "Never overwrite original order totals... Track approval, execution and financial
+                 * adjustment separately. Adjust only on reliable execution."
+                 *
+                 * `final_price` and `product_price` ARE the financial adjustment, and they used to
+                 * move the moment a shopper submitted -- refund still `Processing`, no merchant
+                 * having acted, recorded revenue already reduced. They are now written by
+                 * `OrderRefundController::RefundAmonut` on the `Refunded` transition, which is the
+                 * only point at which money has actually moved: `RefundIntegrityService::
+                 * resolveRefundStatus()` returns `Accept` rather than `Refunded` for an online
+                 * gateway payment, because no gateway refund driver exists anywhere in this
+                 * platform -- so an unsettled refund now leaves the order's totals alone, which is
+                 * exactly what D3 asks for.
+                 *
+                 * `$grand_total_price` and `$total_product_price` are still computed above and
+                 * still used: the computation is what the quantity bounds and the freshness check
+                 * are built on, and the lines it produces are written below.
+                 *
+                 * `product_json` IS STILL WRITTEN HERE, deliberately, and the reason is a measured
+                 * control rather than convenience. The per-line `refunded_qty` counter it carries
+                 * is what bounds `RefundStock`'s clamp (`unitsLostByProduct`) and
+                 * `restorationPlan`'s bound on cancel -- and that clamp is NULL-PERMISSIVE: with no
+                 * line carrying a counter it is skipped entirely and the recorded quantity restocks
+                 * unbounded. Move the counter to execution and every new refund becomes an
+                 * all-legacy order, turning P1-ORD-14's documented edge-case residual into the
+                 * default for every refund. Pinned from both sides by
+                 * StorefrontOrderRefundOwnershipTest::test_a_refund_request_does_not_touch_the_orders_totals.
+                 *
+                 * THE RESIDUAL, recorded rather than hidden: between request and execution the
+                 * order's totals are the ORIGINAL ones while its lines sum to less. The totals are
+                 * what D3 protects and what `RefundAmonut` caps against, so this is the safe
+                 * direction, but it is an inconsistency a merchant can see.
+                 */
                 $order->product_json = json_encode($productJson, JSON_THROW_ON_ERROR);
                 $order->save();
 

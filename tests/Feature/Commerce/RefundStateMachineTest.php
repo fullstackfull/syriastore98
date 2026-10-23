@@ -580,6 +580,145 @@ class RefundStateMachineTest extends TestCase
         $this->dropRefundSchema();
     }
 
+    // =========================================================================================
+    //  OWNER DECISION D3 -- THE FINANCIAL ADJUSTMENT, NOW THAT THE REQUEST NO LONGER MAKES IT
+    // =========================================================================================
+
+    /**
+     * THE OTHER HALF OF P1-ORD-11, and without it the change is a deletion rather than a move.
+     *
+     * The storefront refund request used to write `final_price` and `product_price` the moment a
+     * shopper submitted. D3 forbids that -- "never overwrite original order totals", "adjust only
+     * on reliable execution" -- so it stopped. These two tests are what prove the adjustment still
+     * HAPPENS, at the point D3 names.
+     *
+     * `bank_transfer` is an offline type, so `RefundIntegrityService::resolveRefundStatus()` returns
+     * `Refunded`: the merchant hands the cash back themselves, out of band, and that IS reliable
+     * execution. The order's totals are then recomputed from its own lines -- 300 of 500 returned
+     * leaves 200, plus 20 delivery and 20 tax = 240.
+     */
+    public function test_a_settled_refund_adjusts_the_orders_totals_from_its_own_lines(): void
+    {
+        $this->createRefundSchema();
+        $this->asSuperAdmin();
+
+        $orderId = $this->makeOrder([
+            'payment_type' => 'bank_transfer',
+            'product_price' => 500.0, 'delivery_price' => 20.0, 'tax_price' => 20.0,
+            'coupon_price' => 0.0, 'final_price' => 540.0,
+            // what the storefront request leaves behind: the line reduced, the counter written,
+            // the TOTALS still the originals above
+            'product_json' => json_encode([
+                ['product_id' => 501, 'name' => 'Alpha', 'variant_id' => 0, 'qty' => 1, 'final_price' => 200, 'refunded_qty' => 3, 'refunded_value' => 300],
+            ]),
+        ]);
+        $refundId = $this->makeRefund('Accept', ['order_id' => $orderId]);
+
+        $before = DB::table('orders')->where('id', $orderId)->first();
+        $this->assertSame(540.0, (float) $before->final_price,
+            'premise: the request did NOT adjust the totals, which is the state D3 produces');
+
+        $response = $this->controller()->RefundAmonut(
+            $this->request(['refundId' => $refundId, 'refund_amount' => '300']),
+            $orderId
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('Refunded', $this->statusOf($refundId), 'premise: this is the settled path');
+
+        $after = DB::table('orders')->where('id', $orderId)->first();
+        $this->assertSame(200.0, (float) $after->product_price,
+            'the settled refund did not adjust product_price, so the request stopped writing it and '
+            . 'nothing writes it at all -- the totals never move');
+        $this->assertSame(240.0, (float) $after->final_price,
+            'the settled refund did not adjust final_price (200 lines + 20 delivery + 20 tax)');
+
+        $this->dropRefundSchema();
+    }
+
+    /**
+     * AND AN UNSETTLED ONE LEAVES THEM ALONE, which is the half that makes the rule a rule.
+     *
+     * `paymera` is an online gateway and there is no gateway refund driver anywhere in this
+     * platform, so `resolveRefundStatus()` returns `Accept` -- approved, not settled. No money has
+     * moved, so no adjustment may be recorded. This is the same principle D2 states for payments:
+     * no verified settlement, no paid ledger entry.
+     */
+    public function test_an_approved_but_unsettled_refund_leaves_the_orders_totals_whole(): void
+    {
+        $this->createRefundSchema();
+        $this->asSuperAdmin();
+
+        $orderId = $this->makeOrder([
+            'payment_type' => 'paymera',
+            'product_price' => 500.0, 'delivery_price' => 20.0, 'tax_price' => 20.0,
+            'coupon_price' => 0.0, 'final_price' => 540.0,
+            'product_json' => json_encode([
+                ['product_id' => 501, 'name' => 'Alpha', 'variant_id' => 0, 'qty' => 1, 'final_price' => 200, 'refunded_qty' => 3, 'refunded_value' => 300],
+            ]),
+        ]);
+        $refundId = $this->makeRefund('Accept', ['order_id' => $orderId]);
+
+        $response = $this->controller()->RefundAmonut(
+            $this->request(['refundId' => $refundId, 'refund_amount' => '300']),
+            $orderId
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('Accept', $this->statusOf($refundId),
+            'premise: no gateway refund driver exists, so this must stay approved-not-settled');
+
+        $after = DB::table('orders')->where('id', $orderId)->first();
+        $this->assertSame(500.0, (float) $after->product_price,
+            'an UNSETTLED refund adjusted the order: money that never moved was recorded as returned');
+        $this->assertSame(540.0, (float) $after->final_price,
+            'an UNSETTLED refund adjusted final_price');
+
+        $this->dropRefundSchema();
+    }
+
+    /**
+     * THE NEGATIVE TOTAL THIS TASK MEASURED, now floored.
+     *
+     * A FIXED coupon is not prorated when lines are refunded, so a coupon larger than the remaining
+     * line total drove the order's own total below zero -- measured on this task: coupon 450, lines
+     * 500, every unit returned -> final_price -410. The floor stops a negative total being
+     * recorded.
+     *
+     * PRORATING the coupon is a different question and is NOT done here: it changes what the
+     * merchant is owed and what a wallet is credited, which is a revenue-reporting decision rather
+     * than a bug fix. Recorded as remaining on the task.
+     */
+    public function test_a_fixed_coupon_cannot_drive_the_adjusted_total_below_zero(): void
+    {
+        $this->createRefundSchema();
+        $this->asSuperAdmin();
+
+        $orderId = $this->makeOrder([
+            'payment_type' => 'bank_transfer',
+            'product_price' => 500.0, 'delivery_price' => 20.0, 'tax_price' => 20.0,
+            'coupon_price' => 450.0, 'final_price' => 90.0,
+            // every unit returned: the line is empty and worth nothing
+            'product_json' => json_encode([
+                ['product_id' => 501, 'name' => 'Alpha', 'variant_id' => 0, 'qty' => 0, 'final_price' => 0, 'refunded_qty' => 4, 'refunded_value' => 500],
+            ]),
+        ]);
+        $refundId = $this->makeRefund('Accept', ['order_id' => $orderId]);
+
+        $this->controller()->RefundAmonut(
+            $this->request(['refundId' => $refundId, 'refund_amount' => '90']),
+            $orderId
+        );
+
+        $after = DB::table('orders')->where('id', $orderId)->first();
+        $this->assertSame(0.0, (float) $after->final_price,
+            'the adjusted total went NEGATIVE: 0 lines + 20 + 20 - 450 = -410, recorded as the '
+            . "order's own total");
+        $this->assertSame(0.0, (float) $after->product_price);
+
+        $this->dropRefundSchema();
+    }
+
     /** A paid-out refund cannot be paid out twice. */
     public function test_an_already_refunded_request_cannot_be_paid_again(): void
     {

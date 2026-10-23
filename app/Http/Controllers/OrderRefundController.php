@@ -1105,6 +1105,72 @@ class OrderRefundController extends Controller
                     $order->save();
                 }
 
+                /*
+                 * OWNER DECISION D3 -- THE FINANCIAL ADJUSTMENT HAPPENS HERE, AND ONLY HERE.
+                 * P1-ORD-11.
+                 *
+                 * "Track approval, execution and financial adjustment separately. Adjust only on
+                 * reliable execution." The storefront request used to write `final_price` and
+                 * `product_price` the moment a shopper submitted -- refund still `Processing`, no
+                 * merchant having acted, recorded revenue already reduced. It no longer does
+                 * (AccountProfileController::order_refund_request), so the adjustment lands here.
+                 *
+                 * ONLY ON `Refunded`, WHICH IS WHAT MAKES THIS "RELIABLE EXECUTION". `$targetStatus`
+                 * comes from `RefundIntegrityService::resolveRefundStatus()`, which returns
+                 * `Accept` -- approved, NOT settled -- for an online gateway payment, because no
+                 * gateway refund driver exists anywhere in this platform. So an unsettled refund
+                 * leaves the order's totals whole, and only an offline type (the merchant hands the
+                 * cash back themselves, out of band) reaches this branch. That is the same
+                 * principle D2 states for gateways: no verified settlement, no paid ledger entry.
+                 *
+                 * COMPUTED FROM THE ORDER'S OWN LINES, not from anything the request posted. The
+                 * lines already carry what was returned -- the storefront request reduced `qty` and
+                 * wrote the `refunded_qty` counter, which it must keep doing because
+                 * `RefundStock`'s clamp is null-permissive without it (P1-ORD-14). So the
+                 * adjustment is a recomputation of a figure the order already implies, which is why
+                 * it needs no new stored state and is safe to apply once.
+                 *
+                 * FLOORED AT ZERO. A FIXED coupon is not prorated when lines are refunded, so a
+                 * coupon larger than the remaining line total drove `final_price` NEGATIVE
+                 * (measured on this task: coupon 450, lines 500, every unit refunded ->
+                 * final_price -410). The floor stops a negative total being recorded; PRORATING the
+                 * coupon is a revenue-reporting decision and is recorded as remaining, not guessed
+                 * at here.
+                 *
+                 * IDEMPOTENT BY THE GUARD ABOVE. `Refunded` is terminal in LEGAL_TRANSITIONS, and
+                 * the terminal-state check at the top of this method refuses a second payout, so
+                 * this cannot run twice for one refund.
+                 */
+                if ($targetStatus === self::STATE_REFUNDED) {
+                    $lines = json_decode((string) $order->product_json, true);
+
+                    if (is_array($lines)) {
+                        $lineTotal = 0.0;
+
+                        foreach ($lines as $line) {
+                            if (is_array($line) && isset($line['final_price']) && is_numeric($line['final_price'])) {
+                                $lineTotal += (float) $line['final_price'];
+                            }
+                        }
+
+                        $grandTotal = ($lineTotal + (float) $order->delivery_price + (float) $order->tax_price)
+                            - (float) $order->coupon_price;
+
+                        $order->product_price = $lineTotal;
+                        $order->final_price = max(0.0, $grandTotal);
+                        $order->save();
+                    } else {
+                        // The column is free text and can be unparseable. Refusing to guess is the
+                        // only safe move for a money column: the payout is still recorded below, and
+                        // the order's totals stay as they are rather than becoming a number derived
+                        // from nothing.
+                        \Log::warning('Refund settled but the order totals were left unchanged: product_json is unparseable', [
+                            'refund_id' => $order_refund->id,
+                            'order_id' => $order->id,
+                        ]);
+                    }
+                }
+
                 $order_refund->update([
                     'refund_status' => $targetStatus,
                     'refund_amount' => $amount

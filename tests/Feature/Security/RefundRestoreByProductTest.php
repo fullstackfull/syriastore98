@@ -163,7 +163,24 @@ class RefundRestoreByProductTest extends SecurityTestCase
         $order = $this->order($store, $shopper);
 
         $this->requestRefund($shopper, $store, $order, [502], [0, 1])->assertStatus(302);
-        $this->assertSame([400.0, 440.0], $this->totals($order), 'Premise: the request shrank the order.');
+
+        /*
+         * THE PREMISE CHANGED WITH OWNER DECISION D3 (P1-ORD-11), and the new one is stronger.
+         *
+         * It read `[400.0, 440.0]` -- "the request shrank the order" -- which was the behaviour D3
+         * forbids: the totals moved before any merchant had acted. They now stay at the original
+         * 500/540 until the `Refunded` transition, so the premise this test rests on is that the
+         * LINES recorded the request while the TOTALS did not. That is what makes the restoration
+         * assertion below meaningful rather than circular: the cancel path recomputes the totals
+         * from the lines it has just restored, so if the lines were not changed in the first place
+         * the final assertion would pass whatever cancel did.
+         */
+        $this->assertSame([500.0, 540.0], $this->totals($order),
+            'Premise: the request must NOT move the order totals (D3).');
+        $lines = $this->lines($order);
+        $this->assertSame([3, 1], [(int) $lines[0]['qty'], (int) $lines[1]['qty']],
+            'Premise: the request must still record itself on the LINES, or the cancel below has '
+            . 'nothing to restore and this test is circular.');
         $refund = $this->refundId();
 
         $this->asOperator($store);

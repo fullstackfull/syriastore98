@@ -269,12 +269,23 @@ class StorefrontOrderRefundOwnershipTest extends SecurityTestCase
         $this->assertNotSame(500, $response->getStatusCode(), 'The legitimate refund request crashed.');
         $response->assertRedirect();
 
-        // 3 of 4 units refunded: the line keeps 1 unit at 400*1/4 = 100, so product_price 100 and
-        // final_price 100 + 20 delivery + 20 tax - 0 coupon = 140. This is the behaviour a fix must
-        // PRESERVE; it is also what the attack below does to a stranger's order.
+        /*
+         * RE-POINTED BY OWNER DECISION D3 (P1-ORD-11). This read:
+         *
+         *     3 of 4 units refunded: the line keeps 1 unit at 400*1/4 = 100, so product_price 100
+         *     and final_price 140. This is the behaviour a fix must PRESERVE.
+         *
+         * D3 says the opposite -- "never overwrite original order totals", "adjust only on reliable
+         * execution" -- so the totals now stay at 440/400 until the `Refunded` transition. The
+         * LINES still record the request (see the dedicated test for why: the per-line counter is
+         * what bounds RefundStock's clamp), so the line assertion is unchanged and is now the thing
+         * this control proves about the write.
+         */
         $money = $this->money($order);
-        $this->assertSame(140.0, $money['final_price']);
-        $this->assertSame(100.0, $money['product_price']);
+        $this->assertSame(440.0, $money['final_price'],
+            'the request adjusted the order total before any merchant decision (D3)');
+        $this->assertSame(400.0, $money['product_price'],
+            'the request adjusted product_price before any merchant decision (D3)');
         $this->assertSame(1, (int) json_decode($money['product_json'], true)[0]['qty']);
 
         $refunds = DB::table('order_refunds')->get();
@@ -481,7 +492,9 @@ class StorefrontOrderRefundOwnershipTest extends SecurityTestCase
         $response = $this->refundRequest($owner, $store, $order, $this->payload($order, ['quantity' => ['03']]));
 
         $this->assertNotSame(500, $response->getStatusCode());
-        $this->assertSame(140.0, $this->money($order)['final_price'],
+        // D3: the total no longer moves at request time, so what proves "03" was ACCEPTED is the
+        // line it reduced and the record it wrote -- not a shrunken total.
+        $this->assertSame(1, (int) json_decode($this->money($order)['product_json'], true)[0]['qty'],
             'A valid refund of "03" units was refused or mis-applied.');
         $this->assertSame(1, $this->refundRows());
     }
@@ -496,10 +509,26 @@ class StorefrontOrderRefundOwnershipTest extends SecurityTestCase
         $first = $this->refundRequest($owner, $store, $order, $this->payload($order, ['quantity' => [4]]));
         $this->assertNotSame(500, $first->getStatusCode(), 'The first full refund crashed.');
 
-        // The line is now empty: product_price 0, final_price 0 + 20 + 20 = 40.
+        /*
+         * RE-POINTED TWICE OVER, and both reasons are worth naming.
+         *
+         * It asserted product_price 0 / final_price 40 after a full refund -- the post-shrink
+         * figures. D3 keeps the totals at 400/440 until execution, so those are gone.
+         *
+         * And the REPLAY this test is named for is now refused one rule earlier: D3's
+         * duplicate-refund check (part 1 of this task) refuses a second request on an order that
+         * already has a refund, so the replay never reaches the quantity ceiling this test was
+         * written to prove. The ceiling still exists and is still pinned -- by
+         * `test_a_quantity_above_the_lines_remaining_quantity_is_refused` -- so what this test now
+         * proves is that the two controls COMPOSE: a full refund leaves the order's totals alone,
+         * and the replay changes nothing at all.
+         */
         $afterFirst = $this->money($order);
-        $this->assertSame(0.0, $afterFirst['product_price']);
-        $this->assertSame(40.0, $afterFirst['final_price']);
+        $this->assertSame(400.0, $afterFirst['product_price'],
+            'the full refund adjusted the order total before any merchant decision (D3)');
+        $this->assertSame(440.0, $afterFirst['final_price']);
+        $this->assertSame(0, (int) json_decode($afterFirst['product_json'], true)[0]['qty'],
+            'premise: the first request really did take all four units off the line');
 
         $second = $this->refundRequest($owner, $store, $order, $this->payload($order, ['quantity' => [4]]));
 
@@ -540,10 +569,12 @@ class StorefrontOrderRefundOwnershipTest extends SecurityTestCase
         $response->assertRedirect();
         $response->assertSessionMissing('error');
 
-        // Not merely "did not crash": 1 of product 888's 2 units left the order (200 -> 100), the
-        // empty 777 line stayed empty, and the record names 888 -- not the zero in quantity[0].
+        // Not merely "did not crash": 1 of product 888's 2 units left the order, the empty 777 line
+        // stayed empty, and the record names 888 -- not the zero in quantity[0]. The order TOTAL is
+        // unchanged at 240 under D3; what proves the request applied is the line and the record.
         $this->assertSame(['777' => 0, '888' => 1], $this->linesByProduct($order));
-        $this->assertSame(140.0, $this->money($order)['final_price']);
+        $this->assertSame(240.0, $this->money($order)['final_price'],
+            'the request adjusted the order total before any merchant decision (D3)');
         $this->assertSame(['888' => 1], $this->recordedUnits());
     }
 
@@ -795,9 +826,12 @@ class StorefrontOrderRefundOwnershipTest extends SecurityTestCase
         $response->assertRedirect();
         $response->assertSessionMissing('error');
 
-        // 1 of Beta's 3 units: 300 * 2/3 = 200. Alpha untouched at 200. 400 + 20 + 20 = 440.
+        // 1 of Beta's 3 units leaves the line at 2; Alpha untouched at 2. The order TOTAL stays at
+        // its original 540 under D3 -- the adjustment waits for execution -- so the line quantities
+        // and the record below are what prove the ticked line's number was the one applied.
         $this->assertSame(['501' => 2, '502' => 2], $this->linesByProduct($order));
-        $this->assertSame(440.0, $this->money($order)['final_price']);
+        $this->assertSame(540.0, $this->money($order)['final_price'],
+            'the request adjusted the order total before any merchant decision (D3)');
 
         $record = json_decode((string) DB::table('order_refunds')->value('product_refund_id'), true);
         $this->assertCount(1, $record);
@@ -1319,5 +1353,105 @@ class StorefrontOrderRefundOwnershipTest extends SecurityTestCase
         $this->assertSame(1, $this->refundRows(),
             'a legitimate refund request on a delivered order with no existing refund was refused, '
                 . 'so the refusals above prove nothing. Session error: ' . json_encode(session('error')));
+    }
+    // =========================================================================================
+    //  OWNER DECISION D3 -- THE FINANCIAL ADJUSTMENT WAITS FOR EXECUTION
+    // =========================================================================================
+
+    /**
+     * D3: "Never overwrite original order totals... Track approval, execution and financial
+     * adjustment separately. Adjust only on reliable execution."
+     *
+     * WHAT THIS CHANGES AND WHAT IT DELIBERATELY DOES NOT.
+     *
+     * The request used to write THREE things on the order: `final_price`, `product_price` and
+     * `product_json`. The first two are the order's TOTALS -- the financial adjustment D3 names --
+     * and they moved the moment a shopper submitted, with the refund still `Processing` and no
+     * merchant having acted. They now wait for the `Refunded` transition.
+     *
+     * `product_json` STILL MOVES AT REQUEST TIME, and that is a measured decision rather than an
+     * omission. The per-line `refunded_qty` counter written there is what bounds TWO existing
+     * stock-integrity controls:
+     *
+     *   - `RefundStock`'s clamp (`unitsLostByProduct`) is NULL-PERMISSIVE: with no line carrying a
+     *     counter it is skipped entirely and the recorded quantity restocks unbounded. That is
+     *     P1-ORD-14's defect, and `RefundRestoreByProductTest::
+     *     test_restock_cannot_escape_the_counter_when_a_sibling_line_is_legacy` pins it.
+     *   - `restorationPlan`'s bound on cancel uses the same counter.
+     *
+     * Stop writing the counter at request time and every new refund becomes an all-legacy order:
+     * the clamp never applies, and a documented edge-case residual becomes the default for every
+     * refund in the system. That is a worse outcome than the narrower reading of D3, so the
+     * adjustment that moves is the one D3 actually names -- the order's totals.
+     *
+     * THE RESIDUAL, STATED RATHER THAN HIDDEN: between request and execution the order's totals are
+     * the ORIGINAL ones while its lines sum to less. The totals are what D3 protects and what
+     * `RefundAmonut` caps against, so this is the safe direction -- but it is an inconsistency a
+     * merchant can see, and closing it needs the per-line bookkeeping to move too. Recorded on the
+     * task.
+     *
+     * AND IT FIXES A DEFECT THE LEDGER ALREADY RECORDS. `RefundAmonut` caps the merchant's payout at
+     * `$order->final_price`, which was the POST-SHRINK figure -- a cap computed from the number the
+     * request had just reduced. With the totals untouched until execution, the cap is the real order
+     * total.
+     */
+    public function test_a_refund_request_does_not_touch_the_orders_totals(): void
+    {
+        [, $store] = $this->makeTenant();
+        $owner = $this->shopper($store);
+        $order = $this->refundableOrder($store, $owner);
+
+        $before = $this->money($order);
+        $this->assertSame(440.0, $before['final_price'], 'premise: the fixture order totals 440');
+        $this->assertSame(400.0, $before['product_price']);
+
+        $response = $this->refundRequest($owner, $store, $order, $this->payload($order));
+
+        $response->assertRedirect();
+        $this->assertSame(1, $this->refundRows(), 'premise: the request was accepted');
+
+        $after = $this->money($order);
+
+        $this->assertSame(440.0, $after['final_price'],
+            'the request rewrote the order TOTAL before any merchant decision. D3: a request records '
+            . 'intent; the financial adjustment waits for reliable execution.');
+        $this->assertSame(400.0, $after['product_price'],
+            'the request rewrote product_price before any merchant decision');
+
+        // The LINES do move -- see the docblock. This is asserted so the decision is pinned in both
+        // directions: if the per-line bookkeeping is ever moved to execution as well, this fails and
+        // sends the reader to the clamp it has to carry with it.
+        $lines = json_decode($after['product_json'], true);
+        $this->assertSame(1, (int) $lines[0]['qty'],
+            'the line quantity no longer records the request, so RefundStock has lost its clamp');
+        $this->assertSame(3, (int) $lines[0]['refunded_qty'],
+            'the per-line counter is gone, so unitsLostByProduct() returns null and the restock '
+            . 'clamp is skipped for every refund -- P1-ORD-14 reintroduced');
+    }
+
+    /**
+     * THE CAP THIS REPAIRS, measured directly. `RefundIntegrityService::cappedRefundAmount` limits
+     * the merchant's payout to the order's own persisted total. While the request shrank that total
+     * first, the ceiling was computed from the figure the request had just reduced -- so a shopper
+     * returning most of an order lowered the maximum the merchant could refund them.
+     */
+    public function test_the_payout_ceiling_is_the_real_order_total_not_a_post_shrink_one(): void
+    {
+        [, $store] = $this->makeTenant();
+        $owner = $this->shopper($store);
+        $order = $this->refundableOrder($store, $owner);
+
+        $this->refundRequest($owner, $store, $order, $this->payload($order))->assertRedirect();
+
+        $capped = app(\App\Services\RefundIntegrityService::class)->cappedRefundAmount(
+            400,
+            DB::table('orders')->where('id', $order->id)->value('final_price'),
+            __METHOD__
+        );
+
+        $this->assertSame(400.0, (float) $capped['amount'],
+            'the payout ceiling was computed from the post-shrink total, so a shopper returning most '
+            . 'of an order lowered the maximum the merchant could hand back');
+        $this->assertFalse((bool) $capped['capped'], 'the amount should not have needed capping at all');
     }
 }
