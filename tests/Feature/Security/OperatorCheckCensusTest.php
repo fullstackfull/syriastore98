@@ -113,7 +113,19 @@ class OperatorCheckCensusTest extends TestCase
         );
     }
 
-    /** the three sites the criterion names all go through the one helper */
+    /**
+     * The three sites the criterion names all go through the one helper -- AND carry no second
+     * spelling of the decision beside it.
+     *
+     * THE FIRST VERSION OF THIS TEST ONLY ASKED WHETHER THE FILE MENTIONS THE HELPER, and that is
+     * how a drift hid inside a file that passed it: `OrderController` used `UserPolicy::isOperator`
+     * in fileExport while `mayUseOrderScreen` (:510) carried its own
+     * `strtolower(trim(...)) === OrderPolicy::PLATFORM_ADMIN`. MEASURED: for `users.type` =
+     * ' super admin' the helper answers FALSE (a leading space is not ignored by PAD SPACE, so the
+     * engine refuses it too) and that line answered TRUE -- the order screen admitting a principal
+     * the document guard refuses, which is the "two gates disagree about who the operator is"
+     * defect this criterion exists to end. So the assertion now keys on the CONSTRUCT.
+     */
     public function test_the_three_named_sites_use_the_shared_helper(): void
     {
         foreach ([
@@ -128,7 +140,38 @@ class OperatorCheckCensusTest extends TestCase
                 $source,
                 "{$what} does not use the shared operator helper"
             );
+
+            $code = $this->withoutComments($source);
+
+            $this->assertDoesNotMatchRegularExpression(
+                '/(?:strtolower|strtoupper|trim|rtrim|ltrim)\s*\([^;]{0,160}?(?:PLATFORM_ADMIN|[\'"]super admin[\'"])/i',
+                $code,
+                "{$relative} still normalises the operator type beside the shared helper, which is how "
+                . 'the gates drifted apart once already. Call UserPolicy::isOperator() instead.'
+            );
+
+            $this->assertDoesNotMatchRegularExpression(
+                '/\$\w+(?:->\w+)*->type\s*(?:===|==|!==|!=)\s*(?:self::PLATFORM_ADMIN|[\w\\\\]*OrderPolicy::PLATFORM_ADMIN|[\'"]super admin[\'"])/i',
+                $code,
+                "{$relative} compares users.type against the operator literal directly."
+            );
         }
+    }
+
+    /** Comments stripped: prose naming the forbidden construct must not trip this census. */
+    private function withoutComments(string $source): string
+    {
+        $out = '';
+
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                continue;
+            }
+
+            $out .= is_array($token) ? $token[1] : $token;
+        }
+
+        return $out;
     }
 
     /** @dataProvider operatorSpellingProvider */

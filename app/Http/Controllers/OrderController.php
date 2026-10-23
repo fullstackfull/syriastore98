@@ -506,8 +506,22 @@ public function store(Request $request)
     {
         $user = auth()->user();
 
+        /*
+         * THROUGH THE ONE HELPER, not a fourth spelling of the same decision. P1-SEC-11
+         * criterion 3 asks for the operator to be defined ONCE, and this line was normalising
+         * with `trim()` where `UserPolicy::isOperator()` uses `rtrim(' ')` -- deliberately, to
+         * agree with MySQL's PAD SPACE, which ignores a TRAILING space and not a leading one.
+         *
+         * MEASURED: for `users.type` = ' super admin' (leading space) `isOperator()` answers
+         * false and this line answered TRUE, so the order SCREEN admitted a principal the
+         * document guard refuses -- the two gates disagreeing about who the operator is, which
+         * is the defect this criterion exists to end rather than a new one. Not an escalation
+         * (OrderDocumentAccessGuard still decides rows) and latent besides: no writer of
+         * users.type produces that value. Narrowing to the engine's own rule is the correct
+         * direction, since such a row is not the operator to MySQL either.
+         */
         return $user !== null
-            && (strtolower(trim((string) $user->type)) === \App\Policies\OrderPolicy::PLATFORM_ADMIN || $user->isAbleTo($permission));
+            && (\App\Policies\UserPolicy::isOperator($user) || $user->isAbleTo($permission));
     }
 
     public function order_view(Request $request, $id)
@@ -1470,7 +1484,16 @@ public function store(Request $request)
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 
-        if (empty(getCurrentStore())) {
+        /*
+         * P1-SEC-11 criterion 2: `empty(getCurrentStore())` is NOT the whole question, because the
+         * helper hardcodes 1 for an operator with no `current_store` -- so this guard passes and
+         * the export then resolved a store that may not exist. Ask whether the store RESOLVES, not
+         * merely whether the helper returned something: a deployment whose stores do not start at
+         * 1 (a deleted first store is enough) gave a 500 from OrderExport dereferencing null, and
+         * where store 1 DOES exist and is not the operator's, `Order.xlsx` quietly held that
+         * store's orders with nothing in the response naming it.
+         */
+        if (empty(getCurrentStore()) || getStoreById(getCurrentStore()) === null) {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 

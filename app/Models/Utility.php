@@ -148,9 +148,34 @@ class Utility extends Model
             // Fetch settings data from the database
             $data = Setting::where($conditions)->get();
 
-            // If no settings are found, fallback to default settings for non-admin users
+            /*
+             * P1-SEC-11 criterion 1. THIS FALLBACK USED TO BORROW ANOTHER STORE'S ROWS:
+             * `Setting::where('created_by', 1)->get()` with NO store predicate is every row owned
+             * by user id 1 across EVERY store, folded into one array in row order, so the last row
+             * of each name won. MEASURED (ShippingLabelStoreSettingsTest): a label for merchant A's
+             * own order printed store B's address. MEASURED AGAIN here, and it is worse than the
+             * row recorded: store A also resolved store B's MAIL_PASSWORD, so this was a credential
+             * crossing tenants and not only a wrong address.
+             *
+             * THE STORE PREDICATE IS KEPT. A store with no rows of its own now gets the defaults
+             * this method already built above, which is deterministic and its own; the old answer
+             * depended on the order of other tenants' rows.
+             *
+             * WHY HERE RATHER THAN AT THE HANDLER, and this is the reason the shipping-label fix
+             * was not enough: the same array reaches the VENDORED order documents --
+             * AuctionProduct's shipping label, LotteryPrizes' order views and
+             * AutomaticOrderPrinting's ten templates all call Utility::Setting() and all render
+             * `store_address` and its siblings. packages/workdo/ must never be edited, so no
+             * per-handler override can reach them; this host helper they share can.
+             *
+             * IT IS A CONTRACT CHANGE and is stated as one. Every store created through
+             * StoreController is seeded by defaultSetting() (:148, :305), so the branch is reached
+             * only by a store created outside that path, one whose rows were deleted, or one whose
+             * rows carry a different `created_by` than the viewer resolves -- the shape the label
+             * defect was measured in.
+             */
             if (count($data) == 0) {
-                $data =  Setting::where('created_by', 1)->get();
+                $data = Setting::where('created_by', 1)->where('store_id', $storeId)->get();
             }
 
             // Populate $array with retrieved settings
