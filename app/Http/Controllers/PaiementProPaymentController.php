@@ -41,6 +41,7 @@ class PaiementProPaymentController extends Controller
 {
     use GuardsPlanActivation;
     use GuardsGatewayReturn;
+    use \App\Http\Controllers\Concerns\ResolvesPartialPaymentDeposit;
 
     use ApiResponser;//
 
@@ -493,6 +494,40 @@ class PaiementProPaymentController extends Controller
                 return $this->gatewayReturnForeignProductRefusal($request, 'paiementpro');
             }
             $prodduct_id_array = [];
+            /*
+             * P1-ORD-02 criterion 2 -- THE DEPOSIT IS PRICED HERE, WHILE THE CART STILL EXISTS.
+             *
+             * The order's write site is where the total is SET and the wrong place to ASK for it. The module's
+             * `ManageDeposit()` re-reads the basket through `ApiController::cart_list()`, and the loop below
+             * DELETES the cart rows before `new Order()` is reached -- so called down there it finds an empty
+             * basket, falls off the end of its own `if (! empty($products))` and returns NULL.
+             *
+             * MEASURED on EasebuzzController, and this is the part worth keeping: the first cut called the
+             * resolver at the write site, exactly as the already-repaired `PaymentService` does, and it SILENTLY
+             * fell back to the subtotal -- no exception, nothing logged, the order charged 100.00 where the
+             * module prices 10.00. The same call made here returns `deposite_amount = "10.00"`. `PaymentService`
+             * gets away with it only because a previous package DEFERRED its cart delete to after the order
+             * commits (PaymentService.php:2592-2615); these controllers still delete first.
+             *
+             * See App\Http\Controllers\Concerns\ResolvesPartialPaymentDeposit for what was wrong with reading
+             * the total out of the posted checkout state.
+             */
+            $partialPaymentDeposit = null;
+
+            if (module_is_active('PartialPayments') && \Auth::guard('customers')->user() && (isset($settings['enable_partial_payment']) && $settings['enable_partial_payment'] == 'on')) {
+                $partialPaymentDeposit = $this->partialPaymentDeposit(
+                    $request,
+                    $slug,
+                    [
+                        'tax_price' => $tax_price,
+                        'shipping_price' => $delivery_price,
+                        'coupon_price' => $coupon_price,
+                        'total_sub_price' => $final_sub_total_price,
+                    ],
+                    $final_sub_total_price
+                );
+            }
+
             if (!empty($products)) {
                 foreach ($products as $key => $product) {
                     $prodduct_id_array[] = $product->product_id;
@@ -722,7 +757,28 @@ class PaiementProPaymentController extends Controller
                     $order->final_price = $final_price + $tax_price - $coupon_price;
                 }
             }elseif (module_is_active('PartialPayments') && \Auth::guard('customers')->user() && (isset($settings['enable_partial_payment']) && $settings['enable_partial_payment'] == 'on')) {
-                $order->final_price = $requests_data['cartlist_final_price'] ?? $total_sub_price;
+                /*
+                 * P1-ORD-02 criterion 2. THIS WAS
+                 *
+                 *     $order->final_price = $requests_data['cartlist_final_price'] ?? $total_sub_price;
+                 *
+                 * and `$requests_data` is the stored checkout state, which `PaymentService` stores as
+                 * `$request->except('attachment','payment_receipt')` -- the whole POST BODY of the
+                 * checkout request. SERVER-STORED IS NOT SERVER-DERIVED: a key the shopper posts at
+                 * initiation is in the array this return reads back. MEASURED with the module active and
+                 * a 100.00 basket: a posted `cartlist_final_price=1.00` wrote an order with
+                 * `product_price = 100.00` and `final_price = 1.00`.
+                 *
+                 * `$total_sub_price` was ALSO never assigned in this file, so the `??` limb was an
+                 * undefined variable -- an ErrorException, not a safe fallback.
+                 *
+                 * Recomputed through the module's own server-side ManageDeposit(), with the
+                 * server-derived components merged in first so neither the deposit nor its inputs can
+                 * come from the caller. The same repair 569494d2 made at PaymentService and
+                 * PaymentController, which this file was missed out of. See
+                 * App\Http\Controllers\Concerns\ResolvesPartialPaymentDeposit.
+                 */
+                $order->final_price = $partialPaymentDeposit ?? $final_sub_total_price;
                 \Workdo\PartialPayments\app\Models\OrderPartialPayments::OrderPartialPayments($order, $slug , $request);
             }else{
                 if (module_is_active('RewardClubPoint') && isset($requests_data['club_point_is_active']) && $requests_data['club_point_is_active'] == 'on') {

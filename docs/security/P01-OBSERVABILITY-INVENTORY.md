@@ -60,7 +60,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Api/ApiController.php:8261` | coupon: refused an implausible discounted total |
 | `app/Http/Controllers/Api/AuthController.php:186` | register: social identity verification refused |
 | `app/Http/Controllers/Api/DeliverySyriaOrderController.php:82` | Delivery Syria invalid credentials |
-| `app/Http/Controllers/AuthorizeNetPaymnetController.php:319` | AuthorizeNet capture refused: no server-computed payable in the stored state. |
+| `app/Http/Controllers/AuthorizeNetPaymnetController.php:320` | AuthorizeNet capture refused: no server-computed payable in the stored state. |
 | `app/Http/Controllers/CartController.php:222` | product_cart: refused a non-positive or non-integer quantity |
 | `app/Http/Controllers/CartController.php:275` | product_cart: refused a product belonging to another store |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:133` | Gateway return refused: no server-stored checkout state. |
