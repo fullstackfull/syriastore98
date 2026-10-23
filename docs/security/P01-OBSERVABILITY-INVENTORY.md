@@ -40,8 +40,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaymentController.php:578` | Paymera callback REJECTED: the payment status could not be established |
 | `app/Http/Controllers/PaymentController.php:838` | Paymera callback REJECTED: inbound signature not verified |
 | `app/Http/Controllers/PaymentController.php:867` | Paymera callback REJECTED: captured amount not verified |
-| `app/Http/Controllers/PaymentController.php:2860` | Order write failed and was rolled back; stock decrements were given back |
-| `app/Http/Controllers/PaymentController.php:4180` | Order write failed and was rolled back; stock decrements were given back |
+| `app/Http/Controllers/PaymentController.php:2941` | Order write failed and was rolled back; stock decrements were given back |
+| `app/Http/Controllers/PaymentController.php:4261` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Services/PaymentService.php:185` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
 | `app/Services/PaymentService.php:2949` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Services/ProductStockService.php:127` | Stock decremented below zero on an order path that cannot refuse |
@@ -100,10 +100,10 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaymentController.php:853` | Paymera callback signature NOT verified and not enforced |
 | `app/Http/Controllers/PaymentController.php:1264` | checkout: refused, basket names a product from another store |
 | `app/Http/Controllers/PaymentController.php:1304` | checkout: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/PaymentController.php:3254` | Telegram order message not sent: the store has no bot token or chat id |
-| `app/Http/Controllers/PaymentController.php:3270` | Telegram refused an order message |
-| `app/Http/Controllers/PaymentController.php:3276` | Telegram order message could not be sent |
-| `app/Http/Controllers/PaymentController.php:3344` | Whatsapp order writer: posted slug does not match the route slug; the route wins. |
+| `app/Http/Controllers/PaymentController.php:3335` | Telegram order message not sent: the store has no bot token or chat id |
+| `app/Http/Controllers/PaymentController.php:3351` | Telegram refused an order message |
+| `app/Http/Controllers/PaymentController.php:3357` | Telegram order message could not be sent |
+| `app/Http/Controllers/PaymentController.php:3425` | Whatsapp order writer: posted slug does not match the route slug; the route wins. |
 | `app/Http/Controllers/PosController.php:246` | POS sale skipped a line whose product is not this store |
 | `app/Http/Controllers/SenangPayController.php:140` | SenangPay plan return refused: the return hash could not be verified. |
 | `app/Http/Controllers/SenangPayController.php:150` | SenangPay plan return refused: return hash mismatch. |

@@ -1720,19 +1720,70 @@ public function handlePaymeraTrigger00($orderId)
             ];
         }
         
-        if (isset($request['coupon_info']) && $request['coupon_info']) {
-            $coupon_price = $request['coupon_info']['coupon_discount_amount'] ?? 0;
-            return [
-                'cartlist_final_price' => $cartlist_final_price,
-                'coupon_price' => $coupon_price
-            ];
-        }
+        /*
+         * THE POSTED `coupon_info` IS DISCARDED, NOT TRUSTED.  P1-ORD-02 criterion 2.
+         *
+         * THIS BRANCH USED TO BE A SHORT-CIRCUIT:
+         *
+         *     if (isset($request['coupon_info']) && $request['coupon_info']) {
+         *         $coupon_price = $request['coupon_info']['coupon_discount_amount'] ?? 0;
+         *         return [...];                      // apply_coupon() never ran
+         *     }
+         *
+         * `coupon_info` is an ordinary request field. When a caller posted one, the server's own
+         * coupon validation was skipped entirely -- and because that branch returned no `coupon_info`
+         * key, the caller's array was never overwritten either. It travelled verbatim into the stored
+         * checkout state (`$request->except('attachment','payment_receipt')`) and from there into the
+         * order's records.
+         *
+         * MEASURED on the real route, signed in, with a genuine 10% coupon on a 100.00 basket (so the
+         * truth is 10.00) and a posted `coupon_discount_amount` of 99999:
+         *
+         *     order_coupon_details.coupon_discount_amount = 99999
+         *     order_coupon_details.coupon_final_amount    = 0.01
+         *
+         * THE CHARGE WAS NOT AFFECTED -- `prepareFinalRequestData()` computes the payable server-side,
+         * and the shopper was still billed 100.00. What this was is a FALSIFIED FINANCIAL RECORD: the
+         * order stated a discount of the shopper's choosing, which never happened, and every report,
+         * reconciliation and `user_coupons` row built on it inherited that number.
+         *
+         * REMOVING THE BRANCH IS SAFE AND THAT WAS CHECKED, NOT ASSUMED: `apply_coupon()` is 870 lines
+         * and performs ZERO writes -- no insert, update, save, increment, decrement or delete -- so
+         * always calling it cannot double-consume a coupon. Consumption is written by the gateway
+         * handlers through `UserCoupon`, not here. The branch was avoiding nothing.
+         *
+         * The server path below validates the code against the store's own `coupons` row (expiry,
+         * limit, minimum spend, applicability) and returns the figures it computes, which are then
+         * merged back into the request by the caller -- so the stored state carries the server's
+         * coupon_info and the records follow.
+         */
         
+        /*
+         * `final_sub_total` IS PINNED TO THE SERVER'S SUBTOTAL, and that is a second caller-supplied
+         * override closed on this path.
+         *
+         * `apply_coupon()` prefers `$request->final_sub_total` over `sub_total` in FOUR places --
+         * the maximum-spend gate, the minimum-spend gate, and twice as `$price`, the base the
+         * discount is computed FROM (Api\ApiController.php:4015-4028, :4080, :4355-4359). Nothing in
+         * this application ever sets that key: a repo-wide search of app/ and resources/views/ finds
+         * it ONLY in those reads. It has no server-side producer and no view posts it, so on this
+         * path it can only ever be the caller's.
+         *
+         * Posting `final_sub_total=1000000` therefore walks past a minimum-spend gate the basket does
+         * not meet AND inflates the base a percentage coupon is taken from.
+         *
+         * Pinned rather than removed: `apply_coupon()` is 870 lines with other callers, and rewriting
+         * its subtotal handling is a wider change than this path needs. Overwriting the key here
+         * means the checkout cannot be the one that supplies it. THE SAME KEY ON THE DIRECT
+         * `apply_coupon` API ENDPOINT IS NOT CLOSED BY THIS and is recorded in
+         * docs/security/P01-ORD-02-PARTIAL-PAYMENT-TOTAL-SOURCE.md.
+         */
         $apply_coupon = [
             'coupon_code' => $request['coupon_code'] ?? null,
-            'sub_total' => $cartlist_final_price ?? 0
+            'sub_total' => $cartlist_final_price ?? 0,
+            'final_sub_total' => $cartlist_final_price ?? 0,
         ];
-        
+
         $request->request->add($apply_coupon);
         $coupon_apply = new ApiController();
         $apply_coupon_response = $coupon_apply->apply_coupon($request, $slug);
@@ -1743,10 +1794,40 @@ public function handlePaymeraTrigger00($orderId)
             $coupon_price = $apply_coupon['amount'];
         }
         
+        /*
+         * A REFUSAL IS AN ANSWER, NOT A CRASH -- the second defect in this method, and almost
+         * certainly the reason the short-circuit above existed.
+         *
+         * `$apply_coupon['coupon_info']` was dereferenced unconditionally, but `apply_coupon()`
+         * returns an ERROR SHAPE when it declines the code -- `data` is then just
+         * `['message' => '...']` with no `coupon_info` key at all. MEASURED: a coupon whose
+         * `minimum_spend` is not satisfied returns
+         *
+         *     {"status":0,"message":"fail","data":{"message":" The minimum spend for this coupon is ..."}}
+         *
+         * and the next line raised `Undefined array key "coupon_info"` -- an ErrorException, i.e. a
+         * 500 on the checkout, for the ordinary case of a shopper typing a code they do not qualify
+         * for. Removing the short-circuit above made that reachable on every such attempt, which is
+         * why it is fixed here rather than left for later.
+         *
+         * A DECLINED COUPON NOW MEANS NO COUPON: the subtotal is untouched, `coupon_price` stays 0,
+         * and `coupon_info` is an EMPTY ARRAY -- never the caller's. The empty array matters as much
+         * as the refusal: the caller's own `coupon_info` is still sitting in the request, and
+         * returning nothing here would let the merge in processOrder leave it in place, which is the
+         * very defect the short-circuit removal closes.
+         */
+        if (! isset($apply_coupon['coupon_info'])) {
+            return [
+                'cartlist_final_price' => $cartlist_final_price,
+                'coupon_price' => 0,
+                'coupon_info' => [],
+            ];
+        }
+
         return [
             'cartlist_final_price' => $cartlist_final_price,
             'coupon_price' => $coupon_price,
-            'coupon_info' => (array)$apply_coupon['coupon_info']
+            'coupon_info' => (array) $apply_coupon['coupon_info'],
         ];
     }
 
