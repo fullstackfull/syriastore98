@@ -460,6 +460,78 @@ failed to apply on the first attempt and reported *29 passed on unmutated code* 
 re-run with the mutation proved present in the file first, which is the third time that failure mode
 has appeared in this project.
 
+### What the independent authorization review of the D13 change found
+
+Five findings. **Three verified independently and acted on, two recorded as their own tasks, one
+left alone deliberately.** The review is also the reason this entry says "three delete paths" rather
+than four: it ran its own sweep and confirmed the set is complete.
+
+**Acted on — A: the API path was missing the child guard the web twin has.**
+`CategoryController::destroy` has refused a category with child categories since P1-INV-08
+(`CategoryController.php:460-463`); `Api\DashboardController::DeleteCategory` had no such predicate
+anywhere, so a merchant could delete a parent through the shipped app. **Orphaned, not cascaded**,
+and the difference is why this is integrity rather than loss: `categories.parent_id` carries **no
+foreign key** (`2023_12_25_093024_create_categories_table.php:21` is a plain `unsignedBigInteger`
+defaulting to 0), so the children survive holding a `parent_id` that resolves to nothing — and
+`buildCategoryTree()` walks by `parent_id`, so such a child drops out of the UI while remaining a
+real row with real products under it. Fixed in the API path only, scoped to the category's own store
+like the web twin. Not added to the bulk guard: that file's charter is tenancy, and the child
+question is a separate decision. Pinned by
+`AdminApiTenancyTest::test_the_api_refuses_to_delete_a_category_that_still_has_children`, whose
+fixture parent holds **no products** so it fails if and only if the child predicate is missing.
+
+**Acted on — (c): do NOT unify the middleware's `isOperator()` with the project-canonical one.**
+I had asked whether `BulkDeleteTenantGuard::isOperator()` should delegate to
+`App\Policies\UserPolicy::isOperator()`. **It must not, and the answer is a lockout.** Verified:
+the middleware's helper is character-identical to `StoreScope::isSuperAdmin()`
+(`app/Scopes/StoreScope.php:1231`), which is the function it has to agree with, because section D of
+the guard defers to `StoreScope::resolveTenant()` and refuses any principal whose mode is not
+`MODE_TENANT`. `UserPolicy` uses `rtrim($x, ' ')` to match MySQL's PAD SPACE collation, which keeps
+a **leading** space — so `' super admin'` is an operator to `trim()` and not to `rtrim()`.
+Delegating would *narrow* who counts as operator, which sounds like a tightening and is a lockout:
+such a principal fails the check, falls into the tenant path, and gets **403** at
+`mode !== MODE_TENANT`. The two helpers legitimately differ because they answer different questions
+— one must agree with the scope that decides which rows a request can see, the other with the
+collation that decides what the database considers equal. Written into the helper's docblock so
+nobody "unifies" them later. (`OperatorCheckCensusTest`'s patterns do not match the normalised form,
+before or after, so its ceiling and floor are untouched — checked.)
+
+**Acted on — the raw-query inventories, which is what actually failed CI.** The first full gate run
+came back **exit 1 with four undeclared failures**, all of them the raw-query ratchets: the three new
+store-less `DB::table('products')` counts moved `app` 136 → 139, `products` from `[2, 0]` to
+`[5, 3]`, and put `products` into the set of tenant-discriminated tables reached rawly without a
+`store_id` predicate. That is the ratchet doing its job, and the remedy it normally asks for — add
+the predicate — is **here the defect**: the cascading foreign key does not read `store_id`, so a
+predicate makes each count read zero against a populated category and permits the cascade. So the
+three sites are **declared** with their reason rather than changed, and
+`OwnedPathRawQueryInventoryTest` gained a per-**statement** `STORE_LESS_BY_DESIGN` declaration,
+keyed by a fragment of the statement rather than by line number.
+
+That mechanism is new, so it carries its own two-directional ratchet and its own removal check:
+
+- a declaration whose fragment matches nothing **fails** (so it cannot outlive its statement);
+- a *new, undeclared* store-less raw query in the same file **still fails** with the original
+  message (so it is not a blanket exemption for the file).
+
+Both measured. Nothing was added to `.github/known-test-outcomes.json`.
+
+**Recorded as tasks, not fixed here:** `P1-INV-24` (a **third** table cascades off `categories` —
+`product_reviews.category_id`, a stale denormalised copy, so following D13's own "move the products
+first" advice destroys reviews silently) and `P1-INV-25` (the store-wide wipes delete categories
+before their product loop, so the cascade empties `products` and the media unlink never runs —
+uploads left on disk, storage quota left charged; plus the latent cross-store limb of the same two
+call sites).
+
+**Left alone deliberately:** the store-less count can block a delete over a row the merchant cannot
+see, and its `:count` discloses that one integer. Widening is the right direction for a refusal, the
+`Log::warning` gives support a path, and both need the same latent anomaly as `P1-INV-25`'s second
+limb. Recorded, not changed.
+
+**Two strengthenings taken from the review:** `assertVictimIntact` now asserts the `products` row
+itself (raw, since `Product` is `Cachable`) rather than inferring it from the category row, so a
+failure reads "the cascade fired"; and `CATEGORY_TYPE` is pinned to `App\Models\Category::class`, so
+a rename fails saying "D13 is unhooked" instead of only failing the whole-map comparison.
+
 ---
 
 ## 8. Verification state
@@ -471,13 +543,14 @@ claim was wrong and the correction is noted.
 |---|---|
 | Unit | 351 passed |
 | Contract | 26 passed |
-| **Feature + known-outcome gate** | **5234 passed, 2 declared failures, 17 declared skips; gate exit 0; manifest UNMODIFIED** |
+| **Feature + known-outcome gate** | **5319 passed, 2 declared failures, 17 declared skips; gate exit 0; manifest UNMODIFIED** — on the delivered tree `c53cb55b`, with the tracked-content SHA-256 **identical before and after** the run. A commit landed mid-run during the earlier attempt, so `git status` could no longer serve as the contamination proof and the content hash did instead. |
 | Security | 3545 passed, 4 skipped |
 | Tenancy + Commerce | 843 passed, 13 skipped |
 | Guards + contrast | 4 guards, exit 0 |
 | **Secret scan** | **exit 0 over 351 changed files, with the PR's real base ref** |
 | **MySQL (8.0.46)** | **runner green; + 18 new checks for store-slug identity** |
-| Mutation | 24 mutants, 24 bite |
+| Mutation | 34 mutants, 34 bite (24 + the 10 of P1-INV-12 / D13) |
+| **A gate that FAILED and was not worked around** | the first full run on `1b386890` returned **exit 1, four undeclared failures** — the raw-query inventories catching three new store-less counts. Declared with reasons, with a new two-directional declaration ratchet; **nothing added to `.github/known-test-outcomes.json`** |
 
 ### Corrections this session, kept visible on purpose
 
