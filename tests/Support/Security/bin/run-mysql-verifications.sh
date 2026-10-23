@@ -254,6 +254,14 @@ run_one verify-ord15-billing-geography-on-mysql \
   "ORD15_MYSQL_SOCKET=${SOCK}" "ORD15_MYSQL_HOST=${HOST}" "ORD15_MYSQL_PORT=${PORT}" \
   "ORD15_MYSQL_DATABASE=ord15_verify" "ORD15_MYSQL_USERNAME=${USER_NAME}" "ORD15_MYSQL_PASSWORD=${PASS}"
 
+# P1-ORD-02 criterion 2. The pending-balance lookup: MySQL coerces '5abc' to row 5 in the `id`
+# comparison, and -- because the module declares `customer_id` as VARCHAR while inserting an
+# integer -- a SQL-side ownership predicate admits '7abc', ' 7' and '07' as customer 7. Both are
+# invisible on SQLite, which is why one mutant in the removal run survives there.
+run_one verify-pending-partial-payment-lookup-on-mysql \
+  "MYSQL_SOCK=${SOCK}" "MYSQL_HOST=${HOST}" "MYSQL_PORT_NUM=${PORT}" \
+  "MYSQL_DATABASE=p1ord02_pending_verify" "MYSQL_USER_NAME=${USER_NAME}" "MYSQL_PASS=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

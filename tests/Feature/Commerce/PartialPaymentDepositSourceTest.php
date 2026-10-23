@@ -773,7 +773,7 @@ class PartialPaymentDepositSourceTest extends SecurityTestCase
     public function test_what_a_real_initiation_stores_as_the_checkout_total(
         bool $partialOn,
         array $extraPosted,
-        string $expectation,
+        ?string $expectation,
         string $why
     ): void {
         $this->enablePartialPayments();
@@ -814,6 +814,18 @@ class PartialPaymentDepositSourceTest extends SecurityTestCase
 
         $stored = session('easebuzz_request_data');
 
+        /*
+         * A NULL EXPECTATION MEANS THE CHECKOUT IS REFUSED, and that outcome is as much a
+         * calibration as a figure is. The pending-balance row below became one when P1-ORD-02
+         * criterion 2's upstream fix landed: a body that names no resolvable balance no longer
+         * reaches a gateway at all, so there is no stored state to read a total out of.
+         */
+        if ($expectation === null) {
+            $this->assertNull($stored, $why);
+
+            return;
+        }
+
         $this->assertIsArray($stored,
             'Premise: the initiation stored a checkout state. Without one this measures nothing.');
         $this->assertSame($expectation, (string) round((float) ($stored['cartlist_final_price'] ?? -1), 2),
@@ -833,12 +845,25 @@ class PartialPaymentDepositSourceTest extends SecurityTestCase
                 true, [], '10',
                 "the module's own deposit is stored, not the posted figure.",
             ],
+            /*
+             * THE UPSTREAM FIX LANDED, and this row is what records it.
+             *
+             * It used to expect '1' -- the caller's own `payment_amount`, written straight into the
+             * stored checkout total with nothing checking it against the amount outstanding -- and
+             * its message said that if the figure ever stopped being the caller's, that would be an
+             * upstream fix and good news. It is. P1-ORD-02 criterion 2 made the payable a read of
+             * the `order_partial_payments` row, so this body -- which names no `partial_payment_id`
+             * at all -- resolves no balance and the checkout is refused before any gateway.
+             *
+             * THE FIGURE IS MEASURED NEXT DOOR, not lost: PendingPaymentAmountSourceTest drives the
+             * same limb WITH a real pending row and pins the stored total to that row's own
+             * outstanding amount.
+             */
             'partial payments on, pending_payment' => [
-                true, ['partial_payment_type' => 'pending_payment', 'payment_amount' => 1.00], '1',
-                'prepareFinalRequestData():1831 writes $request->payment_amount into the stored '
-                . 'cartlist_final_price with nothing checking it against the amount outstanding. If '
-                . 'this ever stops being the caller\'s figure that is an UPSTREAM FIX and good news -- '
-                . 'read section 4 of the acceptance document before changing this expectation.',
+                true, ['partial_payment_type' => 'pending_payment', 'payment_amount' => 1.00], null,
+                'a pending-balance checkout naming no resolvable balance must not reach a gateway. '
+                . 'A stored state here means the caller\'s payment_amount is being charged again -- '
+                . 'see docs/security/P01-ORD-02-PARTIAL-PAYMENT-TOTAL-SOURCE.md section 5.',
             ],
         ];
     }

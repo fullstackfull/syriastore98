@@ -55,6 +55,8 @@ class PaymentController extends Controller
      */
     use \App\Http\Controllers\Concerns\AppliesCartStockChanges;
     use GuardsGatewayReturn;
+    /* P1-ORD-02: the payable of a `pending_payment` checkout comes from the recorded balance. */
+    use \App\Http\Controllers\Concerns\ResolvesPendingPartialPayment;
     protected $paymentService;
 
     /**
@@ -1321,8 +1323,12 @@ public function handlePaymeraTrigger00($orderId)
         $delivery_price = $shippingData['delivery_price'];
         $tax_price = $shippingData['tax_price'];
 
-        // Prepare final request data
-        $this->prepareFinalRequestData($request, $cartlist, $cartlist_final_price, $delivery_price, $tax_price);
+        // Prepare final request data. A refusal here means the checkout cannot be priced from the
+        // server's own records -- see the `pending_payment` limb inside.
+        $refusal = $this->prepareFinalRequestData($request, $cartlist, $cartlist_final_price, $delivery_price, $tax_price);
+        if ($refusal !== null) {
+            return $refusal;
+        }
 
         // Process payment
         return $this->processPayment($request, $slug, $cartlist);
@@ -1873,7 +1879,14 @@ public function handlePaymeraTrigger00($orderId)
     }
 
     /**
-     * Prepare final request data
+     * Prepare final request data.
+     *
+     * RETURNS A REFUSAL, OR NULL. The `pending_payment` limb below can discover that the balance the
+     * caller named is not theirs, not this store's, already settled, or not a balance at all -- and
+     * there is no safe payable to continue with in any of those cases. Returning the redirect rather
+     * than throwing keeps the existing shape of processOrder()'s other early exits.
+     *
+     * @return \Illuminate\Http\RedirectResponse|null
      */
     private function prepareFinalRequestData(Request &$request, $cartlist, $cartlist_final_price, $delivery_price, $tax_price)
     {
@@ -1911,13 +1924,96 @@ public function handlePaymeraTrigger00($orderId)
                         $new_array['coupon_price'] = $updated_cart['coupon_price_value'] ?? $cartlist['total_coupon_price'] ?? 0;
                         $new_array['order_pending_amount'] = $updated_cart['pending_amount'] ?? 0;
                     } else {
-                        $new_array['cartlist_final_price'] = $request->payment_amount ?? 0;
+                        /*
+                         * THE SHOPPER DECIDED WHAT THEY OWED.  P1-ORD-02 criterion 2.
+                         *
+                         * This limb is the one a shopper reaches when they settle the OUTSTANDING
+                         * BALANCE of an earlier order, and it used to read
+                         *
+                         *     $new_array['cartlist_final_price'] = $request->payment_amount ?? 0;
+                         *
+                         * `cartlist_final_price` is the figure every gateway arm in PaymentService
+                         * hands the provider, so the hidden field the module's view prints was the
+                         * money. MEASURED on POST {slug}/process-order, signed in, against a recorded
+                         * balance of 40.00: posting payment_amount = 1.00 stored and charged 1.00.
+                         *
+                         * The balance is now read from the `order_partial_payments` row itself, and
+                         * only if that row is THIS store's, THIS signed-in customer's and still
+                         * awaiting payment -- which also closes the identity half, because the same
+                         * unchecked `partial_payment_id` is what the gateway return hands to
+                         * ManagePartialPayment() to flip a row to paid.
+                         *
+                         * See App\Http\Controllers\Concerns\ResolvesPendingPartialPayment.
+                         */
+                        /*
+                         * AND THE CHOSEN GATEWAY MUST BE ABLE TO SETTLE A BALANCE AT ALL.
+                         *
+                         * Raised by the read-only review of this change: `KhaltiPaymnetController`
+                         * reads the stored checkout state and writes an order but carries NO
+                         * `partial_payment` branch, so a khalti pending-balance checkout was priced
+                         * at the balance, charged it, and then written as a FULL-PRICE order with
+                         * the balance left unsettled. Refused HERE rather than on the return,
+                         * because by then the card has been charged. See
+                         * ResolvesPendingPartialPayment::PENDING_PAYMENT_UNSUPPORTED_TYPES.
+                         */
+                        if (! $this->pendingPaymentTypeCanSettle($request->input('payment_type'))) {
+                            \Illuminate\Support\Facades\Log::warning('Checkout refused: this payment method cannot settle an outstanding balance.', [
+                                'store_id' => $store->id,
+                                'customer_id' => \Auth::guard('customers')->id(),
+                                'payment_type' => $request->input('payment_type'),
+                            ]);
+
+                            return redirect()->back()->with('error',
+                                __('This payment method cannot be used to settle an outstanding balance. Please choose another.'));
+                        }
+
+                        $payable = $this->pendingPartialPaymentPayable(
+                            $request->input('partial_payment_id'),
+                            $store->id,
+                            \Auth::guard('customers')->id()
+                        );
+
+                        if ($payable === null) {
+                            \Illuminate\Support\Facades\Log::warning('Checkout refused: no recorded balance matches this pending payment.', [
+                                'store_id' => $store->id,
+                                'customer_id' => \Auth::guard('customers')->id(),
+                                'partial_payment_id' => $request->input('partial_payment_id'),
+                            ]);
+
+                            return redirect()->back()->with('error',
+                                __('This payment could not be verified. Please reopen the order and try again.'));
+                        }
+
+                        if ($this->pendingPaymentAmountDisagrees($request->input('payment_amount'), $payable)) {
+                            /*
+                             * REFUSED, NOT SILENTLY CORRECTED -- the owner's instruction, and the
+                             * kinder answer. The module's view posts the row's own figure, so an
+                             * honest body always agrees; charging a different amount from the one on
+                             * screen would be a surprise whether the cause was tampering or a page
+                             * left open while the balance moved.
+                             */
+                            \Illuminate\Support\Facades\Log::warning('Checkout refused: the posted pending-payment amount disagrees with the record.', [
+                                'store_id' => $store->id,
+                                'customer_id' => \Auth::guard('customers')->id(),
+                                'partial_payment_id' => $request->input('partial_payment_id'),
+                            ]);
+
+                            return redirect()->back()->with('error',
+                                __('The amount shown for this payment is out of date. Please reopen the order and try again.'));
+                        }
+
+                        $new_array['cartlist_final_price'] = $payable;
+                        // So nothing downstream -- in this app or in a module -- reads the caller's
+                        // figure out of the request after this point.
+                        $new_array['payment_amount'] = $payable;
                     }
                 }
             }
         }
         
         $request->merge($new_array);
+
+        return null;
     }
 
     /**
@@ -2179,7 +2275,48 @@ public function handlePaymeraTrigger00($orderId)
 
         if (module_is_active('PartialPayments')) {
             if ($plan && strpos($plan->modules, 'PartialPayments') !== false && \Auth::guard('customers')->user()) {
-                if ((isset($request->partial_payment_type) || $request->partial_payment_type == 'pending_payment')) {
+                /*
+                 * `&&`, WHERE IT USED TO SAY `||` -- and `isset()` alone is true for ANY value of a
+                 * caller-supplied key, so posting `partial_payment_type=x` on an ORDINARY checkout
+                 * diverted the gateway return into the settle-a-balance branch. That branch answers
+                 * redirect()->back() without writing an order, and its first statement is
+                 * `OrderPartialPayments::find($requests_data['partial_payment_id'])`, which is
+                 * find(NULL) when the state holds no such key -- a fatal on the next line. Either
+                 * way the shopper is charged and no order row exists. P1-ORD-02 criterion 2.
+                 *
+                 * AND THE PREDICATE READS THE STORED STATE, not the live request. `Request::merge()` only
+                 * overwrites keys the state HOLDS (GuardsGatewayReturn:174-176), so an ordinary checkout's
+                 * state -- which carries no `partial_payment_type` -- let a posted one survive the merge and
+                 * divert the return. By then the replay claim is consumed and the state forgotten, so the
+                 * shopper's payment stands with no order and no retry.
+                 *
+                 * AND THE ROW IS CHECKED BEFORE IT IS FLIPPED. ManagePartialPayment() is three
+                 * statements of vendored code with no store_id and no customer_id predicate, on a
+                 * model that is in no scoped_models entry -- so without this, a signed-in shopper
+                 * could mark ANY tenant's pending balance paid by naming its id. The initiation path
+                 * validates the same row (prepareFinalRequestData), and this is the half that holds
+                 * when the store has `enable_partial_payment` off, where that limb never runs.
+                 *
+                 * WHAT THIS GUARD DOES NOT ANSWER, stated so the next reader is not misled: it proves the
+                 * balance is THIS customer's and still owed. It does NOT prove it was PAID. Pre-existing,
+                 * not closed here, and recorded in
+                 * docs/security/P01-ORD-02-PARTIAL-PAYMENT-TOTAL-SOURCE.md section 5.
+                 */
+                if (($requests_data['partial_payment_type'] ?? null) === 'pending_payment') {
+                    if ($this->pendingPartialPaymentRow(
+                        $requests_data['partial_payment_id'] ?? null,
+                        $store->id ?? null,
+                        \Auth::guard('customers')->id()
+                    ) === null) {
+                        \Illuminate\Support\Facades\Log::warning('Pending partial payment refused: the balance named does not belong to this customer.', [
+                            'store_id' => $store->id ?? null,
+                            'customer_id' => \Auth::guard('customers')->id(),
+                            'partial_payment_id' => $requests_data['partial_payment_id'] ?? null,
+                        ]);
+
+                        return redirect()->back()->with('error', __('This payment could not be verified.'));
+                    }
+
                     $return = \Workdo\PartialPayments\app\Models\PartialPayments::ManagePartialPayment($requests_data, $slug);
                     if ($return['status'] == 'success') {
                         return redirect()->back()->with('success', __($return['message']));

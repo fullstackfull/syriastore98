@@ -88,6 +88,17 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             // A model-event listener is exactly where such a query belongs when the handler is
             // vendored, so this will not be the last one.
             glob(base_path('app/Listeners/*.php')) ?: [],
+            // AND app/Http/Controllers/Concerns/, WHICH IS THE THIRD TIME. Raised by the read-only
+            // review of P1-ORD-02 criterion 2: ResolvesPendingPartialPayment reads
+            // `order_partial_payments` to establish whose outstanding balance a checkout is paying,
+            // and the glob did not reach the directory, so the site was counted only by the
+            // platform-wide total in RawQueryTenancyInventoryTest and never classified per site --
+            // exactly the escape the Middleware-subdirectory note above says this file exists to
+            // prevent, one directory over.
+            //
+            // A Concern is where a tenancy predicate belongs when the same question is asked by a
+            // controller and a service, so this will not be the last one either.
+            glob(base_path('app/Http/Controllers/Concerns/*.php')) ?: [],
             glob(base_path('routes/*.php')) ?: []
         );
 
@@ -144,6 +155,24 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             'app/Http/Controllers/StoreFinanceController.php' => 'tenant',
             // The tenant filter itself: these three ARE the predicate.
             'app/Http/Middleware/BulkDeleteTenantGuard.php' => 'tenant',
+            // P1-ORD-02 criterion 2. ResolvesPendingPartialPayment reads the one
+            // `order_partial_payments` row that states what a shopper still owes, and the statement
+            // carries `->where('store_id', $store)` -- a store resolved from the ROUTE, never from
+            // the body -- so 'tenant' is the honest category and the predicate check below is
+            // satisfied by the predicate rather than by an accident of the column list.
+            //
+            // The CUSTOMER half of the ownership question is deliberately NOT in the statement, and
+            // that is the one thing a reader should not mistake for an omission. The module declares
+            // `customer_id` as a VARCHAR and inserts an integer into it, and Laravel binds an
+            // integer as PDO::PARAM_INT, so MySQL converts the COLUMN to a number for the
+            // comparison. MEASURED on MySQL 8.0.46 against the module's own schema
+            // (tests/Support/Security/bin/verify-pending-partial-payment-lookup-on-mysql.php):
+            // `->where('customer_id', 7)` matched rows holding '7', '7abc', ' 7' AND '07'. On SQLite
+            // the same predicate matched only '7'. A SQL-side ownership check is therefore unsound
+            // on the engine that matters and well behaved on the engine the suite runs -- the worst
+            // combination available -- so the value is read out and parsed in PHP with the same
+            // filter_var() applied to the input.
+            'app/Http/Controllers/Concerns/ResolvesPendingPartialPayment.php' => 'tenant',
             // COMPARISON INPUT -- a fourth category, and the narrowest one. P01-SEC-2's
             // OrderDocumentAccessGuard reads the order row by id with NO tenant predicate ON
             // PURPOSE: the statement exists to FETCH `store_id` so the guard can compare it
@@ -428,7 +457,11 @@ class OwnedPathRawQueryInventoryTest extends TestCase
         // rows a bulk category delete would cascade away. It is the first statement in this inventory declared STORE-LESS BY DESIGN rather
         // than carrying a predicate -- see STORE_LESS_BY_DESIGN for why a predicate here would read zero and PERMIT the cascade, and for the
         // two-directional ratchet that stops that declaration outliving its statement.
-        $this->assertCount(33, $sites, "The owned-path raw query inventory changed:\n  "
+        // 33 -> 34 with P1-ORD-02 criterion 2: the pending-balance read in
+        // ResolvesPendingPartialPayment, classified 'tenant' above. The directory it lives in was
+        // not in this file's own glob until this change -- the third time a path this inventory
+        // claims to own had slipped out of it.
+        $this->assertCount(34, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry

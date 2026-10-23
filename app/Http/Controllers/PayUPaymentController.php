@@ -27,6 +27,8 @@ class PayUPaymentController extends Controller
     use GuardsPlanActivation;
     use GuardsGatewayReturn;
     use \App\Http\Controllers\Concerns\ResolvesPartialPaymentDeposit;
+    /* P1-ORD-02: a pending balance is flipped to paid only for the customer who owes it. */
+    use \App\Http\Controllers\Concerns\ResolvesPendingPartialPayment;
     use ApiResponser;
 
     public function planPayWithPayU(Request $request)
@@ -233,12 +235,54 @@ class PayUPaymentController extends Controller
         if (module_is_active('PartialPayments')) {
             if($plan && strpos($plan->modules, 'PartialPayments') !== false && \Auth::guard('customers')->user())
             {
-                if((isset($request->partial_payment_type) || $request->partial_payment_type == 'pending_payment'))
-                {
+                /*
+                 * `&&`, WHERE IT USED TO SAY `||`.  P1-ORD-02 criterion 2.
+                 *
+                 * `isset()` alone is true for ANY value of a caller-supplied key, so posting
+                 * `partial_payment_type=x` on an ORDINARY checkout diverted this return into the
+                 * settle-a-balance branch. That branch answers redirect()->back() without writing an
+                 * order, and its first statement is
+                 * `OrderPartialPayments::find($requests_data['partial_payment_id'])`, which is find(NULL)
+                 * when the stored state holds no such key -- a fatal on the next line. Either way the
+                 * shopper has been charged and no order row exists.
+                 *
+                 * AND THE PREDICATE READS THE STORED STATE, not the live request. `Request::merge()`
+                 * only overwrites keys the state HOLDS (GuardsGatewayReturn:174-176), so an ordinary
+                 * checkout's state -- which carries no `partial_payment_type` -- let a posted one
+                 * survive the merge and divert the return. By then the replay claim is consumed and
+                 * the state forgotten, so the shopper's payment stands with no order and no retry.
+                 *
+                 * AND THE ROW IS CHECKED BEFORE IT IS FLIPPED. ManagePartialPayment() is three statements
+                 * of vendored code with no store_id and no customer_id predicate, on a model that is in no
+                 * `scoped_models` entry -- so without this a signed-in shopper could mark ANY tenant's
+                 * pending balance paid by naming its id. See
+                 * App\Http\Controllers\Concerns\ResolvesPendingPartialPayment.
+                 *
+                 * WHAT THIS GUARD DOES NOT ANSWER, stated so the next reader is not misled: it proves the
+                 * balance is THIS customer's and still owed. It does NOT prove it was PAID. On this
+                 * handler the settle branch returns before any provider verification, so a customer can
+                 * still mark their OWN balance settled without a charge. That is pre-existing and is
+                 * recorded as its own item -- see docs/security/P01-ORD-02-PARTIAL-PAYMENT-TOTAL-SOURCE.md
+                 * section 5.
+                 */
+                if (($requests_data['partial_payment_type'] ?? null) === 'pending_payment') {
+                    if ($this->pendingPartialPaymentRow(
+                        $requests_data['partial_payment_id'] ?? null,
+                        $store->id ?? null,
+                        \Auth::guard('customers')->id()
+                    ) === null) {
+                        \Illuminate\Support\Facades\Log::warning('Pending partial payment refused: the balance named does not belong to this customer.', [
+                            'store_id' => $store->id ?? null,
+                            'customer_id' => \Auth::guard('customers')->id(),
+                            'partial_payment_id' => $requests_data['partial_payment_id'] ?? null,
+                        ]);
+
+                        return redirect()->back()->with('error', __('This payment could not be verified.'));
+                    }
+
                     $return = \Workdo\PartialPayments\app\Models\PartialPayments::ManagePartialPayment($requests_data, $slug);
-                    if($return['status'] == 'success')
-                    {
-                        return redirect()->back()->with('success',__($return['message']));
+                    if ($return['status'] == 'success') {
+                        return redirect()->back()->with('success', __($return['message']));
                     }
                 }
             }

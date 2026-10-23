@@ -246,7 +246,17 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // store's and this shopper's by `ownedOrder()` immediately above the check. Raw rather than Eloquent because
         // `OrderRefund` is Cachable (app/Models/OrderRefund.php:12) and a cached read could miss a row written
         // moments earlier and admit the duplicate this refuses.
-        $this->assertSame(['app' => 142, 'packages' => 45], $perDir,
+        // 142 -> 143 with P1-ORD-02 criterion 2: ResolvesPendingPartialPayment reads the one
+        // `order_partial_payments` row that states what a shopper still owes, WITH a store_id
+        // predicate. Raw and not Eloquent for two measured reasons -- the module's own
+        // `OrderPartialPayments` is Cachable, and the same read runs again on the gateway return
+        // AFTER ManagePartialPayment() has written the row, so a cached answer would be the
+        // pre-write one; and the host app should not depend on a vendored class being loaded on a
+        // path where the module may not be. The customer half of the predicate is deliberately NOT
+        // in the statement: `customer_id` is a VARCHAR holding an integer, and MEASURED on MySQL
+        // 8.0.46 a SQL-side `where('customer_id', 7)` also matches '7abc', ' 7' and '07' while
+        // SQLite matches only '7' -- see tests/Support/Security/bin/verify-pending-partial-payment-lookup-on-mysql.php.
+        $this->assertSame(['app' => 143, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -264,7 +274,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // reads the VIEWER's store, so an order document took the reader's logo and direction for any
         // store with no row of its own. The per-table row for `settings` moves 16 -> 17 and its
         // no-store_id column does NOT.
-        $this->assertSame(187, array_sum($perDir));
+        // 187 -> 188 with P1-ORD-02 criterion 2's pending-balance lookup (see the note above the
+        // per-directory assertion). The per-table row for `order_partial_payments` is NEW at [1, 0]
+        // -- the statement carries a store_id predicate -- so the unscoped sum below does not move.
+        $this->assertSame(188, array_sum($perDir));
     }
 
     /**
@@ -349,6 +362,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // row makes that relation resolve by default ordering, so the check has to ask the question the relation
             // asks -- `order_id` alone. Narrowing it to the caller's store would let an anomalous foreign-store refund
             // row sit on the order, invisible to this check and visible to `$order->refund`.
+            // NEW with P1-ORD-02 criterion 2, and it is AWARE: ResolvesPendingPartialPayment's lookup
+            // carries `->where('store_id', $store)`. The customer predicate is applied in PHP on the
+            // row it returns, for the engine reason recorded on the per-directory assertion above.
+            'order_partial_payments' => [1, 0],
             'order_refunds' => [2, 2],    // P1-ORD-12: OrderDocumentAccessGuard resolves a refund id to its order id; the ORDER's store is what is compared to the caller
             'orders' => [1, 0],
             'owner_menu_items' => [1, 1],
@@ -458,8 +475,11 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // 157 -> 158 with the D3 duplicate-refund check, which names `order_refunds` literally
         // 158 -> 159 with P1-SEC-11 criterion 4's review follow-up (DocumentDirection::ownRow, which names
         // `settings` literally and carries a store_id predicate, so the unscoped sum below does not move).
-        $this->assertSame(159, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '159 literal-table sites of the 187 entry points; the other 28 build their table name '
+        // 159 -> 160 with P1-ORD-02 criterion 2's pending-balance lookup, which names
+        // `order_partial_payments` literally and carries a store_id predicate, so the unscoped sum
+        // below does not move.
+        $this->assertSame(160, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            '160 literal-table sites of the 188 entry points; the other 28 build their table name '
             . 'from a variable and so cannot be attributed (see LIMIT 2 in this class docblock).');
         // 66 -> 71: +9 (campaigns 1, helpdesk_tickets 1, email_templates 1, user_email_templates 1, order_refunds 1, stores 2, plus the Duo/credential reads) and -2 (zid_orders)
         // 71 -> 73: of the five new sites only the two `stores` slug resolutions carry no `store_id` in their statement

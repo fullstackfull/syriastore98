@@ -394,8 +394,39 @@ jobs:
         # the lock unnoticed. Measured, not assumed:
         #     composer audit --locked --format=plain  ->  Found 58 security vulnerability
         #     advisories affecting 21 packages        (was 72 / 22 before the update)
+        #
+        # LOWERED AGAIN 58 -> 55 on 2026-10-23, AND THE REASON THIS STEP FIRED FIRST IS
+        # WORTH RECORDING, because it is the case this ratchet is least good at telling
+        # apart from a real one.
+        #
+        # Run 40033599786 on PR #3 failed here with "Advisory count rose from 58 to 59"
+        # on a `composer.lock` BYTE-IDENTICAL to main -- `git diff origin/main...HEAD --
+        # composer.lock composer.json` was empty. No dependency entered the lock; the
+        # packagist ADVISORY DATABASE grew by one. A ratchet keyed on a count cannot
+        # distinguish "a new vulnerable dependency arrived" from "a new advisory was
+        # published against a dependency that was already here", and the second is the
+        # common case on a lock this old. The diff against the base branch is what tells
+        # them apart, and it is the first thing to check when this step goes red.
+        #
+        # THE ANSWER WAS NOT TO RAISE THE CEILING. `symfony/yaml` was locked at v7.2.0
+        # while every other symfony component sat at v7.4.x, and it carried FOUR of the
+        # 59 advisories, all fixed by 7.4.18. `composer update symfony/yaml` moves
+        # exactly one package in the lock -- v7.2.0 => v7.4.21, no major crossed,
+        # laravel/framework untouched -- and it is a `packages-dev` entry, so it does not
+        # ship under `--no-dev` at all. Measured after the update:
+        #     composer audit --locked --format=plain  ->  Found 55 security vulnerability
+        #     advisories affecting 20 packages
+        # So the ceiling falls to 55 and the ratchet is TIGHTER than before the advisory
+        # appeared, with four real CVEs cleared rather than accepted.
+        #
+        # WHAT WAS NOT VERIFIED LOCALLY, stated for the same reason the commonmark note
+        # above states it: this environment's egress policy refuses the GitHub archives
+        # composer fetches, so the lock was updated with `--no-install` and vendor/ still
+        # holds v7.2.0. CI installs from the lock and runs the suite against the result;
+        # that is where the installed half is exercised. symfony/yaml is dev-only, so no
+        # production code path moves either way.
         env:
-          AUDIT_CEILING: '58'
+          AUDIT_CEILING: '55'
         run: |
           set -o pipefail
           composer audit --locked --format=plain > audit.txt 2>&1 && rc=0 || rc=$?
