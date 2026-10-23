@@ -634,6 +634,77 @@ if ($order_status == 'cancel') {
         }
     }
 
+    /**
+     * The per-line marker that says "this line's goods have already been counted back in".
+     *
+     * ONE RETURN, ONE STOCK CREDIT -- OWNER DECISION 5: "Restock only when a return is actually
+     * accepted. Prevent duplicate stock credits and duplicate refunds. Keep physical inventory
+     * movements separate from financial refund settlement."
+     *
+     * THE DOUBLE CREDIT IT CLOSES, P1-INV-15 (E). Two endpoints can put a returned line's goods
+     * back, and neither knew about the other:
+     *
+     *   Order::product_return()                      the merchant marks ONE LINE returned
+     *   OrderController::restoreReturnedStock()      approval of a return request, EVERY LINE
+     *
+     * The second loops every line with no reference to the line's own return flag, so the
+     * two-step merchant workflow -- mark the line, then approve the request -- credited that
+     * line's stock TWICE. Each endpoint had its own replay guard and both were correct about
+     * their own endpoint; neither could see the other.
+     *
+     * WHY A MARKER ON THE LINE RATHER THAN A FLAG ON THE ORDER. The unit that can be
+     * double-credited is the LINE, not the order: a four-line order can have one line marked
+     * returned and then the whole request approved. An order-level flag cannot express "lines 1
+     * and 3 are already back in stock, lines 2 and 4 are not", and that is exactly the state the
+     * two-step workflow produces. It is written into `product_json`, which both endpoints already
+     * read and write inside their own transaction, so it is durable and needs no new column --
+     * and a new column on `orders` would be a migration against live data (D15).
+     *
+     * PHYSICAL, NOT FINANCIAL. This records that goods moved. It says nothing about whether money
+     * was returned, which is the separation the owner's decision asks for: the refund side is
+     * settled through OrderRefund and `return_price`, and must not be inferred from this.
+     */
+    public const LINE_STOCK_RESTORED = 'stock_restored';
+
+    /**
+     * Has this line's stock already been credited by either endpoint?
+     *
+     * @param  array<string, mixed>  $line
+     */
+    public static function lineStockAlreadyRestored(array $line): bool
+    {
+        return (int) ($line[self::LINE_STOCK_RESTORED] ?? 0) === 1;
+    }
+
+    /**
+     * Can this return workflow read these lines at all?
+     *
+     * The test is for the two keys the restock needs -- `product_id` and a quantity -- on every
+     * line. A POS order's lines carry neither (they are `{name, quantity, ...}` with no
+     * `product_id`), so a POS order fails here and is refused with a message instead of raising
+     * an undefined-array-key 500 half way through the loop, after some lines have already been
+     * restocked.
+     *
+     * `variant_id` is NOT required: it is legitimately absent or 0 on a non-variant line, and the
+     * restock branches on exactly that.
+     *
+     * @param  array<int, mixed>  $lines
+     */
+    public static function linesAreReturnable(array $lines): bool
+    {
+        foreach ($lines as $line) {
+            if (! is_array($line)) {
+                return false;
+            }
+
+            if (! array_key_exists('product_id', $line) || ! array_key_exists('qty', $line)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public static function product_return($date = [])
     {
         $product_id = $date['product_id'];
@@ -658,6 +729,57 @@ if ($order_status == 'cancel') {
             $return['status'] = 'error';
             $return['message'] = __('The product has not been delivered. Therefore you cannot return the product.');
             return $return;
+        }
+
+        /*
+         * A LINE LIST THIS METHOD CAN READ, OR A REFUSAL -- NOT A 500.  P1-INV-15 (A) and (B),
+         * under OWNER DECISION 5: "Implement a reliable, tenant-safe, transaction-safe return
+         * workflow ... Preserve correct tax and POS handling."
+         *
+         * TWO SHAPES REACH HERE THAT THIS METHOD CANNOT READ.
+         *
+         * (B) A NULL `product_json`. P1-INV-02's null guard covers the missing ORDER, not the
+         *     missing json, and `json_encode($product_json)` below with `$product_json` never
+         *     assigned is an undefined variable -- an ErrorException, i.e. a 500.
+         *
+         * (A) A POS ORDER. POS writes a DIFFERENT SHAPE entirely --
+         *     `{"data":[{name, quantity, ...}], ...}` (PosController:120-139, :231) -- with no
+         *     `product_id` and no `qty` on its lines. The loop below reads
+         *     `$product['product_id']` unconditionally, so a POS order is an undefined array key.
+         *
+         * REFUSED RATHER THAN HANDLED, and that is the narrow choice on purpose. Teaching this
+         * method to restock a POS line would mean deciding what a POS return IS -- which register
+         * it credits, whether it touches the same stock, what it does to a cash drawer -- and
+         * none of that is settled. An honest refusal leaves the merchant able to see the order
+         * and unable to half-return it; a 500 leaves them with neither and no message.
+         *
+         * The shape test is the LINE LIST, not the payment type: it asks whether this method can
+         * read what it is about to loop over, which is the actual precondition, and it therefore
+         * also catches any future writer that invents a third shape.
+         */
+        $lines = json_decode((string) $Order->product_json, true);
+
+        if (! is_array($lines) || $lines === []) {
+            \Illuminate\Support\Facades\Log::warning('Order return refused: the order carries no readable product_json', [
+                'order_id' => $Order->id,
+            ]);
+
+            return [
+                'status' => 'error',
+                'message' => __('This order cannot be returned.'),
+            ];
+        }
+
+        if (! self::linesAreReturnable($lines)) {
+            \Illuminate\Support\Facades\Log::warning('Order return refused: the order lines are not in a shape this workflow can return', [
+                'order_id' => $Order->id,
+                'payment_type' => $Order->payment_type,
+            ]);
+
+            return [
+                'status' => 'error',
+                'message' => __('This order cannot be returned from here.'),
+            ];
         }
 
 
@@ -788,9 +910,14 @@ if ($order_status == 'cancel') {
                          * cannot stage the interleave: section F of
                          * tests/Support/Security/bin/verify-stock-oversell-concurrency-on-mysql.php.
                          */
-                        if (!empty($stockProduct)) {
+                        // ONE RETURN, ONE STOCK CREDIT. The marker is stamped on the line in the
+                        // same `$product_json` this method is about to save, so the sibling
+                        // endpoint's loop can see that these goods are already back in. See
+                        // Order::LINE_STOCK_RESTORED. P1-INV-15 (E), owner decision 5.
+                        if (!empty($stockProduct) && ! self::lineStockAlreadyRestored($product_json[$key])) {
                             app(\App\Services\ProductStockService::class)
                                 ->restoreProductStock($stockProduct->id, (int) $line['qty']);
+                            $product_json[$key][self::LINE_STOCK_RESTORED] = 1;
                         }
                     } else {
                         /*
@@ -817,9 +944,11 @@ if ($order_status == 'cancel') {
                                 ->first();
                         // P1-INV-05: the variant twin of the restock above, same read-modify-write
                         // and same remedy. See that comment for the census and the MySQL evidence.
-                        if (!empty($ProductStock)) {
+                        // The variant twin of the marker above, same reason.
+                        if (!empty($ProductStock) && ! self::lineStockAlreadyRestored($product_json[$key])) {
                             app(\App\Services\ProductStockService::class)
                                 ->restoreVariantStock($ProductStock->id, (int) $product['qty']);
+                            $product_json[$key][self::LINE_STOCK_RESTORED] = 1;
                         }
                     }
                 }
@@ -842,9 +971,25 @@ if ($order_status == 'cancel') {
                 }
             }
         }
-        $tax_price = 0;
-        $tax_price_ind = 0;
-       
+        /*
+         * TAX IS LEFT ALONE, NOT ZEROED.  P1-INV-15 (C), under OWNER DECISION 5's "Preserve
+         * correct tax and POS handling."
+         *
+         * This used to be `$tax_price = 0;` followed, 10 lines below, by
+         * `$Order->tax_price = SetNumber($tax_price);` -- with `$tax_price` never assigned
+         * anything else. So EVERY return wrote 0.00 into the order's tax column, whatever tax the
+         * order had actually carried. A money column, silently destroyed by an inventory action.
+         *
+         * NOT RECOMPUTED, AND THAT IS THE NARROW CHOICE. Working out the tax on a partially
+         * returned order means deciding how a per-order tax rate, a shipping tax component and a
+         * coupon that moved the taxable base all apportion across the returned lines. Those are
+         * OrderTaxDetail's question and P1-ORD-14's, not this method's, and a guess written into
+         * a money column is worse than an unchanged value that is at least the truth about what
+         * was charged. The column is simply no longer touched here, which is the owner's "left
+         * untouched; not silently zeroed".
+         *
+         * `$tax_price_ind` was dead with it -- assigned once, read nowhere -- and goes too.
+         */
         $coupon_price = 0;
         $order_coupon_detail = OrderCouponDetail::where('order_id', $order_id)->first();
         if (!empty($order_coupon_detail)) {
@@ -855,11 +1000,23 @@ if ($order_status == 'cancel') {
         }
         $return_price -= $coupon_price;
         $final_price = ($Order->final_price - $return_price);
-        $Order->product_json = json_encode($product_json);
-        $Order->return_price = SetNumber($return_price);
-        $Order->tax_price = SetNumber($tax_price);
-        $Order->final_price = SetNumber($final_price);
-        $Order->save();
+        /*
+         * ONE TRANSACTION AROUND THE WRITES.  P1-INV-15 (D), owner decision 5's "transaction-safe".
+         *
+         * The restock above and these two saves were separate autocommitted writes, while the
+         * SIBLING endpoint has wrapped exactly this pair since P1-INV-02 (OrderController:950).
+         * A throw between them left the goods back in stock with the order never recording the
+         * return -- and because the replay guard at the top reads the line's own `return` flag
+         * from `product_json`, the next attempt then credited the same goods again.
+         *
+         * `tax_price` is NOT in this write list any more. See the note above.
+         */
+        \Illuminate\Support\Facades\DB::transaction(function () use ($Order, $product_json, $return_price, $final_price) {
+            $Order->product_json = json_encode($product_json);
+            $Order->return_price = SetNumber($return_price);
+            $Order->final_price = SetNumber($final_price);
+            $Order->save();
+        });
 
         $return['status'] = 'success';
         $return['message'] = 'Product return successfully.';

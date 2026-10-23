@@ -262,6 +262,13 @@ run_one verify-pending-partial-payment-lookup-on-mysql \
   "MYSQL_SOCK=${SOCK}" "MYSQL_HOST=${HOST}" "MYSQL_PORT_NUM=${PORT}" \
   "MYSQL_DATABASE=p1ord02_pending_verify" "MYSQL_USER_NAME=${USER_NAME}" "MYSQL_PASS=${PASS}"
 
+# P1-INV-24 / OWNER DECISION 3. The category cascade that destroys ProductReview rows, and the
+# SET NULL migration that stops it. Entirely a foreign-key DELETE rule, so SQLite -- which does not
+# enforce foreign keys unless asked and cannot ALTER a constraint at all -- can say nothing about it.
+run_one verify-product-review-category-set-null-on-mysql \
+  "MYSQL_SOCK=${SOCK}" "MYSQL_HOST=${HOST}" "MYSQL_PORT_NUM=${PORT}" \
+  "MYSQL_DATABASE=p1inv24_verify" "MYSQL_USER_NAME=${USER_NAME}" "MYSQL_PASS=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

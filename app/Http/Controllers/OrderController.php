@@ -1003,8 +1003,38 @@ public function store(Request $request)
          */
         $storeId = $order->store_id;
 
-        foreach ($lines as $line) {
+        /*
+         * ONE RETURN, ONE STOCK CREDIT -- the half of P1-INV-15 (E) that lives on this side.
+         * OWNER DECISION 5: "Restock only when a return is actually accepted. Prevent duplicate
+         * stock credits and duplicate refunds."
+         *
+         * THE DOUBLE CREDIT. This loop walks EVERY line with no reference to what the other
+         * endpoint has already done. `Order::product_return()` lets a merchant mark ONE LINE
+         * returned and puts that line's goods back immediately; approving the return request then
+         * put the same goods back AGAIN. Each endpoint's own replay guard was correct about its
+         * own endpoint and blind to the other, which is why the two-step merchant workflow --
+         * mark the line, then approve -- inflated inventory by the returned quantity.
+         *
+         * The marker is written into the line inside `product_json` by whichever endpoint credits
+         * it first, and both now consult it. See Order::LINE_STOCK_RESTORED for why the marker is
+         * per-LINE rather than per-order.
+         *
+         * $restored collects the indexes credited by THIS pass so they can be stamped in the same
+         * transaction as the status write. The caller owns that transaction (:950).
+         */
+        $restored = [];
+
+        foreach ($lines as $index => $line) {
             if (!is_array($line)) {
+                continue;
+            }
+
+            if (Order::lineStockAlreadyRestored($line)) {
+                Log::warning('Return approval skipped a line whose stock was already credited', [
+                    'order_id' => $order->id,
+                    'product_id' => $line['product_id'] ?? null,
+                ]);
+
                 continue;
             }
 
@@ -1052,6 +1082,7 @@ public function store(Request $request)
 
             if ($variantId == 0 || empty($variantId)) {
                 $this->stockService()->restoreProductStock($product->id, $qty);
+                $restored[] = $index;
 
                 continue;
             }
@@ -1077,6 +1108,25 @@ public function store(Request $request)
             }
 
             $this->stockService()->restoreVariantStock($variant->id, $qty);
+            $restored[] = $index;
+        }
+
+        /*
+         * PERSIST THE MARKERS, in the caller's transaction, so a later call to either endpoint
+         * can see that these goods are already back in. Written only when something actually
+         * moved, so an approval that restocked nothing does not rewrite the column.
+         *
+         * `$order->save()` is NOT called here: the caller writes `return_status` and
+         * `return_price` on the same instance immediately afterwards, inside the same
+         * transaction, and that save persists this too. Saving twice would be two statements for
+         * one state change.
+         */
+        if ($restored !== []) {
+            foreach ($restored as $index) {
+                $lines[$index][Order::LINE_STOCK_RESTORED] = 1;
+            }
+
+            $order->product_json = json_encode($lines);
         }
     }
 

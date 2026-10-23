@@ -47,7 +47,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/ProductStockService.php:127` | Stock decremented below zero on an order path that cannot refuse |
 | `app/Services/ProductStockService.php:210` | Stock decremented below zero on an order path that cannot refuse |
 
-### `warning` — 103 lines
+### `warning` — 106 lines
 
 | line | message |
 |---|---|
@@ -82,13 +82,14 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/NMIPayController.php:419` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/OrderController.php:306` | Manual order total did not match its components; the computed total was stored |
 | `app/Http/Controllers/OrderController.php:987` | Return approval restored no stock: order carries no readable product_json |
-| `app/Http/Controllers/OrderController.php:1023` | Return approval skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1044` | Return approval skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1070` | Return approval skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1407` | Order cancellation skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1422` | Order cancellation skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1444` | Order cancellation skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1610` | Order assignment refused: the delivery boy is not in a store this caller owns |
+| `app/Http/Controllers/OrderController.php:1053` | Return approval skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1033` | Return approval skipped a line whose stock was already credited |
+| `app/Http/Controllers/OrderController.php:1074` | Return approval skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1101` | Return approval skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:1457` | Order cancellation skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1472` | Order cancellation skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1494` | Order cancellation skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:1660` | Order assignment refused: the delivery boy is not in a store this caller owns |
 | `app/Http/Controllers/OrderRefundController.php:180` | Refund transition refused: unrecognised current state |
 | `app/Http/Controllers/OrderRefundController.php:202` | Refund transition refused: illegal transition |
 | `app/Http/Controllers/OrderRefundController.php:416` | Refund cancellation refused: the record does not match the order |
@@ -107,8 +108,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaymentController.php:1073` | Paymera trigger could not identify the order it created; the pending record names none |
 | `app/Http/Controllers/PaymentController.php:1266` | checkout: refused, basket names a product from another store |
 | `app/Http/Controllers/PaymentController.php:1306` | checkout: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/PaymentController.php:1977` | Checkout refused: no recorded balance matches this pending payment. |
 | `app/Http/Controllers/PaymentController.php:1960` | Checkout refused: this payment method cannot settle an outstanding balance. |
+| `app/Http/Controllers/PaymentController.php:1977` | Checkout refused: no recorded balance matches this pending payment. |
 | `app/Http/Controllers/PaymentController.php:1995` | Checkout refused: the posted pending-payment amount disagrees with the record. |
 | `app/Http/Controllers/PaymentController.php:2311` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/PaymentController.php:3472` | Telegram order message not sent: the store has no bot token or chat id |
@@ -126,6 +127,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Middleware/LotteryDrawOwnershipGuard.php:260` | lottery draw refused |
 | `app/Http/Middleware/ModuleOrderMutationGuard.php:378` | module order mutation refused |
 | `app/Http/Middleware/ModuleResourceOwnershipGuard.php:374` | module resource mutation refused |
+| `app/Models/Order.php:763` | Order return refused: the order carries no readable product_json |
+| `app/Models/Order.php:774` | Order return refused: the order lines are not in a shape this workflow can return |
 | `app/Models/Utility.php:2174` | New Order webhook skipped: no store could be resolved for the order |
 | `app/Models/Utility.php:2184` | New Order webhook skipped: the resolved store does not exist |
 | `app/Services/DeliveryBoyNotificationService.php:65` | No active Delivery Firebase devices found for delivery boy. |

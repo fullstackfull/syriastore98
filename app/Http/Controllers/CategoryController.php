@@ -524,9 +524,31 @@ class CategoryController extends Controller
                  * review row pointing at this category is one the merchant cannot see or clear
                  * from any screen, so refusing on it would make the category permanently
                  * undeletable. Widening a refusal onto data the user cannot reach is not a
-                 * control, it is a dead end. Recorded as its own task instead -- the real fix is
-                 * either to re-point the copy when a product moves or to change the constraint,
-                 * and both live in vendored module territory or in a migration (D15).
+                 * control, it is a dead end.
+                 *
+                 * ANSWERED 2026-10-23 FOR product_reviews, UNDER OWNER DECISION 3: the constraint
+                 * is changed rather than the refusal widened. "Prefer ON DELETE SET NULL for the
+                 * stale category reference where the actual schema supports it." The host
+                 * migration is
+                 * database/migrations/2026_10_23_000100_product_reviews_category_id_on_delete_set_null.php
+                 * -- it makes the column nullable first (MySQL refuses SET NULL on a NOT NULL
+                 * column, errno 1830, measured), converts the unreferencable `category_id = 0` and
+                 * orphan rows to NULL without deleting any, and swaps CASCADE for SET NULL.
+                 *
+                 * MEASURED END TO END on MySQL 8.0.46 in
+                 * tests/Support/Security/bin/verify-product-review-category-set-null-on-mysql.php:
+                 * the sequence above destroyed 2 of 2 reviews before the migration and preserves
+                 * 4 of 4 after it, with the pointers nulled rather than the rows removed.
+                 *
+                 * SO THIS REFUSAL STILL DOES NOT WIDEN, and now it does not need to. The module's
+                 * own migration still declares CASCADE -- it is vendored and must not be edited --
+                 * so a fresh install creates the cascade and the host migration corrects it
+                 * afterwards. APPLYING IT TO PRODUCTION IS GATED on D15: real MySQL schema
+                 * evidence and a verified backup restoration.
+                 *
+                 * `testimonials.category_id` IS UNCHANGED and still cascades. It is not the same
+                 * case: nothing in this refusal's advice leads a merchant into it, which is what
+                 * made the review one urgent.
                  */
                 $productsInCategory = \Illuminate\Support\Facades\DB::table('products')
                     ->where('category_id', $category->id)
