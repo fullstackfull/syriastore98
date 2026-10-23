@@ -308,8 +308,112 @@ class ImportMappingOwnershipTest extends SecurityTestCase
     }
 
     // ---------------------------------------------------------------------------------------------
+    // THE OTHER HALF OF CRITERION 1: a FOREIGN MAPPING pointing at the caller's OWN record
+    // ---------------------------------------------------------------------------------------------
+    //
+    // The row's required tests ask for this case "per site" and it was the one shape no test drove.
+    // It is the ONLY input that isolates the mapping query's own `where('store_id', ...)`: with a
+    // foreign mapping naming a FOREIGN row, `ImportMappingOwnership::owned()` refuses on its own, so
+    // dropping the predicate changes nothing -- which is why mutants removing it from all four
+    // handlers SURVIVED the first thirteen tests in this file. With a foreign mapping naming the
+    // caller's own row, `owned()` APPROVES (the row really is the caller's), and only the predicate
+    // stands between store B's mapping and a re-sync of store A's record under it.
+    //
+    // WHY IT MATTERS RATHER THAN BEING TIDINESS: the remote payload is fetched with store B's
+    // credentials' remote id, so what lands in store A's row is whatever store B's remote catalogue
+    // holds under that id. A merchant who learns another store's remote ids can rewrite their own
+    // coupon, customer or category from someone else's shop -- and on the customer handler that
+    // write includes the e-mail address, which is a recovery-ownership write.
+
+    public function test_a_coupon_resync_is_refused_when_the_mapping_itself_belongs_to_another_store(): void
+    {
+        [$merchant, $mine] = $this->makeTenant();
+        [, $theirs] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Edit Woocommerce Coupon');
+
+        $own = $this->couponIn($mine, 'own-coupon');
+        $this->mapping($theirs, 'coupon', 55, $own);        // ANOTHER store's mapping row, naming MY coupon
+        WooCoupon::shouldReceive('find')->andReturn($this->couponPayload());
+
+        $response = $this->actingAs($merchant)->get('/woocom_coupon/55/edit');
+
+        $response->assertSessionHas('error', __('Coupon Not Found.'));
+        $row = DB::table('coupons')->where('id', $own)->first();
+        $this->assertSame('own-coupon', $row->coupon_name,
+            "A mapping row owned by another store was used to rewrite the caller's own coupon: the "
+            . 'mapping query is not scoped to the caller\'s store.');
+    }
+
+    public function test_a_customer_resync_is_refused_when_the_mapping_itself_belongs_to_another_store(): void
+    {
+        [$merchant, $mine] = $this->makeTenant();
+        [, $theirs] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Edit Woocommerce Customer');
+
+        $own = $this->customerIn($mine, 'own@example.test');
+        $this->mapping($theirs, 'customer', 66, $own);
+        WooCustomer::shouldReceive('find')->andReturn($this->customerPayload());
+
+        $response = $this->actingAs($merchant)->get('/woocom_customer/66/edit');
+
+        $row = DB::table('customers')->where('id', $own)->first();
+        $this->assertSame('own@example.test', $row->email,
+            "A mapping row owned by another store rewrote the caller's own customer -- including the "
+            . 'e-mail, which is a recovery-ownership write.');
+        $this->assertSame('Victim', $row->first_name);
+    }
+
+    public function test_a_category_resync_is_refused_when_the_mapping_itself_belongs_to_another_store(): void
+    {
+        [$merchant, $mine] = $this->makeTenant();
+        [, $theirs] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Edit Woocommerce Category');
+        $this->categoryFixture($mine);
+
+        $own = DB::table('categories')->insertGetId(['name' => 'own-category', 'slug' => 'own-category',
+            'store_id' => $mine->id, 'created_at' => now(), 'updated_at' => now()]);
+        $this->mapping($theirs, 'category', 12, $own);
+        $before = (int) DB::table('categories')->count();
+
+        $response = $this->actingAs($merchant)->get('/woocom_category/12/edit');
+
+        $response->assertSessionHas('error', __('Category Not Found.'));
+        $row = DB::table('categories')->where('id', $own)->first();
+        $this->assertSame('own-category', $row->name,
+            "A mapping row owned by another store rewrote the caller's own category.");
+        $this->assertSame($before, (int) DB::table('categories')->count(), 'A category was inserted.');
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // the Shopify twin, which cannot be driven offline: pinned by a census
     // ---------------------------------------------------------------------------------------------
+
+    /** The body of `edit()`, comments stripped: prose must not satisfy or trip a source ratchet. */
+    private function editBody(string $source): string
+    {
+        $start = strpos($source, 'public function edit(');
+
+        if ($start === false) {
+            $start = (int) strpos($source, 'public function edit ');
+        }
+
+        $this->assertNotFalse($start, 'edit() is gone, so this census would pass vacuously.');
+
+        $next = strpos($source, 'public function ', $start + 10);
+        $body = $next === false ? substr($source, $start) : substr($source, $start, $next - $start);
+
+        $out = '';
+
+        foreach (token_get_all('<?php ' . $body) as $token) {
+            if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                continue;
+            }
+
+            $out .= is_array($token) ? $token[1] : $token;
+        }
+
+        return $out;
+    }
 
     public function test_every_re_sync_handler_resolves_its_local_row_through_the_ownership_service(): void
     {
@@ -324,6 +428,24 @@ class ImportMappingOwnershipTest extends SecurityTestCase
             $source = (string) file_get_contents(app_path('Http/Controllers/' . $file));
             $this->assertSame($count, preg_match_all('/ImportMappingOwnership::owned\(/', $source), $file);
             $this->assertStringNotContainsString('$upddata->original_id;', $source, $file . ' still dereferences an unchecked mapping.');
+
+            /*
+             * AND THE MAPPING QUERY ITSELF IS STORE-SCOPED. `owned()` compares the ROW the mapping
+             * names with the caller's store, which refuses a foreign mapping naming a foreign row --
+             * but APPROVES a foreign mapping naming the caller's OWN row, because the row really is
+             * theirs. Only this predicate refuses that, and the three Woo handlers now have a test
+             * driving it. ShopifyProductController cannot be driven offline (raw cURL to Shopify
+             * before the guard; the cURL options themselves are P1-SEC-06's criterion 3, open
+             * there), so for F2 this assertion IS the control's only ratchet -- which is stated
+             * rather than left for a reader to assume the drive exists.
+             */
+            $edit = $this->editBody($source);
+            $this->assertMatchesRegularExpression(
+                '/\$upddata\s*=\s*[^;]*(?:::|->)where\(\s*[\'"]store_id[\'"]/',
+                $edit,
+                $file . ": the mapping resolve in edit() is not scoped to the caller's store, so another "
+                . "store's mapping row can name -- and re-sync -- a record this caller owns."
+            );
         }
 
         // REVIEW FINDING: the Shopify product re-sync fetched the image, charged the storage quota and wrote the file BEFORE it refused a
