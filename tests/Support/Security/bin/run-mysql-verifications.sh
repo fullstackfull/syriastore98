@@ -240,6 +240,16 @@ run_one verify-store-slug-identity-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_DATABASE=slug_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
+# P1-PAY-02. The gateway-return claim's whole value is that exactly ONE of two overlapping returns can take a key, and the suite cannot
+# show that: phpunit.xml sets CACHE_STORE=array, ArrayStore has no add() of its own, so Cache::add() there is the Repository
+# get-then-put fallback -- correct, but not atomic -- and PHPUnit is single-threaded besides. Production is CACHE_STORE=database, where
+# DatabaseStore::add() ends in insertOrIgnore against cache.key, the PRIMARY KEY. This script drives two connections through the real
+# interleave: A holds an uncommitted claim and B must BLOCK on the row lock rather than decide on its stale read. Section E states, as a
+# measurement rather than as prose, exactly what the SQLite suite is and is not evidence for.
+run_one verify-gateway-return-claim-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_DATABASE=claim_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

@@ -186,6 +186,18 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
             'store_id' => $store->id,
             'customer_id' => '',
             'payment_type' => 'nmi',
+            /*
+             * P1-PAY-02. THE FIXTURE CARRIES THE NONCE BECAUSE WITHOUT IT ONE TEST HERE CANNOT
+             * BITE. PaymentService::process() stamps `checkout_nonce` on every real checkout, and
+             * GuardsGatewayReturn::claimGatewayReturn() consumes it. A state WITHOUT one takes the
+             * documented fail-open branch -- there is nothing to claim -- so
+             * test_a_declined_card_leaves_the_checkout_retryable below would pass whether or not
+             * the handler releases the claim when it puts the state back. It did pass, against a
+             * version of this change that burned the claim on a decline and made every retry
+             * impossible; an independent review found that, not this suite. With the nonce here,
+             * removing the release fails the test.
+             */
+            'checkout_nonce' => 'nonce-' . uniqid('', true),
             'shipping_final_price' => 0,
             'tax_price' => 0,
             'cartlist_final_price' => 100.00,
@@ -1080,6 +1092,113 @@ class UnguardedOrderWriterTrustBoundaryTest extends SecurityTestCase
      * took no money. Both halves are asserted: the decline must not write an order, and the
      * retry must succeed.
      */
+    /**
+     * TWO OVERLAPPING NMI RETURNS CHARGE THE CARD ONCE.
+     *
+     * P1-PAY-02, and NMI is the handler where a replay costs the most: the return does not
+     * confirm a payment the shopper already made, it MAKES the charge
+     * (`$this->nmiService->chargeSale(...)`). A second pass is a second capture on the card, not
+     * merely a duplicate order row.
+     *
+     * `Session::forget()` immediately above the charge stops a SEQUENTIAL replay. It cannot stop
+     * two returns that OVERLAP -- a double submit on the card form, a browser retry -- because
+     * neither has written the forget when the other reads. Both therefore hold a valid copy of
+     * the state, which is what the second request carries here.
+     *
+     * THE GATEWAY CALL COUNT IS THE ASSERTION THAT MATTERS. An order count alone would be
+     * satisfied by a handler that charged twice and failed to write the second row.
+     *
+     * NMI is driven here rather than in GatewayReturnTrustBoundaryTest because only this file
+     * fakes the NMI service; without that the handler never reaches its charge at all.
+     */
+    public function test_two_overlapping_nmi_returns_charge_the_card_once(): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store, 100.00, 50);
+        $sid = $this->guestCart($store, $product);
+        $gateway = $this->fakeNmiSequence([
+            ['response' => 1, 'transactionid' => 'T-1', 'amount' => '100.00'],
+            ['response' => 1, 'transactionid' => 'T-2', 'amount' => '100.00'],
+        ]);
+
+        $before = self::orderCount();
+        $state = $this->nmiCheckoutState($store, $product);
+
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state])
+            ->post('/' . $store->slug . '/get-payment-NMI', $this->nmiCardFields());
+
+        $this->assertCount(1, $gateway->calls,
+            'The first return never charged, so "charged once" below would hold whatever the '
+            . 'claim did. Session error: ' . var_export(session('error'), true));
+        $this->assertSame($before + 1, self::orderCount(), 'The first return wrote no order.');
+
+        // The overlapping second reader: the same state, still present, as a concurrent request
+        // would have found it.
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state])
+            ->post('/' . $store->slug . '/get-payment-NMI', $this->nmiCardFields());
+
+        $this->assertCount(1, $gateway->calls,
+            'A second return holding a valid copy of the same checkout state CHARGED THE CARD '
+            . 'AGAIN. Session::forget() cannot close this -- both readers have the state.');
+        $this->assertSame($before + 1, self::orderCount(),
+            'A second return wrote a second order for one checkout.');
+    }
+
+    /**
+     * A REQUEST THAT NEVER REACHES THE GATEWAY CANNOT KILL THE CHECKOUT EITHER.
+     *
+     * P1-PAY-02, AND THIS IS A REGRESSION THE FIRST VERSION OF THAT CHANGE INTRODUCED AND AN
+     * INDEPENDENT REVIEW CAUGHT. The idempotency claim was taken at the top of the handler,
+     * above the card-expiry check -- which returns EARLY and deliberately leaves the stored state
+     * in place, because nothing has been charged. So any request that got that far burned the
+     * claim and left the checkout alive but unusable: the shopper's real submit then met
+     * "This payment has already been recorded against an order" for an order that never existed.
+     *
+     * IT IS NOT ONLY THE SHOPPER'S OWN MISTAKE. `routes/customer.php:360` declares this route
+     * with `Route::any`, so GET is routed, Laravel's CSRF middleware does not verify reads, and
+     * the route sits outside the authenticated group. One cross-site navigation while a checkout
+     * is live was therefore enough to kill it -- harmless before the claim existed, fatal after.
+     * The request here is exactly that: a GET with no card fields at all.
+     *
+     * The claim now sits immediately above the charge, below every refusal that takes no money,
+     * so this request claims nothing and the genuine attempt that follows still works.
+     */
+    public function test_a_request_that_never_charges_does_not_consume_the_checkout(): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store, 100.00, 50);
+        $sid = $this->guestCart($store, $product);
+        $gateway = $this->fakeNmiSequence([
+            ['response' => 1, 'transactionid' => 'T-1', 'amount' => '100.00'],
+        ]);
+
+        $before = self::orderCount();
+        $state = $this->nmiCheckoutState($store, $product);
+
+        // The drive-by: routed, unauthenticated, no CSRF on a read, and no card fields.
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state])
+            ->get('/' . $store->slug . '/get-payment-NMI');
+
+        $this->assertCount(0, $gateway->calls,
+            'The empty request reached the gateway, so it is not the no-charge path this test '
+            . 'means to drive.');
+        $this->assertSame($before, self::orderCount(), 'The empty request wrote an order.');
+
+        // The shopper's genuine attempt, on the state that survived.
+        $real = $this->withCookie('cart', $sid)
+            ->post('/' . $store->slug . '/get-payment-NMI', $this->nmiCardFields());
+
+        $this->assertCount(1, $gateway->calls,
+            'The genuine attempt never reached the gateway. A request that charged nothing had '
+            . 'consumed the checkout. Answered HTTP ' . $real->getStatusCode()
+            . ' with error ' . var_export(session('error'), true));
+        $this->assertSame($before + 1, self::orderCount(),
+            'The genuine attempt wrote no order after a request that took no money.');
+    }
+
     public function test_a_declined_card_leaves_the_checkout_retryable(): void
     {
         [, $store] = $this->tenant();

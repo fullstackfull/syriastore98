@@ -270,8 +270,58 @@ class PaymentService
         }
     }
 
+    /**
+     * Give this checkout a one-time identifier, before any gateway branch runs.
+     *
+     * P1-PAY-02. The six gateway-return handlers can only refuse a replay if something on the
+     * return identifies the checkout it belongs to. Nothing did: the stored state is a copy of
+     * the shopper's own request, and two checkouts of the same basket are byte-identical, so a
+     * hash of the state would refuse a legitimate second purchase. The identifier has to be
+     * minted, and it has to be minted by the server, at initiation.
+     *
+     * WHY HERE AND NOT AT THE 46 `Session::put('request_data', ...)` SITES. Every one of those
+     * builds its array as `$request->except('attachment','payment_receipt')`, so a key merged into
+     * the request before the switch is carried into all of them for free. process() is the web
+     * checkout's single entry point to the gateways -- PaymentController:1778 is its only caller
+     * -- so one line here covers every arm, and there is no 46-site census to keep in step as
+     * arms are added.
+     *
+     * THERE IS NO ARRAY LIMB, AND THAT IS A MEASURED DECISION RATHER THAN AN OVERSIGHT. Several
+     * arms begin `if (is_array($request)) { $request = Request::create('/', 'POST', $request); }`
+     * (:429 and :4349 among others), which reads as though an array reaches here -- so the first
+     * version of this method stamped the array too. A mutation run then recorded that limb as the
+     * one SURVIVOR of twelve: deleting it failed no test. A census says why. This service's
+     * `process()` has exactly ONE caller, PaymentController:1778, and it passes a typed
+     * `Request`; every arm is private or otherwise uncalled outside the switch, so the `is_array`
+     * guards inside them are themselves legacy. And an arm reached directly WOULD bypass
+     * process(), and therefore this stamp, whatever shape it was given -- so an array limb would
+     * not have covered that case either. Dead defence on a money path is a liability, not a
+     * safeguard, so it was removed rather than excused. (The same-named `process()` methods on
+     * the LotteryPrizes, Donation and Campaigns module services ARE called with arrays; they are
+     * different classes and do not reach this code.)
+     *
+     * The `instanceof` test stays: the parameter is untyped, matching those module services, and
+     * it is what makes this method total rather than a fatal on an unexpected shape.
+     *
+     * See App\Http\Controllers\Concerns\GuardsGatewayReturn::claimGatewayReturn() for what the
+     * return side does with it.
+     *
+     * @param  \Illuminate\Http\Request|mixed  $request
+     * @return \Illuminate\Http\Request|mixed  the same value, stamped when it can be
+     */
+    private function stampCheckoutNonce($request)
+    {
+        if ($request instanceof Request) {
+            $request->merge([self::CHECKOUT_NONCE_KEY => (string) \Illuminate\Support\Str::uuid()]);
+        }
+
+        return $request;
+    }
+
     public function process($request, $paymentMethod, $slug, $cartList)
     {
+        $request = $this->stampCheckoutNonce($request);
+
         switch ($paymentMethod) {
             case 'stripe':
                 return $this->processStripe($request, $slug, $cartList);

@@ -225,6 +225,22 @@ class KhaltiPaymnetController extends Controller
         if ($requests_data === null) {
             return $this->gatewayReturnRefusal();
         }
+
+        /*
+         * P1-PAY-02. ONE CHECKOUT, AND ONE PAYMENT, PRODUCE AT MOST ONE ORDER -- and the control is
+         * NOT the session. `Session::forget()` below makes the stored state single-use, which stops a
+         * SEQUENTIAL replay; it cannot stop two returns that OVERLAP, because Laravel holds no session
+         * lock for the life of these requests and both read the state before either writes the forget.
+         * That is the same read-check-use straddle already fixed on the Paymera path, where it was
+         * measured to produce a second order, a second stock decrement and a second wallet credit.
+         *
+         * Taken HERE, above every write and above the forget, so a refusal costs nothing. See
+         * GuardsGatewayReturn::claimGatewayReturn() for the two keys and for which gateways supply a
+         * transaction reference and which do not.
+         */
+        if (! $this->claimGatewayReturn($request, 'khalti', $requests_data)) {
+            return $this->gatewayReturnReplayRefusal();
+        }
         $slug = !empty($requests_data['slug']) ? $requests_data['slug'] : '';
         $store = getStore($slug);
         \Session::forget('request_data');

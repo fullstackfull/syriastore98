@@ -297,6 +297,28 @@ class NMIPayController extends Controller
          * So: consumed here, and PUT BACK on every path that did not take money. A failed
          * charge re-opens nothing, because nothing was captured.
          */
+        /*
+         * P1-PAY-02. ONE CHECKOUT, AND ONE PAYMENT, PRODUCE AT MOST ONE ORDER -- and the control
+         * is NOT the session. The forget below makes the stored state single-use, which stops a
+         * SEQUENTIAL replay; it cannot stop two returns that OVERLAP, because Laravel holds no
+         * session lock for the life of these requests and both read the state before either
+         * writes the forget. That is the read-check-use straddle already fixed on the Paymera
+         * path, where it produced a second order, a second stock decrement and a second wallet
+         * credit.
+         *
+         * TAKEN HERE AND NOT WITH THE OTHER GUARDS, for the same reason the forget is here and
+         * not with them: everything above this line can refuse WITHOUT taking money, and this
+         * handler is one of the two that let the shopper come back to the same stored state
+         * afterwards. The first version of this change claimed above the card-expiry check, so a
+         * bare GET to this route -- `Route::any`, so GET is routed, and the expiry check returns
+         * before the forget -- burned a live checkout's claim while leaving its state intact, and
+         * the shopper's real attempt was then refused as a replay. An independent review caught
+         * it. The claim belongs exactly where the money does.
+         */
+        if (! $this->claimGatewayReturn($request, 'nmi', $requests_data)) {
+            return $this->gatewayReturnReplayRefusal();
+        }
+
         \Session::forget(self::CHECKOUT_STATE_KEY);
 
         $parsedResponse = $this->nmiService->chargeSale([
@@ -1231,6 +1253,14 @@ class NMIPayController extends Controller
              * too and is restored the same way.
              */
             \Session::put(self::CHECKOUT_STATE_KEY, $requests_data);
+            /*
+             * P1-PAY-02. The claim goes back with the state, and it HAS to: the state carries the
+             * same checkout_nonce, so without this the restored checkout meets "This payment has
+             * already been recorded against an order" on the retry -- for an order that was never
+             * written and money that never moved. Safe on this branch and only on this branch:
+             * chargeSale returned a decline or nothing at all, so there is no capture to replay.
+             */
+            $this->releaseGatewayReturnClaim($request, 'nmi', $requests_data);
 
             return redirect()->back()->with(
                 'error',

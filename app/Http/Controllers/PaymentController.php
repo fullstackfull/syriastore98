@@ -1922,6 +1922,31 @@ public function handlePaymeraTrigger00($orderId)
          * test it replaces is redundant -- storedCheckoutState() above returns ?array and this
          * method returns early on null.
          */
+        /*
+         * P1-PAY-02. ONE CHECKOUT, AND ONE PAYMENT, PRODUCE AT MOST ONE ORDER -- and the control
+         * is NOT the session. `Session::forget()` below makes the stored state single-use, which
+         * stops a SEQUENTIAL replay; it cannot stop two returns that OVERLAP, because Laravel
+         * holds no session lock for the life of these requests and both read the state before
+         * either writes the forget. That is the read-check-use straddle already fixed on the
+         * Paymera path, where it produced a second order, a second stock decrement and a second
+         * wallet credit.
+         *
+         * TAKEN HERE, BELOW THE GATEWAY-FINALITY CHECKS, and that placement is the whole point.
+         * This is the generic return for some twenty payment methods, and the PhonePe, toyyibpay
+         * and Tap blocks above return EARLY WITH THE STATE INTACT -- deliberately, because a
+         * payment reported PENDING (toyyibpay status_id 2, which is even flashed as a success)
+         * is not finished and the shopper must be able to come back. The first version of this
+         * change claimed above those exits, so a pending payment that later completed met "This
+         * payment has already been recorded against an order" for an order that was never
+         * written. An independent review caught it. Everything between the stored-state read and
+         * this line is reads and one outbound status poll, so the claim still sits above every
+         * write and above the forget, and two overlapping returns still race here rather than on
+         * the session.
+         */
+        if (! $this->claimGatewayReturn($request, 'storefront-return', $requests_data)) {
+            return $this->gatewayReturnReplayRefusal();
+        }
+
         $this->adoptStoredCheckoutState($request, $requests_data);
 
         // Re-pointed from $request->cartlist to the stored state. The merge above makes the two

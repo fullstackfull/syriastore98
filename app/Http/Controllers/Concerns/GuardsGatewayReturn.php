@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Concerns;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
 
@@ -80,6 +81,25 @@ trait GuardsGatewayReturn
      * `Session::put('request_data', $requestData)`.
      */
     public const CHECKOUT_STATE_KEY = 'request_data';
+
+    /**
+     * The key inside the stored state holding this checkout's one-time identifier.
+     *
+     * Stamped ONCE, by App\Services\PaymentService::process(), which is the web checkout's single
+     * entry point to the gateways (PaymentController:1778 is its only caller). Stamping there
+     * rather than at the 46 `Session::put('request_data', ...)` sites means every branch inherits
+     * it from `$request->except('attachment','payment_receipt')` without 46 edits to keep in step.
+     */
+    public const CHECKOUT_NONCE_KEY = 'checkout_nonce';
+
+    /**
+     * How long a consumed return stays claimed.
+     *
+     * Longer than any gateway's retry window, so a claim cannot lapse while the gateway is still
+     * resending. It is not a security parameter in the other direction: a claim that expires
+     * after two days leaves a replay facing a session that was forgotten two days earlier.
+     */
+    private const GATEWAY_RETURN_CLAIM_TTL = 172800;
 
     /**
      * The largest single cart-line quantity that can be a real order.
@@ -187,6 +207,241 @@ trait GuardsGatewayReturn
             'customer_id' => $state['customer_id'] ?? '',
             'method_id' => $state['method_id'] ?? '',
         ]);
+    }
+
+    /**
+     * Claim this return, so one checkout and one payment can produce at most one order.
+     *
+     * P1-PAY-02. WHAT THE SESSION ALREADY DOES, AND WHERE IT STOPS. Each of these handlers calls
+     * `Session::forget()` immediately after reading the state, so a SEQUENTIAL replay from the
+     * same browser finds nothing and is refused. GatewayReturnTrustBoundaryTest::
+     * test_replaying_a_return_cannot_multiply_orders pins exactly that, and its own docblock says
+     * what it does not pin: "It does NOT claim the handlers have an idempotency key. They do not:
+     * the only thing stopping a replay is that the session entry is gone."
+     *
+     * THE SESSION CANNOT STOP TWO RETURNS THAT OVERLAP, and that is the gap. Laravel does not
+     * hold a session lock for the life of a request unless a route asks for one, and none of
+     * these does. Two returns for the same payment -- a shopper's double submit, a browser
+     * retry, a gateway that pokes the return URL while the browser is also on it -- both READ the
+     * state before either WRITES the forget, so both proceed. That is the same read-check-use
+     * straddle already fixed on the Paymera path (see PaymentController::freshPaymeraPendingOrNull),
+     * where it was measured to produce a second order, a second stock decrement and a second
+     * wallet credit. The six handlers here were never given the equivalent.
+     *
+     * SO THE CLAIM LIVES OUTSIDE THE SESSION. `Cache::add()` is insert-if-absent: on the database
+     * store this project runs in production (CACHE_STORE=database) it is an INSERT that the
+     * primary key rejects on the second caller, decided by the engine rather than by PHP. Exactly
+     * one of two overlapping returns can take a given key.
+     *
+     * TWO KEYS, BECAUSE THEY ANSWER DIFFERENT QUESTIONS.
+     *
+     *   checkout -- the nonce PaymentService::process() stamped at initiation. "One checkout
+     *   produces at most one order." Present on every gateway.
+     *
+     *   payment -- the gateway's own transaction reference. "One payment produces at most one
+     *   order." This is the one the nonce cannot answer: a shopper who completes checkout A, then
+     *   starts checkout B and replays A's return, arrives with a FRESH nonce, and only the
+     *   payment reference ties the two returns together.
+     *
+     * THE PAYMENT KEY COVERS TWO OF THE SIX, AND THE OTHER FOUR ARE A FINDING, NOT AN OMISSION.
+     * See gatewayTransactionReference(): only khalti and cinetpay read a transaction reference
+     * from their own return at all. The remaining four decide on a request field or on nothing,
+     * which is the unverified-payment exposure already recorded as an owner blocker -- for those,
+     * a replayed return is not the first problem.
+     *
+     * FAIL-CLOSED ON A PARTIAL CLAIM, deliberately. If the checkout key is taken and the payment
+     * key is already held, the checkout key is NOT released: this checkout is spent either way,
+     * and un-refusing it to keep two cache entries tidy would be the wrong direction for a money
+     * control.
+     *
+     * WHERE THIS MAY BE CALLED FROM, and it is a rule the first version of this change broke on
+     * two handlers. A claim is CONSUMED, so it may only be taken on a path that is about to take
+     * money or write an order. Two handlers deliberately let a shopper come back to the same
+     * stored state -- NMIPayController puts the state back when a card is DECLINED, and
+     * PaymentController::getProductStatus returns early, state intact, when PhonePe or toyyibpay
+     * report a payment that is still PENDING. Claiming above those exits burned the claim on a
+     * visit that took no money, and the shopper's genuine retry was then refused as a replay. An
+     * independent review of this change caught both. So: take the claim as late as possible while
+     * still above every write, and where a handler restores the state for a retry, release the
+     * claim with releaseGatewayReturnClaim() in the same breath.
+     *
+     * FAIL-OPEN WHEN THERE IS NOTHING TO CLAIM, also deliberately, and bounded. A checkout
+     * initiated before this code shipped carries no nonce, and on a gateway with no reference
+     * there is then no key at all. Refusing those would turn a deploy into a wave of failed
+     * returns on real payments; they fall back to the session control that has always been there,
+     * and the fallback is logged so the window is measurable rather than invisible.
+     *
+     * @param  array<string, mixed>  $state  the server-stored checkout state
+     * @return bool  true if this return may proceed; false if it is a replay
+     */
+    protected function claimGatewayReturn(Request $request, string $gateway, array $state): bool
+    {
+        $keys = $this->gatewayReturnClaimKeys($request, $gateway, $state);
+
+        if ($keys === []) {
+            Log::warning('Gateway return carries no claimable identity; falling back to the session control alone.', [
+                'gateway' => $gateway,
+                'path' => $request->path(),
+                'reason' => 'the stored state carries no checkout nonce and this gateway supplies no transaction reference',
+            ]);
+
+            return true;
+        }
+
+        foreach ($keys as $kind => $key) {
+            if (Cache::add($key, $gateway, self::GATEWAY_RETURN_CLAIM_TTL)) {
+                continue;
+            }
+
+            Log::warning('Gateway return refused: already claimed.', [
+                'gateway' => $gateway,
+                'claim' => $kind,
+                'path' => $request->path(),
+                'ip' => $request->ip(),
+                'authenticated_customer' => optional(auth('customers')->user())->id,
+            ]);
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Give the claim back, because this return did not take money after all.
+     *
+     * THE ONE LEGITIMATE REASON TO CALL THIS: the handler is putting the stored checkout state
+     * BACK so the shopper can try again. A declined card is the case that forced it to exist --
+     * NMIPayController consumes the state before the charge so a replay cannot reach the gateway
+     * twice, and restores it when `chargeSale` returns a decline, because nothing was captured
+     * and a mistyped CVV must not kill the checkout. Without a matching release the claim stayed
+     * taken and the retry met "This payment has already been recorded against an order" for an
+     * order that was never written.
+     *
+     * IT IS NOT A GENERAL UNDO. Calling it after an order row, a stock movement or a capture
+     * would re-open exactly the replay this control closes. Call it only where the state itself
+     * is being restored, and only on a branch where no money moved.
+     *
+     * @param  array<string, mixed>  $state  the same state the claim was taken from
+     */
+    protected function releaseGatewayReturnClaim(Request $request, string $gateway, array $state): void
+    {
+        foreach ($this->gatewayReturnClaimKeys($request, $gateway, $state) as $key) {
+            Cache::forget($key);
+        }
+    }
+
+    /**
+     * The keys this return must hold before it may write anything.
+     *
+     * Hashed rather than stored raw: a gateway transaction reference is payment metadata, and a
+     * cache row is read by anyone who can read the cache table.
+     *
+     * @param  array<string, mixed>  $state
+     * @return array<string, string>  kind => key, empty when nothing identifies this return
+     */
+    private function gatewayReturnClaimKeys(Request $request, string $gateway, array $state): array
+    {
+        $keys = [];
+
+        $nonce = $state[self::CHECKOUT_NONCE_KEY] ?? null;
+        if (is_string($nonce) && trim($nonce) !== '') {
+            $keys['checkout'] = 'gateway-return-claim:checkout:' . sha1(trim($nonce));
+        }
+
+        $reference = $this->gatewayTransactionReference($request, $gateway);
+        if ($reference !== null) {
+            /*
+             * SCOPED BY STORE, although no live collision was found. A review traced both
+             * references and neither can collide across tenants today -- cpm_trans_id is minted
+             * by this platform per payment (PaymentService:4092) and khalti's token is the
+             * gateway's own per-payment value -- so this closes a CLASS rather than a hole: a
+             * gateway added later whose reference is a per-merchant sequence ("order 1001") would
+             * otherwise let one tenant's payment deny another's. The store comes from the stored
+             * state, which the server wrote; it is never the caller's.
+             */
+            $storeId = $state['store_id'] ?? '';
+            $storeId = is_scalar($storeId) ? trim((string) $storeId) : '';
+
+            $keys['payment'] = 'gateway-return-claim:payment:' . $gateway . ':'
+                . ($storeId === '' ? 'no-store' : $storeId) . ':' . sha1($reference);
+        }
+
+        return $keys;
+    }
+
+    /**
+     * This gateway's own identifier for the payment, read from its return, or NULL.
+     *
+     * EVERY ENTRY IS TAKEN FROM THIS REPOSITORY'S OWN CODE, not from a gateway's documentation and
+     * not from a guess. The project rule is to claim only what was executed, and nothing here can
+     * call a live gateway.
+     *
+     *   khalti    `payload.token` -- KhaltiPaymnetController::getOrderPaymentStatus reads exactly
+     *             this and hands it to Khalti's own verifyPayment() (:652-655), so it is the
+     *             reference that gateway settles against.
+     *
+     *   cinetpay  `cpm_trans_id` -- CinetPayController::notify_url, the server-to-server half of
+     *             the same payment, reads `$request->cpm_trans_id` and sends it back as
+     *             `transaction_id` (:214, :228). The value is minted BY THIS PLATFORM, not by
+     *             CinetPay, at PaymentService:4092 -- `strtoupper(str_replace('.', '',
+     *             uniqid('', true)))`, sent as `transaction_id` at :4099 on the storefront
+     *             initiation -- so it is unique to one payment and not a constant the merchant
+     *             reuses, which is what would make keying on it refuse legitimate second
+     *             purchases. (An earlier draft of this docblock cited CinetPayController:93 and
+     *             :153 for that generation. Both are the wrong flow -- :93 is the SaaS PLAN
+     *             purchase and :153 is an unrouted demo using env('APIKEY') -- and a review
+     *             caught it. The conclusion was right and the citation was not, which on a
+     *             docblock whose whole claim is "taken from this repository's own code" is worth
+     *             correcting in place rather than quietly.)
+     *
+     * THE OTHER FOUR SUPPLY NOTHING, and that is a finding rather than a gap in this census.
+     * authorizenet, easebuzz, paiementpro and the storefront return read no transaction identifier
+     * from their return at all -- paiementpro branches on `responsecode`, which says only "the
+     * browser claims this succeeded". That is the unverified-payment exposure recorded as an owner
+     * blocker, and the honest statement is that for those four this control is the checkout nonce
+     * only.
+     *
+     * A missing field yields NULL and therefore no key, so a gateway that stops sending one loses
+     * the payment key and keeps the checkout key. It never produces a WRONG key.
+     */
+    private function gatewayTransactionReference(Request $request, string $gateway): ?string
+    {
+        $raw = null;
+
+        if ($gateway === 'khalti') {
+            $payload = $request->input('payload');
+            $raw = is_array($payload) ? ($payload['token'] ?? null) : null;
+        } elseif ($gateway === 'cinetpay') {
+            $raw = $request->input('cpm_trans_id');
+        }
+
+        if (! is_string($raw) && ! is_int($raw)) {
+            return null;
+        }
+
+        $raw = trim((string) $raw);
+
+        return $raw === '' ? null : $raw;
+    }
+
+    /**
+     * What a handler returns when this return has already been claimed.
+     *
+     * Its own text, separate from the state, quantity and foreign-product refusals, so a log line
+     * or a support conversation can tell which guard fired -- and so a regression test can assert
+     * it rather than inferring it from an order that was not written.
+     *
+     * IT DOES NOT SAY "your payment failed", because it did not: the shopper's money moved and an
+     * order exists. A replay is the one refusal here that is usually the shopper's own browser
+     * rather than an attacker, so the text points them at the order they already have.
+     */
+    protected function gatewayReturnReplayRefusal()
+    {
+        return redirect()->back()->with(
+            'error',
+            __('This payment has already been recorded against an order. No second order was created — please check your order history before paying again.')
+        );
     }
 
     /** @var \App\Services\PaymentVerificationService|null */

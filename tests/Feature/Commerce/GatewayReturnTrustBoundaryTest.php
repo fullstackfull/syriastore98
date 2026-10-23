@@ -60,6 +60,9 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
      */
     private const REFUSAL = 'We could not confirm your checkout details';
 
+    /** P1-PAY-02: the replay refusal, distinct from the state refusal above so a test can tell them apart. */
+    private const REPLAY_REFUSAL = 'This payment has already been recorded against an order';
+
     /**
      * The storefront order-writing return routes, as routes/customer.php declares them.
      *
@@ -1282,5 +1285,408 @@ class GatewayReturnTrustBoundaryTest extends SecurityTestCase
             ->find($mine->id)->product_stock,
             "This store's own legitimate line did not consume its stock, so the assertion above "
             . 'may be passing because the checkout did nothing at all.');
+    }
+
+    // =====================================================================================
+    //  P1-PAY-02 -- IDEMPOTENCY. ONE CHECKOUT, ONE PAYMENT, AT MOST ONE ORDER.
+    // =====================================================================================
+
+    /**
+     * The routes whose ORDER WRITER is reached here, so an order COUNT means something.
+     *
+     * khalti is excluded from the count assertions and the reason is already recorded in
+     * guestWriterRoutes(): it stops at verifyPayment() in this environment, so it never reaches
+     * `new Order()` and "no second order" would hold whatever the claim did. It is still driven
+     * by the refusal test below, because the claim is taken ABOVE the gateway call.
+     *
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function claimCountingRoutes(): array
+    {
+        $routes = self::guestWriterRoutes();
+        unset($routes['khalti']);
+
+        return $routes;
+    }
+
+    /** A checkout state carrying the server's one-time identifier, as PaymentService now stamps it. */
+    private function statefulCheckout($store, array $overrides = []): array
+    {
+        return $this->forgedCheckoutState($store, '', array_merge([
+            'checkout_nonce' => 'nonce-' . uniqid('', true),
+        ], $overrides));
+    }
+
+    /**
+     * THE STATE THE SERVER STORES CARRIES A ONE-TIME IDENTIFIER, AND TWO CHECKOUTS DO NOT SHARE IT.
+     *
+     * This is the premise every other test in this group stands on, and it is asserted against
+     * the REAL initiation rather than against a hand-built array: `/process-order` through
+     * PaymentService::process(). Without it the claim has nothing to key on and every refusal
+     * below would be the fail-open path instead.
+     *
+     * The second half matters as much as the first. A nonce that is stable across checkouts would
+     * refuse a shopper's legitimate second purchase, which is a worse defect than the one being
+     * closed -- so "they differ" is asserted, not assumed.
+     */
+    public function test_initiation_stamps_a_distinct_one_time_identifier_on_each_checkout(): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store, 100.00, 50);
+
+        $nonces = [];
+
+        foreach ([0, 1] as $round) {
+            $sid = 'cookie-' . uniqid();
+            Cart::forceCreate([
+                'customer_id' => 0, 'product_id' => $product->id, 'variant_id' => 0,
+                'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+                'cookie_session_id' => $sid,
+            ]);
+
+            $this->withCookie('cart', $sid)->post('/' . $store->slug . '/process-order', [
+                'payment_type' => 'Paiementpro',
+                'billing_info' => $this->guestBilling(),
+            ]);
+
+            $state = session('request_data');
+
+            $this->assertIsArray($state,
+                'Initiation stored no checkout state on round ' . $round . ', so this test would '
+                . 'prove nothing. Session error: ' . json_encode(session('error')));
+
+            $this->assertArrayHasKey('checkout_nonce', $state,
+                'PaymentService::process() stored a checkout state with NO one-time identifier. '
+                . 'Every claim below then falls back to "nothing to claim" and the replay control '
+                . 'is the session alone again. Keys present: ' . implode(',', array_keys($state)));
+
+            $this->assertIsString($state['checkout_nonce']);
+            $this->assertNotSame('', trim($state['checkout_nonce']),
+                'The stored identifier is blank, which claimGatewayReturn() treats as absent.');
+
+            $nonces[] = $state['checkout_nonce'];
+        }
+
+        $this->assertNotSame($nonces[0], $nonces[1],
+            'Two separate checkouts were stamped with the SAME identifier. The claim would then '
+            . 'refuse a shopper\'s legitimate second purchase -- a worse defect than the replay '
+            . 'this closes. Value: ' . $nonces[0]);
+    }
+
+    /**
+     * TWO RETURNS THAT OVERLAP ARE REFUSED ON EVERY GATEWAY -- the session cannot do this.
+     *
+     * WHAT IS BEING STAGED, precisely, because it is not the same thing as
+     * test_replaying_a_return_cannot_multiply_orders above. That test replays a CONSUMED return:
+     * request 1 takes the state, `Session::forget()` removes it, and requests 2 and 3 arrive with
+     * nothing. It is the sequential case, and the session closes it.
+     *
+     * The case here is two returns that OVERLAP. Laravel holds no session lock for the life of
+     * these requests, so both read the state before either writes the forget -- a shopper's
+     * double submit, a browser retry, a gateway poking the return URL while the browser is also
+     * on it. Both therefore hold a VALID copy of the state. That is what the second request
+     * carries here: the same state, still present, exactly as a concurrent reader would have it.
+     * The session has nothing left to say, so whatever refuses the second request is not the
+     * session.
+     *
+     * Driven on all six, including the three that do not reach an order writer in this
+     * environment, because the claim is taken above the gateway call and must hold there too.
+     *
+     * @dataProvider gatewayReturnRoutes
+     */
+    public function test_an_overlapping_return_is_refused_on_every_gateway(string $uri, string $method): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store, 100.00, 50);
+
+        $sid = 'cookie-' . uniqid();
+        Cart::forceCreate([
+            'customer_id' => 0, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+            'cookie_session_id' => $sid,
+        ]);
+
+        $path = '/' . str_replace('{slug}', $store->slug, $uri);
+        $state = $this->statefulCheckout($store);
+        $body = ['responsecode' => 0, 'status' => 'success'];
+
+        session()->forget('error');
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state, 'easebuzz_request_data' => $state])
+            ->{$method}($path, $body);
+
+        $this->assertStringNotContainsString(self::REPLAY_REFUSAL, (string) session('error'),
+            'The FIRST return was refused as a replay, so the second being refused below would '
+            . 'prove nothing. Session error: ' . json_encode(session('error')));
+
+        // The overlapping second reader: the same state, still present, as a concurrent request
+        // would have found it.
+        session()->forget('error');
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state, 'easebuzz_request_data' => $state])
+            ->{$method}($path, $body);
+
+        $this->assertStringContainsString(self::REPLAY_REFUSAL, (string) session('error'),
+            'A second return holding a VALID copy of the same checkout state was not refused. '
+            . 'Session::forget() cannot close this case -- both readers have the state. '
+            . 'Session error was: ' . json_encode(session('error')));
+    }
+
+    /**
+     * AND IT IS AN ORDER THAT DOES NOT GET WRITTEN, not merely a message.
+     *
+     * The refusal test above asserts the guard fired. This one asserts the consequence on the
+     * three handlers that actually reach `new Order()` here, because a guard that fires after the
+     * write would satisfy the first test and still double the orders.
+     *
+     * @dataProvider claimCountingRoutes
+     */
+    public function test_an_overlapping_return_cannot_write_a_second_order(string $uri, string $method): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store, 100.00, 50);
+
+        $sid = 'cookie-' . uniqid();
+        Cart::forceCreate([
+            'customer_id' => 0, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+            'cookie_session_id' => $sid,
+        ]);
+
+        $path = '/' . str_replace('{slug}', $store->slug, $uri);
+        $state = $this->statefulCheckout($store);
+        $body = ['responsecode' => 0, 'status' => 'success'];
+
+        $before = self::orderCount();
+
+        session()->forget('error');
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state, 'easebuzz_request_data' => $state])
+            ->{$method}($path, $body);
+
+        $this->assertSame($before + 1, self::orderCount(),
+            'The FIRST return wrote no order, so "no second order" below would hold whatever the '
+            . 'claim did. Session error: ' . json_encode(session('error')));
+
+        session()->forget('error');
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state, 'easebuzz_request_data' => $state])
+            ->{$method}($path, $body);
+
+        $this->assertSame($before + 1, self::orderCount(),
+            'A second return holding a valid copy of the same checkout state wrote a SECOND '
+            . 'order for one payment. Session error: ' . json_encode(session('error')));
+    }
+
+    /**
+     * A REPLAYED PAYMENT IS REFUSED EVEN WHEN THE CHECKOUT IS GENUINELY NEW.
+     *
+     * THE CASE THE CHECKOUT NONCE CANNOT ANSWER, and the reason there are two keys rather than
+     * one. A shopper completes checkout A and pays. They then start checkout B -- a real, fresh
+     * basket with a real, fresh nonce -- and replay A's gateway return. The stored state is
+     * B's and is perfectly valid; the nonce is B's and has never been claimed. Only the gateway's
+     * own transaction reference ties the two returns to one payment.
+     *
+     * CinetPay is the gateway driven here because it is one of the two whose return carries a
+     * reference this repository's own code reads: `cpm_trans_id`, which notify_url reads and
+     * sends back as `transaction_id` (CinetPayController:214, :228) and which initiation
+     * generates per payment (:93, :153). khalti is the other, and it is not driven because it
+     * stops at verifyPayment() here. The remaining four read no reference at all, which
+     * gatewayTransactionReference() records as a finding rather than papering over.
+     */
+    public function test_a_replayed_payment_reference_is_refused_even_with_a_fresh_checkout(): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store, 100.00, 50);
+
+        $path = '/' . $store->slug . '/get-payment-cinetPay';
+        $reference = 'CPM' . strtoupper(uniqid('', true));
+        $body = ['responsecode' => 0, 'status' => 'success', 'cpm_trans_id' => $reference];
+
+        $before = self::orderCount();
+
+        // Checkout A: its own basket, its own nonce, and the payment whose reference this is.
+        $sidA = 'cookie-' . uniqid();
+        Cart::forceCreate([
+            'customer_id' => 0, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 1, 'price' => 100.00, 'store_id' => $store->id, 'cookie_session_id' => $sidA,
+        ]);
+        session()->forget('error');
+        $this->withCookie('cart', $sidA)
+            ->withSession(['request_data' => $this->statefulCheckout($store)])
+            ->post($path, $body);
+
+        $this->assertSame($before + 1, self::orderCount(),
+            'Checkout A wrote no order, so the replay below would prove nothing. Session error: '
+            . json_encode(session('error')));
+
+        // Checkout B: a genuinely different checkout -- new basket, new nonce, never claimed --
+        // replaying A's payment.
+        $sidB = 'cookie-' . uniqid();
+        Cart::forceCreate([
+            'customer_id' => 0, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 1, 'price' => 100.00, 'store_id' => $store->id, 'cookie_session_id' => $sidB,
+        ]);
+        session()->forget('error');
+        $this->withCookie('cart', $sidB)
+            ->withSession(['request_data' => $this->statefulCheckout($store)])
+            ->post($path, $body);
+
+        $this->assertStringContainsString(self::REPLAY_REFUSAL, (string) session('error'),
+            'A second order was accepted against a payment reference that had already produced '
+            . 'one. The checkout nonce cannot catch this -- checkout B is genuinely new. Session '
+            . 'error was: ' . json_encode(session('error')));
+        $this->assertSame($before + 1, self::orderCount(),
+            'One payment reference produced two orders.');
+    }
+
+    /**
+     * ONE STORE'S PAYMENT REFERENCE CANNOT DENY ANOTHER STORE'S ORDER.
+     *
+     * P1-PAY-02, and this one pins a HARDENING rather than a measured defect -- said plainly
+     * because the distinction matters. The payment key is
+     * `gateway-return-claim:payment:<gateway>:<store>:<sha1(reference)>`, and a review traced
+     * both references this platform reads and found neither can collide across tenants today:
+     * `cpm_trans_id` is minted here per payment (PaymentService:4092) and khalti's token is the
+     * gateway's own per-payment value. So nothing is broken without the store term.
+     *
+     * It is still worth a test, because the class it closes is cheap to reintroduce and
+     * expensive to find: a gateway added later whose reference is a per-merchant sequence -- an
+     * "order id 1001" that every merchant also has -- would let one tenant's completed payment
+     * refuse another tenant's. The cache namespace is installation-wide (config/cache.php),
+     * not per-store, so without the term that denial would be silent and cross-tenant.
+     *
+     * Two stores, the same reference, both legitimate. Both must write their order.
+     */
+    public function test_one_stores_payment_reference_cannot_deny_another_stores(): void
+    {
+        [, $storeA] = $this->tenant();
+        [, $storeB] = $this->tenant();
+
+        $reference = 'SHARED-' . strtoupper(uniqid('', true));
+        $body = ['responsecode' => 0, 'status' => 'success', 'cpm_trans_id' => $reference];
+        $before = self::orderCount();
+
+        foreach ([$storeA, $storeB] as $index => $store) {
+            $product = $this->productIn($store, 100.00, 50);
+            $sid = 'cookie-' . uniqid();
+            Cart::forceCreate([
+                'customer_id' => 0, 'product_id' => $product->id, 'variant_id' => 0,
+                'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+                'cookie_session_id' => $sid,
+            ]);
+
+            session()->forget('error');
+            $this->withCookie('cart', $sid)
+                ->withSession(['request_data' => $this->statefulCheckout($store)])
+                ->post('/' . $store->slug . '/get-payment-cinetPay', $body);
+
+            $this->assertSame($before + $index + 1, self::orderCount(),
+                'Store ' . ($index + 1) . ' of two DIFFERENT tenants, each with its own checkout '
+                . 'and its own nonce, did not get its order. The two share only a payment '
+                . "reference, so one tenant's payment is denying another's. Session error: "
+                . json_encode(session('error')));
+        }
+    }
+
+    /**
+     * A PAYMENT REPORTED *PENDING* MUST STILL BE ABLE TO COMPLETE.
+     *
+     * P1-PAY-02, AND A REGRESSION THE FIRST VERSION OF THAT CHANGE INTRODUCED. `get-payment-status`
+     * is the generic return for some twenty payment methods, and three of them -- PhonePe,
+     * toyyibpay and Tap -- are asked for their verdict before anything is written. Those blocks
+     * return EARLY AND LEAVE THE STORED STATE IN PLACE, on purpose: toyyibpay `status_id == 2` is
+     * flashed as a SUCCESS ("Your transaction on pending"), because the payment is not finished
+     * and the shopper has to be able to come back.
+     *
+     * Claiming above those exits burned the claim on a visit that wrote nothing, so the later
+     * completion met "This payment has already been recorded against an order" for an order that
+     * was never written -- a money-losing false refusal rather than a cosmetic one. An
+     * independent review of this change found it; the claim now sits below those checks.
+     *
+     * The second leg deliberately omits `status_id`, which is how a completed toyyibpay return
+     * differs from a pending one here: neither the fail nor the pending branch fires, and the
+     * handler proceeds to the writer.
+     */
+    public function test_a_pending_gateway_verdict_does_not_consume_the_checkout(): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store, 100.00, 50);
+
+        $sid = 'cookie-' . uniqid();
+        Cart::forceCreate([
+            'customer_id' => 0, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+            'cookie_session_id' => $sid,
+        ]);
+
+        $path = '/' . $store->slug . '/get-payment-status';
+        $state = $this->statefulCheckout($store, ['payment_type' => 'toyyibpay']);
+        $before = self::orderCount();
+
+        // Leg 1: toyyibpay says the payment is still pending. Nothing is written, and the
+        // handler returns with the state intact so the shopper can come back.
+        session()->forget('error');
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state])
+            ->post($path, ['status_id' => 2]);
+
+        $this->assertSame($before, self::orderCount(),
+            'A payment reported PENDING wrote an order, so this test is not driving the early '
+            . 'exit it means to. Session error: ' . json_encode(session('error')));
+
+        // Leg 2: the same payment, now complete. It must not be refused as a replay.
+        session()->forget('error');
+        $this->withCookie('cart', $sid)
+            ->withSession(['request_data' => $state])
+            ->post($path, ['responsecode' => 0, 'status' => 'success']);
+
+        $this->assertStringNotContainsString(self::REPLAY_REFUSAL, (string) session('error'),
+            'A payment that was PENDING on its first return was refused as a replay when it '
+            . 'completed -- for an order that had never been written. Session error: '
+            . json_encode(session('error')));
+        $this->assertSame($before + 1, self::orderCount(),
+            'The completed payment wrote no order after a pending verdict on the same checkout. '
+            . 'Session error: ' . json_encode(session('error')));
+    }
+
+    /**
+     * AND THE CONTROL DOES NOT BREAK A SHOPPER WHO SIMPLY BUYS TWICE.
+     *
+     * The positive control, and it is not optional: every assertion above is satisfied by a claim
+     * that refuses EVERYTHING, which would stop the storefront taking money at all. Two separate
+     * checkouts, two separate nonces, no shared payment reference -- both must write their order.
+     *
+     * @dataProvider claimCountingRoutes
+     */
+    public function test_two_distinct_checkouts_each_write_their_own_order(string $uri, string $method): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store, 100.00, 50);
+
+        $path = '/' . str_replace('{slug}', $store->slug, $uri);
+        $body = ['responsecode' => 0, 'status' => 'success'];
+        $before = self::orderCount();
+
+        foreach ([0, 1] as $round) {
+            $sid = 'cookie-' . uniqid();
+            Cart::forceCreate([
+                'customer_id' => 0, 'product_id' => $product->id, 'variant_id' => 0,
+                'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+                'cookie_session_id' => $sid,
+            ]);
+
+            $state = $this->statefulCheckout($store);
+
+            session()->forget('error');
+            $this->withCookie('cart', $sid)
+                ->withSession(['request_data' => $state, 'easebuzz_request_data' => $state])
+                ->{$method}($path, $body);
+
+            $this->assertSame($before + $round + 1, self::orderCount(),
+                'Checkout ' . ($round + 1) . ' of two DISTINCT checkouts did not write its order. '
+                . 'The replay control is refusing legitimate trade. Session error: '
+                . json_encode(session('error')));
+        }
     }
 }
