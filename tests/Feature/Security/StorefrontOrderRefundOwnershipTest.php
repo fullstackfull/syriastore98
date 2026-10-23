@@ -81,6 +81,11 @@ class StorefrontOrderRefundOwnershipTest extends SecurityTestCase
             'product_order_id' => 'ORD-' . strtoupper(uniqid()),
             'customer_id' => $owner->id,
             'is_guest' => 0,
+            // D3 ELIGIBILITY: `makeOrder()` defaults `delivered_status` to 0, so until this line
+            // existed every test in this file drove a PENDING order and passed only because the
+            // storefront's own rule was not enforced server-side. This helper is named for an order
+            // that CAN be refunded; the ineligibility tests override it.
+            'delivered_status' => 1,
             'product_price' => 400,
             'delivery_price' => 20,
             'tax_price' => 20,
@@ -1177,5 +1182,142 @@ class StorefrontOrderRefundOwnershipTest extends SecurityTestCase
             'The order was shrunk and then the refund row failed: the order and its record were saved '
             . 'separately, so a failure between them leaves a reduced order with nothing to cancel.');
         $this->assertSame(0, $this->refundRows());
+    }
+    // =========================================================================================
+    //  OWNER DECISION D3 -- ELIGIBILITY, ENFORCED SERVER-SIDE
+    // =========================================================================================
+
+    /**
+     * D3: "Prevent duplicated refunds and stock restoration."
+     *
+     * WHAT WAS ENFORCED, AND WHERE. The storefront decides whether to OFFER a refund in Blade:
+     * `resources/views/front_end/pages/order_list_filter.blade.php:173-198` shows the *Order Refund*
+     * button only when `$order->delivered_status == 1` AND the order has no refund at all. Where a
+     * refund exists it renders that refund's status and NO button -- including for `Cancel`
+     * ("Refund request was cancelled."). So the product's own workflow is ONE REFUND PER DELIVERED
+     * ORDER, EVER.
+     *
+     * The POST enforced none of it. Measured, and recorded in this task's ledger row: a refund
+     * request was accepted on a Pending, a Cancelled and a Confirmed order, and a second identical
+     * POST on a delivered order wrote a SECOND `order_refunds` row.
+     *
+     * THE DATA MODEL AGREES WITH THE BLADE, which is what makes this a correctness fix and not a
+     * policy choice: `Order::refund()` is a **hasOne** (app/Models/Order.php:881). A second row
+     * makes `$order->refund` depend on default ordering -- so the merchant's screen, the shopper's
+     * return list and the Blade branch above all start reading an arbitrary one of them.
+     *
+     * AND IT IS WHY THE QUANTITY BOUND STILL HOLDS once D3 moves the order write out of the
+     * request. The existing bound is `0 <= requested <= $line['qty']`, which is safe today ONLY
+     * because the request decrements `qty`. With one refund per order there is no second request to
+     * race, so no per-line open-units ledger is needed -- the narrower rule is also the sufficient
+     * one.
+     *
+     * THE FIXTURE CHANGED WITH THIS TEST, deliberately and in the honest direction.
+     * `refundableOrder()` did not set `delivered_status`, so `makeOrder()`'s default of 0 applied
+     * and EVERY test in this file was driving a PENDING order. They passed only because the rule
+     * was not enforced. The helper is named for an order that can be refunded, so it now sets
+     * `delivered_status => 1`, and the tests that want an ineligible order override it.
+     */
+    public function test_a_refund_request_is_refused_on_an_order_that_was_never_delivered(): void
+    {
+        // 0 Pending, 2 Cancel, 4 Confirmed, 5 Picked Up, 6 Shipped -- every value
+        // `getDeliveredStatusStringAttribute` (app/Models/Order.php:131) knows except 1 Delivered.
+        // 2 matters most: a cancelled order's stock was already restored by `status_cancel`, so a
+        // refund accepted on it can be restocked a SECOND time.
+        foreach ([0, 2, 4, 5, 6] as $status) {
+            [, $store] = $this->makeTenant();
+            $owner = $this->shopper($store);
+            $order = $this->refundableOrder($store, $owner, ['delivered_status' => $status]);
+
+            $before = $this->money($order);
+
+            $response = $this->refundRequest($owner, $store, $order, $this->payload($order));
+
+            $this->assertNotSame(500, $response->getStatusCode(),
+                "delivered_status {$status}: the refusal crashed instead of refusing");
+            $this->assertSame(0, $this->refundRows(),
+                "delivered_status {$status}: a refund request was accepted on an order that was "
+                    . 'never delivered');
+            $this->assertSame($before, $this->money($order),
+                "delivered_status {$status}: the order's totals were rewritten by a request that "
+                    . 'must have been refused');
+        }
+    }
+
+    /**
+     * THE SECOND REQUEST. One refund per order, so a repeat POST writes nothing -- and in
+     * particular does not shrink the order a second time.
+     */
+    public function test_a_second_refund_request_on_the_same_order_is_refused(): void
+    {
+        [, $store] = $this->makeTenant();
+        $owner = $this->shopper($store);
+        $order = $this->refundableOrder($store, $owner);
+
+        $first = $this->seedRefund($store, $order, 'the-first-request');
+        $before = $this->money($order);
+
+        $response = $this->refundRequest($owner, $store, $order, $this->payload($order));
+
+        $this->assertNotSame(500, $response->getStatusCode(), 'the refusal crashed');
+        $this->assertSame(1, $this->refundRows(),
+            'a SECOND order_refunds row was written for one order. Order::refund() is a hasOne, so '
+                . 'every reader now depends on default ordering to decide which refund it sees.');
+        $this->assertSame((int) $first, (int) DB::table('order_refunds')->value('id'),
+            'the surviving row is not the first one');
+        $this->assertSame($before, $this->money($order),
+            'the order was shrunk a second time by a duplicate request');
+    }
+
+    /**
+     * AND A CANCELLED FIRST REFUND DOES NOT RE-OPEN THE ORDER.
+     *
+     * This is the limb that is a judgement call, so it is pinned against the shipped UI rather than
+     * against taste: the Blade renders "Refund request was cancelled." and NO button for
+     * `refund_status == 'Cancel'`, so a shopper is never offered a second attempt. The server now
+     * says the same thing. If that is ever to change it is a product decision, and this test is
+     * where it will fail.
+     */
+    public function test_a_second_request_is_refused_even_when_the_first_was_cancelled(): void
+    {
+        [, $store] = $this->makeTenant();
+        $owner = $this->shopper($store);
+        $order = $this->refundableOrder($store, $owner);
+
+        $this->seedRefund($store, $order, 'the-cancelled-request');
+        DB::table('order_refunds')->update(['refund_status' => 'Cancel']);
+
+        $before = $this->money($order);
+
+        $response = $this->refundRequest($owner, $store, $order, $this->payload($order));
+
+        $this->assertNotSame(500, $response->getStatusCode(), 'the refusal crashed');
+        $this->assertSame(1, $this->refundRows(),
+            'a cancelled refund re-opened the order to a second request, which the storefront never '
+                . 'offers');
+        $this->assertSame($before, $this->money($order));
+    }
+
+    /**
+     * THE POSITIVE CONTROL FOR BOTH RULES. A delivered order with no refund must still be
+     * refundable, or every refusal above is indistinguishable from a broken endpoint -- and the
+     * handler answers with a redirect either way, so a status assertion alone would not notice.
+     */
+    public function test_a_delivered_order_with_no_refund_is_still_refundable(): void
+    {
+        [, $store] = $this->makeTenant();
+        $owner = $this->shopper($store);
+        $order = $this->refundableOrder($store, $owner);
+
+        $this->assertSame(1, (int) DB::table('orders')->where('id', $order->id)->value('delivered_status'),
+            'premise: refundableOrder() must produce a DELIVERED order');
+        $this->assertSame(0, $this->refundRows(), 'premise: no refund exists yet');
+
+        $response = $this->refundRequest($owner, $store, $order, $this->payload($order));
+
+        $this->assertNotSame(500, $response->getStatusCode());
+        $this->assertSame(1, $this->refundRows(),
+            'a legitimate refund request on a delivered order with no existing refund was refused, '
+                . 'so the refusals above prove nothing. Session error: ' . json_encode(session('error')));
     }
 }

@@ -46,6 +46,12 @@ class RefundRestoreByProductTest extends SecurityTestCase
     {
         return $this->makeOrder($store, [
             'product_order_id' => 'ORD-' . strtoupper(uniqid()), 'customer_id' => $owner->id, 'is_guest' => 0,
+            // D3 ELIGIBILITY (P1-ORD-11): the storefront refund request now enforces server-side
+            // what order_list_filter.blade.php:173 has always enforced in the view -- a refund is
+            // only offered for a DELIVERED order. `makeOrder()` defaults delivered_status to 0, so
+            // these fixtures were driving PENDING orders and the five tests that POST a refund
+            // request went red when the rule landed. The fixtures were wrong, not the rule.
+            'delivered_status' => 1,
             'product_price' => 500, 'delivery_price' => 20, 'tax_price' => 20, 'coupon_price' => 0, 'final_price' => 540,
             'product_json' => json_encode($lines ?? [
                 ['product_id' => 501, 'name' => 'Alpha', 'variant_id' => 0, 'qty' => 3, 'final_price' => 300],
@@ -117,10 +123,33 @@ class RefundRestoreByProductTest extends SecurityTestCase
         $this->assertSame(1, (int) $lines[1]['qty']);
         $this->assertSame(1, (int) $lines[1]['refunded_qty'], 'the line that lost a unit says so');
 
-        // a second request on the same line accumulates
+        /*
+         * RE-POINTED BY OWNER DECISION D3 (P1-ORD-11), and what it used to assert is worth keeping
+         * on the record because it was correct about the counter and wrong about the workflow.
+         *
+         * It read "a second request on the same line accumulates" and drove a SECOND refund request
+         * on the same order, expecting `refunded_qty` to reach 2. D3 forbids that outright --
+         * "Prevent duplicated refunds" -- and so does the storefront, which has never offered a
+         * second request: order_list_filter.blade.php:173-198 renders the existing refund's status
+         * and no button. `Order::refund()` being a hasOne means a second row would also make
+         * `$order->refund` resolve by default ordering.
+         *
+         * So the accumulation this asserted was reachable only by bypassing the UI. What the
+         * counter is FOR survives unchanged and is asserted above: one request, and the line that
+         * lost a unit records it while an untouched line stays unmarked. The merchant-side
+         * restoration tests below are what exercise the counter's arithmetic.
+         *
+         * The second POST is kept, with the assertion inverted: it now pins the REFUSAL, so this
+         * test fails if the eligibility rule is ever dropped and silent accumulation comes back.
+         */
         $this->requestRefund($shopper, $store, $order, [502], [0, 1])->assertStatus(302);
         $lines = $this->lines($order);
-        $this->assertSame([0, 2], [(int) $lines[1]['qty'], (int) $lines[1]['refunded_qty']]);
+        $this->assertSame([1, 1], [(int) $lines[1]['qty'], (int) $lines[1]['refunded_qty']],
+            'a SECOND refund request on the same order was accepted and accumulated onto the line. '
+            . 'D3 forbids a duplicate refund, and the storefront never offers one.');
+        $this->assertSame(1, \Illuminate\Support\Facades\DB::table('order_refunds')->where('order_id', $order->id)->count(),
+            'a second order_refunds row was written for one order, so Order::refund() (a hasOne) '
+            . 'now resolves by default ordering');
     }
 
     // =========================================================================================

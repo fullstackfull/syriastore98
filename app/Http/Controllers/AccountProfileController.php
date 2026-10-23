@@ -1276,6 +1276,52 @@ public function city_list(Request $request, $slug)
             abort(404);
         }
 
+        /*
+         * OWNER DECISION D3 -- ELIGIBILITY, ENFORCED HERE AND NOT ONLY IN BLADE. P1-ORD-11.
+         *
+         * D3: "Prevent duplicated refunds and stock restoration." Until this block the POST
+         * enforced NONE of what the storefront enforces when it decides whether to OFFER a refund.
+         * `resources/views/front_end/pages/order_list_filter.blade.php:173-198` shows the *Order
+         * Refund* button only when `delivered_status == 1` AND the order has no refund at all;
+         * where one exists it renders that refund's status and no button, `Cancel` included. So the
+         * product's workflow is ONE REFUND PER DELIVERED ORDER, ever -- and the POST accepted a
+         * request on a Pending, a Cancelled and a Confirmed order, and wrote a SECOND
+         * `order_refunds` row on a repeat.
+         *
+         * THE DATA MODEL AGREES WITH THE BLADE, which is what makes this a correctness fix rather
+         * than a policy choice imposed from outside: `Order::refund()` is a **hasOne**
+         * (app/Models/Order.php:881). With two rows `$order->refund` resolves by default ordering,
+         * so the merchant's screen, the shopper's return list and the Blade branch above each start
+         * reading an arbitrary one of them.
+         *
+         * THE CANCELLED CASE IS THE ONE JUDGEMENT CALL, and it is settled the same way: the Blade
+         * renders "Refund request was cancelled." with no button, so a shopper is never offered a
+         * second attempt and the server now says the same. Re-opening a cancelled refund would be a
+         * product decision.
+         *
+         * WHY A CANCELLED ORDER MATTERS MOST among the ineligible statuses: `status_cancel` has
+         * already restored that order's stock, so a refund accepted on it reaches
+         * `RefundStock` and restocks the same units a SECOND time.
+         *
+         * NO STORE PREDICATE ON THE REFUND LOOKUP, deliberately. The rule exists because
+         * `$order->refund` is ambiguous with more than one row, and that relation filters on
+         * `order_id` alone -- so this must see exactly what it sees. The order itself is already
+         * proven to be this store's and this shopper's by `ownedOrder()` above.
+         *
+         * RAW, because `OrderRefund` is `Cachable` (app/Models/OrderRefund.php:12): an Eloquent
+         * read could miss a row written moments earlier and admit the duplicate this refuses.
+         *
+         * A FLASH ERROR RATHER THAN A 404: this is not an ownership failure. `ownedOrder()` answers
+         * those, uniformly, above.
+         */
+        if ((int) $order->delivered_status !== 1) {
+            return redirect()->back()->with('error', __('A refund can only be requested for a delivered order.'));
+        }
+
+        if (\DB::table('order_refunds')->where('order_id', $order->id)->exists()) {
+            return redirect()->back()->with('error', __('A refund has already been requested for this order.'));
+        }
+
         $productJson = json_decode($order->product_json, true);
 
         if (! is_array($productJson)) {

@@ -238,7 +238,15 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // carries no foreign key, so they survive pointing at nothing and drop out of `buildCategoryTree()`. Unlike the
         // three product counts, this statement DOES carry a `store_id` predicate (the category's OWN store, as the web
         // twin does), so the no-store_id column below does not move for `categories`.
-        $this->assertSame(['app' => 140, 'packages' => 45], $perDir,
+        // 140 -> 141 with OWNER DECISION D3 / P1-ORD-11: the storefront refund request now enforces eligibility
+        // server-side, and the duplicate-refund half of that rule reads `order_refunds` by `order_id` with NO
+        // store predicate -- deliberately. The rule exists because `Order::refund()` is a hasOne
+        // (app/Models/Order.php:881) and a second row makes `$order->refund` resolve by default ordering, so the
+        // check must see exactly what that relation sees: `order_id` alone. The ORDER is already proven to be this
+        // store's and this shopper's by `ownedOrder()` immediately above the check. Raw rather than Eloquent because
+        // `OrderRefund` is Cachable (app/Models/OrderRefund.php:12) and a cached read could miss a row written
+        // moments earlier and admit the duplicate this refuses.
+        $this->assertSame(['app' => 141, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -248,7 +256,8 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // 175 -> 180: the five ModuleStorefrontInputGuard sites above; 180 -> 181 with sameShopperInStore (the follow-up)
         // 181 -> 184: the three D13 category-delete product counts (see the note on the per-directory assertion above)
         // 184 -> 185 with the API path's missing child-category guard, which DOES carry a store_id predicate
-        $this->assertSame(185, array_sum($perDir));
+        // 185 -> 186 with the D3 duplicate-refund check (see the note on the per-directory assertion above)
+        $this->assertSame(186, array_sum($perDir));
     }
 
     /**
@@ -327,7 +336,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             'order_billing_details' => [1, 0],
             // NEW WITH P1-ORD-07's review fix, and SCOPED: the FOR UPDATE freshness read in
             // AccountProfileController::order_refund_request (id + store_id + customer_id).
-            'order_refunds' => [1, 1],    // P1-ORD-12: OrderDocumentAccessGuard resolves a refund id to its order id; the ORDER's store is what is compared to the caller
+            // `order_refunds` 1 -> 2, and its no-store_id column 1 -> 2, WITH OWNER DECISION D3 / P1-ORD-11. The new
+            // site is the duplicate-refund half of the storefront request's eligibility rule. It is store-less for a
+            // stated reason rather than by omission: the rule exists because `Order::refund()` is a hasOne and a second
+            // row makes that relation resolve by default ordering, so the check has to ask the question the relation
+            // asks -- `order_id` alone. Narrowing it to the caller's store would let an anomalous foreign-store refund
+            // row sit on the order, invisible to this check and visible to `$order->refund`.
+            'order_refunds' => [2, 2],    // P1-ORD-12: OrderDocumentAccessGuard resolves a refund id to its order id; the ORDER's store is what is compared to the caller
             'orders' => [1, 0],
             'owner_menu_items' => [1, 1],
             'owner_menu_settings' => [1, 1],
@@ -433,15 +448,17 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // 147 -> 152 with the five ModuleStorefrontInputGuard sites (all name their table literally); 152 -> 153 with sameShopperInStore
         // 153 -> 156 with the three D13 category-delete product counts, which all name `products` literally
         // 156 -> 157 with the API child-category guard, which names `categories` literally
-        $this->assertSame(157, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '157 literal-table sites of the 185 entry points; the other 28 build their table name '
+        // 157 -> 158 with the D3 duplicate-refund check, which names `order_refunds` literally
+        $this->assertSame(158, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            '158 literal-table sites of the 186 entry points; the other 28 build their table name '
             . 'from a variable and so cannot be attributed (see LIMIT 2 in this class docblock).');
         // 66 -> 71: +9 (campaigns 1, helpdesk_tickets 1, email_templates 1, user_email_templates 1, order_refunds 1, stores 2, plus the Duo/credential reads) and -2 (zid_orders)
         // 71 -> 73: of the five new sites only the two `stores` slug resolutions carry no `store_id` in their statement
         // 73 -> 76 with the three D13 category-delete product counts, which carry no `store_id` DELIBERATELY -- see the
         // `products` note above: the cascading foreign key does not read the column, so a predicate would make each
         // count read zero against a populated category and permit the very cascade the refusal exists to stop.
-        $this->assertSame(76, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        // 76 -> 77 with the D3 duplicate-refund check, store-less for the reason stated on the `order_refunds` row.
+        $this->assertSame(77, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**
@@ -515,7 +532,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // validators -- both carry `->where('store_id', $storeId)` and are correctly counted
             // as aware, not exposed.
             'customers' => 3,
-            'order_refunds' => 1,
+            // `order_refunds` 1 -> 2 with OWNER DECISION D3 / P1-ORD-11, and like the first it is not an exposure.
+            // The new statement is `exists()` on `order_refunds` by `order_id` in the storefront refund request's
+            // eligibility check: it returns a BOOLEAN, never rows, and it is reached only after `ownedOrder()` has
+            // proven the order belongs to this store AND this shopper. It is store-less deliberately -- see the
+            // per-table note -- because `Order::refund()` is a hasOne keyed on `order_id`, and a check narrower than
+            // the relation it protects would miss exactly the row that makes the relation ambiguous.
+            'order_refunds' => 2,
             // `products` => 3 IS NEW WITH OWNER DECISION D13 / P1-INV-12, and it is the second entry in this list that
             // is NOT a live exposure -- stated here because the list's own header tells a reader to check the per-table
             // note before treating any entry as one.
