@@ -260,4 +260,104 @@ class PosStockIntegrityTest extends SecurityTestCase
             'the POS sale wrote no order at all'
         );
     }
+    // =========================================================================================
+    //  4. updateCart -- THE SECOND FEEDER, AND A GUARD THAT CANNOT FIRE
+    // =========================================================================================
+
+    /**
+     * THE STOCK BOUND IS DEAD CODE, and it is dead for a reason worth seeing in full
+     * (ProductController:3397):
+     *
+     *     if (isset($cart[$id]) && isset($cart[$id]["originalquantity"]) < $cart[$id]['quantity'] && ...)
+     *
+     * `isset(...)` evaluates to a BOOL. PHP 8 then compares bool-to-int by casting the INT to
+     * bool, so the test is `true < true` for every positive quantity -- which is false. CONFIRMED
+     * BY EXECUTION rather than by reading:
+     *
+     *     $cart = ["originalquantity" => 5, "quantity" => 999];
+     *     isset($cart["originalquantity"]) < $cart["quantity"]   =>  false   <- the shipped guard
+     *     $cart["originalquantity"] < $cart["quantity"]          =>  true    <- what was meant
+     *
+     * So the POS cart accepts ANY quantity. With the stock write now a real decrement, that
+     * quantity is what leaves the shelf: a crafted update of 999 against a stock of 5 takes the
+     * recorded stock to -994. Before the decrement fix it wrote an absolute value instead, which
+     * was differently wrong -- neither bounded it.
+     */
+    public function test_update_cart_refuses_a_quantity_larger_than_the_line_ever_had(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $product = $this->productIn($store, 5);
+        $this->grantPermission($merchant, 'Create Pos');
+
+        $key = 'pos_' . $store->id;
+
+        $response = $this->actingAs($merchant)
+            ->withSession([$key => [$product->id => $this->posLine($product, 1, 5)]])
+            ->patch('/update-cart', [
+                'id' => $product->id,
+                'quantity' => 999,
+                'discount' => 0,
+                'session_key' => $key,
+            ], ['X-Requested-With' => 'XMLHttpRequest']);
+
+        /*
+         * THE 404 TRAP, THIRD TIME IN THIS FILE -- recorded because I walked into it again.
+         * A missing route and this handler's own refusal are BOTH 404, so `assertNotSame(404)`
+         * cannot serve as the "the route was reached" guard. They are separable only by shape:
+         * the handler answers JSON carrying `status: 'Error'`, Laravel's missing route answers
+         * HTML. The refusal here is "This product is out of stock!", which IS the revived bound
+         * doing its job.
+         */
+        $this->assertSame('Error', $response->json('status'),
+            'this is not the handler\'s own JSON refusal, so the route was never reached and '
+            . 'this test proves nothing. Body: ' . substr((string) $response->getContent(), 0, 300));
+
+        $cart = (array) session($key, []);
+        $stored = (int) ($cart[$product->id]['quantity'] ?? 0);
+
+        $this->assertLessThanOrEqual(5, $stored,
+            'updateCart accepted a quantity of 999 against a line that only ever had 5 units. '
+            . 'The stock bound at ProductController:3397 compares isset() -- a bool -- to the '
+            . 'quantity, so it is false for every positive number and never fires.');
+    }
+
+    /**
+     * AND THE SECOND UNSCOPED RESOLVE. `updateCart` reads
+     * `Product::where('id', $id)->first()` with no store predicate, the same shape `addToCart`
+     * had. It is a separate handler, so it needs its own test and its own mutant.
+     */
+    public function test_update_cart_does_not_act_on_another_stores_product(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $victim = $this->productIn($storeB, 50, 'Victim Widget');
+        $this->grantPermission($merchantA, 'Create Pos');
+
+        $key = 'pos_' . $storeA->id;
+
+        $response = $this->actingAs($merchantA)
+            ->withSession([$key => [$victim->id => $this->posLine($victim, 1, 50)]])
+            ->patch('/update-cart', [
+                'id' => $victim->id,
+                'quantity' => 3,
+                'discount' => 0,
+                'session_key' => $key,
+            ], ['X-Requested-With' => 'XMLHttpRequest']);
+
+        $this->assertNotSame(500, $response->getStatusCode(),
+            'updateCart crashed on a foreign product instead of refusing: '
+            . substr((string) $response->getContent(), 0, 300));
+
+        // Same reasoning as the test above: the refusal and a missing route are both 404, so the
+        // handler's own envelope is what proves the route was reached.
+        $this->assertSame('Error', $response->json('status'),
+            'this is not the handler\'s own JSON refusal, so the route was never reached. Body: '
+            . substr((string) $response->getContent(), 0, 300));
+
+        $cart = (array) session($key, []);
+
+        $this->assertSame(1, (int) ($cart[$victim->id]['quantity'] ?? 1),
+            'updateCart revised a cart line for another store\'s product');
+    }
 }

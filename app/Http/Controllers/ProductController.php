@@ -3364,7 +3364,31 @@ $Product->cost_price = $request->cost_price;
                 $tax_option = TaxOption::where('store_id', $store_id->id)
                             ->pluck('value', 'name')->toArray();
 
-                $product = Product::where('id', $id)->first();
+                /*
+                 * P1-INV-03. STORE-SCOPED, like addToCart's twin above. This resolved any
+                 * tenant's product -- `Product` is not in `scoped_models` -- and it is the second
+                 * feeder of the POS session, so an unscoped resolve here revises a cart line for
+                 * a product the caller does not own.
+                 *
+                 * A product that does not resolve is REFUSED rather than tolerated: the next line
+                 * reads `$product->tax_id`, so a null would be a fatal, and "this is not your
+                 * product" is not a condition to continue past.
+                 */
+                $product = Product::where('id', $id)
+                    ->where('store_id', $store_id->id)
+                    ->first();
+
+                if (empty($product)) {
+                    return response()->json(
+                        [
+                            'code' => 404,
+                            'status' => 'Error',
+                            'error' => __('This product is not found!'),
+                        ],
+                        404
+                    );
+                }
+
                 $Tax = Tax::where('store_id', $store_id->id)->where('id', $product->tax_id)->first();
                 $tax_price = 0;
                 $product_tax = '';
@@ -3394,7 +3418,30 @@ $Product->cost_price = $request->cost_price;
                 $cart[$id]["total_orignal_price"] = $subtotal;
             }
 
-            if (isset($cart[$id]) && isset($cart[$id]["originalquantity"]) < $cart[$id]['quantity'] && $session_key == 'pos_' . getCurrentStore()) {
+            /*
+             * P1-INV-03. THIS GUARD COULD NEVER FIRE, and the reason is one character of
+             * precedence. It read:
+             *
+             *     isset($cart[$id]["originalquantity"]) < $cart[$id]['quantity']
+             *
+             * `isset()` yields a BOOL, and PHP 8 compares bool-to-int by casting the INT to bool
+             * -- so for every positive quantity the test is `true < true`, which is false.
+             * CONFIRMED BY EXECUTION, not by reading: with originalquantity 5 and quantity 999 the
+             * shipped expression returns false and the intended one returns true.
+             *
+             * So the POS cart accepted ANY quantity. That mattered more once the sale became a
+             * real decrement (PosController::store): the posted quantity is what leaves the shelf,
+             * so an update of 999 against a stock of 5 takes recorded stock to -994. The absolute
+             * write it replaced was differently wrong rather than safer -- neither bounded it.
+             *
+             * The comparison now reads the VALUE, which is what was meant. `isset()` is kept as a
+             * separate conjunct so a line without the key is still skipped rather than compared
+             * against null.
+             */
+            if (isset($cart[$id])
+                && isset($cart[$id]["originalquantity"])
+                && $cart[$id]["originalquantity"] < $cart[$id]['quantity']
+                && $session_key == 'pos_' . getCurrentStore()) {
                 return response()->json(
                     [
                         'code' => 404,
