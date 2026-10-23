@@ -765,9 +765,32 @@ if ($order_status == 'cancel') {
                             ->where('store_id', $orderStoreId)
                             ->first();
 
+                        /*
+                         * P1-INV-05, criterion 1: every stock mutation goes through the atomic
+                         * primitive. This was a READ-MODIFY-WRITE --
+                         * `$stockProduct->product_stock += $line['qty']; ->save()` -- which reads
+                         * the row into PHP, adds there, and writes the whole value back. Two
+                         * returns processed concurrently both read the same figure and the second
+                         * overwrites the first, so one return's units are lost.
+                         *
+                         * `App\Services\ProductStockService::restoreProductStock()` issues
+                         * `UPDATE ... SET product_stock = product_stock + ?`, where the arithmetic
+                         * happens in the database and a stale PHP-side value cannot be written
+                         * back. It also flushes the model cache, which the bare `save()` above did
+                         * only for the instance it held.
+                         *
+                         * A CENSUS BOUNDS THE CLAIM: ten restock call sites in app/ already go
+                         * through this service (PaymentService, AppliesCartStockChanges,
+                         * OrderController x4, OrderRefundController x2). These two in
+                         * product_return() were the only ones that did not.
+                         *
+                         * MEASURED ON THE REAL ENGINE, because SQLite serialises writers and
+                         * cannot stage the interleave: section F of
+                         * tests/Support/Security/bin/verify-stock-oversell-concurrency-on-mysql.php.
+                         */
                         if (!empty($stockProduct)) {
-                            $stockProduct->product_stock += $line['qty'];
-                            $stockProduct->save();
+                            app(\App\Services\ProductStockService::class)
+                                ->restoreProductStock($stockProduct->id, (int) $line['qty']);
                         }
                     } else {
                         /*
@@ -792,9 +815,11 @@ if ($order_status == 'cancel') {
                             : ProductVariant::where('product_id', $owningProduct->id)
                                 ->where('id', $variant_id)
                                 ->first();
+                        // P1-INV-05: the variant twin of the restock above, same read-modify-write
+                        // and same remedy. See that comment for the census and the MySQL evidence.
                         if (!empty($ProductStock)) {
-                            $ProductStock->stock += $product['qty'];
-                            $ProductStock->save();
+                            app(\App\Services\ProductStockService::class)
+                                ->restoreVariantStock($ProductStock->id, (int) $product['qty']);
                         }
                     }
                 }

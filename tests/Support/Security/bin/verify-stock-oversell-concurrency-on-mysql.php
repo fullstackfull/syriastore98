@@ -240,6 +240,45 @@ try {
     check('an allow-backorder product accepts both and reaches -1',
         $u1 === 1 && $u2 === 1 && $backorder === -1, "stock={$backorder}");
 
+    // ---------------------------------------------------------------------------------------------
+    echo "\nF. THE RESTOCK DIRECTION -- a concurrent RETURN must not lose units either\n";
+    // ---------------------------------------------------------------------------------------------
+    // ADDED WITH P1-INV-05 criterion 1 ("every stock mutation goes through the atomic primitive").
+    // Sections A-E cover the DECREMENT. `Order::product_return()` restocked with a
+    // read-modify-write -- `$stockProduct->product_stock += $line['qty']; ->save()` -- and the
+    // lost update runs the same way in the increment direction: two returns of one unit each
+    // should leave stock 2 higher, and a read-modify-write leaves it 1 higher.
+    //
+    // THIS IS WHY THE EVIDENCE IS HERE AND NOT IN THE SUITE. A PHPUnit test for it is VACUOUS,
+    // and I wrote one before realising: staging "the row changed BEFORE the read" is handled
+    // correctly by a read-modify-write, so the test passed against unfixed code. The lost update
+    // needs the read to happen BEFORE an external change and the write AFTER -- a genuine
+    // interleave, which SQLite cannot stage because it serialises writers.
+
+    // F1: the defect, driven directly. Two callers read 10, each writes read + 1, and one unit
+    // of returned stock is silently destroyed.
+    $id = $reset(10);
+    $rmwA = (int) $a->table('products')->where('id', $id)->value('product_stock');
+    $rmwB = (int) $b->table('products')->where('id', $id)->value('product_stock');
+    $a->table('products')->where('id', $id)->update(['product_stock' => $rmwA + 1]);
+    $b->table('products')->where('id', $id)->update(['product_stock' => $rmwB + 1]);
+    $lost = (int) $a->table('products')->where('id', $id)->value('product_stock');
+    check('the read-modify-write restock LOSES one of two concurrent returns (10 -> 11, not 12)',
+        $rmwA === 10 && $rmwB === 10 && $lost === 11,
+        "readA={$rmwA} readB={$rmwB} final={$lost}");
+
+    // F2: the primitive, same interleave. Both callers hold the same stale read and both
+    // increments still land, because the arithmetic is in the database.
+    $id = $reset(10);
+    $staleA = (int) $a->table('products')->where('id', $id)->value('product_stock');
+    $staleB = (int) $b->table('products')->where('id', $id)->value('product_stock');
+    $a->table('products')->where('id', $id)->increment('product_stock', 1);
+    $b->table('products')->where('id', $id)->increment('product_stock', 1);
+    $kept = (int) $a->table('products')->where('id', $id)->value('product_stock');
+    check('the atomic increment keeps BOTH concurrent returns (10 -> 12)',
+        $staleA === 10 && $staleB === 10 && $kept === 12,
+        "readA={$staleA} readB={$staleB} final={$kept}");
+
 } catch (Throwable $e) {
     $failures++;
     fwrite(STDERR, "\nUNEXPECTED: {$e->getMessage()}\n" . $e->getTraceAsString() . "\n");
