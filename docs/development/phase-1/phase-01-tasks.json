@@ -1021,31 +1021,35 @@
       "title": "Observability: unverified-payment and refusal logging reaches somewhere an operator looks",
       "workstream": "platform",
       "risk": "medium",
-      "status": "BACKLOG",
+      "status": "DONE",
       "issue": 37,
       "scope": [
-        "app/Services/PaymentVerificationService.php",
-        "config/larabug.php",
-        "config/logging.php"
+        "docs/security/P01-OBSERVABILITY-INVENTORY.md",
+        "tests/Feature/Security/SecurityLogInventoryTest.php",
+        "config/larabug.php (read only -- reviewed, not changed)",
+        "config/logging.php (read only -- the expectation is recorded, not applied)"
       ],
       "existing_status": "PARTIAL. Refusals and unverified 'Paid' writes are logged; nothing asserts an operator can see them, and larabug's 5-name blacklist is unreviewed. UPDATE 2026-10-21 (P1-SEC-13 sibling-sink review): the reporter posts to https://www.larabug.com/api/log whether or not LB_KEY is set, and its payload includes the decrypted cookies, Session::all(), Request::all() and auth()->user()->toArray(); the blacklist misses cookie, *session*, *secret* and every card-number field name. That part is now P1-SEC-14 (READY, high); this task keeps the channel/retention expectation.",
       "depends_on": [],
       "acceptance": [
-        "The security-relevant log lines added across Phase 01 are enumerated in one place",
-        "A documented channel/retention expectation for them",
-        "larabug's blacklist reviewed before anyone enables it"
+        "DONE: the security-relevant log lines added across Phase 01 are enumerated in ONE place -- docs/security/P01-OBSERVABILITY-INVENTORY.md section 1, 92 lines (11 critical, 81 warning) each with file:line and message, held by a TWO-DIRECTIONAL ratchet test so neither an undocumented new line nor a stale row can survive",
+        "DONE: a documented channel and retention expectation -- section 2, traced through .env.example and config/logging.php rather than assumed, with the four-point expectation the next operator decision should meet. It records the expectation and deliberately does NOT change config/logging.php: logging configuration is deployment configuration and changing it is outside this task",
+        "DONE: larabug's blacklist reviewed before anyone enables it -- and the review produced a finding bigger than the blacklist. LaraBugHandler::write() discards every record whose context carries no exception, so NONE of the 92 lines would reach larabug even when it is enabled. Measured by driving the handler, not by reading it"
       ],
       "tests": [
-        "A test that the refusal paths emit their line with store, customer and path"
+        "tests/Feature/Security/SecurityLogInventoryTest.php -- 5 tests / 25 assertions, new",
+        "The ratchet is two-directional: a line in app/ missing from the document fails, and a document row whose line no longer exists fails",
+        "The larabug claim is DRIVEN, not grepped: the handler is invoked with a real record and the LaraBugFake is asked what it received, with a positive control (a record that DOES carry an exception is forwarded) so the assertion cannot pass because the handler is inert",
+        "FIVE MUTANTS, all biting, each failing only its own limb: a documented line deleted; a row added for a line that does not exist; a new undocumented Log::critical added to app/; the blacklist losing *card*; the single channel gaining a retention"
       ],
       "compatibility": "No user-visible change.",
       "db": "None.",
-      "evidence": "S4 item 4; config/larabug.php:99-111",
+      "evidence": "DONE 2026-10-23. PROMOTED FROM BACKLOG: the owner's directive names security and financial observability among the BACKLOG items to promote, and the row carried no blocker. THE QUESTION NOBODY HAD ASKED. Phase 01 added a large number of refusal and anomaly log lines across the order, payment, refund, stock and tenancy paths, each justified in its own package. None of those packages asked where the line LANDS when it fires in production, or who reads it. THE ANSWER IS ONE FILE, UNROTATED, MIXED WITH EVERYTHING ELSE, AND NOTHING ALERTS. LOG_CHANNEL=stack -> LOG_STACK=single -> storage_path('logs/laravel.log'), at LOG_LEVEL=debug, with NO rotation, NO retention and no size bound. So a Log::critical('Order write failed and was rolled back; stock decrements were given back') shares a file with every framework debug line and is found only by someone who already knew to look. The rotating `daily` driver is defined in config/logging.php and nothing selects it; `API_log` already demonstrates a retention (15 days) for the API paths alone; one gateway (PayTabs) has its own file and the other fifty do not. THE DOCUMENT RECORDS THE EXPECTATION AND DOES NOT APPLY IT, deliberately: logging configuration is deployment configuration, so a dedicated channel, a retention longer than a financial-dispute window, and alerting on the ELEVEN critical lines are written down as what the next operator decision should meet. A fourth point says what was NOT done and why -- a volume estimate, which needs production traffic this session cannot see, and without which routing all 81 warnings to an alerting destination would be noise. THE LARABUG REVIEW PRODUCED A FINDING LARGER THAN THE BLACKLIST. The blacklist itself is in good order -- P1-SEC-14 already extended it to cookies and sessions, every gateway secret and key, card numbers and expiries under each spelling the payment forms use, one-time codes, pins, signatures and CSRF values -- and that is pinned here rather than trusted. But the blacklist is NOT what governs these lines, and ENABLING LARABUG WOULD DELIVER NONE OF THEM: LaraBugHandler::write() returns immediately unless $record['context']['exception'] is a Throwable, and every one of the 92 lines is a Log::warning/critical with a plain context array. The handler is also constructed at the Monolog default level ERROR (ServiceProvider:62), and the config gates on environments => ['production'] with LB_KEY and LB_PROJECT_KEY both defaulting to ''. The blacklist applies to request variables on an exception report, via LaraBug::filterVariables(), not to log context. So the standing question has two answers: the blacklist is fine, AND larabug is not an answer to section 2, because it is an exception reporter and these are not exceptions. THAT CLAIM IS MEASURED RATHER THAN READ, which is the point. It is a behavioural claim about vendored code, so the test invokes the handler with a real record and asks the fake what it received -- with a positive control, a record that DOES carry an exception, so the assertion cannot pass merely because the handler is inert. Reading vendor source and asserting on the reading is the habit this project keeps getting caught by. ONE DELIBERATE BRITTLENESS, stated because this project has recorded twice that a census keyed on line numbers moves whenever a comment above it does. This ratchet IS keyed on file:line, and that is accepted HERE and nowhere else: the thing being ratcheted is a DOCUMENT that must be regenerated when the code moves, so a line-number drift failing the test is the correct outcome rather than a false positive. The message is carried alongside so a failure names which line moved. SCOPE STATED HONESTLY: `error` (95 call sites), `info` (22) and `debug` (1) are NOT enumerated. They are third-party-integration failure reporting and diagnostics; including them would bury the signals. That choice is in the document so a reader is not left wondering.",
       "queue_refs": [
         "S4"
       ],
       "owner_decision": false,
-      "blocked_on": null
+      "blocked_on": ""
     },
     {
       "id": "P1-MIG-01",
