@@ -74,13 +74,13 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/DeliverySyriaStatusController.php:179` | Zid store not found for order status sync. |
 | `app/Http/Controllers/ESewaPaymentController.php:196` | Plan payment return rejected: claimed amount does not match the plan price. |
 | `app/Http/Controllers/OrderController.php:306` | Manual order total did not match its components; the computed total was stored |
-| `app/Http/Controllers/OrderController.php:911` | Return approval restored no stock: order carries no readable product_json |
-| `app/Http/Controllers/OrderController.php:947` | Return approval skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:968` | Return approval skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:994` | Return approval skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1331` | Order cancellation skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1346` | Order cancellation skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1368` | Order cancellation skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:925` | Return approval restored no stock: order carries no readable product_json |
+| `app/Http/Controllers/OrderController.php:961` | Return approval skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:982` | Return approval skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1008` | Return approval skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:1345` | Order cancellation skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1360` | Order cancellation skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1382` | Order cancellation skipped a line whose variant does not belong to its product |
 | `app/Http/Controllers/OrderRefundController.php:180` | Refund transition refused: unrecognised current state |
 | `app/Http/Controllers/OrderRefundController.php:202` | Refund transition refused: illegal transition |
 | `app/Http/Controllers/OrderRefundController.php:416` | Refund cancellation refused: the record does not match the order |
@@ -108,8 +108,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Middleware/LotteryDrawOwnershipGuard.php:260` | lottery draw refused |
 | `app/Http/Middleware/ModuleOrderMutationGuard.php:378` | module order mutation refused |
 | `app/Http/Middleware/ModuleResourceOwnershipGuard.php:374` | module resource mutation refused |
-| `app/Models/Utility.php:2149` | New Order webhook skipped: no store could be resolved for the order |
-| `app/Models/Utility.php:2159` | New Order webhook skipped: the resolved store does not exist |
+| `app/Models/Utility.php:2174` | New Order webhook skipped: no store could be resolved for the order |
+| `app/Models/Utility.php:2184` | New Order webhook skipped: the resolved store does not exist |
 | `app/Services/DeliveryBoyNotificationService.php:65` | No active Delivery Firebase devices found for delivery boy. |
 | `app/Services/OrderTaxResolver.php:88` | Checkout: non-numeric client tax_price discarded |
 | `app/Services/OrderTaxResolver.php:101` | Checkout: client-supplied tax_price discarded (server value used) |

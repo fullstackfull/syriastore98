@@ -143,6 +143,33 @@ reported a hijacked row while the raw row was untouched.
 **Strip comment lines from any source-grep ratchet.** A docblock quoting the string a ratchet greps
 for makes the ratchet satisfiable by prose. That has happened here.
 
+## 6b. Four inventories are keyed on `file:line`, and ANY edit above one breaks them
+
+Not a defect — they exist so that a moved raw query, truncate or log line gets looked at — but they
+are the most common way an unrelated change turns CI red here. Measured twice in one session: a
+24-block replacement in two controllers shifted 14 rows of one inventory, and a 25-line comment
+added to `app/Models/Utility.php` shifted **three** inventories at once.
+
+| inventory | where |
+|---|---|
+| security log lines | `docs/security/P01-OBSERVABILITY-INVENTORY.md`, ratcheted by `SecurityLogInventoryTest` |
+| raw-query entry points | `ResidualTenancyExposureTest` |
+| `truncate()` sites | `EloquentScopeBypassInventoryTest` |
+| filesystem removals (by file and COUNT, not line) | `StoredFilePathSafetyTest` |
+
+After any edit to a file they name, re-point them before running the gate:
+
+```bash
+python3 docs/development/phase-1/tools/resync-observability-inventory.py --write   # the doc
+php artisan test tests/Feature/Tenancy/ResidualTenancyExposureTest.php             # read actual vs expected
+php artisan test tests/Feature/Tenancy/EloquentScopeBypassInventoryTest.php
+```
+
+The two test-file arrays are re-pointed by hand from the failure's own diff. **Apply the highest
+line number first**: a renumbering where 3230→3255 and 3255→3280 rewrites the same entry twice if
+you go in ascending order. Never silence one by deleting its entry — a removed row means a finding
+was addressed and its note goes with it.
+
 ## 7. Censuses fail in a specific way
 
 Four times now, a completeness claim missed what it claimed to cover — each time because it was
