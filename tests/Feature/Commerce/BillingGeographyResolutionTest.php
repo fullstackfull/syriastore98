@@ -378,6 +378,21 @@ class BillingGeographyResolutionTest extends SecurityTestCase
 
         // And a surrounding-space spelling IS still that id -- the parse trims, it does not refuse.
         $this->assertSame(1, BillingGeography::resolveCityId(' 1 ', 1, 101));
+
+        /*
+         * THE STATE AND COUNTRY PARSES ARE THE SAME RULE, and they need their own case: the city
+         * branch asks `isIntegerSpelling()` before it ever reaches `asId()`, so a mutant swapping
+         * FILTER_VALIDATE_INT for is_numeric INSIDE asId() survives everything above -- it did,
+         * on the second mutation run of this package. Here it decides the answer: under is_numeric
+         * '1.0' casts to state 1 and '101.0' to country 101, where an exact parse treats both as
+         * names, finds no state or country of that name, and stores NULL.
+         */
+        $resolved = BillingGeography::resolveBilling('Jaramana', '1.0', '101.0');
+
+        $this->assertNull($resolved['state_id'],
+            "'1.0' resolved to a states.id: the state parse casts instead of validating.");
+        $this->assertNull($resolved['country_id'],
+            "'101.0' resolved to a countries.id: the country parse casts instead of validating.");
     }
 
     /** `cities.name` is a VARCHAR(255); a longer value is truncated rather than left to the engine. */
@@ -388,6 +403,54 @@ class BillingGeographyResolutionTest extends SecurityTestCase
         $row = $this->cityRow(BillingGeography::resolveCityId(str_repeat('x', 400), 1, 101));
 
         $this->assertSame(255, mb_strlen($row->name));
+    }
+
+    /**
+     * AN INTEGER SPELLING IS AN ID OR IT IS NOTHING. Raised by the read-only review of this
+     * package: a posted id matching no row -- a city deleted since the page was rendered, a stale
+     * client cache, a hand-written request -- used to be inserted as a city CALLED '999', which is
+     * this task's own defect (a) reappearing through the branch meant to close it.
+     */
+    public function test_an_integer_that_matches_no_city_resolves_to_zero_and_creates_nothing(): void
+    {
+        $this->seedGeography();
+        $before = $this->cityRows();
+
+        foreach ([999999, '999999', '-1', ' 42 '] as $posted) {
+            $this->assertSame(0, BillingGeography::resolveCityId($posted, 1, 101),
+                'A posted integer that is not a city id must resolve to 0, never to a new city '
+                . 'named after the number: ' . var_export($posted, true));
+        }
+
+        $this->assertSame($before, $this->cityRows(), 'A city was created from an integer spelling.');
+        $this->assertSame(0, (int) DB::table('cities')->where('name', '999999')->count());
+    }
+
+    /**
+     * A NAME IS NARROWED BY COUNTRY WHEN THE STATE DOES NOT RESOLVE. Also from the review: the
+     * state limb existed and the country limb did not, so an unresolvable state left the name
+     * match global and returned whichever same-named city was inserted first.
+     */
+    public function test_a_posted_name_is_resolved_within_the_posted_country_when_the_state_does_not(): void
+    {
+        $this->seedGeography();
+
+        // A second 'Damascus', in another country, inserted AFTER the Syrian one -- so an
+        // unnarrowed `first()` returns the Syrian row and this test can tell the two apart.
+        DB::table('countries')->insertOrIgnore(['id' => 102, 'name' => 'Lebanon', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('states')->insertOrIgnore(['id' => 3, 'name' => 'Beirut', 'country_id' => 102, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('cities')->insertOrIgnore(['id' => 4, 'name' => 'Damascus', 'country_id' => 102, 'state_id' => 3, 'created_at' => now(), 'updated_at' => now()]);
+
+        $before = $this->cityRows();
+
+        $this->assertSame(4, BillingGeography::resolveCityId('Damascus', 'Nowhere Province', 102),
+            "The Lebanese 'Damascus' was not preferred for country 102, so the name match is not "
+            . 'narrowed by the posted country when the state fails to resolve.');
+
+        $this->assertSame(1, BillingGeography::resolveCityId('Damascus', 'Nowhere Province', 101),
+            "and the Syrian 'Damascus' must still win for country 101.");
+
+        $this->assertSame($before, $this->cityRows(), 'Neither lookup may insert.');
     }
 
     /** `resolveIds()` never creates: an address records where someone lives, it is not an authority. */
@@ -416,8 +479,15 @@ class BillingGeographyResolutionTest extends SecurityTestCase
     // =========================================================================================
 
     /**
-     * The row's first required test. A city NAME that does not exist used to make `place_order`
-     * 500 AFTER `$order->save()` -- the shopper's order written, the response an error.
+     * The row's first required test: a city NAME that does not exist.
+     *
+     * WHAT ACTUALLY BITES HERE IS NOT THE FOREIGN KEY, and an earlier version of this docblock said
+     * it was. `billing()` posts `billing_state => 1`, a VALID id, so the pre-fix insert succeeded
+     * and violated nothing -- it created a city named 'Jaramana' with correct geography and then
+     * wrote the raw string 'Jaramana' into `order_billing_details.city`, where `(int)` reads 0.
+     * That is the assertion that fails on reverted code. The genuine foreign-key case needs a
+     * posted state NAME and is covered by
+     * `test_place_order_stores_ids_so_the_admin_order_detail_renders_names`.
      */
     public function test_place_order_accepts_an_unknown_city_name_without_a_foreign_key_violation(): void
     {
@@ -557,15 +627,20 @@ class BillingGeographyResolutionTest extends SecurityTestCase
      */
     public function test_no_order_writer_looks_a_city_up_by_name_from_request_input(): void
     {
+        $scanned = 0;
         $offenders = [];
 
         foreach ($this->phpFilesUnder(app_path()) as $file) {
             $source = $this->withoutComments((string) file_get_contents($file));
+            $scanned++;
 
             if (preg_match('/City::where\(\s*[\'"]name[\'"]\s*,\s*\$billing\s*\[/', $source)) {
                 $offenders[] = str_replace(base_path() . '/', '', $file);
             }
         }
+
+        // The same floor its sibling carries: without it an iterator returning nothing passes.
+        $this->assertGreaterThan(100, $scanned, 'The scan read almost nothing, so a green result here means nothing.');
 
         $this->assertSame([], $offenders,
             "A city is looked up by name from request input, which can never match a posted id:\n  "
@@ -575,8 +650,13 @@ class BillingGeographyResolutionTest extends SecurityTestCase
     /** The resolver is reachable from every file that used to hold the block. */
     public function test_every_order_writer_that_held_the_block_now_calls_the_resolver(): void
     {
+        /*
+         * EXACT counts, not a floor. A `>=` of 2 would let two of PaymentController's FOUR city
+         * blocks be re-inlined without this test noticing -- the file holds five calls (four city
+         * blocks plus the delivery_addresses one), and four of the ten files hold more than two.
+         */
         $expected = [
-            'app/Http/Controllers/Api/ApiController.php' => 2,
+            'app/Http/Controllers/Api/ApiController.php' => 4,
             'app/Http/Controllers/AuthorizeNetPaymnetController.php' => 2,
             'app/Http/Controllers/CinetPayController.php' => 2,
             'app/Http/Controllers/EasebuzzController.php' => 2,
@@ -584,11 +664,11 @@ class BillingGeographyResolutionTest extends SecurityTestCase
             'app/Http/Controllers/NMIPayController.php' => 2,
             'app/Http/Controllers/PaiementProPaymentController.php' => 2,
             'app/Http/Controllers/PayUPaymentController.php' => 2,
-            'app/Http/Controllers/PaymentController.php' => 2,
+            'app/Http/Controllers/PaymentController.php' => 5,
             'app/Services/PaymentService.php' => 2,
         ];
 
-        foreach ($expected as $path => $atLeast) {
+        foreach ($expected as $path => $exactly) {
             $full = base_path($path);
 
             $this->assertFileExists($full);
@@ -598,9 +678,9 @@ class BillingGeographyResolutionTest extends SecurityTestCase
                 $this->withoutComments((string) file_get_contents($full))
             );
 
-            $this->assertGreaterThanOrEqual($atLeast, $calls,
-                "{$path} holds fewer resolver calls than the blocks it used to carry, so one of "
-                . 'them was lost or re-inlined.');
+            $this->assertSame($exactly, $calls,
+                "{$path} holds {$calls} resolver calls, not {$exactly}: one was lost, re-inlined, "
+                . 'or a new order writer was added without updating this census.');
         }
     }
 

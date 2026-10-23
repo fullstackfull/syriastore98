@@ -37,10 +37,13 @@ use App\Models\State;
  *      `State::...->pluck('name', 'id')` (:251), and the JS writes the response KEY as the option
  *      value (front-theme.js:1012-1014). `billing_city` likewise, from `city_list`.
  *      `addressbook_checkout_edit` pre-selects `$DeliveryAddress->country_id`.
- *   3. THE CODEBASE ALREADY TREATS THEM AS IDS IN THE PLACES THAT MATTER MOST.
- *      `PaymentController:1353` writes `$address->state_id = $billing['billing_state']` -- the same
- *      request key, straight into an id column. Four of the twenty-four sites already look the city
- *      up by `id` rather than by `name` (PaymentController:2568/2583, PaymentService:2780/2795).
+ *   3. THE CODEBASE ALREADY TREATS THEM AS IDS IN THE PLACES THAT MATTER MOST. The
+ *      `delivery_addresses` writer wrote `$address->state_id = $billing['billing_state']` -- the
+ *      same request key, straight into an id column -- and four of the twenty-four sites already
+ *      looked the city up by `id` rather than by `name` (PaymentController and PaymentService).
+ *      LINE NUMBERS ARE DELIBERATELY OMITTED FROM THIS LIST: they were pre-change positions, this
+ *      change moved them, and a stale `file:line` in a docblock is the census-failure mode the
+ *      paragraph below is written to prevent.
  *   4. THE DECIDING EVIDENCE: `order_billing_details.country`, `.state` and `.city` are STRING
  *      columns that hold IDS. `OrderBillingDetail::BillingState()` is
  *      `hasOne(State::class, 'id', 'state')` (:38-41) and `Order::order_detail()` renders
@@ -81,12 +84,26 @@ use App\Models\State;
  * extraction so a twenty-fifth copy cannot appear unseen
  * (`tests/Feature/Commerce/BillingGeographyResolutionTest::test_no_order_writer_assigns_a_request_value_to_a_city_foreign_key`).
  *
- * NOT CHANGED, DELIBERATELY: `order_billing_details.state` / `.country` keep taking the posted
- * value verbatim. They are id-bearing string columns, the posted value IS an id, and a `hasOne` on
- * a non-existent id renders '' rather than failing -- so there is nothing to close there, and
- * rewriting those assignments would be a contract change for the sake of symmetry. `cities` is a
- * PLATFORM-GLOBAL table (no `store_id`, not in `config/tenancy.php`), so none of this is tenant
- * data and no store predicate belongs here.
+ * WHICH `order_billing_details` WRITERS WERE CONVERTED, AND WHICH WERE NOT -- the asymmetry is
+ * deliberate and this paragraph exists because an earlier draft of it claimed the opposite and
+ * contradicted the code two paragraphs below. Of the TWELVE writers of those columns, TWO were
+ * converted: `Api\ApiController`'s, at both order writers, because that is the PUBLIC API where a
+ * posted NAME is reachable and where `place_order` was additionally discarding the city id it had
+ * just resolved. The other TEN -- PaymentController x2, PaymentService, and one each in the seven
+ * gateway controllers -- still assign `$billing['billing_state']` and `$billing['billing_country']`
+ * verbatim. They are fed by the storefront form, which posts ids, so resolving there is a no-op
+ * for every shipped caller and changing ten money-path writes without a measured defect is churn.
+ *
+ * WHAT THAT LEAVES OPEN, stated rather than implied: an anonymous POST to `{storeSlug}/process-order`
+ * (routes/customer.php:182, outside the `auth:customers` group) carrying
+ * `billing_info[billing_country]=Syria` still stores the literal name in an id-joined column, and
+ * the merchant's order detail then shows a blank country. It is a correctness edge, not a security
+ * one -- those two columns carry no foreign key and no tenant meaning -- and no shipped client
+ * produces it. The assignment ratchet in `BillingGeographyResolutionTest` does NOT cover it: it
+ * matches `->state_id` / `->country_id` / `->city_id`, and these are `->state` / `->country`.
+ *
+ * `cities` is a PLATFORM-GLOBAL table (no `store_id`, not in `config/tenancy.php`), so none of this
+ * is tenant data and no store predicate belongs here.
  */
 final class BillingGeography
 {
@@ -148,16 +165,41 @@ final class BillingGeography
             return 0;
         }
 
-        $id = self::asId($city);
+        /*
+         * AN INTEGER SPELLING IS AN ID OR IT IS NOTHING -- it never becomes a city NAME. Without
+         * this second limb a posted id that matches no row (a city deleted since the page was
+         * rendered, a stale client cache, a hand-written request) would be inserted as a city
+         * CALLED '999', which is defect (a) of this task reappearing through the branch that is
+         * supposed to close it. 0 means "no city", which every caller already handles and which
+         * renders as an empty field rather than as a number.
+         *
+         * `filter_var` is asked directly here rather than through `asId()`, because the question is
+         * different: `asId()` asks "is this a usable id", and this asks "did the caller write an
+         * integer at all" -- so '-1' and '0' are caught too. A leading-zero spelling ('03') is the
+         * one remainder: FILTER_VALIDATE_INT refuses it, as this project has already recorded, so
+         * it still reaches the name branch.
+         */
+        $looksLikeAnId = is_scalar($city) && filter_var(trim((string) $city), FILTER_VALIDATE_INT) !== false;
 
-        if ($id !== null && City::where('id', $id)->exists()) {
-            return $id;
+        if ($looksLikeAnId) {
+            $id = self::asId($city);
+
+            return ($id !== null && City::where('id', $id)->exists()) ? $id : 0;
         }
 
         $name = self::name($city);
 
+        /*
+         * NARROWED BY STATE, AND BY COUNTRY WHEN THE STATE DID NOT RESOLVE. The second limb is the
+         * same reasoning `stateId()` already applies one level up: an unnarrowed name match returns
+         * whichever row was inserted first, globally, so a posted country of 101 with an
+         * unresolvable state would have matched a same-named city anywhere on earth. No tenancy
+         * consequence -- `cities` is platform-global -- but it files an order under the wrong
+         * geography, which is this task's subject.
+         */
         $existing = City::where('name', $name)
             ->when($stateId !== null, fn ($query) => $query->where('state_id', $stateId))
+            ->when($stateId === null && $countryId !== null, fn ($query) => $query->where('country_id', $countryId))
             ->first();
 
         if (! empty($existing)) {
