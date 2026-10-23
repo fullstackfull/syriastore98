@@ -25,7 +25,7 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 109 — 56 DONE, 20 READY, 5 BACKLOG, 28 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
+| Tasks | 109 — 57 DONE, 19 READY, 5 BACKLOG, 28 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
 | Requiring an owner decision | 34 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
@@ -119,17 +119,17 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 1. `P1-INV-03` — PosController::store writes product_stock to an absolute value from the POS session *(inventory, DONE, risk high)*
 2. `P1-INV-05` — Concurrency and overselling: reservation semantics across the nine writers *(inventory, BACKLOG, risk medium)*
 3. `P1-INV-06` — Two vendored module cart writers can still plant an unvalidated cart row *(inventory, BLOCKED, risk medium)*
-4. `P1-INV-09` — Stored media paths are expanded as glob patterns and unlinked with no uploads-root containment *(inventory, IN_REVIEW, risk medium)*
-5. `P1-INV-10` — The catalogue cluster: two endpoints that cannot work, an unscoped option lookup, and the missing permission limbs *(inventory, READY, risk low)*
-6. `P1-INV-11` — Unvalidated parent_id leaks every store's category names, and admits a tree cycle that fatals *(inventory, IN_REVIEW, risk medium)*
+4. `P1-INV-09` — Stored media paths are expanded as glob patterns and unlinked with no uploads-root containment *(inventory, READY, risk medium)*
+5. `P1-INV-10` — The catalogue cluster: two endpoints that cannot work, an unscoped option lookup, and the missing permission limbs *(inventory, DONE, risk low)*
+6. `P1-INV-11` — Unvalidated parent_id leaks every store's category names, and admits a tree cycle that fatals *(inventory, DONE, risk medium)*
 7. `P1-INV-12` — Deleting a category deletes every product in it by FK cascade, below the application *(inventory, DONE, risk high)*
-8. `P1-INV-13` — The Woo/Shopify import family: three more unscoped mapping resolves, one still carrying a store-transfer primitive *(inventory, IN_REVIEW, risk high)*
+8. `P1-INV-13` — The Woo/Shopify import family: three more unscoped mapping resolves, one still carrying a store-transfer primitive *(inventory, READY, risk high)*
 9. `P1-INV-15` — Order::product_return robustness: POS orders 500, no transaction, tax_price zeroed, and a double-credit across the two return endpoints *(inventory, READY, risk medium)*
 10. `P1-INV-16` — AuctionProductOrder::product_return restocks an unscoped Product, has no replay guard, and its non-variant path is a silent no-op *(inventory, BACKLOG, risk high)*
 11. `P1-INV-20` — four more LotteryPrizes defects: an anonymous ticket writer into any store, an unscoped refund delete, a cross-tenant email-template resolve, and a 500 on every successful draw *(inventory, BLOCKED, risk high)*
 12. `P1-INV-21` — The lottery ticket amount is a client-posted hidden input, so the recorded price is forgeable while the charge is not; and a ticket can be written without paying *(inventory, BLOCKED, risk high)*
 13. `P1-INV-22` — LotteryPrizes: most payment arms are unreachable from its own form, two authorization gates lock out the platform operator, and one is commented out *(inventory, BLOCKED, risk medium)*
-14. `P1-PAY-04` — COD settles at order time, which blocks releasing GATE F *(payments, BLOCKED, risk high)*
+14. `P1-PAY-04` — COD settles at order time, which blocks releasing GATE F *(payments, READY, risk high)*
 15. `P1-MIG-03` — Undeclared columns that block GATE F: products.cost_price and two delivery_boys columns *(migrations, BLOCKED, risk high)*
 16. `P1-MIG-01` — GATE F: release the six money-bearing tables *(migrations, BLOCKED, risk high)*
 17. `P1-MIG-02` — customers.password_otp is INTEGER while the web reset writes a 60-char bcrypt hash *(migrations, BLOCKED, risk high)*
@@ -137,7 +137,7 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 19. `P1-ORD-02` — Order-total architecture: one server-authoritative total, asserted *(orders, BACKLOG, risk high)*
 20. `P1-ORD-01` — total_final_price ignores the coupon; apply_coupon refuses every non-fixed-product coupon *(orders, BACKLOG, risk high)*
 21. `P1-ORD-03` — user_delete hard-deletes orders while soft-deleting the account *(orders, BLOCKED, risk high)*
-22. `P1-ORD-05` — The order read family: a forgeable encrypted id reaches any store's order, and two handlers lock out the operator *(orders, IN_REVIEW, risk high)*
+22. `P1-ORD-05` — The order read family: a forgeable encrypted id reaches any store's order, and two handlers lock out the operator *(orders, DONE, risk high)*
 23. `P1-ORD-06` — auction-order-status-change reads the HOST orders table with an auction id and POSTs the result, PII included, to a merchant-configured URL *(orders, BACKLOG, risk high)*
 24. `P1-OWN-01` — BackupRestore containment: owner confirms DISABLED — verify route exposure and module-loading behaviour *(security, BLOCKED, risk high)*
 25. `P1-OWN-02` — Secret rotation: APP_KEY and four tracked config secrets *(security, BLOCKED, risk high)*
@@ -146,52 +146,52 @@ The directive's priority order, applied: (1) critical reachable security, (2) cr
 28. `P1-OWN-05` — Anonymous order-document access (customerpayment) and tooling decisions *(platform, BLOCKED, risk medium)*
 29. `P1-OWN-06` — Branch protection and required checks on main *(platform, BLOCKED, risk medium)*
 30. `P1-OWN-07` — Reconcile data residue from the pre-fix WooCommerce transfer primitive (read-only investigation) *(owner, BLOCKED, risk high)*
-31. `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites *(payments, READY, risk medium)*
-32. `P1-PAY-02` — Idempotency on gateway returns and order writers *(payments, BACKLOG, risk high)*
+31. `P1-PAY-01` — The seven remaining explode()-before-empty() crash sites *(payments, DONE, risk medium)*
+32. `P1-PAY-02` — Idempotency on gateway returns and order writers *(payments, DONE, risk high)*
 33. `P1-PAY-03` — Gateway callback authenticity: no return proves a payment moved *(payments, BLOCKED, risk high)*
-34. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, IN_REVIEW, risk high)*
-35. `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites *(platform, BACKLOG, risk high)*
+34. `P1-PLT-02` — Two order writers persist a NULL store_id *(platform, BLOCKED, risk high)*
+35. `P1-PLT-03` — Tenant-scope adoption: forStoreContext/allowCrossTenant have zero call sites *(platform, DONE, risk high)*
 36. `P1-PLT-04` — Module loading swallows every exception with no log line *(platform, BLOCKED, risk medium)*
-37. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, BACKLOG, risk medium)*
+37. `P1-PLT-05` — Observability: unverified-payment and refusal logging reaches somewhere an operator looks *(platform, DONE, risk medium)*
 38. `P1-SEC-01` — Session hygiene: logout symmetry, session regeneration, same_site, CSRF exemption, MFA ordering *(security, DONE, risk high)*
 39. `P1-SEC-03` — Verify and classify the four unverified order-adjacent surfaces *(security, DONE, risk medium)*
-40. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, IN_REVIEW, risk medium)*
-41. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, READY, risk medium)*
-42. `P1-SEC-06` — Authenticated SSRF: four import handlers fetch a merchant-controlled URL and serve the response *(security, IN_REVIEW, risk high)*
+40. `P1-SEC-04` — Route-census gate: module routes classified public vs administrative *(security, DONE, risk medium)*
+41. `P1-SEC-05` — Secret-scanner coverage and the three artefacts that should not be tracked *(platform, DONE, risk medium)*
+42. `P1-SEC-06` — Authenticated SSRF: four import handlers fetch a merchant-controlled URL and serve the response *(security, READY, risk high)*
 43. `P1-SEC-07` — PLATFORM-WIDE: six modules resolve email templates with no created_by, and a console command reaches the same code with no request and no tenant *(security, BLOCKED, risk high)*
 44. `P1-ORD-09` — The /order/{Crypt::encrypt(id)} details link is the only credential on the order page, and it is forgeable with the leaked APP_KEY *(orders, BLOCKED, risk high)*
-45. `P1-ORD-10` — downloadable_prodcut lets any signed-in shopper make any store email its own customer an attacker-chosen link *(orders, IN_REVIEW, risk medium)*
+45. `P1-ORD-10` — downloadable_prodcut lets any signed-in shopper make any store email its own customer an attacker-chosen link *(orders, READY, risk medium)*
 46. `P1-ORD-11` — A storefront refund REQUEST rewrites the order's totals at request time, before any merchant decision, and is not atomic *(orders, DONE, risk medium)*
-47. `P1-SEC-09` — ReportController has no authorization on its 27 live order and revenue report handlers *(security, IN_REVIEW, risk medium)*
-48. `P1-SEC-10` — The DeliverySyria order-status endpoint is an unauthenticated, unthrottled, platform-wide order-existence oracle *(security, IN_REVIEW, risk medium)*
-49. `P1-SEC-11` — Utility::Setting() falls back to created_by=1 with no store predicate, getCurrentStore() hardcodes 1 for the operator, and a guard compares users.type strictly *(security, IN_REVIEW, risk medium)*
-50. `P1-ORD-12` — OrderDocumentAccessGuard resolves the refund id on order-refund/{id} as an order id: a shopper cannot open their own refund request unless the two numbers coincide *(orders, IN_REVIEW, risk medium)*
+47. `P1-SEC-09` — ReportController has no authorization on its 27 live order and revenue report handlers *(security, DONE, risk medium)*
+48. `P1-SEC-10` — The DeliverySyria order-status endpoint is an unauthenticated, unthrottled, platform-wide order-existence oracle *(security, DONE, risk medium)*
+49. `P1-SEC-11` — Utility::Setting() falls back to created_by=1 with no store predicate, getCurrentStore() hardcodes 1 for the operator, and a guard compares users.type strictly *(security, READY, risk medium)*
+50. `P1-ORD-12` — OrderDocumentAccessGuard resolves the refund id on order-refund/{id} as an order id: a shopper cannot open their own refund request unless the two numbers coincide *(orders, DONE, risk medium)*
 51. `P1-ORD-13` — The thank-you page identifies an order by a non-unique timestamp number: carry the primary key through the gateway returns and close the Paymera replay *(orders, READY, risk medium)*
-52. `P1-ORD-14` — Cancelling or restocking a refund reads the refund record by order-line position, so a partial refund restores the wrong line *(orders, IN_REVIEW, risk high)*
-53. `P1-SEC-12` — The storefront account area has a login gate and no ownership check: any signed-in shopper of any store can read, overwrite or delete another shopper's addresses and support tickets *(security, IN_REVIEW, risk high)*
+52. `P1-ORD-14` — Cancelling or restocking a refund reads the refund record by order-line position, so a partial refund restores the wrong line *(orders, READY, risk high)*
+53. `P1-SEC-12` — The storefront account area has a login gate and no ownership check: any signed-in shopper of any store can read, overwrite or delete another shopper's addresses and support tickets *(security, DONE, risk high)*
 54. `P1-OWN-08` — shetabit_visits rows already written hold plaintext customer passwords, session cookies and possibly card fields: scrub or purge, notify, and sequence with the APP_KEY rotation *(security, BLOCKED, risk critical)*
 55. `P1-OWN-09` — Every store's payment-gateway secrets were readable by any internet visitor: treat them as exposed - rotation guidance, access-log check, and the API log files on the server *(security, BLOCKED, risk critical)*
-56. `P1-SEC-14` — The error tracker (LaraBug) is sent the request, cookies, session and input on every reported exception, and its blacklist misses cookies, sessions, secrets and card numbers *(security, IN_REVIEW, risk high)*
-57. `P1-SEC-16` — Credentials at rest outside the visit log: the API log's redaction gaps, passwords flashed into the session, a plaintext 2FA seed copied between users, whole checkouts in return URLs *(security, IN_REVIEW, risk medium)*
+56. `P1-SEC-14` — The error tracker (LaraBug) is sent the request, cookies, session and input on every reported exception, and its blacklist misses cookies, sessions, secrets and card numbers *(security, READY, risk high)*
+57. `P1-SEC-16` — Credentials at rest outside the visit log: the API log's redaction gaps, passwords flashed into the session, a plaintext 2FA seed copied between users, whole checkouts in return URLs *(security, READY, risk medium)*
 58. `P1-SEC-17` — Credentials handed to the browser: the Telegram bot token to an anonymous shopper, the Midtrans server key in page HTML, the platform reCAPTCHA secret in a script *(security, DONE, risk high)*
 59. `P1-SEC-18` — Setting reads and writes with no tenant predicate or no permission: a shopper charged through another tenant's keys, a cross-tenant image delete, staff reading and writing a merchant's gateway and SMTP secrets *(security, DONE, risk high)*
-60. `P1-SEC-22` — get-massage residue and sibling credential sinks found by the P1-SEC-17 review: an unthrottled, ungated anonymous Telegram relay, an exception object flashed into the Midtrans page, a password in module page script, the chat id in payment-list *(security, IN_REVIEW, risk medium)*
+60. `P1-SEC-22` — get-massage residue and sibling credential sinks found by the P1-SEC-17 review: an unthrottled, ungated anonymous Telegram relay, an exception object flashed into the Midtrans page, a password in module page script, the chat id in payment-list *(security, READY, risk medium)*
 61. `P1-SEC-26` — Store-less setting reads on routes that name no store: the lowest-id merchant's settings, the platform's storage and captcha config read through the merchant-shaped call, and an unknown slug that fails open *(security, BLOCKED, risk medium)*
 62. `P1-SEC-27` — Staff (and any logged-in user of the store) can still write any setting by NAME: gateway and SMTP keys, the bank-transfer destination, domains; the admin API's Cod/Bank/Loyalty/currency writers have no permission check *(security, DONE, risk high)*
-63. `P1-SEC-28` — Unlinks of a path read from the database or the request that bypass StoredUpload: product images (ImportExport writes them raw), vendored module deleters, a shared vendored asset deleted as collateral, files with no store segment *(security, IN_REVIEW, risk high)*
+63. `P1-SEC-28` — Unlinks of a path read from the database or the request that bypass StoredUpload: product images (ImportExport writes them raw), vendored module deleters, a shared vendored asset deleted as collateral, files with no store segment *(security, READY, risk high)*
 64. `P1-OWN-10` — 407 user-uploaded files are committed to the repository (uploads/, including screenshots, a receipt and profile images) *(security, BLOCKED, risk medium)*
 65. `P1-SEC-29` — A merchant can claim another merchant's custom domain or sub-domain: the host lookup takes the lowest-id `domains`/`subdomain` row of ANY store and nothing keeps the values unique (EXECUTED) *(security, DONE, risk high)*
-66. `P1-SEC-30` — Fixed-name credential and identity writers have no permission check: storage (S3/Wasabi endpoint and keys), WooCommerce, Shopify, Twilio, WhatsApp, Firebase, and the store's name, e-mail and slug *(security, IN_REVIEW, risk medium)*
+66. `P1-SEC-30` — Fixed-name credential and identity writers have no permission check: storage (S3/Wasabi endpoint and keys), WooCommerce, Shopify, Twilio, WhatsApp, Firebase, and the store's name, e-mail and slug *(security, DONE, risk medium)*
 67. `P1-OWN-11` — Owner: three read-only checks on the live `settings` table (its real indexes, hosts held by more than one store, rows renamed by a case variant) *(security, BLOCKED, risk medium)*
-68. `P1-SEC-31` — Nine vendored WorkDo module controllers write `settings` by caller-supplied name with no permission check, four of them with no auth or module/plan check; they cannot be edited, so the control has to be host-side *(security, IN_REVIEW, risk high)*
+68. `P1-SEC-31` — Nine vendored WorkDo module controllers write `settings` by caller-supplied name with no permission check, four of them with no auth or module/plan check; they cannot be edited, so the control has to be host-side *(security, READY, risk high)*
 69. `P1-OWN-12` — Owner decision: who may put script and style on every storefront page, checkout included (`storejs`, `storecss`, `google_analytic`, `fbpixel_code`) *(security, BLOCKED, risk medium)*
-70. `P1-PLT-06` — Saving the Home or Checkout tab of the Store Setting screen removes the store's custom domain at the hosting panel and blanks it - for the owner too (EXECUTED) *(platform, IN_REVIEW, risk medium)*
+70. `P1-PLT-06` — Saving the Home or Checkout tab of the Store Setting screen removes the store's custom domain at the hosting panel and blanks it - for the owner too (EXECUTED) *(platform, READY, risk medium)*
 71. `P1-PLT-07` — A save of the Store Setting screen by anyone but the owner re-stamps `created_by` on the owner's rows (or shadows them with new ones), so the owner's own screen shows those fields blank *(platform, DONE, risk medium)*
 72. `P1-SEC-32` — Owner: who may hold a host? The platform's own host and reserved sub-domain labels are not reserved, and a host is taken by whoever saves it first with no proof of DNS control and no release path for the rightful owner *(security, BLOCKED, risk medium)*
-73. `P1-SEC-33` — Utility::WebhookCall curls a merchant-saved URL with no protocol, host or timeout limit (SSRF), and the webhook writers rewrote or MOVED any tenant’s webhook by bare id *(security, IN_REVIEW, risk high)*
-74. `P1-SEC-34` — The two storefront-write holes the P1-SEC-04 route-census review left open: an anonymous review's description reaches the merchant's admin origin unescaped (HIGH), and a shopper's comment is tied to no store and no product (MEDIUM) *(security, IN_REVIEW, risk high)*
-75. `P1-SEC-35` — /duologin logged an anonymous caller in as ANY account, the platform operator included: no authentication, CSRF-exempt, and the two HMAC halves are compared only with each other (EXECUTED) *(security, IN_REVIEW, risk critical)*
-76. `P1-INV-23` — DigitalProduct, AuctionProduct's twin: an anonymous DELETE removed any tenant's product image and file, and the resource routes checked the permission but never the owner (EXECUTED) *(inventory, IN_REVIEW, risk high)*
+73. `P1-SEC-33` — Utility::WebhookCall curls a merchant-saved URL with no protocol, host or timeout limit (SSRF), and the webhook writers rewrote or MOVED any tenant’s webhook by bare id *(security, DONE, risk high)*
+74. `P1-SEC-34` — The two storefront-write holes the P1-SEC-04 route-census review left open: an anonymous review's description reaches the merchant's admin origin unescaped (HIGH), and a shopper's comment is tied to no store and no product (MEDIUM) *(security, READY, risk high)*
+75. `P1-SEC-35` — /duologin logged an anonymous caller in as ANY account, the platform operator included: no authentication, CSRF-exempt, and the two HMAC halves are compared only with each other (EXECUTED) *(security, DONE, risk critical)*
+76. `P1-INV-23` — DigitalProduct, AuctionProduct's twin: an anonymous DELETE removed any tenant's product image and file, and the resource routes checked the permission but never the owner (EXECUTED) *(inventory, DONE, risk high)*
 77. `P1-PLT-08` — DeliveryBoy is an unclassified enforcement candidate - allowlist it, with full-suite evidence *(platform, READY, risk medium)*
 
 ---
@@ -3050,7 +3050,7 @@ THE FIX: orderComplete honours a request-supplied id ONLY if it is in the sessio
 
 | field | value |
 |---|---|
-| Status | **READY** |
+| Status | **DONE** |
 | Risk | medium |
 | Workstream | Orders & Checkout |
 | GitHub issue | #81 |
@@ -3064,17 +3064,17 @@ THE FIX: orderComplete honours a request-supplied id ONLY if it is in the sessio
 **Existing implementation status.** MEASURED by the P1-ORD-07/08 adversarial review (lens E, E4, executed): `OrderDocumentAccessGuard::TARGETS['{storeSlug?}/order-refund/{id}']` resolves `{id}` as `orders.id` for BOTH branches of that route, but on the refund-VIEW branch (`refund` query not set) `{id}` is a REFUND id. So the guard asks 'does order #<refundId> belong to me?'. Fixture: order id 5, refund id 1, same owner -> `GET /{slug}/order-return-list` lists the refund (200), and the 'eye' button URL `GET /{slug}/order-refund/1` returns 403 from the guard. For a real shopper the refund-view branch is therefore dead unless the refund id happens to equal one of their order ids - a feature that has been dead since the guard shipped, not a leak. It also means the ownership check P1-ORD-07 added at handler level only ever runs on that coincidence (which is exactly the attacker's move, so it is the right control - but it cannot help the honest owner). The P1-ORD-07 positive control `test_an_owner_can_open_their_own_refund_request` asserts the coincidence as a PREMISE, so it cannot see this. The honest fix is in the guard (resolve `{id}` through `order_refunds`, store-scoped, when `refund` is not truthy), not in the controller.
 
 **Acceptance criteria.**
-- [ ] A shopper whose refund id matches none of their order ids opens their own refund request (200)
-- [ ] A sibling shopper, a shopper of another store, and a refund id that does not exist are all refused with the same status as before
-- [ ] An attacker who picks a refund id equal to an order they own is still refused (the handler's ownership check stays)
-- [ ] The `refund=true` branch (where `{id}` IS an order id) is unchanged
+- [x] A shopper whose refund id matches none of their order ids opens their own refund request (200)
+- [x] A sibling shopper, a shopper of another store, and a refund id that does not exist are all refused with the same status as before
+- [x] An attacker who picks a refund id equal to an order they own is still refused (the handler's ownership check stays)
+- [x] The `refund=true` branch (where `{id}` IS an order id) is unchanged
 
 **Required tests.**
 - Positive: order id 5, refund id 1, same owner - the eye-button URL renders (the P1-ORD-07 test only covered coincident ids)
 - Negative: sibling shopper, other-store shopper, unknown refund id, coincident-id attacker
 - Removal check on the new refund-id resolution, and OrderDocumentAccessTest / OrderDocumentRouteResolutionTest stay green
 
-**Evidence.** None yet - READY. Reproduction is recorded under P1-ORD-07 (review E4). | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by be9317ab ("P1-ORD-12: a shopper can open their own refund request - the guard resol"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.  AUDITED 2026-10-22 by the read-only IN_REVIEW audit (25 independent agents, one per task, no suite execution): verdict READY. 4 of 5 acceptance criteria PROVEN, 1 UNPROVEN. What remains: (from the row's `tests` field) Removal check on the new refund-id resolution, and OrderDocumentAccessTest / OrderDocumentRouteResolutionTest stay green Per-criterion basis, and the 4 adjacent findings this audit raised outside the row's own scope, are in docs/development/phase-1/PHASE-01-FINAL-DECISION-REPORT.md section I.2.
+**Evidence.** None yet - READY. Reproduction is recorded under P1-ORD-07 (review E4). | RECONCILED 2026-10-22: the ledger carried this as READY while the fix was already on the branch -- the session that wrote it updated neither the ledger nor the issue. Implemented by be9317ab ("P1-ORD-12: a shopper can open their own refund request - the guard resol"). The evidence for the fix is in that commit's own message (tests, removal checks and any read-only review); THIS reconciliation did not re-verify the acceptance criteria, which is why the status is IN_REVIEW and not DONE. Suites on the reconciled tree at cdc213bd: Unit 339, Contract 26, Feature 5160 passed / 2 failed (both declared) / 17 skipped (all declared) with the known-outcome gate OK, exit 0. PR #3 is a Draft and its attestation covers this commit in the section named there.  AUDITED 2026-10-22 by the read-only IN_REVIEW audit (25 independent agents, one per task, no suite execution): verdict READY. 4 of 5 acceptance criteria PROVEN, 1 UNPROVEN. What remains: (from the row's `tests` field) Removal check on the new refund-id resolution, and OrderDocumentAccessTest / OrderDocumentRouteResolutionTest stay green Per-criterion basis, and the 4 adjacent findings this audit raised outside the row's own scope, are in docs/development/phase-1/PHASE-01-FINAL-DECISION-REPORT.md section I.2. | VERIFIED 2026-10-23, which is what the IN_REVIEW audit left owed: the fix (be9317ab) and its tests were on the branch, the acceptance criteria had never been executed. ALL FOUR CRITERIA ARE COVERED by the dedicated P1-ORD-12 section of tests/Feature/Security/StorefrontOrderRefundOwnershipTest.php (test_an_owner_opens_their_own_refund_request_when_the_ids_do_not_coincide, test_a_sibling_shopper_is_refused_the_same_refund_request, test_a_shopper_of_another_store_is_refused_the_same_refund_request, test_a_shopper_cannot_open_another_shoppers_refund_request_even_when_the_ids_coincide, test_an_unknown_refund_id_is_refused_at_the_door, test_the_refund_true_branch_still_reads_the_id_as_an_order_id, test_the_refund_true_branch_still_refuses_a_foreign_order_id). EXECUTED: 46 tests / 257 assertions in that file and 45 in OrderDocumentAccessTest, all passing. MUTATION, 7 mutants, each on its own limb: the guard's 4 all BITE (resolution removed entirely -> 2 fail; the branch condition dropped so refund=true also resolves through order_refunds -> 3 fail; the URI equality test dropped -> 10 fail; an unresolvable refund falling through to the raw value -> 1 fail). The handler's 3: 2 BITE (the ownership check removed; its ownership half dropped) and the THIRD SURVIVED TWICE before it was closed, which is the finding of this verification. THE SURVIVOR was 'the refund read loses its own where(store_id)'. Two independent reasons, and only the first was visible from the code: (1) ownedOrder() re-asks store_id AND customer_id of the ORDER the refund points at, so for any row whose two tenancy columns agree the predicate cannot decide anything -- the separating input is a refund row whose store_id is store B while its order_id is an order of store A owned by the caller, which no writer here produces (order_refund_request() stamps store_id = $store->id on an order ownedOrder() has already approved) and which legacy or imported rows can be; (2) WITH that row the mutant STILL survived, because actingAs($shopper,'customers') also calls shouldUse('customers'), so auth()->user() -- which StoreScope::resolveTenant() calls, web-guard-only by design -- returns the CUSTOMER, falls through getCurrentStore() to Store::where('created_by',$user->id) and resolves a tenant for a shopper. MEASURED: tenant mode=tenant store_id=1 reason='resolved from the web guard', and OrderRefund::where('id',$id) compiled with an extra `order_refunds.store_id = ?` attached -- the harness was substituting for the very production control the mutant had stripped. A real request resolves no tenant there (default guard web, no principal -> MODE_UNRESOLVED -> null_tenant open), so in production the handler's predicate is the only one. FIXED by test_a_refund_row_whose_store_disagrees_with_its_order_is_refused plus productionGuardArrangement() (shouldUse('web') and an assertion that the default guard holds no principal); the mutant now BITES with a message naming the render it reached. NOTHING IN app/ CHANGED by this verification -- the predicate is kept and pinned, not removed as equivalent code. This is a FIFTH way a test here passes for the wrong reason and is recorded in .claude/skills/store-syria-laravel-tenancy/SKILL.md; a census of direct-call tests found it applies to this file alone (ShippingLabelStoreSettingsTest and RetiredProviderSurfaceTest both act as merchants on the web guard). GATES at this tree: Feature 5382 passed / 2 declared failures / 17 declared skips / 0 errors with assert-known-test-outcomes.php exit 0; Unit 351 passed; Contract 26 passed; guard-no-workdo-changes reports packages/workdo/ unmodified.
 
 ### `P1-ORD-13` — The thank-you page identifies an order by a non-unique timestamp number: carry the primary key through the gateway returns and close the Paymera replay
 

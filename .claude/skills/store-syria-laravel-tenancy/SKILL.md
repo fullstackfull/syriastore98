@@ -123,6 +123,18 @@ vacuous tests repeatedly. Four ways they pass for the wrong reason, all measured
    string in an INTEGER column, NULL into NOT NULL under `strict => false`, and case/accent-
    insensitive `whereIn`. Evidence that cannot live in the suite goes in
    `tests/Support/Security/bin/` as a script stating its own preconditions.
+5. **`actingAs` tightened the scope the test was meant to measure.**
+   `actingAs($customer, 'customers')` also calls `shouldUse('customers')`, so `auth()->user()` —
+   which `StoreScope::resolveTenant()` calls, web-guard-only by design — starts returning the
+   **Customer**. It cannot tell, falls through `getCurrentStore()` to
+   `Store::where('created_by', $user->id)`, and resolves a tenant for a shopper. Measured:
+   `OrderRefund::where('id', $id)` compiled with `and "order_refunds"."store_id" = ?` attached
+   where a real request (default guard `web`, no principal → `MODE_UNRESOLVED` → `open`) attaches
+   nothing. So a **direct-call** test on the `customers` guard runs under a *tighter* scope than
+   production, and the global scope silently substitutes for the handler's own predicate —
+   removing that predicate then changes nothing the test can see. In a direct-call test, put the
+   default guard back: `$this->app['auth']->shouldUse('web')`, then assert `auth()->user()` is
+   null. Over HTTP the kernel sets the guard itself, so this applies to direct calls only.
 
 **Assert through `DB::table()`.** `User`, `Product` and `Order` are `Cachable`; an Eloquent read can
 serve a mutated in-memory instance. That produced a false *reproduction* once — a model read

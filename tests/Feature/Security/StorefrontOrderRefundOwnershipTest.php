@@ -705,10 +705,25 @@ class StorefrontOrderRefundOwnershipTest extends SecurityTestCase
         $siblingOrder = $this->refundableOrder($store, $sibling);
         $siblingRefund = $this->seedRefund($store, $siblingOrder, 'x');
 
+        /*
+         * A REFUND IN ANOTHER STORE, whose order is also that store's. Added while chasing the
+         * surviving mutant below, and it does NOT pin the predicate -- stated here because the
+         * first version of this comment claimed it did, and re-running the mutant refuted that.
+         * `ownedOrder()` re-asks the same tenancy question of the ORDER the refund points at, so
+         * a consistent foreign refund is refused with or without the refund read's own filter.
+         * The case is kept anyway: it is the only direct-call probe of a cross-store refund, and
+         * it is what proves the 404 comes from somewhere rather than from nowhere.
+         */
+        [, $otherStore] = $this->makeTenant();
+        $strangerShopper = $this->shopper($otherStore);
+        $strangerOrder = $this->refundableOrder($otherStore, $strangerShopper);
+        $foreignStoreRefund = $this->seedRefund($otherStore, $strangerOrder, 'y');
+
         $this->actingAs($owner, 'customers');
+        $this->productionGuardArrangement();
         $controller = app(\App\Http\Controllers\AccountProfileController::class);
 
-        foreach ([987654, $siblingRefund] as $id) {
+        foreach ([987654, $siblingRefund, $foreignStoreRefund] as $id) {
             try {
                 $controller->order_refund(request(), $store->slug, $id);
                 $this->fail("order_refund({$id}) answered instead of refusing.");
@@ -716,6 +731,131 @@ class StorefrontOrderRefundOwnershipTest extends SecurityTestCase
                 $this->assertSame(404, $e->getStatusCode());
             }
         }
+    }
+
+    /**
+     * THE REFUND READ'S OWN `where('store_id', ...)`, AND THE TWO THINGS NEEDED TO ISOLATE IT.
+     *
+     * A mutation run removed that predicate and NO test failed. Two separate reasons, and only
+     * the first was visible from the code:
+     *
+     *   1. `ownedOrder()` RE-ASKS THE SAME QUESTION of the ORDER the refund points at --
+     *      `store_id` AND `customer_id` -- so for any refund row whose two tenancy columns AGREE
+     *      the predicate cannot change an outcome. Every row this codebase writes agrees:
+     *      `order_refund_request()` stamps `store_id = $store->id` (:1524) on an order
+     *      `ownedOrder()` has already proved belongs to that same store. The input that separates
+     *      the two controls is a row where they DISAGREE -- `order_refunds.store_id` = store B,
+     *      `order_refunds.order_id` = an order of store A owned by the caller. Without the
+     *      predicate the handler finds that refund, `ownedOrder()` approves its order, and store
+     *      B's refund row renders inside store A's page: its reason text, its refund status, its
+     *      line prices. It is seeded raw below because no writer here produces one; legacy and
+     *      imported rows are not written by today's writers, which is the same residual
+     *      precondition P1-PLT-03 could not discharge for `delivery_boys.store_id`.
+     *
+     *   2. THE HARNESS WAS SUBSTITUTING FOR THE PRODUCTION CONTROL. Even with the mismatched row,
+     *      the mutant still survived -- because `actingAs($shopper, 'customers')` also makes
+     *      `customers` the DEFAULT guard, and `StoreScope` then resolves a tenant for a shopper
+     *      and attaches `and "order_refunds"."store_id" = ?` to the very read the mutant had just
+     *      stripped. See `productionGuardArrangement()` for the measurement. A real request
+     *      resolves no tenant there, so in production the handler's predicate is the only one.
+     *
+     * SO THE PREDICATE STAYS, AND IS PINNED HERE. Both halves had to be fixed before the mutant
+     * bit; either alone leaves it surviving, which is why neither could be read off the diff.
+     */
+    public function test_a_refund_row_whose_store_disagrees_with_its_order_is_refused(): void
+    {
+        [, $store] = $this->makeTenant();
+        [, $otherStore] = $this->makeTenant();
+        $owner = $this->shopper($store);
+        $order = $this->refundableOrder($store, $owner, ['product_order_id' => 'MISMATCH-ORD-1']);
+
+        // The refund row claims store B; the order it points at is store A's and this shopper's.
+        $refund = $this->seedRefund($otherStore, $order, 'MISMATCHEDSTORE');
+
+        $this->assertSame(
+            (int) $otherStore->id,
+            (int) DB::table('order_refunds')->where('id', $refund)->value('store_id'),
+            'Fixture premise: the refund row must carry the OTHER store.'
+        );
+        $this->assertSame(
+            (int) $store->id,
+            (int) DB::table('orders')->where('id', $order->id)->value('store_id'),
+            'Fixture premise: the order it points at must carry THIS store.'
+        );
+        $this->assertNotNull(
+            $this->ownedOrderIsApproved($store, $owner, $order->id),
+            'Fixture premise: ownedOrder() must APPROVE this order, or the refusal below proves nothing.'
+        );
+
+        $this->actingAs($owner, 'customers');
+        $this->productionGuardArrangement();
+        $controller = app(\App\Http\Controllers\AccountProfileController::class);
+
+        /*
+         * ANY exception that is not the 404 means the handler got PAST its ownership check and
+         * went on to render, which is the defect. It is caught and re-reported by hand because
+         * the thing it actually dies on then is a view composer wanting a `$store` view-share
+         * that only a real request provides -- an `ErrorException` whose message says nothing
+         * about tenancy. Without this the mutant's failure reads as a broken fixture.
+         */
+        try {
+            $controller->order_refund(request(), $store->slug, $refund);
+            $this->fail('A refund row belonging to another store was rendered inside this store.');
+        } catch (\Symfony\Component\HttpKernel\Exception\NotFoundHttpException $e) {
+            $this->assertSame(404, $e->getStatusCode());
+        } catch (\Throwable $e) {
+            $this->fail(
+                'The handler passed its ownership check on a refund row belonging to another store'
+                . ' and went on to render it -- it died later, at ' . $e->getFile() . ':' . $e->getLine()
+                . ' (' . $e->getMessage() . ').'
+            );
+        }
+    }
+
+    /**
+     * PUT THE DEFAULT GUARD BACK WHERE A REAL REQUEST LEAVES IT, and this is not tidying: it is
+     * the difference between these direct-call tests measuring the handler and measuring the
+     * harness.
+     *
+     * `actingAs($customer, 'customers')` does two things, and the second is undocumented in every
+     * test that uses it: it sets the user on that guard, AND it calls `shouldUse('customers')`,
+     * which rewrites `auth.defaults.guard`. So `auth()->user()` -- no guard named -- starts
+     * returning the CUSTOMER. `StoreScope::resolveTenant()` calls exactly that, deliberately
+     * consulting the web guard only (consulting `customers` would re-enter the scope through the
+     * Customer provider and recurse), and it cannot tell it has been handed a Customer: it reads
+     * `getCurrentStore()`, which falls through to `Store::where('created_by', $user->id)` and
+     * matches the MERCHANT whose id happens to equal the customer's. Measured here: tenant
+     * resolved as `{"mode":"tenant","store_id":1,"reason":"resolved from the web guard"}` for a
+     * shopper, and `OrderRefund::where('id', $id)` compiled with
+     * `and "order_refunds"."store_id" = ?` attached.
+     *
+     * A REAL REQUEST RESOLVES NO TENANT HERE. The default guard stays `web`, the shopper is on
+     * `customers`, so `auth()->user()` is null, the storefront branch returns MODE_UNRESOLVED
+     * under the default `storefront_tenant => additive`, and `null_tenant => open` adds no
+     * predicate. The explicit `where('store_id', ...)` in the handler is therefore the control of
+     * record in production -- while in an `actingAs`-shaped test the global scope silently
+     * substitutes for it. That is a FIFTH way a test here passes for the wrong reason, and the one
+     * that hid this package's surviving mutant: the test ran under a TIGHTER scope than
+     * production, so removing a production control changed nothing it could see.
+     */
+    private function productionGuardArrangement(): void
+    {
+        $this->app['auth']->shouldUse('web');
+
+        $this->assertNull(
+            auth()->user(),
+            'Premise: the default guard must hold no principal, as it does on a real storefront request.'
+        );
+    }
+
+    /** The premise of the test above: that `ownedOrder()` really does approve the order. */
+    private function ownedOrderIsApproved(Store $store, Customer $customer, $orderId): ?Order
+    {
+        return Order::withoutGlobalScopes()
+            ->where('id', $orderId)
+            ->where('store_id', $store->id)
+            ->where('customer_id', $customer->id)
+            ->first();
     }
 
     public function test_an_unknown_refund_id_is_refused_at_the_door(): void
