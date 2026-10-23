@@ -803,6 +803,37 @@ foreach ($defaultCurrencies as $currency) {
             Blog::where('store_id', $store->id)->delete();
             Contact::where('store_id', $store->id)->delete();
             Coupon::where('store_id', $store->id)->delete();
+            /*
+             * P1-INV-25, THE WEB TWIN. Above the Category delete, below everything else, and both
+             * halves of that placement are deliberate.
+             *
+             * ABOVE IT because `products.category_id` is ON DELETE CASCADE against `categories.id`
+             * -- the same FK P1-INV-12/D13 was built around -- so with the old order the
+             * categories went first, the cascade took the products, and this loop read an EMPTY
+             * collection. ProductController::destroy(), the only thing that unlinks the image
+             * files and corrects the used-storage figure, never ran.
+             *
+             * AND THE RECLAIMER IS CALLED DIRECTLY because destroy() is gated on
+             * `Delete Products` and refuses SILENTLY, which a store owner need not hold -- so the
+             * reorder alone fixed nothing. The loop is kept for the rest of what destroy() does.
+             *
+             * `$store->created_by`, NOT `$user->creatorId()`: resolveOwnedStore() drops its
+             * ownership predicate for a `super admin` (:681-683), so the operator can wipe any
+             * merchant's store, and changeproductStorageLimit() debits whichever user id it is
+             * handed -- the caller's id would charge the OPERATOR and leave the merchant charged
+             * for ever, which is the harm this task removes. See the service's docblock.
+             *
+             * See Api\DashboardController::DeleteStore for the twin and
+             * StoreWipeMediaOrderingTest for the measurement on both.
+             */
+            \App\Services\ProductMediaReclaimer::reclaimStore($store->id, $store->created_by);
+
+            $products = Product::where('store_id', $store->id)->get();
+            $pro_img = new ProductController();
+            foreach ($products as $pro) {
+                $pro_img->destroy($pro);
+            }
+
             Category::where('store_id', $store->id)->delete();
             Newsletter::where('store_id', $store->id)->delete();
             PlanOrder::where('store_id', $store->id)->delete();
@@ -815,12 +846,6 @@ foreach ($defaultCurrencies as $currency) {
 
             DB::table('shetabit_visits')->where('store_id', $store->id)->delete();
 
-            $products = Product::where('store_id', $store->id)->get();
-            $pro_img = new ProductController();
-            foreach ($products as $pro) {
-                $pro_img->destroy($pro);
-            }
-            // Product::where('store_id', $store->id)->delete();
 
             $store->delete();
             $userstore = Store::where('created_by', $user->id)->first();

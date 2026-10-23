@@ -4264,6 +4264,50 @@ public function DeleteStore(Request $request)
         Blog::where('store_id', $store->id)->delete();
         Contact::where('store_id', $store->id)->delete();
         Coupon::where('store_id', $store->id)->delete();
+        /*
+         * P1-INV-25. THE PRODUCT LOOP RUNS BEFORE THE CATEGORY DELETE, AND THE ORDER IS THE WHOLE
+         * FIX. `products.category_id` is ON DELETE CASCADE against `categories.id`
+         * (2023_12_26_092822_create_products_table.php:55 -- the same FK P1-INV-12/D13 was built
+         * around), so deleting the categories first takes the products with it. The loop below
+         * then read an EMPTY collection and `ProductController::destroy()` -- the only thing that
+         * unlinks the image files and corrects the merchant's used-storage figure -- never ran.
+         * The rows went and the FILES STAYED.
+         *
+         * `users.storage_limit` is USED storage despite the name: incremented on upload and
+         * compared against `plans.storage_limit` as the ceiling (Utility.php:786-787), decremented
+         * on delete, and rendered as a percentage of the plan (HomeController:273). So the old
+         * order left a merchant charged for ever for storage whose rows no longer exist, and
+         * refusable for new uploads against space they are not using. That is the half of this
+         * defect that costs money rather than disk.
+         *
+         * MEASURED before and after, by StoreWipeMediaOrderingTest, on both live wipes.
+         */
+        /*
+         * CAUSE 2: the destroy() loop below is gated on `Delete Products`, which a store owner
+         * need not hold, and it refuses SILENTLY. The media freeing therefore happens here, where
+         * the caller's ownership of the store has already been established, and the loop is kept
+         * for everything else destroy() does (variants, carts, module rows). Calling both is safe:
+         * the reclaimer is idempotent, because a path whose file is already gone sizes as 0 bytes.
+         *
+         * `$store->created_by` RATHER THAN `$user->creatorId()`, AND ON THIS HANDLER THE TWO ARE
+         * THE SAME VALUE. That is why a mutant swapping them here SURVIVES, and the reason is a
+         * guard rather than luck: this handler's own predicate is `created_by == $user->id`
+         * (:4238), so the caller IS the store's owner on every reachable call. The expression is
+         * still the owner's and not the caller's, for two reasons -- it matches the web twin,
+         * where `resolveOwnedStore()` drops that predicate for a `super admin` and the two
+         * genuinely differ, and it does not silently become wrong if this handler's predicate is
+         * ever relaxed. Recorded as an equivalent mutant with its cause, not excused.
+         */
+        \App\Services\ProductMediaReclaimer::reclaimStore($store->id, $store->created_by);
+
+        $products = Product::where('store_id', $store->id)->get();
+
+        $productController = new ProductController();
+
+        foreach ($products as $product) {
+            $productController->destroy($product);
+        }
+
         Category::where('store_id', $store->id)->delete();
         Newsletter::where('store_id', $store->id)->delete();
         PlanOrder::where('store_id', $store->id)->delete();
@@ -4273,16 +4317,6 @@ public function DeleteStore(Request $request)
         Tax::where('store_id', $store->id)->delete();
         ProductVariant::where('store_id', $store->id)->delete();
 
-        /*
-         * حذف المنتجات وصورها باستخدام الدالة الموجودة.
-         */
-        $products = Product::where('store_id', $store->id)->get();
-
-        $productController = new ProductController();
-
-        foreach ($products as $product) {
-            $productController->destroy($product);
-        }
 
         /*
          * حذف المتجر.

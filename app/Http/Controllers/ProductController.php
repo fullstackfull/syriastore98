@@ -1765,37 +1765,30 @@ $Product->cost_price = $request->cost_price;
                 }
             }
 
-            $ProductImages = ProductImage::where('product_id', $product->id)->get();
-
-            $Product = Product::find($product->id);
-            $file_path1 = [];
-            foreach ($ProductImages as $key => $ProductImage) {
-                $file_path1[] =  $ProductImage->image_path;
-            }
-            $file_paths2[] = $Product->cover_image_path;
-            if (!empty($Product->downloadable_product)) {
-                $file_paths2[] = $Product->downloadable_product;
-            }
-            if ($Product->preview_type == "Video File" && !empty($Product->preview_content) && \File::exists(base_path($Product->preview_content))) {
-                $file_paths2[] = $Product->preview_content;
-            }
-            $file_path = array_merge($file_path1, $file_paths2);
-            Utility::changeproductStorageLimit(\Auth::user()->creatorId(), $file_path, $file_path1);
-            if (!empty($ProductImages)) {
-                // image remove from product variant image
-                foreach ($ProductImages as $key => $ProductImage) {
-                    \App\Services\StoredUpload::delete($ProductImage->image_path, \Auth::user()->creatorId());
-                }
-            }
-
-            ProductImage::where('product_id', $product->id)->delete();
+            /*
+             * P1-INV-25. MOVED to App\Services\ProductMediaReclaimer, same calls in the same
+             * order, because the two store-wide wipes need this block and may NOT hold the
+             * `Delete Products` permission this method is gated on -- so they were delegating
+             * their media cleanup to a handler that silently refused them. The gate above is
+             * unchanged: this handler keeps it, and the wipes, which have already proved the
+             * caller owns the store, call the service directly.
+             */
+            \App\Services\ProductMediaReclaimer::reclaim($product, \Auth::user()->creatorId());
 
 
 
             if (module_is_active('HubSpot')) {
                 $setting = getAdminAllSetting(auth()->user()->id, getCurrentStore());
                 if (isset($setting['hubspot_is_enable']) && $setting['hubspot_is_enable'] == 'on') {
-                    \Workdo\HubSpot\app\Models\HubSpotProductService::where('product_service_id', $Product->id)->delete();
+                    /*
+                     * `$product`, NOT `$Product`. The extraction above removed the
+                     * `$Product = Product::find($product->id)` this line was reading, so for one
+                     * revision it was an UNDEFINED VARIABLE -- a PHP 8 warning, `->id` on null,
+                     * and a delete that silently matched nothing. Introduced by this package and
+                     * caught by its review; the route-bound `$product` is the same row without
+                     * the redundant re-read.
+                     */
+                    \Workdo\HubSpot\app\Models\HubSpotProductService::where('product_service_id', $product->id)->delete();
                 }
             }
             ProductVariant::where('product_id', $product->id)->delete();
