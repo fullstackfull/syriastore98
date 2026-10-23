@@ -3011,7 +3011,23 @@ $Product->cost_price = $request->cost_price;
     {
         $store = $store_id = getStoreById(getCurrentStore());
 
-        $product = Product::find($id);
+        /*
+         * P1-INV-03. `Product::find($id)` HAD NO STORE PREDICATE, and `Product` is not in
+         * config/tenancy.php's `scoped_models`, so `StoreScope` adds nothing: this resolved any
+         * tenant's product. It is the feeder that puts a line into the POS session, and
+         * `PosController::store()` then writes that line's stock -- so an unscoped resolve here is
+         * how another store's product reached a till's sale in the first place.
+         *
+         * Scoped to the caller's own store, the foreign product is simply "not found", which is
+         * the answer this handler already has for an id that does not exist and needs no new
+         * response shape. Guarding only the sale would have left the foreign row in the cart,
+         * priced and displayed to the cashier; guarding only the feeder would have left the sale
+         * trusting whatever a session already held. Both are guarded, and each is pinned by its
+         * own test.
+         */
+        $product = Product::where('id', $id)
+            ->where('store_id', $store->id)
+            ->first();
         $settings = Utility::Setting($store->id);
         if (!$product) {
             return response()->json(

@@ -200,9 +200,61 @@ class PosController extends Controller
                     $product_id = $value['id'];
                     $original_quantity = ($value == null) ? 0 : (int)$value['originalquantity'];
 
-                    $product_quantity = $original_quantity - $value['quantity'];
+                    /*
+                     * P1-INV-03. TWO DEFECTS IN THE TWO LINES THIS REPLACES, and they were
+                     * independent of one another:
+                     *
+                     *     $product_quantity = $original_quantity - $value['quantity'];
+                     *     Product::where('id', $product_id)->update(['product_stock' => $product_quantity]);
+                     *
+                     * (1) NO STORE PREDICATE. `Product` is NOT in config/tenancy.php's
+                     *     `scoped_models`, so `StoreScope` adds nothing and `where('id', ...)`
+                     *     reaches EVERY tenant's catalogue. MEASURED: a POS session holding store
+                     *     B's product moved B's `product_stock` 50 -> 49 from store A's till.
+                     *
+                     * (2) AN ABSOLUTE WRITE, NOT A DECREMENT. `originalquantity` is captured into
+                     *     the session when the line is added to the cart and never re-read, so the
+                     *     write OVERWROTE current stock with a figure derived from a snapshot.
+                     *     MEASURED: stock 50 at add-time, other sales take it to 30, the till sells
+                     *     1 -- the correct answer is 29 and the absolute write stored 49, INVENTING
+                     *     twenty units that had already been sold. No error, no warning. Two tills
+                     *     selling the same product clobber each other the same way.
+                     *
+                     * THE PRODUCT IS RESOLVED STORE-SCOPED and a line that does not resolve is
+                     * SKIPPED rather than written: a till may only move its own store's stock, and
+                     * a foreign line in a session is an anomaly to report, not an instruction.
+                     *
+                     * THE DECREMENT GOES THROUGH App\Services\ProductStockService, which already
+                     * exists and whose single conditional UPDATE is atomic in the database --
+                     * `UPDATE products SET product_stock = product_stock - ? WHERE id = ?`. No
+                     * second stock engine is introduced, which is the same reason the order path
+                     * uses it.
+                     *
+                     * `allowOversell: true` is deliberate and is what a till means. The goods are
+                     * physically leaving the shop as the sale is rung up; refusing the write would
+                     * not put them back, it would only make the recorded stock disagree with the
+                     * shelf. The service logs a critical when that drives stock below zero on a
+                     * product that forbids overselling, which is the operational signal a merchant
+                     * needs.
+                     */
                     if ($value != null && !empty($value)) {
-                        Product::where('id', $product_id)->update(['product_stock' => $product_quantity]);
+                        $posProduct = Product::where('id', $product_id)
+                            ->where('store_id', getCurrentStore())
+                            ->first();
+
+                        if (empty($posProduct)) {
+                            \Log::warning('POS sale skipped a line whose product is not this store\'s', [
+                                'product_id' => $product_id,
+                                'store_id' => getCurrentStore(),
+                                'user_id' => optional(auth()->user())->id,
+                            ]);
+                        } else {
+                            app(\App\Services\ProductStockService::class)->decrementProductStock(
+                                $posProduct,
+                                $value['quantity'],
+                                true
+                            );
+                        }
                     }
                     $loopPrice += ($value['orignal_price'] * $value['quantity']);
                     $loopQty += $value['quantity'];
