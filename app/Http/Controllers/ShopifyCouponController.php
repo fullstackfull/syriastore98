@@ -24,23 +24,7 @@ class ShopifyCouponController extends Controller
                     $shopify_store_url = \App\Services\ImportStoreUrl::shopifyLabel(\App\Models\Utility::GetValueByName('shopify_store_url', $theme_name, getCurrentStore()));
                     $shopify_access_token = \App\Models\Utility::GetValueByName('shopify_access_token', $theme_name, getCurrentStore());
                   
-                    $curl = curl_init();
-                    curl_setopt_array($curl, array(
-                        CURLOPT_URL => "https://$shopify_store_url.myshopify.com/admin/api/unstable/price_rules.json",
-                        CURLOPT_RETURNTRANSFER => true,
-                        CURLOPT_ENCODING => '',
-                        CURLOPT_MAXREDIRS => 10,
-                        CURLOPT_TIMEOUT => 0,
-                        CURLOPT_FOLLOWLOCATION => true,
-                        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-                        CURLOPT_CUSTOMREQUEST => 'GET',
-                        CURLOPT_HTTPHEADER => array(
-                            "X-Shopify-Access-Token: $shopify_access_token"
-                        ),
-                    ));
-
-                    $response = curl_exec($curl);
-                    curl_close($curl);
+                    $response = \App\Services\ShopifyAdminApi::get($shopify_store_url, "admin/api/unstable/price_rules.json", $shopify_access_token);
                     if ($response == false) {
                         return redirect()->back()->with('error', 'Something went wrong.');
                     } else {
@@ -102,23 +86,7 @@ class ShopifyCouponController extends Controller
             $shopify_store_url = \App\Services\ImportStoreUrl::shopifyLabel(\App\Models\Utility::GetValueByName('shopify_store_url', $theme_name, getCurrentStore()));
             $shopify_access_token = \App\Models\Utility::GetValueByName('shopify_access_token', $theme_name, getCurrentStore());
             
-            $curl = curl_init();
-            curl_setopt_array($curl, array(
-                CURLOPT_URL => "https://$shopify_store_url.myshopify.com/admin/api/2023-04/price_rules/$id.json",
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_ENCODING => '',
-                CURLOPT_MAXREDIRS => 10,
-                CURLOPT_TIMEOUT => 0,
-                CURLOPT_FOLLOWLOCATION => true,
-                CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-                CURLOPT_CUSTOMREQUEST => 'GET',
-                CURLOPT_HTTPHEADER => array(
-                    "X-Shopify-Access-Token: $shopify_access_token"
-                ),
-            ));
-
-            $response = curl_exec($curl);
-            curl_close($curl);
+            $response = \App\Services\ShopifyAdminApi::get($shopify_store_url, "admin/api/2023-04/price_rules/$id.json", $shopify_access_token);
             if (isset($customer['errors'])) {
                 $errorMessage = $customer['errors'] ?? '';
                 return redirect()->back()->with('error', $errorMessage);
@@ -176,23 +144,7 @@ class ShopifyCouponController extends Controller
                 $shopify_store_url = \App\Services\ImportStoreUrl::shopifyLabel(\App\Models\Utility::GetValueByName('shopify_store_url', $theme_name, getCurrentStore()));
                 $shopify_access_token = \App\Models\Utility::GetValueByName('shopify_access_token', $theme_name, getCurrentStore());
 
-                $curl = curl_init();
-                curl_setopt_array($curl, array(
-                    CURLOPT_URL => "https://$shopify_store_url.myshopify.com/admin/api/2023-04/price_rules/$id.json",
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_ENCODING => '',
-                    CURLOPT_MAXREDIRS => 10,
-                    CURLOPT_TIMEOUT => 0,
-                    CURLOPT_FOLLOWLOCATION => true,
-                    CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-                    CURLOPT_CUSTOMREQUEST => 'GET',
-                    CURLOPT_HTTPHEADER => array(
-                        "X-Shopify-Access-Token: $shopify_access_token"
-                    ),
-                ));
-
-                $response = curl_exec($curl);
-                curl_close($curl);
+                $response = \App\Services\ShopifyAdminApi::get($shopify_store_url, "admin/api/2023-04/price_rules/$id.json", $shopify_access_token);
                 if ($response == false) {
                     return redirect()->back()->with('error', 'Something went wrong.');
                 } else {

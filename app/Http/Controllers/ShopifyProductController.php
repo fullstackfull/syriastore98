@@ -44,17 +44,7 @@ class ShopifyProductController extends Controller
                     $next_page_info = $pagination['next_page_info'];
                     $prev_page_info = $pagination['prev_page_info'];
 
-                    $count_curl = curl_init();
-                    curl_setopt_array($count_curl, array(
-                        CURLOPT_URL => "https://$shopify_store_url.myshopify.com/admin/api/2023-07/products/count.json",
-                        CURLOPT_RETURNTRANSFER => true,
-                        CURLOPT_HTTPHEADER => array(
-                            "X-Shopify-Access-Token: $shopify_access_token"
-                        ),
-                    ));
-
-                    $count_response = curl_exec($count_curl);
-                    curl_close($count_curl);
+                    $count_response = \App\Services\ShopifyAdminApi::get($shopify_store_url, "admin/api/2023-07/products/count.json", $shopify_access_token);
 
                     if ($count_response === false) {
                         return redirect()->back()->with('error', 'Failed to fetch product count.');
@@ -86,34 +76,28 @@ class ShopifyProductController extends Controller
         $next_page_info = null;
         $prev_page_info = null;
 
-        $url = "https://$shopify_store_url.myshopify.com/admin/api/2023-07/products.json?limit=$limit&fields=id,title,product_type,variants,image";
+        // P1-SEC-06 acceptance 3. The PATH, not a whole URL: the host is assembled from the validated label
+        // inside ShopifyAdminApi, so no page_info value can reach the host part of the address.
+        $path = "admin/api/2023-07/products.json?limit=$limit&fields=id,title,product_type,variants,image";
 
         if ($page_info) {
-            $url .= "&page_info=$page_info";
+            $path .= "&page_info=$page_info";
         } elseif ($previous_page_info) {
-            $url .= "&page_info=$previous_page_info";
+            $path .= "&page_info=$previous_page_info";
         }
 
-        $curl = curl_init();
-        curl_setopt_array($curl, array(
-            CURLOPT_URL => $url,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER => array(
-                "X-Shopify-Access-Token: $shopify_access_token"
-            ),
-            CURLOPT_HEADER => true,
-        ));
+        // getWithHeaders() because Shopify's cursor pagination lives in the `Link` RESPONSE header, which
+        // this handler splits off below; the handle is closed inside the service, so it returns the size.
+        $fetched = \App\Services\ShopifyAdminApi::getWithHeaders($shopify_store_url, $path, $shopify_access_token);
 
-        $response = curl_exec($curl);
-        if ($response === false) {
+        if ($fetched === false) {
             throw new \Exception('Something went wrong while fetching products.');
         }
 
-        $header_size = curl_getinfo($curl, CURLINFO_HEADER_SIZE);
+        $response = $fetched['raw'];
+        $header_size = $fetched['header_size'];
         $header = substr($response, 0, $header_size);
         $body = substr($response, $header_size);
-
-        curl_close($curl);
 
         $page_data = json_decode($body, true);
 
@@ -166,23 +150,7 @@ class ShopifyProductController extends Controller
                 $shopify_store_url = \App\Services\ImportStoreUrl::shopifyLabel(\App\Models\Utility::GetValueByName('shopify_store_url',  getCurrentStore()));
                 $shopify_access_token = \App\Models\Utility::GetValueByName('shopify_access_token',  getCurrentStore());
 
-                $curl = curl_init();
-                curl_setopt_array($curl, array(
-                    CURLOPT_URL => "https://$shopify_store_url.myshopify.com/admin/api/2023-07/products.json?ids=$id",
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_ENCODING => '',
-                    CURLOPT_MAXREDIRS => 10,
-                    CURLOPT_TIMEOUT => 0,
-                    CURLOPT_FOLLOWLOCATION => true,
-                    CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-                    CURLOPT_CUSTOMREQUEST => 'GET',
-                    CURLOPT_HTTPHEADER => array(
-                        "X-Shopify-Access-Token: $shopify_access_token"
-                    ),
-                ));
-
-                $response = curl_exec($curl);
-                curl_close($curl);
+                $response = \App\Services\ShopifyAdminApi::get($shopify_store_url, "admin/api/2023-07/products.json?ids=$id", $shopify_access_token);
                 if ($response == false) {
                     return redirect()->back()->with('error', 'Something went wrong.');
                 } else {
@@ -466,23 +434,7 @@ class ShopifyProductController extends Controller
                 $shopify_store_url = \App\Services\ImportStoreUrl::shopifyLabel(\App\Models\Utility::GetValueByName('shopify_store_url', getCurrentStore()));
                 $shopify_access_token = \App\Models\Utility::GetValueByName('shopify_access_token', getCurrentStore());
 
-                $curl = curl_init();
-                curl_setopt_array($curl, array(
-                    CURLOPT_URL => "https://$shopify_store_url.myshopify.com/admin/api/2023-07/products.json?ids=$id",
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_ENCODING => '',
-                    CURLOPT_MAXREDIRS => 10,
-                    CURLOPT_TIMEOUT => 0,
-                    CURLOPT_FOLLOWLOCATION => true,
-                    CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-                    CURLOPT_CUSTOMREQUEST => 'GET',
-                    CURLOPT_HTTPHEADER => array(
-                        "X-Shopify-Access-Token: $shopify_access_token"
-                    ),
-                ));
-
-                $response = curl_exec($curl);
-                curl_close($curl);
+                $response = \App\Services\ShopifyAdminApi::get($shopify_store_url, "admin/api/2023-07/products.json?ids=$id", $shopify_access_token);
 
                 if ($response == false) {
                     return redirect()->back()->with('error', 'Something went wrong.');

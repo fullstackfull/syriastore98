@@ -554,13 +554,21 @@ class TenantModelClassificationTest extends TestCase
      */
     public static function enforcementCandidates(): array
     {
-        return [
-            \App\Models\DeliveryBoy::class =>
-                'store_id is set by both writers and driver login resolves no web tenant, so '
-                . 'enforcement looks safe and would cover 22 of 26 unfiltered read sites -- but it '
-                . 'changes an authentication provider\'s visibility, so it needs its own '
-                . 'full-suite evidence. See docs/security/P01-TENANT-SCOPE-ADOPTION.md.',
-        ];
+        /*
+         * EMPTY, and that is the point of P1-PLT-08.
+         *
+         * `DeliveryBoy` was the one entry: store_id set by both writers, driver login resolving no
+         * web tenant, 22 of 26 read sites unfiltered -- enforcement looked safe and was held back
+         * only because it changes an AUTHENTICATION PROVIDER's visibility, which needed its own
+         * full-suite evidence rather than a reading. That evidence exists now
+         * (tests/Feature/Tenancy/DeliveryBoyScopeTest plus the batch-2 isolation matrix), so the
+         * model is allowlisted in config/tenancy.php and is no longer a candidate.
+         *
+         * The list stays, and the exhaustiveness assertion below still consults it, because the
+         * next trait-carrier added to a model without an allowlist entry has to land somewhere
+         * reasoned rather than pass unnoticed -- which is exactly how DeliveryBoy sat unexplained.
+         */
+        return [];
     }
 
     /**

@@ -110,6 +110,13 @@ class Batch2ModelIsolationTest extends TestCase
             // StorefrontContextTenantResolutionTest.
             'customers' => [\App\Models\Customer::class, 'customers', 'first_name'],
             'abandoned carts' => [\App\Models\Cart::class, 'carts', 'qty'],
+
+            // BATCH 4, P1-PLT-08. Allowlisted on its own row because it is an AUTHENTICATION
+            // PROVIDER (the `deliveryboy` guard) and changing an auth provider's visibility needed
+            // its own evidence. This suite is the generic admin-context matrix; the three surfaces
+            // the row names -- the merchant driver list, driver assignment on an order, and the
+            // driver's own login -- are driven through their real routes in DeliveryBoyScopeTest.
+            'delivery boys' => [\App\Models\DeliveryBoy::class, 'delivery_boys', 'name'],
         ];
     }
 

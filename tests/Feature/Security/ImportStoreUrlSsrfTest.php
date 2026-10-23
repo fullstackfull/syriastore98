@@ -203,6 +203,225 @@ class ImportStoreUrlSsrfTest extends TestCase
         }
     }
 
+    // =============================================================================================
+    //  ACCEPTANCE 3 -- THE SECOND HOP.  The label rule closed the first; these close the redirect.
+    // =============================================================================================
+
+    /**
+     * WHAT WAS STILL OPEN AFTER THE LABEL RULE, and why it is not covered by it.
+     *
+     * `shopifyLabel()` makes the stored shop name a bare DNS label, so the FIRST hop is a
+     * `*.myshopify.com` host. All thirteen call sites then set
+     *
+     *     CURLOPT_FOLLOWLOCATION => true, CURLOPT_MAXREDIRS => 10, CURLOPT_TIMEOUT => 0
+     *
+     * with no CURLOPT_REDIR_PROTOCOLS, so a response from a perfectly valid Shopify host could walk the
+     * platform's own server to 169.254.169.254 across up to ten hops with no deadline -- and libcurl
+     * forwards CURLOPT_HTTPHEADER on a followed redirect, so every hop was sent
+     * `X-Shopify-Access-Token: <the merchant's token>`. REDIR_PROTOCOLS does not help: https to a private
+     * address is still https.
+     *
+     * This is the source half. The behavioural half -- that the option really is what decides, and that
+     * the token really is forwarded -- cannot live in this suite, because proving it needs a host that
+     * answers with a redirect and SafeRemoteFetch refuses the only such host available here (loopback).
+     * It is measured in tests/Support/Security/bin/verify-sec06-shopify-redirect.php.
+     */
+    public function test_no_shopify_call_follows_a_redirect_and_none_is_without_a_deadline(): void
+    {
+        $service = $this->strippedSource(app_path('Services/ShopifyAdminApi.php'));
+
+        $this->assertStringContainsString('CURLOPT_FOLLOWLOCATION => false', $service,
+            'the Shopify client follows redirects again: a valid *.myshopify.com response can then walk this server to a private address');
+        $this->assertStringContainsString('CURLOPT_MAXREDIRS => 0', $service);
+        $this->assertStringNotContainsString('CURLOPT_TIMEOUT => 0', $service,
+            'CURLOPT_TIMEOUT => 0 is NO deadline, which is what every one of the thirteen call sites had');
+        $this->assertMatchesRegularExpression('/CURLOPT_TIMEOUT => self::TIMEOUT/', $service);
+        $this->assertMatchesRegularExpression('/CURLOPT_RESOLVE => \[SafeRemoteFetch::resolveEntry/', $service,
+            'the connection is no longer pinned to the address that was judged, so a second DNS answer can aim it elsewhere');
+
+        // and the 20-second value is a real number, not another 0 spelled differently
+        $this->assertGreaterThan(0, (int) (new \ReflectionClass(\App\Services\ShopifyAdminApi::class))->getConstant('TIMEOUT'));
+
+        // A 3xx is reported as a failure rather than handed back as a body. With FOLLOWLOCATION off the
+        // caller would otherwise receive the redirect's own body -- measured: `php -S` answers a 302 with
+        // one -- and json_decode() of that is null, which every call site reads as "something went wrong".
+        // So this is defence in depth and, more usefully, the thing that puts a line in the log.
+        $this->assertMatchesRegularExpression('/\$status >= 300 && \$status < 400/', $service,
+            'a redirect is no longer reported as a failure, so a stale shop name fails silently instead of being logged');
+
+        // The address is judged BEFORE the handle is built -- the order is the control, not the presence.
+        $this->assertLessThan(
+            strpos($service, 'curl_init'),
+            strpos($service, 'SafeRemoteFetch::check'),
+            'the address is judged after the request is built; it must be judged before.'
+        );
+    }
+
+    /**
+     * THE CENSUS FOR THIS CRITERION, keyed on the construct that carried the defect: a raw cURL handle in
+     * an importer controller. Thirteen of them had one; none may now.
+     */
+    public function test_no_shopify_controller_builds_its_own_curl_handle(): void
+    {
+        $files = glob(app_path('Http/Controllers/Shopify*.php')) ?: [];
+        $this->assertGreaterThanOrEqual(4, count($files), 'the Shopify controllers are not where this expects them -- the census is vacuous');
+
+        $calls = 0;
+
+        foreach ($files as $file) {
+            $stripped = $this->strippedSource($file);
+            $name = basename($file);
+
+            $this->assertSame(0, preg_match_all('/curl_init\s*\(/', $stripped),
+                "{$name} builds its own cURL handle again. Every Shopify Admin API read goes through "
+                . 'ShopifyAdminApi, which is where FOLLOWLOCATION, the deadline and the address pin live.');
+            $this->assertSame(0, preg_match_all('/CURLOPT_FOLLOWLOCATION/', $stripped), $name);
+
+            $calls += preg_match_all('/ShopifyAdminApi::(get|getWithHeaders)\s*\(/', $stripped);
+        }
+
+        $this->assertSame(13, $calls,
+            'the thirteen Shopify Admin API reads measured when this was written. A different number means '
+            . 'a site was added or removed -- look at it rather than changing this number.');
+    }
+
+    /**
+     * THE ADDRESS IS JUDGED BEFORE THE REQUEST, for the Shopify client too.
+     *
+     * The label rule stops the stored value naming a private address directly; it cannot stop a
+     * `*.myshopify.com` name RESOLVING to one (DNS is not the merchant's to control, but it is not this
+     * server's either). SafeRemoteFetch::check() is therefore still asked, and a refusal is a refusal
+     * before any byte leaves -- driven here with DNS stubbed, which is the only way to put a private
+     * answer behind a public name without a network.
+     */
+    public function test_a_shopify_host_that_resolves_to_a_private_address_is_refused_before_the_request(): void
+    {
+        /*
+         * ASSERTED ON THE REFUSAL, not on the return value, and the first draft of this test got that
+         * wrong -- it asserted `get()` returns false, which is ALSO what a failed network call returns,
+         * and nothing in this container can reach `mystore.myshopify.com`. So it passed whether or not
+         * the address was ever judged (measured: a mutant that replaced check() with a hard-coded public
+         * target survived it). The refusal's own log line is what separates the two, so the separation is
+         * what is asserted: present for a private answer, ABSENT for a public one where the only failure
+         * is the missing network.
+         */
+        \Illuminate\Support\Facades\Log::spy();
+
+        foreach (['169.254.169.254', '127.0.0.1', '10.0.0.5', '::1'] as $answer) {
+            SafeRemoteFetch::resolveUsing(static fn (string $host) => [$answer]);
+
+            $this->assertFalse(
+                \App\Services\ShopifyAdminApi::get('mystore', 'admin/api/2023-07/products.json', 'tok'),
+                "a Shopify host resolving to {$answer} was dialled anyway"
+            );
+
+            \Illuminate\Support\Facades\Log::shouldHaveReceived('warning')
+                ->withArgs(fn ($message) => str_contains((string) $message, 'address was refused before the request was made'))
+                ->atLeast()->once();
+        }
+    }
+
+    /** The other side of that separation: a PUBLIC answer is not refused by the address check. */
+    public function test_a_public_shopify_answer_is_not_refused_by_the_address_check(): void
+    {
+        \Illuminate\Support\Facades\Log::spy();
+
+        SafeRemoteFetch::resolveUsing(static fn (string $host) => ['93.184.216.34']);
+
+        // The call itself cannot succeed here -- there is no network -- so the RETURN value says nothing.
+        // What says something is that the refusal line is absent: the address passed, and the failure that
+        // follows is the connection, not the guard.
+        \App\Services\ShopifyAdminApi::get('mystore', 'admin/api/2023-07/products.json', 'tok');
+
+        \Illuminate\Support\Facades\Log::shouldNotHaveReceived('warning', [
+            'a Shopify Admin API address was refused before the request was made',
+            \Mockery::any(),
+        ]);
+    }
+
+    /**
+     * THE ADDRESS USES THE NORMALISED LABEL, not the stored string.
+     *
+     * `shopifyLabel()` lower-cases and strips whitespace, and the pin SafeRemoteFetch installs names the
+     * host as `check()` normalised it -- so if the URL carried the raw value, cURL would be given a host
+     * the pin does not match and would resolve it again, which is the bypass `pinnedUrl()` exists to
+     * prevent. Added because a mutant that interpolated `$shopName` instead of `$label` SURVIVED the
+     * first cut of these tests: every name they used was already normalised.
+     */
+    public function test_the_address_carries_the_normalised_label_and_not_the_stored_string(): void
+    {
+        foreach (['MyStore', 'MYSTORE', " mystore\t", "mystore\n", 'mystore '] as $stored) {
+            $url = \App\Services\ShopifyAdminApi::urlFor($stored, 'admin/api/x.json');
+
+            $this->assertNotNull($url, var_export($stored, true) . ' is a usable label and must yield an address');
+            $this->assertSame('mystore.myshopify.com', parse_url($url, PHP_URL_HOST),
+                var_export($stored, true) . ' reached cURL unnormalised, so the address pin would not match the host.');
+        }
+    }
+
+    /** A shop name that is not a usable label never becomes an address at all. */
+    public function test_an_unusable_shop_name_yields_no_address(): void
+    {
+        foreach (['169.254.169.254#', '127.0.0.1:8080#', 'shop.evil.com', '', '  ', 'a_b', str_repeat('a', 64)] as $name) {
+            $this->assertNull(\App\Services\ShopifyAdminApi::urlFor($name, 'admin/api/x.json'),
+                "'{$name}' produced an address");
+            $this->assertFalse(\App\Services\ShopifyAdminApi::get($name, 'admin/api/x.json', 'tok'));
+        }
+    }
+
+    /**
+     * NO PATH VALUE CAN MOVE THE HOST, which is what makes the pin meaningful: several call sites
+     * interpolate request-derived values into the path (`?ids=$id`, `&page_info=$page_info`), and the
+     * address SafeRemoteFetch judges and pins is only as good as the guarantee that its host is the host
+     * that gets dialled.
+     */
+    public function test_no_path_value_can_move_the_host(): void
+    {
+        $hostile = [
+            '/admin/api/x.json',
+            '//169.254.169.254/latest/meta-data/',
+            '///evil.example/x',
+            '@169.254.169.254/x',
+            '../../../etc/passwd',
+            '..%2F..%2Fx',
+            'admin/api/x.json?ids=1#@evil.example/',
+            'admin/api/x.json?next=https://169.254.169.254/',
+        ];
+
+        foreach ($hostile as $path) {
+            $url = \App\Services\ShopifyAdminApi::urlFor('mystore', $path);
+
+            $this->assertNotNull($url, "'{$path}' was refused for the wrong reason -- the label is valid");
+            $this->assertSame('mystore.myshopify.com', parse_url($url, PHP_URL_HOST),
+                "'{$path}' moved the host to " . var_export(parse_url($url, PHP_URL_HOST), true));
+            $this->assertSame('https', parse_url($url, PHP_URL_SCHEME), "'{$path}' changed the scheme");
+        }
+    }
+
+    /** Positive control: an ordinary call still assembles the address the importers used before. */
+    public function test_a_legitimate_call_assembles_the_address_the_importers_used(): void
+    {
+        $this->assertSame(
+            'https://mystore.myshopify.com/admin/api/2023-07/products.json?ids=1,2',
+            \App\Services\ShopifyAdminApi::urlFor('mystore', 'admin/api/2023-07/products.json?ids=1,2')
+        );
+    }
+
+    private function strippedSource(string $file): string
+    {
+        $out = '';
+
+        foreach (token_get_all((string) file_get_contents($file)) as $token) {
+            if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                continue;
+            }
+
+            $out .= is_array($token) ? $token[1] : $token;
+        }
+
+        return $out;
+    }
+
     /**
      * THE CENSUS, keyed on the construction rather than on a spelling. No controller may interpolate the
      * raw setting into a URL any more; the value must come through the helper.

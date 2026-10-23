@@ -97,6 +97,17 @@ class DeliveryBoyController extends Controller
         if (auth()->user() && auth()->user()->isAbleTo('Edit Deliveryboy')) {
             $deliveryBoy = DeliveryBoy::find($id);
 
+            /*
+             * P1-PLT-08. `DeliveryBoy` is allowlisted in config/tenancy.php, so this bare-id read now
+             * returns null for a driver outside the caller's stores instead of that driver's row. The
+             * refusal has to be explicit: without it the view dereferences null and the screen 500s, which is a crash
+             * where a refusal belongs -- and a 500 is also the shape that makes a regression test pass
+             * for the wrong reason. `update()` already had this guard; the other four did not.
+             */
+            if (! $deliveryBoy) {
+                return redirect()->back()->with('error', __('Delivery Boy not found.'));
+            }
+
             return view('deliveryboy.edit', compact('deliveryBoy'));
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));
@@ -153,6 +164,18 @@ class DeliveryBoyController extends Controller
     {
         if (auth()->user() && auth()->user()->isAbleTo('Delete Deliveryboy')) {
             $deliveryBoy = DeliveryBoy::find($id);
+
+            /*
+             * P1-PLT-08. `DeliveryBoy` is allowlisted in config/tenancy.php, so this bare-id read now
+             * returns null for a driver outside the caller's stores instead of that driver's row. The
+             * refusal has to be explicit: without it the delete() call 500s, which is a crash
+             * where a refusal belongs -- and a 500 is also the shape that makes a regression test pass
+             * for the wrong reason. `update()` already had this guard; the other four did not.
+             */
+            if (! $deliveryBoy) {
+                return redirect()->back()->with('error', __('Delivery Boy not found.'));
+            }
+
             $deliveryBoy->delete();
 
             return redirect()->back()->with('success', __('Delivery Boy successfully Deleted!'));
@@ -166,6 +189,17 @@ class DeliveryBoyController extends Controller
         if (auth()->user() && auth()->user()->isAbleTo('Reset password Deliveryboy')) {
             $Id = \Crypt::decrypt($id);
             $deliveryBoy = DeliveryBoy::find($Id);
+
+            /*
+             * P1-PLT-08. `DeliveryBoy` is allowlisted in config/tenancy.php, so this bare-id read now
+             * returns null for a driver outside the caller's stores instead of that driver's row. The
+             * refusal has to be explicit: without it the view dereferences null and the screen 500s, which is a crash
+             * where a refusal belongs -- and a 500 is also the shape that makes a regression test pass
+             * for the wrong reason. `update()` already had this guard; the other four did not.
+             */
+            if (! $deliveryBoy) {
+                return redirect()->back()->with('error', __('Delivery Boy not found.'));
+            }
 
             return view('deliveryboy.reset', compact('deliveryBoy'));
         } else {
@@ -190,6 +224,18 @@ class DeliveryBoyController extends Controller
             }
 
             $deliveryBoy = DeliveryBoy::find($id);
+
+            /*
+             * P1-PLT-08. `DeliveryBoy` is allowlisted in config/tenancy.php, so this bare-id read now
+             * returns null for a driver outside the caller's stores instead of that driver's row. The
+             * refusal has to be explicit: without it the forceFill() call 500s, which is a crash
+             * where a refusal belongs -- and a 500 is also the shape that makes a regression test pass
+             * for the wrong reason. `update()` already had this guard; the other four did not.
+             */
+            if (! $deliveryBoy) {
+                return redirect()->back()->with('error', __('Delivery Boy not found.'));
+            }
+
             $deliveryBoy->forceFill([
                 'password' => Hash::make($request->password),
             ])->save();

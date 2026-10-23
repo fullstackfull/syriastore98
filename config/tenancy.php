@@ -299,6 +299,62 @@ return [
 
         /*
         |----------------------------------------------------------------------------------------
+        | BATCH 4 -- DeliveryBoy.  P1-PLT-08.
+        |----------------------------------------------------------------------------------------
+        |
+        | RAISED BY P1-PLT-03's model inventory as the one trait-carrier with no recorded reason
+        | either way, and held back from that row deliberately: DeliveryBoy is an AUTHENTICATION
+        | PROVIDER (config/auth.php's `deliveryboy` guard), and changing an auth provider's
+        | visibility is the class of change that has twice broken this codebase without raising an
+        | error. So it gets its own row, its own full-suite evidence and its own isolation tests.
+        |
+        | THE FOUR CONDITIONS, each measured rather than assumed:
+        |   1. `delivery_boys.store_id` exists and is `nullable()->index()`.
+        |   2. BOTH writers set it -- Api/DeliveryBoyApiController.php:160 and
+        |      DeliveryBoyController.php:71. This is NOT the `Role` nullable trap, where the column
+        |      exists and the writers leave it null.
+        |   3. No call site filters it by a FOREIGN store id. The four that filter at all
+        |      (DeliveryBoyController.php:18 `getCurrentStore()`, OrderController.php:535 the
+        |      order's own store, Api/DeliveryBoyApiController.php:93 and
+        |      Api/DashboardController.php:8487) all agree with the predicate -- and :93 is the one
+        |      the owned-stores predicate exists for: it takes the store from the REQUEST, so under
+        |      a `= current_store` predicate a multi-store merchant's admin app would have gone
+        |      silently empty. Under `IN ({owned stores})` it still matches, and the
+        |      request-supplied value can no longer name a store the caller does not own.
+        |   4. Not public storefront content. Drivers are merchant-admin data and a driver's own
+        |      record; no anonymous shop page renders them.
+        |
+        | WHAT THE SCOPE CLOSES: five bare-id reads in DeliveryBoyController (:98, :128, :155, :168,
+        | :192 -- `DeliveryBoy::find($id)` with no ownership check, behind the resource routes at
+        | routes/web.php:871) and the driver ASSIGNMENT at OrderController.php:1568,
+        | `DeliveryBoy::find($request->delivery_boy)` -- caller-supplied input, so one merchant
+        | could attach another merchant's driver to their own order. Of 26 DeliveryBoy:: query
+        | sites in app/, 22 carry no store filter at all, so for those the scope becomes the
+        | control of record.
+        |
+        | WHY DRIVER LOGIN IS UNAFFECTED, which is the question that made this its own row.
+        | A driver authenticates on the `deliveryboy` guard -- `Auth::guard('deliveryboy')->attempt()`
+        | in Api/DashboardController::deliveryLogin (:4437), and `auth('deliveryboy')->login()` in
+        | App\Http\Middleware\CustomAuth (:83) for a driver's Sanctum token. NEITHER calls
+        | `shouldUse()`, so the DEFAULT guard holds no principal, `auth()->user()` is null,
+        | `resolveTenant()` returns MODE_UNRESOLVED and `null_tenant => 'open'` adds NO predicate.
+        | The two `DeliveryBoy::find($user->id)` reads inside that login therefore still find the
+        | row. Driven explicitly in tests/Feature/Tenancy/DeliveryBoyScopeTest, not reasoned about:
+        | that distinction is the fifth way a test passes for the wrong reason in this project's
+        | skill, because `actingAs($x, 'deliveryboy')` DOES call `shouldUse()` and would hand the
+        | test a tenant production never resolves.
+        |
+        | THE ONE PRECONDITION THAT IS THE OPERATOR'S: a LEGACY row with `store_id IS NULL` becomes
+        | invisible to its own merchant. This codebase writes no such row, but a deployment may hold
+        | one from before the column existed. The count is a read-only SELECT in
+        | tests/Support/Security/bin/diagnose-data-integrity.php.
+        |
+        */
+
+        App\Models\DeliveryBoy::class,
+
+        /*
+        |----------------------------------------------------------------------------------------
         | STILL NOT ENABLED, with the per-model evidence -- Product, Category, Shipping
         |----------------------------------------------------------------------------------------
         |

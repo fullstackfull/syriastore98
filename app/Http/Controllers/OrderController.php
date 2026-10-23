@@ -1567,6 +1567,43 @@ public function store(Request $request)
 
         $deliveryBoy = \App\Models\DeliveryBoy::find($request->delivery_boy);
 
+        /*
+         * P1-PLT-08. THE SCOPE IS NOT THE CONTROL OF RECORD HERE, and driving this route is how that
+         * turned up. `DeliveryBoy` is allowlisted now, so the `find()` above returns null for another
+         * merchant's driver -- but the write three lines down took `$request->delivery_boy` VERBATIM,
+         * not `$deliveryBoy->id`, so the order was still stamped with the foreign driver's id. The
+         * validator does not stop it either: `exists:delivery_boys,id` runs on the query BUILDER, which
+         * global scopes do not touch, so a cross-store id passes validation. Only the commission block
+         * below depended on the lookup, and it simply went quiet.
+         *
+         * So the refusal has to be explicit. For the platform operator the scope is bypassed, so this
+         * resolves any driver and the limb is inert for them.
+         */
+        if ($deliveryBoy === null) {
+            \Log::warning('Order assignment refused: the delivery boy is not in a store this caller owns', [
+                'order_id' => $order->id,
+                'delivery_boy' => $request->delivery_boy,
+                'user_id' => \Auth::id(),
+            ]);
+
+            /*
+             * 403 AND JSON, matching the shape this route already produces: `authorize('assign', ...)`
+             * four lines up throws an AuthorizationException, and the success arm returns JSON, so a
+             * redirect would be the odd one out on an AJAX endpoint.
+             *
+             * RECORDED, not fixed here: the caller
+             * (resources/views/order/view.blade.php:712-724) has a `success` callback and NO `error`
+             * one, so a 403 shows the merchant nothing -- the same gap P1-SEC-34 found in SpamPrevent's
+             * widget. It costs nothing legitimate: the dropdown is built from the order's own store
+             * (OrderController:535, itself scoped now), so the only way to reach this refusal is to
+             * tamper with the request. Adding the error callback is a UI change outside this row.
+             */
+            return response()->json([
+                'status' => 'error',
+                'message' => __('That delivery boy is not available in this store.'),
+            ], 403);
+        }
+
         if ($order->deliveryboy_id != $request->delivery_boy) {
             \App\Models\DeliveryEarning::where('order_id', $order->id)->delete();
         }

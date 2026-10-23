@@ -311,6 +311,70 @@ if (! missing('order_billing_details')) {
     }
 }
 
+echo "\n" . str_repeat('-', 78) . "\n";
+echo "P1-PLT-08  delivery_boys rows that the tenant scope would make invisible\n\n";
+
+/*
+ * THE ONE PRECONDITION P1-PLT-08 CANNOT ANSWER FROM THE REPOSITORY.
+ *
+ * `App\Models\DeliveryBoy` is now in config/tenancy.php's `scoped_models`, so a merchant's web-guard
+ * queries carry `store_id IN ({their stores})`. A row with `store_id` NULL matches no such predicate
+ * and becomes invisible TO ITS OWN MERCHANT -- the silent outage that looks like data loss.
+ *
+ * This codebase writes no such row: both writers set the column
+ * (Api/DeliveryBoyApiController.php:160 and DeliveryBoyController.php:71), and that was measured
+ * rather than assumed. But `delivery_boys.store_id` is `nullable()->index()`, so a deployment may
+ * hold a row from before the column existed or from a manual insert. Only the owner can look.
+ *
+ * A non-zero count is NOT a reason to revert the allowlist entry: it is a reason to set `store_id` on
+ * those rows first. Which store each belongs to is answerable from `created_by` -- the query below
+ * prints that alongside, so the repair is a decision rather than a guess.
+ */
+if (! missing('delivery_boys')) {
+    $total = DB::table('delivery_boys')->count();
+    $nullStore = DB::table('delivery_boys')->whereNull('store_id')->count();
+    $zeroStore = DB::table('delivery_boys')->where('store_id', 0)->count();
+
+    printf("  delivery_boys total                           : %d\n", $total);
+    printf("  store_id IS NULL                              : %d\n", $nullStore);
+    printf("  store_id = 0                                  : %d\n", $zeroStore);
+
+    $orphaned = DB::table('delivery_boys')
+        ->whereNotNull('store_id')
+        ->where('store_id', '!=', 0)
+        ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('stores')
+            ->whereColumn('stores.id', 'delivery_boys.store_id'))
+        ->count();
+
+    printf("  store_id naming a store that no longer exists : %d\n", $orphaned);
+
+    if ($nullStore + $zeroStore > 0) {
+        echo "\n  MEANING: these drivers are now invisible to the merchant who owns them -- the driver\n";
+        echo "  list, the driver's edit screen and driver assignment on an order will all skip them.\n";
+        echo "  The rows are intact and the DRIVER CAN STILL SIGN IN (driver login resolves no web\n";
+        echo "  tenant, so no predicate applies there). The repair is to set store_id, and created_by\n";
+        echo "  says which merchant each belongs to:\n\n";
+
+        $byCreator = DB::table('delivery_boys')
+            ->selectRaw('created_by, COUNT(*) as n')
+            ->where(fn ($q) => $q->whereNull('store_id')->orWhere('store_id', 0))
+            ->groupBy('created_by')
+            ->get();
+
+        foreach ($byCreator as $row) {
+            $stores = DB::table('stores')->where('created_by', $row->created_by)->pluck('id')->all();
+            printf("    created_by %-8s : %d row(s); that user's stores: %s\n",
+                (string) $row->created_by, (int) $row->n, $stores === [] ? 'NONE' : implode(', ', $stores));
+        }
+
+        echo "\n  A creator with exactly ONE store is unambiguous. A creator with several, or none, needs\n";
+        echo "  the owner to say which store the driver worked for. Nothing here writes anything.\n";
+    } else {
+        echo "\n  MEANING: no row is at risk. The allowlist entry changes visibility for nobody who can\n";
+        echo "  see their drivers today.\n";
+    }
+}
+
 echo "\n" . str_repeat('=', 78) . "\n";
 echo "Diagnostic complete. Nothing was written.\n";
 

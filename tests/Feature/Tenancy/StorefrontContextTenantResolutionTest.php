@@ -481,13 +481,13 @@ class StorefrontContextTenantResolutionTest extends SecurityTestCase
     /**
      * THE ENFORCEMENT INVENTORY, counted at runtime.
      *
-     * app/Models/Concerns/BelongsToStore.php's docblock states "17 carriers minus 10 allowlisted
+     * app/Models/Concerns/BelongsToStore.php's docblock states "17 carriers minus 11 allowlisted
      * = 7 unenforced". That sentence had been stale across two increments (it read "the 11" while
      * the sentence above it read "TEN models are now really scoped", which cannot both be true),
      * so the numbers are now ASSERTED rather than described. A stale comment on a security
      * control is how a reader is misled about what is enforced.
      */
-    public function test_the_enforcement_inventory_is_seventeen_carriers_ten_enforced_seven_not(): void
+    public function test_the_enforcement_inventory_is_seventeen_carriers_eleven_enforced_six_not(): void
     {
         $carriers = [];
 
@@ -512,6 +512,7 @@ class StorefrontContextTenantResolutionTest extends SecurityTestCase
         $this->assertSame([
             \App\Models\Cart::class,               // batch 3 (re-enabled)
             \App\Models\Customer::class,           // batch 3 (re-enabled)
+            \App\Models\DeliveryBoy::class,        // batch 4 -- P1-PLT-08, the auth provider
             \App\Models\FlashSaleCondition::class, // batch 1
             \App\Models\Menu::class,               // batch 1
             \App\Models\NotifyUser::class,         // batch 1
@@ -529,15 +530,16 @@ class StorefrontContextTenantResolutionTest extends SecurityTestCase
 
         $this->assertSame([
             \App\Models\Category::class,
-            \App\Models\DeliveryBoy::class,
             \App\Models\Product::class,
             \App\Models\Shipping::class,
             \App\Models\StoreWallet::class,
             \App\Models\StoreWalletTransaction::class,
             \App\Models\StoreWithdrawal::class,
-        ], $unenforced, 'The seven carriers that are NOT enforced. Attaching the trait without '
+        ], $unenforced, 'The six carriers that are NOT enforced. Attaching the trait without '
             . 'allowlisting is behaviour-neutral, so these are honestly reported as unenforced '
-            . 'rather than counted as protected. The three StoreWallet* models are GATE F.');
+            . 'rather than counted as protected. The three StoreWallet* models are GATE F. '
+            . 'DeliveryBoy left this list in batch 4 (P1-PLT-08) with its own isolation proof in '
+            . 'tests/Feature/Tenancy/DeliveryBoyScopeTest and the batch-2 matrix.');
     }
 
     public function test_the_storefront_repair_did_not_widen_an_authorization_helper(): void

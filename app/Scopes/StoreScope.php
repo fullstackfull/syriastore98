@@ -28,10 +28,11 @@ use Throwable;
  * The switch is no longer one boolean. `config/tenancy.php` carries:
  *   - `enforcement_enabled` -- a kill switch, default TRUE;
  *   - `scoped_models`       -- the reviewed per-model allowlist, which is the ONLY production
- *                              path to a predicate. It holds TEN models: 6 from batch 1, 2 from
- *                              batch 2, and Cart + Customer re-enabled in batch 3 once the
- *                              tenant was resolved per context. Counted at runtime by
- *                              StorefrontContextTenantResolutionTest, not described here;
+ *                              path to a predicate. It holds ELEVEN models: 6 from batch 1, 2 from
+ *                              batch 2, Cart + Customer re-enabled in batch 3 once the tenant was
+ *                              resolved per context, and DeliveryBoy in batch 4 (P1-PLT-08).
+ *                              Counted at runtime by StorefrontContextTenantResolutionTest, not
+ *                              described here;
  *   - `null_tenant`         -- 'open' (default) or 'closed';
  * and that file argues each choice with the measurement behind it. `static::$enabled` remains
  * the ALL-MODELS flip and remains FALSE: 785 of the 1,282 existing `where('store_id', ...)`

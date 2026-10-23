@@ -47,7 +47,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/ProductStockService.php:127` | Stock decremented below zero on an order path that cannot refuse |
 | `app/Services/ProductStockService.php:210` | Stock decremented below zero on an order path that cannot refuse |
 
-### `warning` — 85 lines
+### `warning` — 88 lines
 
 | line | message |
 |---|---|
@@ -73,6 +73,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/DeliverySyriaStatusController.php:95` | Delivery Syria status webhook: invalid credentials. |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:179` | Zid store not found for order status sync. |
 | `app/Http/Controllers/ESewaPaymentController.php:196` | Plan payment return rejected: claimed amount does not match the plan price. |
+| `app/Http/Controllers/OrderController.php:1583` | Order assignment refused: the delivery boy is not in a store this caller owns |
 | `app/Http/Controllers/OrderController.php:306` | Manual order total did not match its components; the computed total was stored |
 | `app/Http/Controllers/OrderController.php:960` | Return approval restored no stock: order carries no readable product_json |
 | `app/Http/Controllers/OrderController.php:996` | Return approval skipped a line with an unusable product id or quantity |
@@ -132,6 +133,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/SocialIdentity/JwksProvider.php:74` | social-identity: provider key fetch failed |
 | `app/Services/SocialIdentity/SocialIdentityVerifier.php:239` | social-identity: facebook debug_token call failed |
 | `app/Services/StoreNotificationService.php:157` | No active Firebase devices found for store. |
+| `app/Services/ShopifyAdminApi.php:122` | a Shopify Admin API address was refused before the request was made |
+| `app/Services/ShopifyAdminApi.php:154` | a Shopify Admin API call answered with a redirect, which was not followed |
 | `app/Services/StoredUpload.php:90` | a stored upload path names a platform default and was not touched |
 | `app/Services/StoredUpload.php:81` | a stored upload path points outside the uploads directory and was not touched |
 | `app/Services/StoredUpload.php:108` | a stored upload path names another tenant |
