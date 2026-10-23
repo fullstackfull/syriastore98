@@ -54,6 +54,13 @@ class SecurityLogInventoryTest extends SecurityTestCase
      * correct outcome, not a false positive. The message is carried alongside so a failure says
      * which line moved rather than only that something did.
      *
+     * REGENERATING IT IS MECHANICAL, and it was not when this test was written:
+     * `python3 docs/development/phase-1/tools/resync-observability-inventory.py --write`
+     * re-points the rows by (file, message) -- the parts that do not move -- and refuses to write
+     * when a log line was ADDED or DELETED rather than moved, because that is a real inventory
+     * change and a human has to say where the new line goes. P1-ORD-15 is what established the
+     * cost: replacing 24 city-resolution blocks shifted 14 rows and CI caught it.
+     *
      * @return array<string, string>  "path:line" => message
      */
     private function censusFromSource(): array

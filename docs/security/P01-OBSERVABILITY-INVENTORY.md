@@ -1,5 +1,13 @@
 # P01 — security and financial observability: what is logged, where it goes, and who sees it
 
+> **The `file:line` pointers below move whenever code above them does.**
+> `tests/Feature/Security/SecurityLogInventoryTest` fails when they drift, which is the
+> intended behaviour rather than a false positive. To repair them:
+> `python3 docs/development/phase-1/tools/resync-observability-inventory.py --write`.
+> It re-points rows by (file, message) and refuses to write when a log line was added or
+> deleted rather than moved -- that is a real inventory change, and a row needs a stated
+> destination and reader, which only a person can give it.
+
 **P1-PLT-05.** Phase 01 added a large number of refusal and anomaly log lines across the order,
 payment, refund, stock and tenancy paths. Each was added with its own package and justified there.
 Nobody had ever asked the next question: **when one of them fires in production, where does it
@@ -32,10 +40,10 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaymentController.php:559` | Paymera callback REJECTED: the payment status could not be established |
 | `app/Http/Controllers/PaymentController.php:793` | Paymera callback REJECTED: inbound signature not verified |
 | `app/Http/Controllers/PaymentController.php:822` | Paymera callback REJECTED: captured amount not verified |
-| `app/Http/Controllers/PaymentController.php:2750` | Order write failed and was rolled back; stock decrements were given back |
-| `app/Http/Controllers/PaymentController.php:4080` | Order write failed and was rolled back; stock decrements were given back |
+| `app/Http/Controllers/PaymentController.php:2744` | Order write failed and was rolled back; stock decrements were given back |
+| `app/Http/Controllers/PaymentController.php:4060` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Services/PaymentService.php:185` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
-| `app/Services/PaymentService.php:2963` | Order write failed and was rolled back; stock decrements were given back |
+| `app/Services/PaymentService.php:2949` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Services/ProductStockService.php:127` | Stock decremented below zero on an order path that cannot refuse |
 | `app/Services/ProductStockService.php:210` | Stock decremented below zero on an order path that cannot refuse |
 
@@ -44,12 +52,12 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | line | message |
 |---|---|
 | `app/Http/Controllers/Api/ApiController.php:3291` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:6649` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:6740` | coupon: refused an implausible discounted total |
-| `app/Http/Controllers/Api/ApiController.php:7516` | payment_sheet refused: basket names a product from another store |
-| `app/Http/Controllers/Api/ApiController.php:7542` | payment_sheet: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:8137` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:8262` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:6648` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:6739` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:7515` | payment_sheet refused: basket names a product from another store |
+| `app/Http/Controllers/Api/ApiController.php:7541` | payment_sheet: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:8136` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:8261` | coupon: refused an implausible discounted total |
 | `app/Http/Controllers/Api/AuthController.php:186` | register: social identity verification refused |
 | `app/Http/Controllers/Api/DeliverySyriaOrderController.php:82` | Delivery Syria invalid credentials |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:319` | AuthorizeNet capture refused: no server-computed payable in the stored state. |
@@ -86,10 +94,10 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaymentController.php:808` | Paymera callback signature NOT verified and not enforced |
 | `app/Http/Controllers/PaymentController.php:1148` | checkout: refused, basket names a product from another store |
 | `app/Http/Controllers/PaymentController.php:1188` | checkout: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/PaymentController.php:3140` | Telegram order message not sent: the store has no bot token or chat id |
-| `app/Http/Controllers/PaymentController.php:3156` | Telegram refused an order message |
-| `app/Http/Controllers/PaymentController.php:3162` | Telegram order message could not be sent |
-| `app/Http/Controllers/PaymentController.php:3230` | Whatsapp order writer: posted slug does not match the route slug; the route wins. |
+| `app/Http/Controllers/PaymentController.php:3134` | Telegram order message not sent: the store has no bot token or chat id |
+| `app/Http/Controllers/PaymentController.php:3150` | Telegram refused an order message |
+| `app/Http/Controllers/PaymentController.php:3156` | Telegram order message could not be sent |
+| `app/Http/Controllers/PaymentController.php:3224` | Whatsapp order writer: posted slug does not match the route slug; the route wins. |
 | `app/Http/Controllers/PosController.php:246` | POS sale skipped a line whose product is not this store |
 | `app/Http/Controllers/SenangPayController.php:140` | SenangPay plan return refused: the return hash could not be verified. |
 | `app/Http/Controllers/SenangPayController.php:150` | SenangPay plan return refused: return hash mismatch. |
@@ -110,7 +118,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/PaymentService.php:2283` | cod/bank_transfer order writer refused: basket names a product from another store |
 | `app/Services/PaymentService.php:2302` | cod/bank_transfer order writer refused: basket holds an unusable quantity |
 | `app/Services/PaymentService.php:2395` | Checkout: client-supplied shipping_final_price discarded (server value used) |
-| `app/Services/PaymentService.php:3601` | PayHere storefront checkout refused: the integration is retired (owner decision). |
+| `app/Services/PaymentService.php:3587` | PayHere storefront checkout refused: the integration is retired (owner decision). |
 | `app/Services/PaymentVerificationService.php:265` | Order recorded as Paid without gateway verification |
 | `app/Services/PaymentVerificationService.php:572` | COD_SETTLEMENT=order is NO LONGER HONOURED and is ignored |
 | `app/Services/PaymentVerificationService.php:580` | Unrecognised COD settlement policy; settle-on-delivery is in force regardless |
