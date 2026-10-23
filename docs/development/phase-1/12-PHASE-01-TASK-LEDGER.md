@@ -1803,7 +1803,7 @@ NOT CLAIMED. That every store-less read now names its store - `check_file`/`dele
 | GitHub issue | #31 |
 | Owner decision required | no |
 | Depends on | `P1-INV-02` |
-| Scope | `app/Services/ProductStockService.php`, `app/Http/Controllers/Concerns/AppliesCartStockChanges.php` |
+| Scope | `app/Services/ProductStockService.php`, `app/Http/Controllers/Concerns/AppliesCartStockChanges.php`, `app/Models/Order.php`, `tests/Support/Security/bin/verify-stock-oversell-concurrency-on-mysql.php` |
 | Queue references | S36, S37-2 |
 | Database / migration | None (SQLite cannot prove the concurrency half; needs the MySQL harness). |
 | Compatibility impact | No contract change. |
@@ -1811,15 +1811,17 @@ NOT CLAIMED. That every store-less read now names its store - `check_file`/`dele
 **Existing implementation status.** PARTIAL. ProductStockService is the only atomic primitive and the nine decrement sites use it; several restock paths are still read-modify-write.
 
 **Acceptance criteria.**
-- [ ] Every stock mutation goes through the atomic primitive
-- [ ] Two concurrent checkouts of the last unit cannot both succeed
-- [ ] Cancellation and return restore exactly what the order took
+- [ ] DONE: every stock mutation goes through the atomic primitive -- a census of app/ found 12 restock call sites, 10 already on App\Services\ProductStockService and exactly 2 that were not, both in Order::product_return(); both now go through it
+- [ ] DONE: two concurrent checkouts of the last unit cannot both succeed -- sections A-C of verify-stock-oversell-concurrency-on-mysql.php, on real MySQL 8.0.46, with section D measuring that the read-modify-write it replaced DOES sell the same unit twice
+- [ ] NOT DONE: cancellation and return restore exactly what the order took. The ATOMICITY of the restock is settled (section F); whether the QUANTITY restored equals the quantity the order removed is a different question and is not claimed here. It overlaps P1-INV-15 (Order::product_return robustness) and P1-ORD-14 (the refund-side counter)
 
 **Required tests.**
-- A concurrency test driving two simultaneous checkouts
-- Positive: cancel then re-order returns the stock to its starting value
+- tests/Support/Security/bin/verify-stock-oversell-concurrency-on-mysql.php -- 14 checks, 0 failures on MySQL 8.0.46 (12 before this package, section F added)
+- F1: the read-modify-write restock LOSES one of two concurrent returns (both read 10, both write read+1, final 11 -- not 12)
+- F2: the atomic increment keeps BOTH concurrent returns (both hold the stale 10, final 12)
+- Blast radius on the committed tree (98c53b8a): tests/Feature/Security + tests/Feature/Commerce, 4094 passed / 11 skipped, exit 0 -- identical to the figure before the change, so the two conversions moved no other test
 
-**Evidence.** ProductStockService.php:107,189,237,248; Order::product_return read-modify-write
+**Evidence.** PARTIAL 2026-10-23, commit 98c53b8a. THE ROW STAYS BACKLOG DELIBERATELY: two of three acceptance criteria are met and the third is not, and the directive is explicit that work is not DONE when acceptance evidence is incomplete. CRITERION 1, CLOSED BY A CENSUS THAT BOUNDS ITS OWN CLAIM. The row's note said only "several restock paths are still read-modify-write". A census of app/ says exactly how many: TWELVE restock call sites, TEN already through App\Services\ProductStockService (PaymentService, AppliesCartStockChanges, OrderController x4, OrderRefundController x2) and TWO that were not, both in Order::product_return() -- `$stockProduct->product_stock += $line['qty']; $stockProduct->save();` (:769) and `$ProductStock->stock += $product['qty']; $ProductStock->save();` (:796). Each reads the row into PHP, adds there, and writes the whole value back, so two returns processed concurrently both read the same figure and the second overwrites the first -- one return's units silently destroyed. Both now call restoreProductStock() / restoreVariantStock(), whose `UPDATE ... SET col = col + ?` does the arithmetic in the database and also flushes the model cache, which the bare save() did only for the instance it held. I WROTE A VACUOUS TEST FIRST, AND IT IS THE PART WORTH RECORDING. Two PHPUnit tests staged "the row changed BEFORE the read" and asserted the restock landed on the current value. BOTH PASSED AGAINST THE UNFIXED CODE, because a read-modify-write handles exactly that case correctly: it re-reads, then adds. The lost update needs the read to happen BEFORE an external change and the write AFTER -- a genuine interleave, which SQLite cannot stage because it serialises writers. The tests were DELETED rather than shipped (a test that is green before the fix proves nothing) and the file was verified back to its committed state. The evidence moved to where it can actually be made: section F of verify-stock-oversell-concurrency-on-mysql.php drives two real MySQL connections through the true interleave. 14 checks, 0 failures on MySQL 8.0.46. BOTH DIRECTIONS of the primitive are now measured on the real engine -- section D for the decrement (the same unit sold twice) and section F for the restock (a return destroyed). CRITERION 2 was already satisfied by sections A-C of that same script, re-run on this tree. CRITERION 3 IS OPEN AND IS NOT CLAIMED. "Cancellation and return restore exactly what the order took" is a question about the QUANTITY, not about the atomicity of the write, and it overlaps P1-INV-15 and P1-ORD-14. Closing this row needs that answered.
 
 ### `P1-INV-06` — Two vendored module cart writers can still plant an unvalidated cart row
 
