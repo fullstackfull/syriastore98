@@ -388,7 +388,30 @@ class AuthorizeNetPaymnetController extends Controller
             $requestNet->setMerchantAuthentication($merchantAuthentication);
             $requestNet->setRefId($refId);
             $requestNet->setTransactionRequest($transactionRequestType);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
+            /*
+             * THIS CATCH WAS EMPTY, and the next line then read the variable the block had just
+             * failed to assign.
+             *
+             * THE ORDINARY CAUSE IS A STORE WITH NO AUTHORIZENET CREDENTIALS. `getAdminAllSetting()`
+             * returns whatever rows the store has, so `$admin_payment_setting['authorizenet_login_id']`
+             * is an UNDEFINED ARRAY KEY -- which PHP 8 raises and Laravel's handler promotes to an
+             * ErrorException. The empty catch discarded it, `$requestNet` stayed unassigned, and
+             * `new CreateTransactionController($requestNet)` raised `Undefined variable $requestNet`.
+             * MEASURED: ErrorException @ this file:394, on the whole gateway return, WITH NOTHING IN
+             * THE LOG -- so a misconfigured store is indistinguishable from a broken one.
+             *
+             * THE SHAPE IS NOT INVENTED HERE. `planPayWithauthorizenet()` in this same file (:132-157)
+             * has the IDENTICAL try block and its catch returns an error redirect; the order path was
+             * the one left empty. The refusal is `gatewayReturnConfigurationRefusal()`, which is its
+             * OWN refusal rather than the no-stored-state one: reusing that broke
+             * GatewayReturnTrustBoundaryTest, whose job is to prove the state guard does not
+             * over-refuse, because two different failures shared one flash string.
+             *
+             * `\Throwable` and not `\Exception`: an ErrorException is an Exception, but a TypeError
+             * from the SDK is not, and either one leaves `$requestNet` just as unassigned.
+             */
+            return $this->gatewayReturnConfigurationRefusal($request, 'authorizenet', $e->getMessage());
         }
 
         $controller = new AnetController\CreateTransactionController($requestNet);

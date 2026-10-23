@@ -80,6 +80,21 @@ class LaraBugPayloadTest extends SecurityTestCase
             'larabug.except' => [],
             'larabug.login_key' => 'FIXTURE-LB-KEY',
             'larabug.project_key' => 'FIXTURE-LB-PROJECT',
+            /*
+             * THE OWNER'S OUTBOUND SWITCH, ON, BECAUSE THIS FILE'S SUBJECT IS THE PAYLOAD.
+             *
+             * `larabug.outbound_enabled` defaults to FALSE everywhere (the owner's P1-SEC-14
+             * decision: nothing is transmitted until the protection below has been verified). Every
+             * test in this file exists to assert WHAT WOULD BE SENT if it were on -- the scrubbing,
+             * the blacklist, the user shape -- and with it off the reporter correctly refuses before
+             * building a payload, so there would be nothing to assert against.
+             *
+             * Turning it on HERE and nowhere else is the honest arrangement: the production default
+             * stays off and is asserted separately by
+             * test_outbound_reporting_is_off_unless_explicitly_enabled, while the scrubbing keeps
+             * being measured so the protection is ready the day the owner verifies it.
+             */
+            'larabug.outbound_enabled' => true,
         ]);
     }
 
@@ -556,6 +571,99 @@ class LaraBugPayloadTest extends SecurityTestCase
 
         $this->assertFalse($result, 'An unkeyed tracker still reported.');
         $this->assertNull($this->reported, 'An unkeyed instance posted the exception to the tracker.');
+    }
+
+    /**
+     * THE OWNER'S DECISION, ASSERTED: A KEYED ACCOUNT IS NOT CONSENT TO TRANSMIT.
+     *
+     * P1-SEC-14's owner decision is that outbound reporting stays disabled until the sensitive-data
+     * protection has been verified against a real payload. The gate above it -- "is there an account
+     * at all" -- is a different question, and relying on it alone would mean that restoring the keys
+     * for any reason silently resumes sending to a third party.
+     *
+     * Driven with a FULLY CONFIGURED account, because an unkeyed one would refuse for the other
+     * reason and prove nothing about this one.
+     */
+    public function test_a_keyed_account_still_posts_nothing_while_outbound_is_disabled(): void
+    {
+        $this->bindRequest(HttpRequest::create('/x', 'GET'));
+        $this->enableTracker();
+        config(['larabug.outbound_enabled' => false]);
+
+        $this->assertTrue(\App\Services\ScrubbedLaraBug::isConfigured(),
+            'Premise: the account IS configured, so a refusal below can only be the outbound switch.');
+
+        $result = $this->tracker()->handle(new \LogicException('would have gone out'));
+
+        $this->assertFalse($result, 'a keyed tracker reported while outbound reporting is disabled');
+        $this->assertNull($this->reported, 'a keyed instance transmitted while outbound is disabled');
+    }
+
+    /**
+     * AND IF THE KEY IS MISSING ENTIRELY, THE GATE STILL REFUSES -- the in-code default, which a
+     * removal check found untested.
+     *
+     * THIS IS NOT A HYPOTHETICAL. `php artisan config:cache` writes a single compiled array, so a
+     * deployment still running a cache built BEFORE this change has no `outbound_enabled` key at
+     * all. `config()`'s own default is then the only thing deciding, and the whole protection would
+     * rest on an argument nothing asserts. Measured: flipping that default to `true` passed every
+     * other test in this file.
+     */
+    public function test_a_missing_outbound_key_is_treated_as_disabled(): void
+    {
+        $this->bindRequest(HttpRequest::create('/x', 'GET'));
+        $this->enableTracker();
+
+        /*
+         * GENUINELY REMOVED, not set to null. Laravel's config `Repository::offsetUnset()` calls
+         * `set($key, null)` -- it does NOT forget the key -- so the first cut of this test left an
+         * EXISTING null, which `(bool)` turns into false all by itself. The in-code default was
+         * therefore never consulted and the mutant that flips it survived. The whole `larabug` array
+         * is rewritten without the key instead, which is the shape a config cache built before this
+         * switch existed really has.
+         */
+        $larabug = config('larabug');
+        unset($larabug['outbound_enabled']);
+        config(['larabug' => $larabug]);
+
+        $this->assertFalse(array_key_exists('outbound_enabled', (array) config('larabug')),
+            'Premise: the key really is ABSENT (not null), so the in-code default is what decides.');
+
+        $this->assertFalse(\App\Services\ScrubbedLaraBug::mayReportOutbound(),
+            'a deployment whose config predates the outbound switch would transmit. The in-code '
+            . 'default must fail CLOSED.');
+        $this->assertFalse($this->tracker()->handle(new \LogicException('would have gone out')));
+        $this->assertNull($this->reported);
+    }
+
+    /**
+     * AND THE SHIPPED DEFAULT IS OFF. Asserted against the config file as it stands rather than
+     * against the test fixture, because the fixture deliberately turns it on.
+     */
+    public function test_outbound_reporting_is_off_unless_explicitly_enabled(): void
+    {
+        $shipped = require base_path('config/larabug.php');
+
+        $this->assertArrayHasKey('outbound_enabled', $shipped,
+            'config/larabug.php no longer carries the outbound switch at all.');
+        $this->assertFalse($shipped['outbound_enabled'],
+            'outbound LaraBug reporting is enabled by default. The owner\'s P1-SEC-14 decision is '
+            . 'that it stays off until the sensitive-data protection is verified, so the DEFAULT '
+            . 'must be off and enabling it must be a deliberate per-deployment act.');
+    }
+
+    /**
+     * LOCAL ERROR LOGGING SURVIVES, which is the half of the decision that is easy to break by
+     * "fixing" this with a channel removal instead.
+     */
+    public function test_the_local_log_channel_is_untouched_by_the_outbound_decision(): void
+    {
+        $stack = config('logging.channels.stack.channels');
+
+        $this->assertContains('single', (array) $stack,
+            'the stack channel no longer writes locally, so disabling outbound reporting has lost '
+            . 'the error record instead of merely not transmitting it.');
+        $this->assertSame('single', config('logging.channels.single.driver'));
     }
 
     /** Either key alone is not an account: both must be present. */

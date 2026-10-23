@@ -12,6 +12,30 @@ return [
     |
     */
 
+    /*
+    |--------------------------------------------------------------------------
+    | Outbound reporting -- OFF unless deliberately enabled
+    |--------------------------------------------------------------------------
+    |
+    | OWNER DECISION, P1-SEC-14: outbound LaraBug reporting is DISABLED until the
+    | sensitive-data protection has been verified against a real payload. Local
+    | error logging is unaffected -- the `single` channel still records everything,
+    | so nothing is lost; only the transmission to the third party stops.
+    |
+    | DEFAULT FALSE, AND IT HAS TO BE A SEPARATE SWITCH rather than "unset the key".
+    | `LaraBug\Http\Client::report()` POSTs whether or not a key is set (it checks
+    | neither, and sends `Authorization: Bearer ` with an empty token), so an unset
+    | key is not an off switch -- it is an unauthenticated send. And once the keys
+    | ARE restored for a verified deployment, "keyed" must not silently mean "send":
+    | this flag is the thing an operator turns on, once, on purpose.
+    |
+    | Turning it on is a deliberate act with a precondition. See
+    | docs/security/P01-SEC-14-ERROR-TRACKER-EXPOSURE.md for what must be verified
+    | first, and for the historical-exposure question only server access can settle.
+    */
+
+    'outbound_enabled' => (bool) env('LARABUG_OUTBOUND_ENABLED', false),
+
     'login_key' => env('LB_KEY', ''),
 
     /*

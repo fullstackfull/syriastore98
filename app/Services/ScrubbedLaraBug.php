@@ -25,8 +25,13 @@ use Throwable;
  *   3. App\Models\User::toLarabug() sends an id and a type, not the model.
  *
  * What it does not do: a secret under a key nobody blacklisted is still sent; the layers above shrink that surface, they do not close it.
- * Whether the tracker is keyed in production (LB_KEY) is the owner's to confirm (P1-SEC-14 acceptance 3); until they do,
- * isConfigured() below means an unkeyed instance posts nothing at all, so the unanswered question is not an exposure.
+ *
+ * AND A FOURTH LAYER, WHICH IS NOW THE OUTERMOST ONE. The owner's decision on P1-SEC-14 is that outbound reporting is DISABLED until the
+ * protection above has been verified against a real payload, so {@see mayReportOutbound()} requires BOTH a configured account AND an
+ * explicit `LARABUG_OUTBOUND_ENABLED`, which defaults to false. Local error logging is untouched -- the `stack` channel's `single` has
+ * already written the exception to disk before this class is reached. Whether the tracker was keyed in production historically, and
+ * therefore whether anything was transmitted before this change, cannot be answered from this repository: `.env` is not in it. That
+ * question needs server access and is recorded in docs/security/P01-SEC-14-ERROR-TRACKER-EXPOSURE.md.
  */
 class ScrubbedLaraBug extends LaraBug
 {
@@ -44,11 +49,47 @@ class ScrubbedLaraBug extends LaraBug
             return false;
         }
 
-        if (! self::isConfigured()) {
+        if (! self::mayReportOutbound()) {
+            /*
+             * LOCAL LOGGING IS PRESERVED, which is the whole point of refusing HERE rather than by
+             * removing the channel. The `stack` channel is `['single', 'larabug']`: `single` has
+             * already written the exception to storage/logs/laravel.log by the time this runs, so
+             * nothing is lost by declining to transmit. Only the outbound POST stops.
+             *
+             * `debug` and not `warning`: a suppressed report is the CONFIGURED state, not an
+             * incident, and logging it at warning on every exception would bury the real warnings.
+             * It is logged at all so that "the tracker is quiet" can be told apart from "the tracker
+             * is broken" without reading the config.
+             */
+            \Illuminate\Support\Facades\Log::debug('LaraBug report suppressed: outbound reporting is disabled.', [
+                'configured' => self::isConfigured(),
+                'outbound_enabled' => (bool) config('larabug.outbound_enabled', false),
+            ]);
+
             return false;
         }
 
         return parent::handle($exception, $fileType, $customData);
+    }
+
+    /**
+     * May an exception be transmitted to the third-party tracker at all?
+     *
+     * OWNER DECISION, P1-SEC-14: outbound reporting is OFF until the sensitive-data protection has
+     * been verified against a real payload. Both conditions must hold -- a key AND a deliberate
+     * switch -- and they are different questions:
+     *
+     *   isConfigured()      is there an account to report to? (an unkeyed instance posts to nobody,
+     *                       with an empty bearer token, which is a disclosure with no recipient
+     *                       rather than a safe no-op)
+     *   outbound_enabled    has an operator decided, on purpose, that this deployment may transmit?
+     *
+     * Keyed alone is NOT consent. That is the ordering the owner's decision fixes: restoring the
+     * keys for any reason must not silently resume sending.
+     */
+    public static function mayReportOutbound(): bool
+    {
+        return self::isConfigured() && (bool) config('larabug.outbound_enabled', false);
     }
 
     /**

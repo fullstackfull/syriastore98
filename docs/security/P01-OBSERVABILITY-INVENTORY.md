@@ -67,7 +67,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:282` | Gateway return carries no claimable identity; falling back to the session control alone. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:296` | Gateway return refused: already claimed. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:793` | Gateway return refused: basket names a product from another store. |
-| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:814` | Gateway return refused: basket holds a non-positive quantity. |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:846` | Gateway return refused: basket holds a non-positive quantity. |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:829` | Gateway return refused: the gateway request could not be built. |
 | `app/Http/Controllers/Concerns/GuardsPlanActivation.php:85` | Plan activation refused: provider is disabled pending verification. |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:941` | Newsletter subscription failed during customer registration |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:716` | customer login: refused a social row still holding its module-assigned password |

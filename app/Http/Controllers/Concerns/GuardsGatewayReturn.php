@@ -809,6 +809,38 @@ trait GuardsGatewayReturn
      * Separate text from the state refusal so a log or a support conversation can tell the two
      * apart, and so the regression tests can assert which guard fired.
      */
+    /**
+     * THE STORE'S GATEWAY COULD NOT BE CONFIGURED -- a DIFFERENT refusal from every other one here,
+     * and it needs its own message for a reason that a test caught rather than a reviewer.
+     *
+     * The first cut of the AuthorizeNet setup fix reused `gatewayReturnRefusal()`, which is the
+     * NO-STORED-STATE refusal. `GatewayReturnTrustBoundaryTest::
+     * test_the_guard_refuses_only_when_the_stored_state_is_absent` then failed on the authorizenet
+     * data set: with state present the handler still produced that exact message, so a test whose
+     * whole job is to prove the state guard does not over-refuse could no longer tell the two causes
+     * apart. Two different failures must not share one flash string.
+     *
+     * It is also the honest message. "We could not confirm your checkout details" tells a shopper to
+     * check their own basket; the truth is that the STORE has not finished configuring its payment
+     * gateway, and only the merchant can act on that.
+     */
+    protected function gatewayReturnConfigurationRefusal(Request $request, string $gateway, ?string $reason = null)
+    {
+        Log::warning('Gateway return refused: the gateway request could not be built.', [
+            'gateway' => $gateway,
+            'path' => $request->path(),
+            'authenticated_customer' => optional(auth('customers')->user())->id,
+            // The MESSAGE only, never the trace: the block this comes from holds the card number,
+            // the expiry and the CVV, and a trace would carry its arguments.
+            'reason' => $reason,
+        ]);
+
+        return redirect()->back()->with(
+            'error',
+            __('This store\'s payment gateway is not configured. Your payment has not been applied to an order — please contact the store.')
+        );
+    }
+
     protected function gatewayReturnQuantityRefusal(Request $request, string $gateway)
     {
         Log::warning('Gateway return refused: basket holds a non-positive quantity.', [
