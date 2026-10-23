@@ -419,6 +419,181 @@ class StorefrontOrderCompletionDisclosureTest extends SecurityTestCase
         }
     }
 
+    /**
+     * WHICH ORDER DID THE THANK-YOU PAGE ACTUALLY RENDER?
+     *
+     * The page prints the order NUMBER and the minted `/order/<encrypted id>` link, and nothing else
+     * that tells two orders apart -- not the billing name, not the line names (the first two drafts
+     * of the collision test asserted on each in turn and failed for that reason, not for the
+     * defect). In a same-second collision the NUMBER is identical by construction, so the link is
+     * the only observable identity, and its id is what this reads.
+     *
+     * Decrypting it in a test is sound: the id is the assertion's subject, not its secret.
+     * APP_KEY's exposure is precisely why the id in that link cannot be the ownership proof --
+     * which is what OrderCompleteBinding exists to replace.
+     */
+    private function renderedOrderId(string $body): ?int
+    {
+        if (preg_match('#/order/([A-Za-z0-9+/=]+)#', $body, $m) !== 1) {
+            return null;
+        }
+
+        try {
+            return (int) \Illuminate\Support\Facades\Crypt::decrypt($m[1]);
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    // =========================================================================================
+    //  P1-ORD-13: the same-second collision, resolved for BOTH buyers rather than refused
+    // =========================================================================================
+
+    /**
+     * THE CASE P1-ORD-08 COULD ONLY FAIL CLOSED ON, and the reason this task exists.
+     *
+     * `product_order_id` is `'0' . date('YmdHis')` for a guest, with no index and no uniqueness, so
+     * two orders placed in one store in one second carry the SAME number. Resolving the flashed
+     * NUMBER had two possible answers and both were wrong: `first()` -- the lowest id -- showed one
+     * buyer the OTHER'S order and a minted link to it (measured, review lens E, P8), and
+     * P1-ORD-08's refusal sent BOTH buyers back to the landing page having just paid.
+     *
+     * Every gateway return now records the order's PRIMARY KEY against the session that placed it,
+     * so each buyer's own session resolves the collision to their own order.
+     */
+    public function test_each_buyer_in_a_same_second_collision_sees_their_own_order(): void
+    {
+        [, $store] = $this->makeTenant();
+
+        /*
+         * The two orders share the NUMBER and differ in a LINE NAME, because the line name is what
+         * the thank-you page actually prints. The first draft of this test asserted on the billing
+         * first_name and failed for that reason: the view never renders it, so the positive
+         * assertion could not be satisfied by any correct behaviour. (The negative assertions in
+         * the P1-ORD-08 tests above are on that same field, which is why they pass either way --
+         * worth knowing before trusting one of them on its own.)
+         */
+        $first = $this->placedOrder($store, 'COLLIDE13A', [
+            'product_json' => json_encode([['product_id' => 5, 'name' => 'FIRSTBUYERLINE', 'variant_id' => 0, 'qty' => 1, 'final_price' => 100]]),
+        ], 'first@buyer.test');
+        $second = $this->placedOrder($store, 'COLLIDE13A', [
+            'product_json' => json_encode([['product_id' => 5, 'name' => 'SECONDBUYERLINE', 'variant_id' => 0, 'qty' => 1, 'final_price' => 100]]),
+        ], 'second@buyer.test');
+
+        $this->assertSame($first->product_order_id, $second->product_order_id, 'Fixture premise: the numbers must collide.');
+
+        // The FIRST buyer's session: the flashed number plus the id their gateway return bound.
+        $response = $this->complete($store, [], [
+            'data' => $first->product_order_id,
+            \App\Services\OrderCompleteBinding::SESSION_KEY => [$first->id],
+        ]);
+
+        $response->assertOk();
+        $this->assertSame((int) $first->id, $this->renderedOrderId((string) $response->getContent()),
+            'The first buyer was not shown their OWN order: the collision resolved to the wrong one.');
+
+        // And the SECOND buyer -- the one the old lowest-id lookup could never serve.
+        $response = $this->complete($store, [], [
+            'data' => $second->product_order_id,
+            \App\Services\OrderCompleteBinding::SESSION_KEY => [$second->id],
+        ]);
+
+        $response->assertOk();
+        $this->assertSame((int) $second->id, $this->renderedOrderId((string) $response->getContent()),
+            'The second buyer -- the one the old lowest-id lookup could never serve -- was shown the '
+            . 'wrong order or refused their own.');
+    }
+
+    /** A binding for ANOTHER store's order does not unlock this store's colliding number. */
+    public function test_a_binding_from_another_store_does_not_resolve_a_collision_here(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $mine = $this->placedOrder($storeA, 'COLLIDE13B', [
+            'product_json' => json_encode([['product_id' => 5, 'name' => 'STOREAONELINE', 'variant_id' => 0, 'qty' => 1, 'final_price' => 100]]),
+        ], 'a@buyer.test');
+        $theirs = $this->placedOrder($storeA, 'COLLIDE13B', [
+            'product_json' => json_encode([['product_id' => 5, 'name' => 'STOREATWOLINE', 'variant_id' => 0, 'qty' => 1, 'final_price' => 100]]),
+        ], 'b@buyer.test');
+
+        $elsewhere = $this->placedOrder($storeB, 'ELSEWHERE13B', [], 'c@buyer.test');
+
+        $response = $this->complete($storeA, [], [
+            'data' => $mine->product_order_id,
+            \App\Services\OrderCompleteBinding::SESSION_KEY => [$elsewhere->id],
+        ]);
+
+        // The binding names another store's order, so it cannot pick between store A's two; the
+        // ambiguous-number fallback then refuses, exactly as P1-ORD-08 made it.
+        $this->assertNull($this->renderedOrderId((string) $response->getContent()),
+            "A binding naming another store's order resolved store A's ambiguous number.");
+        $response->assertRedirect();
+    }
+
+    /**
+     * THE STORE PREDICATE ON THE BOUND-ID LOOKUP, and the only input that isolates it.
+     *
+     * A mutant removing it SURVIVED the cross-store test above, because there the bound order's
+     * NUMBER differed, so the match failed anyway. The separating input is a binding whose order is
+     * in ANOTHER store and carries the SAME number -- which is the normal case, since
+     * `'0' . date('YmdHis')` is generated per store and two stores collide in any shared second.
+     * Without the predicate, store B's order renders under store A's slug.
+     */
+    public function test_a_bound_order_in_another_store_sharing_the_number_is_not_rendered_here(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $hereOnly = $this->placedOrder($storeA, 'SHARED13E', [], 'a@buyer.test');
+        $theirs = $this->placedOrder($storeB, 'SHARED13E', [], 'b@buyer.test');
+
+        $this->assertSame($hereOnly->product_order_id, $theirs->product_order_id, 'Fixture premise: two stores, one number.');
+
+        // The session placed store B's order; the request addresses store A with the shared number.
+        $response = $this->complete($storeA, [], [
+            'data' => $theirs->product_order_id,
+            \App\Services\OrderCompleteBinding::SESSION_KEY => [$theirs->id],
+        ]);
+
+        $rendered = $this->renderedOrderId((string) $response->getContent());
+
+        $this->assertNotSame((int) $theirs->id, $rendered,
+            "Store B's order was rendered under store A's slug: the bound-id lookup is not scoped to "
+            . 'the store the request names.');
+        // Store A's own order is unambiguous here, so it is the correct answer for this slug.
+        $this->assertSame((int) $hereOnly->id, $rendered);
+    }
+
+    /** With no binding at all, an ambiguous number still refuses -- the fallback is unchanged. */
+    public function test_without_a_binding_an_ambiguous_number_still_refuses(): void
+    {
+        [, $store] = $this->makeTenant();
+        $first = $this->placedOrder($store, 'COLLIDE13C', [
+            'product_json' => json_encode([['product_id' => 5, 'name' => 'NOBINDINGONELINE', 'variant_id' => 0, 'qty' => 1, 'final_price' => 100]]),
+        ], 'x@buyer.test');
+        $this->placedOrder($store, 'COLLIDE13C', [], 'y@buyer.test');
+
+        $response = $this->complete($store, [], ['data' => $first->product_order_id]);
+
+        $this->assertNull($this->renderedOrderId((string) $response->getContent()),
+            'With no binding, an ambiguous number must still refuse rather than guess.');
+        $response->assertRedirect();
+    }
+
+    /** And a session binding alone, with nothing flashed and nothing asked, serves the buyer. */
+    public function test_a_bound_session_with_nothing_flashed_sees_its_most_recent_order(): void
+    {
+        [, $store] = $this->makeTenant();
+        $order = $this->placedOrder($store, 'BOUNDONLY13D');
+
+        $response = $this->complete($store, [], [
+            \App\Services\OrderCompleteBinding::SESSION_KEY => [$order->id],
+        ]);
+
+        $response->assertOk();
+        $this->assertSame((int) $order->id, $this->renderedOrderId((string) $response->getContent()));
+    }
+
     /** The sanitiser accepts an id stored as a numeric STRING, as a session driver round-trip may produce. */
     public function test_a_session_binding_stored_as_numeric_strings_still_works(): void
     {

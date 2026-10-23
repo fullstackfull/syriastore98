@@ -317,6 +317,93 @@ class PaymeraCallbackIdempotencyTest extends TestCase
     |--------------------------------------------------------------------------
     */
 
+    // =========================================================================================
+    //  P1-ORD-13 criterion 3: the replay branch must not hand a stranger the buyer's order
+    // =========================================================================================
+
+    /**
+     * THE REFERENCE IS NOT A SECRET AND IT WAS THE ONLY THING THE REPLAY BRANCH ASKED FOR.
+     *
+     * `GET /store/paymera/callback/{orderId}` is anonymous, and the reference is
+     * `uniqid('paymera_')` -- about a million candidates per known second -- so it is guessable;
+     * and it does not need guessing, because the URL sits in the buyer's history, the server's
+     * access log and any Referer. The replayed branch flashed `$pending['product_order_id']` to
+     * whoever presented it, and the thank-you page turns a flashed number into the order and a
+     * minted link to it. So a stranger replaying the URL was shown the buyer's order.
+     *
+     * The number is now flashed only to the session that PLACED the order. A stranger still gets
+     * the same redirect -- the response does not tell them whether the reference was real -- and
+     * nothing is flashed with it.
+     */
+    public function test_a_replayed_callback_flashes_nothing_to_a_session_that_did_not_place_the_order(): void
+    {
+        $this->putPending(['processed' => true, 'order_id' => 4242, 'product_order_id' => '0202501010103']);
+
+        $request = $this->blankRequest();          // a session that placed nothing
+        $response = $this->controller()->handlePaymeraCallback($request, self::REFERENCE);
+
+        $this->assertTrue($response->isRedirect());
+        $this->assertSame(
+            '',
+            $request->session()->get('data'),
+            "The buyer's order number was flashed to a session that never placed it, so the "
+            . 'thank-you page would hand a stranger the order and a minted link to it.'
+        );
+    }
+
+    /** THE POSITIVE CONTROL: the buyer's own replay still completes, or the refusal above is an outage. */
+    public function test_the_buyers_own_replay_still_gets_their_number(): void
+    {
+        $this->putPending(['processed' => true, 'order_id' => 4242, 'product_order_id' => '0202501010104']);
+
+        $request = $this->blankRequest();
+        $request->setLaravelSession(app('session.store'));
+        $request->session()->put(\App\Services\OrderCompleteBinding::SESSION_KEY, [4242]);
+
+        $response = $this->controller()->handlePaymeraCallback($request, self::REFERENCE);
+
+        $this->assertTrue($response->isRedirect());
+        $this->assertSame('0202501010104', $request->session()->get('data'),
+            "The buyer who placed the order was refused their own number: the replay branch is now an outage.");
+    }
+
+    /**
+     * AND THE PENDING RECORD NAMES THE ORDER THE CALLBACK CREATED, not "the latest paymera order in
+     * the store". That lookup was `->where('payment_type','paymera')->latest('id')->first()`, so two
+     * concurrent Paymera payments in one store each recorded the OTHER buyer's number -- and the
+     * record is exactly what the replay branch above hands back.
+     *
+     * Asserted on the SOURCE because reaching the writer needs a full checkout through
+     * getProductStatus() with a live gateway poll, which this suite's own header records as out of
+     * reach here. The behavioural half -- that what the record holds is only ever shown to the
+     * session that placed it -- is driven above, so a wrong record cannot disclose anything either.
+     */
+    public function test_the_pending_record_is_written_from_the_session_binding_not_from_the_latest_order(): void
+    {
+        $source = (string) file_get_contents(app_path('Http/Controllers/PaymentController.php'));
+
+        $code = '';
+
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                continue;
+            }
+
+            $code .= is_array($token) ? $token[1] : $token;
+        }
+
+        $this->assertStringNotContainsString("->where('payment_type', 'paymera')
+            ->latest('id')", $code,
+            'The pending record is written from "the latest paymera order in the store" again, which '
+            . "records the other buyer's order under concurrency.");
+
+        $this->assertMatchesRegularExpression(
+            '/OrderCompleteBinding::bound\(\)\s*;/',
+            $code,
+            'The callback no longer identifies the order it created from the session binding.'
+        );
+    }
+
     private function putPending(array $overrides = []): void
     {
         Cache::put('paymera_pending_' . self::REFERENCE, array_merge([

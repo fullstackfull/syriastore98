@@ -1028,6 +1028,10 @@ class EasebuzzController extends Controller
                 if (auth('customers')->user()) {
                     event(new AddRewardClubPoint($requests_data,$order,$slug));
                 }
+                // P1-ORD-13: the thank-you page resolves the PRIMARY KEY this session placed, because
+                // `product_order_id` is a bare timestamp two same-second orders in one store share --
+                // the number alone showed one buyer the other's order, and after P1-ORD-08 refused both.
+                \App\Services\OrderCompleteBinding::remember($order->id);
                 return redirect()->route('order.complete', $slug)->with('data', $order->product_order_id);
             } else {
                 return Utility::error(['message' => 'Somthing went wrong.']);

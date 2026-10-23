@@ -531,9 +531,28 @@ public function handlePaymeraCallback(Request $request, string $orderId)
      * إذا الـ trigger عالج الدفع مسبقًا، لا ننشئ الطلب مرة ثانية.
      */
     if (($pending['processed'] ?? false) === true) {
+        /*
+         * P1-ORD-13 criterion 3. THE REPLAY BRANCH USED TO HAND THE ORDER TO WHOEVER PRESENTED THE
+         * REFERENCE. `GET /store/paymera/callback/{orderId}` is anonymous and the reference is
+         * `uniqid('paymera_')` -- about a million candidates per known second -- and the URL sits in
+         * the buyer's history, the server log and any Referer. So a stranger replaying it was shown
+         * the buyer's order number and, through the thank-you page, a minted link to the order.
+         *
+         * The number is now flashed only to the session that PLACED that order. A stranger gets the
+         * same completion redirect with nothing flashed, which the thank-you page answers by
+         * sending them to the landing page -- it does not tell them whether the reference was real.
+         */
+        $mine = \App\Services\OrderCompleteBinding::holds($pending['order_id'] ?? null);
+
+        if (! $mine) {
+            \Log::warning('Paymera replay refused: the session presenting the reference did not place the order', [
+                'paymera_reference' => $orderId,
+            ]);
+        }
+
         return redirect()
             ->route('order.complete', $pending['slug'])
-            ->with('data', $pending['product_order_id'] ?? '');
+            ->with('data', $mine ? ($pending['product_order_id'] ?? '') : '');
     }
 
     /*
@@ -623,9 +642,13 @@ public function handlePaymeraCallback(Request $request, string $orderId)
             // experience identical to a replay that lost the race by a wider
             // margin. (`$pending` here is only read for display values; it is
             // never used to WRITE anything, which is the whole point.)
+            // P1-ORD-13: same rule as the pre-lock replay branch above -- the number is flashed
+            // only to the session that placed the order.
             return redirect()
                 ->route('order.complete', $pending['slug'])
-                ->with('data', $pending['product_order_id'] ?? '');
+                ->with('data', \App\Services\OrderCompleteBinding::holds($pending['order_id'] ?? null)
+                    ? ($pending['product_order_id'] ?? '')
+                    : '');
         }
 
         $pending = $fresh;
@@ -666,13 +689,34 @@ public function handlePaymeraCallback(Request $request, string $orderId)
             $pending['slug']
         );
 
-        $latestOrder = Order::where(
-            'store_id',
-            $requestData['store_id'] ?? null
-        )
+        /*
+         * P1-ORD-13 criterion 3. WHICH ORDER DID THIS CALLBACK JUST CREATE?
+         *
+         * It used to ask for "the latest paymera order in this store"
+         * (`->where('payment_type','paymera')->latest('id')->first()`), which is a GUESS: two
+         * concurrent Paymera payments in one store each record the OTHER buyer's number, and the
+         * record is what the replay branch above hands back.
+         *
+         * `getProductStatus()` above ends at the order writer, which records the order's primary
+         * key against THIS session (OrderCompleteBinding::remember). So the answer is exact and
+         * comes from the same request rather than from a global ordering. The store and payment
+         * type are still checked, as defence in depth and so that a stale binding from an earlier
+         * checkout in the same session cannot be mistaken for this one.
+         */
+        $createdId = \App\Services\OrderCompleteBinding::bound();
+        $createdId = $createdId === [] ? null : end($createdId);
+
+        $latestOrder = $createdId === null ? null : Order::where('id', $createdId)
+            ->where('store_id', $requestData['store_id'] ?? null)
             ->where('payment_type', 'paymera')
-            ->latest('id')
             ->first();
+
+        if ($latestOrder === null) {
+            \Log::warning('Paymera callback could not identify the order it created; the pending record names none', [
+                'paymera_reference' => $orderId,
+                'store_id' => $requestData['store_id'] ?? null,
+            ]);
+        }
 
         $pending['status'] = 'A';
         $pending['processed'] = true;
@@ -2868,6 +2912,10 @@ $result = app(\App\Services\StoreNotificationService::class)
                 event(new AddRewardClubPoint($requests_data, $order, $slug));
             }
 
+            // P1-ORD-13: the thank-you page resolves the PRIMARY KEY this session placed, because
+            // `product_order_id` is a bare timestamp two same-second orders in one store share --
+            // the number alone showed one buyer the other's order, and after P1-ORD-08 refused both.
+            \App\Services\OrderCompleteBinding::remember($order->id);
             return redirect()->route('order.complete', $slug)->with('data', $order->product_order_id);
         } else {
             return $this->error(['message' => 'Somthing went wrong.']);
@@ -4177,10 +4225,9 @@ $result = app(\App\Services\StoreNotificationService::class)
             // this session is the one that placed the order -- recorded here, server-side, so the
             // buyer's own redirect keeps working and nobody else's does. Capped, so a long-lived
             // session does not grow without bound.
-            $placedHere = session('order_complete_ids', []);
-            $placedHere = is_array($placedHere) ? $placedHere : [];
-            $placedHere[] = (int) $order->id;
-            session()->put('order_complete_ids', array_slice(array_values(array_unique($placedHere)), -20));
+            // P1-ORD-13 lifted this into App\Services\OrderCompleteBinding so the ten gateway
+            // returns share one definition instead of copying this block.
+            \App\Services\OrderCompleteBinding::remember($order->id);
 
             $msg = [
                 'status' => 'success',

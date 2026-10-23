@@ -600,25 +600,14 @@ public function store(Request $request)
      *
      * @return list<int>
      */
+    /**
+     * P1-ORD-13: one definition of "this session placed that order", in
+     * App\Services\OrderCompleteBinding. This method was that definition's only copy while the
+     * mechanism served one handler; ten gateway returns use it now.
+     */
     private function orderCompleteBoundIds(): array
     {
-        $raw = session('order_complete_ids', []);
-
-        if (! is_array($raw)) {
-            return [];
-        }
-
-        $ids = [];
-
-        foreach ($raw as $value) {
-            $id = is_scalar($value) && ! is_bool($value) ? filter_var($value, FILTER_VALIDATE_INT) : false;
-
-            if ($id !== false && $id > 0) {
-                $ids[] = $id;
-            }
-        }
-
-        return $ids;
+        return \App\Services\OrderCompleteBinding::bound();
     }
 
     /**
@@ -684,8 +673,46 @@ public function store(Request $request)
         $requested = $request->input('data.order_id');
         $khalti = Session::get('khalti_order_id');
 
+        /*
+         * P1-ORD-13. THE SESSION'S OWN ORDER IDS COME FIRST, AHEAD OF THE FLASHED NUMBER.
+         *
+         * `product_order_id` is not an identifier: it is `'0' . date('YmdHis')` for a guest, with no
+         * index and no uniqueness, so two orders placed in one store in one second share it.
+         * Resolving the flashed NUMBER therefore had two possible answers and both were wrong --
+         * `first()` showed one buyer the other's order (measured, P8), and P1-ORD-08's refusal sent
+         * BOTH buyers back to the landing page having just paid.
+         *
+         * Every gateway return now records the order's PRIMARY KEY against the session that placed
+         * it (OrderCompleteBinding::remember, ten sites), so the collision resolves correctly for
+         * each buyer instead of being guessed or refused. The ids are matched against the flashed
+         * number's own store, so a bound id from another store cannot be shown here.
+         *
+         * The number lookup is KEPT as the fallback, for a session whose binding is missing -- an
+         * older session, a cookie-less client, or a handler not yet reached. It still refuses an
+         * ambiguous number rather than guessing.
+         */
+        $boundHere = Order::whereIn('id', $this->orderCompleteBoundIds() ?: [0])
+            ->where('store_id', $store->id)
+            ->orderByDesc('id')
+            ->get();
+
         if ($flashed && is_scalar($flashed)) {
-            $order = $this->soleStoreOrderByNumber($store, $flashed);
+            $order = $boundHere->firstWhere('product_order_id', (string) $flashed)
+                ?? $this->soleStoreOrderByNumber($store, $flashed);
+        } elseif ($boundHere->isNotEmpty() && ! $request->has('data.order_id') && ! ($khalti && is_scalar($khalti))) {
+            /*
+             * Nothing flashed and nothing ASKED FOR: the most recent order this session placed in
+             * this store is the one it just paid for.
+             *
+             * `$request->has(...)` and not `! is_scalar($requested)`, which is what the first draft
+             * of this branch tested and what
+             * test_odd_shapes_of_the_request_id_are_not_coerced_into_a_match caught: an ARRAY
+             * `data[order_id]` is not scalar either, so a malformed request id fell into this limb
+             * and was answered with the session's most recent order instead of being refused. No
+             * disclosure -- the session really did place it -- but a malformed identifier must be
+             * refused rather than reinterpreted, which is the whole point of that test.
+             */
+            $order = $boundHere->first();
         } elseif (is_scalar($requested) && in_array(filter_var($requested, FILTER_VALIDATE_INT), $this->orderCompleteBoundIds(), true)) {
             $order = Order::where('id', (int) $requested)
                 ->where('store_id', $store->id)
