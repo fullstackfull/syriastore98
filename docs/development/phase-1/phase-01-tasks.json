@@ -750,7 +750,7 @@
       "title": "PosController::store writes product_stock to an absolute value from the POS session",
       "workstream": "inventory",
       "risk": "high",
-      "status": "BACKLOG",
+      "status": "DONE",
       "issue": 29,
       "scope": [
         "app/Http/Controllers/PosController.php",
@@ -761,25 +761,27 @@
         "P1-INV-01"
       ],
       "acceptance": [
-        "The POS sale cannot write a product the caller's store does not own",
-        "Both session feeders (addToCart, updateCart) resolve products store-scoped",
-        "updateCart bounds its quantity (its current guard compares a bool to a number)",
-        "An absolute stock write is replaced by a decrement, or justified in writing"
+        "DONE: the POS sale cannot write a product the caller's store does not own -- the product is resolved store-scoped and a line that does not resolve is skipped and logged",
+        "DONE: both session feeders resolve products store-scoped -- addToCart (:3014) and updateCart (:3351), each with its own test and its own mutant",
+        "DONE: updateCart bounds its quantity -- the guard compared isset() (a bool) to the quantity and so could never fire; it now compares the value",
+        "DONE: the absolute stock write is replaced by a decrement, through the existing App\\Services\\ProductStockService rather than a second engine"
       ],
       "tests": [
-        "Negative: a seeded foreign product cannot be sold through POS",
-        "Negative: an unbounded updateCart quantity is refused",
-        "Positive: an ordinary POS sale still decrements correctly"
+        "tests/Feature/Security/PosStockIntegrityTest.php -- 6 tests / 18 assertions, new",
+        "Positive control: an ordinary own-store POS sale still decrements and still writes its order (\"POS must keep working for merchants who use it\")",
+        "FIVE MUTANTS, each failing ONLY its own limb: drop the sale's store predicate; restore the absolute write; unscope addToCart; restore the dead bool comparison; unscope updateCart",
+        "Blast radius: Security 3635 passed / 4 skipped, then Security + Commerce 4094 passed / 11 skipped on the committed tree",
+        "tests/Support/Security/bin/verify-stock-oversell-concurrency-on-mysql.php -- 12 checks, 0 failures on MySQL 8.0.46, run on THIS tree: the decrement blocks on the row lock rather than deciding on a stale read, its predicate is re-evaluated against the committed value, ten callers against five units land exactly at zero, the read-modify-write it replaced DOES oversell, and a backorder product still reaches -1"
       ],
       "compatibility": "POS must keep working for merchants who use it.",
       "db": "None.",
-      "evidence": "S37-3; PosController.php:205, ProductController.php:2597 and updateCart",
+      "evidence": "DONE 2026-10-23, commits f91e4b8d and eaa53d97. PROMOTED FROM BACKLOG: the row held this at BACKLOG for one stated reason -- \"depends on P1-INV-01: both change ProductController, and the directive forbids two agents editing the same working file\" -- and P1-INV-01 is DONE (#27, f522feaf), so that reason had lapsed. The owner's directive names POS stock integrity among the BACKLOG items to promote. FIVE DEFECTS ACROSS THREE HANDLERS, each independent and each with its own mutant. PosController::store(), in the two lines that did the stock arithmetic: (1) NO STORE PREDICATE -- `Product` is not in config/tenancy.php's `scoped_models`, so `where('id', ...)` reached every tenant's catalogue; measured, a POS session holding store B's product moved B's product_stock 50 -> 49 from store A's till. (2) AN ABSOLUTE WRITE, NOT A DECREMENT, and this is the one that loses money silently because nothing errors: `originalquantity` is captured into the session when the line is added and never re-read, so the write OVERWROTE current stock from a snapshot. Measured: stock 50 at add-time, other sales take it to 30, the till sells 1 -- the correct answer is 29 and it stored 49, INVENTING twenty units that had already been sold. Two tills selling the same product clobber each other identically. ProductController::addToCart() (:3014): (3) `Product::find($id)`, unscoped -- the feeder that put a foreign product into a till's session in the first place. ProductController::updateCart(): (4) THE STOCK BOUND COULD NEVER FIRE. It read `isset($cart[$id][\"originalquantity\"]) < $cart[$id]['quantity']`; `isset()` yields a BOOL and PHP 8 compares bool-to-int by casting the INT to bool, so for every positive quantity the test is `true < true` -- false. CONFIRMED BY EXECUTION, not by reading: with originalquantity 5 and quantity 999 the shipped expression returns false and the intended one true. The cart therefore accepted ANY quantity, which mattered MORE once the sale became a real decrement -- the posted quantity is what leaves the shelf, so 999 against a stock of 5 takes recorded stock to -994. (5) the same unscoped resolve as addToCart, in a second handler. BOTH ENDS ARE GUARDED, deliberately: guarding only the sale leaves the foreign row in the cart, priced and displayed to the cashier; guarding only the feeders leaves the sale trusting whatever a session already holds. THE DECREMENT REUSES App\\Services\\ProductStockService, whose single conditional UPDATE is atomic in the database -- no second stock engine, the same reason the order path uses it. `allowOversell: true` is deliberate and is what a till MEANS: the goods are physically leaving the shop as the sale is rung up, so refusing the write would not put them back, only make recorded stock disagree with the shelf; the service logs a critical when that takes stock below zero on a product that forbids overselling. THREE PROCESS FAILURES OF MINE, recorded because two are reusable lessons. (a) The addToCart test PASSED VACUOUSLY at first on a guessed route path -- Laravel's missing-route 404 satisfied `assertNotSame(200, ...)`, so it passed against entirely unfixed code (failure mode 2 in the project skill). (b) THE OBVIOUS REPAIR WAS ALSO WRONG, and this is the part the skill does not yet record: asserting `!== 404` fails against a WORKING fix, because these handlers' own refusals are 404. The two are separable only by shape -- JSON carrying `status: 'Error'` versus Laravel's HTML. I hit this three times in one file and only found it by probing the real body, which showed the handler correctly answering \"This product is out of stock!\" behind an assertion that could not see it. (c) A FULL FEATURE GATE WAS DISCARDED rather than relied on: it was running on f91e4b8d when the updateCart edits landed, so it was stopped mid-run -- its result would have described a tree that no longer existed. ALSO CORRECTED: a contamination check of mine reported a FALSE POSITIVE. `git ls-files` omits untracked files, so a tracked-content hash taken before `git add` of a NEW file cannot be compared with one taken after -- the file set grew. Proven by recomputing with that file excluded (identical) rather than waved away. That check is only valid when the file set is unchanged.",
       "queue_refs": [
         "S37",
         "S37-3"
       ],
       "owner_decision": false,
-      "blocked_on": null
+      "blocked_on": ""
     },
     {
       "id": "P1-INV-04",

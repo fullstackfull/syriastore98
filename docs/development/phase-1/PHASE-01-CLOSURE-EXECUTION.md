@@ -532,6 +532,42 @@ itself (raw, since `Product` is `Cachable`) rather than inferring it from the ca
 failure reads "the cascade fired"; and `CATEGORY_TYPE` is pinned to `App\Models\Category::class`, so
 a rename fails saying "D13 is unhooked" instead of only failing the whole-map comparison.
 
+### P1-INV-03 · POS stock integrity — promoted from BACKLOG and closed
+
+**Promoted because its stated blocker had lapsed.** The row read: *"depends on P1-INV-01: both
+change ProductController, and the directive forbids two agents editing the same working file."*
+P1-INV-01 is DONE (#27, `f522feaf`). The directive names POS stock integrity among the BACKLOG
+items to promote.
+
+**Five defects across three handlers**, each independent and each with its own mutant. Two in
+`PosController::store()`: no store predicate (`Product` is not in `scoped_models`, so a till moved
+store B's stock 50 → 49) and an **absolute write** rather than a decrement. Three in
+`ProductController`: `addToCart` unscoped, `updateCart` unscoped, and a stock bound that **could
+never fire**.
+
+**The absolute write is the one that loses money quietly.** `originalquantity` is captured into the
+session when a line is added and never re-read, so the write overwrote current stock from a
+snapshot: stock 50 at add-time, other sales take it to 30, the till sells 1 — correct is 29, it
+stored **49**, inventing twenty units already sold. No error. Two tills clobber each other the same
+way.
+
+**The dead bound is one character of precedence.** `isset($cart[$id]["originalquantity"]) <
+$cart[$id]['quantity']` — `isset()` yields a bool, PHP 8 casts the int side to bool, so it is
+`true < true` for every positive quantity. Confirmed by execution: shipped `false`, intended `true`.
+That mattered *more* after the decrement fix, because the posted quantity is now what leaves the
+shelf — 999 against a stock of 5 takes recorded stock to −994.
+
+**The decrement reuses `ProductStockService`** rather than adding a second stock engine, with
+`allowOversell: true` because a till means the goods are already leaving the shop.
+
+**Verified on the real engine, not from a docblock.** I had described the decrement as "atomic in
+the database" on the strength of the service's own documentation; that is now measured.
+`verify-stock-oversell-concurrency-on-mysql.php` — **12 checks, 0 failures on MySQL 8.0.46**:
+the second transaction blocks on the row lock (error 1205), its predicate is re-evaluated against
+the committed value, ten callers against five units land exactly at zero, **the read-modify-write it
+replaced does oversell here**, and a backorder product still reaches −1 so that behaviour was not
+silently removed.
+
 ---
 
 ## 8. Verification state
@@ -549,7 +585,9 @@ claim was wrong and the correction is noted.
 | Guards + contrast | 4 guards, exit 0 |
 | **Secret scan** | **exit 0 over 351 changed files, with the PR's real base ref** |
 | **MySQL (8.0.46)** | **runner green; + 18 new checks for store-slug identity** |
-| Mutation | 34 mutants, 34 bite (24 + the 10 of P1-INV-12 / D13) |
+| Mutation | **45 mutants, 45 bite** (24 + 10 for P1-INV-12/D13 + 6 for P1-ORD-11/D3 + 5 for P1-INV-03) |
+| **MySQL 8.0.46, this session** | cascade verifier **6 checks / 0 failures**; stock-oversell concurrency **12 checks / 0 failures**, including the removal check showing the replaced read-modify-write DOES oversell |
+| **CI** | green on every head pushed this session: `c53cb55b`, `92244cfc`, `1d5d4eed`, `91ea82a4`, `f91e4b8d`, `eaa53d97` |
 | **A gate that FAILED and was not worked around** | the first full run on `1b386890` returned **exit 1, four undeclared failures** — the raw-query inventories catching three new store-less counts. Declared with reasons, with a new two-directional declaration ratchet; **nothing added to `.github/known-test-outcomes.json`** |
 
 ### Corrections this session, kept visible on purpose
