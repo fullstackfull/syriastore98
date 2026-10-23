@@ -135,6 +135,35 @@
                 margin-top: 5mm;
             }
 
+            /*
+               P1-SEC-11 criterion 4. THIS DOCUMENT NOW DECLARES A DIRECTION AND HAD NO RULES KEYED ON
+               ONE -- found by the read-only review of the first cut, which is the right finding: giving
+               a template `dir="rtl"` without mirroring its own floats leaves a HALF-FLIPPED document,
+               base text direction reversed while every float and text-align stays left-oriented. That
+               is worse than the LTR-only layout it replaced, not better.
+
+               Each rule below mirrors one authored LTR rule in this same stylesheet and nothing else:
+               `.clientlogo` floats left (:91), `.title` floats right (:104) and `.title p` is
+               right-aligned (:108). `.info` sets `margin-left: 0` (:100), which is already
+               direction-neutral and so is not restated. Table cells are not restated either: this
+               document, unlike the shipping label, sets no `text-align` on them, so they inherit the
+               direction and flip on their own.
+
+               Scoped to `#invoice-POS` like every other rule here, so nothing outside this document
+               can be reached.
+            */
+            html[dir="rtl"] #invoice-POS .clientlogo {
+                float: right;
+            }
+
+            html[dir="rtl"] #invoice-POS .title {
+                float: left;
+            }
+
+            html[dir="rtl"] #invoice-POS .title p {
+                text-align: left;
+            }
+
             @media print {
                 /*#invoice-POS {transform: scale(2);}*/
                 /*@page  {*/

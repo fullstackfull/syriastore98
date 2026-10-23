@@ -413,6 +413,25 @@ if (! missing('stores')) {
         $flagOn = strtolower(trim((string) ($flagRow ?? 'off'))) === 'on';
         $languageIsRtl = in_array($language, $rtlCodes, true);
 
+        /*
+         * ASKED OF THE SERVICE THE DOCUMENTS THEMSELVES USE, not only of the columns.
+         *
+         * The first cut of this section counted in raw SQL and left
+         * `DocumentDirection::languageDisagreesWithFlag()` with NO CALLER AT ALL while its own docblock
+         * said "it is what the diagnostic script counts" -- found by the read-only review. Worse, the
+         * two would have DISAGREED for exactly the stores with no SITE_RTL row, because the service
+         * then resolved that case through the VIEWER'S store. That is fixed, so the two now agree, and
+         * asking both is what keeps them agreeing: a divergence here means the service drifted from
+         * the columns and is a finding, not a formatting difference.
+         */
+        $serviceSaysDisagree = \App\Services\DocumentDirection::languageDisagreesWithFlag($store->id);
+
+        if ($serviceSaysDisagree !== ($languageIsRtl !== $flagOn)) {
+            printf("    store %-6s : WARNING -- DocumentDirection and this script's own columns disagree "
+                . "(service says %s). Read both before trusting either.\n",
+                (string) $store->id, $serviceSaysDisagree ? 'disagree' : 'agree');
+        }
+
         if ($languageIsRtl === $flagOn) {
             $agree++;
             continue;

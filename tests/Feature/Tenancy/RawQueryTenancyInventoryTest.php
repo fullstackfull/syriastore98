@@ -246,7 +246,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // store's and this shopper's by `ownedOrder()` immediately above the check. Raw rather than Eloquent because
         // `OrderRefund` is Cachable (app/Models/OrderRefund.php:12) and a cached read could miss a row written
         // moments earlier and admit the duplicate this refuses.
-        $this->assertSame(['app' => 141, 'packages' => 45], $perDir,
+        $this->assertSame(['app' => 142, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -257,7 +257,14 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // 181 -> 184: the three D13 category-delete product counts (see the note on the per-directory assertion above)
         // 184 -> 185 with the API path's missing child-category guard, which DOES carry a store_id predicate
         // 185 -> 186 with the D3 duplicate-refund check (see the note on the per-directory assertion above)
-        $this->assertSame(186, array_sum($perDir));
+        // 186 -> 187 with P1-SEC-11 criterion 4's review follow-up: DocumentDirection::ownRow() reads one
+        // `settings` row of the ORDER'S store directly, WITH a store_id predicate. Raw and not Eloquent
+        // for a measured reason -- `Utility::GetValueByName($name, $storeId)` falls through on a miss to
+        // `Utility::Setting()`, which IGNORES its store id argument whenever Auth::check() is true and
+        // reads the VIEWER's store, so an order document took the reader's logo and direction for any
+        // store with no row of its own. The per-table row for `settings` moves 16 -> 17 and its
+        // no-store_id column does NOT.
+        $this->assertSame(187, array_sum($perDir));
     }
 
     /**
@@ -370,7 +377,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // tests/Support/Security/bin/verify-category-product-cascade-on-mysql.php (6 checks, 0 failures) and by
             // mutant B of the removal check. None of the three returns rows -- each is a COUNT read only to refuse.
             'products' => [5, 3],    // 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own
-            'settings' => [16, 5],   // 15 -> 16 with P1-SEC-11 (OrderController::shippinglabel reads the order store's five address rows, WITH a store_id predicate); earlier: 15 -> 16 with P1-SEC-27 (StoreSettingsAccess::storedRows, WITH a store_id predicate); 16 -> 15 and 9 -> 5 with P1-SEC-29 (HostClaims)
+            'settings' => [17, 5],   // 16 -> 17 with P1-SEC-11 criterion 4's review follow-up (DocumentDirection::ownRow reads the ORDER store's SITE_RTL and invoice_logo rows, WITH a store_id predicate -- see the entry-point note above for why it cannot go through GetValueByName); 15 -> 16 with P1-SEC-11 (OrderController::shippinglabel reads the order store's five address rows, WITH a store_id predicate); earlier: 15 -> 16 with P1-SEC-27 (StoreSettingsAccess::storedRows, WITH a store_id predicate); 16 -> 15 and 9 -> 5 with P1-SEC-29 (HostClaims)
             'shetabit_visits' => [16, 0],
             'side_menus_option' => [28, 0],
             'store_devices' => [2, 1],
@@ -449,8 +456,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // 153 -> 156 with the three D13 category-delete product counts, which all name `products` literally
         // 156 -> 157 with the API child-category guard, which names `categories` literally
         // 157 -> 158 with the D3 duplicate-refund check, which names `order_refunds` literally
-        $this->assertSame(158, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '158 literal-table sites of the 186 entry points; the other 28 build their table name '
+        // 158 -> 159 with P1-SEC-11 criterion 4's review follow-up (DocumentDirection::ownRow, which names
+        // `settings` literally and carries a store_id predicate, so the unscoped sum below does not move).
+        $this->assertSame(159, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            '159 literal-table sites of the 187 entry points; the other 28 build their table name '
             . 'from a variable and so cannot be attributed (see LIMIT 2 in this class docblock).');
         // 66 -> 71: +9 (campaigns 1, helpdesk_tickets 1, email_templates 1, user_email_templates 1, order_refunds 1, stores 2, plus the Duo/credential reads) and -2 (zid_orders)
         // 71 -> 73: of the five new sites only the two `stores` slug resolutions carry no `store_id` in their statement

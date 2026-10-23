@@ -137,14 +137,96 @@ guard could not have been written as a blanket `local`.
 
 ---
 
+## 3a. What the read-only review then found in the fix itself
+
+The first cut of all of the above passed the mandatory gate and twelve removal checks, and **it was
+still wrong** — found by the project's `tenant-authz-reviewer` on the committed tree
+(`da38f34e`), measured here before being believed, and fixed in the follow-up commit. It is recorded
+in full because the mechanism is reusable and the fix looked complete.
+
+### The defect: `GetValueByName($name, $storeId)` is not store-safe
+
+Passing the order's store id to `Utility::GetValueByName()` is not enough:
+
+- its **primary** read is correctly `where('store_id', $storeId)` (`app/Models/Utility.php:214-220`),
+  but
+- on a **miss** it falls through to `Utility::Setting($store_id)` (`:228`), and
+- **`Utility::Setting()` ignores its own `$store_id` argument whenever `Auth::check()` is true**
+  (`:139-141`) — it reads `getCurrentStore()`, **the viewer's store**.
+
+So §2's fix held only for a store that *has* a row of the name being read. And `invoice_logo` is
+**never seeded**: `defaultSetting()` seeds `SITE_RTL` and not it, and the only writers are the
+merchant's own App Settings upload and the admin API. **"No row" is therefore the default state of
+every merchant store that has not uploaded a logo** — the common case, not an edge one.
+
+Measured, operator viewing a merchant's receipt with the merchant's two rows absent:
+
+```
+order store 2 rows: []
+OPERATOR-LOGO present on the merchant store receipt: YES  <-- the defect survives
+dir = rtl  (the order's store has no SITE_RTL row; the operator's is 'on')
+```
+
+Worse than the review reported: **the direction fell back too**, so a store with no flag at all was
+laid out right-to-left because the person printing the document read right-to-left.
+
+**Why no test saw it, and it is the fifth recorded way a test passes for the wrong reason:** the
+fixture of every §2 test *inserts both rows for the order's store*, so they exercised the primary
+read only. The one test that did construct the no-row state made the order's **own merchant** the
+viewer, so viewer store and order store were the same row.
+
+**The fix** is `DocumentDirection::ownRow()` — read the `settings` row directly, the same shape
+`shippinglabel()` already used for the five address names, with a strict `FILTER_VALIDATE_INT` on
+the store id. It is deliberately **not** a repair of `GetValueByName()`: `Utility::Setting()`'s
+viewer-store behaviour is read by almost every handler, and `config/tenancy.php:60-63` records two
+storefront outages shipped by changing a helper that central. The general question is P1-SEC-26's.
+
+### Four more, all acted on
+
+- **The receipt declared a direction it had no rules for.** `dir="rtl"` with no `html[dir="rtl"]`
+  block, so its base text direction reversed while its three authored floats and text alignments
+  stayed left-oriented — a **half-flipped** document, worse than the left-to-right one it replaced.
+  Three mirrored rules added, each mirroring one authored rule, scoped to `#invoice-POS`.
+- **`localeFor()`'s fallback was the viewer's locale.** `app()->getLocale()` is whatever the
+  *reader's* request resolved. Now `app.fallback_locale`. **`config('app.locale')` is not a way round
+  it** and the first repair used it: `Application::setLocale()` *writes* that key, so the two are the
+  same value at runtime — measured, and caught as an equivalent mutant rather than shipped.
+- **`languageDisagreesWithFlag()` had no caller** while its own docblock said the diagnostic script
+  counted with it; the script re-implemented the count in raw SQL, and the two would have *disagreed*
+  for exactly the no-row stores. The script now asks both and reports a divergence as a finding.
+- **The test helper did not flush the `Cachable` `Setting` cache** while its sibling, written in the
+  same change, did. No false reading was measured; the inconsistency is the kind that bites later.
+
+### And one finding was answered rather than acted on
+
+`get_file()` picks its storage disk from the **platform super admin's** `current_store` settings, so
+the logo's *URL* is resolved with operator storage configuration even though its *path* is now the
+order's store's. That is global to every `get_file()` caller, pre-existing, and not introduced here —
+recorded so this change is not read as making the logo fully store-derived.
+
+**Nine findings reviewed, none blocking, five acted on.** The reviewer also verified and recorded
+useful negatives: `$orderStore` is order-derived in both handlers; no caller-supplied value can reach
+the service (`getRouteStoreId()` returns null on both routes, which have no `{slug}`); reading another
+store's `default_language` is the *intended* operator read, not a leak, and must not be refused; both
+outputs are escaped `{{ }}` so a stored `en" dir="rtl` cannot break the attribute; the `==` → `===`
+change in `get_file()` is behaviour-preserving for every value the settings screen can write; and the
+guard accepts a strict superset of the payloads the controller accepts, so no payload reaches the
+handler against a different order than the one authorised.
+
+---
+
 ## 4. What was executed
 
 ```
-php artisan test tests/Feature/Security/ShippingLabelStoreSettingsTest.php     11 passed (58 assertions)
+php artisan test tests/Feature/Security/ShippingLabelStoreSettingsTest.php     16 passed (88 assertions)
 php artisan test tests/Feature/Security/StoredFileUrlResolutionTest.php          8 passed (12 assertions)
 ```
 
-**Removal checks — 12 mutants, 12 bite.** `docs/development/phase-1/tools/mutation-harness.py`:
+**Removal checks — 23 mutants in two rounds, 23 bite.** `docs/development/phase-1/tools/mutation-harness.py`.
+Round one (the twelve below) ran against the first cut; round two (eleven more, §3a) against the
+review-driven fix, where `R1` is the review's own defect, `R5`/`R6`/`R8` were survivors closed with a
+named test, and one survivor — a redundant `$default` parameter on `ownRow()` — was **removed as
+equivalent code** rather than excused:
 
 | | mutant | outcome |
 |---|---|---|

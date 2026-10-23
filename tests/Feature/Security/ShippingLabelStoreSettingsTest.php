@@ -30,6 +30,12 @@ class ShippingLabelStoreSettingsTest extends SecurityTestCase
     private function setting(int $storeId, int $createdBy, string $name, string $value): void
     {
         DB::table('settings')->insert(['name' => $name, 'value' => $value, 'store_id' => $storeId, 'created_by' => $createdBy, 'created_at' => now(), 'updated_at' => now()]);
+        // `Setting` is Cachable, so a raw write leaves an earlier Eloquent read serving the pre-write
+        // answer for the rest of the test. No false reading was measured here -- the reads all happen
+        // after the inserts -- but this is the project's recorded false-reading mechanism and the
+        // sibling file (StoredFileUrlResolutionTest) already flushes, so the two agree rather than
+        // leaving the difference for someone to discover.
+        (new \App\Models\Setting)->flushCache();
     }
 
     private function address(int $storeId, int $createdBy, string $tag): void
@@ -138,6 +144,69 @@ class ShippingLabelStoreSettingsTest extends SecurityTestCase
     }
 
     /**
+     * AND SO CAN THE RECEIPT'S, which is a separate claim and was a separate defect.
+     *
+     * The first cut of this change gave the receipt `dir` and the receipt had NO rules keyed on one --
+     * found by the read-only review. Declaring a direction a template has no rules for leaves a
+     * HALF-FLIPPED document: base text direction reversed while every authored float and text-align
+     * stays left-oriented. That is worse than the left-to-right-only layout it replaced.
+     *
+     * So the generalisation is asserted over BOTH documents rather than for the label alone, which is
+     * the form that would have caught it: a template that emits `dir` must carry rules that `dir` can
+     * select. Each of the receipt's three rules mirrors one authored LTR rule in its own stylesheet.
+     */
+    public function test_every_order_document_that_declares_a_direction_carries_rules_keyed_on_it(): void
+    {
+        [$merchant, , $order] = $this->storeReadingRightToLeft('RULESTORE', 'on', 'ar');
+
+        /*
+         * THE MIRROR COUNT IS NAMED PER DOCUMENT, and that is a repair rather than a weakening.
+         *
+         * The first cut asserted only that `html[dir="rtl"]` appeared somewhere in the body, and a
+         * removal check recorded it SURVIVING: deleting ONE of the receipt's three rules left the other
+         * two carrying the string. A `>= 2` threshold survived the same mutant for the same reason. The
+         * project's own census idiom is the one that bites -- state the number, and say to look at the
+         * document rather than edit the number -- so that is what this does.
+         *
+         * The counts differ legitimately: the label mirrors with two broad selectors (a table-cell rule
+         * and a `.text-right` flip) where the receipt needs one per authored float.
+         */
+        $expectedMirrors = ['label' => 2, 'receipt' => 3];
+
+        $documents = [
+            'label' => $this->label($merchant, $order),
+            'receipt' => $this->receipt($merchant, $order),
+        ];
+
+        foreach ($documents as $what => $response) {
+            $body = (string) $response->getContent();
+
+            $this->assertSame('rtl', $this->direction($body), "Premise: the {$what} declares a direction.");
+
+            $this->assertGreaterThan(0,
+                preg_match_all('/\\b(?:float|text-align)\\s*:\\s*(?:left|right)\\b/i', $body),
+                "Premise: the {$what} authors at least one direction-sensitive declaration, so mirroring "
+                . 'it is a real requirement rather than a vacuous one.');
+
+            $mirrored = preg_match_all(
+                '/html\\[dir="rtl"\\][^{]*\\{[^}]*\\b(?:float|text-align)\\s*:\\s*(?:left|right)\\b/is',
+                $body
+            );
+
+            $this->assertSame($expectedMirrors[$what], $mirrored,
+                "the {$what} declares dir=\"rtl\" and mirrors {$mirrored} direction-sensitive declarations "
+                . "where it carried {$expectedMirrors[$what]}. FEWER means a float or a text alignment now "
+                . 'stays left-oriented while the text direction reverses -- a half-flipped document, which '
+                . 'is worse than the left-to-right one it replaced. MORE means a rule was added: look at '
+                . 'the document in both directions rather than changing this number.');
+        }
+
+        $this->assertSame(array_keys($expectedMirrors), array_keys($documents),
+            'both host order documents are covered. A third would need its own right-to-left rules '
+            . 'before it may emit the attribute.');
+    }
+
+    /**
      * THE LOGO IS THE ORDER'S STORE'S -- criterion 1's remainder, found while doing criterion 4.
      *
      * Both views fetched `GetValueByName('invoice_logo')` with NO store id, which resolves
@@ -201,6 +270,89 @@ class ShippingLabelStoreSettingsTest extends SecurityTestCase
     }
 
     /**
+     * AND THE REAL DEFECT WAS ONE LAYER DOWN -- `GetValueByName($name, $storeId)` IS NOT STORE-SAFE.
+     *
+     * Found by the read-only tenancy review of the first cut of this fix, and MEASURED before being
+     * believed. Passing the order's store id to `Utility::GetValueByName()` is not enough:
+     *
+     *   * its PRIMARY read is correctly `where('store_id', $storeId)` (Utility.php:214-220), but
+     *   * on a MISS it falls through to `Utility::Setting($store_id)` (:228), and
+     *   * `Utility::Setting()` IGNORES its own `$store_id` argument whenever `Auth::check()` is true
+     *     (:139-141) -- it reads `getCurrentStore()`, THE VIEWER'S STORE.
+     *
+     * So the fix held only for a store that HAS a row of that name. And `invoice_logo` is NEVER
+     * SEEDED: `defaultSetting()` seeds SITE_RTL and not it, and the only writers are the merchant's
+     * own App Settings upload and the admin API -- so "no row" is the DEFAULT STATE of every
+     * merchant store that never uploaded a logo, i.e. the common case rather than an edge one.
+     *
+     * MEASURED on that state, operator viewing a merchant's receipt: `OPERATOR-LOGO.png` present,
+     * and `dir="rtl"` taken from the OPERATOR'S flag while the order's store had no row at all.
+     * The tests above could not see it because their own fixture inserts both rows for the order's
+     * store, which is the fifth recorded way a test passes for the wrong reason: the fixture steps
+     * around the surviving case.
+     *
+     * Both names are therefore read from the `settings` table DIRECTLY now, with the documented
+     * defaults -- the same shape `shippinglabel()` already uses for the five address names.
+     */
+    public function test_a_store_with_no_logo_row_does_not_fall_back_to_the_viewers_logo(): void
+    {
+        [$operator, , $order] = $this->operatorViewingAStoreWithNoRowsOfItsOwn();
+
+        foreach (['label' => $this->label($operator, $order), 'receipt' => $this->receipt($operator, $order)] as $what => $response) {
+            $body = (string) $response->getContent();
+
+            $this->assertSame(200, $response->getStatusCode(), "the {$what} did not render");
+            $this->assertStringNotContainsString('OPERATOR-LOGO.png', $body,
+                "the {$what} printed the VIEWER's logo on a store whose own invoice_logo row is absent -- "
+                . 'GetValueByName() falls through to Utility::Setting(), which ignores its store id');
+        }
+    }
+
+    public function test_a_store_with_no_direction_row_does_not_inherit_the_viewers_direction(): void
+    {
+        [$operator, , $order] = $this->operatorViewingAStoreWithNoRowsOfItsOwn();
+
+        foreach (['label' => $this->label($operator, $order), 'receipt' => $this->receipt($operator, $order)] as $what => $response) {
+            $body = (string) $response->getContent();
+
+            $this->assertSame(200, $response->getStatusCode(), "the {$what} did not render");
+            $this->assertSame('ltr', $this->direction($body),
+                "the {$what} took the VIEWER's SITE_RTL for a store that has no such row. An absent row means "
+                . "the documented default 'off', not whatever the person printing it happens to have set");
+        }
+    }
+
+    /**
+     * The operator has both rows and reads right-to-left; the ORDER'S store has neither row.
+     *
+     * @return array{0: \App\Models\User, 1: \App\Models\Store, 2: \App\Models\Order}
+     */
+    private function operatorViewingAStoreWithNoRowsOfItsOwn(): array
+    {
+        $operator = $this->makePlatformAdmin();
+        $operatorStore = $this->makeStore($operator);
+        \App\Models\User::where('id', $operator->id)->update(['current_store' => $operatorStore->id]);
+        (new \App\Models\User)->flushCache();
+        $this->setting($operatorStore->id, $operator->id, 'invoice_logo', 'uploads/' . $operatorStore->id . '/OPERATOR-LOGO.png');
+        $this->setting($operatorStore->id, $operator->id, 'SITE_RTL', 'on');
+        $this->setting($operatorStore->id, $operator->id, 'storage_setting', 'local');
+
+        [$merchant, $store] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Show Order');
+
+        // makeTenant() goes through the store-creation path, which seeds SITE_RTL. Remove both names so
+        // the state under test is the one that actually ships: a store with no row of either.
+        DB::table('settings')->where('store_id', $store->id)->whereIn('name', ['invoice_logo', 'SITE_RTL'])->delete();
+        (new \App\Models\Setting)->flushCache();
+
+        $this->assertSame([], DB::table('settings')->where('store_id', $store->id)
+            ->whereIn('name', ['invoice_logo', 'SITE_RTL'])->pluck('value')->all(),
+            'Premise: the order\'s store has neither row, which is what makes the fallback the thing under test.');
+
+        return [$operator, $store, $this->makeOrder($store)];
+    }
+
+    /**
      * AN EXPLICITLY EMPTY `invoice_logo` ROW is the state the fallback exists for, and the one the test
      * above does NOT reach: `GetValueByName()` falls through to `Utility::Setting()`'s defaults when the row
      * is ABSENT (`invoice_logo => storage/uploads/logo/logo.png`, Utility.php:53), so a store with no row
@@ -256,6 +408,67 @@ class ShippingLabelStoreSettingsTest extends SecurityTestCase
             $this->assertStringNotContainsString('src=""', $body,
                 "the {$what} rendered an empty image source instead of the platform default");
         }
+    }
+
+    /**
+     * R5 -- A STORE ID OF 0 MUST READ NO ROW, which a removal check found untested.
+     *
+     * `$orderStore` is 0 for an order whose `store_id` is NULL, and the read-only review established
+     * that such an order is reachable by THE OPERATOR ALONE (the merchant and shopper limbs of
+     * OrderDocumentAccessGuard both fail closed on a null store). `store_id = 0` is a value rows really
+     * carry -- the P1-PLT-08 diagnostic counts `delivery_boys` rows in exactly that state -- so without
+     * the strict parse the document would be answered with store 0's settings instead of refusing.
+     *
+     * ASSERTED ON THE HALF SQLITE CAN SHOW. A `(int)` cast or a missing guard makes
+     * `where('store_id', 0)` match the row below on every engine. The OTHER half -- MySQL coercing a
+     * junk-suffix id like '5abc' to row 5 -- SQLite's affinity hides, and it is recorded in the
+     * service's own comment rather than claimed here.
+     */
+    public function test_a_document_for_a_store_id_of_zero_reads_no_settings_row(): void
+    {
+        $operator = $this->makePlatformAdmin();
+        $this->setting(0, $operator->id, 'SITE_RTL', 'on');
+        $this->setting(0, $operator->id, 'invoice_logo', 'uploads/0/ZEROSTORE-LOGO.png');
+
+        $this->assertFalse(\App\Services\DocumentDirection::isRtl(0),
+            'a store id of 0 read store 0\'s SITE_RTL row instead of refusing');
+        $this->assertStringNotContainsString('ZEROSTORE-LOGO', \App\Services\DocumentDirection::invoiceLogoFor(0),
+            'a store id of 0 read store 0\'s invoice_logo row instead of refusing');
+
+        foreach (['', null, 'abc', -1] as $unusable) {
+            $this->assertFalse(\App\Services\DocumentDirection::isRtl($unusable),
+                'an unusable store id (' . var_export($unusable, true) . ') resolved a direction');
+        }
+    }
+
+    /**
+     * R6 -- THE LANGUAGE FALLBACK IS THE PLATFORM'S, NOT THE READER'S, which a removal check found
+     * untested because the two are equal in a default test run.
+     *
+     * `stores.default_language` is nullable with no default, so a store that never set one needs a
+     * fallback. `app()->getLocale()` is whatever the VIEWER'S request resolved through
+     * `themelanguage`/`SetLocate` -- so the document would declare the language of whoever printed it,
+     * which is the same viewer-derived answer the logo and the direction were just fixed to stop
+     * giving. Driven with the runtime locale set away from the configured one, so only one of the two
+     * can satisfy it.
+     */
+    public function test_a_store_with_no_language_declares_the_platform_default_not_the_viewers_locale(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $this->grantPermission($merchant, 'Show Order');
+        DB::table('stores')->where('id', $store->id)->update(['default_language' => null]);
+        $order = $this->makeOrder($store);
+
+        config(['app.locale' => 'en']);
+        app()->setLocale('fr');                      // the VIEWER's language, and nothing to do with the store
+
+        $this->assertSame('en', \App\Services\DocumentDirection::localeFor($store->id),
+            "a store with no language of its own declared the VIEWER's locale");
+
+        $body = (string) $this->label($merchant, $order)->getContent();
+
+        $this->assertNotSame('fr', $this->language($body),
+            "the label declared the VIEWER's language for a store that has none of its own");
     }
 
     /**
@@ -342,6 +555,10 @@ class ShippingLabelStoreSettingsTest extends SecurityTestCase
         $other = $this->makeStore($merchant);
         $this->address($current->id, $merchant->id, 'CURRENTSTORE');
         $this->address($other->id, $merchant->id, 'ORDERSTORE');
+        $this->setting($current->id, $merchant->id, 'invoice_logo', 'uploads/' . $current->id . '/CURRENTSTORE-LOGO.png');
+        $this->setting($current->id, $merchant->id, 'SITE_RTL', 'on');
+        DB::table('settings')->where('store_id', $other->id)->whereIn('name', ['invoice_logo', 'SITE_RTL'])->delete();
+        (new \App\Models\Setting)->flushCache();
         $order = $this->makeOrder($other);
         $this->actingAs($merchant->fresh());
         Cache::forget('admin_details');
@@ -351,5 +568,21 @@ class ShippingLabelStoreSettingsTest extends SecurityTestCase
         $this->assertInstanceOf(\Illuminate\Contracts\View\View::class, $view);
         $this->assertSame('ORDERSTORE-STREET', $view->getData()['settings']['store_address']);
         $this->assertSame('ORDERSTORE-COUNTRY', $view->getData()['settings']['store_country']);
+
+        /*
+         * AND THE SAME, BY CONSTRUCTION, FOR THE TWO NAMES CRITERION 4 ADDED -- with the rows present on
+         * the VIEWER'S store and ABSENT on the order's, which is the arrangement that separates the
+         * primary read from the fallback. Reading them through `GetValueByName($name, $storeId)` passes
+         * the first two assertions in this method and fails these, because that helper's miss path
+         * resolves the viewer's store however correct its argument is.
+         */
+        $this->assertSame([], DB::table('settings')->where('store_id', $other->id)
+            ->whereIn('name', ['invoice_logo', 'SITE_RTL'])->pluck('value')->all(),
+            'Premise: the ORDER\'s store has neither row.');
+
+        $this->assertStringNotContainsString('CURRENTSTORE-LOGO', (string) $view->getData()['invoice_logo'],
+            'the handler resolved the VIEWER\'s logo for a store that has no row of its own');
+        $this->assertFalse($view->getData()['documentRtl'],
+            'the handler took the VIEWER\'s SITE_RTL for a store that has no row of its own');
     }
 }
