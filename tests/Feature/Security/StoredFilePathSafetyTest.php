@@ -412,7 +412,6 @@ class StoredFilePathSafetyTest extends SecurityTestCase
             'app/Http/Controllers/AddonController.php' => 1,           // addon installer: temp tree it just created
             'app/Http/Controllers/LanguageController.php' => 1,        // operator-only language file name
             'app/Http/Controllers/ModuleController.php' => 1,          // module installer: temp tree it just created
-            'app/Http/Controllers/ProductController.php' => 1,         // file_delete(): realpath() after isInsideUploadsRoot() (P1-INV-07): confined to uploads/ and to a row whose product the caller owns, but WITHOUT StoredUpload's owner-folder rule (review of c71c717e; the write-side policy now keeps image_path in the product's own folder)
             'app/Http/Controllers/SettingController.php' => 3,         // logo files: the path is a constant 'uploads/logo/<fixed name>', not a stored value
             'app/Models/Utility.php' => 3,                             // rmdir-style directory helper + the two loops that unlink ONLY what StoredUpload::resolveAll() returned
             'app/Services/StoredUpload.php' => 1,                      // THE deleter

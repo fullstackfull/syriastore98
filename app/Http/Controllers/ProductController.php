@@ -2088,32 +2088,6 @@ $Product->cost_price = $request->cost_price;
             || (int) $product->store_id !== (int) $currentStore;
     }
 
-    /**
-     * Is this path inside the application's own uploads directory?
-     *
-     * P1-INV-07. `file_delete()` passes a DATABASE STRING to `File::delete(base_path(...))`. The
-     * ownership check above is what stops another store's row being chosen, but a stored path is
-     * still untrusted input to the filesystem: a value containing `..` would resolve outside the
-     * uploads tree, and `File::delete()` would follow it. Ownership and path safety are two
-     * different questions and the owner's instruction asks for both.
-     *
-     * `realpath()` resolves `..` and symlinks before the comparison, and returns false for a path
-     * that does not exist -- so a missing file is "not inside" and simply is not unlinked. The
-     * trailing separator on the root matters: without it, `/app/uploads-evil` would pass a plain
-     * prefix test against `/app/uploads`.
-     */
-    private function isInsideUploadsRoot(string $absolutePath): bool
-    {
-        $root = realpath(base_path('uploads'));
-        $real = realpath($absolutePath);
-
-        if ($root === false || $real === false) {
-            return false;
-        }
-
-        return $real === $root || str_starts_with($real, $root . DIRECTORY_SEPARATOR);
-    }
-
     public function file_delete($id)
     {
         /*
@@ -2178,21 +2152,40 @@ $Product->cost_price = $request->cost_price;
             }
 
             /*
-             * AND THE PATH MUST BE INSIDE THE UPLOADS TREE. `image_path` is a database string
+             * AND THE PATH GOES THROUGH THE ONE SHARED DELETER. `image_path` is a database string
              * handed to the filesystem; ownership says WHOSE row this is, not WHERE the string
-             * points. A path containing `..` would resolve outside the uploads directory and
-             * `File::delete()` would follow it. See isInsideUploadsRoot(): a path that does not
-             * resolve, or resolves outside, is not unlinked -- the row is still removed, which is
-             * the user's actual intent, and nothing outside `uploads/` is ever touched.
+             * points.
+             *
+             * P1-INV-09 acceptance criterion 1: a single shared containment helper is the only
+             * thing that authorises an unlink of a stored media path. This site used to carry its
+             * OWN containment -- a private `isInsideUploadsRoot()` plus `File::delete(realpath())`
+             * -- and `StoredFilePathSafetyTest`'s census listed it as the one exemption, with the
+             * reason that it is "confined to uploads/ and to a row whose product the caller owns,
+             * but WITHOUT StoredUpload's owner-folder rule". That is the whole of the gap: two
+             * implementations of one control, and the weaker of them leaning on the WRITE-side
+             * policy to supply the property it lacks. One layer standing in for another is what
+             * this project's own rule refuses -- never let one check be the only one -- so the
+             * second implementation is gone and this path now gets rule 3, the owner-folder
+             * check, as well.
+             *
+             * `creatorId()` is the right owner to ask with: the caller has already been proved to
+             * own the product above, `creatorId()` resolves a staff user to their merchant, and
+             * StoredUpload exempts the platform operator by `users.type`. Nothing is CHARGED
+             * here, so this is not the "which user is debited" question P1-INV-25 answered
+             * differently.
+             *
+             * A path that does not resolve, resolves outside uploads/, or names another tenant's
+             * folder is not unlinked -- and the row is still removed, which is the user's actual
+             * intent and what P1-INV-07 established: a bad stored value cannot make an image
+             * undeletable.
              */
-            $absolute = base_path((string) $product_img_id->image_path);
-
-            if ($this->isInsideUploadsRoot($absolute)) {
-                File::delete(realpath($absolute));
-            } elseif (! empty($product_img_id->image_path)) {
+            if (! \App\Services\StoredUpload::delete((string) $product_img_id->image_path, \Auth::user()->creatorId())
+                && ! empty($product_img_id->image_path)) {
                 \Illuminate\Support\Facades\Log::warning(
-                    'product image row deleted but the file was not unlinked: the stored path is'
-                    . ' outside the uploads directory',
+                    'product image row deleted but the file was not unlinked: StoredUpload refused'
+                    . ' the stored path -- it does not resolve, is outside uploads/, or names'
+                    . " another tenant's folder",
+
                     [
                         'image_id' => $product_img_id->id,
                         'image_path' => (string) $product_img_id->image_path,

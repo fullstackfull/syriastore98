@@ -439,6 +439,60 @@ class MerchantProductOwnershipTest extends SecurityTestCase
     }
 
     /** A MERCHANT CANNOT DELETE ANOTHER STORE'S VARIANT — or the stock it carries. */
+    /**
+     * AND A PATH NAMING ANOTHER TENANT'S FOLDER IS NOT FOLLOWED EITHER -- the property P1-INV-09
+     * added to this route and the one its old containment did not have.
+     *
+     * `file_delete()` used to carry its own containment: a private `isInsideUploadsRoot()` plus
+     * `File::delete(realpath(...))`. That refused a path LEAVING uploads/ and nothing else, so a
+     * row whose `image_path` names `uploads/<another store id>/<their file>` -- which never leaves
+     * uploads/ and needs no `..` -- was unlinked. `StoredFilePathSafetyTest`'s census recorded the
+     * exemption and leaned on the WRITE-side policy to keep `image_path` in the product's own
+     * folder. The write side is a real control, but it is a DIFFERENT control: a legacy row, a row
+     * written before that policy, or a row written by a vendored importer is not covered by it.
+     *
+     * The route now goes through `StoredUpload::delete()`, whose rule 3 asks whether the folder
+     * belongs to a store this owner runs. There is NO traversal in this fixture, which is the
+     * point: the old guard said yes to it.
+     */
+    public function test_an_image_path_naming_another_tenants_folder_is_not_unlinked(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Edit Products');
+
+        $own = $this->productIn($storeA, 'own-foreign-folder', 50);
+
+        // Store B's real upload, in store B's own folder. No `..`, no metacharacter: a path the
+        // old containment accepted without hesitation.
+        $dirB = base_path('uploads/' . $storeB->id);
+        $dirBExisted = is_dir($dirB);
+        @mkdir($dirB, 0775, true);
+        $foreign = 'uploads/' . $storeB->id . '/victim-' . uniqid() . '.txt';
+        file_put_contents(base_path($foreign), 'store B pixels');
+        $this->scratchFiles[] = base_path($foreign);
+        if (! $dirBExisted) {
+            $this->scratchDirs[] = $dirB;
+        }
+
+        // The ROW hangs off store A's product, so the ownership check above it passes: this test
+        // isolates the PATH question, exactly as the traversal test does.
+        $imageId = DB::table('product_images')->insertGetId([
+            'product_id' => $own->id, 'image_path' => $foreign,
+            'store_id' => $storeA->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->assertFileExists(base_path($foreign), 'fixture: store B\'s file must exist before the call');
+
+        $response = $this->actingAs($merchantA)->delete('/products/' . $imageId . '/delete');
+
+        $this->assertSame(200, $response->status(),
+            'The owner\'s own row should still be removable. Body: ' . substr($response->getContent(), 0, 200));
+        $this->assertFileExists(base_path($foreign),
+            "A row on store A's product named store B's folder and store B's file was unlinked.");
+        $this->assertDatabaseMissing('product_images', ['id' => $imageId]);
+    }
+
     public function test_a_merchant_cannot_delete_another_stores_variant(): void
     {
         [$merchantA] = $this->makeTenant();
