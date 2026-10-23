@@ -583,7 +583,30 @@ class NMIPayController extends Controller
              */
             $partialPaymentDeposit = null;
 
-            if (module_is_active('PartialPayments')) {
+            /*
+             * THE CONDITION IS THE WRITE SITE'S INTENT, NOT ITS LITERAL TEXT, and the difference was a money
+             * regression this package introduced and a read-only review caught.
+             *
+             * The write site below gates on a BARE `module_is_active('PartialPayments')`. On a route that
+             * carries a slug that helper means "the STORE OWNER'S PLAN BUNDLES THE MODULE"
+             * (app/Helper/helper.php:1359-1381) -- NOT "this store turned partial payments on". For a store in
+             * that state the module does not refuse: its per-product body is skipped
+             * (PartialPaymentsController.php:562), control reaches the `else` at :660, and it returns
+             * `deposite_amount = "0.00"`. MEASURED exactly that. `is_numeric("0.00")` is true, so the resolver
+             * accepts it, `$partialPaymentDeposit` is non-null, the `??` below never fires and the order
+             * persists a total of ZERO while the card is charged the real amount.
+             *
+             * So the deposit is computed only when partial payments are actually ON for this store and a
+             * customer is signed in -- the two limbs the other four controllers already carry at both their
+             * early block and their write site. For every other store `$partialPaymentDeposit` stays null and
+             * the `??` restores the server figure, which is what the line did before this package.
+             *
+             * The guest limb matters for a second reason: `ManageDeposit()` re-reads the basket through
+             * `ApiController::cart_list()`, which refuses an unauthenticated caller, so without it every guest
+             * checkout logged "deposit recomputation failed" -- poisoning the one signal that is supposed to
+             * mean a money path could not be priced.
+             */
+            if (module_is_active('PartialPayments') && \Auth::guard('customers')->user() && (isset($settings['enable_partial_payment']) && $settings['enable_partial_payment'] == 'on')) {
                 $partialPaymentDeposit = $this->partialPaymentDeposit(
                     $request,
                     $slug,
@@ -929,12 +952,23 @@ class NMIPayController extends Controller
                  * and `$requests_data` is the stored checkout state, which `PaymentService` stores as
                  * `$request->except('attachment','payment_receipt')` -- the whole POST BODY of the
                  * checkout request. SERVER-STORED IS NOT SERVER-DERIVED: a key the shopper posts at
-                 * initiation is in the array this return reads back. MEASURED with the module active and
-                 * a 100.00 basket: a posted `cartlist_final_price=1.00` wrote an order with
-                 * `product_price = 100.00` and `final_price = 1.00`.
+                 * initiation is in the array this return reads back.
                  *
-                 * `$total_sub_price` was ALSO never assigned in this file, so the `??` limb was an
-                 * undefined variable -- an ErrorException, not a safe fallback.
+                 * WHICH INITIATION PATHS LET A CALLER CHOOSE IT -- measured on the REAL route, because the
+                 * first write-up of this package overclaimed it and a read-only review called that. `POST
+                 * {slug}/process-order`, signed in as a customer, posting `cartlist_final_price = 1.00`,
+                 * stores:
+                 *     partial payments off, plain              100.00  (the SERVER's figure)
+                 *     partial payments on,  plain               10.00  (the MODULE's deposit)
+                 *     partial payments on,  pending_payment      1.00  (THE CALLER'S OWN FIGURE)
+                 * The first two are prepareFinalRequestData() overwriting the key before the session store
+                 * (PaymentController:1802, :1826), so on those paths this repair is DEFENCE IN DEPTH rather
+                 * than a live fix. The third IS live: that method's own `else` limb (:1831) writes
+                 * `$request->payment_amount` with nothing checking it against the amount outstanding.
+                 * Pinned by tests/Feature/Commerce/PartialPaymentDepositSourceTest.php.
+                 *
+                 * UNLIKE ITS FIVE SIBLINGS this file DOES assign `$total_sub_price` (:459), so the old
+                 * `??` limb here was not an undefined variable. The defect was the posted total alone.
                  *
                  * Recomputed through the module's own server-side ManageDeposit(), with the
                  * server-derived components merged in first so neither the deposit nor its inputs can
@@ -942,7 +976,12 @@ class NMIPayController extends Controller
                  * PaymentController, which this file was missed out of. See
                  * App\Http\Controllers\Concerns\ResolvesPartialPaymentDeposit.
                  */
-                $order->final_price = $partialPaymentDeposit ?? $total_sub_price;
+                // `$final_sub_total_price` (:474) and NOT `$total_sub_price` (:459): the former is
+                // `$serverPayableAmount`, documented there as the payable the card was actually charged,
+                // and therefore the figure the pre-change `$requests_data['cartlist_final_price']` carried
+                // on this path. Using the bare cart subtotal here would quietly change the amount for every
+                // store that takes the fallback.
+                $order->final_price = $partialPaymentDeposit ?? $final_sub_total_price;
                 \Workdo\PartialPayments\app\Models\OrderPartialPayments::OrderPartialPayments($order, $slug , $request);
             }else{
                 if (module_is_active('RewardClubPoint') && isset($requests_data['club_point_is_active']) && $requests_data['club_point_is_active'] == 'on') {

@@ -826,9 +826,20 @@ class CinetPayController extends Controller
                  * and `$requests_data` is the stored checkout state, which `PaymentService` stores as
                  * `$request->except('attachment','payment_receipt')` -- the whole POST BODY of the
                  * checkout request. SERVER-STORED IS NOT SERVER-DERIVED: a key the shopper posts at
-                 * initiation is in the array this return reads back. MEASURED with the module active and
-                 * a 100.00 basket: a posted `cartlist_final_price=1.00` wrote an order with
-                 * `product_price = 100.00` and `final_price = 1.00`.
+                 * initiation is in the array this return reads back.
+                 *
+                 * WHICH INITIATION PATHS LET A CALLER CHOOSE IT -- measured on the REAL route, because the
+                 * first write-up of this package overclaimed it and a read-only review called that. `POST
+                 * {slug}/process-order`, signed in as a customer, posting `cartlist_final_price = 1.00`,
+                 * stores:
+                 *     partial payments off, plain              100.00  (the SERVER's figure)
+                 *     partial payments on,  plain               10.00  (the MODULE's deposit)
+                 *     partial payments on,  pending_payment      1.00  (THE CALLER'S OWN FIGURE)
+                 * The first two are prepareFinalRequestData() overwriting the key before the session store
+                 * (PaymentController:1802, :1826), so on those paths this repair is DEFENCE IN DEPTH rather
+                 * than a live fix. The third IS live: that method's own `else` limb (:1831) writes
+                 * `$request->payment_amount` with nothing checking it against the amount outstanding.
+                 * Pinned by tests/Feature/Commerce/PartialPaymentDepositSourceTest.php.
                  *
                  * `$total_sub_price` was ALSO never assigned in this file, so the `??` limb was an
                  * undefined variable -- an ErrorException, not a safe fallback.

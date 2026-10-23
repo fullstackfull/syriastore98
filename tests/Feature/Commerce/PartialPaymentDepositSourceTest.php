@@ -49,11 +49,6 @@ class PartialPaymentDepositSourceTest extends SecurityTestCase
 {
     use RefreshDatabase;
 
-    /** The six host gateway controllers that carry the pre-repair line, and the uri each answers on. */
-    private const RETURNS = [
-        'payu' => ['/store-payu-payment/status', 'PayUPaymentController'],
-    ];
-
     /**
      * The module, enabled through the PRODUCTION loader.
      *
@@ -331,8 +326,17 @@ class PartialPaymentDepositSourceTest extends SecurityTestCase
          * principle be some other path. Asserted in the negative because the positive -- the figure --
          * is asserted directly a few lines down, and the two together leave no third explanation.
          */
-        \Illuminate\Support\Facades\Log::shouldNotHaveReceived('error',
-            ['PartialPayments deposit recomputation failed; using the server total']);
+        /*
+         * A CLOSURE, not an argument LIST, and not `Mockery::on()` either -- `shouldNotHaveReceived()`
+         * hands its second argument to `withArgs()`, which accepts only an array or a closure. The
+         * first cut passed a one-element ARRAY, which is matched by ARITY: the real call is
+         * two-argument (message plus context), so that expectation could never match and the `never()`
+         * was satisfied vacuously -- it would have passed even if the fallback fired on every run.
+         * Found by the read-only review, and it is exactly the "assertion that cannot fail" shape.
+         */
+        \Illuminate\Support\Facades\Log::shouldNotHaveReceived('error', function ($message = null) {
+            return str_contains((string) $message, 'deposit recomputation failed');
+        });
 
         $this->assertNotSame(404, $response->getStatusCode(), 'the return route must exist');
         $this->assertSame($before + 1, (int) DB::table('orders')->count(),
@@ -422,7 +426,7 @@ class PartialPaymentDepositSourceTest extends SecurityTestCase
      *
      * `ManageDeposit()` reads `total_sub_price` OFF THE REQUEST before falling back to its own cart
      * response (`$request['total_sub_price'] ?? $response['total_sub_price']`,
-     * PartialPaymentsController:596, :604, :642). Handing it the request untouched would let the
+     * PartialPaymentsController:596, :606, :632 and :642). Handing it the request untouched would let the
      * posted figure back in THROUGH the module instead of through the controller -- the same defect
      * one level down, and invisible to every other test here.
      *
@@ -572,6 +576,271 @@ class PartialPaymentDepositSourceTest extends SecurityTestCase
         $this->assertSame('10.00', $subject->decide(['deposite_amount' => '10.00'], 100.0));
         $this->assertSame(0, $subject->decide(['deposite_amount' => 0], 100.0),
             'a genuine zero deposit is a figure, not an unreadable answer');
+    }
+
+    /**
+     * THE REGRESSION THIS PACKAGE ITSELF INTRODUCED, and the read-only review caught.
+     *
+     * `AuthorizeNetPaymnetController` and `NMIPayController` gate their PartialPayments branch on a
+     * BARE `module_is_active('PartialPayments')`, and the first cut of this fix copied that condition
+     * to the new early block verbatim. On a route that carries a slug that helper means "THE STORE
+     * OWNER'S PLAN BUNDLES THE MODULE" (app/Helper/helper.php:1359-1381) -- not "this store turned
+     * partial payments on".
+     *
+     * For a store in that state the module does not refuse. Its per-product body is skipped
+     * (PartialPaymentsController.php:562), control reaches the `else` at :660, and it returns
+     * `deposite_amount = "0.00"`. MEASURED, for a plan-bundled store with no `enable_partial_payment`
+     * row:
+     *
+     *     ManageDeposit => {"deposite_amount":"0.00","pending_amount":"0.00",...}
+     *
+     * `is_numeric("0.00")` is true, so the resolver accepts it, `$partialPaymentDeposit` is non-null,
+     * the write site's `??` never fires, and the order persists a total of ZERO while the card is
+     * charged the real amount. `OrderFinancialService::createForOrder()` then writes that zero into
+     * `store_order_financials` as `paid_amount`. A money regression, introduced by the fix.
+     *
+     * ASSERTED AT THE MODULE BOUNDARY, not through the route, and the reason is stated rather than
+     * hidden: neither affected handler is drivable end to end from this fixture -- AuthorizeNet raises
+     * `Undefined variable $requestNet` (:394) and NMI redirects before the order write, both measured.
+     * So this drives the two facts the regression is made of: what the module answers for that
+     * configuration, and that the resolver accepts it. The condition that keeps the two apart is
+     * asserted by the census below.
+     */
+    public function test_a_plan_that_merely_bundles_the_module_does_not_make_the_module_price_the_order(): void
+    {
+        $this->enablePartialPayments();
+        $this->migrateModuleTables();
+
+        [$merchant, $store] = $this->tenant();
+
+        // THE CONFIGURATION: the plan bundles the module, the store never enabled it.
+        DB::table('plans')->where('id', $merchant->plan_id)->update(['modules' => 'PartialPayments']);
+        DB::table('settings')->where('store_id', $store->id)->where('name', 'enable_partial_payment')->delete();
+        (new \App\Models\Setting)->flushCache();
+        Cache::forget('admin_details');
+
+        $customer = $this->customerIn($store);
+        $product = $this->productIn($store, 100.00);
+        Cart::forceCreate([
+            'customer_id' => $customer->id, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+        ]);
+
+        \Auth::guard('customers')->login($customer);
+
+        $answer = \Workdo\PartialPayments\app\Http\Controllers\PartialPaymentsController::ManageDeposit(
+            \Illuminate\Http\Request::create('/', 'POST', [
+                'slug' => $store->slug, 'store_id' => $store->id, 'customer_id' => $customer->id,
+                'tax_price' => 0, 'shipping_price' => 0, 'coupon_price' => 0, 'total_sub_price' => 100.0,
+            ]),
+            $store->slug
+        );
+
+        $this->assertSame('0.00', $answer['deposite_amount'] ?? null,
+            'Premise: for a store that merely has the module in its plan, the module answers 0.00. If '
+            . 'this ever changes, the guard below is still right but this test no longer measures the '
+            . 'reason for it.');
+
+        $subject = new class {
+            use \App\Http\Controllers\Concerns\ResolvesPartialPaymentDeposit;
+
+            public function decide($answer, $fallback)
+            {
+                return $this->depositFromModuleAnswer($answer, $fallback);
+            }
+        };
+
+        $this->assertSame('0.00', $subject->decide($answer, 100.0),
+            'Premise: the resolver ACCEPTS that answer -- is_numeric("0.00") is true -- so nothing '
+            . 'downstream of it can stop a zero total. The condition on the call is the only control.');
+    }
+
+    /**
+     * AND THE CONDITION ITSELF, asserted over both files, because the test above deliberately stops at
+     * the module boundary.
+     *
+     * Every early `partialPaymentDeposit()` block must be gated on the store having partial payments
+     * ON and a customer being signed in -- not merely on the plan bundling the module. The four
+     * controllers that already carried those limbs at their write site are covered by the same
+     * assertion, so a future edit cannot drop them from one file quietly.
+     */
+    public function test_every_deposit_resolution_is_gated_on_the_store_having_enabled_partial_payments(): void
+    {
+        $controllers = [
+            'AuthorizeNetPaymnetController', 'CinetPayController', 'EasebuzzController',
+            'NMIPayController', 'PaiementProPaymentController', 'PayUPaymentController',
+        ];
+
+        $checked = 0;
+
+        foreach ($controllers as $name) {
+            $code = $this->sourceWithoutComments(app_path('Http/Controllers/' . $name . '.php'));
+
+            /*
+             * BOTH LIMBS MUST BE IN THE CONDITION THAT GUARDS THE RESOLUTION, which is why this is one
+             * regex over the whole `if (...) { $partialPaymentDeposit =` construct rather than two
+             * substring checks over the file.
+             *
+             * The first cut asserted the customer guard with a plain assertStringContainsString, and a
+             * removal check recorded dropping it from the early block as SURVIVING: the file still
+             * contained the string, because the WRITE SITE carries its own copy. Keyed on spelling
+             * rather than on the construct -- the trap this project has recorded four times.
+             */
+            $this->assertMatchesRegularExpression(
+                '/module_is_active\(\s*.PartialPayments.\s*\)'
+                . '(?=.{0,400}?enable_partial_payment)'
+                . "(?=.{0,400}?Auth::guard\('customers'\)->user\(\))"
+                . '.{0,500}?\$partialPaymentDeposit\s*=/s',
+                $code,
+                "{$name} resolves a partial-payment deposit without BOTH limbs on the same condition. "
+                . 'module_is_active() on a slug route only means the plan bundles the module, and for a '
+                . 'bundled-but-disabled store the module answers 0.00 -- which is numeric, so the '
+                . "resolver accepts it and the order total becomes zero. And the module's cart read "
+                . 'refuses a guest, so without the customer limb every guest checkout logs a false '
+                . '"could not be priced".'
+            );
+            $checked++;
+        }
+
+        $this->assertSame(6, $checked, 'six controllers resolve a deposit; a different number means look.');
+    }
+
+    /**
+     * NMI'S FALLBACK IS THE SERVER PAYABLE, NOT THE BARE CART SUBTOTAL.
+     *
+     * ASSERTED OVER THE SOURCE, and the weakness of that is stated rather than hidden: this handler
+     * cannot be driven end to end from here (it redirects before the order write, measured), so a
+     * removal check recorded swapping the two locals as SURVIVING every behavioural test. They are
+     * NOT interchangeable -- `$total_sub_price` (:459) is the stored cart list's subtotal, while
+     * `$final_sub_total_price` (:474) is `$serverPayableAmount`, documented there as the payable the
+     * card was actually charged and therefore the figure the pre-change
+     * `$requests_data['cartlist_final_price']` carried on this path. Using the former would quietly
+     * change the amount for every store that takes the fallback.
+     *
+     * A source assertion is the only control available for a money value on an undrivable path. It is
+     * recorded as such so nobody mistakes it for execution.
+     */
+    public function test_the_nmi_fallback_is_the_server_payable_and_not_the_cart_subtotal(): void
+    {
+        $code = $this->sourceWithoutComments(app_path('Http/Controllers/NMIPayController.php'));
+
+        $this->assertStringContainsString('$order->final_price = $partialPaymentDeposit ?? $final_sub_total_price;', $code,
+            'NMI\'s deposit fallback is not the server payable. $total_sub_price is the cart subtotal '
+            . 'and a different figure; swapping them changes what every fallback order is charged.');
+        $this->assertStringContainsString('$final_sub_total_price = $serverPayableAmount;', $code,
+            'Premise: $final_sub_total_price in this file IS the server payable. If that assignment '
+            . 'changed, the assertion above no longer means what it says.');
+    }
+
+    /**
+     * WHAT A REAL SHOPPER CAN ACTUALLY PUT IN THE STORED STATE -- the calibration this package owed,
+     * and it CORRECTS AN OVERCLAIM OF MY OWN.
+     *
+     * The first write-up of this package said "MEASURED: a posted cartlist_final_price=1.00 wrote
+     * final_price=1.00". That was measured against a FABRICATED session (`withSession([...])`), which
+     * is not a state a shopper can arrange, and a read-only review called it. So the question was put
+     * to the real route -- `POST {slug}/process-order`, signed in as a customer, posting
+     * `cartlist_final_price = 1.00` -- and the stored state inspected. Three configurations, three
+     * different answers, all measured here:
+     *
+     *   partial payments OFF, plain          stored 100.00  -- the SERVER's figure; the posted 1.00 is gone
+     *   partial payments ON,  plain          stored  10.00  -- the MODULE's deposit
+     *   partial payments ON,  pending_payment stored   1.00  -- THE CALLER'S OWN FIGURE
+     *
+     * The first two are `PaymentController::prepareFinalRequestData()` overwriting the key with a
+     * server value before `Session::put()` (:1802, :1826). So ON THOSE PATHS the handler-level repair
+     * is DEFENCE IN DEPTH, not a live fix, and saying otherwise was wrong.
+     *
+     * THE THIRD IS LIVE, and it is the narrower path the overclaim accidentally described correctly:
+     * `prepareFinalRequestData()`'s own `else` limb (:1831) writes
+     * `$new_array['cartlist_final_price'] = $request->payment_amount ?? 0` -- straight from the
+     * request, with nothing checking it against the amount actually outstanding. A signed-in shopper
+     * of a partial-payments store posts `partial_payment_type=pending_payment&payment_amount=1.00`
+     * and the server-stored checkout state carries 1.00. Before this package the six controllers
+     * wrote exactly that into `orders.final_price`.
+     *
+     * THAT UPSTREAM LIMB IS NOT FIXED HERE, deliberately: it is in one of the two sites 569494d2
+     * already "repaired", what a pending payment is ALLOWED to be is a product question, and
+     * `GuardsGatewayReturn::serverPayableAmount()` reads the same key to decide what AuthorizeNet
+     * charges the card. Changing it needs the owner. It is reported in
+     * docs/security/P01-ORD-02-PARTIAL-PAYMENT-TOTAL-SOURCE.md section 4.
+     *
+     * This test exists so the calibration is EXECUTED rather than asserted in prose, and so that a
+     * change to `prepareFinalRequestData()` in either direction shows up here.
+     *
+     * @dataProvider initiationConfigurations
+     */
+    public function test_what_a_real_initiation_stores_as_the_checkout_total(
+        bool $partialOn,
+        array $extraPosted,
+        string $expectation,
+        string $why
+    ): void {
+        $this->enablePartialPayments();
+        $this->migrateModuleTables();
+
+        [$merchant, $store] = $this->tenant();
+        DB::table('plans')->where('id', $merchant->plan_id)->update(['modules' => 'PartialPayments']);
+
+        if (! $partialOn) {
+            DB::table('settings')->where('store_id', $store->id)
+                ->whereIn('name', ['enable_partial_payment', 'deposit_selection', 'deposit_type', 'deposit_amount', 'force_deposit'])
+                ->delete();
+        }
+        (new \App\Models\Setting)->flushCache();
+        Cache::forget('admin_details');
+
+        $customer = $this->customerIn($store);
+        $product = $this->productIn($store, 100.00);
+        if ($partialOn) {
+            $this->depositRuleFor($product, $store);
+        }
+
+        Cart::forceCreate([
+            'customer_id' => $customer->id, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+        ]);
+
+        $posted = array_merge([
+            'slug' => $store->slug,
+            'store_id' => $store->id,
+            'customer_id' => $customer->id,
+            'payment_type' => 'easebuzz',
+            'billing_info' => $this->checkoutState($store, $customer->id)['billing_info'],
+            'cartlist_final_price' => 1.00,          // THE CALLER'S FIGURE, on the real route
+        ], $extraPosted);
+
+        $this->actingAs($customer, 'customers')->post('/' . $store->slug . '/process-order', $posted);
+
+        $stored = session('easebuzz_request_data');
+
+        $this->assertIsArray($stored,
+            'Premise: the initiation stored a checkout state. Without one this measures nothing.');
+        $this->assertSame($expectation, (string) round((float) ($stored['cartlist_final_price'] ?? -1), 2),
+            $why);
+    }
+
+    public static function initiationConfigurations(): array
+    {
+        return [
+            'partial payments off, plain checkout' => [
+                false, [], '100',
+                'prepareFinalRequestData() overwrites the key with the server figure before the session '
+                . 'store, so a posted total does not survive. This is why the handler-level repair is '
+                . 'defence in depth on this path and not a live fix.',
+            ],
+            'partial payments on, plain checkout' => [
+                true, [], '10',
+                "the module's own deposit is stored, not the posted figure.",
+            ],
+            'partial payments on, pending_payment' => [
+                true, ['partial_payment_type' => 'pending_payment', 'payment_amount' => 1.00], '1',
+                'prepareFinalRequestData():1831 writes $request->payment_amount into the stored '
+                . 'cartlist_final_price with nothing checking it against the amount outstanding. If '
+                . 'this ever stops being the caller\'s figure that is an UPSTREAM FIX and good news -- '
+                . 'read section 4 of the acceptance document before changing this expectation.',
+            ],
+        ];
     }
 
     /**

@@ -22,9 +22,26 @@ use Illuminate\Support\Facades\Log;
  * BODY of the checkout request, verbatim -- so every key the shopper posts at initiation is in the
  * array the gateway return reads back. The storage laundered nothing.
  *
- * MEASURED, not inferred (tests/Feature/Commerce/PartialPaymentDepositSourceTest.php): with the module
- * active and a 100.00 basket, a checkout posting `cartlist_final_price=1.00` wrote an order with
- * `product_price = 100.00` and `final_price = 1.00` on cinetpay, easebuzz and paiementpro.
+ * MEASURED, not inferred (tests/Feature/Commerce/PartialPaymentDepositSourceTest.php): given that
+ * state, cinetpay, easebuzz and paiementpro each wrote an order with `product_price = 100.00` and
+ * `final_price = 1.00`.
+ *
+ * AND HOW MUCH OF THAT A SHOPPER CAN ARRANGE IS A SEPARATE QUESTION, which the first write-up of this
+ * package ran together with the first and got wrong. A read-only review called it, and the real route
+ * was then driven -- `POST {slug}/process-order`, signed in, posting `cartlist_final_price = 1.00`:
+ *
+ *     partial payments off, plain               stored 100.00   the SERVER's figure
+ *     partial payments on,  plain               stored  10.00   the MODULE's deposit
+ *     partial payments on,  pending_payment     stored   1.00   THE CALLER'S OWN FIGURE
+ *
+ * `PaymentController::prepareFinalRequestData()` overwrites the key with a server value before the
+ * session store (:1802, :1826), so ON THE ORDINARY PATHS THIS TRAIT IS DEFENCE IN DEPTH, not a live
+ * fix, and the first write-up should not have said otherwise. THE THIRD ROW IS LIVE: that method's own
+ * `else` limb (:1831) writes `$request->payment_amount ?? 0` straight from the request, with nothing
+ * checking it against the amount actually outstanding. That upstream limb is NOT fixed here -- what a
+ * pending payment is allowed to be is a product question, and `serverPayableAmount()` reads the same
+ * key to decide what AuthorizeNet charges the card -- and it is reported in
+ * docs/security/P01-ORD-02-PARTIAL-PAYMENT-TOTAL-SOURCE.md section 4.
  *
  * AND IN FIVE OF THE SIX `$total_sub_price` WAS NEVER ASSIGNED AT ALL -- grepped, zero assignments per
  * file -- so the `??` limb was an undefined variable, i.e. an ErrorException and a 500 rather than a
