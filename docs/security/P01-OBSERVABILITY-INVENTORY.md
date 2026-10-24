@@ -31,23 +31,24 @@ entirely pre-existing third-party-integration failure reporting, `info` (22) and
 diagnostics; none of them is a security signal and enumerating them would bury the ones that are.
 
 
-### `critical` — 11 lines
+### `critical` — 12 lines
 
 | line | message |
 |---|---|
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:111` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
+| `app/Http/Controllers/KhaltiPaymnetController.php:1154` | Khalti order written for RECONCILIATION: the gateway could not be asked whether money moved |
 | `app/Http/Controllers/PaymentController.php:469` | Paymera status poll ABANDONED: no API credential is configured |
 | `app/Http/Controllers/PaymentController.php:580` | Paymera callback REJECTED: the payment status could not be established |
 | `app/Http/Controllers/PaymentController.php:840` | Paymera callback REJECTED: inbound signature not verified |
 | `app/Http/Controllers/PaymentController.php:869` | Paymera callback REJECTED: captured amount not verified |
-| `app/Http/Controllers/PaymentController.php:3078` | Order write failed and was rolled back; stock decrements were given back |
-| `app/Http/Controllers/PaymentController.php:4398` | Order write failed and was rolled back; stock decrements were given back |
+| `app/Http/Controllers/PaymentController.php:3084` | Order write failed and was rolled back; stock decrements were given back |
+| `app/Http/Controllers/PaymentController.php:4410` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Services/PaymentService.php:187` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
-| `app/Services/PaymentService.php:2992` | Order write failed and was rolled back; stock decrements were given back |
+| `app/Services/PaymentService.php:2998` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Services/ProductStockService.php:127` | Stock decremented below zero on an order path that cannot refuse |
 | `app/Services/ProductStockService.php:210` | Stock decremented below zero on an order path that cannot refuse |
 
-### `warning` — 108 lines
+### `warning` — 111 lines
 
 | line | message |
 |---|---|
@@ -68,9 +69,9 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:133` | Gateway return refused: no server-stored checkout state. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:282` | Gateway return carries no claimable identity; falling back to the session control alone. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:296` | Gateway return refused: already claimed. |
-| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:793` | Gateway return refused: basket names a product from another store. |
-| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:829` | Gateway return refused: the gateway request could not be built. |
-| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:846` | Gateway return refused: basket holds a non-positive quantity. |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:813` | Gateway return refused: basket names a product from another store. |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:849` | Gateway return refused: the gateway request could not be built. |
+| `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:866` | Gateway return refused: basket holds a non-positive quantity. |
 | `app/Http/Controllers/Concerns/GuardsPlanActivation.php:85` | Plan activation refused: provider is disabled pending verification. |
 | `app/Http/Controllers/Concerns/ResolvesPendingPartialPayment.php:135` | Pending partial payment lookup failed; the payment is refused. |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:716` | customer login: refused a social row still holding its module-assigned password |
@@ -79,7 +80,9 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/DeliverySyriaStatusController.php:179` | Zid store not found for order status sync. |
 | `app/Http/Controllers/ESewaPaymentController.php:196` | Plan payment return rejected: claimed amount does not match the plan price. |
 | `app/Http/Controllers/EasebuzzController.php:337` | Pending partial payment refused: the balance named does not belong to this customer. |
-| `app/Http/Controllers/NMIPayController.php:419` | Pending partial payment refused: the balance named does not belong to this customer. |
+| `app/Http/Controllers/KhaltiPaymnetController.php:241` | Khalti plan purchase NOT activated: the capture was not confirmed for the server price |
+| `app/Http/Controllers/KhaltiPaymnetController.php:737` | Khalti verification refused: no server-computed payable in the stored state. |
+| `app/Http/Controllers/NMIPayController.php:428` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/OrderController.php:306` | Manual order total did not match its components; the computed total was stored |
 | `app/Http/Controllers/OrderController.php:987` | Return approval restored no stock: order carries no readable product_json |
 | `app/Http/Controllers/OrderController.php:1033` | Return approval skipped a line whose stock was already credited |
@@ -113,10 +116,10 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaymentController.php:1977` | Checkout refused: no recorded balance matches this pending payment. |
 | `app/Http/Controllers/PaymentController.php:1995` | Checkout refused: the posted pending-payment amount disagrees with the record. |
 | `app/Http/Controllers/PaymentController.php:2311` | Pending partial payment refused: the balance named does not belong to this customer. |
-| `app/Http/Controllers/PaymentController.php:3472` | Telegram order message not sent: the store has no bot token or chat id |
-| `app/Http/Controllers/PaymentController.php:3488` | Telegram refused an order message |
-| `app/Http/Controllers/PaymentController.php:3494` | Telegram order message could not be sent |
-| `app/Http/Controllers/PaymentController.php:3562` | Whatsapp order writer: posted slug does not match the route slug; the route wins. |
+| `app/Http/Controllers/PaymentController.php:3478` | Telegram order message not sent: the store has no bot token or chat id |
+| `app/Http/Controllers/PaymentController.php:3494` | Telegram refused an order message |
+| `app/Http/Controllers/PaymentController.php:3500` | Telegram order message could not be sent |
+| `app/Http/Controllers/PaymentController.php:3568` | Whatsapp order writer: posted slug does not match the route slug; the route wins. |
 | `app/Http/Controllers/PosController.php:246` | POS sale skipped a line whose product is not this store |
 | `app/Http/Controllers/SenangPayController.php:140` | SenangPay plan return refused: the return hash could not be verified. |
 | `app/Http/Controllers/SenangPayController.php:150` | SenangPay plan return refused: return hash mismatch. |
@@ -146,11 +149,12 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/PaymentService.php:2326` | cod/bank_transfer order writer refused: basket names a product from another store |
 | `app/Services/PaymentService.php:2345` | cod/bank_transfer order writer refused: basket holds an unusable quantity |
 | `app/Services/PaymentService.php:2438` | Checkout: client-supplied shipping_final_price discarded (server value used) |
-| `app/Services/PaymentService.php:3634` | PayHere storefront checkout refused: the integration is retired (owner decision). |
-| `app/Services/PaymentVerificationService.php:295` | Order recorded as PENDING: no gateway verification for this payment |
-| `app/Services/PaymentVerificationService.php:308` | Order recorded as PENDING: the verification record is for another payment type |
-| `app/Services/PaymentVerificationService.php:623` | COD_SETTLEMENT=order is NO LONGER HONOURED and is ignored |
-| `app/Services/PaymentVerificationService.php:631` | Unrecognised COD settlement policy; settle-on-delivery is in force regardless |
+| `app/Services/PaymentService.php:3640` | PayHere storefront checkout refused: the integration is retired (owner decision). |
+| `app/Services/PaymentVerificationService.php:340` | Order recorded as PENDING: no gateway verification for this payment |
+| `app/Services/PaymentVerificationService.php:378` | Order recorded as PENDING: the verification record is for another payment type |
+| `app/Services/PaymentVerificationService.php:365` | Order recorded as PENDING: the verification belongs to a different checkout |
+| `app/Services/PaymentVerificationService.php:802` | COD_SETTLEMENT=order is NO LONGER HONOURED and is ignored |
+| `app/Services/PaymentVerificationService.php:810` | Unrecognised COD settlement policy; settle-on-delivery is in force regardless |
 | `app/Services/ProductStockService.php:110` | Stock decrement rejected: insufficient stock |
 | `app/Services/ProductStockService.php:192` | Variant stock decrement rejected: insufficient stock |
 | `app/Services/ProductStockService.php:330` | Could not flush the model cache after a stock change |

@@ -128,11 +128,17 @@ class KhaltiPaymnetController extends Controller
 
         $payload = $request->payload;
         $price = $plan->price;
-        $token = $payload['token'];
-        $amount = $payload['amount'];
+        $token = is_array($payload) ? ($payload['token'] ?? null) : null;
         $secret = !empty($payment_setting['khalti_secret_key'])?$payment_setting['khalti_secret_key']:'';
-        $khalti = new Khalti();
-        $response = $khalti->verifyPayment($secret,$token,$amount);
+        /*
+         * P1-PAY-03, THE SAME DEFECT ON THE PLATFORM'S OWN REVENUE PATH. This read
+         * `$amount = $payload['amount']` and verified the caller's figure, exactly as the
+         * storefront handler did -- so a buyer could activate a plan of any price by presenting
+         * the token for a small Khalti payment. It also verified HERE, ABOVE the coupon block,
+         * where `$price` is still the list price and not the price this request will actually
+         * charge. Both are fixed by moving the call below that block and asking about the
+         * server's own figure; nothing between here and there reads `$response`.
+         */
 
         if (!empty($request->coupon_code))
         {
@@ -158,7 +164,36 @@ class KhaltiPaymnetController extends Controller
         $coupanCode = $request->coupon_code;
         $user = \Auth::user();
 
-        if($response['status_code'] == '200')
+        // P1-PAY-03. `$price` is final from here: list price, less a coupon this server re-read
+        // and re-applied from its own rows. That is the only figure Khalti may be asked about.
+        $expectedPaisa = (int) round(((float) $price) * 100);
+
+        /*
+         * RESOLVED FROM THE CONTAINER, NOT `new Khalti()`, and that is the only reason this path
+         * is testable at all. App\Khalti\Khalti::verifyPayment() opens a curl handle to
+         * khalti.com; with the class constructed directly, no test could reach a single line past
+         * it without making a real outbound request, which is why GatewayReturnTrustBoundaryTest
+         * records that "khalti stops at verifyPayment()". `app()` lets a test bind a double and
+         * drive the amount binding, the rejection and the unreachable branch for real. It
+         * constructs the same object in production -- Khalti has no constructor arguments.
+         */
+        $khalti = app(Khalti::class);
+        $response = $khalti->verifyPayment($secret, $token, $expectedPaisa);
+        $response = is_array($response) ? $response : [];
+
+        $planVerification = (new \App\Services\PaymentVerificationService())
+            ->verifyKhaltiCapture($response, $expectedPaisa);
+
+        /*
+         * NO PLAN IS ACTIVATED WITHOUT A CONFIRMED CAPTURE, and UNVERIFIABLE is not confirmed.
+         * This differs from the storefront handler above, which writes a Pending order on an
+         * unreachable gateway: there the reconciliation record protects a charged customer whose
+         * goods are owed. Here the "goods" are a subscription the operator can grant at any time,
+         * so the safe failure is to grant nothing and let the operator settle it by hand. A free
+         * plan never reaches this path -- planPayWithKhalti() assigns it directly when the price
+         * is not positive -- so a non-positive price here is refused rather than verified.
+         */
+        if($planVerification->isVerified())
         {
             $order = new PlanOrder();
             $order->order_id = $orderID;
@@ -203,6 +238,15 @@ class KhaltiPaymnetController extends Controller
             }
         }
         else {
+            \Illuminate\Support\Facades\Log::warning('Khalti plan purchase NOT activated: the capture was not confirmed for the server price', [
+                'site' => __METHOD__,
+                'user_id' => $user->id ?? null,
+                'plan_id' => $plan->id ?? null,
+                'expected_total' => (string) $price,
+                'outcome' => $planVerification->outcome,
+                'reason' => $planVerification->reason,
+            ]);
+
             return redirect()->route('plan.index')->with('error', __('Transaction has been failed.'));
         }
     }
@@ -665,11 +709,61 @@ class KhaltiPaymnetController extends Controller
         $payload = $request->payload;
         $theme_name = !empty(APP_THEME()) ? APP_THEME() : env('DATA_INSERT_APP_THEME');
         $secret = Utility::GetValueByName('khalti_secret_key', $store->id);
-        $token = $payload['token'];
-        $amount = $payload['amount'];
-        $khalti = new Khalti();
-        $response = $khalti->verifyPayment($secret,$token,$amount);
-        if($response['status_code'] == '200')
+        $token = is_array($payload) ? ($payload['token'] ?? null) : null;
+
+        /*
+         * P1-PAY-03. THE AMOUNT KHALTI IS ASKED ABOUT IS THE SERVER'S, NOT THE SHOPPER'S.
+         *
+         * This was `$amount = $payload['amount'];` -- the caller's own field -- handed straight to
+         * `payment/verify/`. Khalti's verify endpoint confirms the token AND amount as a PAIR, so
+         * posting the caller's figure asks the gateway the caller's question: a buyer who paid one
+         * unit could present that token with a matching one-unit amount, collect a 200, and have
+         * this handler write the order at the SERVER's full basket price. The verification was
+         * real; it was just a verification of the wrong number.
+         *
+         * `cartlist_final_price` in the stored checkout state is the full payable -- products plus
+         * the SERVER's delivery price plus the SERVER's tax, assembled by
+         * PaymentController::prepareFinalRequestData(). It is also exactly what the Khalti widget
+         * was initiated with: resources/views/payment/khalti.blade.php:16 reads
+         * `var amount = {{$data['cartlist_final_price']}} * 100`, so this asks about the same
+         * figure the shopper was charged, in the same unit (paisa).
+         *
+         * Owner decision D2: "a return URL, redirect or client flag proves nothing; require
+         * provider-side verification of ownership, reference, amount, currency and status".
+         */
+        $serverPayable = $this->serverPayableAmount($requests_data);
+
+        if ($serverPayable === null) {
+            \Illuminate\Support\Facades\Log::warning('Khalti verification refused: no server-computed payable in the stored state.', [
+                'store_id' => $store->id ?? null,
+                'customer_id' => $customer_id ?: null,
+            ]);
+
+            return $this->gatewayReturnRefusal();
+        }
+
+        $expectedPaisa = (int) round($serverPayable * 100);
+
+        // Container-resolved for the reason recorded on planGetKhaltiStatus(): it is what makes
+        // this path drivable in a test without an outbound request.
+        $khalti = app(Khalti::class);
+        $response = $khalti->verifyPayment($secret, $token, $expectedPaisa);
+        $response = is_array($response) ? $response : [];
+
+        $khaltiVerification = $this->gatewayReturnVerifier()->verifyKhaltiCapture($response, $expectedPaisa);
+
+        /*
+         * UNVERIFIABLE STILL WRITES THE ORDER. A failed curl leaves this server unable to say
+         * whether money moved, and the old `else` returned "Transaction has been failed" with no
+         * order row at all -- so a Khalti payment that completed while the verify call did not
+         * left a charged customer with nothing to reconcile against. The order is written
+         * (Pending, because no verification was recorded) and the SHOPPER IS STILL TOLD IT
+         * FAILED -- see the refusal below, just before the thank-you payload. A rejection, where
+         * Khalti was reached and said no, is refused exactly as before.
+         */
+        $khaltiUnverifiable = $khaltiVerification->outcome === \App\Services\PaymentVerificationResult::UNVERIFIABLE;
+
+        if($khaltiVerification->isVerified() || $khaltiUnverifiable)
         {
         // add in  Order table  start
         $order = new Order();
@@ -723,10 +817,45 @@ class KhaltiPaymnetController extends Controller
          * recording every gateway order as Pending stops merchant wallets being credited; see the
          * blocker in docs/security/P01-SECURITY-WORK-QUEUE.md.
          */
+        /*
+         * RECORDING IS WHAT MAKES A VERIFIED KHALTI ORDER PAID AGAIN. Until this line Khalti
+         * verified against the provider and recorded NOTHING, so after the no-record rule landed
+         * in resolveOrderPaymentStatus() every Khalti order -- including genuinely captured ones --
+         * was written Pending. That was a commercial regression introduced by the P1-PAY-03
+         * default inversion, not a decision; this closes it on the only ground D2 accepts, a
+         * provider-side confirmation of the server's own amount.
+         *
+         * RECORDED ONE LINE ABOVE ITS CONSUMER, AND THE POSITION IS THE CONTROL. The first cut
+         * recorded it beside the verify call, ~70 lines up. An independent review showed two
+         * things wrong with that, and the second is the one that mattered:
+         *
+         *   1. recordVerification() writes to the SESSION and nothing else clears it, so any
+         *      THROW between there and here leaves a usable record behind for the next request.
+         *      One is caller-influenced: the RewardClubPoint branch below divides by
+         *      $rewardSetting['reward_points'] ?? 0, and `club_point_is_active` comes from the
+         *      stored state. Laravel renders the 500 inside the pipeline, so the session is saved.
+         *
+         *   2. THE UNVERIFIABLE BRANCH CONSUMES WHATEVER IS IN THE SESSION. gatewayReturnPaymentStatus()
+         *      calls consumeVerification() unconditionally, so a stray khalti record from an
+         *      earlier aborted request would have made the reconciliation order PAID -- the exact
+         *      opposite of what that branch's own comment asserts. A comment is not an invariant;
+         *      recording here makes it one, because on the unverifiable path nothing has been put
+         *      in the session on this request at all.
+         */
+        if ($khaltiVerification->isVerified()) {
+            $this->gatewayReturnVerifier()->recordVerification(
+                'khalti',
+                $khaltiVerification,
+                $serverPayable,
+                $this->checkoutNonceOf($requests_data)
+            );
+        }
+
         $order->payment_status = $this->gatewayReturnPaymentStatus(
             $requests_data['payment_type'] ?? null,
             $order->final_price,
-            __METHOD__
+            __METHOD__,
+            $this->checkoutNonceOf($requests_data)
         );
         $order->delivery_id = $requests_data['method_id'] ?? 0;
         $order->delivery_comment = !empty($requests_data['delivery_comment']) ? $requests_data['delivery_comment'] : '';
@@ -1012,9 +1141,30 @@ class KhaltiPaymnetController extends Controller
             $cart_array = [];
             $cart_json = json_encode($cart_array);
             \Cookie::queue('cart', $cart_json, 1440);
+            /*
+             * P1-PAY-03. THE ORDER EXISTS SO IT CAN BE RECONCILED; THE SHOPPER IS NOT TOLD IT
+             * SUCCEEDED. Reached only when the verify call could not be completed, so this server
+             * does not know whether money moved. The order was written above (Pending), the
+             * basket was cleared, and the buyer gets the same failure response the old `else`
+             * returned -- the difference is that there is now a row for a merchant to settle
+             * against instead of a charge with no record. No thank-you page and no
+             * OrderCompleteBinding: this buyer is not being sent to one.
+             */
+            if (! $khaltiVerification->isVerified()) {
+                \Illuminate\Support\Facades\Log::critical('Khalti order written for RECONCILIATION: the gateway could not be asked whether money moved', [
+                    'site' => __METHOD__,
+                    'order_id' => $order->id,
+                    'store_id' => $order->store_id,
+                    'expected_total' => (string) $serverPayable,
+                    'reason' => $khaltiVerification->reason,
+                ]);
+
+                return redirect()->back()->with('error', __('Transaction has been failed'));
+            }
+
             $arr = [
                 'data' => $order->product_order_id,
-                'status_code' => $response['status_code'],
+                'status_code' => $response['status_code'] ?? 0,
                 'store_complete'=>route('order.complete',$slug),
             ];
             \Session::put('khalti_order_id', $order->product_order_id);

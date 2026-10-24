@@ -70,6 +70,32 @@ class PaymentVerificationService
         // (PaymentController::getValidPaymentTypes), so an entry spelled 'NMI' here would never
         // match and the enrolment would be silently inert. Caught before it shipped.
         'nmi',
+        /*
+         * 'khalti' JOINS 2026-10-24, and it is a CORRECTION rather than a tightening.
+         *
+         * Khalti's verify call is now bound to the server's own figure, so a record means the
+         * provider confirmed a capture of serverPayableAmount() -- the stored state's
+         * `cartlist_final_price`. THE ORDER IS NOT WRITTEN FOR THAT FIGURE. KhaltiPaymnetController
+         * recomputes `$order->final_price` from a FRESH cart read at return time, and the basket is
+         * mutable across the round trip: pay for a small basket, withhold the automatic return
+         * (the token is in the browser), add an expensive line, then post the return yourself. The
+         * verification is genuine and covers the wrong order. Without this entry the record alone
+         * writes Paid and nothing compares the two numbers.
+         *
+         * The same gap has a second, quieter instance: with PartialPayments active,
+         * prepareFinalRequestData() sets cartlist_final_price to the DEPOSIT, and this handler --
+         * unlike AuthorizeNet, which carries $partialPaymentDeposit into the write -- has no
+         * partial-payments branch at all, so a deposit capture would mark a full-price order Paid.
+         *
+         * MEASURED BEFORE ENROLLING, because enrolling a gateway whose two figures legitimately
+         * differ would make every Khalti order Pending: on a plain authenticated checkout the
+         * order's final_price is 100.0 against a verified 100 -- they agree, so the happy path is
+         * unaffected. KhaltiAmountBindingTest pins both the agreement and the mismatch refusal.
+         *
+         * Lowercase, for the reason the 'nmi' comment above gives: the comparison is against
+         * strtolower(trim($paymentType)) with a strict in_array, and the checkout posts 'khalti'.
+         */
+        'khalti',
     ];
 
     /**
@@ -171,7 +197,8 @@ class PaymentVerificationService
     public function recordVerification(
         string $paymentType,
         PaymentVerificationResult $result,
-        $expectedTotal
+        $expectedTotal,
+        ?string $checkoutNonce = null
     ): void {
         if (!$result->isVerified()) {
             return;
@@ -183,6 +210,23 @@ class PaymentVerificationService
             'captured_amount' => $result->capturedAmount,
             'expected_amount' => (string) $expectedTotal,
             'verified_at' => now()->toIso8601String(),
+            /*
+             * WHICH CHECKOUT THIS VERIFICATION IS FOR. Added 2026-10-24.
+             *
+             * Until this field the record was bound to nothing but a lowercase type string, and
+             * the consequence was measured rather than argued: a record left in the session by
+             * one request was redeemed by a DIFFERENT order writer on the shared
+             * `{slug}/get-payment-status` route, writing a Paid order for a basket the capture
+             * never covered. consumeVerification() being single-use does not help -- it does not
+             * care WHICH checkout produced the record.
+             *
+             * The nonce is GuardsGatewayReturn::CHECKOUT_NONCE_KEY from the server-stored state,
+             * the same value claimGatewayReturn() keys its replay claim on. Null when the caller
+             * does not supply one, and resolveOrderPaymentStatus() then behaves exactly as it did
+             * before -- so wiring a producer is an improvement and missing one is not a
+             * regression.
+             */
+            'checkout_nonce' => $checkoutNonce,
         ]);
     }
 
@@ -213,7 +257,8 @@ class PaymentVerificationService
         ?string $paymentType,
         ?array $verification,
         $expectedTotal,
-        string $site
+        string $site,
+        ?string $checkoutNonce = null
     ): string {
         $type = strtolower(trim((string) $paymentType));
 
@@ -304,6 +349,31 @@ class PaymentVerificationService
             return self::STATUS_PENDING;
         }
 
+        /*
+         * A VERIFICATION IS FOR ONE CHECKOUT. Added 2026-10-24 after a planted record was
+         * measured being redeemed by an unrelated order write.
+         *
+         * Only enforced when the RECORD carries a nonce: a record written before this field
+         * existed, or by a producer not yet wired, carries null and is handled exactly as it was
+         * before. That keeps this a strict improvement rather than a silent Pending for any
+         * gateway whose producer was missed -- the failure mode that would otherwise turn a
+         * payment-integrity fix into an outage.
+         */
+        $recordedNonce = $verification['checkout_nonce'] ?? null;
+
+        if ($recordedNonce !== null && $recordedNonce !== '' && $recordedNonce !== $checkoutNonce) {
+            Log::warning('Order recorded as PENDING: the verification belongs to a different checkout', [
+                'site' => $site,
+                'payment_type' => $type,
+                'expected_total' => (string) $expectedTotal,
+                'note' => 'A capture verified for one checkout cannot pay for another. This is '
+                    . 'either a replay of a stale record or an order written outside the '
+                    . 'checkout that was paid for.',
+            ]);
+
+            return self::STATUS_PENDING;
+        }
+
         if (($verification['payment_type'] ?? null) !== $type) {
             Log::warning('Order recorded as PENDING: the verification record is for another payment type', [
                 'site' => $site,
@@ -360,6 +430,115 @@ class PaymentVerificationService
         }
 
         return self::STATUS_PAID;
+    }
+
+    /**
+     * Verify a Khalti capture.
+     *
+     * TWO CONTROLS, AND ONLY ONE OF THEM IS KNOWABLE FROM THIS REPOSITORY. Say which is which,
+     * because the difference decides what this method may fail closed on.
+     *
+     * THE PRIMARY CONTROL IS NOT HERE AT ALL -- it is at the call site. Khalti's
+     * `payment/verify/` endpoint takes `token` AND `amount` together and confirms the PAIR
+     * (App\Khalti\Khalti::verifyPayment posts both). So a 200 is already amount-bound, PROVIDED
+     * the caller posted the SERVER's amount. KhaltiPaymnetController used to post
+     * `$payload['amount']` -- the shopper's own field -- so a buyer who paid 1 unit for a
+     * thousand-unit basket could present the token for the small payment with a matching small
+     * amount, collect a 200, and have the order written at the server's full price. The call
+     * site now posts `serverPayableAmount() * 100` and nothing else; THAT is the fix, and this
+     * method cannot substitute for it.
+     *
+     * THE SECONDARY CONTROL IS OPPORTUNISTIC, deliberately. Khalti's verify response is
+     * documented to echo the transaction `amount` in paisa, but this repository holds no
+     * contract, no fixture and no recorded response for that endpoint -- exactly the position
+     * verifyPaymeraCapture() is in with its field name. So when `amount` IS present it must
+     * equal the expected paisa exactly and a mismatch is REJECTED; when it is ABSENT the 200 is
+     * accepted on the strength of the primary control. Failing closed on an absent field would
+     * instead make every Khalti order Pending the moment the response shape differed from a
+     * guess -- a commercial regression justified by nothing measured.
+     *
+     * UNREACHABLE IS NOT REJECTED. App\Khalti\Khalti reads its status from CURLINFO_HTTP_CODE,
+     * which is 0 when the request never completed. A transport failure says nothing about
+     * whether money moved, so it is UNVERIFIABLE -- and the caller writes a Pending order for
+     * reconciliation rather than refusing, because a charged customer with no order row is the
+     * worse failure (owner decision D2's reconciliation half).
+     *
+     * @param  array<string, mixed>  $response  the decoded Khalti verify response
+     * @param  int  $expectedPaisa  the server-priced payable, in paisa
+     */
+    public function verifyKhaltiCapture(array $response, int $expectedPaisa): PaymentVerificationResult
+    {
+        $expectedDecimal = number_format($expectedPaisa / 100, 2, '.', '');
+
+        if ($expectedPaisa <= 0) {
+            return PaymentVerificationResult::unverifiable(
+                'No server-priced payable to verify against.',
+                null,
+                $expectedDecimal
+            );
+        }
+
+        $status = (int) ($response['status_code'] ?? 0);
+
+        if ($status === 0) {
+            return PaymentVerificationResult::unverifiable(
+                'Khalti could not be reached (no HTTP status). Whether money moved is unknown.',
+                null,
+                $expectedDecimal
+            );
+        }
+
+        if ($status !== 200) {
+            return PaymentVerificationResult::rejected(
+                'Khalti answered HTTP ' . $status . ' for this token and amount.',
+                null,
+                $expectedDecimal
+            );
+        }
+
+        $data = $response['data'] ?? null;
+        $captured = null;
+
+        if (is_array($data) && array_key_exists('amount', $data)) {
+            $captured = $data['amount'];
+        } elseif (is_object($data) && isset($data->amount)) {
+            $captured = $data->amount;
+        }
+
+        if ($captured === null || $captured === '') {
+            // The field is absent. The 200 is still amount-bound by the request -- see above.
+            return PaymentVerificationResult::verified(
+                'Khalti confirmed the token for the server-priced amount (HTTP 200; the response '
+                . 'carried no amount field to re-check).',
+                null,
+                $expectedDecimal
+            );
+        }
+
+        if (! is_numeric($captured)) {
+            return PaymentVerificationResult::unverifiable(
+                'Khalti returned an unparseable amount.',
+                (string) $captured,
+                $expectedDecimal
+            );
+        }
+
+        $capturedPaisa = (int) round((float) $captured);
+        $capturedDecimal = number_format($capturedPaisa / 100, 2, '.', '');
+
+        if ($capturedPaisa !== $expectedPaisa) {
+            return PaymentVerificationResult::rejected(
+                'Khalti reported a different amount than this order is for.',
+                $capturedDecimal,
+                $expectedDecimal
+            );
+        }
+
+        return PaymentVerificationResult::verified(
+            'Khalti confirmed the token for the server-priced amount, and the amount it reported matches.',
+            $capturedDecimal,
+            $expectedDecimal
+        );
     }
 
     /**

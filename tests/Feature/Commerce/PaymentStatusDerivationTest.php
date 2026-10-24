@@ -209,7 +209,12 @@ class PaymentStatusDerivationTest extends TestCase
      */
     public function test_the_amount_enforced_gateways_are_explicit(): void
     {
-        $this->assertSame(['paymera', 'nmi'], PaymentVerificationService::ENFORCED_PAYMENT_TYPES);
+        // 'khalti' joined 2026-10-24 (P1-PAY-03). Unlike the other two it was enrolled to CORRECT
+        // a gap rather than to tighten a working path: Khalti verifies the stored
+        // cartlist_final_price while the handler writes an order priced from a fresh cart read,
+        // and the basket is mutable across the round trip. EnforcedPaymentTypesIntegrityTest
+        // carries the full reasoning; this is the second pin on the same list.
+        $this->assertSame(['paymera', 'nmi', 'khalti'], PaymentVerificationService::ENFORCED_PAYMENT_TYPES);
     }
 
     /**

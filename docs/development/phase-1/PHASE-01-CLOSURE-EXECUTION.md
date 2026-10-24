@@ -799,3 +799,157 @@ inventory ratchet; the GATE F containment, now including the ordering ratchet in
 
 **Phase 02 does not start until Phase 01 acceptance.** Nothing in this section is an invitation to.
 
+
+---
+
+# CLOSURE — 2026-10-24, part 2. Section A is empty, and three rows above are wrong.
+
+**This section supersedes the one above it**, by the same convention that one claims over the
+sections before it. The part-1 register was written at `673daff4`, before the owner answered #26
+and before the last engineering batch; where the two disagree, this one is right.
+
+## 1. The owner decision that section A was waiting for is answered and implemented
+
+> **Owner, 2026-10-24, final:** "Withdraw the Delivered-based COD payment/settlement trigger now.
+> Delivered must never, by itself, mark COD as Paid or credit a merchant wallet. Require a separate
+> verified cash collection event, recording the collector (merchant, courier or delivery company),
+> collection amount, time and supporting evidence. Keep order delivery reporting separate from cash
+> collection and financial settlement reporting. Preserve historical records and avoid destructive
+> migration. Implement the safe state transitions and required tests now; any schema-dependent
+> accounting functionality remains gated on GATE F."
+
+Option **(a)**. Implemented in `47719ce1` and verified on that tree (Feature 5703 passed, 2 declared
+failures, 17 declared skips, 0 errors; known-outcome gate OK both directions; CI run 199 green).
+`P1-PAY-04` is DONE and #26 is closed.
+
+**Section A above is therefore empty. There is no open owner decision in Phase 01.**
+
+One thing in that implementation is worth carrying forward on its own: the withdrawal found a
+**second settlement path nothing had recorded** — `Order::order_status_change()`'s delivered branch
+fired `event(new OrderPaymentStatus($order))` while changing no payment status at all. It credited
+nothing, because `EventServiceProvider` registers `OrderPaymentStatus::class => []` with no
+listeners, and that is precisely why it was removed rather than left. A dead coupling that goes
+live the moment somebody adds a listener has the same shape as the GATE F financial subsystem.
+
+## 2. Three rows in section E above are wrong, and the corrections are not cosmetic
+
+### `P1-ORD-13` (#82) — section E restates the ORIGINAL scope as if nothing had been done
+
+Section E says "carry the order's primary key through the ten gateway return paths… no owner input,
+no credentials". **Criteria 1–3 have been closed since 2026-10-23.** `app/Services/OrderCompleteBinding`
+exists, ten producers call `remember($order->id)`, and `orderComplete()` resolves by primary key
+with an explicit store predicate in every limb.
+
+What is actually open is **criterion 4** — *every gateway return handler driven end to end* — which
+needs a provider sandbox per gateway and reaches no gateway from this container. **That is a
+section B row (environment), not a section E row (engineering).** Listing it under "unblocked
+engineering" invited somebody to redo work that is already on the branch.
+
+One exception to "no gateway can be driven" now exists and is recorded under `P1-PAY-03` below.
+
+### `P1-SEC-14` (#89) criterion 3 — it needed a command, not a reply
+
+Section E says the answer "must be recorded, and it is not. The owner's reply restated the question
+rather than answering it." Waiting for a different reply was the wrong move: `.env` is not in this
+repository, so no reply from here could ever answer it. **It is now one read-only command, and its
+output is the record:**
+
+```
+php tests/Support/Security/bin/report-larabug-configuration.php
+```
+
+It prints presence and length, never a key value, so the output is pasteable onto a public issue.
+It reports both gates — `isConfigured()` and `mayReportOutbound()` — says what each answer means,
+and carries the fact the owner needs when they decide: enabling larabug would deliver **none** of
+the 127 inventoried security log lines, because its Monolog handler discards every record whose
+context carries no `Throwable`. **Moved from section E to section B.**
+
+### `P1-PLT-04` (#36) criterion 2 — the query is now a script, and writing it found a bug in itself
+
+Section E says "the query is in `ModuleEntitlementSourcesTest`'s docblock". It is now
+`tests/Support/Security/bin/report-storefront-entitlement-gap.php`, read-only, which adds the figure
+the bare query misses: a merchant with **some** activation rows still loses every module their plan
+grants that they have no row for, so the whole-merchant count is a floor rather than the answer.
+
+Worth recording because it is this project's recurring failure in miniature: exercised against a
+seeded throwaway database rather than only the empty test one, the script was **wrong** — a
+truncated `plans.modules` column (`{`) fell through its CSV fallback and was reported as a module
+named `{`, with the undecodable counter still reading zero. It invented a module and then claimed
+its figures were complete. It now refuses to guess. Running it only against the empty development
+database would have shown zeros and proved nothing. **Moved from section E to section B.**
+
+## 3. `P1-PAY-03` (#25) criterion 2 is closed, and the regression was ours
+
+Section E listed three residuals on this row. All three are closed in this batch.
+
+**Khalti's verify call asked the gateway the caller's question.** `$amount = $payload['amount']` is
+the caller's own field, and Khalti's `payment/verify/` endpoint confirms the token and the amount as
+a **pair** — so a buyer who paid one unit could present that token with a matching one-unit amount,
+collect a truthful 200, and have the order written at the server's full basket price. The
+verification was real the whole time; it verified the wrong number. Both call sites now pass the
+server's figure, and the plan-purchase one was also moved **below** the coupon block, where
+`$price` is the price actually being charged rather than the list price — an ordering bug nothing
+had recorded.
+
+**The Pending regression on Khalti and AuthorizeNet was introduced by this project**, not inherited.
+Both obtained a real provider result and recorded no verification, so once the no-record rule landed
+in `PaymentVerificationService` every order from both was written Pending. Nobody chose that; it
+fell out of the default inversion. Both record now.
+
+**A Khalti payment that moved money while the verify call failed no longer leaves a charged customer
+with no row.** An unreachable gateway is `UNVERIFIABLE`, not `REJECTED`: the order is written
+Pending for reconciliation and the shopper is still told the payment failed. A gateway that was
+reached and said no still writes nothing.
+
+**And one thing that matters beyond this row:** `App\Khalti\Khalti` is now resolved from the
+container instead of constructed with `new`, so a test double can drive the handler past the curl
+call. `GatewayReturnTrustBoundaryTest`'s docblock records that "khalti stops at verifyPayment()" —
+it does not have to any more. That is the one "cannot be driven → drivable" move
+`docs/security/P01-ORD-13-GATEWAY-TEST-REQUIREMENTS.md` §321 names Khalti for, and it is the pattern
+the other nine handlers would need.
+
+**What is still NOT met on #25, stated so the close is not read as complete:** criterion 1 as
+literally written. Three of 52 payment types are provider-verified (paymera, khalti, nmi). The rest
+resolve to Pending — which closes the falsely-Paid defect but is not "verified against the
+provider", and getting there needs each provider's status endpoint, field names and an
+authenticated credential. Owner plus credentials, one gateway at a time.
+
+## 4. Counts, live
+
+| | at `fb556cd6` | part 1 (`673daff4`) | **now** |
+|---|---|---|---|
+| DONE | 48 | 80 | **81** |
+| READY | 17 | 2 | **2** |
+| BACKLOG | 9 | 5 | **5** |
+| BLOCKED | 31 | 22 | **21** |
+| **total** | 105 | 109 | **109** |
+
+`ledger-tool.py counts` is the authority; this is a view. The `owner-decision 26` that tool also
+prints is **not** a count of open decisions — it counts rows whose *Owner decision required* field
+reads yes, including the many whose decision has since been made. Open owner decisions: **none**.
+
+## 5. What is left, restated — every row, by who holds it
+
+- **A — owner decisions: none.**
+- **B — environment or a server: 13 rows.** The 11 from part 1, plus `P1-ORD-13` criterion 4
+  (gateway sandboxes) and `P1-SEC-14` criterion 3 (one command, above). `P1-PLT-04` criterion 2
+  joins them as a prepared script.
+- **C — D15-gated migrations: 5 rows.** Unchanged. The two ordering constraints still hold.
+- **D — vendor reports: 4 rows, all DONE here, both reports prepared and NOT sent.** Sending is an
+  outward disclosure and the owner's call.
+- **E — engineering, unblocked, not done: none.** Section E is empty. Everything that was in it is
+  either done (`P1-PAY-03` criterion 2) or correctly reclassified to B.
+
+## 6. One finding for Phase 02 that is larger than any row above
+
+**The strongest tenancy ratchet in this project is silent for 28 of 190 raw query sites.**
+`RawQueryTenancyInventoryTest`'s per-table exposure map — the one its own docblock calls "the
+ratchet that matters", because it fails when a table's unscoped count goes **up** — keys on
+`DB::table('literal')`. A site that builds its table name from a variable gains no row, so a later
+change dropping its `store_id` predicate trips nothing.
+
+This was found the way such things are found: a new service written as `DB::table(self::TABLE)`
+moved the per-directory count (which alarmed, correctly) while adding **no row at all** to the map.
+The class docblock already conceded the 28, so the blind spot was documented and its consequence
+was not. It is recorded here rather than fixed, because widening a required CI guard is a Phase 02
+change, not a closure one.

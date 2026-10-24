@@ -138,8 +138,17 @@ class EnforcedPaymentTypesIntegrityTest extends TestCase
          * gateway type is Pending without a record; membership here means the captured AMOUNT is
          * additionally reconciled against the order total.
          */
+        /*
+         * 'khalti' JOINED 2026-10-24, and it is the first entry added to CORRECT a gap rather
+         * than to tighten a working path. Khalti's verify call is bound to the server's
+         * cartlist_final_price, but the handler recomputes the order's final_price from a fresh
+         * cart read at return time -- and the basket is mutable across the round trip. So a
+         * genuine verification can cover a different order than the one being written, and
+         * membership here is what makes the two figures be compared. Measured before enrolling:
+         * on a plain checkout they agree (100.0 against 100), so the happy path is unaffected.
+         */
         $this->assertSame(
-            ['paymera', 'nmi'],
+            ['paymera', 'nmi', 'khalti'],
             PaymentVerificationService::ENFORCED_PAYMENT_TYPES,
             'if this list changed, the recorder invariant above must hold for the new '
                 . 'entry, and the gateway must genuinely have been verified against its '
@@ -188,7 +197,15 @@ class EnforcedPaymentTypesIntegrityTest extends TestCase
     {
         $verifier = new PaymentVerificationService();
 
-        foreach (['stripe', 'paypal', 'khalti', 'CinetPay', 'payu', 'easebuzz'] as $type) {
+        /*
+         * 'khalti' WAS IN THIS SAMPLE AND IS NOT ANY MORE: it joined ENFORCED_PAYMENT_TYPES on
+         * 2026-10-24, and this method's own fixture assertion below is what caught that -- which
+         * is what a fixture assertion is for. 'authorizenet' replaces it: same batch, also records
+         * a real provider result, and deliberately NOT amount-enforced, because its captured
+         * figure and the order's final_price have not been measured against each other the way
+         * Khalti's were.
+         */
+        foreach (['stripe', 'paypal', 'authorizenet', 'CinetPay', 'payu', 'easebuzz'] as $type) {
             $this->assertNotContains(
                 strtolower($type),
                 PaymentVerificationService::ENFORCED_PAYMENT_TYPES,

@@ -2816,7 +2816,13 @@ public function handlePaymeraTrigger00($orderId)
             $requests_data['payment_type'] ?? null,
             $this->paymentVerifier()->consumeVerification(),
             $order->final_price,
-            __METHOD__
+            __METHOD__,
+            // P1-PAY-03. WHICH CHECKOUT THIS WRITER IS SETTLING. A verification record now names
+            // the checkout that produced it, and this is the shared storefront writer -- the one
+            // a record planted by an aborted capture on another route was measured being redeemed
+            // at. Presenting the nonce is also what keeps a LEGITIMATE record usable here:
+            // without it every bound record would be refused, which is an outage, not a control.
+            $this->checkoutNonceOf($requests_data)
         );
         $order->delivery_id = $requests_data['method_id'] ?? 0;
         $order->delivery_comment = !empty($requests_data['delivery_comment']) ? $requests_data['delivery_comment'] : '';
@@ -4137,7 +4143,13 @@ $result = app(\App\Services\StoreNotificationService::class)
             $requests_data['payment_type'] ?? null,
             $this->paymentVerifier()->consumeVerification(),
             $order->final_price,
-            __METHOD__
+            __METHOD__,
+            // P1-PAY-03. WHICH CHECKOUT THIS WRITER IS SETTLING. A verification record now names
+            // the checkout that produced it, and this is the shared storefront writer -- the one
+            // a record planted by an aborted capture on another route was measured being redeemed
+            // at. Presenting the nonce is also what keeps a LEGITIMATE record usable here:
+            // without it every bound record would be refused, which is an outage, not a control.
+            $this->checkoutNonceOf($requests_data)
         );
         $order->delivery_id = $requests_data['method_id'] ?? 0;
         $order->delivery_comment = !empty($requests_data['delivery_comment']) ? $requests_data['delivery_comment'] : '';

@@ -478,14 +478,34 @@ trait GuardsGatewayReturn
      *
      * @param  mixed  $expectedTotal  the order's own final_price, for the log line
      */
-    protected function gatewayReturnPaymentStatus(?string $paymentType, $expectedTotal, string $site): string
-    {
+    protected function gatewayReturnPaymentStatus(
+        ?string $paymentType,
+        $expectedTotal,
+        string $site,
+        ?string $checkoutNonce = null
+    ): string {
         return $this->gatewayReturnVerifier()->resolveOrderPaymentStatus(
             $paymentType,
             $this->gatewayReturnVerifier()->consumeVerification(),
             $expectedTotal,
-            $site
+            $site,
+            $checkoutNonce
         );
+    }
+
+    /**
+     * The checkout nonce the stored state carries, for binding a verification to its checkout.
+     *
+     * Same value claimGatewayReturn() keys its replay claim on. Null when the state has none,
+     * and PaymentVerificationService then applies no binding -- see recordVerification().
+     *
+     * @param  array<string, mixed>  $state
+     */
+    protected function checkoutNonceOf(array $state): ?string
+    {
+        $nonce = $state[self::CHECKOUT_NONCE_KEY] ?? null;
+
+        return (is_string($nonce) && $nonce !== '') ? $nonce : null;
     }
 
     /**

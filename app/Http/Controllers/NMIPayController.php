@@ -351,7 +351,16 @@ class NMIPayController extends Controller
                     isset($parsedResponse['amount']) ? (string) $parsedResponse['amount'] : null,
                     (string) $cartlist_final_price
                 ),
-                $cartlist_final_price
+                $cartlist_final_price,
+                /*
+                 * BOUND TO THIS CHECKOUT, 2026-10-24. NMI has the same record-to-consume distance
+                 * the AuthorizeNet plant exploited -- the record is taken here, the order is
+                 * written ~730 lines below, and several refusals sit in between. It was blunted
+                 * only because 'nmi' is amount-enforced, which is a weaker control than naming
+                 * the checkout. Producer and consumer are wired together deliberately: wiring one
+                 * without the other would make every NMI order Pending.
+                 */
+                $this->checkoutNonceOf($requests_data)
             );
 
             $customer_id = $requests_data['customer_id'] ?? '';
@@ -1078,7 +1087,8 @@ class NMIPayController extends Controller
             $order->payment_status = $this->gatewayReturnPaymentStatus(
                 $requests_data['payment_type'] ?? 'nmi',
                 $order->final_price,
-                __METHOD__
+                __METHOD__,
+                $this->checkoutNonceOf($requests_data)
             );
             $order->delivery_id = $requests_data['method_id'] ?? 0;
             $order->delivery_comment = !empty($requests_data['delivery_comment']) ? $requests_data['delivery_comment'] : '';

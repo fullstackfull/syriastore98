@@ -1070,10 +1070,78 @@ class AuthorizeNetPaymnetController extends Controller
                      * recording every gateway order as Pending stops merchant wallets being credited; see the
                      * blocker in docs/security/P01-SECURITY-WORK-QUEUE.md.
                      */
+                    /*
+                     * P1-PAY-03. THIS HANDLER VERIFIED AND RECORDED NOTHING, so after the
+                     * no-record rule landed in PaymentVerificationService every Authorize.Net
+                     * order was written Pending -- including the ones whose cards had just been
+                     * charged. That was a commercial regression introduced by the default
+                     * inversion, not a decision.
+                     *
+                     * IT IS THE STRONGEST EVIDENCE ANY GATEWAY ON THIS PLATFORM PRODUCES, and the
+                     * reason is that this handler is not a RETURN, it BUILDS the
+                     * authCaptureTransaction and sets its amount from $amount, which is
+                     * serverPayableAmount($requests_data): the stored state's
+                     * `cartlist_final_price`, products plus the SERVER's shipping plus the
+                     * SERVER's tax. So the captured amount is not something a caller could
+                     * influence and is not something this code has to parse back out of a
+                     * response -- it is the figure this code SENT. The SDK's
+                     * TransactionResponseType exposes no amount accessor (getResponseCode and
+                     * getTransId; there is no getAuthAmount), so reading one back is not
+                     * available; and the gate above -- getResultCode() == "Ok" AND a non-null
+                     * $tresponse->getMessages() -- is Authorize.Net's own approved/declined
+                     * distinction, not merely "the API call worked": a declined transaction
+                     * populates getErrors() and leaves getMessages() null.
+                     *
+                     * ===================================================================
+                     * RECORDED HERE, ONE LINE ABOVE THE CONSUMER, AND THAT POSITION IS THE
+                     * CONTROL -- NOT A STYLE CHOICE.
+                     * ===================================================================
+                     *
+                     * The first cut of this change recorded at the top of this branch, ~600 lines
+                     * up, right after the capture. An independent review found what that costs and
+                     * it is the PaiementPro defect of d082214a rebuilt on another gateway:
+                     * recordVerification() writes to the SESSION, nothing else clears it, and SIX
+                     * reachable returns sit between there and here -- 'This coupon has expired.',
+                     * two 'Cart is empty.', 'User not found.', the quantity refusal and the
+                     * post-capture foreign-product refusal. Every one of them returns a plain
+                     * array through Utility::error(), so the response is an ordinary 200 and the
+                     * session IS saved.
+                     *
+                     * A record so planted is bound to nothing but the lowercase type string --
+                     * resolveOrderPaymentStatus() does not read verified_at and no checkout nonce
+                     * is stored -- and PaymentController::getProductStatus on the shared
+                     * Route::any('{storeSlug?}/get-payment-status') consumes whatever is in the
+                     * session for a matching type. So: empty your own basket, drive a REAL small
+                     * capture that refuses at 'Cart is empty.', then start an expensive checkout
+                     * and hit get-payment-status. The expensive order is written Paid against a
+                     * capture of the small one. 'authorizenet' is not amount-enforced, so nothing
+                     * compares the two figures.
+                     *
+                     * Recording here closes it BY CONSTRUCTION rather than by clearing the record
+                     * on each refusal path: there is no longer a window to plant in. $tresponse
+                     * and $amount are both still in scope and neither is reassigned between the
+                     * capture and this line -- the earlier comment's worry was $response, which IS
+                     * reassigned by the cart read, and that is why the record is not built from it.
+                     */
+                    $this->gatewayReturnVerifier()->recordVerification(
+                        'authorizenet',
+                        \App\Services\PaymentVerificationResult::verified(
+                            'Authorize.Net approved an authCaptureTransaction this server built '
+                            . 'for its own computed payable (transaction '
+                            . (string) $tresponse->getTransId() . ', response code '
+                            . (string) $tresponse->getResponseCode() . ').',
+                            number_format((float) $amount, 2, '.', ''),
+                            number_format((float) $amount, 2, '.', '')
+                        ),
+                        $amount,
+                        $this->checkoutNonceOf($requests_data)
+                    );
+
                     $order->payment_status = $this->gatewayReturnPaymentStatus(
                         $requests_data['payment_type'] ?? null,
                         $order->final_price,
-                        __METHOD__
+                        __METHOD__,
+                        $this->checkoutNonceOf($requests_data)
                     );
                     $order->delivery_id = $requests_data['method_id'] ?? 0;
                     $order->delivery_comment = !empty($requests_data['delivery_comment']) ? $requests_data['delivery_comment'] : '';

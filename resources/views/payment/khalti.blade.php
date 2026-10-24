@@ -13,7 +13,22 @@
 <script src="http://ajax.googleapis.com/ajax/libs/jquery/1/jquery.min.js"></script>
 <script>
     $(document).ready(function() {
-        var amount = {{$data['cartlist_final_price']}} * 100;
+        {{--
+            P1-PAY-03. THE PAISA FIGURE IS COMPUTED ON THE SERVER, NOT IN JAVASCRIPT.
+
+            This was `{{$data['cartlist_final_price']}} * 100`, multiplied by the browser. That was
+            harmless while the handler echoed the browser's own figure back to Khalti -- the two
+            agreed by construction. The handler now asks Khalti about
+            `(int) round(serverPayableAmount() * 100)`, and IEEE-754 makes the browser disagree on
+            ordinary totals: 10.07 * 100 is 1006.9999999999999 in JavaScript. A one-paisa
+            divergence fails Khalti's token/amount pair check, which this change turns into a
+            REJECTED verification -- after the stock has been decremented and the cart cleared, so
+            the shopper is charged and told the transaction failed.
+
+            Rounding here, in PHP, with the same expression the handler uses, removes the
+            disagreement at its source.
+        --}}
+        var amount = {{ (int) round(((float) $data['cartlist_final_price']) * 100) }};
         var config = {
             "publicKey": "{{ isset($khalti_public_key) ? $khalti_public_key : '' }}",
             "productIdentity": "1234567890",
