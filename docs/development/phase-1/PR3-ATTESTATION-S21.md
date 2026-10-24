@@ -247,3 +247,175 @@ titled ⛔ DO NOT MERGE**.
 **Any commit pushed after this head is outside this attestation until a section covers it.**
 
 SECURITY-DIFF-REVIEW: completed (focused — this range contains no production code)
+
+---
+
+# §23 — `4a6aaf95..52e90923`, the coupon fix and the closeout
+
+§22 ends by saying *"any commit pushed after this head is outside this attestation until a section
+covers it."* **This range contains production code, so unlike §22 it is not a focused attestation.**
+`.github/SECURITY-DIFF-REVIEW.md`'s eight questions are worked below, in order.
+
+This section's own commit is documentation-only and sits on top of `52e90923`.
+
+## 0. The range
+
+**21 files, 3,380 insertions, 195 deletions. Three are production code:**
+
+| area | files |
+|---|---|
+| `app/` | **3** — `Http/Controllers/Api/ApiController.php` (+384/−…), `Models/Cart.php` (22), `Models/Coupon.php` (+72) |
+| `tests/` | 9 — 5 new, 4 modified |
+| documentation, the ledger, the ledger tool | 9 |
+| `routes/**` · `**/Middleware/**` · `**/Policies/**` · `**/config/**` · `**/Providers/**` · `database/migrations/**` · `.github/**` · `packages/workdo/**` | **0** |
+
+So the `sensitive-diff-review` job's own path list does not flag this range. **It is attested anyway**,
+because the diff changes **what a shopper is charged** and runs on a handler with no principal check —
+which is the character the checklist exists for, whatever the globs say.
+
+## 1. What does this diff REMOVE or NARROW?
+
+Ordered by what a reader would miss. Three removals **narrow** the surface and one **widens** it,
+and the widening is the one that broke an existing control (§3).
+
+**NARROWED — the posted money keys are no longer read for any money purpose in `apply_coupon`.**
+`$request->final_sub_total` and `$request->sub_total` previously supplied the discount base, both
+percentage bases, the shipping-cost comparison and five `original_price` display values. All now read
+`couponSpendBaseline()`, a server recomputation from `cart_list` / `cart_list_cookie`. **This removed a
+live unauthorized discount of unbounded size** — measured, 100,000.00 off a 200.00 basket for a 10%
+coupon with `final_sub_total=1000000` posted.
+
+**NARROWED — the per-user cap stops trusting a posted e-mail.** `coupon_limit_user` compared the
+signed-in customer's *account* e-mail against prior uses resolved through `order_billing_details.email`,
+which is written straight from `billing_info`. `Coupon::usesByCustomer()` now takes the **higher** of
+the server-derived `user_coupons.user_id` count and the legacy e-mail count. Strictly stricter.
+
+**NARROWED — the payable is floored.** All four `final_price` branches in `place_order` subtract
+`coupon_price` under `max(0, …)`, so a discount larger than the basket cannot produce a negative
+payable.
+
+**WIDENED — coupons apply at all, and two gates stopped refusing.** The `coupon_type ==
+'fixed product discount'` branch's `else` used to return a minimum-spend message for **every other
+type**, so `flat` and `percentage` — the latter being the column DEFAULT — were refused outright; it
+now refuses only a genuinely unsupported type. And the raw `where('coupon_limit','>',$uses)` gate read
+`0 > 0` for the schema default, so a blank limit meant *never usable*; `Coupon::applyUsageLimit()`
+reads 0/NULL as *no limit*, which is this codebase's own idiom for the sibling `coupon_limit_user`.
+
+**Deliberately dropped, stated rather than preserved:** the blanket refusal of `flat` and `percentage`,
+and the reading of posted totals. Both were the defect.
+
+## 2. Did any file in this diff already exist and do something else?
+
+All three production files are **modified, not overwritten**. `Coupon.php` gains two static helpers and
+changes nothing existing. `Cart.php` changes two call sites. `ApiController.php` changes
+`apply_coupon` and `place_order` in place and adds three private helpers above them — which is what
+moved the seven observability-inventory rows in `95754130`.
+
+**No path was overwritten.** No previous behaviour was lost except the two dropped deliberately above.
+
+## 3. What existing control assumed the surface you widened was narrow?
+
+**This is the question that earned the review, and the answer is: two controls, both written against
+"no coupon ever applies", and one of them broke in my own fix.**
+
+**(a) `Cart::getCouponTotalAmount`'s own `coupon_limit` gate — BROKEN BY THE FIX, then fixed.** The raw
+gate exists in **three** places; I changed the two in `ApiController` and missed `Cart.php:1070`.
+Before, both coupon arithmetics refused a `coupon_limit = 0` coupon and so **agreed on a refusal**;
+after, `apply_coupon` accepted while the cart still refused — and because the free-shipping arm for a
+store with no shipping method reports the **cart's** figure, the response became *"Coupon code applied
+successfully"* with a discount of **0.00**. The shopper is told it worked and charged full price, which
+is criterion 4's own shape through a door the `elseif` does not cover. Reproduced as a failing test
+before fixing, routed through the shared helper, and a **tokenizer ratchet** now fails on any raw gate
+outside it across all of `app/`. My census was keyed on the two sites I had already read — census-
+failure mode 1 from this project's own skill, committed while fixing a census-shaped defect.
+
+**(b) The per-user cap, which a previous package had cleared.** That package recorded *"Not
+coupon-limit evasion"* at the `UserCoupon` writer. True **only while every coupon was refused
+upstream.** And since `coupon_limit = 0` now correctly means *no total cap*, this cap became the only
+backstop — `0` plus `coupon_limit_user = 1` would have been unlimited reuse by one shopper, which is
+the configuration a merchant gets by leaving the total limit blank. Closed by (a)'s sibling,
+`usesByCustomer()`.
+
+**Named and NOT closed, in both directions:** 11 further `PerUsesCouponCount` sites are not rewired,
+and 12 other writers persist `coupon_price` with no established subtraction. A regex flagged 4 of those
+as not subtracting and two checks showed **both were false positives** — `PosController` subtracts via
+a differently-named local, `CinetPayController` takes an already-discounted figure from `apply_coupon`'s
+response — so no source scan can answer it. That is `P1-ORD-02` criterion 1 and it stays open.
+
+## 4. Is any audit, logging or compliance emission removed, skipped, or made conditional?
+
+**No.** One emission is **added** — `Log::warning('Coupon refused: the basket could not be priced')` —
+and seven existing lines moved by the new helpers. `docs/security/P01-OBSERVABILITY-INVENTORY.md` is
+updated in both directions and `SecurityLogInventoryTest` (5 passed) asserts the document and `app/`
+agree each way, so an added line with no stated destination fails the gate. Checking the figure also
+found the document's own heading count four short and unasserted; corrected in `6d0524e7`.
+
+## 5. Does any failure become silent?
+
+Four answers, because the honest one is not a flat "no".
+
+**A money gate that cannot be evaluated is NOT treated as satisfied.** `couponSpendBaseline()` returns
+`null` rather than throwing, and the caller **refuses the coupon** on `null`, with the warning above.
+Loud, not silent.
+
+**`warnIfInconsistent()` is warn-only by design, and that is a recorded decision rather than an
+oversight.** A stored total that does not reconcile is **logged**, and the order still saves. The four
+branches do not share a base — two read `$final_price`, two read `$data['shipping_total_price']`, which
+already bundles delivery — so a rejecting assertion would refuse legitimate orders on the shipping-on
+paths, which this container cannot drive. Promoting it to `assertConsistent()` turns a logged mismatch
+into a **refused order**: a release decision, stated as one.
+
+**The reconciler's log is therefore not quiet today, and that is expected.** A 200.00 basket at 10% tax
+stores `product_price 242, tax_price 0, final_price 220`. The **charge is correct**; the components
+cannot produce it. Pre-existing, measured, pinned as a known-bad test, not fixed.
+
+**One residual IS silent and is declared rather than closed:** if one of the 12 unverified
+`coupon_price` writers does not subtract, that shopper is overcharged with a discount printed beside
+it, and nothing logs. It is the same gap as §3's last paragraph, and it is why `P1-ORD-01` is `PARTIAL`
+rather than `DONE`.
+
+## 6. Is method-resolution order involved?
+
+**N/A.** PHP, and nothing in the range touches a trait, an interface, a service provider or a
+middleware group. `Coupon::applyUsageLimit()` and `Coupon::usesByCustomer()` are static helpers called
+explicitly at each site; neither overrides anything.
+
+## 7. Was the change verified by removing it?
+
+**Yes, at four levels, and one survival is reported rather than hidden.**
+
+| removal set | result |
+|---|---|
+| the coupon fix | **7 mutants, 6 bite.** M1 limit 0 no longer unlimited · M2 the `>uses` limb dropped · M3 the type branch refuses again (5 fail) · M4 `couponSpendRefusal` always passes (3 fail) · M5 the percentage base reverts to the posted subtotal · M7 the two messages swapped |
+| **M6 SURVIVED on the first attempt** | The tool mutated only the **first** of four `final_price` assignments — the guest arm — and that arm is **unreachable, not untested**: `place_order` 401s through `resolveStoreCustomer()` ~450 lines earlier. Probed with a sentinel `99999`: all 17 tests still passed, which is the evidence for *unreachable*. Mutating all four together fails 2 tests. Reported, not claimed as a bite. |
+| the review fixes | the `Cart` gate reverted → 2 fail · the per-user count reverted → 1 fails · a **comment-only** mention of the raw gate does **not** satisfy the ratchet |
+| `P1-INV-05` AC3 (#31) | **4 mutants, all bite.** M1 restore gives back `$quantity + 1` → tests 1 and 3 · M2 `restoreVariantStock` becomes a no-op → test 2 · M3 `linesAreReturnable` stops requiring qty → test 4 on the 500 · M4 = M3 plus tolerant `qty ?? 0` reads → test 4 on `final_price`. **M3 is itself a correction**: I recorded the unguarded shape as a silent half-return; it is an HTTP **500**, because PHP raises on the undefined `qty` key before `(int)` can yield 0 — which is why M4 exists at all. |
+| the reconciler census | removing `place_order`'s call fails the covered-writers assertion; **adding a comment-only mention of `warnIfInconsistent` to an uncovered writer does not count as coverage** — the control that distinguishes this census from the shell `grep` it replaced, which reported 14 writers against the tokenizer's 16 |
+| GATE F reconciliation | a **clean synthetic store reports 0 items and exit 0** (the negative control, without which "it found three" could be hard-coded), and a tokenizer test asserts the class contains **no INSERT, UPDATE or DELETE** |
+
+**One test of mine could not fail for its stated reason, and the review found it.** The free-shipping
+percentage test claimed to cover the second copy of that arithmetic; reverting that copy's base fails
+**nothing**, because the copy sits behind `if ($shipping_Methods != null)` and `$shipping_Methods` comes
+from `Session`, which a `postJson` leaves empty. Renamed to what it measures, with the uncovered lines
+named.
+
+## 8. Does the merge-base regression gate report zero new failures?
+
+**Read back from the API, not inferred — see the CI line in `PHASE-01-CLOSURE-EXECUTION.md` →
+`CLOSEOUT` §6.** Locally on this tree: Unit **351 passed** (1,837 assertions), Contract **26 passed**
+(83 assertions), and the Commerce + Security blast radius **4,478 passed / 11 skipped / 0 undeclared
+failures**. All six CI guards invoked the way `ci.yml` invokes them, **exit 0** each.
+
+## 9. Not claimed
+
+That the other 12 `coupon_price` writers subtract — no claim in either direction. That the 11 further
+`PerUsesCouponCount` sites enforce the cap. That the taxed-order component defect is fixed. That the
+charged-amount change is accepted: **it changes what shoppers pay**, and that was always
+`P1-ORD-01`'s stated condition on the owner.
+
+**Nothing was deployed, merged or migrated.** `main` was not modified. No migration was run against any
+server. No live data was altered. PR #3 remains a **Draft titled ⛔ DO NOT MERGE**.
+
+**Any commit pushed after this head is outside this attestation until a section covers it.**
+
+SECURITY-DIFF-REVIEW: completed
