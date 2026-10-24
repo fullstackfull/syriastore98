@@ -48,17 +48,18 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/ProductStockService.php:127` | Stock decremented below zero on an order path that cannot refuse |
 | `app/Services/ProductStockService.php:210` | Stock decremented below zero on an order path that cannot refuse |
 
-### `warning` — 111 lines
+### `warning` — 112 lines
 
 | line | message |
 |---|---|
-| `app/Http/Controllers/Api/ApiController.php:3291` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:6648` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:6739` | coupon: refused an implausible discounted total |
-| `app/Http/Controllers/Api/ApiController.php:7515` | payment_sheet refused: basket names a product from another store |
-| `app/Http/Controllers/Api/ApiController.php:7541` | payment_sheet: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:8151` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:8276` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:117` | Coupon refused: the basket could not be priced |
+| `app/Http/Controllers/Api/ApiController.php:3420` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:6916` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:7007` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:7783` | payment_sheet refused: basket names a product from another store |
+| `app/Http/Controllers/Api/ApiController.php:7809` | payment_sheet: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:8419` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:8544` | coupon: refused an implausible discounted total |
 | `app/Http/Controllers/Api/AuthController.php:186` | register: social identity verification refused |
 | `app/Http/Controllers/Api/DeliverySyriaOrderController.php:82` | Delivery Syria invalid credentials |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:322` | Pending partial payment refused: the balance named does not belong to this customer. |
