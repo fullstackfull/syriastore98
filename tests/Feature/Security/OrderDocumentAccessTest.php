@@ -330,6 +330,56 @@ class OrderDocumentAccessTest extends SecurityTestCase
         $this->assertNotSame(403, $response->getStatusCode(), 'A signed-in shopper was denied their own order document.');
     }
 
+    /**
+     * THE HOST'S OWN ORDER DOCUMENT.  P1-ORD-09 (#73).
+     *
+     * `{storeSlug?}/order/{id}` (routes/customer.php:175 -> OrderController::orderDetails) decrypts
+     * the id and renders the order with NO ownership test, in a route group that carries no
+     * customer authentication. `APP_KEY` is in git history and is not being rotated (owner decision
+     * D7), so the ciphertext is an encoding rather than a control and the uri is forgeable.
+     *
+     * It needed no new mechanism -- this guard already resolves the row, reads its `store_id` and
+     * compares it against the caller's tenant -- so it was added to TARGETS rather than given a
+     * parallel control.
+     */
+    public function test_an_anonymous_caller_cannot_fetch_the_host_order_document(): void
+    {
+        $this->enableAddon();
+        [, $store] = $this->makeTenant();
+        $order = $this->makeOrder($store);
+
+        $this->get('/' . $store->slug . '/order/' . Crypt::encrypt($order->id))->assertForbidden();
+    }
+
+    /** And a forged ciphertext for another tenant's order is refused even when signed in. */
+    public function test_a_shopper_cannot_fetch_another_stores_host_order_document(): void
+    {
+        $this->enableAddon();
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $customer = $this->makeCustomer($storeA->id);
+        $orderB = $this->makeOrder($storeB);
+
+        $this->actingAs($customer, 'customers')
+            ->get('/' . $storeA->slug . '/order/' . Crypt::encrypt($orderB->id))
+            ->assertForbidden();
+    }
+
+    /** PRESERVE FIRST: the shopper's own order document still opens. */
+    public function test_a_shopper_can_still_fetch_their_own_host_order_document(): void
+    {
+        $this->enableAddon();
+        [, $store] = $this->makeTenant();
+        $customer = $this->makeCustomer($store->id);
+        $order = $this->makeOrder($store, ['customer_id' => $customer->id, 'is_guest' => 0]);
+
+        $response = $this->actingAs($customer, 'customers')
+            ->get('/' . $store->slug . '/order/' . Crypt::encrypt($order->id));
+
+        $this->assertNotSame(403, $response->getStatusCode(),
+            'a signed-in shopper was denied their own order document.');
+    }
+
     public function test_a_shopper_cannot_fetch_another_shoppers_order_document(): void
     {
         $this->enableAddon();

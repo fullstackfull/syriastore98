@@ -344,7 +344,20 @@ class StorefrontAccountDeletionTest extends SecurityTestCase
             . 'exists for.');
 
         [$order, $address, $wishlist] = $belongings;
-        $this->assertNull(Order::find($order->id), 'Their own order survived the deletion.');
+
+        /*
+         * REVERSED BY OWNER DECISION D14 (P1-ORD-03, #22): order and accounting records are
+         * PRESERVED when a customer is deleted.
+         *
+         * This assertion used to be `assertNull(Order::find(...))` -- it pinned the hard delete as
+         * correct behaviour. It is not: `Order` has no SoftDeletes, so a shopper closing their
+         * account irreversibly destroyed the merchant's sales history, while `Customer` itself
+         * soft-deletes and survives. The address and the wishlist ARE the customer's own content
+         * and are still removed, which is what keeps this test honest about the difference.
+         */
+        $this->assertNotNull(Order::find($order->id),
+            'The order was destroyed with the account. Owner decision D14: order and accounting '
+            . 'records are preserved.');
         $this->assertNull(DeliveryAddress::find($address->id), 'Their own address survived.');
         $this->assertNull(Wishlist::find($wishlist->id), 'Their own wishlist row survived.');
 

@@ -590,6 +590,10 @@ class OrderDocumentRouteResolutionTest extends TestCase
             'lottery/shippinglabel/pdf/{id}',
             'lottery-order-view/{id}',
             'lottery-order-receipt/{id}',
+            // P1-OWN-05(a): PartialPayments' settle-a-balance page, declared at
+            // packages/workdo/PartialPayments/src/routes/web.php:27. Module-only for the same
+            // reason as the six above, and the tripwire below still proves it is really declared.
+            '{storeSlug?}/customerpayment/{id}',
         ];
 
         // Every excluded uri must still be a real declaration somewhere, or the exclusion is

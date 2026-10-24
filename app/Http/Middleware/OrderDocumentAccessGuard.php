@@ -198,6 +198,23 @@ class OrderDocumentAccessGuard
         'lottery-order-receipt/{id}' => ['table' => 'orders', 'param' => 'id'],
 
         // ---------------------------------------------------------------------------------
+        // P1-ORD-09 (#73) AND P1-OWN-05(a). The HOST's own order document, and the module's
+        // settle-a-balance page, both reached by `Crypt::encrypt($id)` in the uri.
+        //
+        // `{storeSlug?}/order/{id}` is routes/customer.php:175 -> OrderController::orderDetails,
+        // which decrypts the id and renders the order with NO ownership test; its route group
+        // carries no customer authentication, so it is anonymous. `APP_KEY` is in git history and
+        // is not being rotated (owner decision D7), so the ciphertext is forgeable and encryption
+        // is an encoding here, not a control.
+        //
+        // These need no new mechanism: this guard already resolves the row, reads its `store_id`
+        // and compares it against the caller's tenant, refusing anonymous callers outright. That
+        // is exactly the control both rows asked for, so they are added to the map rather than
+        // given a parallel one.
+        '{storeSlug?}/order/{id}' => ['table' => 'orders', 'param' => 'id'],
+        '{storeSlug?}/customerpayment/{id}' => ['table' => 'orders', 'param' => 'id'],
+
+        // ---------------------------------------------------------------------------------
         // AUTHENTICATED BUT NOT TENANT-SCOPED -- live with no module enabled at all, and
         // therefore the half of this defect that is reachable on the server as it stands.
         // All three are in the host's `['auth','xss','setlocate','verified']` group, so

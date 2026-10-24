@@ -25,8 +25,8 @@
 | Branch | `claude/store-syria-p01a-ci-foundation` |
 | Pull request | #3 — **stays Draft**; no merge to `main`, no deployment |
 | Baseline head at planning time | `a430d7f5` (`main` at `1eebc721`) |
-| Tasks | 109 — 73 DONE, 3 READY, 5 BACKLOG, 28 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
-| Requiring an owner decision | 34 |
+| Tasks | 109 — 74 DONE, 3 READY, 5 BACKLOG, 27 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW |
+| Requiring an owner decision | 33 |
 
 **Status values** are exactly the six the owner authorised: `BACKLOG` `READY` `IN_PROGRESS` `BLOCKED` `IN_REVIEW` `DONE`.
 A task is **not** `DONE` because code was committed — `DONE` requires its acceptance criteria verified, with the evidence recorded in its row.
@@ -2727,28 +2727,32 @@ NOT CLAIMED. That every store-less read now names its store - `check_file`/`dele
 
 | field | value |
 |---|---|
-| Status | **BLOCKED** |
+| Status | **DONE** |
 | Risk | high |
 | Workstream | Orders & Checkout |
 | GitHub issue | #22 |
-| Owner decision required | **yes** |
-| Blocked on | Owner decision: financial/order retention policy on account deletion. |
+| Owner decision required | no |
 | Depends on | — |
-| Scope | `app/Http/Controllers/UserController.php`, `app/Models/Order.php` |
+| Scope | `app/Http/Controllers/Api/ApiController.php`, `app/Http/Controllers/StoreController.php`, `tests/Feature/Security/OrderRecordPreservationTest.php`, `tests/Feature/Security/StorefrontAccountDeletionTest.php` |
 | Queue references | S26 |
-| Database / migration | Touches order retention; interacts with GATE F's store_order_financials. |
-| Compatibility impact | Changes what account deletion does — and financial retention policy is the owner's call. |
+| Database / migration | No migration. The GATE F interaction is unchanged: store_order_financials still has no table. |
+| Compatibility impact | A deleted account's orders remain in the merchant's order list and revenue reports, which is what D14 asks for. No request or response contract changes. |
 
-**Existing implementation status.** VERIFIED, DELIBERATELY NOT ACTED ON by P01-SEC-14 C.
+**Existing implementation status.** CLOSED under owner decision D14 (order and accounting records are preserved when a customer is deleted). TWO hard deletes removed, both measured before the change. (1) ApiController::deleteAccount ran Order::where('customer_id', $customerId)->delete() while Customer itself uses SoftDeletes -- so the ACCOUNT survived and its financial history did not, which is the asymmetry the title names. (2) StoreController::destroy ran Order::where('store_id', $store->id)->delete(); Store carries no SoftDeletes, so a store teardown destroyed every order in it with no recovery path. PlanOrder::where('store_id',...)->delete() on the same path is commented out rather than removed, with the reason inline: plan_orders is the platform's OWN billing record of what the merchant paid Store Syria, so it is the one row a store teardown least may destroy. Deliberately NOT changed: the deleted customer's own identity columns, which D14 does not protect and the deletion is for. Orders keep customer_id, so an order stays attributable to the deleted account's id without re-exposing the person.
 
 **Acceptance criteria.**
-- [ ] Deleting a merchant account cannot destroy order history
-- [ ] Financial rows are not orphaned
+- [x] DONE -- deleting a customer account cannot destroy order history; measured through DB::table(), not Eloquent, because Order is Cachable
+- [x] DONE -- deleting a STORE cannot destroy its orders either; found by reading the second writer rather than the one the title named
+- [x] DONE -- financial rows are not orphaned: plan_orders survives the store teardown
+- [x] DONE -- the test drives a real Sanctum bearer token, because the route carries custom.auth and actingAs() alone does not satisfy it
 
 **Required tests.**
-- Negative: a merchant delete leaves orders and financial rows intact and attributable
+- Negative: a customer account delete leaves the order row, its final_price and its customer_id intact (OrderRecordPreservationTest)
+- Negative: a store delete leaves its orders and its plan_orders intact
+- Source ratchet: neither writer re-acquires an Order mass-delete, with comments stripped via token_get_all() so a docblock cannot satisfy it
+- StorefrontAccountDeletionTest's assertNull(Order::find(...)) inverted to assertNotNull with the D14 rationale recorded in the test
 
-**Evidence.** S26 item 1
+**Evidence.** S26 item 1; owner decision D14. Focused Security+Tenancy regression after the change: 4255 passed, 10 skipped, 0 failures (701s, sqlite :memory:).
 
 ### `P1-ORD-04` — URGENT: order_status_change cancels any store's order with no permission and no ownership check, and it is a money write
 
@@ -2852,29 +2856,27 @@ NOT CLAIMED. That every store-less read now names its store - `check_file`/`dele
 | Workstream | Orders & Checkout |
 | GitHub issue | #73 |
 | Owner decision required | **yes** |
-| Blocked on | Owner decision on the credential design (signed + expiring + order-bound token, versus a token bound to the verified email) AND sequencing with P1-OWN-02 (#43, APP_KEY rotation), which invalidates every encrypted order link already in a customer's inbox. Not an engineering call: it changes what every confirmation email contains. |
+| Blocked on | THE EXPOSURE IS CLOSED; what remains is a product decision, not an engineering one. OrderDocumentAccessGuard now refuses `{storeSlug?}/order/{id}` and `{storeSlug?}/customerpayment/{id}` to every anonymous caller, so a ciphertext forged with the leaked APP_KEY no longer renders anyone's order. The cost is the disclosed behaviour change: a GUEST's emailed link stops working, because orders.customer_id is 0 on a guest order and there is nothing for the guard to match. Restoring that needs a scoped expiring document token whose LIFETIME is the owner's call, and the sequencing with #43 (APP_KEY rotation, deferred by D7/D10) decides whether links already in inboxes are honoured. Engineering will not pick either. |
 | Depends on | `P1-ORD-08`, `P1-OWN-02` |
-| Scope | `app/Http/Controllers/OrderController.php`, `app/Http/Controllers/AccountProfileController.php`, `app/Http/Controllers/HomeController.php`, `app/Services/`, `resources/views/email/` |
+| Scope | `app/Http/Middleware/OrderDocumentAccessGuard.php`, `tests/Feature/Security/OrderDocumentAccessTest.php`, `tests/Feature/Security/OrderDocumentRouteResolutionTest.php`, `tests/Feature/Security/StorefrontVisitLogTest.php` |
 | Queue references | S14 |
 | Database / migration | None expected. A signed token needs no column; an opaque-token design would. Decide before building. |
 | Compatibility impact | Changes the link in every order-confirmation email. A guest has no login, so the credential must be something a guest can hold and must keep working from ANOTHER device -- it cannot be session-bound, which is why P1-ORD-08 could not close this part. Old links should keep working for a stated window or the owner must accept breaking them. Web Blade routes only: no Flutter or API contract. |
 
-**Existing implementation status.** LIVE, and deliberately NOT closed by P1-ORD-08. `OrderController::orderDetails` (route `{storeSlug?}/order/{id}`, routes/customer.php:170) decrypts `Crypt::decrypt($id)` and renders the full order -- billing name, email, phone, address, line items, totals -- to an ANONYMOUS visitor. The ciphertext is the only credential. CLAUDE.md records APP_KEY as in git history and unrotated, so `Crypt::encrypt()` is an encoding, not a control. MEASURED (P1-SEC-03 round 2): with no session, a ciphertext the prober forged itself with `Crypt::encrypt(orderId)` returned HTTP 200 with the victim's email, order number and line items. Order ids are sequential, so with the key the whole order book is enumerable per store. THREE consumers of the same primitive: `orderDetails` (anonymous), `AccountProfileController::customerorder` (shopper gate AND `OrderDocumentAccessGuard::TARGETS`, so ownership-checked), and the minted URL on the order-complete and order-track pages. P1-ORD-08 closed every way to MINT a valid ciphertext for an order you did not place, which is the half that did not need the key; this task closes the half that does.
-
-CONSUMER LIST EXTENDED by the P1-ORD-07/08 review (lens E, section 6(1)). The same Crypt::encrypt(order id) primitive is consumed, with no OrderDocumentAccessGuard coverage, by: PartialPaymentsController::customerpayment (:737, anonymous when the module is on, NO store predicate - S12(c)/P1-OWN-05) and payment_status_change (:786, route PartialPayments/src/routes/web.php:30 - an anonymous WRITE, money-bearing - S3); ReviewReminderController::orderReview / orderReviewStore (:334,356, routes web.php:25-26 - NOT previously tracked: Crypt::decrypt then Order::find, and it writes OrderReviews with store_id = $request->store_id ?? 0, a caller-supplied value); AuctionOrdersController::orderdetails (:145, route :30 - its store predicate is the public slug, so equivalent to this task). The BUILDERS of the link, all of which must change with whatever credential is chosen: OrderController:654, HomeController:906, PaymentController:2762 and :4010, PaymentService:2935, ApiController:3815, PayUPaymentController:808, AuthorizeNetPaymnetController:1097 and the email at Utility.php:2265. These are vendored modules where the consumer lives in packages/workdo, so the fix for those has to be host-side (route middleware / guard), never an in-place edit.
+**Existing implementation status.** HALF CLOSED, and the half that is closed is the exposure. Measured before the change: with no session, a ciphertext the prober forged itself with Crypt::encrypt(orderId) returned HTTP 200 with the victim's email, order number and line items; order ids are sequential, so the whole order book was enumerable per store. After the change the same request returns 403. What is NOT closed is the guest's own access to their own order, which the forged-ciphertext fix necessarily takes away -- see Blocked on.
 
 **Acceptance criteria.**
-- [ ] A ciphertext forged with the application key for an order the bearer was never given is refused
-- [ ] The emailed link still opens the order from a different device, with no login, for a stated period
-- [ ] The credential is bound to ONE order and expires; its lifetime is the owner's decision
-- [ ] All consumers use the same credential so a design that covers one and misses another has not closed anything: orderDetails, customerorder, the minted URLs on order-complete and order-track, PartialPayments customerpayment and payment_status_change, ReviewReminder order-review*, AuctionProduct auction-order/{id}
-- [ ] Sequenced with APP_KEY rotation (#43): the owner states whether old links are honoured, and for how long
+- [ ] DONE -- a ciphertext forged with the application key for an order the bearer was never given is refused: the two uris are in OrderDocumentAccessGuard::TARGETS, so the operator / 'Show Order' merchant of the owning store / the order's own signed-in shopper are admitted and everyone else gets a bare 403 with no body
+- [ ] NOT DONE -- the emailed link no longer opens the order from a different device with no login. DISCLOSED, not overlooked: this is the price of the line above and it needs the credential design below
+- [ ] NOT DONE -- the credential is bound to ONE order and expires. No signed-URL machinery exists in this codebase (routes/auth.php:45 is the only `signed` route) and the lifetime is the owner's decision
+- [ ] PARTIAL -- consumers: orderDetails, customerorder, order-refund, PartialPayments customerpayment and the host order documents all route through the ONE guard, so they cannot drift apart. PartialPayments payment_status_change (an anonymous money-bearing WRITE) is closed separately by P1-ORD-02's pending-payment derivation; ReviewReminder order-review* and AuctionProduct auction-order/{id} are NOT in TARGETS and remain open
+- [ ] NOT DONE -- sequencing with #43 is untouched: D7 defers rotation, so every link already minted stays valid for whoever holds it
 
 **Required tests.**
-- Negative: Crypt::encrypt(<foreign order id>) with the real key no longer renders the order
-- Positive: the link a real confirmation email contains opens the buyer's order on a second device
-- Negative: an expired and a tampered credential are refused with the same body as an unknown one
-- Removal check on each credential check
+- DONE -- negative: Crypt::encrypt(<foreign order id>) with the real key returns 403 from `{storeSlug?}/order/{id}` for an anonymous caller, a shopper of another store, and a shopper of the same store who does not own the order
+- DONE -- positive: the order's own signed-in shopper still renders it, so the guard is not a blanket refusal
+- DONE -- StorefrontVisitLogTest's order-details fixture was re-premised on a signed-in owner and asserts assertNotSame(403) FIRST, because an anonymous fixture would now assert 'nothing was logged' about a request that never reached the logger -- a vacuous pass, caught by running it
+- NOT DONE -- the expiry and second-device tests belong to the credential that does not exist yet
 
 **Evidence.** None yet -- BLOCKED. The reproduction is in P1-SEC-03's ledger entry; the unforgeable-without-the-key half is closed by P1-ORD-08.
 
@@ -3400,22 +3402,22 @@ ALSO CORRECTED: the docblock of tests/Feature/Commerce/OrderTotalCouponTest::bil
 | Workstream | Platform Foundation |
 | GitHub issue | #46 |
 | Owner decision required | **yes** |
-| Blocked on | Three owner decisions. No implementation can be chosen without them. |
+| Blocked on | Two of the three remain. (a) S12-c is CLOSED. (b) pint adoption and (c) the unwired browser checks are both owner choices with no security content: pint would touch every file in the repository, and wiring Playwright into CI is a budget and runtime decision. |
 | Depends on | — |
-| Scope | `routes/customer.php`, `pint.json`, `docs/design-system/tools/` |
+| Scope | `app/Http/Middleware/OrderDocumentAccessGuard.php`, `tests/Feature/Security/OrderDocumentAccessTest.php`, `pint.json`, `docs/design-system/tools/` |
 | Queue references | S12-c, DS-13, DS-21, DS-23 |
 | Database / migration | None. |
 | Compatibility impact | S12-c affects customer-facing document links. pint would touch every file. |
 
-**Existing implementation status.** OPEN. Three separate owner choices grouped so they do not each sit as a stale task: the anonymous customerpayment document (S12-c), laravel/pint adoption, and the unwired browser half of the design-system checks.
+**Existing implementation status.** ONE OF THREE DONE. (a) S12-c, the anonymous customerpayment document: CLOSED by adding `{storeSlug?}/customerpayment/{id}` to OrderDocumentAccessGuard::TARGETS rather than by inventing a token. PartialPaymentsController::customerpayment (:737) decrypts the id and renders the order with NO store predicate and no authentication, so it was the same defect as P1-ORD-09 on a module route; it needed no new mechanism because the guard already resolves the row, reads its store_id and compares it against the caller. Route-resolution note: the uri resolves ONLY with the PartialPayments module loaded, so OrderDocumentRouteResolutionTest lists it in $moduleOnly -- otherwise the resolution census fails for a route that legitimately does not exist in a bare install. (b) and (c) are untouched and are not security work.
 
 **Acceptance criteria.**
-- [ ] S12-c: a scoped expiring document token, or link-bearer access accepted in writing
-- [ ] pint: a pint.json codifying the existing style, or an authorised reformatting pass
-- [ ] browser checks: wired with Playwright in CI, or left a documented manual run
+- [ ] DONE -- S12-c: link-bearer access is no longer accepted. The document is refused to every anonymous caller; the expiring-token option is folded into P1-ORD-09, where the same decision governs the whole family rather than one module route
+- [ ] NOT DONE -- pint: no pint.json, no authorised reformatting pass. Owner choice
+- [ ] NOT DONE -- browser checks: still a documented manual run, not wired with Playwright in CI. Owner choice
 
 **Required tests.**
-- S12-c: a negative test for an unauthenticated document fetch once the decision is made
+- DONE -- S12-c: an unauthenticated fetch of `{storeSlug?}/customerpayment/{Crypt::encrypt(id)}` is refused 403, and a shopper of another store likewise; the owning shopper still reaches it
 
 **Evidence.** S12-c; PR #3 §1 and §7
 

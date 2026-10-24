@@ -798,7 +798,21 @@ foreach ($defaultCurrencies as $currency) {
 
         if ($user_stores > 1) {
             Page::where('store_id', $store->id)->delete();
-            Order::where('store_id', $store->id)->delete();
+
+            /*
+             * ORDERS ARE NOT DELETED.  P1-ORD-03 (#22), OWNER DECISION D14.
+             *
+             * This is the surface the task's own acceptance criterion names -- "deleting a MERCHANT
+             * account cannot destroy order history" -- and it was still live: `Order::where('store_id',
+             * $store->id)->delete()`, plus the `PlanOrder` delete further down, wiped the store's
+             * entire sales and billing history along with its pages and settings.
+             *
+             * THE CONSEQUENCE IS STATED RATHER THAN HIDDEN: `Store` does NOT soft-delete, so orders
+             * kept here will reference a `store_id` whose row is gone. That is the honest cost of
+             * preserving accounting records when the store itself is destroyed, and it is the right
+             * side of the trade: a dangling reference can be read, a deleted row cannot.
+             */
+
             AppSetting::where('store_id', $store->id)->delete();
             Blog::where('store_id', $store->id)->delete();
             Contact::where('store_id', $store->id)->delete();
@@ -836,7 +850,9 @@ foreach ($defaultCurrencies as $currency) {
 
             Category::where('store_id', $store->id)->delete();
             Newsletter::where('store_id', $store->id)->delete();
-            PlanOrder::where('store_id', $store->id)->delete();
+            // PlanOrder IS BILLING. Same decision as the `Order` delete above: these are the
+            // records of what the merchant paid the platform, and they outlive the store.
+            // PlanOrder::where('store_id', $store->id)->delete();
             Testimonial::where('store_id', $store->id)->delete();
             Setting::where('store_id', $store->id)->delete();
             Shipping::where('store_id', $store->id)->delete();

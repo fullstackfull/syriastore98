@@ -222,19 +222,44 @@ class StorefrontVisitLogTest extends SecurityTestCase
         $this->assertSame(0, DB::table('shetabit_visits')->count());
     }
 
-    /** The anonymous order-details link is a CAPABILITY in the path (P1-ORD-09), so it must not be written down. */
+    /**
+     * The order-details link is a CAPABILITY in the path (P1-ORD-09), so it must not be written down.
+     *
+     * THE FIXTURE IS NO LONGER ANONYMOUS, and that is a real change of premise rather than a
+     * convenience. P1-ORD-09 added `{storeSlug?}/order/{id}` to
+     * App\Http\Middleware\OrderDocumentAccessGuard, so an anonymous caller now gets a bare 403
+     * BEFORE ActiveTheme runs -- no visit row is written at all and this test would pass
+     * vacuously, asserting "the link is not stored" about an empty table. The leak this test
+     * exists for is still live for the principal the guard DOES admit: a signed-in shopper
+     * reaching their own order writes the ciphertext into `shetabit_visits.url`, where any
+     * merchant staffer with analytics access can read it and replay it. So the fixture signs in
+     * the order's own owner, which is the strongest caller the guard allows.
+     */
     public function test_an_order_details_link_is_not_stored_in_url_or_referer(): void
     {
         $store = $this->themedStore();
-        $link = \Illuminate\Support\Facades\Crypt::encrypt(7);
+
+        $customer = Customer::forceCreate([
+            'first_name' => 'Shop', 'last_name' => 'Per', 'email' => 'owner' . uniqid() . '@example.test',
+            'password' => bcrypt('secret-not-a-real-password'), 'store_id' => $store->id, 'status' => 1,
+            'billable_id' => $store->created_by, 'billable_type' => \App\Models\User::class,
+        ]);
+        $order = $this->makeOrder($store, ['customer_id' => $customer->id, 'is_guest' => 0]);
+
+        $link = \Illuminate\Support\Facades\Crypt::encrypt($order->id);
 
         $_SERVER['HTTP_REFERER'] = 'https://shop.test/' . $store->slug . '/order/' . $link . '?utm=mail';
 
         try {
-            $this->visit('GET', '/' . $store->slug . '/order/' . $link);
+            $this->actingAs($customer, 'customers');
+            $response = $this->visit('GET', '/' . $store->slug . '/order/' . $link);
         } finally {
             unset($_SERVER['HTTP_REFERER']);
         }
+
+        $this->assertNotSame(403, $response->getStatusCode(),
+            'Fixture premise: the order-details guard must ADMIT the order\'s own signed-in owner, '
+            . 'or this test asserts "nothing stored" about a request that never reached the logger.');
 
         $row = DB::table('shetabit_visits')->first();
         $this->assertNotNull($row, 'Fixture premise: the order-details visit must have been logged.');

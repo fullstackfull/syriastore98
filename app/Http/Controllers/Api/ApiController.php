@@ -7872,7 +7872,22 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $customerId = (int) $customer->id;
 
         Wishlist::where('customer_id', $customerId)->delete();
-        Order::where('customer_id', $customerId)->delete();
+
+        /*
+         * ORDERS ARE NOT DELETED.  P1-ORD-03 (#22), OWNER DECISION D14: order and accounting
+         * records are preserved when a customer is deleted.
+         *
+         * This line was `Order::where('customer_id', $customerId)->delete()` -- a HARD delete, on a
+         * model that does not use SoftDeletes, run from an endpoint the shopper calls themselves.
+         * A customer closing their account destroyed the merchant's sales history with it: the
+         * order rows, and with them every figure any report, reconciliation or tax return is built
+         * from. `Customer` DOES soft-delete (app/Models/Customer.php:21), so the account row
+         * survives and the orders go on resolving their owner -- the asymmetry is the whole defect.
+         *
+         * The three deletes around this one stay. A wishlist, a saved delivery address and a
+         * testimonial are the customer's own content, not the merchant's financial record.
+         */
+
         DeliveryAddress::where('customer_id', $customerId)->delete();
         // Scoped to this store, unlike the three above. `testimonials.user_id` holds ids from TWO
         // tables -- the storefront writers put a customers.id there while the admin writer puts a

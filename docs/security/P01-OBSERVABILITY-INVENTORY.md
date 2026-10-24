@@ -56,8 +56,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Api/ApiController.php:6739` | coupon: refused an implausible discounted total |
 | `app/Http/Controllers/Api/ApiController.php:7515` | payment_sheet refused: basket names a product from another store |
 | `app/Http/Controllers/Api/ApiController.php:7541` | payment_sheet: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:8136` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:8261` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:8151` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:8276` | coupon: refused an implausible discounted total |
 | `app/Http/Controllers/Api/AuthController.php:186` | register: social identity verification refused |
 | `app/Http/Controllers/Api/DeliverySyriaOrderController.php:82` | Delivery Syria invalid credentials |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:322` | Pending partial payment refused: the balance named does not belong to this customer. |
