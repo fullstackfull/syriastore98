@@ -238,6 +238,37 @@ class HomeController extends Controller
         $out_of_stock_threshold = Utility::GetValueByName('out_of_stock_threshold', getCurrentStore());
         $latests = (clone $productQuery)->orderBy('created_at', 'Desc')->limit(3)->get();
 
+        /* P2-02: the count behind the dashboard's "needs attention" row.
+         *
+         * The predicate is NOT a new rule. It is the SAME one the product list
+         * already labels a row with (ProductDataTable::dataTable(), the
+         * `stock_status` column): a variant product is excluded because its
+         * stock lives on the variant rather than the product; a product that
+         * does not track stock is judged by its `stock_status` string; and one
+         * that does track stock is out when its count is at or below the
+         * store's threshold. If that rule is ever wrong it should be wrong in
+         * one place, so this reads from the same three columns.
+         *
+         * $productQuery already carries ->where('store_id', getCurrentStore()),
+         * which is the tenant predicate and has to be explicit: Product is NOT
+         * in config/tenancy.php's scoped_models, so StoreScope adds nothing to
+         * it for any principal. getCurrentStore() derives from the
+         * authenticated user, never from request input.
+         */
+        $out_of_stock_products = (clone $productQuery)
+            ->where(function ($q) {
+                $q->where('variant_product', '!=', 1)->orWhereNull('variant_product');
+            })
+            ->where(function ($q) use ($out_of_stock_threshold) {
+                $q->where(function ($untracked) {
+                    $untracked->where('track_stock', 0)->where('stock_status', 'out_of_stock');
+                })->orWhere(function ($tracked) use ($out_of_stock_threshold) {
+                    $tracked->where('track_stock', '!=', 0)
+                        ->where('product_stock', '<=', (int) ($out_of_stock_threshold ?? 0));
+                });
+            })
+            ->count();
+
         $orderCountsToday = $this->getOrderCounts($orderQuery, $todayStart, $todayEnd);
         $orderCounts = $this->getOrderCounts($orderQuery);
 
@@ -293,6 +324,7 @@ class HomeController extends Controller
             'total_revenues',
             'totle_cancel_order',
             'out_of_stock_threshold',
+            'out_of_stock_products',
             'theme_name',
             'pending_order',
             'delivered_order',

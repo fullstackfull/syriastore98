@@ -2,23 +2,38 @@
 
 @section('page-title', __('Dashboard'))
 
+{{-- P2-02: opt into the Store Syria design system. @stack('css') is the last
+     stylesheet position in <head> (layouts/app.blade.php:176), so nothing
+     below needs !important and no other screen is affected. --}}
+@push('css')
+    @include('layouts.includes.store-syria-ds')
+@endpush
+
 @section('action-button')
+    <div class="ss-scope ss-page-header__actions justify-content-md-end justify-content-center">
+        @permission('Create Product')
+            <a href="{{ route('product.create') }}" class="ss-btn ss-btn--primary ss-btn--sm">
+                <i class="ti ti-plus" aria-hidden="true"></i>
+                <span>{{ __('Add Product') }}</span>
+            </a>
+        @endpermission
+        @permission('Manage Order')
+            <a href="{{ route('order.index') }}" class="ss-btn ss-btn--secondary ss-btn--sm">
+                <i class="ti ti-shopping-cart" aria-hidden="true"></i>
+                <span>{{ __('Orders') }}</span>
+            </a>
+        @endpermission
+    </div>
 @endsection
 
 @section('breadcrumb')
 @endsection
 
 @php
+    /* The nine inline SVG icon strings that used to live here fed the eight
+       <x-dashboard-card> tiles that P2-02 replaced. They were 9 KB of markup
+       in a @php block and nothing references them any more. */
     $setting = getAdminAllSetting();
-    $icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-users text-blue-500 h-6 w-6"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>';
-    $customer_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-user-plus text-blue-500 h-6 w-6"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>';
-    $pending_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-clock text-blue-500 h-6 w-6"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
-    $return_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-rotate-ccw text-blue-500 h-6 w-6"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>';
-    $confirmed_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check-circle text-blue-500 h-6 w-6"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>';
-    $cancel_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-circle text-blue-500 h-6 w-6"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>';
-    $shipped_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-truck text-blue-500 h-6 w-6"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>';
-    $delivered_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-package w-6 h-6 text-primary" data-replit-metadata="client/src/components/dashboard/StatsGrid.tsx:85:18" data-component-name="Icon"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"></path><path d="M12 22V12"></path><path d="m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7"></path><path d="m7.5 4.27 9 5.15"></path></svg>';
-    $total_order_icon = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-shopping-cart text-blue-500 h-6 w-6"><circle cx="8" cy="21" r="1"></circle><circle cx="19" cy="21" r="1"></circle><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"></path></svg>';
 @endphp
 
 @section('content')
@@ -26,20 +41,18 @@
         <!-- [ sample-page ] start -->
         <div class="col-12">
             <div class="row mb-4 dash-order-status g-4">
-                <div class="col-12">
-                    <div class="row g-4">
-                        <x-dashboard-card :count="$pending_order" :label="__('Pending orders')" :icon="$pending_icon" />
-                        <x-dashboard-card :count="$return_order" :label="__('Order Return')" :icon="$return_icon" />
-                        <x-dashboard-card :count="$confirmed_order" :label="__('Confirmed Order')"
-                            :icon="$confirmed_icon" />
-                        <x-dashboard-card :count="$cancel_order" :label="__('Cancel Order')" :icon="$cancel_icon" />
-                        <x-dashboard-card :count="$shipped_order" :label="__('Order Shipped')" :icon="$shipped_icon" />
-                        <x-dashboard-card :count="$delivered_order" :label="__('Order Delivered')"
-                            :icon="$delivered_icon" />
-                        <x-dashboard-card :count="$totle_order" :label="__('Total Orders')" :icon="$total_order_icon" />
-                        <x-dashboard-card :count="$totle_customers" :label="__('Total Customers')" :icon="$customer_icon" />
+                {{-- P2-02 replaces eight equally-weighted count tiles with a
+                     worklist, a boxless stat grid and a status breakdown. The
+                     eight tiles reported the same six status counts the
+                     breakdown now does, with no period on any of them and no
+                     way to open the list a count referred to. See
+                     docs/development/phase-2/design/P2-DESIGN-FOUNDATION.md §3a.
 
-                    </div>
+                     Everything below this block is unchanged: the theme card,
+                     top category, the chart, storage, latest products and
+                     recent orders all still render exactly as before. --}}
+                <div class="col-12">
+                    @include('dashboard.overview')
                 </div>
                 <div class="col-12 admin-cards">
                     <div class="row g-4">
@@ -220,8 +233,7 @@
                                                             data-ajax-popup="true"
                                                             data-title="{{ __('Create Main Category') }}"
                                                             class="dropdown-item text-wrap"
-                                                            data-bs-placement="top"><span>{{ __('Add
-                                                                                            New Main Category') }}</span></a>
+                                                            data-bs-placement="top"><span>{{ __('Add New Main Category') }}</span></a>
                                                         <a href="#" data-size="md" data-url="{{ route('coupon.create') }}"
                                                             data-ajax-popup="true" data-title="{{ __('Create Coupon') }}"
                                                             class="dropdown-item text-wrap"

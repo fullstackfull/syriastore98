@@ -1,0 +1,259 @@
+/* ==========================================================================
+   Phase 02 browser checks
+   ==========================================================================
+
+   Drives the rendered previews in a real Chromium against the real public/
+   stylesheets. Same posture as docs/design-system/tools/browser-checks.cjs:
+   these are EXECUTED, not asserted, and anything this cannot reach (routing,
+   auth, tenancy, the DataTables stack) is out of its scope and is not claimed.
+
+   Run:
+     SS_PREVIEW_DIR=<dir> php -S 127.0.0.1:8099 -t public \
+        docs/design-system/tools/preview-server.php &
+     node docs/development/phase-2/tools/browser-checks-p02.cjs
+   ========================================================================== */
+const { chromium } = require('playwright');
+const BASE = process.env.SS_PREVIEW_BASE || 'http://127.0.0.1:8099';
+
+let pass = 0, fail = 0;
+const results = [];
+function check(name, ok, detail) {
+  (ok ? pass++ : fail++);
+  results.push(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  -- ' + detail : ''}`);
+}
+
+const WIDTHS = [360, 390, 414, 576, 768, 992, 1280, 1440];
+const VARIANTS = [
+  'after-en-full-light', 'after-ar-full-light',
+  'after-en-full-dark',  'after-ar-full-dark',
+  'after-en-empty-light','after-ar-noperm-light',
+];
+
+(async () => {
+  const browser = await chromium.launch();
+  console.log('Chromium', browser.version(), '\n');
+
+  // ---------------------------------------------------------- 1. overflow
+  for (const v of VARIANTS) {
+    for (const w of WIDTHS) {
+      const ctx = await browser.newContext({ viewport: { width: Math.max(w, 520), height: 900 } });
+      const page = await ctx.newPage();
+      const url = w < 520 ? `${BASE}/frame/${v}.html?w=${w}&h=900` : `${BASE}/preview/${v}.html`;
+      await page.goto(url, { waitUntil: 'load' });
+      await page.waitForTimeout(150);
+      const frame = w < 520 ? page.frames()[1] : page.mainFrame();
+      const over = await frame.evaluate(() => {
+        const vw = document.documentElement.clientWidth;
+        const bad = [];
+        document.querySelectorAll('.ss-scope *').forEach(el => {
+          const r = el.getBoundingClientRect();
+          if (r.right > vw + 1 || r.left < -1) {
+            bad.push(el.tagName.toLowerCase() + '.' + String(el.className).slice(0, 40));
+          }
+        });
+        return { scrollW: document.documentElement.scrollWidth, vw, bad: bad.slice(0, 3) };
+      });
+      check(`no horizontal overflow  ${v} @${w}px`,
+            over.scrollW <= over.vw + 1 && over.bad.length === 0,
+            over.bad.length ? over.bad.join(', ') : `scrollW=${over.scrollW} vw=${over.vw}`);
+      await ctx.close();
+    }
+  }
+
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await ctx.newPage();
+
+  // ------------------------------------------- 2. the honesty requirements
+  await page.goto(`${BASE}/preview/after-en-full-light.html`, { waitUntil: 'load' });
+
+  const periods = await page.$$eval('.ss-stat', els =>
+    els.map(e => ({
+      label: e.querySelector('.ss-stat__label')?.textContent.trim(),
+      period: e.querySelector('.ss-stat__period')?.textContent.trim(),
+    })));
+  check('every stat states its period', periods.length > 0 && periods.every(p => p.period && p.period.length > 1),
+        JSON.stringify(periods.map(p => `${p.label}=${p.period}`)));
+
+  const body = await page.textContent('body');
+  // "Order value", never "Revenue"/"Income"/"Profit" -- the figure is
+  // sum(final_price), which is none of those.
+  check('no "revenue" claim on the dashboard', !/\brevenue\b/i.test(body));
+  check('no "profit" claim on the dashboard',  !/\bprofit\b/i.test(body.replace(/This is not payments received, and not profit\./, '')));
+  check('order value is labelled as order value', /Order value/.test(body) && /all time, gross/.test(body));
+  check('order value carries its disclaimer',
+        /not payments received, and not profit/.test(body));
+
+  // ------------------------------------------------ 3. empty + permissions
+  await page.goto(`${BASE}/preview/after-en-empty-light.html`, { waitUntil: 'load' });
+  const attentionOnEmpty = await page.$$('.ss-attention');
+  check('attention block is ABSENT when nothing needs attention', attentionOnEmpty.length === 0,
+        `found ${attentionOnEmpty.length}`);
+  const emptyBody = await page.textContent('body');
+  check('a new store still sees its (zero) totals', /Orders/.test(emptyBody) && /\b0\b/.test(emptyBody));
+
+  /* The principal the tenant/authz review named: a staff member of this
+     tenant whose role grants nothing about orders. /dashboard carries no
+     permission middleware, so they reach this page; what they must NOT get is
+     anything this change newly put on it. */
+  await page.goto(`${BASE}/preview/after-en-noperm-light.html`, { waitUntil: 'load' });
+  const npBody = await page.textContent('body');
+  check('ungated staff get no "Add product" control', !/Add Product/.test(npBody));
+
+  // The one that matters. $total_revenues was in compact() with no consumer
+  // before Phase 02, so rendering it ungated would be a disclosure this
+  // change introduced -- store-wide gross order value to any tenant login.
+  check('ungated staff do NOT see the order-value figure',
+        !/Order value/.test(npBody), npBody.match(/Order value[^\n]{0,40}/)?.[0] || 'absent');
+  check('ungated staff do NOT see a money figure at all',
+        !/SYP\s[\d,]+\.\d\d/.test(npBody), npBody.match(/SYP\s[\d,]+\.\d\d/)?.[0] || 'none');
+
+  // ...but the counts that were ALREADY visible before Phase 02 still are.
+  // Gating those would be a regression dressed as hardening.
+  check('ungated staff still see the order and customer counts',
+        /1,284/.test(npBody) && /412/.test(npBody));
+
+  const npLinks = await page.$$eval('.ss-scope a[href]', els =>
+    els.map(e => e.getAttribute('href')).filter(h => h && h !== '#'));
+  check('ungated staff are given no link the controller would refuse',
+        npLinks.length === 0, npLinks.join(', ') || 'no links');
+
+  const npChips = await page.$$eval('.ss-chip', els =>
+    els.map(e => ({ tag: e.tagName.toLowerCase(), pressed: e.getAttribute('aria-pressed') })));
+  check('ungated status chips are static, not dead buttons',
+        npChips.length > 0 && npChips.every(c => c.tag === 'span' && c.pressed === null),
+        JSON.stringify(npChips.slice(0, 3)));
+
+  // And the full merchant DOES get it, or the gate is just a deletion.
+  await page.goto(`${BASE}/preview/after-en-full-light.html`, { waitUntil: 'load' });
+  const fullBody = await page.textContent('body');
+  check('a merchant with Manage Order DOES see the order-value figure',
+        /Order value/.test(fullBody) && /SYP\s1,284,500\.00/.test(fullBody));
+
+  // ------------------------------------------------------ 4. RTL mirroring
+  await page.goto(`${BASE}/preview/after-ar-full-light.html`, { waitUntil: 'load' });
+  const rtl = await page.evaluate(() => {
+    const att = document.querySelector('.ss-attention');
+    const cs = getComputedStyle(att);
+    const first = document.querySelector('.ss-stat');
+    return {
+      dir: document.documentElement.getAttribute('dir'),
+      // border-inline-start resolves to the RIGHT edge under rtl.
+      accentRight: parseFloat(cs.borderRightWidth),
+      accentLeft: parseFloat(cs.borderLeftWidth),
+      firstStatRight: first.getBoundingClientRect().right,
+      vw: document.documentElement.clientWidth,
+    };
+  });
+  check('document is rtl', rtl.dir === 'rtl');
+  check('attention accent bar mirrors to the inline-start (right) edge',
+        rtl.accentRight === 3 && rtl.accentLeft !== 3,
+        `right=${rtl.accentRight} left=${rtl.accentLeft}`);
+  check('first stat cell starts at the right edge under rtl',
+        rtl.firstStatRight > rtl.vw * 0.8, `right=${Math.round(rtl.firstStatRight)} vw=${rtl.vw}`);
+
+  // --------------------------------------------- 5. money must not break
+  for (const v of ['after-en-full-light', 'after-ar-full-light']) {
+    for (const w of [360, 390]) {
+      const c2 = await browser.newContext({ viewport: { width: 520, height: 900 } });
+      const p2 = await c2.newPage();
+      await p2.goto(`${BASE}/frame/${v}.html?w=${w}&h=900`, { waitUntil: 'load' });
+      await p2.waitForTimeout(150);
+      const f = p2.frames()[1];
+      const lines = await f.evaluate(() => {
+        const el = [...document.querySelectorAll('.ss-stat__value')]
+          .find(e => /\d[\d,]*\.\d\d/.test(e.textContent));
+        if (!el) return null;
+        const cs = getComputedStyle(el);
+        const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.25;
+        return { h: el.getBoundingClientRect().height, lh, text: el.textContent.trim() };
+      });
+      check(`money figure stays on one line  ${v} @${w}px`,
+            lines !== null && lines.h < lines.lh * 1.6,
+            lines ? `h=${Math.round(lines.h)} lineHeight=${Math.round(lines.lh)} "${lines.text}"` : 'not found');
+      await c2.close();
+    }
+  }
+
+  // ------------------------------------------------ 6. keyboard + a11y tree
+  await page.goto(`${BASE}/preview/after-en-full-light.html`, { waitUntil: 'load' });
+  const order = [];
+  for (let i = 0; i < 14; i++) {
+    await page.keyboard.press('Tab');
+    const info = await page.evaluate(() => {
+      const a = document.activeElement;
+      if (!a || a === document.body) return null;
+      const cs = getComputedStyle(a);
+      return {
+        text: (a.innerText || a.textContent || '').trim().slice(0, 32),
+        tag: a.tagName.toLowerCase(),
+        outline: cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0,
+        // Is this control one the design system owns, or host chrome?
+        ours: !!a.closest('.ss-scope'),
+      };
+    });
+    if (info) order.push(info);
+  }
+
+  /* Scoped to .ss-scope deliberately. The design system never styles a bare
+     element selector, so it cannot give a focus ring to a control it does not
+     own, and claiming otherwise would be claiming something it does not do.
+     Host-chrome controls are reported below instead of silently counted. */
+  const ours = order.filter(o => o.ours);
+  check('every design-system control shows a focus ring',
+        ours.length > 0 && ours.every(o => o.outline),
+        ours.filter(o => !o.outline).map(o => o.text).join(', ') || `${ours.length} controls checked`);
+
+  const hostNoRing = order.filter(o => !o.ours && !o.outline);
+  if (hostNoRing.length) {
+    console.log(`NOTE  ${hostNoRing.length} HOST-CHROME control(s) have no focus ring: ` +
+                hostNoRing.map(o => `"${o.text}"`).join(', ') +
+                '\n      Pre-existing, outside .ss-scope, and not something an opt-in' +
+                '\n      stylesheet can fix. Recorded, not counted as a Phase 02 result.');
+  }
+  check('tab order reaches the attention actions before the status chips',
+        order.findIndex(o => /Review orders/.test(o.text)) <
+        order.findIndex(o => /Pending/.test(o.text)),
+        order.map(o => o.text).join(' > ').slice(0, 160));
+
+  const names = await page.evaluate(async () => {
+    const out = [];
+    for (const el of document.querySelectorAll('.ss-scope a, .ss-scope button')) {
+      out.push({ text: (el.innerText || '').trim(), aria: el.getAttribute('aria-label') });
+    }
+    return out;
+  });
+  check('no control has an empty accessible name',
+        names.every(n => (n.text && n.text.length) || (n.aria && n.aria.length)),
+        `${names.length} controls`);
+
+  const landmarks = await page.$$eval('.ss-attention', els =>
+    els.map(e => ({ tag: e.tagName.toLowerCase(), labelled: !!e.getAttribute('aria-labelledby') })));
+  check('attention block is a labelled landmark',
+        landmarks.length === 1 && landmarks[0].tag === 'section' && landmarks[0].labelled,
+        JSON.stringify(landmarks));
+
+  // ------------------------------------------------- 7. the dark layout
+  await page.goto(`${BASE}/preview/after-en-full-dark.html`, { waitUntil: 'load' });
+  await page.waitForTimeout(400);
+  const dark = await page.evaluate(() => {
+    const html = document.documentElement;
+    const card = document.querySelector('.ss-attention');
+    const val = document.querySelector('.ss-stat__value');
+    return {
+      themeAttr: html.getAttribute('data-ss-theme'),
+      cardBg: getComputedStyle(card).backgroundColor,
+      pageBg: getComputedStyle(document.body).backgroundColor,
+      valColor: getComputedStyle(val).color,
+    };
+  });
+  check('page follows the host dark layout', dark.themeAttr === 'dark', JSON.stringify(dark));
+  check('dark card sits above the dark page', dark.cardBg !== dark.pageBg,
+        `card=${dark.cardBg} page=${dark.pageBg}`);
+
+  await ctx.close();
+  await browser.close();
+
+  console.log(results.join('\n'));
+  console.log(`\n${pass} PASSED, ${fail} FAILED`);
+  process.exit(fail ? 1 : 0);
+})().catch(e => { console.error('HARNESS ERROR', e); process.exit(2); });

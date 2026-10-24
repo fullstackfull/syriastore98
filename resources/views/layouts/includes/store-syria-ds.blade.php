@@ -18,8 +18,15 @@
 
     Bump ?v= when store-syria-ds.css changes. The host's own sheets use time(),
     which re-downloads them on every request; a hand-set version caches.
+
+    Phase 02 adds store-syria-ds.js beside it: side-panel focus management,
+    dirty-state tracking, the error-summary focus move and the chart's table
+    disclosure. It is `defer`red because this partial renders in <head>, and it
+    has no dependencies -- it does not touch jQuery, Bootstrap, the host's
+    data-ajax-popup contract, show_toastr or the inline sidebar search.
 --}}
-<link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}?v=p01b-3">
+<link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}?v=p02-1">
+<script defer src="{{ asset('js/store-syria-ds.js') }}?v=p02-1"></script>
 <script>
     (function () {
         var html = document.documentElement;

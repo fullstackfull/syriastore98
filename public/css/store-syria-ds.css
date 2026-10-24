@@ -121,7 +121,15 @@
     --ss-brand-hover:  var(--ss-teal-900);
     --ss-brand-active: var(--ss-teal-950);
     --ss-brand-subtle: var(--ss-teal-50);
-    --ss-brand-accent: var(--ss-teal-600);
+    /* teal-700, not teal-600. This token existed from Sprint 01 but no
+       component consumed it, so its value had never been through the contrast
+       checker. Phase 02's workspace chip draws a 3px accent bar with it, which
+       makes it a UI component under WCAG 1.4.11 and puts it on the 3:1
+       non-text threshold: teal-600 measures 2.70:1 on the white card surface
+       and fails; teal-700 measures 3.91:1. A per-store override of this token
+       is the one thing on the chip a merchant can change, and an override is
+       NOT verified, so the default has to be the safe one. */
+    --ss-brand-accent: var(--ss-teal-700);
     --ss-on-brand:     #ffffff;
     --ss-link:         var(--ss-teal-800);
 
@@ -1062,6 +1070,668 @@
 .ss-grow   { flex: 1 1 auto; min-width: 0; }
 .ss-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ==========================================================================
+   LAYER 3 (continued) — PHASE 02 COMPONENTS
+   ==========================================================================
+
+   Added for Phase 02 (Merchant Experience). Same rules as everything above:
+   `--ss-*` / `.ss-*` only, no bare element selectors, logical properties
+   only, state from ARIA rather than from classes. These consume the layer-2
+   semantic tokens and introduce no new colour, so the 40 verified contrast
+   pairs still describe every foreground/background combination in use.
+
+   The surfaces, and when to use which — written here because the codebase
+   has been choosing ad hoc:
+
+     .ss-panel    inspect a record, or edit 1-5 fields, without losing the
+                  list behind it.                   480px / full-width <768px
+     .ss-dialog   confirmations and single-purpose forms (above).      520px
+     full page    tabs, media, or more than ~8 fields.
+
+   A panel never opens a second panel. It opens a dialog, or it navigates.
+
+   ========================================================================== */
+
+/* ---- Tabular figures ----
+   Columns of numbers must not shift width as digits change. This is the
+   requirement behind the usual "use a monospace font for data" advice,
+   satisfied without downloading a second family — which matters here because
+   --ss-font-sans deliberately inherits the host's own family and declares the
+   Arabic faces ahead of any Latin fallback. Works for Arabic-Indic digits too. */
+.ss-num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+    /* The CSS equivalent of wrapping the run in <bdi>. A figure is a
+       left-to-right run, and inside an Arabic line the bidi algorithm will
+       otherwise reorder it against an adjacent currency symbol or bracket --
+       "1,284 ل.س" is not guaranteed to stay in that order without it. */
+    unicode-bidi: isolate;
+}
+
+/* ---- Stat grid ----
+   Measures get no card. A number does not need a box, and if every region on
+   the dashboard is a card then nothing on it has emphasis. Cells are divided
+   by hairlines instead, which also means the grid costs one element per cell.
+
+   Every cell states its own period (.ss-stat__period). A count with no period
+   is the commonest way a dashboard misleads, so the period is part of the
+   component rather than something a page remembers to add. */
+.ss-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: 0;
+    margin-block: var(--ss-space-5);
+    border-block-start: 1px solid var(--ss-border);
+}
+.ss-stat {
+    padding: var(--ss-space-4) var(--ss-space-5);
+    border-block-end: 1px solid var(--ss-border);
+    border-inline-end: 1px solid var(--ss-border);
+    min-width: 0;
+}
+/* The inline-end hairline would double up against the page edge; logical
+   properties mean this one rule is correct in both directions. */
+.ss-stat:last-child { border-inline-end: 0; }
+
+.ss-stat__label {
+    display: block;
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-medium);
+    color: var(--ss-fg-muted);
+    margin: 0 0 var(--ss-space-1);
+}
+.ss-stat__value {
+    display: block;
+    font-size: var(--ss-text-2xl);
+    font-weight: var(--ss-weight-semibold);
+    line-height: var(--ss-leading-tight);
+    color: var(--ss-fg);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+    /* See .ss-num: a money figure is a currency symbol beside a Latin-digit
+       run, and in Arabic the two reorder without isolation. */
+    unicode-bidi: isolate;
+    /* break-word, NOT anywhere. `anywhere` allowed "1,284,500.00" to split
+       across three lines on a 390px screen -- measured, in the Arabic
+       preview. break-word keeps a figure whole and only breaks a value that
+       genuinely cannot fit any other way. */
+    overflow-wrap: break-word;
+}
+/* Period / qualifier. Never omitted, and never styled as decoration.
+
+   --ss-fg-muted, NOT --ss-fg-subtle, and that is a measurement rather than a
+   preference: the stat grid sits on --ss-bg (#f6f8f8), not on the white card
+   surface, and fg-subtle is the lightest neutral clearing 4.5:1 *on white*.
+   On this background it measures 4.40:1 and fails. The hierarchy between the
+   label and the period is carried by size and weight instead of by colour,
+   which is the better way round anyway. */
+.ss-stat__period {
+    display: block;
+    font-size: var(--ss-text-xs);
+    color: var(--ss-fg-muted);
+    margin-block-start: var(--ss-space-1);
+}
+/* A measure the system genuinely cannot produce. An honest absence, and it
+   must not look like a zero. */
+.ss-stat--unavailable .ss-stat__value {
+    font-size: var(--ss-text-base);
+    font-weight: var(--ss-weight-normal);
+    color: var(--ss-fg-subtle);
+}
+
+/* ---- Attention block ----
+   The one region with real emphasis, and the only place on a dashboard that
+   earns an accent bar. It renders only the rows that apply and is absent
+   entirely when none do: a permanent "0 items need attention" panel teaches
+   merchants to stop looking at this part of the screen. */
+.ss-attention {
+    border: 1px solid var(--ss-border);
+    border-inline-start: 3px solid var(--ss-brand);
+    border-radius: var(--ss-radius-lg);
+    background: var(--ss-surface);
+    box-shadow: var(--ss-shadow-sm);
+    padding: var(--ss-space-4) var(--ss-space-5);
+}
+.ss-attention--warning { border-inline-start-color: var(--ss-warning-fg); }
+.ss-attention--danger  { border-inline-start-color: var(--ss-danger-fg); }
+
+.ss-attention__title {
+    font-size: var(--ss-text-base);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg);
+    margin: 0 0 var(--ss-space-3);
+}
+.ss-attention__list { list-style: none; margin: 0; padding: 0; }
+.ss-attention__item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--ss-space-2) var(--ss-space-3);
+    padding-block: var(--ss-space-2);
+    border-block-start: 1px solid var(--ss-border);
+}
+.ss-attention__item:first-child { border-block-start: 0; }
+.ss-attention__count {
+    font-size: var(--ss-text-lg);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+    unicode-bidi: isolate;
+}
+.ss-attention__text { color: var(--ss-fg-muted); flex: 1 1 auto; min-width: 0; }
+
+/* ---- Side panel (sheet) ----
+   Enters from the inline-end edge, so it comes from the right in English and
+   from the left in Arabic without a second rule. [hidden] keeps it out of the
+   accessibility tree when closed; `inert` on the page behind is applied by
+   the script, not from here. */
+.ss-panel-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: var(--ss-z-backdrop);
+    background: rgba(11, 20, 19, 0.55);
+}
+.ss-panel {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-end: 0;
+    z-index: var(--ss-z-dialog);
+    display: flex;
+    flex-direction: column;
+    width: min(480px, 100%);
+    background: var(--ss-surface);
+    border-inline-start: 1px solid var(--ss-border);
+    box-shadow: var(--ss-shadow-lg);
+    transform: translateX(0);
+    transition: transform var(--ss-duration-base) var(--ss-ease);
+}
+/* Closed position. `translateX(100%)` is physical, so it is stated once per
+   direction — the one place in this file where that is unavoidable, because a
+   transform has no logical form. */
+.ss-panel[data-ss-state="closed"]           { transform: translateX(100%); }
+[dir="rtl"] .ss-panel[data-ss-state="closed"] { transform: translateX(-100%); }
+
+.ss-panel__header {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ss-space-3);
+    padding: var(--ss-space-4) var(--ss-space-5);
+    border-block-end: 1px solid var(--ss-border);
+}
+.ss-panel__title {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    font-size: var(--ss-text-lg);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg);
+    line-height: var(--ss-leading-tight);
+}
+.ss-panel__close {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    /* 2.25rem = 36px, comfortably over the 24x24 CSS px the web target-size
+       rule asks for, and it does not need to be the 44pt mobile figure. */
+    width: 2.25rem; height: 2.25rem;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--ss-radius-md);
+    color: var(--ss-fg-muted);
+    cursor: pointer;
+}
+.ss-panel__close:hover { background: var(--ss-surface-hover); color: var(--ss-fg); }
+.ss-panel__body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: var(--ss-space-5);
+    /* A focused control at the very bottom of a scrolling panel must not be
+       pinned under the footer. */
+    scroll-padding-block-end: var(--ss-space-10);
+}
+.ss-panel__footer {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ss-space-3);
+    padding: var(--ss-space-4) var(--ss-space-5);
+    border-block-start: 1px solid var(--ss-border);
+    background: var(--ss-surface);
+}
+
+/* A definition list is the right element for "field: value" inspection, and
+   it gives screen readers the pairing for free. */
+.ss-deflist { margin: 0; display: grid; grid-template-columns: minmax(6rem, 10rem) 1fr; gap: var(--ss-space-2) var(--ss-space-4); }
+.ss-deflist__key { color: var(--ss-fg-muted); font-size: var(--ss-text-sm); }
+.ss-deflist__val { color: var(--ss-fg); margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+/* ---- Sticky action bar ----
+   A sticky bar is an accessibility hazard before it is a convenience: it
+   violates WCAG 2.2 "Focus Not Obscured (Minimum)" the moment it covers a
+   focused field. The offset that prevents that ships WITH the component —
+   .ss-has-actionbar goes on the scrolling ancestor — rather than as a note in
+   a document that the next screen will not read. */
+.ss-actionbar {
+    position: sticky;
+    inset-block-end: 0;
+    z-index: var(--ss-z-sticky);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--ss-space-3);
+    padding: var(--ss-space-3) var(--ss-space-5);
+    background: var(--ss-surface);
+    border-block-start: 1px solid var(--ss-border);
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
+}
+[data-ss-theme="dark"] .ss-actionbar { box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.45); }
+.ss-actionbar__status { flex: 1 1 auto; min-width: 0; color: var(--ss-fg-muted); font-size: var(--ss-text-sm); }
+.ss-actionbar__actions { display: flex; flex-wrap: wrap; gap: var(--ss-space-3); }
+.ss-has-actionbar { scroll-padding-block-end: 5rem; }
+.ss-has-stickyheader { scroll-padding-block-start: 4rem; }
+
+/* Unsaved-changes marker. Armed on first real input, not on focus — a guard
+   that cries wolf is a guard merchants click through. */
+.ss-dirty-marker {
+    display: none;
+    align-items: center;
+    gap: var(--ss-space-2);
+    color: var(--ss-warning-fg);
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-medium);
+}
+[data-ss-dirty="true"] .ss-dirty-marker { display: inline-flex; }
+
+/* ---- Validation summary ----
+   Complements the inline field errors; it never replaces them. Focus is moved
+   here after a failed submit, and each item links to its own field. */
+.ss-errorsummary {
+    border: 1px solid var(--ss-danger-fg);
+    border-inline-start: 3px solid var(--ss-danger-fg);
+    border-radius: var(--ss-radius-md);
+    background: var(--ss-danger-bg);
+    padding: var(--ss-space-4) var(--ss-space-5);
+    margin-block-end: var(--ss-space-5);
+}
+.ss-errorsummary:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+.ss-errorsummary__title {
+    margin: 0 0 var(--ss-space-2);
+    font-size: var(--ss-text-base);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-danger-fg);
+}
+.ss-errorsummary__list { margin: 0; padding-inline-start: var(--ss-space-5); color: var(--ss-danger-fg); }
+.ss-errorsummary__link { color: var(--ss-danger-fg); text-decoration: underline; }
+
+/* ---- Filter chips ----
+   The collection wraps before any label shrinks: a truncated filter value is
+   a filter the merchant cannot read, which is worse than a second row. */
+.ss-chips { display: flex; flex-wrap: wrap; gap: var(--ss-space-2); align-items: center; }
+.ss-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ss-space-2);
+    min-height: 1.75rem;
+    padding: var(--ss-space-1) var(--ss-space-3);
+    background: var(--ss-neutral-bg);
+    color: var(--ss-neutral-fg);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-pill);
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-medium);
+    cursor: pointer;
+    transition: background var(--ss-duration-fast) var(--ss-ease);
+}
+.ss-chip:hover { background: var(--ss-surface-hover); }
+/* A chip the viewer cannot act on: no pointer, no hover, no affordance that
+   promises something it will not do. */
+.ss-chip--static { cursor: default; }
+.ss-chip--static:hover { background: var(--ss-neutral-bg); }
+/* Selection comes from aria-pressed, so the visual state and the announced
+   state cannot drift apart. */
+.ss-chip[aria-pressed="true"] {
+    background: var(--ss-brand-subtle);
+    color: var(--ss-brand);
+    border-color: var(--ss-border-brand);
+}
+.ss-chip__remove {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.25rem; height: 1.25rem;
+    padding: 0; background: transparent; border: 0; border-radius: var(--ss-radius-pill);
+    color: inherit; cursor: pointer;
+}
+.ss-chip__remove:hover { background: var(--ss-surface); }
+.ss-chip:focus-visible, .ss-chip__remove:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+
+/* ---- Switch ----
+   A real checkbox underneath; this only draws it. State therefore comes from
+   :checked and the control keeps every native keyboard and form behaviour. */
+.ss-switch { display: inline-flex; align-items: center; gap: var(--ss-space-3); cursor: pointer; }
+.ss-switch__input {
+    /* Not display:none — that would take it out of the tab order. */
+    position: absolute; opacity: 0; width: 2.5rem; height: 1.5rem; margin: 0; cursor: pointer;
+}
+.ss-switch__track {
+    position: relative;
+    flex: 0 0 auto;
+    width: 2.5rem; height: 1.5rem;
+    background: var(--ss-grey-400);
+    border-radius: var(--ss-radius-pill);
+    transition: background var(--ss-duration-fast) var(--ss-ease);
+}
+.ss-switch__track::after {
+    content: "";
+    position: absolute;
+    inset-block-start: 0.1875rem;
+    inset-inline-start: 0.1875rem;
+    width: 1.125rem; height: 1.125rem;
+    background: var(--ss-grey-0);
+    border-radius: var(--ss-radius-pill);
+    transition: inset-inline-start var(--ss-duration-fast) var(--ss-ease);
+}
+.ss-switch__input:checked + .ss-switch__track { background: var(--ss-brand); }
+.ss-switch__input:checked + .ss-switch__track::after { inset-inline-start: 1.1875rem; }
+.ss-switch__input:focus-visible + .ss-switch__track {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+.ss-switch__input:disabled + .ss-switch__track { opacity: 0.45; cursor: not-allowed; }
+.ss-switch__label { color: var(--ss-fg); font-size: var(--ss-text-base); }
+
+/* ---- Menu (dropdown) ---- */
+.ss-menu {
+    position: absolute;
+    z-index: var(--ss-z-dropdown);
+    min-width: 12rem;
+    padding: var(--ss-space-2);
+    margin: 0;
+    list-style: none;
+    background: var(--ss-surface);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-md);
+    box-shadow: var(--ss-shadow-md);
+}
+.ss-menu__item {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-3);
+    width: 100%;
+    padding: var(--ss-space-2) var(--ss-space-3);
+    background: transparent;
+    border: 0;
+    border-radius: var(--ss-radius-sm);
+    color: var(--ss-fg);
+    font-size: var(--ss-text-base);
+    text-align: start;
+    text-decoration: none;
+    cursor: pointer;
+}
+.ss-menu__item:hover { background: var(--ss-surface-hover); }
+.ss-menu__item:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: -1px;
+}
+.ss-menu__item[aria-current="true"] { background: var(--ss-brand-subtle); color: var(--ss-brand); }
+.ss-menu__sep { height: 1px; margin: var(--ss-space-2) 0; background: var(--ss-border); border: 0; }
+.ss-menu__group {
+    padding: var(--ss-space-2) var(--ss-space-3) var(--ss-space-1);
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg-subtle);
+}
+
+/* ---- Avatar / initial ---- */
+.ss-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 2rem; height: 2rem;
+    background: var(--ss-brand-subtle);
+    color: var(--ss-brand);
+    border-radius: var(--ss-radius-md);
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-semibold);
+    overflow: hidden;
+}
+.ss-avatar--lg { width: 2.5rem; height: 2.5rem; font-size: var(--ss-text-base); }
+.ss-avatar > img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ---- Progress ----
+   Paired with a text value: colour alone must not carry the measurement. */
+.ss-progress {
+    display: block;
+    width: 100%;
+    height: 0.5rem;
+    background: var(--ss-surface-sunken);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-pill);
+    overflow: hidden;
+}
+.ss-progress__fill { display: block; height: 100%; background: var(--ss-brand); border-radius: var(--ss-radius-pill); }
+.ss-progress--warning .ss-progress__fill { background: var(--ss-warning-fg); }
+.ss-progress--danger  .ss-progress__fill { background: var(--ss-danger-fg); }
+
+/* ---- Spinner ---- */
+.ss-spinner {
+    display: inline-block;
+    width: 1rem; height: 1rem;
+    border: 2px solid var(--ss-border-strong);
+    border-block-start-color: var(--ss-brand);
+    border-radius: var(--ss-radius-pill);
+    animation: ss-spin 0.7s linear infinite;
+}
+@keyframes ss-spin { to { transform: rotate(360deg); } }
+
+/* ---- Workspace chip (sidebar) ----
+   The per-store accent is set on THIS wrapper only, via --ss-brand-accent.
+   It must never override --ss-brand: the contrast guarantees are solved
+   against --ss-brand, and a merchant's chosen accent is not verified. */
+.ss-workspace {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-3);
+    width: 100%;
+    padding: var(--ss-space-3);
+    background: var(--ss-surface);
+    border: 1px solid var(--ss-border);
+    border-inline-start: 3px solid var(--ss-brand-accent);
+    border-radius: var(--ss-radius-md);
+    color: var(--ss-fg);
+    text-align: start;
+    text-decoration: none;
+    cursor: pointer;
+}
+.ss-workspace:hover { background: var(--ss-surface-hover); }
+.ss-workspace:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+.ss-workspace__text { flex: 1 1 auto; min-width: 0; }
+.ss-workspace__name {
+    display: block;
+    font-size: var(--ss-text-base);
+    font-weight: var(--ss-weight-semibold);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ss-workspace__meta { display: block; font-size: var(--ss-text-xs); color: var(--ss-fg-subtle); }
+
+/* ---- Nav group heading ----
+   Sentence case, not tracked-out capitals: an ALL-CAPS eyebrow label is a
+   template tell, and capitals are also meaningless in Arabic. */
+.ss-navgroup {
+    padding: var(--ss-space-3) var(--ss-space-4) var(--ss-space-1);
+    margin: 0;
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg-subtle);
+}
+
+/* ---- Command palette ---- */
+.ss-command {
+    position: fixed;
+    inset-block-start: 10vh;
+    inset-inline: 0;
+    z-index: var(--ss-z-dialog);
+    width: min(40rem, calc(100% - 2 * var(--ss-space-4)));
+    margin-inline: auto;
+    background: var(--ss-surface);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-lg);
+    box-shadow: var(--ss-shadow-lg);
+    overflow: hidden;
+}
+.ss-command__input {
+    width: 100%;
+    padding: var(--ss-space-4) var(--ss-space-5);
+    background: var(--ss-surface);
+    border: 0;
+    border-block-end: 1px solid var(--ss-border);
+    color: var(--ss-fg);
+    /* 16px, and it must stay there: anything smaller makes iOS Safari zoom
+       the viewport on focus. */
+    font-size: var(--ss-text-md);
+}
+.ss-command__input:focus-visible { outline: none; border-block-end-color: var(--ss-border-brand); }
+.ss-command__results { max-height: 24rem; overflow-y: auto; margin: 0; padding: var(--ss-space-2); list-style: none; }
+.ss-command__group {
+    padding: var(--ss-space-2) var(--ss-space-3) var(--ss-space-1);
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg-subtle);
+}
+.ss-command__item {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-3);
+    width: 100%;
+    padding: var(--ss-space-3);
+    background: transparent;
+    border: 0;
+    border-radius: var(--ss-radius-sm);
+    color: var(--ss-fg);
+    text-align: start;
+    text-decoration: none;
+    cursor: pointer;
+}
+/* Keyboard selection is aria-selected, the same contract .ss-tab uses. */
+.ss-command__item[aria-selected="true"] { background: var(--ss-brand-subtle); color: var(--ss-brand); }
+.ss-command__item:hover { background: var(--ss-surface-hover); }
+.ss-command__hint { margin-inline-start: auto; font-size: var(--ss-text-xs); color: var(--ss-fg-subtle); }
+
+/* ---- Notification inbox ----
+   Durable: something that happened TO the store. Distinct from a toast,
+   which is the result of something the merchant just did, and which keeps
+   using the host's show_toastr. The two have different lifetimes and are
+   deliberately not the same component. */
+.ss-notif { margin: 0; padding: 0; list-style: none; }
+.ss-notif__item {
+    display: flex;
+    gap: var(--ss-space-3);
+    padding: var(--ss-space-3) var(--ss-space-4);
+    border-block-end: 1px solid var(--ss-border);
+    text-decoration: none;
+    color: inherit;
+}
+.ss-notif__item:hover { background: var(--ss-surface-hover); }
+.ss-notif__item[data-ss-unread="true"] { background: var(--ss-brand-subtle); }
+.ss-notif__body { flex: 1 1 auto; min-width: 0; }
+.ss-notif__title { display: block; font-weight: var(--ss-weight-medium); color: var(--ss-fg); }
+.ss-notif__meta { display: block; font-size: var(--ss-text-xs); color: var(--ss-fg-subtle); }
+/* Unread count. Announced as a whole phrase by the live region in the markup,
+   not as a bare digit. */
+.ss-notif-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 1.25rem; height: 1.25rem;
+    padding-inline: 0.25rem;
+    background: var(--ss-danger-fg);
+    color: var(--ss-on-danger);
+    border-radius: var(--ss-radius-pill);
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-semibold);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---- Kanban ----
+   An alternative view of the order list, never a different subject. */
+.ss-kanban {
+    display: flex;
+    gap: var(--ss-space-4);
+    overflow-x: auto;
+    padding-block-end: var(--ss-space-3);
+}
+.ss-kanban__col {
+    flex: 0 0 17rem;
+    display: flex;
+    flex-direction: column;
+    background: var(--ss-surface-sunken);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-md);
+}
+.ss-kanban__head {
+    display: flex; align-items: baseline; gap: var(--ss-space-2);
+    padding: var(--ss-space-3) var(--ss-space-4);
+    border-block-end: 1px solid var(--ss-border);
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg);
+}
+.ss-kanban__count { color: var(--ss-fg-subtle); font-variant-numeric: tabular-nums; }
+.ss-kanban__body { flex: 1 1 auto; overflow-y: auto; max-height: 32rem; padding: var(--ss-space-3); display: flex; flex-direction: column; gap: var(--ss-space-3); }
+.ss-kanban__card {
+    display: block;
+    padding: var(--ss-space-3);
+    background: var(--ss-surface);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-sm);
+    color: inherit;
+    text-decoration: none;
+}
+.ss-kanban__card:hover { border-color: var(--ss-border-brand); }
+.ss-kanban__card:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+
+/* ---- Contextual help ---- */
+.ss-help {
+    border: 1px solid var(--ss-border);
+    border-inline-start: 3px solid var(--ss-info-fg);
+    border-radius: var(--ss-radius-md);
+    background: var(--ss-info-bg);
+    color: var(--ss-info-fg);
+    padding: var(--ss-space-3) var(--ss-space-4);
+    font-size: var(--ss-text-sm);
+}
+.ss-help__title { margin: 0 0 var(--ss-space-1); font-size: var(--ss-text-sm); font-weight: var(--ss-weight-semibold); }
+.ss-help__list { margin: 0; padding-inline-start: var(--ss-space-5); }
+
+/* ---- Section heading ---- */
+.ss-section__title {
+    margin: 0 0 var(--ss-space-3);
+    font-size: var(--ss-text-lg);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg);
+}
+.ss-section__note { margin: 0 0 var(--ss-space-3); font-size: var(--ss-text-sm); color: var(--ss-fg-muted); }
+
+/* ---- Two-column record layout ----
+   Primary fields in the main column, status/visibility metadata in a
+   narrower aside; one column below 992px. */
+.ss-record { display: grid; grid-template-columns: 1fr; gap: var(--ss-space-5); }
+@media (min-width: 992px) {
+    .ss-record { grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr); }
+}
+
 /* --------------------------------------------------------------------------
    RESPONSIVE
    Breakpoints match Bootstrap 5's so this system and the host chrome break at
@@ -1078,6 +1748,31 @@
     .ss-table th, .ss-table td { padding-inline: var(--ss-space-3); }
     .ss-dialog__footer { flex-direction: column-reverse; }
     .ss-dialog__footer .ss-btn { width: 100%; }
+
+    /* Phase 02 components on a phone.
+
+       ONE column, not two. At two columns a cell is about 160px, which is not
+       enough for a grouped currency figure -- the Arabic preview at 390px put
+       "1,284,500.00 ل.س" on three lines. One column gives the full width and
+       drops the vertical hairlines entirely, so the "which cell ends a row"
+       problem that needs an :nth-child rule does not arise either. */
+    .ss-stats { grid-template-columns: 1fr; }
+    .ss-stat { padding: var(--ss-space-3) 0; border-inline-end: 0; }
+
+    /* The row action goes on its own full-width line. Letting it wrap only
+       when the text happens to be long made some rows inline and others
+       stacked, which reads as a rendering fault rather than a layout. */
+    .ss-attention__item > .ss-btn { flex: 0 0 100%; justify-content: center; }
+    .ss-panel { width: 100%; border-inline-start: 0; }
+    .ss-panel__footer { flex-direction: column-reverse; }
+    .ss-panel__footer .ss-btn { width: 100%; }
+    .ss-actionbar { flex-direction: column; align-items: stretch; }
+    .ss-actionbar__actions { flex-direction: column-reverse; }
+    .ss-actionbar__actions .ss-btn { width: 100%; }
+    .ss-deflist { grid-template-columns: 1fr; gap: 0; }
+    .ss-deflist__key { margin-block-start: var(--ss-space-3); }
+    .ss-kanban__col { flex: 0 0 85%; }
+    .ss-command { inset-block-start: var(--ss-space-4); }
 }
 
 /* A table that cannot fit becomes a stacked list rather than a horizontal
@@ -1120,6 +1815,12 @@
     }
     .ss-skeleton { background: var(--ss-surface-sunken); }
     .ss-btn, .ss-input, .ss-select, .ss-textarea, .ss-skip-link { transition: none; }
+
+    /* Phase 02. The panel still has to ARRIVE, so the closed transform is
+       kept and only the animation between the two states is dropped -- a
+       panel that never moves is fine, a panel stuck off-screen is not. */
+    .ss-panel, .ss-chip, .ss-switch__track, .ss-switch__track::after { transition: none; }
+    .ss-spinner { animation: none; border-block-start-color: var(--ss-border-strong); }
 }
 
 /* Windows High Contrast / forced colours: let the OS palette win, but keep
@@ -1129,9 +1830,24 @@
     .ss-btn:focus-visible, .ss-input:focus-visible,
     .ss-select:focus-visible, .ss-textarea:focus-visible { outline: 2px solid Highlight; }
     .ss-badge { border: 1px solid ButtonBorder; }
+    .ss-panel, .ss-actionbar, .ss-menu, .ss-command,
+    .ss-kanban__col, .ss-kanban__card, .ss-attention { border: 1px solid ButtonBorder; }
+    .ss-chip[aria-pressed="true"],
+    .ss-command__item[aria-selected="true"],
+    .ss-menu__item[aria-current="true"] { border: 1px solid Highlight; }
+    .ss-switch__input:checked + .ss-switch__track { background: Highlight; }
+    .ss-progress__fill { background: Highlight; }
 }
 
 @media print {
     .ss-page-header__actions, .ss-toolbar, .ss-table__actions { display: none !important; }
     .ss-card { border: 1px solid #999; box-shadow: none; }
+    /* Chrome, overlays and controls do not belong on a printed order or
+       invoice; the record itself does. */
+    .ss-panel, .ss-panel-backdrop, .ss-actionbar, .ss-menu, .ss-command,
+    .ss-workspace, .ss-chips, .ss-notif-count { display: none !important; }
+    .ss-attention, .ss-kanban__col, .ss-kanban__card { border: 1px solid #999; box-shadow: none; }
+    .ss-kanban { overflow: visible; display: block; }
+    .ss-stats { border-color: #999; }
+    .ss-stat { border-color: #999; }
 }

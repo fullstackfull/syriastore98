@@ -103,6 +103,28 @@ PAIRS = [
     ('--ss-danger-fg', '--ss-danger-bg', 'danger badge text on fill', 4.5),
     ('--ss-info-fg', '--ss-info-bg', 'info badge text on fill', 4.5),
     ('--ss-neutral-fg', '--ss-neutral-bg', 'neutral badge text on fill', 4.5),
+
+    # --- Phase 02 components ---------------------------------------------
+    # The stat grid has no card: it sits directly on the page background, so
+    # its label and period need their own pairs. These are the three that
+    # were NOT already covered by the card-surface rows above.
+    ('--ss-fg-muted', '--ss-bg', 'stat label on page background', 4.5),
+    # fg-subtle is deliberately NOT paired with --ss-bg: it is the lightest
+    # neutral clearing 4.5:1 on *white*, and on the page background it measures
+    # 4.40:1. The stat period therefore uses fg-muted. Kept as a pair so that
+    # a future screen cannot quietly put subtle text on the page background.
+    ('--ss-fg-muted', '--ss-bg', 'stat period on page background', 4.5),
+    # The unsaved-changes marker sits in the sticky action bar, which is a
+    # surface, and warning-fg was only ever solved against warning-bg.
+    ('--ss-warning-fg', '--ss-surface', 'unsaved marker on action bar', 4.5),
+    # Accent bars and fills carry meaning, so they are UI components under
+    # WCAG 1.4.11 and take the 3:1 non-text threshold, not 4.5:1.
+    ('--ss-brand-accent', '--ss-surface', 'workspace accent bar on surface', 3.0),
+    ('--ss-warning-fg', '--ss-surface', 'attention accent bar, warning', 3.0),
+    ('--ss-danger-fg', '--ss-surface', 'attention accent bar, danger', 3.0),
+    ('--ss-info-fg', '--ss-surface', 'help accent bar on surface', 3.0),
+    ('--ss-brand', '--ss-surface-sunken', 'progress fill on its track', 3.0),
+    ('--ss-grey-400', '--ss-surface', 'switch track, off state', 3.0),
 ]
 
 THEMES = [
