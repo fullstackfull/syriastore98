@@ -250,6 +250,29 @@ columns. Both are now documented no-ops; the same rollback now leaves everything
 filename. Renumbered: `cost_price` is now `0004` (before financials `0005`), commission is `0006`
 (before earnings `0007`).
 
+### The harness was checking the wrong thing, and now checks the structure
+
+`verify-gate-f-schema-on-mysql.php` encoded the `decimal(18,4)` standing decision as its
+expectation. Against the real database that made it report **22 contradictions in the wrong
+direction** — a checker whose expectation is a decision rather than the database reports the
+database as wrong, which is the opposite of this directory's own promotion rule. It now carries the
+**measured** per-column types, and a money column that is floating-point is still refused whatever
+the source says, because that is a correctness property rather than a choice.
+
+More importantly it now checks **unique keys and foreign keys**, which is the control whose absence
+let a set of drafts with no constraints at all pass a type-only comparison. Proven in both
+directions before being trusted, as the earlier validation was:
+
+| fixture | result |
+|---|---|
+| the corrected drafts, applied | **0 contradictions, exit 0** |
+| six deliberate breaks — a dropped unique key, a unique key over the wrong column, two missing foreign keys, a `(18,4)` money column, a `double` money column | **6 contradictions caught, exit 1**, each named |
+| a money-shaped column absent from the measured map | **warned**, not guessed at — which is how the `(18,4)` error happened in the first place |
+
+The fixture database was dropped and the server stopped. One incidental finding from building it:
+MySQL **refuses** to drop `uq_store_order_financial_order` while the `order_id` foreign key needs
+it, so that unique key is load-bearing twice over.
+
 ### The prerequisites, restated against evidence
 
 | prerequisite | state |

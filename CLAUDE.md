@@ -122,22 +122,14 @@ reported a store-B row deleted while the raw table still held it. Assert through
 
 **Schema**
 
-- **A `$fillable` column may be missing — but check the real database, not the migrations.** This
-  file used to say `delivery_boys` lacks `commission_percentage` and `is_commission_enabled` and
-  that two handlers therefore 500 for everyone. **That was wrong.** The 2026-10-24 restore of the
-  production dump shows both columns present (`decimal(5,2)` and `tinyint(1)`), populated, and
-  those handlers work. The claim came from reading the migrations, which really do not create them.
-  Check `Schema::hasColumn()` before believing a model — and read a restored dump before believing
-  the migrations. See `docs/GATE-F-VERIFIED-SCHEMA.md`.
+- **A `$fillable` column may be missing — but the migrations are not the schema.** This file said
+  `delivery_boys` lacks both commission columns so two handlers 500 for everyone; the restored
+  production dump refutes it. Check `Schema::hasColumn()`, and a dump before the migrations.
 - `customers.password_otp` is `INTEGER` but the web reset writes a 60-char bcrypt hash (P01-SEC-13,
   migration prepared and **not applied**).
-- **GATE F:** 15 tables that live code reads and writes have **no migration**, 6 of them
-  money-bearing. Drafts are held unrunnable in `database/migrations/_gate_f_pending/`.
-  **All 15 exist in production with live data** (verified 2026-10-24) — the gap is that the schema
-  is *unmanaged*, not that it is absent, so a fresh environment does not get it and nothing in
-  version control describes it. The drafts are now reconciled against the real structure and
-  reproduce it exactly. `cod_collection_events` is the one genuinely absent object, by decision
-  D15. Read `docs/GATE-F-VERIFIED-SCHEMA.md` before touching any of this.
+- **GATE F:** 15 tables live code reads and writes have **no migration**, 6 money-bearing; drafts
+  parked in `database/migrations/_gate_f_pending/`. **All 15 exist in production with live data** —
+  *unmanaged*, not absent. Read `docs/GATE-F-VERIFIED-SCHEMA.md` first.
 
 ---
 
@@ -228,7 +220,7 @@ concurrent assignments. **Do not start the next phase before Phase 01 acceptance
 | token lifetime | `docs/security/P01-TOKEN-EXPIRY-PROPOSAL.md` |
 | the OTP-length decision | `docs/security/P01-OTP-LENGTH-COMPATIBILITY.md` |
 | design system | `docs/design-system/README.md` |
-| schema gaps | `docs/GATE-F-SCHEMA-EXPORT.md`, `database/migrations/_gate_f_pending/README.md` |
+| schema gaps | **`docs/GATE-F-VERIFIED-SCHEMA.md`** (measured), `docs/GATE-F-SCHEMA-EXPORT.md`, `_gate_f_pending/README.md` |
 | phase plan and evidence | `docs/development/phase-1/` |
 | the Phase 0 audit | `docs/discovery/` |
 

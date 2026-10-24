@@ -122,9 +122,57 @@ $SCHEMA_01 = [
 $MONEY = ['store_wallets', 'store_wallet_transactions', 'store_withdrawals',
           'store_order_financials', 'delivery_earnings', 'currency_rates'];
 
-// Standing decisions the drafts encode (README §"Standing decisions these drafts already encode").
-$MONEY_SCALE = 'decimal(18,4)';
-$RATE_COL    = ['currency_rates' => ['rate_per_usd' => 'decimal(18,8)']];
+/*
+ * MEASURED production types, read from a restored copy of the dump at commit 3935dee8 on
+ * 2026-10-24 and reproduced exactly by the drafts. These SUPERSEDE the former standing decision
+ * of decimal(18,4) for all money, which no table in production actually uses.
+ *
+ * WHY THE CHANGE MATTERS TO THIS SCRIPT'S HONESTY: with the old constant it reported 22
+ * contradictions against drafts that now match production. A checker whose expectation is a
+ * decision rather than the database reports the database as wrong, which is the opposite of this
+ * script's own promotion rule. Widening a live money column is a separate, deliberate change.
+ */
+$MONEY_TYPES = [
+    'store_wallets' => [
+        'available_balance' => 'decimal(15,2)', 'pending_balance' => 'decimal(15,2)',
+        'withdrawal_pending_balance' => 'decimal(15,2)',
+        'total_income' => 'decimal(15,2)', 'total_withdrawn' => 'decimal(15,2)',
+    ],
+    'store_wallet_transactions' => [
+        'amount' => 'decimal(15,2)', 'balance_before' => 'decimal(15,2)',
+        'balance_after' => 'decimal(15,2)',
+    ],
+    'store_withdrawals'      => ['amount' => 'decimal(15,2)'],
+    'store_order_financials' => [
+        'product_amount' => 'decimal(15,2)', 'discount_amount' => 'decimal(15,2)',
+        'tax_amount' => 'decimal(15,2)',     'shipping_amount' => 'decimal(15,2)',
+        'customer_total' => 'decimal(15,2)', 'product_cost' => 'decimal(15,2)',
+        'gross_profit' => 'decimal(15,2)',   'paid_amount' => 'decimal(15,2)',
+        'remaining_amount' => 'decimal(15,2)',
+    ],
+    'delivery_earnings' => [
+        'shipping_cost' => 'decimal(10,2)', 'commission_percentage' => 'decimal(5,2)',
+        'commission_amount' => 'decimal(10,2)',
+    ],
+    'currency_rates'    => ['rate_per_usd' => 'decimal(20,8)'],
+];
+
+/*
+ * The constraints production relies on, and which the drafts declared NONE of until 2026-10-24.
+ * This is the check that would have caught the real defect: the type comparison above passed a set
+ * of drafts that created the six tables with no unique key and no foreign key at all, silently
+ * dropping guarantees production already had. uq_store_order_financial_order is what makes "one
+ * financial row per order" enforced rather than merely observed in today's rows.
+ */
+$EXPECTED_UNIQUE = [
+    'store_wallets'          => ['uq_store_wallet_store_id' => 'store_id'],
+    'store_order_financials' => ['uq_store_order_financial_order' => 'order_id'],
+    'currency_rates'         => ['uq_currency_rates_store_code' => 'store_id,currency_code'],
+];
+$EXPECTED_FK_COUNT = [
+    'store_wallets' => 1, 'store_wallet_transactions' => 2, 'store_withdrawals' => 2,
+    'store_order_financials' => 3, 'delivery_earnings' => 3, 'currency_rates' => 1,
+];
 
 // The column drafts of P1-MIG-03.
 $COLUMN_DRAFTS = [
@@ -233,8 +281,11 @@ foreach ($present as $t) {
 
 h('C. THE SIX MONEY TABLES — column types against the standing decisions');
 
-echo "Standing decisions (README): money columns are {$MONEY_SCALE}, NEVER float; "
-   . "currency_rates.rate_per_usd is decimal(18,8); store_id is indexed on every table that has it.\n\n";
+echo "Expectations are the MEASURED production types (2026-10-24), not a standing decision: "
+   . "decimal(15,2) across the wallet, withdrawal and financial tables, decimal(10,2)/(5,2) on "
+   . "delivery_earnings, decimal(20,8) for currency_rates.rate_per_usd. NEVER float, whatever the "
+   . "source says — a float money column is reported even if production has one. store_id must be "
+   . "indexed on every table that has it. Unique keys and foreign keys are checked too.\n\n";
 
 foreach ($MONEY as $t) {
     if (! in_array($t, $present, true)) { $na[] = "money-column check on `$t` (table absent)"; printf("  %-28s ABSENT — not checkable\n", $t); continue; }
@@ -244,18 +295,25 @@ foreach ($MONEY as $t) {
                      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?", [$db, $t]);
     foreach ($cols as $c) {
         $n = $c['COLUMN_NAME']; $ty = strtolower($c['COLUMN_TYPE']);
-        $expected = $RATE_COL[$t][$n] ?? null;
+        $expected = $MONEY_TYPES[$t][$n] ?? null;
         $moneyish = (bool) preg_match('/amount|price|total|balance|fee|cost|commission|earning|profit|rate|charge|tax|discount/i', $n);
 
-        if ($expected !== null) {
-            if ($ty !== $expected) { $bad[] = "$n is $ty, the draft expects $expected"; }
+        // A float money column is wrong whatever the source says. This is the one rule that is
+        // NOT deferred to production, because it is a correctness property rather than a choice.
+        if ($moneyish && (str_contains($ty, 'float') || str_contains($ty, 'double'))) {
+            $bad[] = "$n is $ty — FLOATING POINT on a money column";
             continue;
         }
-        if (! $moneyish) { continue; }
-        if (str_contains($ty, 'float') || str_contains($ty, 'double')) {
-            $bad[] = "$n is $ty — FLOATING POINT on a money column";
-        } elseif (str_starts_with($ty, 'decimal') && $ty !== $MONEY_SCALE) {
-            $bad[] = "$n is $ty, the draft expects $MONEY_SCALE";
+        if ($expected !== null) {
+            if ($ty !== $expected) { $bad[] = "$n is $ty, expected the measured $expected"; }
+            continue;
+        }
+        // Money-shaped but not in the measured map: a column added since the dump was read. Say so
+        // rather than guessing a type for it, which is how the (18,4) error happened.
+        if ($moneyish && str_starts_with($ty, 'decimal')) {
+            $warn[] = "`$t`.`$n` is $ty and is money-shaped but NOT in the measured map — added "
+                . "since 2026-10-24? Re-read a restored copy and extend \$MONEY_TYPES; do not "
+                . "assume a scale for it.";
         }
     }
 
@@ -266,7 +324,36 @@ foreach ($MONEY as $t) {
         if ($idx === 0) { $bad[] = "store_id is NOT indexed, and every query filters by it"; }
     }
 
-    printf("  %-28s %s\n", $t, $bad ? 'DISAGREES WITH THE DRAFT' : 'matches the standing decisions');
+    /*
+     * UNIQUE KEYS. Each of these is an invariant the application relies on and does not itself
+     * enforce. Their absence is not a style point: without uq_store_order_financial_order, two
+     * financial rows for one order become insertable, and "0 duplicates" stops being a guarantee
+     * and becomes an observation about the rows that happen to exist today.
+     */
+    foreach ($EXPECTED_UNIQUE[$t] ?? [] as $ix => $cols) {
+        $actual = q($pdo, "SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) AS cols
+                           FROM information_schema.STATISTICS
+                           WHERE TABLE_SCHEMA=? AND TABLE_NAME=? AND INDEX_NAME=? AND NON_UNIQUE=0
+                           GROUP BY INDEX_NAME", [$db, $t, $ix]);
+        if (! $actual) {
+            $bad[] = "UNIQUE KEY `$ix` ($cols) is MISSING — the invariant it enforces is unenforced";
+        } elseif (($actual[0]['cols'] ?? '') !== $cols) {
+            $bad[] = "UNIQUE KEY `$ix` covers {$actual[0]['cols']}, expected $cols";
+        }
+    }
+
+    // FOREIGN KEYS. The ON DELETE rules are what stop a deleted store leaving money rows behind.
+    $wantFk = $EXPECTED_FK_COUNT[$t] ?? null;
+    if ($wantFk !== null) {
+        $gotFk = (int) one($pdo, "SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS
+                                  WHERE CONSTRAINT_SCHEMA=? AND TABLE_NAME=?", [$db, $t]);
+        if ($gotFk !== $wantFk) {
+            $bad[] = "has $gotFk foreign key(s), expected $wantFk — a table created without them "
+                   . "accepts rows pointing at stores, orders or wallets that do not exist";
+        }
+    }
+
+    printf("  %-28s %s\n", $t, $bad ? 'DISAGREES WITH THE MEASURED STRUCTURE' : 'matches the measured production structure');
     foreach ($bad as $b) { echo "      - $b\n"; $fail[] = "`$t`: $b"; }
 }
 
@@ -284,9 +371,12 @@ foreach ($COLUMN_DRAFTS as $t => $wanted) {
         } else {
             printf("  %-18s %-26s PRESENT: %s, null=%s, default=%s\n", $t, $col,
                 $row[0]['COLUMN_TYPE'], $row[0]['IS_NULLABLE'], $row[0]['COLUMN_DEFAULT'] ?? 'NULL');
-            $warn[] = "`$t`.`$col` ALREADY EXISTS in the source. The draft adds it. Promoting the draft "
-                . "unchanged would be a no-op at best (its hasColumn guard) and wrong at worst — compare "
-                . "the live type above against the draft before promoting.";
+            $warn[] = "`$t`.`$col` exists in the source, which is EXPECTED as of 2026-10-24. The "
+                . "draft's hasColumn guard makes up() a no-op against production, and that is the "
+                . "intended outcome — it brings fresh environments into line without touching the "
+                . "live column. Confirm the live type above matches the draft. Note the draft's "
+                . "down() must NOT drop it: an unguarded down() on these two destroyed 45 cost_price "
+                . "values and both commission columns when rolled back against a copy of production.";
         }
     }
 }
