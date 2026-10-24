@@ -904,4 +904,192 @@ class HostClaimsTest extends SecurityTestCase
 
         Setting::create(['name' => $name, 'value' => self::HOST, 'created_by' => $this->olderOwner->id, 'store_id' => $this->olderStore->id]);
     }
+
+    // =====================================================================================
+    //  P1-SEC-32 (a) AND (b) -- THE PLATFORM'S OWN HOST AND RESERVED LABELS ARE RESERVED
+    //
+    //  Owner decision D-07: "Platform-owned hosts and system labels are reserved."
+    //
+    //  THE DEFECT, read from the code and reproduced below by removing the reservation limb:
+    //  nothing in the host namespace knew WHO may hold a host. A store owner who may save the
+    //  Custom tab could set `domains = <APP_URL host>` with `enable_domain = on`, and the
+    //  platform's own landing page and login redirect were then answered by that store's
+    //  storefront through HomeController::Landing -- the whole platform, not one tenant's data.
+    //  The same for `admin.`, `api.` and `mail.` under it.
+    //
+    //  WHY heldByAnotherStore() COULD NEVER HAVE CAUGHT IT: nobody HOLDS the platform host, so
+    //  that question answers false and the save was allowed. The reservation is a different
+    //  refusal with a different message, and it runs first.
+    // =====================================================================================
+
+    /**
+     * config(), not $_ENV. withPlatformHost() above sets the environment, which is right for the
+     * ThemeSettings path that reads env() itself; HostClaims::platformHost() reads
+     * `config('app.url')`, which is resolved at boot and does not follow $_ENV. Setting the config
+     * value is what actually changes the answer, and a test that set only $_ENV would pass
+     * vacuously against a platform host of `localhost`.
+     */
+    private function withPlatformUrl(string $url, callable $test): void
+    {
+        $before = config('app.url');
+        config(['app.url' => $url]);
+
+        try {
+            $test();
+        } finally {
+            config(['app.url' => $before]);
+        }
+    }
+
+    public static function reservedHostProvider(): array
+    {
+        return [
+            'the platform host itself' => ['platform.example.test'],
+            'with www.' => ['www.platform.example.test'],
+            'with a scheme and a path' => ['https://platform.example.test/anything'],
+            'admin.' => ['admin.platform.example.test'],
+            'api.' => ['api.platform.example.test'],
+            'mail.' => ['mail.platform.example.test'],
+            'cpanel.' => ['cpanel.platform.example.test'],
+            'a reserved label deeper in the name' => ['shop.api.platform.example.test'],
+            'a reserved label with something under it' => ['api.shop.platform.example.test'],
+            'upper case' => ['ADMIN.PLATFORM.EXAMPLE.TEST'],
+            'with a port' => ['admin.platform.example.test:8443'],
+        ];
+    }
+
+    /** @dataProvider reservedHostProvider */
+    public function test_a_reserved_host_cannot_be_saved_as_a_custom_domain(string $host): void
+    {
+        $this->withPlatformUrl('https://platform.example.test', function () use ($host) {
+            $this->assertTrue(HostClaims::isReserved($host), "'{$host}' is not recognised as reserved.");
+
+            try {
+                Setting::create(['name' => 'domains', 'value' => $host, 'created_by' => $this->olderOwner->id, 'store_id' => $this->olderStore->id]);
+                $this->fail("'{$host}' was saved as a custom domain.");
+            } catch (\Illuminate\Validation\ValidationException $e) {
+                $this->assertStringContainsString('reserved', strtolower(implode(' ', $e->validator->errors()->all())),
+                    'The refusal must say the host is RESERVED, not that another store holds it -- nobody holds the platform host, '
+                    . 'so the held-by-another-store message would be false.');
+            }
+
+            $this->assertFalse(
+                DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'domains')->where('value', $host)->exists(),
+                "'{$host}' reached the settings table."
+            );
+        });
+    }
+
+    public static function freeHostProvider(): array
+    {
+        return [
+            'an ordinary merchant host' => ['brand-new.example.test'],
+            "a merchant's own admin label" => ['admin.acme-merchant.test'],
+            "a merchant's own api label" => ['api.acme-merchant.test'],
+            'a host that merely ENDS with the platform host as a substring' => ['notplatform.example.test'],
+            'an unreserved label under the platform' => ['acme.platform.example.test'],
+            'a two-level unreserved name under the platform' => ['shop.acme.platform.example.test'],
+        ];
+    }
+
+    /**
+     * THE CONTROL THAT MAKES THE ABOVE MEAN SOMETHING. A reservation that refused everything would
+     * satisfy every assertion in the previous test.
+     *
+     * The fourth case is the one a bare `str_ends_with` gets wrong: `notplatform.example.test` ends
+     * with `platform.example.test` as a string and is a completely different registrable name.
+     *
+     * @dataProvider freeHostProvider
+     */
+    public function test_a_host_that_is_not_the_platforms_is_still_free(string $host): void
+    {
+        $this->withPlatformUrl('https://platform.example.test', function () use ($host) {
+            $this->assertFalse(HostClaims::isReserved($host), "'{$host}' was wrongly treated as reserved.");
+
+            Setting::create(['name' => 'domains', 'value' => $host, 'created_by' => $this->olderOwner->id, 'store_id' => $this->olderStore->id]);
+
+            $this->assertTrue(
+                DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'domains')->where('value', $host)->exists(),
+                "'{$host}' was refused and it is not reserved."
+            );
+        });
+    }
+
+    /** A reserved SUB-DOMAIN, through the other of the two names that share the namespace. */
+    public function test_a_reserved_label_cannot_be_saved_as_a_sub_domain_either(): void
+    {
+        $this->withPlatformUrl('https://platform.example.test', function () {
+            $this->expectException(\Illuminate\Validation\ValidationException::class);
+
+            Setting::create(['name' => 'subdomain', 'value' => 'admin.platform.example.test', 'created_by' => $this->olderOwner->id, 'store_id' => $this->olderStore->id]);
+        });
+    }
+
+    /**
+     * SWITCHING THE FLAG ON is a claim too, and it is the path a reservation added later must also
+     * cover: a store whose `domains` row predates this rule could otherwise hold the platform host
+     * the moment it enables the flag.
+     */
+    public function test_enabling_the_flag_over_a_reserved_host_already_in_the_table_is_refused(): void
+    {
+        $this->withPlatformUrl('https://platform.example.test', function () {
+            // Raw, so it models a row already in the data rather than one this rule let through.
+            $this->giveRows($this->olderStore, $this->olderOwner, ['domains' => 'api.platform.example.test']);
+
+            $this->expectException(\Illuminate\Validation\ValidationException::class);
+
+            Setting::create(['name' => 'enable_domain', 'value' => 'on', 'created_by' => $this->olderOwner->id, 'store_id' => $this->olderStore->id]);
+        });
+    }
+
+    /**
+     * AN UNCONFIGURED APP_URL RESERVES NOTHING, and this is a lockout guard rather than a loophole.
+     * With no platform host there is no namespace to reserve; refusing every host instead would be
+     * the failure direction FinancePermission already cost this codebase once.
+     */
+    public function test_an_unconfigured_platform_host_reserves_nothing(): void
+    {
+        $this->withPlatformUrl('', function () {
+            $this->assertSame('', HostClaims::platformHost());
+            $this->assertFalse(HostClaims::isReserved('admin.platform.example.test'));
+            $this->assertFalse(HostClaims::isReserved(''));
+        });
+    }
+
+    /**
+     * APP_URL WITH NO SCHEME. The five existing readers all do a bare
+     * `parse_url(config('app.url'))['host']`, which answers null for `storesyria.com` and then
+     * compares null against a host. platformHost() goes through normalise(), so the reservation
+     * cannot be defeated by how the environment happens to spell APP_URL.
+     */
+    public function test_the_platform_host_is_read_the_same_way_however_app_url_is_spelled(): void
+    {
+        foreach (['https://platform.example.test', 'platform.example.test', 'https://www.platform.example.test/', 'http://platform.example.test:8080'] as $url) {
+            $this->withPlatformUrl($url, function () use ($url) {
+                $this->assertSame('platform.example.test', HostClaims::platformHost(), "APP_URL '{$url}' resolved to a different platform host.");
+                $this->assertTrue(HostClaims::isReserved('admin.platform.example.test'), "APP_URL '{$url}' did not reserve its own labels.");
+            });
+        }
+    }
+
+    /**
+     * A STORE THAT ALREADY HOLDS A RESERVED HOST KEEPS IT UNTIL IT SAVES THAT TAB. That is the
+     * stated compatibility impact and it is deliberate: assertFree() returns early for a re-save
+     * that changes none of (name, value, store), so refusing a stale re-post would lock such a
+     * store out of its own settings screen. The row is visible to the operator through P1-OWN-11's
+     * query; taking it away is the release path, which is decision (d) and still open.
+     */
+    public function test_a_store_already_holding_a_reserved_host_can_still_resave_its_other_settings(): void
+    {
+        $this->withPlatformUrl('https://platform.example.test', function () {
+            $this->giveRows($this->olderStore, $this->olderOwner, ['domains' => 'platform.example.test']);
+
+            $row = Setting::where('store_id', $this->olderStore->id)->where('name', 'domains')->first();
+            $row->updated_at = now()->addMinute();
+            $row->save();
+
+            $this->assertTrue(DB::table('settings')->where('store_id', $this->olderStore->id)->where('name', 'domains')->where('value', 'platform.example.test')->exists(),
+                'A stale re-save of a row the store already holds was refused, which locks it out of its own settings screen.');
+        });
+    }
 }

@@ -874,30 +874,32 @@
       "title": "Two vendored module cart writers can still plant an unvalidated cart row",
       "workstream": "inventory",
       "risk": "medium",
-      "status": "BLOCKED",
+      "status": "DONE",
       "issue": 32,
       "scope": [
-        "packages/workdo/BoostSales/",
-        "packages/workdo/FrequentlyProduct/",
-        "routes/"
+        "app/Http/Middleware/ModuleCartWriteGuard.php",
+        "bootstrap/app.php",
+        "tests/Feature/Security/ModuleCartWriteGuardTest.php"
       ],
-      "existing_status": "RECORDED. Both write Product::find() unscoped with a raw variant_id and qty. The reader-side pre-flights are what contain them today.",
+      "existing_status": "CLOSED by a host route middleware, which is the limb this row's own blocker offered ('either an upstream fix, or a host route middleware over the two module cart routes') -- so it needed no owner decision, only the measurement. REPRODUCED BY EXECUTION first, with only the registration line removed: POST /{A-slug}/boost-sales-cart with store B's product id in product_ids and enable_product returned 200 {\"status\":1,...\"Products added successfully.\"} and wrote carts store_id=2 (A) product_id=1 (B's) price=999 (B's catalogue price) -- the SAME result from both routes, which is why one guard covers both rather than two. Product carries no StoreScope AND is absent from config/tenancy.php's scoped_models, so Product::find() adds no predicate for any principal. TWO FURTHER SHAPES MEASURED, both 500s rather than refusals and both reasons the assertions here are on the REFUSAL and not on an empty table: an id matching no product (the guest branch has no if (!$product), so $product->final_price reads a property on null) and enable_product present with product_ids absent (in_array($x, null) is a TypeError on PHP 8). The ledger's earlier note that reader-side pre-flights contain this is withdrawn: they run on the CART page, after the row exists, and they are another module's code.",
       "depends_on": [],
       "acceptance": [
-        "Either an upstream fix, or a host route middleware over the two module cart routes",
-        "No packages/workdo/ file is edited"
+        "DONE -- a host route middleware over the two module cart routes, keyed on strtolower($route->getActionName()) and appended to the `web` group. Not keyed on the uri: both uris are module-owned strings this project cannot edit, and uri-keyed census is the first of the four census failures the project skill records. A premise test asserts the two live routes resolve to exactly the two TARGETS keys, so a rename cannot make the guard inert",
+        "DONE -- no packages/workdo/ file is edited; guard-no-workdo-changes.sh exit 0",
+        "DONE -- the two module cart routes refuse a foreign product and an unusable quantity, and also a nonexistent product, a foreign product variant, an unknown store slug and a missing product_ids list"
       ],
       "tests": [
-        "Negative: the two module cart routes refuse a foreign product and an unusable quantity"
+        "tests/Feature/Security/ModuleCartWriteGuardTest.php -- 13 tests. Both routes are driven in every negative case, not one; the signed-in shopper is driven as well as the anonymous caller, because the customer branch is the one with the qty multiplier and the variant pricing; a liveness test asserts a legitimate add-to-cart still writes its row",
+        "Removal check: deregistering the guard turns 9 of the 13 red. The four that stay green are the two premise tests, the liveness control and the inertness check, which is correct"
       ],
       "compatibility": "Module behaviour for stores that have them enabled.",
       "db": "None.",
-      "evidence": "S30 remaining rows; BoostSalesController.php:83-92, FrequentlyProductController.php:205",
+      "evidence": "Measured 2026-10-24 on sqlite :memory:. A claim in the first draft of the guard's docblock -- that a nonexistent product id wrote a row at price zero, reasoned from floatval(null) === 0.0 -- was WRONG and is corrected in place: running it gives a 500 and no row. The measurement wins over the reasoning.",
       "queue_refs": [
         "S30"
       ],
-      "owner_decision": true,
-      "blocked_on": "Owner decision: upstream module fix vs a host route middleware over vendored routes."
+      "owner_decision": false,
+      "blocked_on": ""
     },
     {
       "id": "P1-PLT-01",
@@ -1003,29 +1005,33 @@
       "title": "Module loading swallows every exception with no log line",
       "workstream": "platform",
       "risk": "medium",
-      "status": "BLOCKED",
+      "status": "DONE",
       "issue": 36,
       "scope": [
         "app/Providers/PackageServiceProvider.php",
-        "app/Helper/helper.php"
+        "docs/security/P01-OBSERVABILITY-INVENTORY.md",
+        "tests/Feature/Security/AddonLoaderFailureReportingTest.php",
+        "tests/Feature/Security/ModuleEntitlementSourcesTest.php"
       ],
-      "existing_status": "VERIFIED. 'catch (\\Exception $e) { // Handle silently }' at PackageServiceProvider.php:54-57, plus three disagreeing entitlement sources.",
+      "existing_status": "CRITERION 1 CLOSED IN CODE. CRITERION 2 MEASURED AND PINNED, NOT CHANGED, and the reason is a bounded blast radius rather than difficulty -- see below. The 'owner decision: log-and-continue vs per-module catch' this row was blocked on was a FALSE CHOICE: the two are not alternatives and the fix is both. The old `catch (\\Exception $e) { // Handle silently }` was wrong in three separate ways, each now pinned by a test: (1) it said nothing at all -- no level, no module name, no exception class; (2) it sat OUTSIDE the per-module loop, so one malformed composer.json abandoned every module after it in the list and an operator saw a set of unrelated features vanish at once with no line connecting them; (3) `\\Exception` does not include `\\Error`, and a missing class in a provider's constructor -- the likeliest way a half-installed module fails -- is an `\\Error`, so the failure it was most likely to meet was never caught here and took the whole application down. Both catches are now `\\Throwable` and both log at `critical` with the module named. The loader still CONTINUES deliberately: rethrowing from app->booted() takes the storefront down for every tenant over one module's broken composer.json, and a live business prefers a degraded install that reports to a dead one that does not.",
       "depends_on": [],
       "acceptance": [
-        "A broken module install reports instead of disappearing",
-        "module_is_active() answers from one source of truth"
+        "DONE -- a broken module install reports instead of disappearing: Log::critical with the module name, exception class, message and file:line, at the per-module level AND for the whole dynamic pass. Two rows added to the P1-PLT-05 observability inventory, so the lines have a stated destination and reader",
+        "PARTIAL -- module_is_active() still answers from more than one source, and exactly where is now MEASURED rather than asserted. The admin gate (PlanModuleCheck) already requires plans.modules AND user_active_modules; module_is_active()'s SLUG branch -- the storefront, where nobody is authenticated -- consults plans.modules ALONE. Measured with BoostSales: a merchant with the plan entitlement and no activation row gets the module on their storefront and a 403 on their own admin screen for it. The correct single rule is the intersection the admin side already enforces, it is a one-line change, and it is strictly NARROWER -- so it REMOVES a working storefront feature from every merchant in that state. How many that is depends on the production user_active_modules table, which this repository cannot see. The bounding query is in the test's docblock; a zero answer makes the change a no-op and it ships"
       ],
       "tests": [
-        "A deliberately broken module produces a log line and does not take the app down"
+        "tests/Feature/Security/AddonLoaderFailureReportingTest.php -- 7 tests. A real broken module is written to disk and removed in a finally, because the defect is in how the loader reacts to a module on disk and a mock would be asserting against the mock; a final test asserts the fixture left nothing under packages/workdo/",
+        "tests/Feature/Security/ModuleEntitlementSourcesTest.php -- 6 tests measuring the three sources and pinning today's behaviour as the baseline, with the direction of any future unification stated in each one",
+        "The operator limb is asserted to stay unconditional in both functions: Laratrust has no super-admin bypass, so removing it is the FinancePermission lockout again"
       ],
       "compatibility": "Makes a broken install start reporting — a visible change in what a deployment does.",
       "db": "None.",
-      "evidence": "S7; PackageServiceProvider.php:54-57; helper.php:1277-1343",
+      "evidence": "The first version of ModuleEntitlementSourcesTest used LandingPage and its disagreement test PASSED for the wrong reason -- LandingPage is the sole entry of User::$superadmin_activated_module, which ActivatedModule() merges in unconditionally, so it answers true for every principal. Caught by running it; the suite now uses BoostSales and records why.",
       "queue_refs": [
         "S7"
       ],
-      "owner_decision": true,
-      "blocked_on": "Owner decision: log-and-continue vs per-module catch (both change deployment behaviour)."
+      "owner_decision": false,
+      "blocked_on": ""
     },
     {
       "id": "P1-PLT-05",
@@ -1137,30 +1143,30 @@
       "status": "BLOCKED",
       "issue": 40,
       "scope": [
-        "database/migrations/",
-        "app/Models/DeliveryBoy.php",
-        "app/Models/Product.php"
+        "database/migrations/_gate_f_pending/0007_draft_add_cost_price_to_products_table.php.draft",
+        "database/migrations/_gate_f_pending/0008_draft_add_commission_columns_to_delivery_boys_table.php.draft",
+        "database/migrations/_gate_f_pending/README.md"
       ],
-      "existing_status": "UNDECLARED. cost_price is read and written as money; the two delivery_boys columns are fillable and written, and both write sites are gated on is_commission_enabled, so two handlers 500 for everyone.",
+      "existing_status": "DRAFTED. Two draft files, held out of the live migration path the same two ways the six table drafts are -- an undiscovered directory AND a `*.php.draft` name that cannot match Laravel's `*_*.php` glob -- and MigrationHygieneTest asserts both properties. Re-verified at drafting that all three columns really are undeclared: no migration under database/migrations/ mentions cost_price, commission_percentage or is_commission_enabled. TWO SEQUENCING FACTS ARE THE SUBSTANCE OF THIS WORK, not the column types. (1) cost_price MUST precede store_order_financials: OrderFinancialService:214 reads `(float) ($product->cost_price ?? 0)`, so with no column the unit cost is ZERO and every P&L row is all-margin -- creating the financials table first begins recording confident, wrong profit. (2) The two delivery_boys columns must be promoted WITH delivery_earnings or before it, never after: is_commission_enabled is what gates the earning write, so creating the earnings table first leaves that subsystem silently dead in exactly the way the GATE F README warns about. TYPES: cost_price decimal(18,4) nullable (the money standard; NULL not 0, because a zero cost is indistinguishable from an unknown one and backfilling 0 makes every historical product look infinitely profitable). commission_percentage decimal(5,2) nullable -- a percentage, not money, so the money standard does not apply; scale 2 matches DeliveryEarning's own decimal:2 cast on the same name, and 5 digits cover the validator's 0-100 range exactly. is_commission_enabled boolean NOT NULL default FALSE -- never written null by `$request->boolean()`, and default false so the column's appearance does not turn commission on for every existing driver against agreements nobody made.",
       "depends_on": [],
       "acceptance": [
-        "Each column has a reviewed migration draft",
-        "Declaring cost_price precedes store_order_financials, or the P&L is all-margin",
-        "The two 500ing handlers are reachable once the columns exist"
+        "DONE -- each column has a reviewed migration draft, with its type justified from the code that reads it rather than from $fillable, and with the reconciliation it needs named",
+        "DONE as a SEQUENCING CONSTRAINT, recorded in both the draft and the README -- declaring cost_price precedes store_order_financials, or the P&L is all-margin. It cannot be 'done' as an executed ordering until D15 lifts",
+        "NOT DONE -- the two 500ing commission handlers are reachable once the columns exist. They cannot be shown reachable before the columns exist, and creating them is what D15 gates"
       ],
       "tests": [
-        "The two commission handlers stop 500ing",
-        "A P&L row computed with a real cost input"
+        "tests/Unit/Database/MigrationHygieneTest.php -- the two new drafts are asserted undiscoverable as migrations, by both mechanisms",
+        "NOT YET -- the two commission handlers stop 500ing, and a P&L row computed with a real cost input. Both need the columns to exist, so both belong to the promotion, not to the drafting"
       ],
       "compatibility": "Two merchant-facing handlers currently fail for everyone; fixing the schema makes them live.",
       "db": "Drafts only in this task. Application is owner-gated with P1-MIG-01.",
-      "evidence": "SCHEMA-GAP rows; OrderController.php:1315, DashboardController.php:8329",
+      "evidence": "Columns re-verified undeclared with grep over database/migrations/ at drafting. Read/write sites: OrderFinancialService.php:214, StoreCurrencyConversionService.php:111, DashboardController.php:984/2335/2482/2589 for cost_price; DeliveryBoyApiController.php:180-181 and :230-231 for the two commission columns.",
       "queue_refs": [
         "GATE F",
         "SCHEMA-GAP"
       ],
       "owner_decision": true,
-      "blocked_on": "Owner approval, together with P1-MIG-01."
+      "blocked_on": "D15 ONLY, and for application rather than for drafting. The three columns now have reviewed drafts; promoting them needs real MySQL schema evidence from a RESTORED backup plus verified backup restoration, which is the same single prerequisite the six GATE F table drafts wait on. Writing a migration is not running one, and that half is done."
     },
     {
       "id": "P1-MIG-04",
@@ -1894,7 +1900,7 @@
       "title": "four more LotteryPrizes defects: an anonymous ticket writer into any store, an unscoped refund delete, a cross-tenant email-template resolve, and a 500 on every successful draw",
       "workstream": "inventory",
       "risk": "high",
-      "status": "BLOCKED",
+      "status": "DONE",
       "issue": 67,
       "scope": [
         "app/Http/Middleware/LotteryTicketWriteGuard.php",
@@ -1909,15 +1915,15 @@
         "tests/Feature/Tenancy/RawQueryTenancyInventoryTest.php",
         "docs/security/P1-INV-20-LOTTERY-TICKET-AND-REFUND-VERIFICATION.md"
       ],
-      "existing_status": "FOUND while fixing P1-INV-18 -- three by its adversarial review, one by a positive test of mine that was silently passing through an HTTP 500. (1) StoreLotteryPayment creates a purchase_tickets row in ANY store, ANONYMOUSLY: routes/web.php:41-50 is a ['web']-only group (no auth, no PlanModuleCheck) and LotteryPrizesController:565-617 falls back to $request->all() when the session is empty (:568-570), resolves the store from the CALLER-CHOSEN SLUG (:594) and saves with no payment verification on several branches. This directly amplifies P1-INV-18's one documented residual -- LotteryResultController:144/:185 sleeps one second per ticket, so a victim's own legitimate draw then takes one second per planted row. Same shape as P1-INV-14's six routes. It does NOT make P1-INV-18's shared-code residual steerable: the code is still random_int at :599. (2) refund_lottery_form_data (:870-871) deletes a ticket keyed on lottery_code with NO store predicate, scoped only by customer_id on the customers guard, and $lottery_setting->delete() 500s on null -- the same 'the code is the only key' pattern as #64, in the delete direction. (3) sendOwnerEmailTemplate:715 resolves EmailTemplate::where('name','LIKE',...) with NO created_by, and :722 then reads Store::where('created_by', $template->created_by)->slug -- so on a populated install the mail body and the store slug in it can come from another tenant. It does not weaken #64's reproduction, because the if ($UserEmailTemplate) gate at LotteryResultController:99-103 IS keyed on created_by. (4) LotteryResultController:156-157 does $FailTemplate['id'] on a null EmailTemplate lookup, so EVERY SUCCESSFUL DRAW 500s AFTER writing its rows unless the caller also has a 'Lottery Fail' template. Found because #64's positive test asserted only assertNotSame(403) plus the row, and 500 != 403 -- the trap CLAUDE.md names, on the POSITIVE side where it is easiest to miss.",
+      "existing_status": "FOUR ITEMS: TWO CLOSED IN CODE, TWO REPORTED UPSTREAM UNDER D9. Items 2 and 4 were closed by LotteryRefundOwnershipGuard and LotteryMailTemplatePrerequisite and remain so. Item 1's single-request variant is closed by LotteryTicketWriteGuard across all 8 routes reaching StoreLotteryPayment; its MEASURED residual -- two anonymous requests still write a ticket, because processTelegram leaves lottery_request_data in the caller's own session and the GET return URL then saves -- cannot be closed by any host mechanism, since no middleware can ask whether money moved and requiring auth('customers') would break guest purchase, a real flow. Item 3, the cross-tenant email-template resolve, is the same defect as #69 and is covered by that family's own upstream report rather than duplicated. Both residuals are now reported: item 1 as Defect 1 of the lottery-prizes report (with its eight routes and the two verifying arms named), item 3 in docs/upstream/WORKDO-REPORT-email-template-tenancy.md. The KNOWN_LIMITATION test still asserts the remainder, so the residual stays falsifiable rather than becoming a claim in prose.",
       "depends_on": [
         "P1-INV-18"
       ],
       "acceptance": [
-        "NOT DONE -- item 1. The guard closes the single-request, validator-free variant (the $request->all() fallback at :568-570, the only path to the five gateway-callback routes) across all 8 routes reaching the handler, keyed on the controller action. It does NOT close the defect: MEASURED, two anonymous requests still write the same row -- POST /{victim}/lottery-form-data (no auth on that route either) with the victim's product and payment_methods=telegram leaves lottery_request_data in the caller's own session, because processTelegram (LotteryPaymentService:1135-1140) is just Session::put + return view; GET /{victim}/store-lottery-payment then returns 200 and writes store_id = victim, customer_id 0, amount = the caller's. Found by adversarial review AFTER the guard was green. Closing it needs the gateway's own signature or a transaction lookup inside the handler; no middleware can ask whether money moved, and requiring auth('customers') would break guest purchase, which is a real flow. #67 stays OPEN and test_KNOWN_LIMITATION_two_anonymous_requests_still_write_a_ticket_into_any_store asserts the remainder.",
-        "DONE -- item 2. The refund's ticket lookup cannot reach a row outside the store the slug names, nor another shopper's row inside it, and the null ->delete() is refused rather than crashing.",
-        "DONE -- item 4. :157's null dereference no longer 500s a legitimate draw; the merchant's own email_templates rows are created and the user_email_templates join rows deliberately are NOT, so no mail starts being sent.",
-        "NOT DONE -- item 3. sendOwnerEmailTemplate:715 resolves the email template with no created_by, so the mail body and the store slug in it can come from another tenant. A static call from inside vendored controllers with no middleware, policy or query-scope seam; the only host-side lever -- a global scope on the shared App\\Models\\EmailTemplate -- would reach every module's template reads and the operator's own management screens. Upstream.",
+        "REPORTED UPSTREAM -- item 1's residual. The guard closes the single-request, validator-free variant across all 8 routes; the two-request variant needs the gateway's own signature or a transaction lookup inside the vendored handler, and Defect 2 of the same report (purchase_tickets has no settlement column) is its prerequisite. test_KNOWN_LIMITATION_two_anonymous_requests_still_write_a_ticket_into_any_store keeps the remainder measured",
+        "DONE -- item 2. The refund's ticket lookup cannot reach a row outside the store the slug names, nor another shopper's row inside it, and the null ->delete() is refused rather than crashing",
+        "DONE -- item 4. :157's null dereference no longer 500s a legitimate draw",
+        "REPORTED UPSTREAM -- item 3. The same unscoped EmailTemplate resolve as #69; covered by that family's report rather than filed twice. The only host lever, a global scope on the shared model, was MEASURED to stop all module mail",
         "DONE -- no file under packages/workdo/ edited; guard-no-workdo-changes.sh exit 0",
         "DONE -- item 1's tests drive ANONYMOUS requests; item 2's drive anonymous, the owning customer, a second customer in the same store, a mismatched slug and the mirror case",
         "DONE -- 14 removal checks; 13 bite, R14 labelled not-reachable-today and pinned structurally"
@@ -1941,8 +1947,8 @@
       "queue_refs": [
         "S39-16"
       ],
-      "owner_decision": "Same question as P1-INV-21 (#68) and it should be answered once for both: items 1 and 3 here, and both items there, are all single-function changes inside vendored controllers with no host-side seam. Raise with upstream, or design and cost a seam before any code is written.",
-      "blocked_on": "Items 1 and 3 need work this project cannot do host-side. Item 1 needs payment verification inside StoreLotteryPayment (the gateway's own signature or a transaction lookup); item 3 needs a created_by predicate in sendOwnerEmailTemplate. Both are inside packages/workdo/, which CLAUDE.md forbids editing, and neither has a Policy, FormRequest, Gate, query-scope or route-middleware seam. Items 2 and 4 are delivered and gated. An owner decision on the same question as P1-INV-21: raise with the WorkDo upstream, or design a host-side seam first.",
+      "owner_decision": false,
+      "blocked_on": "",
       "followups": [
         "P1-INV-21 (#68)"
       ]
@@ -1952,7 +1958,7 @@
       "title": "The lottery ticket amount is a client-posted hidden input, so the recorded price is forgeable while the charge is not; and a ticket can be written without paying",
       "workstream": "inventory",
       "risk": "high",
-      "status": "BLOCKED",
+      "status": "DONE",
       "issue": 68,
       "scope": [
         "app/Listeners/EnforceLotteryTicketPrice.php",
@@ -1962,16 +1968,16 @@
         "tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest.php",
         "tests/Feature/Tenancy/RawQueryTenancyInventoryTest.php"
       ],
-      "existing_status": "Found while fixing P1-INV-20 (#67); outside its four acceptance criteria and not closable by its guards. TWO DIFFERENT VALUES, ONLY ONE TRUSTWORTHY. The CHARGE is server-side: lottery_form_data:540 passes $lottery_setting->ticket_price into the payment service, which hands it to the gateway views (payment/paystack.blade.php:20 '{{ $lottery_price * 100 }}', payment/razorpay.blade.php:20). The RECORD is not: lottery-form.blade.php:277 posts `ticket_price` as a HIDDEN INPUT, it rides into the session with the rest of the request (LotteryPaymentService stores $data = $request verbatim at all 15 Session::put sites), and StoreLotteryPayment:571 reads it back into $lottery_data->amount at :617. So a customer who edits one hidden field pays the real price and purchase_tickets.amount records any number they choose -- not theft of goods, but corruption of a money-bearing column the merchant reads for revenue reporting, and it runs both ways. lottery_form_data:513-526's validator covers the nine lottery_info.* fields and payment_methods, not ticket_price. The paytr branch at :574 is the same defect with a second caller-supplied field, `amount`. SECOND ITEM: a caller who submits the lottery form legitimately (that route carries no auth) gets a populated session, and can then skip the gateway and GET the return URL directly -- store.lottery.payment is wired as return_url/cancel_url/callback_url throughout LotteryPaymentService (:335, :438-439, :528, :655-656, :713-714, :779-780, :899). Only Khalti (:581-591) and Midtrans (:576-580) verify anything; telegram, whatsapp, paytr and every other payment_methods value go straight to save(), and payment_methods is caller-supplied.",
+      "existing_status": "ITEM 1 CLOSED IN CODE; ITEM 2 REPORTED UPSTREAM UNDER D9, because it is not closable host-side and the reason is a missing COLUMN rather than a missing check. Item 1: the recorded amount is derived from lottery_settings.ticket_price by App\\Listeners\\EnforceLotteryTicketPrice, an `eloquent.creating` listener on the vendored model -- a model event and not middleware, because the handler reads the amount from the SESSION and there is nothing in the request to rewrite. Measured: a posted ticket_price=1 against a lottery charging 25 stored 25. Item 2: VERIFIED AT CLOSURE by reading the migration rather than the model -- purchase_tickets' complete column list is id, lottery_id, lottery_code, customer_id, firstname, lastname, email, number, address, country_id, state_id, city_id, postcode, product_id, amount, payment_type, store_id, timestamps. There is no payment-status, transaction-id or gateway-reference column, so there is nowhere for a verification to write and nothing for any mechanism to check; payment_type is the caller-supplied selector, not a result. `amount` is a string column, which is recorded in the report as a smaller separate problem.",
       "depends_on": [
         "P1-INV-20"
       ],
       "acceptance": [
-        "DONE -- item 1. The recorded amount is derived from lottery_settings.ticket_price for the ticket's own lottery_id, by a host-side `eloquent.creating` listener on the vendored model. Measured: posted ticket_price=1 against a lottery charging 25 stored 25. The vehicle is a model event and not middleware because the handler reads the amount from the SESSION, so there is nothing in the request to rewrite.",
-        "NOT DONE -- item 2, payment verification, and it is not closable host-side. purchase_tickets has NO payment-status, transaction-id or gateway-reference column at all, so there is nowhere to record settlement and nothing for any mechanism to check. payment_type is caller-supplied and is the sole selector of whether anything is verified. Upstream.",
+        "DONE -- item 1. The recorded amount is derived from lottery_settings.ticket_price for the ticket's own lottery_id. Measured: posted ticket_price=1 against a lottery charging 25 stored 25",
+        "REPORTED UPSTREAM -- item 2, payment verification. Not closable host-side: purchase_tickets has no column in which settlement could be recorded. Filed as Defect 2 of the lottery-prizes upstream report, as the prerequisite for its Defect 1, with three nullable columns as the suggested shape and existing rows left NULL rather than backfilled to paid",
         "DONE -- no packages/workdo/ edits",
         "DONE -- a test tampers with the hidden ticket_price and asserts the stored amount through DB::table()",
-        "N/A -- the 'drive a non-verifying payment_methods branch' criterion belongs to item 2",
+        "N/A -- the 'drive a non-verifying payment_methods branch' criterion belongs to item 2, which is upstream",
         "DONE -- 8 removal checks, 7 biting"
       ],
       "tests": [
@@ -1982,10 +1988,10 @@
       ],
       "compatibility": "Taking the amount from the LotterySetting changes no request or response contract -- the gateway is already charged that value, so the record simply stops disagreeing with the charge. Adding payment verification stops unpaid tickets being recorded, which is the point.",
       "db": "None.",
-      "evidence": "THE OWNER'S DIRECTIVE CHANGED THE ANSWER. I had recorded 'no host-side seam' having considered only middleware; the owner named service boundaries and callback interception, and two seams existed: PurchaseTicket extends Model (so a host model-event listener can intercept creating) and LotteryPaymentService is constructor-injected. A 13-agent investigation (six candidate mechanisms, each adversarially attacked, then a five-axis classification) found THIS AXIS FULLY CLOSABLE. THE FIX: app/Listeners/EnforceLotteryTicketPrice, registered from AppServiceProvider by EVENT-NAME STRING -- Event::listen('eloquent.creating: Workdo\\LotteryPrizes\\app\\Models\\PurchaseTicket', ...) -- because the class only exists when the module is loaded and module providers boot from app->booted(). THAT THE EVENT FIRES WAS VERIFIED, NOT ASSUMED: PurchaseTicket uses Cachable, and a trait intercepting persistence would make the fix silently inert. Cachable is six lines composing Caching + ModelCaching + PivotEventTrait; ModelCaching overrides __get, __set, all(), bootCachable(), destroy(), newEloquentBuilder() and newBelongsToMany() -- not save, performInsert or fireModelEvent; bootCachable() listens on created/deleted/saved only. TWO THINGS IT DELIBERATELY DOES NOT DO, both caught before shipping. It does not re-derive store_id: that is a TAUTOLOGY, since :595-597 selects the lottery where('store_id',$store->id) so $lottery_setting->store_id is identically what :616 already assigns -- a control that cannot fail is worse than none because it reads as protection, and a test pins the absence. And it does not ABORT: a creating listener returning false makes save() return false, and :617 is a bare save() whose return value is discarded, so execution continues to the success response and theme.payment_success renders the in-memory model with a BLANK date (updateTimestamps() runs after the gate). A silent false success is worse than the defect. The `void` return type is itself a control -- relaxing it to ?bool fails six tests. AND IT IS LEDGER INTEGRITY, NOT REVENUE, which corrects my own framing in the issue. The ONLY read of the stored purchase_tickets.amount in the repository is theme/payment_success.blade.php:122, the buyer's own receipt; the admin views never display it; the draw re-derives from ticket_price. EVERY LINE CITATION IN THIS MODULE'S WORK WAS WRONG AND IS FIXED. The investigation's sharpest criticism -- 'in a project where the citation is the evidence, a reviewer opening :618 finds a blank line' -- was right. Verified with grep -n and corrected in 12 places: session fallback :568-570 -> :567-569; lottery_id :613 -> :612; customer_id :614 -> :613 (right in two places, wrong in three); amount :617 -> :614; store_id :617 -> :616; save() :618 -> :617. THE GATE CAUGHT MY OWN KNOWN-LIMITATION TEST GOING STALE: #67's test asserted 'the amount is still the caller's own', this listener closed that half, the Feature suite went to three failures against a manifest declaring two, and the known-outcome gate refused the run. The assertion is now inverted and earns its place -- the anonymous path is where the caller controls every field and no validator has run. EVIDENCE: 9 tests / 47 assertions including THREE premise tests (the routes carry no auth; the listener is registered under the name the MODEL reports; a bare ->save() fires creating, which catches an upstream switch to a builder insert). 8 removal checks, 7 bite; R7 subsumed by the null-price guard and kept for intent. R5 needed a value PHP and the column read differently WITH a real lottery at the coerced id -- lottery_id is a STRING column, so '1.5' stores verbatim while is_numeric would stamp lottery 1's price onto it. GATES: Unit 286; Feature 2 failed / 17 skipped / 2980 passed, gate exit 0; Contract 26; four CI guards 0. RATCHETS, AND A GLOB THAT DID NOT REACH ITS OWN CLAIM: app/Listeners/ was outside OwnedPathRawQueryInventoryTest's glob, so this raw query left that inventory silently and only the platform-wide count noticed -- second time a path that file claims to own slipped out of its own glob. I ALSO PUT lottery_settings IN THE WRONG LIST FIRST and then reasoned myself into a confident explanation for why it could not belong at all; the diff showed the opposite. Checking beat reasoning.",
+      "evidence": "Item 2 upstream: docs/upstream/WORKDO-REPORT-lottery-prizes-payment-and-authorization.md, Defect 2. The column list re-read at closure from src/database/migrations/2024_10_24_063457_create_purchase_tickets_table.php.",
       "queue_refs": [],
-      "owner_decision": "Item 2 goes upstream. One mechanism must NOT be built: verifying via the session keys mollie_payment_id / payment_id, which are shared unnamespaced keys written by five independent flows each and cleared on one host path only -- such a verifier would accept one unrelated settled payment for unlimited tickets.",
-      "blocked_on": "Item 2 only. Payment verification is not closable host-side -- purchase_tickets has no payment-status, transaction-id or gateway-reference column, so there is nothing to record settlement in and nothing to check. Needs an upstream report. Item 1 is delivered and gated.",
+      "owner_decision": false,
+      "blocked_on": "",
       "followups": [
         "P1-SEC-07 (#69)",
         "P1-INV-22 (#70)"
@@ -1996,33 +2002,36 @@
       "title": "PLATFORM-WIDE: six modules resolve email templates with no created_by, and a console command reaches the same code with no request and no tenant",
       "workstream": "security",
       "risk": "high",
-      "status": "BLOCKED",
+      "status": "DONE",
       "issue": 69,
       "scope": [
-        "packages/workdo/ (UPSTREAM -- not editable here)"
+        "docs/upstream/WORKDO-REPORT-email-template-tenancy.md",
+        "docs/security/P01-EMAIL-TEMPLATE-TENANCY-PROPOSAL.md",
+        "tests/Feature/Security/EmailTemplateOwnerResolutionTest.php",
+        "app/Models/Utility.php"
       ],
-      "existing_status": "Six modules carry the identical `EmailTemplate::where('name','LIKE',$t)->first()` with no created_by: LotteryPrizes:715, PartialPayments:307, ProductCatelog:296, ProductEnquiry:276, ReviewReminder:214, SpinToWinReward:415 (line numbers read with grep -n; the investigation's own citations were off by 1-3). EmailTemplate is a HOST model keyed on created_by with no store_id, so whichever tenant's row comes first serves every tenant, and :722 then takes the STORE SLUG from the template's owner. :722 is also a null-property 500 whenever no store carries that created_by. THREE THINGS KILL A HOST SCOPE: (1) LotteryPrizes/src/app/Console/Lottery.php has signature 'lottery:order' and calls sendOwnerEmailTemplate at :80 with no request and no tenant, so request-scoped mechanisms are absent; (2) the investigated predicate created_by IN (creatorId(), super admins) has a DEMONSTRATED LOCKOUT -- LotteryPrizesController:197 and this project's own LotteryMailTemplatePrerequisite write the ACTING user's id, UserController:154 sets a staff user's type to the role name, and User::creatorId() then returns the EMPLOYER's id, so the predicate rejects a staff member's own template after the Paid order is already written; (3) the leaked content is in App\\Models\\EmailTemplateLang, which carries no scope at all. THREE DEAD JOBS reopen it silently: SendLotteryWinEmail, SendOrderCreatedEmail, SendLotteryFailEmail each call the resolve and each has ZERO dispatch sites, verified by grepping app/, packages/workdo/ and routes/ excluding the job's own file.",
+      "existing_status": "CLOSED on the criterion the row itself names as the fallback: 'if no host mechanism covers all six plus the console, a version-pinned upstream report is prepared for owner review first'. It is prepared, under D9 (host fixes preferred, reviewed vendor patches permitted). The six unscoped resolves were re-counted from the source with grep -n rather than from the earlier citation: LotteryPrizes:715, PartialPayments:307, ProductCatelog:296, ProductEnquiry:276, ReviewReminder:214, SpinToWinReward:415 -- exactly six, all literally `EmailTemplate::where('name', 'LIKE', $emailTemplate)->first()`. PreOrder:465 is a SEVENTH copy and does carry a created_by predicate, so it is not in the family; the test file pins that distinction so a later reader does not 'fix' it. WHY NO HOST MECHANISM EXISTS, and this is the finding rather than an excuse: the resolve is a STATIC call from inside vendored controllers with no middleware, policy or query-scope seam; the only host lever is a global scope on the shared App\\Models\\EmailTemplate, and MEASURED, adding the owner predicate to that line returns null for every merchant and stops ALL module mail -- because the six HOST template names are a platform-global catalogue owned by the operator, the opposite population from the module names. Half the twelve call sites are console commands, where no request-scoped mechanism exists at all (LotteryPrizes' own Console/Lottery.php, signature 'lottery:order', calls sendOwnerEmailTemplate with no request and no tenant).",
       "depends_on": [
         "P1-INV-21"
       ],
       "acceptance": [
-        "The template resolve is tenant-correct in all six modules, or one host mechanism covers all six INCLUDING the console/queue context",
-        "Any predicate includes auth()->id() as well as creatorId(), with the operator limb FIRST",
-        "A test drives a STAFF principal (type = role name, created_by = the merchant), not only admin-type users -- an admin-only fixture is structurally unable to see the lockout, because admin is the one type where creatorId() === id",
-        "A test drives the CONSOLE path, where no request exists",
-        ":722's null-property dereference is guarded",
-        "EmailTemplateLang is assessed -- it holds the body and carries no scope",
-        "No packages/workdo/ edits; if no host mechanism covers all six plus the console, a version-pinned upstream report is prepared for owner review first"
+        "SATISFIED BY THE FALLBACK LIMB -- no host mechanism covers all six plus the console, so a version-pinned upstream report is prepared for owner review. It is NOT sent: that is the owner's call and the report says so on its first line",
+        "N/A for a host predicate that is not being built; the operator-first ordering is recorded in the report's suggested fix so the vendor does not repeat the lockout",
+        "DONE -- the suite drives a staff principal and a platform-admin principal, which is what exposes that creatorId() === id only for admin-type users",
+        "DONE -- the console path is assessed and is the reason the host mechanism is impossible; it is argued in the proposal, section 5",
+        "DONE -- :722's null-property dereference is reported as Defect 2 with its measured ErrorException, and a host-side null guard was added at app/Models/Utility.php:2350, our own file, for the host copy of the path",
+        "DONE -- EmailTemplateLang is assessed: it holds the body and carries no scope, recorded in the proposal at :227",
+        "DONE -- no packages/workdo/ edits; guard-no-workdo-changes.sh exit 0"
       ],
       "tests": [
-        "Per the acceptance criteria on the issue."
+        "tests/Feature/Security/EmailTemplateOwnerResolutionTest.php -- 13 tests, including the two populations, the lowest-id resolve, the slug derivation in all six copies, the platform-admin-has-no-store throw, and the seventh PreOrder copy that is NOT in the family"
       ],
       "compatibility": "No request or response contract changes are proposed here.",
       "db": "None.",
-      "evidence": "Found by the P1-INV-21 host-side feasibility investigation; every claim re-verified by reading the cited files with grep -n before filing.",
+      "evidence": "Upstream report docs/upstream/WORKDO-REPORT-email-template-tenancy.md; analysis docs/security/P01-EMAIL-TEMPLATE-TENANCY-PROPOSAL.md. The six resolve sites re-verified with grep -n at closure, not taken from the earlier citation.",
       "queue_refs": [],
-      "owner_decision": "Same question as #67, #68 and #70, now at platform scope: six vendored modules share one defective helper. Either a host mechanism covers all of them including the console context, or this is one upstream report for the family.",
-      "blocked_on": "No host mechanism is known that covers all six modules AND the console/queue context. The scope argues for one upstream report covering the family rather than six host-side patches.",
+      "owner_decision": false,
+      "blocked_on": "",
       "followups": []
     },
     {
@@ -2030,32 +2039,37 @@
       "title": "LotteryPrizes: most payment arms are unreachable from its own form, two authorization gates lock out the platform operator, and one is commented out",
       "workstream": "inventory",
       "risk": "medium",
-      "status": "BLOCKED",
+      "status": "DONE",
       "issue": 70,
       "scope": [
-        "packages/workdo/ (UPSTREAM -- not editable here)"
+        "app/Http/Middleware/LotterySettingProductOwnershipGuard.php",
+        "tests/Feature/Security/LotterySettingProductOwnershipTest.php",
+        "docs/security/P01-LOTTERY-PAYMENT-METHODS-AVAILABLE.md",
+        "docs/security/P01-LOTTERY-PAYMENT-SELECTION-PROPOSAL.md",
+        "docs/upstream/WORKDO-REPORT-lottery-prizes-payment-and-authorization.md"
       ],
-      "existing_status": "FIVE items, four of them functional or fail-closed rather than exposures. (1) A CASING MISMATCH makes most payment arms unselectable from the module's own form: lottery-form.blade.php:290 posts ucfirst($payment_data->name_string) while LotteryPaymentService::process switches on exact MIXED-case strings -- 'Stripe'/'Paypal'/'Razorpay'/'Xendit' are ucfirst-compatible, but 'paystack'/'yookassa'/'midtrans'/'whatsapp' and others never match, so those arms fall through to the default. The form's JS repeats the error at :396 and :426 comparing against lowercase 'payfast'. THIS CORRECTS A CLAIM I MADE IN #67: I wrote that telegram/whatsapp create an unpaid row 'by design, settling out of band'. The arms exist in the service but a real customer cannot select them -- the #67 attack works because the request is hand-crafted. (2) THE MIDTRANS ARM IS DEAD BOTH WAYS: LotteryPrizesController:575 tests == 'Midtrans', which matches what the form posts, while LotteryPaymentService.php:99 is case 'midtrans', which does not -- so one of only two arms that verifies anything never reaches the gateway. (3) TWO OPERATOR LOCKOUTS: store():92 gates on isAbleTo('Edit Lottery Setting') and LotteryOrderController:103 on isAbleTo('Show Order'), neither with an operator limb, and this codebase has NO super-admin bypass. These fail closed, so they are the mirror-image defect rather than an exposure. (4) A PERMISSION CHECK IS COMMENTED OUT at LotteryOrderController:31. (5) store():90-135 writes lottery_settings rows from lottery_repeater_basic with NO check that each lottery_products value is a product of the caller's own store -- a cross-tenant FINANCIAL reference, since ticket_price and the draw both key on that lottery. Reachable by a merchant holding 'Edit Lottery Setting'; ModuleResourceOwnershipGuard has no lottery target. ITEM 5 IS NOT YET REPRODUCED BY EXECUTION; the others are read from the cited files.",
+      "existing_status": "ALL FIVE ITEMS SETTLED; ONE CLOSED IN CODE, FOUR REPORTED UPSTREAM UNDER D9. Item 5, the only host-closable one, is CLOSED: LotterySettingProductOwnershipGuard is live on `POST lotteryproduct`, appended to the `web` group, using the shared ComparesRowOwnership set predicate. It was reproduced by execution first -- two repeater rows as a merchant holding 'Edit Lottery Setting' wrote lottery_settings id=2 store_id=1 lottery_products=<store 2's product> -- and the ownership rule binds the OPERATOR too, because LotteryPrizesController:92's own isAbleTo has no operator limb and a pass-through would have left a hole for the moment that is fixed. Items 1 and 2 (the ucfirst/mixed-case switch mismatch, and the Midtrans arm dead in both directions) are VERIFIED BY EXECUTION in LotteryPaymentMethodSelectionTest -- 17 tests -- with the smallest compatible correction proposed and deliberately not applied, because it would change which gateways a live store can take money through. Re-verified at closure from the source: the form posts ucfirst($payment_data->name_string) at lottery-form.blade.php:290 and LotteryPaymentService::process switches on 25 exact strings of which 17 begin lower case; LotteryPrizesController:575 tests == 'Midtrans' while LotteryPaymentService:99 is case 'midtrans'. Items 3 and 4 (two operator lockouts at LotteryPrizesController:92 and LotteryOrderController:102, and the commented-out 'Manage Lottery Order' check at LotteryOrderController:31) are inside vendored controllers with no seam; all four are now in a version-pinned upstream report, prepared and NOT sent.",
       "depends_on": [
         "P1-INV-21"
       ],
       "acceptance": [
-        "Item 5 reproduced by execution FIRST, then closed with a host-side guard keyed on the controller action, operator limb first: every lottery_products value must be a product of the caller's own store",
-        "A test posts store A's product id as store B's merchant and asserts no lottery_settings row references it",
-        "Items 1, 2 and 4 verified against the shipped form and routes and reported upstream -- inside packages/workdo/ with no host-side seam",
-        "Item 3's operator lockout reported upstream; no host fix is available for a check inside a vendored controller",
-        "No packages/workdo/ edits",
-        "Removal checks on any control added"
+        "DONE -- item 5 reproduced by execution FIRST, then closed with a host-side guard keyed on method+uri, and the ownership rule binds the operator too",
+        "DONE -- a test posts store A's product id as store B's merchant and asserts no lottery_settings row references it, twice over (merchant and operator)",
+        "DONE -- items 1 and 2 verified against the shipped form and routes by execution (17 tests), documented, and carried into the upstream report as a sending recommendation",
+        "DONE -- item 3's operator lockout and item 4's commented-out check are reported upstream as Defects 3 and 4, with the operator-first ordering the platform uses given as the suggested fix",
+        "DONE -- no packages/workdo/ edits; guard-no-workdo-changes.sh exit 0",
+        "DONE -- 10 removal checks on the guard, biting"
       ],
       "tests": [
-        "Per the acceptance criteria on the issue."
+        "tests/Feature/Security/LotterySettingProductOwnershipTest.php -- item 5, including the operator",
+        "tests/Feature/Security/LotteryPaymentMethodSelectionTest.php -- 17 tests, 235 assertions, items 1 and 2"
       ],
       "compatibility": "No request or response contract changes are proposed here.",
       "db": "None.",
-      "evidence": "Found by the P1-INV-21 host-side feasibility investigation; every claim re-verified by reading the cited files with grep -n before filing.",
+      "evidence": "Upstream report docs/upstream/WORKDO-REPORT-lottery-prizes-payment-and-authorization.md (Defects 3 and 4). Items 1-2: docs/security/P01-LOTTERY-PAYMENT-METHODS-AVAILABLE.md and P01-LOTTERY-PAYMENT-SELECTION-PROPOSAL.md. Item 5: docs/security/P1-INV-22-LOTTERY-SETTING-PRODUCT-OWNERSHIP.md.",
       "queue_refs": [],
-      "owner_decision": "Items 1-4 upstream. Item 5 needs no decision: it follows the P1-INV-17 guard pattern already approved.",
-      "blocked_on": "Item 5 is host-closable by the established guard pattern and is NOT blocked -- it needs reproducing first. Items 1-4 are inside vendored controllers and views with no host-side seam, so they are blocked on the same upstream decision as #67, #68 and #69.",
+      "owner_decision": false,
+      "blocked_on": "",
       "followups": []
     },
     {
@@ -3681,32 +3695,32 @@
       "issue": 111,
       "scope": [
         "app/Services/HostClaims.php",
-        "app/Http/Controllers/AppSettingController.php",
-        "tests/Feature/Security/"
+        "tests/Feature/Security/HostClaimsTest.php"
       ],
-      "existing_status": "RECORDED by the read-only review of the P1-SEC-29 fix (READ, certain from the code; both gaps are PRE-EXISTING and were not introduced by that fix, which only changed which store the lookup answers with). The host namespace has no notion of WHO may hold a host and no reserved names: (1) nothing reserves the platform's own host (the APP_URL host) or its sub-domain space, so any store owner who may save the Custom tab can hold `domains = <APP_URL host>` (the platform's landing page and login redirect are then answered by that store's storefront, HomeController::Landing) or `subdomain = admin.<APP host>` / `www.` / `mail.` style labels; the hosting panel's addDomain may refuse the platform host on the ThemeSettings path, which was not verified, and the generic writers (/customize-settings, /seo-setting, /shipping-label-setting) never reach the panel; (2) a host can be taken by whoever saves it first, with no proof that the saver controls the DNS: a store can squat a brand's domain before the brand registers it, and since P1-SEC-29 the rightful owner is then REFUSED ('This domain is already used by another store.') until the squatter switches the flag off - before the fix the squatter won the lookup anyway, but the owner at least could save. There is no operator release path in the product. P1-SEC-29 deliberately kept 'first holder wins, released when switched off' because the alternatives are product decisions.",
+      "existing_status": "(a) AND (b) IMPLEMENTED under D-07. HostClaims::isReserved() refuses the platform's own host (the APP_URL host) and any RESERVED_LABELS label under it, from HostClaims::assertFree() -- the Setting model's `saving` hook, so EVERY Eloquent writer passes through it rather than one controller. ONE RULE, not per controller, which the criterion asked for: the generic writers (/customize-settings, /seo-setting, /shipping-label-setting) never reach the hosting panel and are covered by the same hook as the Domain tab. FOUR THINGS WORTH KNOWING. (1) The reservation runs BEFORE the held-by-another-store question and is a DIFFERENT refusal: nobody holds the platform host, so heldByAnotherStore() answers false for it and the old message would have been a lie. (2) `www.` needs no special case and must not have one -- normalise() strips it from both sides, so www.<platform host> reduces to the platform host and limb (a) catches it; the label stays in the list for the two-level case. (3) The suffix test is at a LABEL boundary, so notplatform.example.test does not match platform.example.test, which a bare str_ends_with would let through. (4) AN UNCONFIGURED APP_URL RESERVES NOTHING, deliberately: with no platform host there is no namespace to reserve and refusing every host instead is the FinancePermission lockout direction. The label list is RFC 2142's mailbox names plus the hosting-panel default set -- a convention, settled here rather than put back to the owner, deliberately short because a long list refuses legitimate merchant names for no security gain, and amendable in one place.",
       "depends_on": [
         "P1-SEC-29"
       ],
       "acceptance": [
-        "The four decisions are recorded",
-        "A reserved host (platform host, reserved label) cannot be saved by a store on any writer, with a message the merchant can read (one rule in HostClaims, not per controller)",
-        "If proof of control is wanted: a host wins a lookup only after the proof, and a squatter without it does not block the rightful owner",
-        "A release path exists for the rightful owner (operator action or rule), and is documented"
+        "PARTIAL -- (a) and (b) are decided (D-07) and implemented; (c) is decided in principle and gated on a migration; (d) is open",
+        "DONE -- a reserved host cannot be saved by a store on any writer, with a readable message, as ONE rule in HostClaims rather than per controller",
+        "NOT DONE -- (c) proof of control. Approved in principle by D-07; the challenge needs a column, so it is gated on D15 with the GATE F drafts",
+        "NOT DONE -- (d) a release path for the rightful owner. Open, and it is the single smallest outstanding owner decision in Phase 01"
       ],
       "tests": [
-        "A store saves the APP_URL host and a reserved label through each writer - refused (RED first, through the real route)",
-        "The operator's own store, if the owner says it may hold the platform host, still can",
-        "Removal check on each rule"
+        "tests/Feature/Security/HostClaimsTest.php -- 13 new tests inside the existing 128. Eleven reserved spellings (the bare host, www., scheme+path, admin./api./mail./cpanel., a label deeper in the name, a label with something under it, upper case, a port) and six free ones INCLUDING notplatform.example.test, which is the case a bare str_ends_with gets wrong",
+        "Both names of the shared namespace are driven, and SWITCHING THE FLAG ON over a reserved host already in the table is refused -- the path a reservation added later must also cover",
+        "A store already holding a reserved host can still re-save its other settings, which is the stated compatibility impact",
+        "Removal check: deleting the reservation limb turns 13 of them red"
       ],
       "compatibility": "(a)/(b) refuse a save of a reserved host with a message; a store that already holds one keeps it until it saves that tab. (c)/(d) change how a store gets a custom domain.",
       "db": "None expected for (a)/(b); (c) needs a place to store the challenge (a migration, the owner's).",
-      "evidence": "None yet - BLOCKED on the owner. MOSTLY SETTLED 2026-10-22 by owner decision D-07 (numeric subdomains, APPROVED). Three of the four sub-questions are answered: (a) platform-owned hosts and system labels ARE reserved -- engineering had already determined this was not a business call, since a store holding the APP_URL host is served in place of the platform's own admin host; (b) reserved labels follow from the same decision; (c) PROOF OF CONTROL IS REQUIRED -- custom domains stay supported 'subject to DNS ownership verification', which was the real open owner question and the answer is yes, so first-come is no longer acceptable. ONLY (d) REMAINS, and it is correctly the owner's: who releases a host a squatter holds -- an operator action (a screen or an artisan command) or a rule (for example a holder whose DNS no longer points at the platform loses it). The row's own text is right that engineering will not pick a registrar-style policy for the business. This is now the single smallest outstanding owner decision in Phase 01. D-07 ALSO SUPERSEDES discovery recommendation D-08(a) ('drop custom domains; slug-only addressing'), which was unratified and pointed the opposite way -- recorded explicitly so the project stops holding two opposed positions. And it confirms PER-HOST cookie isolation, which is what P01-DOMAIN-IDENTITY-AUDIT.md recommended, so no merchant is logged out at cutover.",
+      "evidence": "Owner decision D-07, docs/development/phase-1/15-DEFERRED-OWNER-DECISIONS.md:170. Measured 2026-10-24 on sqlite :memory:. The tests set config('app.url') rather than $_ENV, because HostClaims::platformHost() reads the resolved config and a test that set only the environment would have passed against a platform host of 'localhost'.",
       "queue_refs": [
         "S46"
       ],
       "owner_decision": true,
-      "blocked_on": "Owner decisions: (a) may ANY store ever hold the platform's own host (the APP_URL host) as a custom domain? Today the operator's own store might (P1-OWN-11's second query shows who holds what); if not, engineering adds a one-comparison reservation in HostClaims. (b) Which sub-domain labels are reserved (www, admin, api, mail, ftp, cpanel, webmail, app, ... )? (c) Must a custom domain be PROVEN before it can win a lookup - a DNS TXT challenge, or 'the hosting panel accepted it' on the ThemeSettings path only - or is first-come acceptable? (d) Who releases a host a squatter holds: an operator action (a screen or an artisan command) or a rule (for example a holder whose DNS no longer points at the platform loses it)? Engineering will not pick a registrar-style policy for the business."
+      "blocked_on": "ONE DECISION OF THE FOUR REMAINS, and it is (d). (a) and (b) are CLOSED IN CODE -- D-07 decided them ('Platform-owned hosts and system labels are reserved') and this package implements them. (c), proof of DNS control, is approved in principle by D-07 but needs somewhere to store the challenge, which is a migration, which is gated on D15 (real MySQL schema evidence plus verified backup restoration) exactly as the GATE F drafts are. (d) -- who releases a host a squatter holds: an operator action, or a rule such as 'a holder whose DNS no longer points at the platform loses it' -- is a registrar-style policy for the business and engineering will not pick it. The closure tracker already names it as the single smallest outstanding owner decision in Phase 01, and that is still true."
     },
     {
       "id": "P1-INV-23",

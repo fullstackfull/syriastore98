@@ -45,6 +45,30 @@ final class HostClaims
     /** the two names that hold a host, and the flag that switches each on */
     private const FLAGS = ['domains' => 'enable_domain', 'subdomain' => 'enable_subdomain'];
 
+    /**
+     * P1-SEC-32 (a) and (b), under owner decision D-07: "Platform-owned hosts and system labels are
+     * reserved."
+     *
+     * THE LABELS. RFC 2142's mailbox names plus the hosting-panel set every control panel creates by
+     * default. The list is a CONVENTION, not a business policy -- it is the set whose capture would
+     * take over the platform's own mail, panel or API rather than merely look confusing -- so it is
+     * settled here and recorded rather than put back to the owner, and the owner can amend it in one
+     * place. It is deliberately SHORT: a long list refuses legitimate merchant names (`shop`, `store`,
+     * `my`) for no security gain, and every entry below is one the platform or its host either already
+     * answers or would answer after any ordinary panel install.
+     *
+     * WHAT A RESERVED LABEL MEANS HERE. Only under the PLATFORM's own registrable host. `admin.acme.com`
+     * is Acme's business; `admin.<APP_URL host>` is the platform's. A merchant's own custom domain is
+     * not inspected for these labels at all, which is why this is a reservation and not a blocklist.
+     */
+    public const RESERVED_LABELS = [
+        'www', 'admin', 'api', 'app', 'mail', 'smtp', 'imap', 'pop', 'pop3', 'ftp', 'sftp',
+        'ns', 'ns1', 'ns2', 'mx', 'cpanel', 'whm', 'webmail', 'webdisk', 'autodiscover',
+        'autoconfig', 'cdn', 'static', 'assets', 'status', 'billing', 'account', 'accounts',
+        'login', 'auth', 'sso', 'support', 'help', 'abuse', 'postmaster', 'hostmaster',
+        'webmaster', 'security', 'noc', 'test', 'staging', 'dev', 'localhost',
+    ];
+
     /** the length of `settings.name` (database/migrations/2023_12_11_100148_create_settings_table.php: a plain string() column) */
     private const NAME_LENGTH = 255;
 
@@ -116,6 +140,84 @@ final class HostClaims
     }
 
     /**
+     * The platform's own host, lower-cased and www-stripped -- or '' when APP_URL has none.
+     *
+     * Read from `config('app.url')` with the SAME normalisation the claim path uses, because the two
+     * must agree on every spelling. The five existing readers of this value all do a bare
+     * `parse_url(config('app.url'))['host']`, which answers null for a configured value with no scheme
+     * (`storesyria.com`) and then compares null against a host; normalise() handles that shape, so this
+     * method is the one place that gets it right and the comparison below cannot be defeated by how
+     * the environment happens to spell APP_URL.
+     */
+    public static function platformHost(): string
+    {
+        return self::normalise((string) config('app.url'));
+    }
+
+    /**
+     * P1-SEC-32 (a) and (b). Is `$host` the platform's own, or a reserved label under it?
+     *
+     * TWO QUESTIONS, ONE ANSWER, and they are different claims:
+     *
+     *   (a) `$host` IS the platform host. Today a store owner who can save the Custom tab may set
+     *       `domains = <APP_URL host>` with `enable_domain = on`, and the platform's own landing page
+     *       and login redirect are then answered by that store's storefront through
+     *       HomeController::Landing. That is the whole platform, not one tenant's data.
+     *   (b) `$host` is `<label>.<platform host>` for a label in RESERVED_LABELS -- `admin.`, `api.`,
+     *       `mail.`, `www.`. Capturing one of those takes over a name the platform or its hosting
+     *       panel answers, or would answer after any ordinary install.
+     *
+     * ONLY UNDER THE PLATFORM'S OWN HOST. A merchant's `admin.acme.com` is Acme's business and is not
+     * inspected: the suffix test is what makes this a reservation rather than a blocklist on the word
+     * "admin".
+     *
+     * `www.` NEEDS NO SPECIAL CASE and must not have one: normalise() strips it from both sides, so
+     * `www.<platform host>` reduces to the platform host and is caught by limb (a). The label stays in
+     * RESERVED_LABELS for the two-level case (`www.shop.<platform host>`), which normalise() does not
+     * touch.
+     *
+     * AN UNCONFIGURED APP_URL RESERVES NOTHING, deliberately. With no platform host there is no
+     * namespace to reserve, and inventing one would refuse every merchant host on a misconfigured
+     * install -- a lockout, which is the failure direction this codebase has already paid for once
+     * (App\Http\Middleware\FinancePermission).
+     */
+    public static function isReserved(string $host): bool
+    {
+        $wanted = self::normalise($host);
+        $platform = self::platformHost();
+
+        if ($wanted === '' || $platform === '') {
+            return false;
+        }
+
+        // (a) the platform host itself. `www.` on either side is already gone.
+        if ($wanted === $platform) {
+            return true;
+        }
+
+        // (b) a reserved label directly under it. The suffix must be a LABEL boundary: `notstoresyria.com`
+        // must not match `storesyria.com`, which a bare str_ends_with would let through.
+        $suffix = '.' . $platform;
+
+        if (! str_ends_with($wanted, $suffix)) {
+            return false;
+        }
+
+        $prefix = substr($wanted, 0, -strlen($suffix));
+
+        // Every label of the prefix is examined, not just the first: `api.shop.<platform>` reserves on
+        // `api` and `shop.api.<platform>` reserves on `api` too. A deeper name under a reserved label
+        // is still under it.
+        foreach (explode('.', $prefix) as $label) {
+            if (in_array($label, self::RESERVED_LABELS, true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * The `saving` hook of App\Models\Setting: refuse a write that would make this store hold a host another store holds.
      *
      * A re-save that changes none of what a claim is made of -- name, value, store -- is not a claim and is let through: the Domain
@@ -156,6 +258,20 @@ final class HostClaims
         }
 
         foreach ($hosts as $host) {
+            /*
+             * P1-SEC-32 (a)/(b), D-07. The reservation is checked BEFORE the held-by-another-store
+             * question and is a different refusal: nobody holds the platform host, so
+             * heldByAnotherStore() answers false for it and the old message would have been a lie.
+             *
+             * A STORE THAT ALREADY HOLDS ONE KEEPS IT until it saves that tab, because assertFree()
+             * returns early for a re-save that changes none of (name, value, store). That is the
+             * stated compatibility impact, and it is the right one: refusing a stale re-post would
+             * lock such a store out of its own settings screen entirely.
+             */
+            if (self::isReserved((string) $host)) {
+                throw ValidationException::withMessages([$name => [__('This domain is reserved by the platform and cannot be used by a store.')]]);
+            }
+
             if (self::heldByAnotherStore((string) $host, $storeId)) {
                 throw ValidationException::withMessages([$name => [__('This domain is already used by another store.')]]);
             }

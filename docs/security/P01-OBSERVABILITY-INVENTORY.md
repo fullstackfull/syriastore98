@@ -132,6 +132,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Models/Order.php:774` | Order return refused: the order lines are not in a shape this workflow can return |
 | `app/Models/Utility.php:2174` | New Order webhook skipped: no store could be resolved for the order |
 | `app/Models/Utility.php:2184` | New Order webhook skipped: the resolved store does not exist |
+| `app/Providers/PackageServiceProvider.php:80` | addon loader: the dynamic add-on pass failed, so some modules are not loaded |
+| `app/Providers/PackageServiceProvider.php:144` | addon loader: a module failed to load and its features are absent |
 | `app/Services/DeliveryBoyNotificationService.php:65` | No active Delivery Firebase devices found for delivery boy. |
 | `app/Services/OrderTaxResolver.php:88` | Checkout: non-numeric client tax_price discarded |
 | `app/Services/OrderTaxResolver.php:101` | Checkout: client-supplied tax_price discarded (server value used) |

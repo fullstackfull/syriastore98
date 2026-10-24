@@ -299,6 +299,27 @@ return Application::configure(basePath: dirname(__DIR__))
         // the permission does pass isAbleTo. The operator is subject to the ownership rule like
         // anyone else; LotterySettingProductOwnershipTest asserts it twice.
         $middleware->appendToGroup('web', \App\Http\Middleware\LotterySettingProductOwnershipGuard::class);
+        // P1-INV-06 (#32). The two vendored "frequently bought together" add-to-cart writers --
+        // BoostSalesController@product_cartlist and FrequentlyProductController@product_cartlist --
+        // sit in `['web']`-only groups (anonymous, no PlanModuleCheck) and resolve every posted
+        // product id with `Product::find()`. `Product` carries no StoreScope AND is absent from
+        // config/tenancy.php's scoped_models, so that call adds no predicate for ANY principal: a
+        // posted id naming another tenant's product writes a `carts` row under the slug's store
+        // priced from the foreign catalogue. MEASURED from both routes, 200 with the row written.
+        //
+        // TWO CLAIMS THAT WERE HERE AND ARE WRONG, corrected rather than deleted because this is
+        // the comment a future reader consults at the registration site -- the same failure this
+        // file already documents a few lines above:
+        //   - "an id matching no product writes one at price zero (floatval(null))". It does not;
+        //     it 500s, because the guest branch has no null guard and reading a property on null
+        //     raises. Measured.
+        //   - "the two handlers differ only in their success strings". They do not. BoostSales'
+        //     braces mis-nest, so it has NO reachable customer branch: a signed-in customer gets
+        //     an empty 200 and no row. Its cross-tenant write is live on the guest branch only,
+        //     and the unvalidated-`qty` defect is live on FrequentlyProduct only.
+        // One guard still covers both, because the keys it reads are read by both and it runs
+        // ahead of either. ModuleCartWriteGuardTest pins each of these statements.
+        $middleware->appendToGroup('web', \App\Http\Middleware\ModuleCartWriteGuard::class);
         // P1-INV-19. `POST /{storeSlug}/product-bid` writes ALL FOUR of its columns from request
         // input, so any customer with a session on ANY store can forge a bid attributed to another
         // customer on another store's product. AuctionProductController:1600-1603. The

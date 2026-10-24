@@ -126,3 +126,23 @@ no-op into real incorrect payouts. This is the single most important thing to sa
    `tests/Feature/Tenancy/CrossTenantModelIsolationTest.php`, which currently calls
    `markTestSkipped()` for `store_wallets`, `store_wallet_transactions` and `store_withdrawals`
    precisely because they do not exist yet.
+
+---
+
+## P1-MIG-03 (#40) — two COLUMN drafts, not table drafts
+
+Added after the six table drafts above and listed separately because they are a different kind of
+change: `ALTER TABLE` on a table that already exists, not `CREATE TABLE` for one that does not.
+
+| # | Draft | Target | Why it is here |
+|---|---|---|---|
+| 7 | `0007_draft_add_cost_price_to_products_table.php.draft` | `products.cost_price` | Read and written as money by live code, declared by no migration. **Sequence it BEFORE `store_order_financials` (0004)**: with no column, `OrderFinancialService.php:214` reads null, `?? 0` makes the unit cost zero, and every P&L row is all-margin. Creating the financials table first would begin recording confident, wrong profit. |
+| 8 | `0008_draft_add_commission_columns_to_delivery_boys_table.php.draft` | `delivery_boys.commission_percentage`, `.is_commission_enabled` | Both `$fillable`, both written unconditionally by `DeliveryBoyApiController` store() and update(), neither declared — so **both handlers 500 for everyone today**. **Promote at the same time as `delivery_earnings` (0005) or before it**, never after: `is_commission_enabled` is what gates the earning write, so creating 0005 first leaves the earnings subsystem silently dead in exactly the way this README warns about. |
+
+The same rule applies to both: the drafts are **inferences**, the production dump wins on every
+disagreement, and the `hasColumn()` guards make a promotion a no-op against a column that already
+exists — which is safe HERE, unlike for the table drafts, because a no-op leaves the production
+type in place rather than freezing a guess.
+
+**Promotion is gated on D15** — real MySQL schema evidence plus verified backup restoration —
+exactly as the six table drafts are. Writing a migration is not running one.

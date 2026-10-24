@@ -51,8 +51,37 @@ class PackageServiceProvider extends ServiceProvider
             }
 
             $this->loadAddons($dbAddons);
-        } catch (\Exception $e) {
-            // Handle silently
+        } catch (\Throwable $e) {
+            /*
+             * P1-PLT-04 (#36). THIS CATCH USED TO READ `// Handle silently`, AND SILENTLY IS
+             * EXACTLY WHAT IT DID: a broken install did not fail, it DISAPPEARED. Every module's
+             * routes, migrations, menu entries and policies were simply absent, with nothing in
+             * any log to say so, and the first symptom an operator saw was a 404 on a page that
+             * worked yesterday.
+             *
+             * THE LEVEL IS `critical`, NOT `error`. `error` is this codebase's level for a
+             * third-party integration failing a call; this is the whole add-on subsystem not
+             * loading, and P1-PLT-05's inventory enumerates `critical` and `warning` as the levels
+             * that mean "a human should look at this". A row for this line is in
+             * docs/security/P01-OBSERVABILITY-INVENTORY.md.
+             *
+             * IT STILL CONTINUES, and that is deliberate rather than timid. Rethrowing from
+             * `app->booted()` takes the entire application down -- storefront included -- for
+             * every tenant, over one module's broken composer.json. A business that is live
+             * prefers a degraded install that reports to a dead one that does not. The report is
+             * the fix for #36; the recovery is the operator's.
+             *
+             * `\Throwable`, not `\Exception`: a PHP `Error` -- a missing class in a provider's
+             * constructor, which is the most likely way a half-installed module fails -- is not an
+             * `Exception` and was NOT caught here at all. So the old catch did not even cover the
+             * failure it was most likely to meet; that one took the app down while the ones it did
+             * catch vanished.
+             */
+            \Illuminate\Support\Facades\Log::critical('addon loader: the dynamic add-on pass failed, so some modules are not loaded', [
+                'exception' => get_class($e),
+                'message' => $e->getMessage(),
+                'file' => $e->getFile() . ':' . $e->getLine(),
+            ]);
         }
     }
 
@@ -72,30 +101,53 @@ class PackageServiceProvider extends ServiceProvider
         $loader = require base_path('vendor/autoload.php');
 
         foreach ($addons as $addon) {
-            $packageDir = base_path("packages/workdo/{$addon}");
-            $composerFile = "{$packageDir}/composer.json";
+            /*
+             * P1-PLT-04 (#36). PER MODULE, so one broken install cannot silence the rest.
+             *
+             * Without this the loop is all-or-nothing in two different wrong ways, depending on
+             * who called it. From loadDynamicAddons() the outer catch swallowed the throw and
+             * ABANDONED EVERY REMAINING MODULE in the list -- so a single malformed composer.json
+             * on an alphabetically early add-on removed all the ones after it, and the operator
+             * saw a set of unrelated features vanish at once with no line connecting them. From
+             * register(), where the static add-ons are loaded, there was no catch at all and the
+             * throw took the whole application down.
+             *
+             * Now each module stands or falls alone, and the one that failed is NAMED. Which it
+             * was is the single most useful fact about this failure and neither path recorded it.
+             */
+            try {
+                $packageDir = base_path("packages/workdo/{$addon}");
+                $composerFile = "{$packageDir}/composer.json";
 
-            if (! file_exists($composerFile)) {
-                continue;
-            }
-
-            $composerConfig = json_decode(file_get_contents($composerFile), true);
-
-            // Register PSR-4 namespaces
-            if (! empty($composerConfig['autoload']['psr-4'])) {
-                foreach ($composerConfig['autoload']['psr-4'] as $namespace => $path) {
-                    $loader->addPsr4($namespace, "{$packageDir}/{$path}");
+                if (! file_exists($composerFile)) {
+                    continue;
                 }
-            }
 
-            // Register Laravel service providers
-            if (! empty($composerConfig['extra']['laravel']['providers'])) {
-                foreach ($composerConfig['extra']['laravel']['providers'] as $provider) {
-                    $this->app->register($provider);
+                $composerConfig = json_decode(file_get_contents($composerFile), true);
+
+                // Register PSR-4 namespaces
+                if (! empty($composerConfig['autoload']['psr-4'])) {
+                    foreach ($composerConfig['autoload']['psr-4'] as $namespace => $path) {
+                        $loader->addPsr4($namespace, "{$packageDir}/{$path}");
+                    }
                 }
-            }
 
-            $this->registerAddonMigrations($packageDir);
+                // Register Laravel service providers
+                if (! empty($composerConfig['extra']['laravel']['providers'])) {
+                    foreach ($composerConfig['extra']['laravel']['providers'] as $provider) {
+                        $this->app->register($provider);
+                    }
+                }
+
+                $this->registerAddonMigrations($packageDir);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::critical('addon loader: a module failed to load and its features are absent', [
+                    'module' => $addon,
+                    'exception' => get_class($e),
+                    'message' => $e->getMessage(),
+                    'file' => $e->getFile() . ':' . $e->getLine(),
+                ]);
+            }
         }
     }
 

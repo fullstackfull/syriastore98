@@ -1,0 +1,94 @@
+<?php
+
+/**
+ * ============================================================================================
+ *  PROVISIONAL DRAFT -- GATE F. NOT ACTIVE. NOT RECONCILED AGAINST PRODUCTION.
+ * ============================================================================================
+ *
+ * Held out of the live migration path for the reasons in README.md in this directory, and named
+ * `*.php.draft` as a second independent layer.
+ *
+ * P1-MIG-03 / #40. `delivery_boys.commission_percentage` and `delivery_boys.is_commission_enabled`
+ * are both in `App\Models\DeliveryBoy::$fillable` (:21-22) and both are WRITTEN by live handlers,
+ * and NO migration declares either. CLAUDE.md records the consequence and it is not a latent one:
+ *
+ *   app/Http/Controllers/Api/DeliveryBoyApiController.php:180-181   store()
+ *   app/Http/Controllers/Api/DeliveryBoyApiController.php:230-231   update() (validation)
+ *
+ * BOTH HANDLERS 500 FOR EVERYONE TODAY, not just for some inputs: the write is unconditional in
+ * the attribute array, so the INSERT names a column that does not exist whatever the request
+ * carries. This is the one GATE F item whose fix makes a currently-dead merchant-facing feature
+ * start working, which is why the acceptance criterion is "the two 500ing handlers are reachable
+ * once the columns exist" rather than "the columns exist".
+ *
+ * TYPES.
+ *
+ *   commission_percentage  decimal(5,2), nullable, default NULL.
+ *       A PERCENTAGE, not money, so the project's decimal(18,4) money standard does not apply.
+ *       The validator at :162 and :230 is `nullable|numeric|min:0|max:100`, so 5 digits with 2
+ *       after the point covers the whole validated range (0.00 to 100.00) exactly and refuses
+ *       anything the validator would already have refused. DeliveryEarning casts its own copy of
+ *       this name `decimal:2` (app/Models/DeliveryEarning.php:24), so scale 2 is matched to the
+ *       sibling column rather than chosen freshly -- the two are compared when an earning is
+ *       computed and a scale mismatch there is a silent rounding difference.
+ *       NULLABLE, DEFAULT NULL rather than 0: an existing driver has no agreed commission, and
+ *       0.00 would assert that they agreed to none. The handler already writes `?? 0` for an
+ *       absent request value, so the default is never relied on by the live path.
+ *
+ *   is_commission_enabled  boolean, NOT NULL, default false.
+ *       `$request->boolean(...)` at :181 always yields a real boolean, so this column is never
+ *       written null, and a flag that can be null has three states where the code reads two.
+ *       Default FALSE is the safe direction: it must not turn commission on for every driver
+ *       already in the table the moment the column appears -- that would start paying commission
+ *       against agreements nobody made. Every existing driver stays off until a human enables
+ *       them.
+ *
+ * ORDERING. These two columns are independent of `delivery_earnings` (drafted at 0005) in the
+ * schema, but NOT in behaviour: `is_commission_enabled` is what gates the earning write, so if
+ * delivery_earnings is created first while this flag is absent, the earnings subsystem stays
+ * silently dead in exactly the way GATE F's README warns about. Promote this draft at the same
+ * time as 0005 or before it, never after.
+ *
+ * MUST BE RECONCILED against `SHOW CREATE TABLE delivery_boys` from a RESTORED COPY of a backup
+ * before promotion. If either column already exists in production under another type, the
+ * hasColumn() guards make this a no-op and the production type stands. The dump wins.
+ */
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        if (! Schema::hasTable('delivery_boys')) {
+            return;
+        }
+
+        Schema::table('delivery_boys', function (Blueprint $table) {
+            if (! Schema::hasColumn('delivery_boys', 'commission_percentage')) {
+                $table->decimal('commission_percentage', 5, 2)->nullable();
+            }
+
+            if (! Schema::hasColumn('delivery_boys', 'is_commission_enabled')) {
+                $table->boolean('is_commission_enabled')->default(false);
+            }
+        });
+    }
+
+    public function down(): void
+    {
+        if (! Schema::hasTable('delivery_boys')) {
+            return;
+        }
+
+        foreach (['commission_percentage', 'is_commission_enabled'] as $column) {
+            if (Schema::hasColumn('delivery_boys', $column)) {
+                Schema::table('delivery_boys', function (Blueprint $table) use ($column) {
+                    $table->dropColumn($column);
+                });
+            }
+        }
+    }
+};
