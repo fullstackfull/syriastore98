@@ -65,7 +65,8 @@ document is cited instead — inventing a register ID would be worse than citing
 | P2-07-4 | Web ↔ Flutter parity matrix | — | **DONE** | `PHASE-02-WEB-FLUTTER-PARITY.md` | 91 endpoints read from `lib/utils/base_api.dart` | — |
 | P2-07-5 | **RTL visual pass over the app's screens** | — | **BLOCKED** | — | — | **No device, no emulator, no Flutter rendering in this container.** G1's fix is verified; the look of each mirrored screen is not. |
 | P2-07-6 | Dashboard honesty pass in the app (periods, money gate) | PRD-001 | **TODO** | — | — | partly an API change → escalation |
-| P2-07-7 | Accessibility: `Semantics` on icon-only controls (0 today, 198 files) | — | **TODO** | — | — | — |
+| P2-07-7 | Accessibility: accessible names on icon-only controls | — | **DONE** | 11 Flutter files, `test/a11y/icon_button_names_test.dart` | 14 controls named; 1189 tests pass; analyze 246 info / 0 warning / 0 error; **bites** (names file:line) | — |
+| P2-07-8 | Broader a11y: decorative icons hidden, reading order, state announcements | — | **TODO** | — | — | no screen reader in this container |
 
 ## Slice P2-04 — orders (Workstream E)
 
