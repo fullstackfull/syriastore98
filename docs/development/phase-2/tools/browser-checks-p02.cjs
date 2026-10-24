@@ -282,6 +282,168 @@ const VARIANTS = [
   check('dark card sits above the dark page', dark.cardBg !== dark.pageBg,
         `card=${dark.cardBg} page=${dark.pageBg}`);
 
+  // ====================================================================
+  //  8. THE INTERACTIVE COMPONENTS, DRIVEN
+  //  Built in P2-01 and, until the gallery existed, never exercised: the
+  //  panel's focus trap, Esc, scroll lock and focus return; the dirty
+  //  guard; the validation summary's focus move.
+  // ====================================================================
+
+  await page.goto(`${BASE}/preview/comp-en-light.html`, { waitUntil: 'load' });
+  await page.waitForTimeout(200);
+
+  // ---- the panel starts closed and OUT of the accessibility tree ----
+  const closed = await page.evaluate(() => {
+    const p = document.getElementById('order-preview');
+    const b = document.querySelector('[data-ss-panel-backdrop="order-preview"]');
+    return { panelHidden: p.hidden, backdropHidden: b.hidden,
+             state: p.getAttribute('data-ss-state') };
+  });
+  check('panel starts hidden, with its backdrop hidden too',
+        closed.panelHidden && closed.backdropHidden && closed.state === 'closed',
+        JSON.stringify(closed));
+
+  // ---- opening it ----
+  await page.click('#open-order-panel');
+  await page.waitForTimeout(400);
+
+  const opened = await page.evaluate(() => ({
+    hidden: document.getElementById('order-preview').hidden,
+    state: document.getElementById('order-preview').getAttribute('data-ss-state'),
+    bodyOverflow: document.body.style.overflow,
+    focusInPanel: !!document.activeElement.closest('#order-preview'),
+    focusTag: document.activeElement.className,
+    role: document.getElementById('order-preview').getAttribute('role'),
+    modal: document.getElementById('order-preview').getAttribute('aria-modal'),
+    labelled: document.getElementById('order-preview').getAttribute('aria-labelledby'),
+  }));
+  check('panel opens', !opened.hidden && opened.state === 'open', JSON.stringify(opened));
+  check('focus moves INTO the panel on open', opened.focusInPanel, opened.focusTag);
+  check('the list behind cannot scroll while the panel is open',
+        opened.bodyOverflow === 'hidden', `body.overflow=${opened.bodyOverflow}`);
+  check('panel is a labelled modal dialog',
+        opened.role === 'dialog' && opened.modal === 'true' && !!opened.labelled,
+        JSON.stringify(opened));
+
+  // ---- Tab is contained ----
+  const trapped = [];
+  for (let i = 0; i < 8; i++) {
+    await page.keyboard.press('Tab');
+    trapped.push(await page.evaluate(() => !!document.activeElement.closest('#order-preview')));
+  }
+  check('Tab stays inside the panel (8 presses)',
+        trapped.every(Boolean),
+        trapped.every(Boolean) ? '8/8 stayed inside'
+                               : `escaped on press ${trapped.indexOf(false) + 1}`);
+
+  // ---- Esc closes, and focus RETURNS to the trigger ----
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(450);
+  const afterEsc = await page.evaluate(() => ({
+    hidden: document.getElementById('order-preview').hidden,
+    bodyOverflow: document.body.style.overflow,
+    focusId: document.activeElement.id,
+  }));
+  check('Esc closes the panel', afterEsc.hidden, JSON.stringify(afterEsc));
+  check('scroll is released when the panel closes', afterEsc.bodyOverflow === '',
+        `body.overflow="${afterEsc.bodyOverflow}"`);
+  check('focus RETURNS to the control that opened it',
+        afterEsc.focusId === 'open-order-panel', `focus on #${afterEsc.focusId}`);
+
+  // ---- the dirty guard does not cry wolf ----
+  const dirtyBefore = await page.getAttribute('#demo-form', 'data-ss-dirty');
+  check('form is NOT dirty before anything is typed', dirtyBefore !== 'true',
+        `data-ss-dirty=${dirtyBefore}`);
+
+  await page.focus('#name');
+  const dirtyAfterFocus = await page.getAttribute('#demo-form', 'data-ss-dirty');
+  check('focusing a field alone does NOT arm the guard', dirtyAfterFocus !== 'true',
+        `data-ss-dirty=${dirtyAfterFocus}`);
+
+  await page.fill('#name', 'Linen shirt');
+  await page.waitForTimeout(100);
+  const dirtyAfterType = await page.getAttribute('#demo-form', 'data-ss-dirty');
+  check('typing DOES arm the guard', dirtyAfterType === 'true',
+        `data-ss-dirty=${dirtyAfterType}`);
+
+  const markerVisible = await page.evaluate(() => {
+    const m = document.querySelector('.ss-dirty-marker');
+    return m ? getComputedStyle(m).display !== 'none' : false;
+  });
+  check('the unsaved-changes marker becomes visible', markerVisible);
+
+  // ---- the sticky action bar must not obscure a focused field ----
+  const obscure = await page.evaluate(() => {
+    const bar = document.querySelector('.ss-actionbar');
+    const scroller = document.querySelector('.ss-has-actionbar');
+    return {
+      sticky: getComputedStyle(bar).position,
+      padding: getComputedStyle(scroller).scrollPaddingBottom,
+      landmark: bar.getAttribute('role'),
+      label: bar.getAttribute('aria-label'),
+    };
+  });
+  check('action bar is sticky and is a labelled landmark',
+        obscure.sticky === 'sticky' && obscure.landmark === 'region' && !!obscure.label,
+        JSON.stringify(obscure));
+  check('its scroll container reserves room so the bar cannot hide focus',
+        obscure.padding && obscure.padding !== 'auto' && parseFloat(obscure.padding) > 0,
+        `scroll-padding-block-end=${obscure.padding}`);
+
+  // ---- the validation summary ----
+  await page.goto(`${BASE}/preview/comp-en-errors.html`, { waitUntil: 'load' });
+  await page.waitForTimeout(250);
+  const summary = await page.evaluate(() => {
+    const s = document.querySelector('[data-ss-error-summary]');
+    if (!s) return null;
+    const links = [...s.querySelectorAll('a')].map(a => a.getAttribute('href'));
+    return {
+      role: s.getAttribute('role'),
+      tabindex: s.getAttribute('tabindex'),
+      focused: document.activeElement === s,
+      links,
+      inlineErrors: document.querySelectorAll('.ss-field__error').length,
+      invalidFields: document.querySelectorAll('[aria-invalid="true"]').length,
+    };
+  });
+  check('a failed submit renders a focusable alert summary',
+        summary && summary.role === 'alert' && summary.tabindex === '-1',
+        JSON.stringify(summary));
+  check('focus MOVES to the summary after a failed submit',
+        summary && summary.focused, `activeElement is the summary: ${summary && summary.focused}`);
+  check('each summary item links to its own field',
+        summary && summary.links.length === 2 && summary.links.every(h => /^#/.test(h)),
+        JSON.stringify(summary && summary.links));
+  check('the summary COMPLEMENTS inline errors rather than replacing them',
+        summary && summary.inlineErrors === 2 && summary.invalidFields === 2,
+        `inline=${summary && summary.inlineErrors} aria-invalid=${summary && summary.invalidFields}`);
+
+  // each link must actually reach its field
+  const reach = await page.evaluate(() => {
+    const links = [...document.querySelectorAll('[data-ss-error-summary] a')];
+    return links.map(a => !!document.getElementById(a.getAttribute('href').slice(1)));
+  });
+  check('every summary link resolves to a real field', reach.every(Boolean), JSON.stringify(reach));
+
+  // ---- RTL: the panel must arrive from the other edge ----
+  await page.goto(`${BASE}/preview/comp-ar-light.html`, { waitUntil: 'load' });
+  await page.waitForTimeout(200);
+  const rtlPanel = await page.evaluate(() => {
+    const p = document.getElementById('order-preview');
+    const cs = getComputedStyle(p);
+    return { left: cs.left, right: cs.right, borderLeft: cs.borderLeftWidth,
+             borderRight: cs.borderRightWidth };
+  });
+  /* borderRight, not borderRightWidth -- the key name above. The first
+     version of this read an undefined property, got NaN, and reported a
+     FAILURE against a panel that was mirroring perfectly. A check that is
+     wrong in the strict direction still has to be fixed: it would have sent
+     someone to debug correct CSS. */
+  check('under rtl the panel is pinned to the LEFT edge and its border mirrors',
+        rtlPanel.left === '0px' && parseFloat(rtlPanel.borderRight) >= 1
+          && parseFloat(rtlPanel.borderLeft) === 0,
+        JSON.stringify(rtlPanel));
+
   await ctx.close();
   await browser.close();
 

@@ -33,8 +33,9 @@ document is cited instead — inventing a register ID would be worse than citing
 | P2-01-5 | Focusable validation summary | WCAG | **DONE (built)** | `components/ss/error-summary.blade.php` | not yet driven | — |
 | P2-01-6 | Blade component layer (`<x-ss.*>`, 15 components) | UX-001 | **DONE** | `resources/views/components/ss/*` | rendered in a real browser; 70 Phase 02 checks pass | — |
 | P2-01-7 | Preview harness: component support + per-screen fixtures | — | **DONE** | `docs/design-system/tools/render-preview.php` | pilot output byte-identical after whitespace normalisation (proved against `git show HEAD:`) | — |
-| P2-01-8 | Phase 02 browser check suite | — | **DONE** | `docs/development/phase-2/tools/browser-checks-p02.cjs` | **75 PASSED, 0 FAILED**, Chromium 153; bite-tested twice | — |
-| P2-01-9 | Drive the panel, action bar and dirty guard in a browser | — | **TODO** | — | — | — |
+| P2-01-8 | Phase 02 browser check suite | — | **DONE** | `docs/development/phase-2/tools/browser-checks-p02.cjs` | **100 PASSED, 0 FAILED**, Chromium 153; bite-tested three times | — |
+| P2-01-9 | Drive the panel, action bar and dirty guard in a browser | — | **DONE** | `tools/previews/components.blade.php`, `browser-checks-p02.cjs` | 21 interactive checks: focus trap (8/8), Esc, scroll lock, focus return to trigger, dirty guard armed by typing and **not** by focus, summary focus move, RTL panel edge | — |
+| P2-01-12 | Fix the wrong-sense Arabic in the merchant surface | — | **DONE** | `resources/lang/ar.json` | 8 entries changed, 0 removed; re-rendered and re-shot | **owner: needs a native reviewer before release** |
 | P2-01-10 | Menu registry returns data, not an HTML string | ADMIN-LAYOUT §0 | **TODO** | `app/Helper/helper.php` | — | — |
 | P2-01-11 | Sidebar zones, workspace chip, collapsed rail | UX | **TODO** (blocked by P2-01-10) | — | — | — |
 
