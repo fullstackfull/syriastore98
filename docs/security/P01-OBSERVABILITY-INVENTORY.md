@@ -25,6 +25,10 @@ fails if this document and the source disagree in **either** direction — a lin
 not listed here, or a line listed here that no longer exists. So this is a ratchet, not a snapshot
 that silently rots.
 
+The two headings below carry their own row counts. They are **not** asserted by the ratchet, which
+compares the table against `app/` row by row -- so the `warning` count had drifted to 111 against 116
+actual rows before this was noticed at closure. Corrected to 117; if you add a row, fix the heading.
+
 Only `critical` and `warning` are enumerated. They are the levels Phase 01 used for *a control
 fired* or *something happened that a human should look at*. `error` (95 call sites) is almost
 entirely pre-existing third-party-integration failure reporting, `info` (22) and `debug` (1) are
@@ -48,7 +52,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/ProductStockService.php:127` | Stock decremented below zero on an order path that cannot refuse |
 | `app/Services/ProductStockService.php:210` | Stock decremented below zero on an order path that cannot refuse |
 
-### `warning` — 112 lines
+### `warning` — 117 lines
 
 | line | message |
 |---|---|
