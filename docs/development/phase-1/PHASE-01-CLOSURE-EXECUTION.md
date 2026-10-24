@@ -1222,6 +1222,29 @@ the remaining work, not about the system being correct.
 **None of these is a test result.** Where a script exists, writing it was engineering and is done;
 **running it is the prerequisite.**
 
+0. **`P1-SEC-40` (#120) — A PRODUCTION DATABASE DUMP IS IN `main`'s CURRENT TREE. Read this one
+   first; it is the only item on this list that is a live exposure right now rather than a pending
+   check.** `storesyria_ecommercego.sql`, 20,470,785 bytes, blob `d3d42e68`, added by `3935dee8`
+   through the GitHub web UI on 2026-10-24. Reachable from `main` and every branch cut from it; **not**
+   reachable from `claude/store-syria-p01a-ci-foundation`. Restored (on a copy since destroyed) to 198
+   tables, **84 holding rows, ~28,158 rows**, including `users`, `customers`, `orders` and all six
+   money-bearing tables. **No credentials** — 0 `DEFINER=`, 0 `IDENTIFIED BY`, 0 `GRANT` — so it is a
+   personal- and business-data exposure, not a credential one.
+
+   Three things make it a prerequisite and not a note. **(a)** `git rm` does not fix it: once a blob is
+   in a pushed commit it stays fetchable from the object store, so deleting the file makes the exposure
+   *look* resolved while leaving it intact. Purging needs `git filter-repo` or GitHub Support, which
+   **rewrites `main`** and so must be coordinated **before** any merge, not after. **(b)** Whether this
+   needs treating as an incident depends on who has had read access since that timestamp and whether
+   the repository has ever been public — an owner question. **(c)** None of the three existing guards
+   covers it: `guard-no-env-files` wants a live `.env`, `scan-secrets` wants credential-shaped
+   literals, `guard-no-new-root-uploads` watches the root `uploads/`. A 20MB root-level `.sql` passes
+   all three, and `_gate_f_pending/README.md` states the rule without enforcing it. **Nothing was
+   rewritten, force-pushed or deleted here — all of that is the owner's call.**
+
+   The upload itself was deliberate and useful: it is what unblocked the GATE F verification, which had
+   stalled for want of a restored copy. The finding is that **it is still there.**
+
 1. **13 environment / server observations** — `FINAL` §2a, unchanged. Plus the fourteenth of the
    same kind (`P1-PLT-04` #36 criterion 2), flagged there rather than renumbered.
 2. **5 D15-gated migrations** — `FINAL` §2b, unchanged. **The two ordering constraints must not be

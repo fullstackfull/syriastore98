@@ -326,6 +326,18 @@ list saying which. Four rows carry it: `P1-ORD-01` (#20) · `P1-ORD-02` (#21) ·
 `P1-SEC-14` (#89). On GitHub they carry `status:backlog`, because `status:partial` does not exist and
 inventing a label was not mine to do.
 
+### 13a-bis. The one open item that outranks everything in this section
+
+**`P1-SEC-40` (#120): a production database dump is in `main`'s current tree** —
+`storesyria_ecommercego.sql`, 20MB, ~28,158 rows across 84 tables including `users`, `customers` and
+`orders`. No credentials in it; personal and business data, yes. **It is not on the Phase 01 ledger**
+because it was created by a repository upload on 2026-10-24, not by this codebase, and it is the only
+release prerequisite that is a live exposure rather than a pending check.
+
+**A `git rm` would make it look fixed and leave it fetchable.** Purging the blob rewrites `main`, so it
+has to be coordinated **before** any merge. Nothing was rewritten or deleted — that is the owner's
+call. Full account on the issue and in `CLOSEOUT` §2C item 0.
+
 ### 13b. Where to look — four documents, in this order
 
 1. **`phase-1/PHASE-01-CLOSURE-EXECUTION.md` → the `CLOSEOUT` section (2026-10-24).** Terminal. The
