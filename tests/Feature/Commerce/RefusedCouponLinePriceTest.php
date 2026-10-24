@@ -92,9 +92,44 @@ class RefusedCouponLinePriceTest extends SecurityTestCase
     public function test_a_coupon_whose_store_limit_is_spent_does_not_zero_the_line(): void
     {
         [, $store] = $this->makeTenant();
-        // coupon_limit 0 can never exceed the usage count, so the `coupon_limit > count` predicate
-        // fails and the method takes its `empty($coupon_expiry_date)` refusal path.
-        $coupon = $this->coupon($store, ['coupon_limit' => 0]);
+
+        /*
+         * A GENUINELY SPENT LIMIT: one permitted use, one already recorded.
+         *
+         * THIS TEST USED TO SET `coupon_limit => 0` and said so: "coupon_limit 0 can never exceed
+         * the usage count, so the predicate fails". That was a convenient way to force a refusal,
+         * not a spent limit -- and P1-ORD-01 (2026-10-24) fixed the defect it relied on, because 0
+         * is the schema DEFAULT and reading it as "exhausted" made every coupon a merchant created
+         * without setting a limit permanently unusable. So the mechanism had to change; the
+         * SUBJECT of the test -- a refused coupon must not zero the line -- is unchanged, and its
+         * siblings here still force the refusal by other routes.
+         */
+        $coupon = $this->coupon($store, ['coupon_limit' => 1]);
+
+        /*
+         * `user_coupons.user_id` REFERENCES `customers.id`, NOT `users.id`.
+         *
+         * Measured with PRAGMA foreign_key_list after an insert keyed on the merchant kept failing
+         * with a bare "FOREIGN KEY constraint failed" and all three ids demonstrably present: the
+         * original migration declared `->on('users')` and a later one repointed it. Worth the
+         * comment because the column NAME says user and the constraint says customer, and SQLite
+         * does not name the column it refused.
+         */
+        $shopper = \App\Models\Customer::forceCreate([
+            'first_name' => 'Prior', 'last_name' => 'Buyer',
+            'email' => 'prior-' . uniqid() . '@example.test',
+            'mobile' => '555' . random_int(100000, 999999),
+            'password' => bcrypt('not-a-real-password'),
+            'store_id' => $store->id, 'status' => 1, 'register_type' => 'email',
+        ]);
+
+        $priorOrder = $this->makeOrder($store, ['payment_type' => 'cod']);
+
+        DB::table('user_coupons')->insert([
+            'coupon_id' => $coupon->id, 'user_id' => $shopper->id,
+            'amount' => 10.00, 'order_id' => $priorOrder->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
 
         $this->assertEqualsWithDelta(self::LINE, (float) Cart::getCouponTotalAmount($coupon, self::LINE, 1, 1), 0.005,
             'a refused coupon returned 0, which both cart builders read as the discounted line '
