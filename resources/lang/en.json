@@ -2848,5 +2848,7 @@
     "You have unsaved changes": "You have unsaved changes",
     "There is a problem with :count field|There is a problem with :count fields": "There is a problem with :count field|There is a problem with :count fields",
     "Add New Main Category": "Add New Main Category",
-    "All time.": "All time."
+    "All time.": "All time.",
+    "Recorded in the same field, but not fulfilment states:": "Recorded in the same field, but not fulfilment states:",
+    "These add up to :sum of :total orders.": "These add up to :sum of :total orders."
 }

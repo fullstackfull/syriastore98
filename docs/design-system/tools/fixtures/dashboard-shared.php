@@ -21,13 +21,23 @@ $busy = $state === 'full' || $state === 'noperm';
 // ---- order status counts ----------------------------------------------------
 // delivered_status: 0 pending, 1 delivered, 2 cancel, 3 return, 4 complete,
 // 6 shipped -- the values HomeController::getOrderCounts() reads.
-$pending_order   = $busy ? 12 : 0;
-$confirmed_order = $busy ? 48 : 0;
-$shipped_order   = $busy ? 21 : 0;
-$delivered_order = $busy ? 1176 : 0;
-$return_order    = $busy ? 3 : 0;
-$cancel_order    = $busy ? 24 : 0;
+$pending_order        = $busy ? 12 : 0;
+$confirmed_order      = $busy ? 48 : 0;
+$picked_up_order      = $busy ? 6 : 0;
+$shipped_order        = $busy ? 21 : 0;
+$delivered_order      = $busy ? 1164 : 0;
+$return_order         = $busy ? 3 : 0;
+$cancel_order         = $busy ? 24 : 0;
 
+// The two that are NOT fulfilment states, and the catch-all. A store that
+// uses them is the case the old six-count breakdown got wrong, so the busy
+// fixture uses them deliberately.
+$partially_paid_order = $busy ? 4 : 0;
+$pre_order_order      = $busy ? 2 : 0;
+$other_status_order   = 0;
+
+// 12 + 48 + 6 + 21 + 1164 + 3 + 24 + 4 + 2 = 1284. The breakdown must
+// reconcile with this, and a browser check asserts it does.
 $totle_order     = $busy ? 1284 : 0;
 $totle_customers = $busy ? 412 : 0;
 $totalproduct    = $busy ? 318 : 0;

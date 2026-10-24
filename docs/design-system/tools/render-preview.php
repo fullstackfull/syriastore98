@@ -48,12 +48,20 @@ if (!$viewPath || !$locale || !$state || !$out) {
 $langFile = "$repo/resources/lang/$locale.json";
 $T = is_file($langFile) ? json_decode(file_get_contents($langFile), true) : [];
 $missing = [];
-function __t($key)
+function __t($key, array $replace = [])
 {
     global $T, $missing;
-    if (isset($T[$key]) && $T[$key] !== '') return $T[$key];
-    $missing[$key] = true;
-    return $key;
+    $line = (isset($T[$key]) && $T[$key] !== '') ? $T[$key] : null;
+    if ($line === null) {
+        $missing[$key] = true;
+        $line = $key;
+    }
+    // Laravel's __() substitutes :placeholders; a harness that ignored them
+    // would render ":sum of :total" and look like a translation bug.
+    foreach ($replace as $k => $v) {
+        $line = str_replace([':' . $k, ':' . ucfirst($k)], (string) $v, $line);
+    }
+    return $line;
 }
 
 /**
@@ -408,7 +416,9 @@ function ss_parse_attrs($raw)
             // value="literal {{ $x }}" -- a plain string, but it may itself
             // contain echoes, so run it back through the compiler.
             $lit = $m[3];
-            if (strpos($lit, '{{') !== false) {
+            // Either raw Blade ({{ }}) or, now that expansion runs last,
+            // already-compiled PHP. Both need executing rather than quoting.
+            if (strpos($lit, '{{') !== false || strpos($lit, '<?php') !== false) {
                 $parts[] = "$key => ss_inline(" . var_export($lit, true) . ", get_defined_vars())";
             } else {
                 $parts[] = "$key => " . var_export($lit, true);
@@ -486,10 +496,17 @@ function ss_expand_components($s)
             $end = $found[1];
         }
 
-        // Named slots: <x-slot:actions> ... </x-slot>
+        /* Named slots.
+         *
+         * Blade closes these BOTH ways -- `</x-slot>` and `</x-slot:footer>`
+         * -- and accepting only the short form left the whole block sitting
+         * un-extracted inside the slot text, where the later directive passes
+         * then rewrote its @if/@foreach *inside* the generated string literal
+         * and corrupted it. The failure surfaced as a PHP parse error pointing
+         * at a line of perfectly good Blade, so: accept both. */
         $named = [];
         $inner = preg_replace_callback(
-            '/<x-slot:([A-Za-z0-9_\-]+)\s*>(.*?)<\/x-slot>/s',
+            '/<x-slot:([A-Za-z0-9_\-]+)\s*>(.*?)<\/x-slot(?::\1)?>/s',
             function ($sm) use (&$named) { $named[$sm[1]] = $sm[2]; return ''; },
             $inner
         );
@@ -606,11 +623,6 @@ function compile_blade($src)
     $s = preg_replace('/@(?:permission|can)\s*\(\s*([\'"])(.+?)\1\s*\)/', "<?php if (permission_check('$2')): ?>", $s);
     $s = preg_replace('/@(endpermission|endcan)\b/', '<?php endif; ?>', $s);
 
-    // Components, before control flow: the expansion var_export()s each slot
-    // body and hands it back to compile_blade, so directives inside a slot are
-    // compiled by that recursive call rather than by this pass.
-    $s = ss_expand_components($s);
-
     // control flow -- paren-counted, see ss_directive().
     $s = ss_directive($s, 'if',      fn($e) => '<?php if (' . $e . '): ?>');
     $s = ss_directive($s, 'elseif',  fn($e) => '<?php elseif (' . $e . '): ?>');
@@ -654,6 +666,22 @@ function compile_blade($src)
     $s = str_replace('Form::', 'FormStub::', $s);
     $s = preg_replace('/\btrans_choice\(/', '__tc(', $s);
     $s = preg_replace('/\b__\(/', '__t(', $s);
+
+    /* Components LAST, and the order is the whole point.
+     *
+     * The expansion var_export()s each slot body into a PHP string literal. If
+     * any pass runs AFTER that, it rewrites the Blade inside that literal --
+     * and a half-rewritten @if whose paren scan then runs off the end of the
+     * literal corrupts the generated file, surfacing as a parse error pointing
+     * at a line of perfectly good Blade. (It did. Twice: once via a
+     * re-scanning loop, once via pass ordering.)
+     *
+     * Running last means a slot body is already-compiled PHP by the time it is
+     * quoted, and nothing touches it again. The recursive compile_blade() call
+     * that ss_inline() makes on it is then a no-op for directives and still
+     * expands any nested <x-...> the slot contains.
+     */
+    $s = ss_expand_components($s);
 
     return $s;
 }

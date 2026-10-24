@@ -90,7 +90,7 @@ Whitespace-normalised, ignoring the two asset lines: **IDENTICAL**, in English a
 $ node docs/development/phase-2/tools/browser-checks-p02.cjs
 Chromium 153.0.8010.12
 ...
-75 PASSED, 0 FAILED
+79 PASSED, 0 FAILED
 ```
 
 What they actually drive:
@@ -132,6 +132,20 @@ remove the @if ($ssMayOrders) around the order-value stat  -> 73 PASSED, 2 FAILE
 The failure output is the disclosure itself, which is the useful property: the
 check does not merely notice a missing element, it prints the number that
 leaked.
+
+### 4a-ter. The reconciliation check bites, and its failure output IS the defect
+
+```
+revert the breakdown to the six statuses it used to show  -> 76 PASSED, 3 FAILED
+  FAIL  the status breakdown sums to the order total
+        -- breakdown=1272 total=1284
+  FAIL  the rendered chips themselves sum to the total
+        -- chips=[12,48,21,1164,3,24] sum=1272 total=1284
+```
+
+**Twelve orders invisible**, on a screen that shows a total of 1,284 beside six counts a merchant
+would reasonably read as a partition of it. The check reads the chips and the total **off the
+rendered page**, not from the fixture, so it measures what a merchant would see.
 
 ### 4b. One check was corrected rather than left green
 

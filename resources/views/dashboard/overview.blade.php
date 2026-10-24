@@ -136,18 +136,79 @@
     {{-- Order status, as a status breakdown rather than six more tiles. Each
          one is a link into the filtered list, because a count the merchant
          cannot open is a count they cannot act on. --}}
-    @php $ssStatusHref = $ssMayOrders ? route('order.index') : null; @endphp
+    {{-- P2-04: the breakdown PARTITIONS the total, and says so.
+
+         `orders.delivered_status` is one integer column carrying nine values,
+         and two of them are not fulfilment states at all: 7 is Partially Paid
+         (a payment state) and 8 is Pre Order (an order type). The dashboard
+         used to show six of the nine, leaving picked-up, partially-paid and
+         pre-order in no bucket -- six counts beside a total they could not add
+         up to, with nothing on screen to say so.
+
+         All nine are shown now, plus `other` for any value outside 0-8, and
+         the footer states the sum so a merchant can see it reconcile. The two
+         that are not fulfilment states are labelled as what they are rather
+         than quietly listed among the rest. --}}
+    @php
+        $ssStatusHref = $ssMayOrders ? route('order.index') : null;
+
+        $ssFulfilment = [
+            ['label' => __('Pending'),         'count' => $ssPendingOrders],
+            ['label' => __('Confirmed Order'), 'count' => (int) ($confirmed_order ?? 0)],
+            ['label' => __('Picked Up'),       'count' => (int) ($picked_up_order ?? 0)],
+            ['label' => __('Order Shipped'),   'count' => (int) ($shipped_order ?? 0)],
+            ['label' => __('Order Delivered'), 'count' => (int) ($delivered_order ?? 0)],
+            ['label' => __('Order Return'),    'count' => $ssReturnOrders],
+            ['label' => __('Cancel Order'),    'count' => (int) ($cancel_order ?? 0)],
+        ];
+
+        $ssNotFulfilment = [
+            ['label' => __('Partially Paid'), 'count' => (int) ($partially_paid_order ?? 0)],
+            ['label' => __('Pre Order'),      'count' => (int) ($pre_order_order ?? 0)],
+        ];
+
+        $ssOther = (int) ($other_status_order ?? 0);
+        $ssStatusSum = array_sum(array_column($ssFulfilment, 'count'))
+            + array_sum(array_column($ssNotFulfilment, 'count'))
+            + $ssOther;
+    @endphp
+
     <x-ss.card :title="__('Orders by status')"
                :note="$ssMayOrders ? __('All time. Select a status to open that list.') : __('All time.')"
                class="mb-4">
         <div class="ss-chips">
-            <x-ss.chip :label="__('Pending')"          :count="number_format($ssPendingOrders)"                        :href="$ssStatusHref" :interactive="false" />
-            <x-ss.chip :label="__('Confirmed Order')"  :count="number_format((int) ($confirmed_order ?? 0))"           :href="$ssStatusHref" :interactive="false" />
-            <x-ss.chip :label="__('Order Shipped')"    :count="number_format((int) ($shipped_order ?? 0))"             :href="$ssStatusHref" :interactive="false" />
-            <x-ss.chip :label="__('Order Delivered')"  :count="number_format((int) ($delivered_order ?? 0))"           :href="$ssStatusHref" :interactive="false" />
-            <x-ss.chip :label="__('Order Return')"     :count="number_format($ssReturnOrders)"                         :href="$ssStatusHref" :interactive="false" />
-            <x-ss.chip :label="__('Cancel Order')"     :count="number_format((int) ($cancel_order ?? 0))"              :href="$ssStatusHref" :interactive="false" />
+            @foreach ($ssFulfilment as $ssRow)
+                <x-ss.chip :label="$ssRow['label']"
+                           :count="number_format($ssRow['count'])"
+                           :href="$ssStatusHref"
+                           :interactive="false" />
+            @endforeach
         </div>
+
+        @if ($ssNotFulfilment[0]['count'] > 0 || $ssNotFulfilment[1]['count'] > 0 || $ssOther > 0)
+            <p class="ss-section__note" style="margin-block-start: var(--ss-space-4);">
+                {{ __('Recorded in the same field, but not fulfilment states:') }}
+            </p>
+            <div class="ss-chips">
+                @foreach ($ssNotFulfilment as $ssRow)
+                    @if ($ssRow['count'] > 0)
+                        <x-ss.chip :label="$ssRow['label']"
+                                   :count="number_format($ssRow['count'])"
+                                   :href="$ssStatusHref"
+                                   :interactive="false" />
+                    @endif
+                @endforeach
+                @if ($ssOther > 0)
+                    <x-ss.chip :label="__('Other')" :count="number_format($ssOther)" :interactive="false" />
+                @endif
+            </div>
+        @endif
+
+        <x-slot:footer>
+            <p class="ss-stat__period" data-ss-status-sum="{{ $ssStatusSum }}">
+                {{ __('These add up to :sum of :total orders.', ['sum' => number_format($ssStatusSum), 'total' => number_format((int) ($totle_order ?? 0))]) }}
+            </p>
+        </x-slot:footer>
     </x-ss.card>
 
 </div>

@@ -66,12 +66,24 @@ document is cited instead — inventing a register ID would be worse than citing
 | P2-07-6 | Dashboard honesty pass in the app (periods, money gate) | PRD-001 | **TODO** | — | — | partly an API change → escalation |
 | P2-07-7 | Accessibility: `Semantics` on icon-only controls (0 today, 198 files) | — | **TODO** | — | — | — |
 
-## Slices P2-03 … P2-06 — not started
+## Slice P2-04 — orders (Workstream E)
+
+| ID | Task | Decisions | Status | Files | Verified by | Blocker |
+|---|---|---|---|---|---|---|
+| P2-04-1 | Make the order-status breakdown **partition** the total | ORD | **DONE** | `HomeController.php`, `dashboard/overview.blade.php` | browser checks read the rendered chips and the total off the page and compare; **bites** (old behaviour shows 1,272 against a total of 1,284) | — |
+| P2-04-2 | Name the two values that are not fulfilment states | ORD | **DONE** | `overview.blade.php` | browser check asserts the wording and both labels | — |
+| P2-04-3 | Status constants on `HomeController`, with the stale migration comment recorded | — | **DONE** | `HomeController.php` | 9 values confirmed live by grep across `app/` and `resources/` | — |
+| P2-04-4 | Order list: design-system adoption | UX-001 | **TODO** | — | — | — |
+| P2-04-5 | Quick order preview in a side panel | UX | **TODO** | — | — | needs a read-only preview route → authz review |
+| P2-04-6 | Order detail page | UX | **TODO** | — | — | — |
+| P2-04-7 | Kanban presentation | UX | **TODO** | — | — | — |
+| P2-04-8 | Saved views and filters | UX, G | **TODO** | — | — | — |
+
+## Slices P2-03, P2-05, P2-06 — not started
 
 | ID | Slice | Workstream | Status |
 |---|---|---|---|
 | P2-03 | Products experience | D | **NOT STARTED** |
-| P2-04 | Orders experience | E | **NOT STARTED** |
 | P2-05 | Common merchant screens | J | **NOT STARTED** |
 | P2-06 | Search, notifications, preferences, onboarding | G, H, I | **NOT STARTED** |
 
@@ -92,6 +104,7 @@ have not run here at all.
 
 | # | Finding | Why it is only recorded |
 |---|---|---|
+| F0 | **`orders.delivered_status` is one integer column carrying four different concepts.** 0–6 are fulfilment states, **7 is Partially Paid (a payment state)** and **8 is Pre Order (an order type)**. The column's own migration comment still reads `0=>pending/1=>diliver/2=>cancel/3=>return` and has been stale for a long time. | Phase 02 surfaces this honestly rather than hiding it — the dashboard now labels 7 and 8 as "recorded in the same field, but not fulfilment states" — but **splitting the column is a schema and commerce change, which is Phase 04 and an owner decision**. Recorded here so the next phase inherits the fact rather than rediscovering it. |
 | F1 | `HomeController::calculatePercentageToday()` computes today against the **all-time total**, not a day-over-day change, and all nine `*Per` variables it feeds are **unused by every view in the repository**. | The dashboard never displayed them, so this is dead computation rather than a visible defect. Removing it also removes 7 `COUNT` queries per dashboard load — worth doing, but it is a controller change with no user-visible effect and belongs in its own commit. |
 | F2 | `resources/lang/ar.json` contains **17 duplicated keys** (2,874 entries, 2,857 distinct); `en.json` has none. | PHP's `json_decode` keeps the last occurrence, so behaviour is well-defined today. De-duplicating rewrites 155 lines of a translation file and risks changing a string nobody asked to change. Reported for an owner decision. |
 | F3 | Host-chrome controls outside `.ss-scope` (e.g. the layout's breadcrumb links) have **no focus ring**. | The design system never styles a bare element selector, so an opt-in stylesheet cannot fix it. It is a host-chrome change, not a Phase 02 one. |

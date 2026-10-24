@@ -2896,5 +2896,7 @@
     "You have unsaved changes": "لديك تغييرات غير محفوظة",
     "There is a problem with :count field|There is a problem with :count fields": "هناك مشكلة في حقل واحد|هناك مشكلة في :count حقول",
     "Add New Main Category": "إضافة فئة رئيسية جديدة",
-    "All time.": "من البداية."
+    "All time.": "من البداية.",
+    "Recorded in the same field, but not fulfilment states:": "مسجّلة في الحقل نفسه، لكنها ليست حالات تنفيذ:",
+    "These add up to :sum of :total orders.": "مجموع هذه الحالات :sum من أصل :total طلب."
 }

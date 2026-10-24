@@ -289,6 +289,12 @@ class HomeController extends Controller
         $return_order = $orderCounts['return'];
         $confirmed_order = $orderCounts['complete'];
         $shipped_order = $orderCounts['shipped'];
+        // P2-04: the three statuses that were counted by nothing, plus the
+        // catch-all, so the dashboard's breakdown reconciles with its total.
+        $picked_up_order = $orderCounts['picked_up'];
+        $partially_paid_order = $orderCounts['partially_paid'];
+        $pre_order_order = $orderCounts['pre_order'];
+        $other_status_order = $orderCounts['other'];
         $new_orders = $orderQuery->orderBy('id', 'DESC')->limit(4)->get();
         $chartData = $this->getOrderChart(['duration' => 'week']);
 
@@ -340,34 +346,84 @@ class HomeController extends Controller
             'customerPer',
             'productPer',
             'shippedOrderPer',
-            'shipped_order'
+            'shipped_order',
+            'picked_up_order',
+            'partially_paid_order',
+            'pre_order_order',
+            'other_status_order'
         );
         return $data;
     }
 
+    /**
+     * The nine values `orders.delivered_status` really takes, by the name the
+     * order list already shows for each one (OrderDataTable::dataTable()).
+     *
+     * The column's own migration comment says `0=>pending/1=>diliver/2=>cancel
+     * /3=>return` and has been stale for a long time: 4, 5, 6, 7 and 8 are all
+     * live in app/ and resources/.
+     *
+     * Two of these are NOT fulfilment states and are worth naming as such,
+     * because they are the reason a "status" column cannot be read as one
+     * thing: 7 is PARTIALLY PAID, which is a payment state, and 8 is PRE
+     * ORDER, which is an order type. They sit in the same integer column as
+     * "shipped", so an order can be exactly one of the nine and the set does
+     * partition -- but what it partitions by is not a single concept.
+     */
+    public const ORDER_STATUS_PENDING        = 0;
+    public const ORDER_STATUS_DELIVERED      = 1;
+    public const ORDER_STATUS_CANCEL         = 2;
+    public const ORDER_STATUS_RETURN         = 3;
+    public const ORDER_STATUS_CONFIRMED      = 4;
+    public const ORDER_STATUS_PICKED_UP      = 5;
+    public const ORDER_STATUS_SHIPPED        = 6;
+    public const ORDER_STATUS_PARTIALLY_PAID = 7;   // a PAYMENT state
+    public const ORDER_STATUS_PRE_ORDER      = 8;   // an ORDER TYPE
+
+    /**
+     * Counts per status, plus an `other` bucket so the parts ALWAYS sum to the
+     * total.
+     *
+     * This used to count six of the nine values -- 0, 1, 2, 3, 4 and 6 --
+     * leaving picked-up (5), partially-paid (7) and pre-order (8) in no bucket
+     * at all. A screen that shows those six beside a total is then quietly
+     * wrong for any store that uses the other three, and a merchant has no way
+     * to tell from the screen that anything is missing.
+     *
+     * `other` is a deliberate catch-all rather than a tenth count: if a value
+     * outside 0-8 is ever written, it lands here and stays visible instead of
+     * disappearing. P2-04 asserts total == sum(parts).
+     */
     private function getOrderCounts($orderQuery, $start = null, $end = null)
     {
-        if (!empty($start) && !empty($end)) {
-            return [
-                'total' => (clone $orderQuery)->whereBetween('created_at', [$start, $end])->count(),
-                'pending' => (clone $orderQuery)->where('delivered_status', 0)->whereBetween('created_at', [$start, $end])->count(),
-                'delivered' => (clone $orderQuery)->where('delivered_status', 1)->whereBetween('created_at', [$start, $end])->count(),
-                'complete' => (clone $orderQuery)->where('delivered_status', 4)->whereBetween('created_at', [$start, $end])->count(),
-                'cancel' => (clone $orderQuery)->where('delivered_status', 2)->whereBetween('created_at', [$start, $end])->count(),
-                'return' => (clone $orderQuery)->where('delivered_status', 3)->whereBetween('created_at', [$start, $end])->count(),
-                'shipped' => (clone $orderQuery)->where('delivered_status', 6)->whereBetween('created_at', [$start, $end])->count(),
-            ];
-        } else {
-            return [
-                'total' => (clone $orderQuery)->count(),
-                'pending' => (clone $orderQuery)->where('delivered_status', 0)->count(),
-                'delivered' => (clone $orderQuery)->where('delivered_status', 1)->count(),
-                'complete' => (clone $orderQuery)->where('delivered_status', 4)->count(),
-                'cancel' => (clone $orderQuery)->where('delivered_status', 2)->count(),
-                'return' => (clone $orderQuery)->where('delivered_status', 3)->count(),
-                'shipped' => (clone $orderQuery)->where('delivered_status', 6)->count(),
-            ];
-        }
+        $scoped = function () use ($orderQuery, $start, $end) {
+            $q = clone $orderQuery;
+            if (!empty($start) && !empty($end)) {
+                $q->whereBetween('created_at', [$start, $end]);
+            }
+            return $q;
+        };
+
+        $counts = [
+            'total'          => $scoped()->count(),
+            'pending'        => $scoped()->where('delivered_status', self::ORDER_STATUS_PENDING)->count(),
+            'delivered'      => $scoped()->where('delivered_status', self::ORDER_STATUS_DELIVERED)->count(),
+            'cancel'         => $scoped()->where('delivered_status', self::ORDER_STATUS_CANCEL)->count(),
+            'return'         => $scoped()->where('delivered_status', self::ORDER_STATUS_RETURN)->count(),
+            'complete'       => $scoped()->where('delivered_status', self::ORDER_STATUS_CONFIRMED)->count(),
+            'picked_up'      => $scoped()->where('delivered_status', self::ORDER_STATUS_PICKED_UP)->count(),
+            'shipped'        => $scoped()->where('delivered_status', self::ORDER_STATUS_SHIPPED)->count(),
+            'partially_paid' => $scoped()->where('delivered_status', self::ORDER_STATUS_PARTIALLY_PAID)->count(),
+            'pre_order'      => $scoped()->where('delivered_status', self::ORDER_STATUS_PRE_ORDER)->count(),
+        ];
+
+        $accounted = $counts['pending'] + $counts['delivered'] + $counts['cancel']
+            + $counts['return'] + $counts['complete'] + $counts['picked_up']
+            + $counts['shipped'] + $counts['partially_paid'] + $counts['pre_order'];
+
+        $counts['other'] = max(0, $counts['total'] - $accounted);
+
+        return $counts;
     }
 
     private function calculatePercentageToday($todayCount, $allCount)

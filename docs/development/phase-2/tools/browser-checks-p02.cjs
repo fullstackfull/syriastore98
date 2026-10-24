@@ -83,6 +83,38 @@ const VARIANTS = [
   check('order value carries its disclaimer',
         /not payments received, and not profit/.test(body));
 
+  // -------------------------------- 2b. the status breakdown must reconcile
+  /* `orders.delivered_status` is one integer column carrying nine values, and
+     the dashboard used to show six of them beside a total they could not add
+     up to. These assert the parts partition the whole, from what is actually
+     on screen rather than from the fixture. */
+  const sumAttr = await page.$eval('[data-ss-status-sum]',
+    el => Number(el.getAttribute('data-ss-status-sum')));
+  const totalShown = await page.$$eval('.ss-stat', els => {
+    const cell = els.find(e => /Orders$/.test(e.querySelector('.ss-stat__label')?.textContent.trim() || ''));
+    return Number((cell?.querySelector('.ss-stat__value')?.textContent || '').replace(/[^\d]/g, ''));
+  });
+  check('the status breakdown sums to the order total',
+        sumAttr === totalShown && totalShown > 0, `breakdown=${sumAttr} total=${totalShown}`);
+
+  const chipCounts = await page.$$eval('.ss-chip', els =>
+    els.map(e => Number((e.querySelector('.ss-num')?.textContent || '').replace(/[^\d]/g, '')))
+       .filter(n => !Number.isNaN(n)));
+  const chipSum = chipCounts.reduce((a, b) => a + b, 0);
+  check('the rendered chips themselves sum to the total',
+        chipSum === totalShown, `chips=[${chipCounts.join(',')}] sum=${chipSum} total=${totalShown}`);
+
+  const footerText = await page.textContent('.ss-card__footer');
+  check('the screen states the reconciliation in words',
+        /add up to/i.test(footerText || ''), (footerText || '').trim().slice(0, 60));
+
+  // The two values that are not fulfilment states are labelled as such, not
+  // listed silently among the rest.
+  const bodyAll = await page.textContent('body');
+  check('non-fulfilment statuses are named as not being fulfilment states',
+        /not fulfilment states/i.test(bodyAll) &&
+        /Partially Paid/.test(bodyAll) && /Pre Order/.test(bodyAll));
+
   // ------------------------------------------------ 3. empty + permissions
   await page.goto(`${BASE}/preview/after-en-empty-light.html`, { waitUntil: 'load' });
   const attentionOnEmpty = await page.$$('.ss-attention');
