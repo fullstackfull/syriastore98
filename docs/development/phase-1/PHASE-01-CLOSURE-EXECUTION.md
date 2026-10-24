@@ -953,3 +953,50 @@ moved the per-directory count (which alarmed, correctly) while adding **no row a
 The class docblock already conceded the 28, so the blind spot was documented and its consequence
 was not. It is recorded here rather than fixed, because widening a required CI guard is a Phase 02
 change, not a closure one.
+
+## 7. A RELEASE PREREQUISITE THAT LIVES NOWHERE ELSE: the PR attestation gap
+
+Recorded 2026-10-24 at head `2efbc1dd`, because it is a release prerequisite and the only place
+it is currently stated is one sentence at the bottom of a 60KB pull-request description.
+
+PR #3's description carries the `SECURITY-DIFF-REVIEW` attestation in numbered sections, §8–§20,
+each covering a **named commit range** and — this is the convention that makes it trustworthy —
+**none widened to cover commits it did not examine**. §17 is the model: it attests 3 of its 28
+commits and names the 25 it does not.
+
+Its closing sentence reads:
+
+> **Any commit pushed after `bfb921d2` is outside this attestation until a section covers it.**
+
+**There are 77 such commits** (`git rev-list --count bfb921d2..2efbc1dd`). No section covers any of
+them. The gap is therefore *self-documented* rather than hidden — the convention is working as
+designed — but it is unclosed, and the checklist in `.github/SECURITY-DIFF-REVIEW.md` is a
+**required** CI check that passes on the file's presence, not on its coverage.
+
+**What blocks closing it, stated precisely rather than as an estimate.** Of the 77, **8 were
+authored in this session** (`2f68495d`, `09191cda`, `0afac2cf`, `d082214a`, `0d8a48b1`, `673daff4`,
+`47719ce1`, `2efbc1dd`) and each carries its own evidence, gates and mutant results in its own
+commit message, with the two that needed it reviewed independently. **The other 69 are from earlier
+sessions and were not examined here.** Writing a section that covered them would be the one thing
+the convention forbids, so it is not done.
+
+**This blocks nothing today.** PR #3 is a Draft titled ⛔ DO NOT MERGE, final integration into
+`main` is not authorised, and at `2efbc1dd` all 9 check runs are `success` with `mergeable_state`
+`clean`. It blocks **integration**, which is the owner's gate anyway.
+
+**The three ways to close it, for the owner to pick — not an engineering choice:**
+
+1. **A §21 covering the 8 commits of this session only**, naming the other 69 as uncovered, exactly
+   as §17 did. Cheap, honest, and leaves the larger gap explicit.
+2. **A per-range pass over all 77.** This is the only option that actually closes the contract, and
+   it is a real piece of work: 69 commits nobody in this session read, across tenancy,
+   authorization, payments and migrations.
+3. **Accept the gap in writing** and record that integration rests on CI plus the per-commit
+   evidence rather than on the checklist. Legitimate, and should then be said in the PR description
+   so the closing sentence stops promising a section that will not come.
+
+One caution against rewriting that description casually, from its own text: on 2026-10-21 a rewrite
+was **cut off mid-text by a safety classifier and replaced the whole description with a ~6,000
+character prefix**, and the write was not retried. The full prior text survives only because it was
+committed byte-identically to `PR3-DESCRIPTION-ARCHIVE.md`. Any option above that edits the
+description should archive first.
