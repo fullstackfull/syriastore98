@@ -57,6 +57,135 @@ class ApiController extends Controller
     use ApiResponser;
     use \App\Http\Middleware\Concerns\RedactsApiLogFields;   // P1-SEC-16: user_detail() logged the whole request body
 
+    /**
+     * The coupon types `apply_coupon` prices from the basket SUBTOTAL, as opposed to
+     * `'fixed product discount'`, which prices per product line.
+     *
+     * Named rather than inlined because it is now load-bearing twice: it decides which coupons
+     * fall through to the subtotal discount computed at :4076-4087, and it decides which ones are
+     * refused as unsupported. The migration's own comment on `coupons.coupon_type` documents
+     * exactly these two (`percentage / flat`) and defaults the column to `percentage`.
+     */
+    private const COUPON_TYPES_PRICED_ON_SUBTOTAL = ['flat', 'percentage'];
+
+    private ?\App\Services\OrderTotalReconciler $totalReconciler = null;
+
+    /**
+     * Memoised, matching the accessor PaymentService and PaymentController already use, so all
+     * four order writers reconcile through one instance of one definition rather than three.
+     */
+    private function totalReconciler(): \App\Services\OrderTotalReconciler
+    {
+        return $this->totalReconciler ??= new \App\Services\OrderTotalReconciler();
+    }
+
+    /**
+     * THE SERVER'S OWN PRE-COUPON SUBTOTAL for this basket, or null if it cannot be priced.
+     *
+     * WHY THIS EXISTS. `minimum_spend` and `maximum_spend` were compared against
+     * `$request->final_sub_total` / `$request->sub_total`, which the client posts, so a shopper
+     * could satisfy a threshold by typing a number. MEASURED LIVE on a free-shipping coupon with
+     * `minimum_spend = 5000`: a real 200.00 basket plus `final_sub_total = 9999` was granted the
+     * discount. See the comment at the first gate.
+     *
+     * THE FIGURE IS `total_final_price`, which `cart_list` sets from `$cart_final_price` -- the
+     * PRE-COUPON subtotal, as `OrderTotalCouponTest::test_the_cart_key_named_total_final_price_is_the_pre_coupon_subtotal`
+     * already pins. Using the post-coupon total here would let one coupon's discount decide
+     * whether the next one's threshold is met.
+     *
+     * THE TWO BRANCHES MIRROR WHAT apply_coupon ALREADY DID further down to build its product
+     * list, deliberately: a guest basket lives in the cookie and a signed-in one in `carts`, and
+     * inventing a third way to price a basket here is how two subtotals start to disagree.
+     *
+     * RETURNS NULL RATHER THAN THROWING, and the caller refuses the coupon on null. A money gate
+     * that cannot be evaluated must not be treated as satisfied.
+     */
+    private function couponSpendBaseline(Request $request, $store, $slug): ?float
+    {
+        try {
+            if (Utility::CustomerAuthCheck($store->slug) != true) {
+                $basket = json_decode(json_encode(Cart::cart_list_cookie($request->all(), $store->id)));
+            } else {
+                $request->merge([
+                    'customer_id' => auth('customers')->user()->id,
+                    'store_id' => $store->id,
+                    'slug' => $slug,
+                ]);
+                $basket = (new ApiController())->cart_list($request, $slug)->getData();
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Coupon refused: the basket could not be priced', [
+                'store_id' => $store->id ?? null,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+
+        $value = $basket->data->total_final_price ?? null;
+
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        // `cart_list` formats it through SetNumber(), so it arrives as a string and may carry
+        // thousands separators. Parsed rather than cast, because (float) "1,234.00" is 1.0.
+        $parsed = filter_var(
+            str_replace(',', '', (string) $value),
+            FILTER_VALIDATE_FLOAT
+        );
+
+        return $parsed === false ? null : (float) $parsed;
+    }
+
+    /**
+     * THE ONE PLACE A COUPON'S SPEND THRESHOLDS ARE DECIDED. Returns null when the basket
+     * qualifies, or the message to refuse with.
+     *
+     * WHY ONE PREDICATE RATHER THAN THE THREE IT REPLACES. `apply_coupon` carried the
+     * minimum/maximum comparison in THREE places, and they did not agree:
+     *
+     *   1. the non-free-shipping structure -- compared, but its two `else` arms emit EACH OTHER'S
+     *      message, so a basket under the minimum was told about the maximum. Measured: a coupon
+     *      with `minimum_spend = 5000` on a 200.00 basket answered " The maximum spend for this
+     *      coupon is $0,00." -- naming a limit that was never set.
+     *   2. the free-shipping structure, inside the shipping-method loop -- compared.
+     *   3. the free-shipping structure's `$shipping_Methods == null` branch -- **NOT COMPARED AT
+     *      ALL.** `$sub_total_min` is assigned there and then never read: dead code where a gate
+     *      belongs. MEASURED LIVE, and this is the unauthorized discount: a free-shipping coupon
+     *      with `minimum_spend = 5000`, a real 200.00 basket, and a store with no shipping method
+     *      configured (`plans.shipping_method = 'off'`, which the fixture and many stores use) ->
+     *      "Coupon code applied successfully", 50.00 off. No posted value was even needed; the
+     *      threshold was simply never checked.
+     *
+     * Called ONCE, before either structure, so all three sites are covered by construction and a
+     * fourth branch cannot be added without one. The nested comparisons are left in place and now
+     * agree with this one, because ripping them out of a ~700-line method is a far larger change
+     * than closing the hole.
+     *
+     * 0 IS TREATED AS UNSET, deliberately and for compatibility: the original condition was
+     * `$coupon->maximum_spend == null`, and in PHP `0 == null` is TRUE, so a zero threshold has
+     * always meant "no threshold" here. Changing that would start refusing baskets that are
+     * accepted today.
+     */
+    private function couponSpendRefusal($coupon, float $baseline, $store): ?string
+    {
+        $maximum = $coupon->maximum_spend;
+        $minimum = $coupon->minimum_spend;
+
+        if ($maximum !== null && (float) $maximum != 0.0 && $baseline > (float) $maximum) {
+            return ' The maximum spend for this coupon is '
+                . (currency_format_with_sym($maximum, $store->id) ?? SetNumberFormat($maximum)) . '.';
+        }
+
+        if ($minimum !== null && (float) $minimum != 0.0 && $baseline < (float) $minimum) {
+            return ' The minimum spend for this coupon is '
+                . (currency_format_with_sym($minimum, $store->id) ?? SetNumberFormat($minimum)) . '.';
+        }
+
+        return null;
+    }
+
     /*
      * THE SHARED BASKET-OWNERSHIP SEAM. Used for basketHasForeignProduct() only -- the same
      * predicate the seven checkout writers in app/Http/Controllers/ run, rather than an eighth
@@ -806,7 +935,7 @@ public function saveStoreFcmToken(Request $request)
                 $couponQuery = Coupon::query();
                 $coupon_expiry_date = (clone $couponQuery)->where('id', $coupon->id)
                     ->whereDate('coupon_expiry_date', '>=', date('Y-m-d'))
-                    ->where('coupon_limit', '>', $coupon_count)
+                    ->tap(fn ($q) => Coupon::applyUsageLimit($q, $coupon_count))
                     ->first();
                 // Usage limit per user
                 $i = 0;
@@ -3667,17 +3796,43 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $order->currency_symbol = $currentCurrencySymbol;
 
 
+        /*
+         * THE COUPON IS SUBTRACTED FROM WHAT THE SHOPPER IS CHARGED.  P1-ORD-01, criteria 1 and 4.
+         *
+         * THE DEFECT, and the comment at :3474-3480 already named it before this package: this
+         * handler recorded `$order->coupon_price = $apply_coupon['amount']` and then built
+         * `final_price` from the PRE-coupon basket, so "a shopper who uses a coupon here is charged
+         * full price with a discount printed beside it".
+         *
+         * It was INVISIBLE until the same package fixed apply_coupon, because every coupon was
+         * refused upstream and `$coupon_price` was therefore always 0. MEASURED the moment it
+         * applied: product_price 200.00, coupon_price 50.00, final_price **200.00** -- and
+         * App\Services\OrderTotalReconciler, which already lists `coupon_price` in its
+         * SUBTRACTIVE_COMPONENTS, reported the row as not adding up (expected 150.0000).
+         *
+         * WHY THE FOUR BASES ARE LEFT ALONE AND ONLY THE COUPON IS SUBTRACTED. The branches do not
+         * share a base -- two read `$final_price` (`$cartlist['total_final_price']`) and two read
+         * `$data['shipping_total_price']`, which already bundles delivery -- so re-deriving the
+         * total from the reconciler's components here would double-count delivery on the
+         * shipping-on paths, which this environment cannot drive end to end. Unifying them is
+         * P1-ORD-02 criterion 1, and it stays open rather than being half-done inside a fix for a
+         * different row.
+         *
+         * FLOORED AT ZERO. A discount larger than the basket must not produce a negative payable,
+         * which would be a credit the merchant never agreed to. `max(0, ...)` rather than a
+         * refusal because apply_coupon has already accepted the coupon by this point.
+         */
         if (!\Auth::guard('customers')->user()) {
             if ($plan->shipping_method == 'on') {
-                $order->final_price = $data['shipping_total_price'];
+                $order->final_price = max(0, $data['shipping_total_price'] - $coupon_price);
             } else {
-                $order->final_price = $final_price + $tax_price;
+                $order->final_price = max(0, $final_price + $tax_price - $coupon_price);
             }
         } else {
             if ($plan->shipping_method == 'on') {
-                $order->final_price = $data['shipping_total_price'] + $tax_price;
+                $order->final_price = max(0, $data['shipping_total_price'] + $tax_price - $coupon_price);
             } else {
-                $order->final_price = $final_price + $tax_price;
+                $order->final_price = max(0, $final_price + $tax_price - $coupon_price);
             }
         }
         event(new AddAdditionalFields($order, $request->all(), $store));
@@ -3690,6 +3845,42 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $order->reward_points = SetNumber($product_reward_point);
         $order->additional_note = $request->additional_note;
         $order->store_id = $store->id;
+
+        /*
+         * RECONCILE THE STORED TOTAL AGAINST ITS OWN COMPONENTS.  P1-ORD-02 criterion 3.
+         *
+         * THIS WRITER WAS NOT COVERED AT ALL. Three of the four order writers already call
+         * App\Services\OrderTotalReconciler before persisting -- PaymentService:2785,
+         * PaymentController:2846 and :4173 -- and `place_order`, the storefront API's own writer,
+         * carried only a COMMENT referring to the reconciler while calling nothing. So the one
+         * writer every mobile client actually uses was the one with no arithmetic check.
+         *
+         * IT WOULD HAVE CAUGHT THE COUPON DEFECT FIXED IN THE SAME PACKAGE. With the coupon
+         * applying but not subtracted, this handler stored product_price 200.00, coupon_price 50.00
+         * and final_price 200.00 -- a row that does not add up, which the reconciler reports as
+         * `mismatch` with expected 150.0000. It was found by a test that happened to call the
+         * reconciler itself; wired here, the handler reports it on every order.
+         *
+         * WARN-ONLY, for the same reason its three siblings are and no other: the four branches
+         * above do not share a base. Two read `$final_price` and two read
+         * `$data['shipping_total_price']`, which already bundles delivery, so a rejecting
+         * assertion would fail legitimate orders on the shipping-on paths -- which this
+         * environment cannot drive end to end, so promoting it would be a change whose effect I
+         * could not measure. `assertConsistent()` is the rejecting variant and the cutover is a
+         * release decision, not an engineering one: it turns a logged mismatch into a refused
+         * order.
+         */
+        $this->totalReconciler()->warnIfInconsistent(
+            [
+                'product_price' => $order->product_price,
+                'tax_price' => $order->tax_price,
+                'delivery_price' => $order->delivery_price,
+                'coupon_price' => $order->coupon_price,
+            ],
+            $order->final_price,
+            __METHOD__
+        );
+
         $order->save();
 
         Utility::paymentWebhook( $order );
@@ -3988,18 +4179,34 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $coupon_count = $coupon->UsesCouponCount();
             $coupon_expiry_date = (clone $couponQuery)->where('id', $coupon->id)
                 ->whereDate('coupon_expiry_date', '>=', date('Y-m-d'))
-                ->where('coupon_limit', '>', $coupon_count)
+                ->tap(fn ($q) => Coupon::applyUsageLimit($q, $coupon_count))
                 ->first();
-            // Usage limit per user
+            /*
+             * USAGE LIMIT PER USER, COUNTED ON THE PRINCIPAL AND NOT ONLY ON A POSTED E-MAIL.
+             * P1-ORD-01, raised by the independent review of this package's own fix.
+             *
+             * THE DEFECT. This counted prior uses by comparing the signed-in customer's e-mail
+             * against Coupon::PerUsesCouponCount(), which resolves each use through
+             * `order_billing_details.email` -- a column written STRAIGHT FROM THE REQUEST
+             * (`$OrderBillingDetail->email = $other_info->email`). A shopper posting a different
+             * `billing_info.email` on each order was therefore never a repeat user, and
+             * `coupon_limit_user` never fired.
+             *
+             * WHY IT IS THIS PACKAGE'S BUSINESS. A previous package looked at exactly this and
+             * recorded "Not coupon-limit evasion" at the UserCoupon writer -- correct at the time,
+             * because every flat and percentage coupon was refused upstream so the evasion bought
+             * nothing. This package made those coupons work, which turns it into money. And since
+             * `coupon_limit = 0` (the schema default) now correctly means "no TOTAL limit", the
+             * per-user cap is the only backstop left: 0 + `coupon_limit_user = 1` would otherwise
+             * be unlimited reuse by one shopper, which is what a merchant gets by leaving the
+             * total limit blank.
+             *
+             * Coupon::usesByCustomer() takes the HIGHER of the server-derived `user_coupons.user_id`
+             * count and the legacy e-mail count, so neither route can lower what the other found.
+             */
             $i = 0;
             if (auth('customers')->user()) {
-                $coupon_email  = $coupon->PerUsesCouponCount();
-                foreach ($coupon_email as $email) {
-
-                    if ($email == auth('customers')->user()->email) {
-                        $i++;
-                    }
-                }
+                $i = Coupon::usesByCustomer($coupon, auth('customers')->user());
             }
             if (!empty($coupon->coupon_limit_user)) {
                 if ($i  >= $coupon->coupon_limit_user) {
@@ -4010,22 +4217,59 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 return $this->error(['message' => __('This coupon has expired.')]);
             }
 
+            /*
+             * THE SPEND THRESHOLDS ARE DECIDED ON THE SERVER'S OWN SUBTOTAL.  P1-ORD-01.
+             *
+             * THE DEFECT, MEASURED, and it was LIVE rather than theoretical: `$sub_total_min` was
+             * read from `$request->final_sub_total` (or `$request->sub_total`), both of which are
+             * POSTED BY THE CLIENT, and it is the only value `minimum_spend` and `maximum_spend`
+             * are compared against. Driven against a free-shipping coupon carrying
+             * `minimum_spend = 5000` on a REAL 200.00 basket, posting
+             * `final_sub_total = 9999` -> "Coupon code applied successfully", discount 50.00. A
+             * coupon the merchant restricted to large baskets was obtained on a small one, by
+             * typing a number. That is the "unauthorized discounts" half of this task.
+             *
+             * `$price` and the percentage base were NOT affected -- measured separately, posting
+             * 1,000,000 against a 10% coupon still produced a 20.00 discount on the real 200.00
+             * basket -- so this is specifically the GATES, and only the gates are changed here.
+             *
+             * FAIL CLOSED. If the basket cannot be priced the coupon is refused rather than
+             * granted: this decides whether to give money away, so the safe default is "no".
+             */
+            $spendBaseline = $this->couponSpendBaseline($request, $store, $slug);
+
+            if ($spendBaseline === null) {
+                return $this->error(['message' => __('This coupon cannot be applied to your basket right now.')]);
+            }
+
+            // ONE authoritative spend decision, on the server's figure, before either of the two
+            // parallel structures below -- including the one that never checked at all.
+            $spendRefusal = $this->couponSpendRefusal($coupon, $spendBaseline, $store);
+
+            if ($spendRefusal !== null) {
+                return $this->error(['message' => $spendRefusal]);
+            }
+
             if ($coupon->free_shipping_coupon == 0) {
 
-                if ($request->final_sub_total != null) {
-                    $sub_total_min = $request->final_sub_total;
-                } else {
-                    $sub_total_min = $request->sub_total;
-                }
+                $sub_total_min = $spendBaseline;
 
                 if ($sub_total_min <= $coupon->maximum_spend  || $coupon->maximum_spend == null) {
                     if ($sub_total_min >= $coupon->minimum_spend ||  $coupon->minimum_spend == null) {
-                        if ($request->final_sub_total != null) {
-
-                            $price = $request->final_sub_total;
-                        } else {
-                            $price = $request->sub_total;
-                        }
+                        /*
+                         * THE DISCOUNT BASE IS THE SERVER'S SUBTOTAL TOO.  P1-ORD-01.
+                         *
+                         * I FIRST RECORDED THAT THIS WAS ALREADY SAFE, AND THAT WAS WRONG -- the
+                         * correction is kept rather than quietly removed. Reading the probe's
+                         * truncated JSON I took `coupon_discount_amount` (which is the raw
+                         * `$coupon->discount_amount`, i.e. the PERCENT) for the computed discount
+                         * and concluded the base was server-derived. The regression test asserting
+                         * the exact figure says otherwise: a 10% coupon on a real 200.00 basket
+                         * with `final_sub_total = 1000000` posted produced a discount of
+                         * **100,000.00**. An unbounded unauthorized discount, priced from a number
+                         * the shopper types.
+                         */
+                        $price = $spendBaseline;
                         $amount = $coupon->discount_amount;
                         if ($coupon->sale_items != 0) {
                             $currentDate = Carbon::now()->toDateString();
@@ -4077,12 +4321,10 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                         }
 
                         if ($coupon->coupon_type == 'percentage') {
-                            if ($request->final_sub_total != null) {
-                                $sub_totals = $request->final_sub_total;
-                            } else {
-                                $sub_totals = $request->sub_total;
-                            }
-                            $amount = $amount * $sub_totals / 100;
+                            // The percentage is taken off the SERVER's subtotal. See the note above
+                            // $price: this is the line that produced a 100,000.00 discount on a
+                            // 200.00 basket.
+                            $amount = $amount * $spendBaseline / 100;
                             $price -= $amount;
                         }
                         if ($coupon->coupon_type == 'fixed product discount') {
@@ -4313,8 +4555,45 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                             if ($coupon->discount_amount != 0 && $discount_amounts == 0) {
                                 return $this->error(['message' => __(' Sorry, this coupon is not applicable to selected products.')]);
                             }
-                        } else {
-                            return $this->error(['message' => ' The minimum spend for this coupon is ' . (currency_format_with_sym($coupon->minimum_spend, $store->id) ?? SetNumberFormat($coupon->minimum_spend)) . '.']);
+                        } elseif (! in_array($coupon->coupon_type, self::COUPON_TYPES_PRICED_ON_SUBTOTAL, true)) {
+                            /*
+                             * THIS `else` USED TO REFUSE EVERY COUPON THAT IS NOT A FIXED-PRODUCT
+                             * DISCOUNT, AND IT REPORTED THE REFUSAL AS A MINIMUM-SPEND FAILURE.
+                             * P1-ORD-01, and it is the whole of "apply_coupon refuses every
+                             * non-fixed-product coupon".
+                             *
+                             * WHAT IT WAS. The branch above is `if ($coupon->coupon_type ==
+                             * 'fixed product discount')`, opened ~230 lines earlier, and its
+                             * `else` returned " The minimum spend for this coupon is $0,00." --
+                             * so a `flat` or `percentage` coupon, the TWO TYPES THE MIGRATION'S
+                             * OWN COMMENT DOCUMENTS (`percentage / flat`, and `percentage` is the
+                             * column default), was refused with a message about a threshold that
+                             * was not set and had nothing to do with it.
+                             *
+                             * MEASURED: flat 50.00 on a 200.00 basket, limit 10, no thresholds ->
+                             * {"status":0,"message":" The minimum spend for this coupon is
+                             * $0,00."}. The spend gates themselves had PASSED (dumped at the
+                             * gate: sub_total_min=200, minimum_spend=NULL, comparison true) --
+                             * which is how the message was traced here rather than to them. The
+                             * ledger recorded this as "a second, non-null-tolerant spend gate";
+                             * that reading was wrong, both pairs are null-tolerant, and it is
+                             * corrected in the row.
+                             *
+                             * WHY FALLING THROUGH IS CORRECT RATHER THAN GENEROUS. `$amount` and
+                             * `$price` for flat and percentage are already computed above
+                             * (:4076-4087), and the response builder below ALREADY has an `else`
+                             * arm for a non-fixed-product coupon (:4323-4346, reading
+                             * `$coupon->discount_amount` and `$amount`). The support was written
+                             * and then made unreachable by this one branch. Nothing new is
+                             * granted here: the discount is the one the merchant configured.
+                             *
+                             * AND IT STILL REFUSES A TYPE IT CANNOT PRICE, which is why this is
+                             * an `elseif` on a named list and not a deletion. An unrecognised
+                             * `coupon_type` reaches a handler that has computed no discount for
+                             * it, and silently charging full price while reporting success is the
+                             * defect this task's criterion 4 names.
+                             */
+                            return $this->error(['message' => __('This coupon type is not supported.')]);
                         }
                     } else {
                         return $this->error(['message' => ' The maximum spend for this coupon is ' . (currency_format_with_sym($coupon->maximum_spend, $store->id) ?? SetNumberFormat($coupon->maximum_spend)) . '.']);
@@ -4333,7 +4612,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                     }
 
                     $coupon_array['coupon_end'] = '----------------------';
-                    $coupon_array['original_price'] = SetNumber($request->sub_total);
+                    $coupon_array['original_price'] = SetNumber($spendBaseline);
                     $coupon_array['final_price'] = SetNumber($price);
                     $coupon_array['discount_price'] = SetNumber($price);
                     if ($coupon->coupon_type == 'fixed product discount') {
@@ -4352,14 +4631,13 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
                     foreach ($shipping_Methods as $shippingMethod) {
                         if ($shippingMethod->method_name) {
-                            if ($shippingMethod->cost < $request->final_sub_total) {
-                                $price = $request->final_sub_total;
+                            if ($shippingMethod->cost < $spendBaseline) {   // server figure, not the posted one
+                                $price = $spendBaseline;
                                 $amount = $coupon->discount_amount;
-                                if ($request->final_sub_total != null) {
-                                    $sub_total_min = $request->final_sub_total;
-                                } else {
-                                    $sub_total_min = $request->sub_total;
-                                }
+                                // Same change as the non-free-shipping gate above, and THIS is the
+                                // structure the bypass was measured on: the thresholds are decided
+                                // on the server's subtotal, never the posted one.
+                                $sub_total_min = $spendBaseline;
                                 if ($sub_total_min <= $coupon->maximum_spend  || $coupon->maximum_spend == null) {
                                     if ($sub_total_min >= $coupon->minimum_spend || $coupon->minimum_spend == null) {
                                         if ($coupon->sale_items != 0) {
@@ -4395,11 +4673,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                             $price -= $amount;
                                         }
                                         if ($coupon->coupon_type == 'percentage') {
-                                            if ($request->final_sub_total != null) {
-                                                $sub_totals = $request->final_sub_total;
-                                            } else {
-                                                $sub_totals = $request->sub_total;
-                                            }
+                                            $sub_totals = $spendBaseline;   // the percentage is taken off the server subtotal
                                             $amount = $amount * $sub_totals / 100;
                                             $price -= $amount;
                                         }
@@ -4657,7 +4931,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                     $coupon_array['coupon_discount_amount'] = $coupon->discount_amount;
                                 }
                                 $coupon_array['coupon_end'] = '----------------------';
-                                $coupon_array['original_price'] = SetNumber($request->final_sub_total);
+                                $coupon_array['original_price'] = SetNumber($spendBaseline);
                                 $coupon_array['final_price'] = SetNumber($price);
                                 $coupon_array['discount_price'] = SetNumber($price);
                                 if ($coupon->coupon_type == 'fixed product discount') {
@@ -4678,7 +4952,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                                 $coupon_array['coupon_discount_type'] = $coupon->coupon_type;
                                 $coupon_array['coupon_discount_amount'] = 0;
                                 $coupon_array['coupon_end'] = '----------------------';
-                                $coupon_array['original_price'] = SetNumber($request->sub_total);
+                                $coupon_array['original_price'] = SetNumber($spendBaseline);
                                 $coupon_array['final_price'] = SetNumber(0);
                                 $coupon_array['discount_price'] = SetNumber(0);
                                 $coupon_array['amount'] = SetNumber(0);
@@ -4695,7 +4969,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                             $coupon_array['coupon_discount_type'] = $coupon->coupon_type;
                             $coupon_array['coupon_discount_amount'] = 0;
                             $coupon_array['coupon_end'] = '----------------------';
-                            $coupon_array['original_price'] = SetNumber($request->sub_total);
+                            $coupon_array['original_price'] = SetNumber($spendBaseline);
                             $coupon_array['final_price'] = SetNumber(0);
                             $coupon_array['discount_price'] = SetNumber(0);
                             $coupon_array['amount'] = SetNumber(0);
@@ -4704,16 +4978,10 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                         }
                     }
                 } else {
-                    $price = $request->final_sub_total;
+                    $price = $spendBaseline;
 
                     $amount = $coupon->discount_amount;
-                    if ($request->final_sub_total != null) {
-
-                        $sub_total_min = $request->final_sub_total;
-                    } else {
-
-                        $sub_total_min = $request->sub_total;
-                    }
+                    $sub_total_min = $spendBaseline;   // the threshold this branch never checked at all
                     if ($coupon->sale_items != 0) {
                         $currentDate = Carbon::now()->toDateString();
                         $falsh_sale = FlashSale::where('store_id', $store->id)->where('is_active', 1)->where('start_date', '<=', $currentDate)->where('end_date', '>=', $currentDate)->get();
@@ -4757,7 +5025,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                         $coupon_array['coupon_discount_amount'] = $response->data->total_coupon_price ?? 0;
                     }
                     $coupon_array['coupon_end'] = '----------------------';
-                    $coupon_array['original_price'] = SetNumber($request->final_sub_total);
+                    $coupon_array['original_price'] = SetNumber($spendBaseline);
                     $coupon_array['final_price'] = SetNumber(($response->data->final_price - $response->data->total_coupon_price) ?? 0);
                     $coupon_array['discount_price'] = SetNumber($response->data->total_coupon_price ?? 0);
                     if ($coupon->coupon_type == 'fixed product discount') {

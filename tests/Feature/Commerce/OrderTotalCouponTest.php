@@ -249,17 +249,25 @@ class OrderTotalCouponTest extends SecurityTestCase
      *
      * BOTH ARE THE SAME SHAPE: an optional constraint left unset is treated as a failing one.
      *
-     * NOT FIXED HERE, deliberately. Correcting that is the order-calculation change that two
-     * previous packages explicitly declined to start (see the comments at ApiController:3323-3357),
-     * and apply_coupon is a ~700-line method with two parallel gate structures; a half-finished
-     * rewrite of it would be worse than the defect. What this package DID fix is the three fatals
-     * that made the whole path unreachable, which is why the defect can now be measured at all.
+     * FIXED 2026-10-24, and this test now asserts the WORKING behaviour. It was written as a
+     * known-bad pin -- "when the coupon arithmetic is fixed this test FAILS, and the next reader is
+     * sent here" -- and that is exactly what happened, so the handoff worked as intended.
      *
-     * THIS TEST PINS KNOWN-BAD BEHAVIOUR, in the same way MerchantCategoryOwnershipTest pinned the
-     * FK cascade before D13 answered it: when the coupon arithmetic is fixed this test FAILS, and
-     * the next reader is sent here rather than discovering the change in production.
+     * WHAT THE FIX WAS, in three parts, each measured:
+     *   - `Coupon::applyUsageLimit()` reads `coupon_limit` 0/NULL as "no limit" instead of
+     *     "exhausted", so the schema default no longer reads as expired.
+     *   - the `else` of `if ($coupon->coupon_type == 'fixed product discount')` no longer refuses
+     *     every flat and percentage coupon with a message about a minimum spend.
+     *   - `place_order` SUBTRACTS `$coupon_price` from the payable. Until apply_coupon was fixed
+     *     every coupon was refused, so `$coupon_price` was always 0 and this second defect was
+     *     invisible: the first run after the fix recorded product_price 200.00, coupon_price 50.00
+     *     and final_price 200.00, and the reconciler caught it.
+     *
+     * The second measurement in this docblock -- "a second, non-null-tolerant spend gate" -- was
+     * WRONG and is corrected in `CouponDiscountAuthorizationTest`, which also covers the
+     * unauthorized-discount half this row's title does not mention.
      */
-    public function test_known_bad_a_flat_coupon_is_refused_and_the_total_is_undiscounted(): void
+    public function test_a_flat_coupon_discounts_the_charged_total(): void
     {
         [, $store] = $this->tenant();
         $shopper = $this->shopper($store);
@@ -286,14 +294,118 @@ class OrderTotalCouponTest extends SecurityTestCase
         $order = $this->storedOrder();
         $this->assertNotNull($order, 'no order was written at all');
 
-        $this->assertSame(0.0, (float) $order->coupon_price,
-            'THE COUPON NOW APPLIES. That is the fix P1-ORD-01 asks for -- update this test, its '
-            . 'sibling below, the ledger row and issue #20, and assert the discounted total '
-            . 'instead of this one.');
+        $this->assertSame(50.0, (float) $order->coupon_price,
+            'the coupon was not applied: a flat 50.00 coupon on a 200.00 basket must record a '
+            . '50.00 discount');
 
-        $this->assertSame(200.0, (float) $order->final_price,
-            'the charged total changed while coupon_price stayed 0, which is neither the old '
-            . 'behaviour nor the fixed one');
+        $this->assertSame(200.0, (float) $order->product_price,
+            'Premise: the pre-coupon subtotal is still 200.00, so the assertion below is about the '
+            . 'discount and not about a changed basket.');
+
+        $this->assertSame(150.0, (float) $order->final_price,
+            'THE SHOPPER IS CHARGED FULL PRICE WITH A DISCOUNT PRINTED BESIDE IT. 200.00 - 50.00 '
+            . 'is 150.00, and coupon_price is already in OrderTotalReconciler::SUBTRACTIVE_COMPONENTS.');
+    }
+
+    /**
+     * DOES A TAXED ORDER'S STORED ROW RECONCILE? MEASURED, because the answer decides whether the
+     * reconciler wiring added to place_order is a control or just noise.
+     *
+     * RAISED BY THE INDEPENDENT REVIEW OF P1-ORD-01: `$order->product_price` is
+     * `$cartlist['total_sub_price']`, which `cart_list` builds as goods + shipping + tax, while
+     * `$order->tax_price` is 0 on the shipping-off path because `place_order` reads
+     * `$cartlist['tax_info']` -- a key `cart_list` NEVER RETURNS (its keys are `tax_price` and
+     * `total_tax_price`). So the stored components would double-count or lose the tax, and the
+     * sibling test above passes only because its fixture has no `tax_id`.
+     *
+     * MEASURED, and it does NOT reconcile. A 200.00 basket at 10% tax stores:
+     *
+     *     product_price 242   tax_price 0   delivery_price 0   coupon_price 0   final_price 220
+     *
+     * Three separate things are wrong with that row, and none of them overcharges the shopper:
+     *   - `final_price` 220 is CORRECT -- 200.00 of goods plus 10% tax. The charge is right.
+     *   - `tax_price` is 0 although tax was charged, because `place_order` reads
+     *     `$cartlist['tax_info']` and `cart_list` returns `tax_price` / `total_tax_price`. The
+     *     `foreach ($taxes as ...)` over an empty string then leaves the column at 0.
+     *   - `product_price` 242 is neither the goods (200) nor the charge (220). It is
+     *     `total_sub_price`, which `cart_list` builds as a tax-INCLUSIVE subtotal plus the tax
+     *     again -- 220 + 22 -- so the tax compounds in that column alone.
+     *
+     * SO THIS IS AN INTEGRITY AND REPORTING DEFECT, NOT A MONEY ONE: every taxed order is charged
+     * correctly and recorded with components that cannot produce its own total. It is pre-existing
+     * and out of P1-ORD-01's scope; it is recorded rather than fixed because fixing it means
+     * deciding what `product_price` is supposed to mean across four branches, which is P1-ORD-02
+     * criterion 1.
+     *
+     * AND IT IS WHY THE RECONCILER WIRED INTO place_order IS WARN-ONLY. It will log a mismatch on
+     * every taxed order until this is fixed. That is what warn-only is for -- its sibling's own
+     * comment says "logging the mismatch is what produces the evidence for the cutover" -- but it
+     * does mean the log is not quiet today, which a reader should know before trusting its volume.
+     *
+     * PINNED AS KNOWN-BAD with the exact figures, in the same idiom that handed off
+     * `test_known_bad_a_flat_coupon_is_refused...` successfully: when the components are fixed this
+     * test FAILS and sends the next reader here.
+     */
+    public function test_known_bad_a_taxed_order_stores_components_that_do_not_add_up(): void
+    {
+        [, $store] = $this->tenant();
+        $shopper = $this->shopper($store);
+
+        $taxId = DB::table('taxes')->insertGetId([
+            'name' => 'VAT', 'store_id' => $store->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('tax_methods')->insert([
+            'name' => 'VAT 10%', 'tax_id' => $taxId, 'tax_rate' => 10, 'priority' => 1,
+            'store_id' => $store->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $product = $this->productIn($store, 100.00);
+        DB::table('products')->where('id', $product->id)->update(['tax_id' => $taxId]);
+
+        Cart::forceCreate([
+            'customer_id' => $shopper->id, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 2, 'price' => 100.00, 'store_id' => $store->id,
+        ]);
+
+        $response = $this->placeOrder($shopper, $store, [
+            'customer_id' => $shopper->id,
+            'billing_info' => $this->billing(),
+            'payment_type' => 'cod',
+        ]);
+
+        $this->assertNotSame(500, $response->getStatusCode(),
+            'the taxed order crashed: ' . substr((string) $response->getContent(), 0, 300));
+
+        $order = $this->storedOrder();
+        $this->assertNotNull($order, 'Premise: an order was written.');
+
+        $reconciler = app(\App\Services\OrderTotalReconciler::class);
+        $result = $reconciler->reconcile([
+            'product_price' => $order->product_price,
+            'delivery_price' => $order->delivery_price,
+            'tax_price' => $order->tax_price,
+            'coupon_price' => $order->coupon_price,
+        ], $order->final_price);
+
+        $this->assertSame(220.0, (float) $order->final_price,
+            'THE CHARGE IS THE PART THAT MUST STAY RIGHT: 200.00 of goods plus 10% tax is 220.00. '
+            . 'If this moves, the defect stopped being a reporting one.');
+
+        $this->assertSame(0.0, (float) $order->tax_price,
+            'tax_price is no longer 0, so place_order now reads a tax key cart_list returns. '
+            . 'Update this test and P1-ORD-02 criterion 1.');
+
+        $this->assertSame(242.0, (float) $order->product_price,
+            'product_price is no longer the compounded 242. Update this test: the component '
+            . 'arithmetic has been changed.');
+
+        $this->assertFalse($result['matches'],
+            'THE TAXED ORDER NOW RECONCILES. That is the fix P1-ORD-02 criterion 1 asks for -- '
+            . 'update this test, the P1-ORD-02 ledger row and issue #21, and assert matches=true '
+            . 'instead. Expected ' . var_export($result['expected'], true)
+            . ' against final_price ' . $order->final_price . '.');
     }
 
     /**

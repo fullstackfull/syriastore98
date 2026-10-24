@@ -115,6 +115,25 @@ class CouponAmountSourceTest extends SecurityTestCase
         ]);
     }
 
+    /**
+     * A coupon the basket does not qualify for, so "declined" is a real state.
+     *
+     * UNTIL P1-ORD-01 WAS FIXED, ANY coupon was declined and the no-500 test below got its
+     * declination for free. Now that ordinary coupons apply, a test about the declined path has to
+     * arrange one -- a minimum spend above the basket is the cheapest honest way.
+     */
+    private function unqualifiedCoupon($store): int
+    {
+        return DB::table('coupons')->insertGetId([
+            'coupon_name' => 'BIGSPEND', 'coupon_code' => 'BIGSPEND', 'coupon_type' => 'percentage',
+            'discount_amount' => 10, 'coupon_limit' => 100, 'coupon_limit_user' => 100,
+            'minimum_spend' => 100000,
+            'coupon_expiry_date' => now()->addYear()->toDateString(), 'free_shipping_coupon' => 0,
+            'status' => 1, 'store_id' => $store->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
     private function billing(): array
     {
         return ['firstname' => 'A', 'lastname' => 'B', 'email' => 'a@b.test',
@@ -172,23 +191,22 @@ class CouponAmountSourceTest extends SecurityTestCase
             . 'never checked against the coupon it names.');
 
         /*
-         * THE SERVER'S ANSWER IS "NO COUPON", AND THAT IS THE PRE-EXISTING STATE, NOT THIS CHANGE.
+         * AND IT IS NOW A REAL FIGURE -- THE HANDOFF THIS DOCBLOCK PREDICTED.
          *
-         * `apply_coupon()` refuses this coupon -- and in practice very nearly every coupon -- because
-         * of a defect this project has already measured, recorded and deliberately deferred:
-         * OrderTotalCouponTest::test_known_bad_a_flat_coupon_is_refused_and_the_total_is_undiscounted
-         * documents TWO minimum/maximum-spend gate pairs in that method, of which the second (else
-         * arms at ApiController:4310 and :4313) is NOT null-tolerant, so an UNSET optional threshold
-         * becomes a blocking one and the shopper is refused for failing to spend zero.
+         * This assertion used to read `assertSame([], $stored)` with a note that "no discount is
+         * reachable on this codebase today ... when P1-ORD-01 fixes the gates this becomes a real
+         * figure and the assertion still holds". P1-ORD-01 IS FIXED (2026-10-24), so the server's
+         * answer is 10.00 -- 10% of the 100.00 basket -- and the invariant is unchanged: the stored
+         * figure is the SERVER'S, never the caller's 99999.
          *
-         * So the honest assertion here is not "the stored discount is 10.00" -- no discount is
-         * reachable on this codebase today. It is that the stored figure is the SERVER'S answer,
-         * whatever that answer is, and never the caller's. When P1-ORD-01 fixes the gates this
-         * becomes a real figure and the assertion still holds.
+         * THE OLD NOTE'S DIAGNOSIS WAS ALSO WRONG and is not carried forward: it blamed "a second,
+         * non-null-tolerant spend gate pair". Both pairs are null-tolerant. The refusal came from
+         * the `else` of `if ($coupon->coupon_type == 'fixed product discount')`, which rejected
+         * every flat and percentage coupon and mislabelled it as a minimum-spend failure. See the
+         * P1-ORD-01 ledger row.
          */
-        $this->assertSame([], (array) ($stored ?? []),
-            'the declined coupon left something in the checkout state. A refusal must clear it, not '
-            . 'leave the caller\'s array in place -- that is the whole defect, one step later.');
+        $this->assertSame(self::TRUE_DISCOUNT, round((float) ($stored['coupon_discount_amount'] ?? -1), 2),
+            "the checkout state does not carry the server's 10% of 100.00.");
     }
 
     /**
@@ -241,9 +259,21 @@ class CouponAmountSourceTest extends SecurityTestCase
         ]);
 
         $this->assertNotNull($state);
-        $this->assertSame(self::BASKET, round((float) ($state['cartlist_final_price'] ?? -1), 2),
-            'the payable is no longer the server figure. This package must not change what a shopper '
-            . 'is charged -- only what the records say.');
+
+        /*
+         * 90.00, NOT 100.00, AND THAT IS THE FIX RATHER THAN A REGRESSION. This asserted BASKET
+         * while every coupon was refused; P1-ORD-01 made a 10% coupon on a 100.00 basket charge
+         * 90.00, which is what it should always have charged.
+         *
+         * THE INVARIANT IS UNCHANGED AND IS THE POINT: the payable is the SERVER's arithmetic. The
+         * caller posted a 99999 discount, so if the forged figure had won the payable would be 0 or
+         * negative -- never 90.00.
+         */
+        $this->assertSame(
+            round(self::BASKET - self::TRUE_DISCOUNT, 2),
+            round((float) ($state['cartlist_final_price'] ?? -1), 2),
+            'the payable is not the server figure: 100.00 less the server-computed 10% is 90.00, and '
+            . 'the caller-posted 99999 must never reach it.');
     }
 
     /**
@@ -256,16 +286,21 @@ class CouponAmountSourceTest extends SecurityTestCase
      * the checkout, for the ordinary case of a shopper typing a code they do not qualify for.
      * MEASURED, and it is how removing the short-circuit first showed up: every coupon attempt 500'd.
      *
-     * Since `apply_coupon()` currently refuses nearly every coupon (see the note above), this is not
-     * a rare path -- it is the common one.
+     * WHEN THIS WAS WRITTEN apply_coupon() refused nearly every coupon, so this was the common path
+     * and the test got its declination for free. P1-ORD-01 fixed that, so the test now arranges a
+     * coupon the basket genuinely does not qualify for -- otherwise it would have been silently
+     * measuring the SUCCESS path while claiming to measure the declined one.
      */
     public function test_a_declined_coupon_does_not_break_the_checkout(): void
     {
         [, $store] = $this->tenant();
         $customer = $this->shopperWithBasket($store);
-        $this->realCoupon($store);
+        // A coupon this basket does NOT qualify for. Until P1-ORD-01 was fixed every coupon was
+        // declined and `SAVE10` served; now that ordinary coupons apply, the declined path has to
+        // be arranged rather than assumed. See unqualifiedCoupon().
+        $this->unqualifiedCoupon($store);
 
-        $state = $this->initiate($store, $customer, ['coupon_code' => 'SAVE10']);
+        $state = $this->initiate($store, $customer, ['coupon_code' => 'BIGSPEND']);
 
         $this->assertNotNull($state,
             'a declined coupon stopped the checkout storing its state at all -- the handler raised '

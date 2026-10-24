@@ -1067,18 +1067,24 @@ class Cart extends Model
             $couponQuery = Coupon::query();
             $coupon_expiry_date = (clone $couponQuery)->where('id', $coupon->id)
                 ->whereDate('coupon_expiry_date', '>=', date('Y-m-d'))
-                ->where('coupon_limit', '>', $coupon_count)
+                // THE THIRD CALL SITE OF THIS GATE, and the one a census keyed on "the two sites
+                // I had already read" missed. P1-ORD-01: `coupon_limit` defaults to 0, so
+                // `0 > 0` read a brand-new coupon as exhausted. Fixing only ApiController's two
+                // sites made the two coupon arithmetics DISAGREE -- apply_coupon accepted while
+                // this path still refused, and because the free-shipping arm reports the CART's
+                // figure the shopper was told "applied successfully" with a discount of 0.00.
+                // Keyed on Coupon::applyUsageLimit so all three sites share one definition.
+                ->tap(fn ($q) => Coupon::applyUsageLimit($q, $coupon_count))
                 ->first();
-            // Usage limit per user
+            // USAGE LIMIT PER USER, counted on the principal. Same change and same reason as
+            // ApiController::apply_coupon: the two coupon arithmetics must agree about the per-user
+            // cap as well as the total one, or the preview and the charge disagree. The count was
+            // keyed on `order_billing_details.email`, which the shopper posts. See
+            // Coupon::usesByCustomer().
             $i = 0;
 
             if (auth('customers')->user()) {
-                $coupon_email  = $coupon->PerUsesCouponCount();
-                foreach ($coupon_email as $email) {
-                    if ($email == auth('customers')->user()->email) {
-                        $i++;
-                    }
-                }
+                $i = Coupon::usesByCustomer($coupon, auth('customers')->user());
             }
             if (!empty($coupon->coupon_limit_user)) {
                 if ($i  >= $coupon->coupon_limit_user) {
