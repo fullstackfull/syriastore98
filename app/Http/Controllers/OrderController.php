@@ -1203,12 +1203,38 @@ public function store(Request $request)
          * correct machine the transition has to exist, and this is the one place
          * a merchant declares an order delivered.
          *
-         * INERT BY DEFAULT. codShouldSettleOnDelivery() returns false unless the
-         * owner has opted in to `services.cod.settlement = 'delivery'`, so for
-         * every existing deployment this block does nothing at all and COD
-         * behaviour is byte-for-byte what it was. That is deliberate: when an
-         * order counts as paid decides when a wallet is credited, which is the
-         * owner's business decision and not a fix to impose.
+         * NOT INERT ANY MORE, AND THIS PARAGRAPH SAID OTHERWISE UNTIL IT WAS
+         * MEASURED. It used to read "INERT BY DEFAULT. codShouldSettleOnDelivery()
+         * returns false unless the owner has opted in to
+         * `services.cod.settlement = 'delivery'`". That stopped being true when
+         * D-06 removed the policy gate: the helper now has no gate at all and
+         * returns true for any non-Paid COD order, so THIS BLOCK IS LIVE for
+         * every deployment. Executed, not read: with
+         * `services.cod.settlement = 'order'` set, codSettlementPolicy() still
+         * answers 'delivery', so settle-at-order is unreachable rather than
+         * merely deselected.
+         *
+         * AND THE OWNER HAS SINCE NARROWED IT FURTHER. D1 -- the final directive,
+         * later than D-06 -- says "no wallet credit for creation *or* for
+         * 'Delivered'" and "Paid only on trustworthy evidence", with "the actual
+         * collector and verified collection event ... recorded". A merchant
+         * clicking 'delivered' on their own order is a PROXY for collection, not
+         * evidence of it, and D1 rejects it as sufficient.
+         *
+         * SO THIS TRANSITION IS AN INTERIM, and it is only harmless because the
+         * credit it would cause is dead: OrderFinancialService writes
+         * `store_order_financials` and `store_wallets`, which no migration
+         * declares, so it throws and OrderObserver swallows it. The day GATE F
+         * is released that path becomes live and a merchant's own click credits
+         * their own wallet. CodStateMachineTest::
+         * test_gate_f_cannot_be_released_while_marked_delivered_is_the_settlement_trigger
+         * asserts that conjunction and goes red on exactly that day.
+         *
+         * It is NOT withdrawn here because withdrawing it makes every COD order
+         * sit Pending until a merchant asserts payment by hand, which changes
+         * what every merchant's revenue reporting says overnight, and because
+         * D1's replacement -- a recorded collection event with a named collector
+         * -- needs columns this repository does not have. #26 carries the choice.
          *
          * IDEMPOTENT. The guard requires the order not to be Paid already, so a
          * replayed 'delivered' status change settles once, not twice.

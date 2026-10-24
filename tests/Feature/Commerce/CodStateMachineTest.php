@@ -415,4 +415,82 @@ class CodStateMachineTest extends TestCase
 
         return $order;
     }
+
+    // =====================================================================================
+    //  D1 vs THE SHIPPED TRIGGER -- the ordering hazard, made falsifiable.
+    // =====================================================================================
+
+    /**
+     * THE CONTRADICTION THIS PINS, and it is latent rather than live today.
+     *
+     * D-06 settled "COD is Pending at creation" and this project implemented *marked-Delivered*
+     * as the settlement trigger. The owner's LATER final directive, D1, narrows that:
+     *
+     *     "COD: creation stays Pending/Unpaid; collector may be merchant, courier or delivery
+     *      company, and the ACTUAL COLLECTOR AND VERIFIED COLLECTION EVENT ARE RECORDED; five
+     *      things kept distinct -- order status, payment status, cash collection, collector
+     *      liability, merchant settlement; Paid only on trustworthy evidence; NO WALLET CREDIT
+     *      FOR CREATION *OR* FOR 'Delivered'; per-store workflows; idempotent financial
+     *      operations"
+     *
+     * The register's own annotation on that row reads: "(extends D-06 -- note it now explicitly
+     * rejects *marked-Delivered* as sufficient, which the shipped machine currently uses)."
+     *
+     * WHY NOTHING IS BROKEN TODAY, which is the whole reason this is a ratchet and not a fix.
+     * A merchant marking their own order delivered does write `payment_status = Paid`
+     * (OrderController::order_status_change), and `OrderObserver::updated()` does reach
+     * `OrderFinancialService::syncFromOrder()`, which would credit the wallet. But
+     * `store_order_financials`, `store_wallets` and `store_wallet_transactions` are declared by
+     * NO migration -- the GATE F six -- so that service throws `QueryException`, the Observer
+     * catches it, and the credit silently does not happen. D1's prohibition is therefore not
+     * violated: there is no wallet credit at all.
+     *
+     * THE HAZARD IS THE ORDERING. The moment GATE F is released, that dead path becomes live and
+     * a merchant's own unverified click credits their own wallet against cash a courier may never
+     * have handed over -- "uncollected money reportable as paid" in D-06's words, and precisely
+     * the hazard database/migrations/_gate_f_pending/README.md warns that promoting those tables
+     * does not FIX a bug but SWITCHES ON a silently dead subsystem.
+     *
+     * SO THIS TEST ASSERTS A CONJUNCTION, not a behaviour: these two things must never both be
+     * true at once. It passes today because the tables do not exist. It goes RED the day someone
+     * promotes GATE F while marked-Delivered is still the settlement trigger -- which is exactly
+     * when a human needs to be stopped and sent to D1.
+     *
+     * WHY THE TRIGGER IS NOT SIMPLY WITHDRAWN HERE. Removing it makes every COD order sit Pending
+     * until a merchant explicitly asserts payment, which changes what every merchant's revenue
+     * reporting says overnight on a live business. D1 wants a *recorded collection event with a
+     * named collector*, and there is nowhere to record one -- that is columns this repository does
+     * not have. Choosing between "withdraw now and change reporting" and "keep the proxy until the
+     * collection record exists" is the owner's call, and it is recorded on #26 rather than taken
+     * here.
+     */
+    public function test_gate_f_cannot_be_released_while_marked_delivered_is_the_settlement_trigger(): void
+    {
+        $financialTablesExist = \Illuminate\Support\Facades\Schema::hasTable('store_order_financials')
+            || \Illuminate\Support\Facades\Schema::hasTable('store_wallets')
+            || \Illuminate\Support\Facades\Schema::hasTable('store_wallet_transactions');
+
+        $markedDeliveredStillSettles = $this->verifier->codShouldSettleOnDelivery($this->codOrder('Pending'));
+
+        $this->assertFalse(
+            $financialTablesExist && $markedDeliveredStillSettles,
+            'GATE F HAS BEEN RELEASED WHILE marked-Delivered IS STILL THE COD SETTLEMENT TRIGGER. '
+            . "Owner decision D1 rejects that combination in terms: \"no wallet credit for creation "
+            . "*or* for 'Delivered'\" and \"Paid only on trustworthy evidence\". Until this change, "
+            . 'the credit was dead only because the financial tables did not exist; with them in '
+            . 'place a merchant marking their own order delivered credits their own wallet against '
+            . 'cash a courier may never have handed over. Resolve #26 before promoting these tables: '
+            . 'either withdraw the marked-Delivered trigger, or gate it behind the recorded '
+            . 'collection event D1 asks for.'
+        );
+
+        // The premise, so this cannot pass vacuously by the trigger having been silently removed
+        // for some unrelated reason while the tables are also absent.
+        $this->assertTrue(
+            $financialTablesExist || $markedDeliveredStillSettles,
+            'Neither the GATE F tables nor the marked-Delivered trigger exist. One of the two '
+            . 'premises of this ratchet is gone, so it is no longer measuring the hazard it names '
+            . '-- re-derive it against whatever replaced them.'
+        );
+    }
 }

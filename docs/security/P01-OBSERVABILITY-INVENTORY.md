@@ -86,10 +86,10 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/OrderController.php:1053` | Return approval skipped a line with an unusable product id or quantity |
 | `app/Http/Controllers/OrderController.php:1074` | Return approval skipped a line whose product is not in the order |
 | `app/Http/Controllers/OrderController.php:1101` | Return approval skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1457` | Order cancellation skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1472` | Order cancellation skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1494` | Order cancellation skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1660` | Order assignment refused: the delivery boy is not in a store this caller owns |
+| `app/Http/Controllers/OrderController.php:1483` | Order cancellation skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1498` | Order cancellation skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1520` | Order cancellation skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:1686` | Order assignment refused: the delivery boy is not in a store this caller owns |
 | `app/Http/Controllers/OrderRefundController.php:180` | Refund transition refused: unrecognised current state |
 | `app/Http/Controllers/OrderRefundController.php:202` | Refund transition refused: illegal transition |
 | `app/Http/Controllers/OrderRefundController.php:416` | Refund cancellation refused: the record does not match the order |
