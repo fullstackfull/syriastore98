@@ -1322,6 +1322,17 @@ top of it (this section, and the figure correction it carries); neither changes 
 config or a guard, which is the same convention §22 of `PR3-ATTESTATION-S21.md` used and is stated
 here rather than left to be noticed.
 
+**AND THE CONVENTION TURNED OUT NOT TO BE NEEDED, so it is not being leaned on.** The commit
+carrying this section, `54e6a894`, got its own CI run and it was read back the same way:
+**run `40125873609`, conclusion `success`, attempt 1, all 9 check runs on that head `success`**,
+both required Tests jobs and the merge-base regression gate included. So the closure document's own
+head is verified, not merely argued to be equivalent to one that is.
+
+Where this chain stops, and why that is a construction rather than a shortcut: an attestation of a
+documentation commit is itself a documentation commit, so the regress has no natural end. It ends
+here because the sentence above is the last claim in the file and the run that verifies it has
+completed — a further commit would only restate that.
+
 ### 6a. CI — the authority, and why the webhook is not
 
 **CI run `40124555971` on `9047cff1`: `completed`, conclusion **`success`**, attempt 1 — and **all 9 check runs on the head are
