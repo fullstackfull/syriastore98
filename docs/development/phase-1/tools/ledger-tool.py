@@ -93,13 +93,40 @@ def block_span(led, tid, required=True):
     return m.start(), m.end()
 
 
+# The order the header lists statuses in. Any status present in the JSON but absent from this
+# tuple is APPENDED rather than dropped -- the previous version of this function interpolated a
+# fixed six-status template, so when `PARTIAL` came into use the header read `109 -- 82 DONE, 0
+# READY, 2 BACKLOG, 21 BLOCKED, 0 IN_PROGRESS, 0 IN_REVIEW`: four rows invisible, and the parts
+# summing to 105 against a stated 109. A header that can silently omit a status is worse than no
+# header, because it looks authoritative.
+HEADER_ORDER = ('DONE', 'PARTIAL', 'READY', 'BACKLOG', 'BLOCKED', 'IN_PROGRESS', 'IN_REVIEW')
+
+# The Execution order list carries each task's status inline: `*(inventory, DONE, risk high)*`.
+# Nothing kept those in step with the blocks, and 24 of 77 had rotted by closure -- a reader of
+# the ledger's own ordering got the wrong status for a quarter of the phase. Refreshed here so
+# one command keeps the header and the list honest together.
+EXEC_ROW = re.compile(r'^(\d+\. `(P1-[A-Z]+-\d+[a-z]?)` — .*?\*\()([a-z-]+), ([A-Z_]+)(, risk [a-z-]+\)\*)$', re.M)
+
+
 def counts(d, led):
     c = collections.Counter(t['status'] for t in d['tasks'])
     od = sum(1 for t in d['tasks'] if t['owner_decision'])
+    order = HEADER_ORDER + tuple(sorted(k for k in c if k not in HEADER_ORDER))
+    parts = ', '.join('%d %s' % (c[k], k) for k in order)
+    assert sum(c[k] for k in order) == len(d['tasks']), 'the header would not sum to the row count'
     old = re.search(r'\| Tasks \| .* \|\n\| Requiring an owner decision \| \d+ \|', led).group(0)
-    new = '| Tasks | %d — %d DONE, %d READY, %d BACKLOG, %d BLOCKED, %d IN_PROGRESS, %d IN_REVIEW |\n| Requiring an owner decision | %d |' % (
-        len(d['tasks']), c['DONE'], c['READY'], c['BACKLOG'], c['BLOCKED'], c['IN_PROGRESS'], c['IN_REVIEW'], od)
-    return led.replace(old, new), dict(c), od
+    new = '| Tasks | %d — %s |\n| Requiring an owner decision | %d |' % (len(d['tasks']), parts, od)
+    led = led.replace(old, new)
+
+    by = {t['id']: t for t in d['tasks']}
+
+    def restate(m):
+        t = by.get(m.group(2))
+        if t is None:
+            return m.group(0)
+        return m.group(1) + t['workstream'] + ', ' + t['status'] + m.group(5)
+
+    return EXEC_ROW.sub(restate, led), dict(c), od
 
 
 def main(argv):
