@@ -122,13 +122,22 @@ reported a store-B row deleted while the raw table still held it. Assert through
 
 **Schema**
 
-- Some `$fillable` columns **do not exist**. `delivery_boys` lacks `commission_percentage` and
-  `is_commission_enabled` though both are fillable and two handlers write them — so those handlers
-  500 for everyone. Check `Schema::hasColumn()` before believing a model.
+- **A `$fillable` column may be missing — but check the real database, not the migrations.** This
+  file used to say `delivery_boys` lacks `commission_percentage` and `is_commission_enabled` and
+  that two handlers therefore 500 for everyone. **That was wrong.** The 2026-10-24 restore of the
+  production dump shows both columns present (`decimal(5,2)` and `tinyint(1)`), populated, and
+  those handlers work. The claim came from reading the migrations, which really do not create them.
+  Check `Schema::hasColumn()` before believing a model — and read a restored dump before believing
+  the migrations. See `docs/GATE-F-VERIFIED-SCHEMA.md`.
 - `customers.password_otp` is `INTEGER` but the web reset writes a 60-char bcrypt hash (P01-SEC-13,
   migration prepared and **not applied**).
 - **GATE F:** 15 tables that live code reads and writes have **no migration**, 6 of them
   money-bearing. Drafts are held unrunnable in `database/migrations/_gate_f_pending/`.
+  **All 15 exist in production with live data** (verified 2026-10-24) — the gap is that the schema
+  is *unmanaged*, not that it is absent, so a fresh environment does not get it and nothing in
+  version control describes it. The drafts are now reconciled against the real structure and
+  reproduce it exactly. `cod_collection_events` is the one genuinely absent object, by decision
+  D15. Read `docs/GATE-F-VERIFIED-SCHEMA.md` before touching any of this.
 
 ---
 

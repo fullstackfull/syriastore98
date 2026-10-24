@@ -2,7 +2,7 @@
 
 /**
  * ============================================================================================
- *  PROVISIONAL DRAFT -- GATE F. NOT ACTIVE. NOT RECONCILED AGAINST PRODUCTION.
+ *  DRAFT -- GATE F. NOT ACTIVE. RECONCILED AGAINST PRODUCTION 2026-10-24.
  * ============================================================================================
  *
  * Held out of the live migration path the same two independent ways the other drafts here are:
@@ -39,8 +39,12 @@
  *                    the three collector types live in three different tables (`users`,
  *                    `delivery_boys`, and a delivery-company table that does not exist yet), so a
  *                    single FK cannot express it. The integrity rule is enforced in the service.
- *   amount           decimal(18,4), the project's standing money type. NOT nullable: an event
- *                    with no amount is not a collection.
+ *   amount           decimal(15,2), matching the money scale production actually uses across
+ *                    store_wallets, store_wallet_transactions and store_order_financials
+ *                    (measured 2026-10-24). It must match: codMayBeSettled() compares this
+ *                    against orders.final_price with a 0.005 tolerance, and a scale mismatch
+ *                    there is a settlement that silently refuses. NOT nullable: an event with no
+ *                    amount is not a collection.
  *   collected_at     WHEN THE CASH CHANGED HANDS, which is not `created_at`. They differ whenever
  *                    an event is entered after the fact, which is the normal case for a courier
  *                    round, and reconciliation keys on this one. Indexed with store_id for the
@@ -90,7 +94,7 @@ return new class extends Migration
             $table->string('collector_type', 32);
             $table->unsignedBigInteger('collector_id');
 
-            $table->decimal('amount', 18, 4);
+            $table->decimal('amount', 15, 2);
 
             // When the cash changed hands. NOT created_at.
             $table->timestamp('collected_at');

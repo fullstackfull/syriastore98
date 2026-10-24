@@ -2,7 +2,7 @@
 
 /**
  * ============================================================================================
- *  PROVISIONAL DRAFT -- GATE F. NOT ACTIVE. NOT RECONCILED AGAINST PRODUCTION.
+ *  DRAFT -- GATE F. NOT ACTIVE. RECONCILED AGAINST PRODUCTION 2026-10-24.
  * ============================================================================================
  *
  * Held out of the live migration path for the reasons in README.md in this directory, and named
@@ -49,9 +49,13 @@
  * silently dead in exactly the way GATE F's README warns about. Promote this draft at the same
  * time as 0005 or before it, never after.
  *
- * MUST BE RECONCILED against `SHOW CREATE TABLE delivery_boys` from a RESTORED COPY of a backup
- * before promotion. If either column already exists in production under another type, the
- * hasColumn() guards make this a no-op and the production type stands. The dump wins.
+ * RECONCILED 2026-10-24 against `SHOW CREATE TABLE delivery_boys` from a restored copy of the
+ * production dump. BOTH columns already exist there -- commission_percentage decimal(5,2) NULL
+ * DEFAULT 0.00, is_commission_enabled tinyint(1) NOT NULL DEFAULT 0 -- which is what is declared
+ * below, so the hasColumn() guards make up() a no-op in production and the production type
+ * stands. The two handlers this draft was written for therefore do NOT 500 in production: the
+ * columns the earlier draft reported as missing from the schema are present in the real database.
+ * The dump wins.
  */
 
 use Illuminate\Database\Migrations\Migration;
@@ -68,7 +72,7 @@ return new class extends Migration
 
         Schema::table('delivery_boys', function (Blueprint $table) {
             if (! Schema::hasColumn('delivery_boys', 'commission_percentage')) {
-                $table->decimal('commission_percentage', 5, 2)->nullable();
+                $table->decimal('commission_percentage', 5, 2)->nullable()->default(0);
             }
 
             if (! Schema::hasColumn('delivery_boys', 'is_commission_enabled')) {
@@ -77,18 +81,22 @@ return new class extends Migration
         });
     }
 
+    /**
+     * DELIBERATELY A NO-OP, for the same reason 0001-0006 give for the six tables, and for the
+     * reason spelled out at length in 0004 (the cost_price draft).
+     *
+     * MEASURED 2026-10-24 against a restored copy of the production dump: BOTH columns ALREADY
+     * EXIST there -- `commission_percentage decimal(5,2) NULL DEFAULT 0.00` and
+     * `is_commission_enabled tinyint(1) NOT NULL DEFAULT 0` -- across 2 delivery_boys rows, both
+     * with a non-zero percentage and one with the flag set. So `up()` no-ops in production.
+     *
+     * The earlier version dropped both columns whenever they were present. Against the restored
+     * copy, `migrate:rollback` executed it in 46.82ms and DESTROYED both columns and their data.
+     * `is_commission_enabled` is what gates the earning write, so losing it also silently kills
+     * the earnings subsystem -- the exact failure this directory's README warns about, caused by
+     * the rollback rather than the promotion.
+     */
     public function down(): void
     {
-        if (! Schema::hasTable('delivery_boys')) {
-            return;
-        }
-
-        foreach (['commission_percentage', 'is_commission_enabled'] as $column) {
-            if (Schema::hasColumn('delivery_boys', $column)) {
-                Schema::table('delivery_boys', function (Blueprint $table) use ($column) {
-                    $table->dropColumn($column);
-                });
-            }
-        }
     }
 };

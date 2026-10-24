@@ -160,9 +160,13 @@ duplicating them is how they drift:
 | the two vendor reports, prepared and **not sent** | `docs/upstream/`, `PHASE-01-CLOSURE-EXECUTION.md` §D |
 | what Phase 02 must not assume | `PHASE-01-CLOSURE-EXECUTION.md` §4, §6, §8 |
 
-The four most load-bearing, because they are easy to read past: **the financial subsystem is dead,
-not merely untested** (its tables do not exist, the service throws, an Observer swallows it, so
-releasing GATE F switches it on rather than fixing it); **a green suite is not a correct control**
+The four most load-bearing, because they are easy to read past. **The first of them is now known
+to be false, and is left visible rather than quietly deleted:** this section claimed *the financial
+subsystem is dead, not merely untested — its tables do not exist, the service throws, an Observer
+swallows it*. The production dump restored on 2026-10-24 shows all 15 tables present with live data
+and the service running. What survives of the claim is that **no migration creates them**, so the
+schema is unmanaged rather than absent (`docs/GATE-F-VERIFIED-SCHEMA.md`). The other three stand:
+**a green suite is not a correct control**
 (twice this phase a guard passed its own tests while an independent read found a live bypass);
 **the per-table tenancy ratchet is silent for 28 of 190 raw query sites**; and **`$casts` is not the
 encrypted-column inventory**.
@@ -180,3 +184,66 @@ re-examined stated (§4).
 **Any commit pushed after `1bff9dc7` is outside this attestation until a section covers it.**
 
 SECURITY-DIFF-REVIEW: completed (focused, per owner direction of 2026-10-24)
+
+---
+
+# §22 — `1bff9dc7..` the GATE F verification head
+
+§21 ends by saying *"any commit pushed after `1bff9dc7` is outside this attestation until a section
+covers it."* This covers it. The range is small and its character is what makes a focused
+attestation sufficient.
+
+## 1. The range, keyed on files touched
+
+**19 files, and not one of them is production code.**
+
+| area | files |
+|---|---|
+| `app/` `config/` `routes/` `resources/` or a **discoverable** migration | **0** |
+| parked drafts under `database/migrations/_gate_f_pending/` — which Laravel's non-recursive glob does not find, and which carry a `.php.draft` extension | 13 |
+| documentation, including `CLAUDE.md` | 5 |
+| a read-only verification script under `tests/Support/Security/bin/` | 1 |
+
+So the branch's runtime behaviour is **unchanged** across this range. That is the load-bearing fact,
+and it is measurable rather than argued: `guard-gate-f-containment.sh` scanned 236 discoverable
+migration files across both trees and reports **0 of the 6 money tables created by any discoverable
+migration, with all 6 still holding a parked, non-runnable draft.**
+
+## 2. Gates run, with their output
+
+All run locally on this tree at this head.
+
+| gate | result |
+|---|---|
+| `guard-gate-f-containment.sh` | **exit 0** — containment intact, 9 drafts found, 0 discoverable creators |
+| `guard-no-workdo-changes.sh origin/main` | **exit 0** — no change under `packages/workdo/` outside `LynomiaChat` |
+| `scan-secrets.sh origin/main` | **exit 0** — no credential-shaped literal added across 457 changed files |
+| `guard-no-env-files.sh` | **exit 0** — no live `.env` in checkout or index |
+| `guard-test-isolation.sh` | **exit 0** — `phpunit.xml` still pins the suite to sqlite `:memory:` |
+| `guard-no-new-root-uploads.sh origin/main` | **exit 0** |
+| focused suites on their designed engine | **155 passed, 7 skipped, 0 failures** (`CodStateMachineTest`, `CodCashCollectionTest`, `FinancialSurfaceCoverageTest`, `KhaltiAmountBindingTest`, `UnverifiedGatewayStaysPendingTest`, `GatewayReturnTrustBoundaryTest`, `PendingPaymentGatewayCensusTest`) |
+
+**`guard-test-isolation.sh` passing matters here specifically.** This work needed MySQL evidence, and
+the obvious route was to point the suite at MySQL. `tests/bootstrap.php` **refuses** that, because
+`RefreshDatabase` runs `migrate:fresh` and would drop every table in the target database. **The guard
+was not weakened, bypassed or edited.** A separate override config was written outside the repository,
+the bootstrap refused it exactly as designed, the config was deleted, and the MySQL evidence was
+taken the way this project already does it — through `tests/Support/Security/bin/` scripts and direct
+read-only queries against a restored copy.
+
+## 3. What this range establishes, and what it retracts
+
+It **retracts three claims** this repository asserted and the restored production dump refuted — most
+importantly "the financial subsystem is dead", which appears in §21 §5 above as one of the four
+load-bearing limitations. That claim is corrected in place rather than deleted, here and in
+`PHASE-01-CLOSURE-EXECUTION.md`, `HANDOFF-CURRENT.md` §12d, `CLAUDE.md` and
+`_gate_f_pending/README.md`. The authoritative account is `docs/GATE-F-VERIFIED-SCHEMA.md`.
+
+**Nothing was deployed, merged or migrated.** `main` was not modified and was fetched but never
+merged. No migration was run against any server. No live data was altered. The three throwaway
+databases used for the verification were dropped and the dump destroyed. PR #3 remains a **Draft
+titled ⛔ DO NOT MERGE**.
+
+**Any commit pushed after this head is outside this attestation until a section covers it.**
+
+SECURITY-DIFF-REVIEW: completed (focused — this range contains no production code)

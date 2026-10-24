@@ -269,8 +269,16 @@ the architectural traps. Nothing in §0's read order is withdrawn except the tas
 
 Stated here because each is easy to read past, and each cost this phase real time:
 
-1. **The financial subsystem is dead, not untested.** Its tables do not exist, the service throws,
-   an Observer swallows it. Releasing GATE F **switches it on**; it does not fix it.
+1. **The financial subsystem is LIVE, and this document said the opposite until 2026-10-24.**
+   The restored production dump shows all 15 tables present and in use — 80 wallet-ledger rows, 92
+   per-order P&L rows, 40 currency rates. The service does not throw. What *is* true is that **no
+   migration creates any of it**: the schema was applied out of band, so it is unmanaged rather
+   than absent, and GATE F puts it under version control rather than switching it on. The earlier
+   claim was inferred from the migrations, which was the only evidence available before a backup
+   was restored; for a codebase whose schema is partly applied by hand, "what the repo creates" and
+   "what production has" are different questions. **Phase 02 must not assume the money tables are
+   empty or inert — they hold real balances, and one of them does not reconcile.** See
+   `docs/GATE-F-VERIFIED-SCHEMA.md`.
 2. **A green suite is not a correct control.** Twice this phase a guard passed its own tests while
    an independent read found a live bypass — both in code written the same day by the same process
    that wrote the passing tests.

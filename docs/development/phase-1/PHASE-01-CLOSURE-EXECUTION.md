@@ -794,8 +794,13 @@ inventory ratchet; the GATE F containment, now including the ordering ratchet in
   happened here. Strip comments.
 - **That `$casts` is the encrypted-column inventory.** Three of the four encrypted-at-rest columns
   carry no cast and live in tables with no migration.
-- **That the financial subsystem is merely untested.** It is **dead** — the tables do not exist, the
-  service throws, and an Observer swallows it. Releasing GATE F switches it on; it does not fix it.
+- **That the financial subsystem is empty or inert.** This register said it was **dead** — tables
+  absent, service throwing, Observer swallowing. **The 2026-10-24 production restore refuted that.**
+  All 15 tables exist and hold live data (80 wallet-ledger rows, 92 per-order P&L rows, 40 currency
+  rates); the service runs. What survives is that **no migration creates any of it**, so the schema
+  is unmanaged rather than absent, and GATE F puts it under version control rather than switching it
+  on. Phase 02 must assume the money tables hold **real balances** — and that **one of them does not
+  reconcile** (`docs/GATE-F-VERIFIED-SCHEMA.md`).
 
 **Phase 02 does not start until Phase 01 acceptance.** Nothing in this section is an invitation to.
 
@@ -1097,9 +1102,19 @@ declared **before** `store_order_financials`, or every P&L row is all-margin; an
 `delivery_boys` commission columns must land **with or before** `delivery_earnings`, because
 `is_commission_enabled` is what gates the earning write.
 
-**And the warning that makes GATE F dangerous rather than merely pending:** the financial subsystem
-is **dead, not untested**. Its tables do not exist, `OrderFinancialService` throws, and
-`OrderObserver` swallows it. Releasing GATE F **switches it on**; it does not fix it.
+**CORRECTED 2026-10-24 — this warning was wrong, and is kept visible rather than deleted.** It
+said the financial subsystem was *dead, not untested*: tables absent, `OrderFinancialService`
+throwing, `OrderObserver` swallowing, so releasing GATE F would *switch it on*. The restored
+production dump shows the opposite — all 15 tables present, 80 ledger rows, 92 P&L rows, the service
+running. The claim was inferred from this repository's migrations, which genuinely do not create
+these tables; the inference that therefore production lacks them does not hold for a schema partly
+applied by hand.
+
+**What makes GATE F dangerous is different, and worse.** The schema exists but is **unmanaged**, so
+no environment but production has it; and the live data in it has integrity defects that activation
+would propagate rather than create — a wallet whose balance cannot be reconstructed from its own
+ledger, and 17 COD orders settled with no collection evidence (which cannot exist, because
+`cod_collection_events` does not). Full account: `docs/GATE-F-VERIFIED-SCHEMA.md`.
 
 ## 3. The acceptance limitations this closure is subject to
 

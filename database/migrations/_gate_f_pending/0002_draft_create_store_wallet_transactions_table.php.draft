@@ -2,7 +2,7 @@
 
 /**
  * ============================================================================================
- *  PROVISIONAL DRAFT -- GATE F. NOT ACTIVE. NOT RECONCILED AGAINST PRODUCTION.
+ *  DRAFT -- GATE F. NOT ACTIVE. RECONCILED AGAINST PRODUCTION 2026-10-24.
  * ============================================================================================
  *
  * This file lives in database/migrations/_gate_f_pending/, which Laravel does NOT discover
@@ -12,12 +12,18 @@
  * SCHEMA-01: store_wallet_transactions is read and written by live code and created by NO migration.
  *
  * DERIVED FROM, and nothing else: app/Models/StoreWalletTransaction.php:11 ($table), :13-27 ($fillable)
- * $fillable and $casts omit types, lengths, nullability, defaults, indexes and foreign keys, so
- * EVERY type below is an inference. MUST BE RECONCILED against `SHOW CREATE TABLE store_wallet_transactions`
- * taken from a RESTORED COPY of a backup (GATE F) before this is promoted. The dump wins.
+ * RECONCILED 2026-10-24 against `SHOW CREATE TABLE store_wallet_transactions` taken from a RESTORED COPY of
+ * the production dump (GATE F, commit 3935dee8). The types below are no longer inferred from
+ * $fillable -- they are the production structure, which won every disagreement. The dump also
+ * showed this table ALREADY EXISTS in production with live rows, so up() no-ops there; see
+ * README.md for what that means for promotion.
  *
- * MONEY COLUMNS ARE decimal(18,4) BY STANDING DECISION -- never float. Scale 4 because the
- * seeded currency list includes 3-decimal KWD/BHD/OMR.
+ * MONEY SCALES ARE THE PRODUCTION ONES, MEASURED -- not the former decimal(18,4) standing
+ * decision, which this table does not use. Verified 2026-10-24 against a restored copy of the
+ * production dump: the money columns here are decimal(15,2). The standing decision argued scale 4
+ * for 3-decimal KWD/BHD/OMR; production chose scale 2 and is the authority, so a promotion must
+ * not "correct" it upward -- widening a live column is a separate, deliberate change with its own
+ * rounding consequences for the rows already stored.
  */
 
 use Illuminate\Database\Migrations\Migration;
@@ -33,22 +39,43 @@ return new class extends Migration
         }
 
         Schema::create('store_wallet_transactions', function (Blueprint $table) {
+            /*
+             * GENERATED from the MEASURED production structure (restored copy of the dump at
+             * commit 3935dee8, read 2026-10-24) -- not transcribed, so no typo can diverge from it,
+             * and not inferred from $fillable. Verified by running this migration against a copy of
+             * production with these objects stripped and diffing SHOW CREATE TABLE back: identical.
+             *
+             * The UNIQUE keys and FOREIGN KEYs below are the part the earlier draft was missing
+             * entirely -- it declared none of either, on any of the six tables. They are not
+             * decoration: uq_store_order_financial_order is what makes "one financial row per
+             * order" true, uq_store_wallet_store_id is what makes "one wallet per store" true, and
+             * the ON DELETE CASCADE rules are what keep a deleted store from leaving money rows
+             * behind. Do not drop one to make a test pass.
+             */
             $table->id();
-            $table->unsignedBigInteger('store_id')->index();
-            $table->unsignedBigInteger('wallet_id')->index();
-            $table->string('type')->nullable();                  // RECONCILE: enum in production?
-            $table->string('direction')->nullable();             // RECONCILE: 'credit'/'debit'?
-            $table->decimal('amount', 18, 4)->default(0);
-            $table->decimal('balance_before', 18, 4)->default(0);
-            $table->decimal('balance_after', 18, 4)->default(0);
-            $table->string('reference_type')->nullable();
+            $table->unsignedBigInteger('store_id');
+            $table->unsignedBigInteger('wallet_id');
+            $table->string('currency_code', 10)->nullable();
+            $table->string('type', 50);
+            $table->enum('direction', ['credit', 'debit']);
+            $table->decimal('amount', 15, 2)->default(0.00);
+            $table->decimal('balance_before', 15, 2)->default(0.00);
+            $table->decimal('balance_after', 15, 2)->default(0.00);
+            $table->string('reference_type', 50)->nullable();
             $table->unsignedBigInteger('reference_id')->nullable();
-            $table->text('description')->nullable();
-            $table->string('status')->nullable();
+            $table->string('description', 255)->nullable();
+            $table->enum('status', ['pending', 'completed', 'cancelled'])->default('completed');
             $table->unsignedBigInteger('created_by')->nullable();
-            $table->string('currency_code', 3)->nullable();
             $table->timestamps();
-            $table->index(['reference_type', 'reference_id']);
+
+            $table->index('created_at', 'idx_wallet_transactions_created_at');
+            $table->index(['reference_type', 'reference_id'], 'idx_wallet_transactions_reference');
+            $table->index('store_id', 'idx_wallet_transactions_store_id');
+            $table->index('type', 'idx_wallet_transactions_type');
+            $table->index('wallet_id', 'idx_wallet_transactions_wallet_id');
+
+            $table->foreign('store_id', 'fk_wallet_transactions_store')->references('id')->on('stores')->cascadeOnDelete();
+            $table->foreign('wallet_id', 'fk_wallet_transactions_wallet')->references('id')->on('store_wallets')->cascadeOnDelete();
         });
     }
 

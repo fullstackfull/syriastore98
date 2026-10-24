@@ -213,15 +213,80 @@ remained. A bug was found and fixed in the harness during that check: `SHOW CREA
 **two** columns, so the first draft printed the table *name* where the DDL belonged — every
 structure section would have been vacuous while looking correct.
 
-### Still blocked, and by what
+---
+
+## 2026-10-24, later the same day — THE DUMP WAS FOUND AND RESTORED
+
+The dump was located on `main` at commit `3935dee8` (`storesyria_ecommercego.sql`, 20,470,785 bytes,
+sha256 `6e54b88f…c7df78e`). It was fetched by object hash without merging `main`, held at mode 0600
+in a directory outside every git repository, restored into an isolated local MySQL, read, and then
+**destroyed**. It was never committed, never copied to a tracked branch, and no row data from it
+appears in this repository.
+
+**The full account is `docs/GATE-F-VERIFIED-SCHEMA.md`. Read it before promoting anything.** The
+short version:
+
+**Three claims this repository held were refuted.** All 15 SCHEMA-01 tables **exist in production
+with live data** — 80 wallet-ledger rows, 92 per-order P&L rows, 40 currency rates. So do
+`products.cost_price` and both `delivery_boys` commission columns. The financial subsystem is not
+dead; it is running. What survives is that **no migration creates any of it**: the schema is
+*unmanaged*, not absent.
+
+**The drafts are now reconciled, and were wrong in three ways.** 22 money-scale contradictions
+(production is `decimal(15,2)`, not the standing `(18,4)`); four enums weakened to `varchar(255)`,
+including the ledger's `direction`; and — the serious one — **every UNIQUE key and every FOREIGN KEY
+was missing.** Production has 3 and 12; the drafts declared none. Among them
+`uq_store_order_financial_order` and `uq_store_wallet_store_id`, which are what make "one financial
+row per order" and "one wallet per store" *enforced* rather than merely observed. The drafts now
+reproduce production's columns, index sets and foreign keys **exactly**, verified by running them
+against a stripped copy and diffing back.
+
+**Two `down()` methods destroyed production data, measured not reasoned.** `0004` and `0006` guarded
+`up()` on `hasColumn` but dropped unconditionally in `down()`. Against a copy of production,
+`migrate:rollback` executed them and lost all 45 `cost_price` values (1170.65) and both commission
+columns. Both are now documented no-ops; the same rollback now leaves everything intact.
+
+**Both ordering constraints were violated by the file numbering itself**, since Laravel sorts by
+filename. Renumbered: `cost_price` is now `0004` (before financials `0005`), commission is `0006`
+(before earnings `0007`).
+
+### The prerequisites, restated against evidence
 
 | prerequisite | state |
 |---|---|
-| 1 · `SHOW CREATE TABLE` from a restored copy | **BLOCKED** — no dump present |
-| 2 · NULL `store_id` census | **BLOCKED** — same |
-| 3 · `SELECT DISTINCT type FROM users` | **BLOCKED** — same |
+| 1 · `SHOW CREATE TABLE` from a restored copy | **MET** — all 15 tables read; DDL in `docs/GATE-F-VERIFIED-SCHEMA.md` |
+| 2 · NULL `store_id` census | **MET** — 0 NULL or zero `store_id` in any money table |
+| 3 · `SELECT DISTINCT type FROM users` | **MET** |
 | 4 · the `payment_status = 'Paid'` question | **MET** (owner decision, 2026-10-24) |
-| D15 · the ten promotion prerequisites | **unchanged** |
+| 5 · drafts reconciled against the real structure | **MET** — identical, verified by diff |
+| 6 · migration sequence tested, including rollback | **MET** — on an isolated restored copy, both directions |
+| 7 · ordering constraints enforced | **MET** — by renumbering |
+| D15 · the remaining promotion prerequisites | **unchanged** |
+
+### Why GATE F is still NOT ready, and it is no longer about the schema
+
+The schema questions are answered. What blocks promotion now is the **live data**, which activation
+would propagate rather than create:
+
+1. **A wallet that cannot be reconciled from its own ledger.** Wallet 1 (store 2) is denominated USD
+   and carries 62 SYP, 17 USD and 1 BYR transaction summed into one `available_balance`. Its summary
+   columns are internally consistent (706,091.08 − 2.86 = 706,088.22) but **no currency subset of
+   the ledger reproduces them**, and the running balance breaks at 9 points, once by 98.28 billion.
+   The schema's `UNIQUE (store_id)` means one wallet per store, so there is structurally no place to
+   hold a per-currency balance — the mixing is a design consequence, not a data-entry error.
+2. **17 COD orders settled with no collection evidence**, totalling 8,866,859,166.16. They are
+   historical rows from the Delivered-based trigger withdrawn on 2026-10-24, deliberately not
+   back-filled. No collection event can exist for them because `cod_collection_events` does not.
+3. **`gross_profit` is not a usable profit figure.** 89 of 92 P&L rows carry `product_cost = 0`, so
+   gross profit equals full revenue. Cause measured, and it is **not** the ordering defect:
+   recomputing all 89 against today's costs changes nothing (0 would become non-zero). It is that
+   `cost_price` is `NOT NULL DEFAULT 0.00`, so the schema **cannot represent "cost unknown"** — 36
+   of 45 products read 0.00 and are indistinguishable from genuinely-free goods.
+
+**What is clean**, measured on the same restore: 0 duplicate financial rows per order, 0 orphans,
+0 cross-tenant financial rows, 0 cross-tenant wallet transactions, 0 NULL/zero `store_id` in the
+money tables, and 0 row-level arithmetic violations across all 80 ledger rows.
 
 **GATE F is NOT ready for production migration.** No draft was promoted, no migration was run
-anywhere, and no table was created outside two throwaway fixture databases that no longer exist.
+against any server, no live data was altered, and the three throwaway databases used for this
+verification were dropped.

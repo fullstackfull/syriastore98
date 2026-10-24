@@ -2,7 +2,7 @@
 
 /**
  * ============================================================================================
- *  PROVISIONAL DRAFT -- GATE F. NOT ACTIVE. NOT RECONCILED AGAINST PRODUCTION.
+ *  DRAFT -- GATE F. NOT ACTIVE. RECONCILED AGAINST PRODUCTION 2026-10-24.
  * ============================================================================================
  *
  * This file lives in database/migrations/_gate_f_pending/, which Laravel does NOT discover
@@ -29,11 +29,19 @@
  * therefore begin recording confident, wrong profit figures. The column has to exist, and be
  * populated, before the subsystem it feeds is switched on.
  *
- * TYPE, AND WHY IT IS NOT A GUESS IN THE SAME WAY THE TABLE DRAFTS ARE: this is a per-unit money
- * column, so it takes the standing decimal(18,4) decision for money in this project rather than
- * being inferred from $fillable. `products.price` itself must still be read from the production
- * dump and matched -- a cost column of a different type or scale from the price it is compared
- * against is the kind of mismatch that produces off-by-rounding margins nobody can trace.
+ * TYPE, MEASURED NOT GUESSED: the column ALREADY EXISTS in production as
+ * `decimal(15,2) NOT NULL DEFAULT 0.00`, read from a restored copy on 2026-10-24. That is what is
+ * declared below. The former standing decimal(18,4) decision does not apply to a column
+ * production already owns.
+ *
+ * AND THE DEFAULT IS THE FINDING. `NOT NULL DEFAULT 0.00` gives the schema NO WAY TO SAY
+ * "cost unknown": a merchant who has never entered a cost is stored identically to one whose cost
+ * is genuinely zero. Measured consequence in the same dump -- 36 of 45 products read 0.00, and 89
+ * of 92 `store_order_financials` rows therefore carry `product_cost = 0` and a `gross_profit`
+ * equal to full revenue. Those rows are NOT evidence that this migration ran late: recomputing
+ * every one against today's costs changes NOTHING (0 of 89 would become non-zero), so the cause
+ * is unentered cost data, not ordering. Making the column nullable would separate the two cases,
+ * but it is a live-column change and so is the owner's call, not this draft's.
  *
  * NULLABLE, DEFAULT NULL -- NOT `default(0)`, and this is the one decision in this file that
  * changes a number a human reads. A zero cost is indistinguishable from an unknown cost, and the
@@ -43,10 +51,11 @@
  * profitable. The reporting change that distinguishes the two is NOT in this draft -- it belongs
  * with store_order_financials -- and is named here so it is not lost.
  *
- * MUST BE RECONCILED against `SHOW CREATE TABLE products` from a RESTORED COPY of a backup before
- * promotion. If the column ALREADY EXISTS in production with another type, this migration must
- * not run: the hasColumn() guard below makes it a no-op, which is safe here only because the
- * guard then leaves the production type in place rather than silently freezing a guess. The dump
+ * RECONCILED 2026-10-24 against `SHOW CREATE TABLE products` from a restored copy of the
+ * production dump. The column ALREADY EXISTS there, so the hasColumn() guard below makes up() a
+ * no-op in production and the production type stands. That is the intended outcome, and it means
+ * promoting this draft changes nothing in production -- it only brings a fresh environment into
+ * line. The dump
  * wins.
  */
 
@@ -63,18 +72,28 @@ return new class extends Migration
         }
 
         Schema::table('products', function (Blueprint $table) {
-            $table->decimal('cost_price', 18, 4)->nullable()->after('price');
+            $table->decimal('cost_price', 15, 2)->default(0)->after('price');   // NOT NULL DEFAULT 0.00 in production
         });
     }
 
+    /**
+     * DELIBERATELY A NO-OP, for the same reason 0001-0006 give for the six tables.
+     *
+     * MEASURED 2026-10-24 against a restored copy of the production dump: `products.cost_price`
+     * ALREADY EXISTS there (`decimal(15,2) NOT NULL DEFAULT 0.00`) and holds 45 rows of merchant
+     * cost data, 9 of them non-zero, summing to 1170.65. This migration's `up()` therefore
+     * no-ops in production -- it did not create the column.
+     *
+     * The earlier version of this method dropped the column whenever it was PRESENT. Run against
+     * the restored copy, `migrate:rollback` executed it in 30.28ms and DESTROYED all 45 values:
+     * an up() that creates nothing paired with a down() that drops regardless. The asymmetry was
+     * the defect, and it is why this is now a no-op rather than a guarded drop.
+     *
+     * A fresh environment is left with a spare zero-default column after a rollback. That is a
+     * cosmetic wart; the alternative was irrecoverable loss of production money data. Drop it by
+     * hand if you must.
+     */
     public function down(): void
     {
-        if (! Schema::hasTable('products') || ! Schema::hasColumn('products', 'cost_price')) {
-            return;
-        }
-
-        Schema::table('products', function (Blueprint $table) {
-            $table->dropColumn('cost_price');
-        });
     }
 };
