@@ -54,7 +54,19 @@ document is cited instead — inventing a register ID would be worse than citing
 | P2-02-8 | Weekly orders chart with a table fallback | chart a11y | **TODO** | — | — | — |
 | P2-02-9 | Recent orders / top products in the new system | — | **TODO** | — | — | — |
 
-## Slices P2-03 … P2-07 — not started
+## Slice P2-07 — Flutter merchant experience (Workstream K)
+
+| ID | Task | Decisions | Status | Files | Verified by | Blocker |
+|---|---|---|---|---|---|---|
+| P2-07-1 | Install a working Flutter SDK and measure the app | — | **DONE** | — | Flutter 3.41.2 / Dart 3.11.0; closes Phase 0 blocked check #4 | — |
+| P2-07-2 | Wire `flutter_localizations` — the P0 RTL defect | — | **DONE** | `lib/store_go.dart`, `lib/translations/translation_service.dart` | 1186 tests pass; 2 new test files; **both bite** (3 and 2 failures when reverted) | — |
+| P2-07-3 | Remove the vendor-host avatar fallback | — | **DONE** | `lib/utils/images.dart` + 2 screens | host-level guard test, red first; analyze 246 info / 0 warning / 0 error | — |
+| P2-07-4 | Web ↔ Flutter parity matrix | — | **DONE** | `PHASE-02-WEB-FLUTTER-PARITY.md` | 91 endpoints read from `lib/utils/base_api.dart` | — |
+| P2-07-5 | **RTL visual pass over the app's screens** | — | **BLOCKED** | — | — | **No device, no emulator, no Flutter rendering in this container.** G1's fix is verified; the look of each mirrored screen is not. |
+| P2-07-6 | Dashboard honesty pass in the app (periods, money gate) | PRD-001 | **TODO** | — | — | partly an API change → escalation |
+| P2-07-7 | Accessibility: `Semantics` on icon-only controls (0 today, 198 files) | — | **TODO** | — | — | — |
+
+## Slices P2-03 … P2-06 — not started
 
 | ID | Slice | Workstream | Status |
 |---|---|---|---|
@@ -62,7 +74,7 @@ document is cited instead — inventing a register ID would be worse than citing
 | P2-04 | Orders experience | E | **NOT STARTED** |
 | P2-05 | Common merchant screens | J | **NOT STARTED** |
 | P2-06 | Search, notifications, preferences, onboarding | G, H, I | **NOT STARTED** |
-| P2-07 | Flutter merchant experience | K | **NOT STARTED** (measured only — see P2-00-4) |
+
 
 ## Blockers — environment, not engineering
 
