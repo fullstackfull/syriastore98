@@ -638,28 +638,104 @@ class PaymentVerificationService
     }
 
     /**
-     * Should this order be settled now that it has been marked delivered?
+     * ============================================================================================
+     *  DELIVERED IS NOT PAID. OWNER DECISION, 2026-10-24, FINAL.
+     * ============================================================================================
      *
-     * The caller is OrderController::order_status_change(), which is the one
-     * place a merchant declares an order delivered. Returns false unless ALL of:
+     * This method REPLACES `codShouldSettleOnDelivery()`, which returned true for any non-Paid COD
+     * order the moment a merchant marked it delivered. The owner withdrew that trigger:
      *
-     *   - the settle-on-delivery policy is in force, so the default behaviour is
-     *     untouched and this method is inert until the owner opts in;
-     *   - the order really is cash on delivery;
-     *   - it is not ALREADY Paid, which makes a replayed status change a no-op
-     *     rather than a second settlement.
+     *     "Withdraw the Delivered-based COD payment/settlement trigger now. Delivered must never,
+     *      by itself, mark COD as Paid or credit a merchant wallet. Require a separate verified
+     *      cash collection event, recording the collector (merchant, courier or delivery company),
+     *      collection amount, time and supporting evidence. Keep order delivery reporting separate
+     *      from cash collection and financial settlement reporting."
+     *
+     * WHY THE OLD TRIGGER WAS WRONG, and it is worth stating because it was not obviously so.
+     * D-06 made COD Pending at creation, which was right, and then needed SOMETHING to move it to
+     * Paid; marking delivered was the only signal the product already had. But a merchant clicking
+     * 'delivered' on their own order, through their own web guard, is a PROXY for collection and
+     * not evidence of it. The courier may not have handed the cash over. The order may have been
+     * marked delivered in error, or early, or to clear a dashboard. D1 then said so in terms --
+     * "no wallet credit for creation *or* for 'Delivered'" -- and this method is that sentence.
+     *
+     * WHAT SETTLES A COD ORDER NOW. A verified cash collection event, and nothing else. The event
+     * must name WHO collected (merchant, courier or delivery company, and which one), HOW MUCH,
+     * WHEN, and carry its supporting evidence. Those four are the owner's words and they are what
+     * `App\Services\CodCollectionService` records.
+     *
+     * THIS METHOD CANNOT RETURN TRUE TODAY, and that is correct rather than a stub. The event has
+     * nowhere to live: `cod_collection_events` is declared by no migration, so
+     * `CodCollectionService::verifiedCollectionFor()` always answers null and this always refuses.
+     * A COD order therefore stays Pending until a human asserts payment through
+     * `OrderController::order_payment_status`, which is a deliberate separate act rather than a
+     * side effect of a delivery click. When GATE F lands and the table exists, the event becomes
+     * the proper path and that manual assertion becomes the exception rather than the only route.
+     *
+     * The draft schema is `database/migrations/_gate_f_pending/0009_draft_create_cod_collection_events_table.php.draft`.
      *
      * @param \App\Models\Order $order
+     * @param object|null $collectionEvent a verified event, or null -- callers pass what
+     *                                     CodCollectionService::verifiedCollectionFor() returned
      */
-    public function codShouldSettleOnDelivery($order): bool
+    public function codMayBeSettled($order, $collectionEvent = null): bool
     {
-        // No policy gate (owner decision D-06): settle-on-delivery is the only COD behaviour, so this
-        // transition is live rather than inert-until-opted-in.
         if ($order === null || !$this->isCashOnDelivery($order->payment_type ?? null)) {
             return false;
         }
 
-        return strtolower(trim((string) ($order->payment_status ?? '')))
-            !== strtolower(self::STATUS_PAID);
+        // Already Paid: a replay settles once, not twice. Kept from the withdrawn method because
+        // the idempotency requirement did not change -- only the trigger did.
+        if (strtolower(trim((string) ($order->payment_status ?? ''))) === strtolower(self::STATUS_PAID)) {
+            return false;
+        }
+
+        // NO EVENT, NO SETTLEMENT. This is the whole decision in one line.
+        if ($collectionEvent === null) {
+            return false;
+        }
+
+        // The event must be for THIS order. A caller handing over somebody else's event settles
+        // nothing -- the same class of mistake as a guard that authorises one row while the
+        // handler mutates another.
+        if ((int) ($collectionEvent->order_id ?? 0) !== (int) ($order->id ?? -1)) {
+            return false;
+        }
+
+        // AND THE AMOUNT MUST MATCH WHAT IS OWED. A collection of less than the order total is a
+        // partial collection, which is a different thing and is not settlement; a collection of
+        // more is a data error. Compared with a tolerance because both sides are money held in
+        // columns this project does not control the types of.
+        $collected = (float) ($collectionEvent->amount ?? 0);
+        $owed = (float) ($order->final_price ?? 0);
+
+        if ($collected <= 0.0 || abs($collected - $owed) > 0.005) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * RETIRED, and deliberately left as a method that throws rather than deleted outright.
+     *
+     * Deleting it would make every stale caller a fatal "undefined method" at the point of use,
+     * which in a vendored-module codebase can surface anywhere and says nothing about why. This
+     * says why. There is no caller in app/ as of the withdrawal -- the only one,
+     * OrderController::order_status_change(), was removed in the same change -- and
+     * CodStateMachineTest asserts that none returns.
+     *
+     * @deprecated The Delivered trigger was withdrawn by owner decision on 2026-10-24.
+     *             Use codMayBeSettled() with a verified collection event.
+     */
+    public function codShouldSettleOnDelivery($order): bool
+    {
+        throw new \LogicException(
+            'codShouldSettleOnDelivery() was withdrawn by owner decision on 2026-10-24: "Delivered '
+            . 'must never, by itself, mark COD as Paid or credit a merchant wallet." Settlement now '
+            . 'requires a verified cash collection event naming the collector, amount, time and '
+            . 'evidence. Use codMayBeSettled($order, $collectionEvent) with an event from '
+            . 'App\Services\CodCollectionService::verifiedCollectionFor().'
+        );
     }
 }

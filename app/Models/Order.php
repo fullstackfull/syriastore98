@@ -613,7 +613,25 @@ if ($order_status == 'cancel') {
                 $order->delivery_date = now();
                 $order->delivered_status = 1;
                 $order->save();
-                event(new OrderPaymentStatus($order));
+
+                /*
+                 * NO PAYMENT EVENT FROM A DELIVERY TRANSITION. Owner decision, 2026-10-24:
+                 * "Keep order delivery reporting separate from cash collection and financial
+                 * settlement reporting."
+                 *
+                 * This branch used to fire `event(new OrderPaymentStatus($order))`. It changes
+                 * `delivery_date` and `delivered_status` and NOTHING about payment, so a payment
+                 * event here announced a payment change that had not happened.
+                 *
+                 * IT CREDITED NOTHING TODAY -- EventServiceProvider registers
+                 * `OrderPaymentStatus::class => []`, deliberately with no listeners -- which is
+                 * exactly why it is removed now rather than left. A dead coupling that becomes
+                 * live the moment somebody adds a listener is the same shape as the GATE F
+                 * financial subsystem: harmless until switched on, and then wrong.
+                 *
+                 * The CANCEL branch keeps its event, and should: that one really does write
+                 * `payment_status = 'Unpaid'`.
+                 */
 
                 $return['status'] = 'success';
                 $return['message'] = 'Order status changed.';

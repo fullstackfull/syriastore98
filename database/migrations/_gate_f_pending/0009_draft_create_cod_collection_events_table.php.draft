@@ -1,0 +1,120 @@
+<?php
+
+/**
+ * ============================================================================================
+ *  PROVISIONAL DRAFT -- GATE F. NOT ACTIVE. NOT RECONCILED AGAINST PRODUCTION.
+ * ============================================================================================
+ *
+ * Held out of the live migration path the same two independent ways the other drafts here are:
+ * an undiscovered directory, AND a `*.php.draft` name that cannot match Laravel's `*_*.php` glob.
+ * tests/Unit/Database/MigrationHygieneTest.php asserts both. Read README.md before promoting.
+ *
+ * ============================================================================================
+ *  THIS ONE IS DIFFERENT FROM THE OTHER EIGHT, AND THE DIFFERENCE MATTERS
+ * ============================================================================================
+ *
+ * The other drafts here RECONSTRUCT tables that live code already reads and writes -- every
+ * column is an inference from `$fillable`, and "the dump wins on every disagreement".
+ *
+ * THIS TABLE DOES NOT EXIST ANYWHERE. No code writes it, no production database has it, there is
+ * nothing to reconcile against and no dump can contradict it. It is a NEW table for a NEW
+ * concept, specified by the owner's decision of 2026-10-24:
+ *
+ *     "Require a separate verified cash collection event, recording the collector (merchant,
+ *      courier or delivery company), collection amount, time and supporting evidence."
+ *
+ * So its columns are not guesses. Each is one of the four things that sentence names, plus the
+ * keys that attach an event to an order and a store. It still sits behind GATE F because D15
+ * gates ALL production migrations on verified backups and a restoration rehearsal, not because
+ * its shape is uncertain.
+ *
+ * ============================================================================================
+ *  WHY EACH COLUMN IS WHAT IT IS
+ * ============================================================================================
+ *
+ *   collector_type   The decision names exactly three collectors, so this is a short constrained
+ *                    string and not free text. An unrecognised fourth value is a mistake, not a
+ *                    new kind of collector, and CodCollectionService refuses it before the write.
+ *   collector_id     WHICH merchant, courier or delivery company. Deliberately NOT a foreign key:
+ *                    the three collector types live in three different tables (`users`,
+ *                    `delivery_boys`, and a delivery-company table that does not exist yet), so a
+ *                    single FK cannot express it. The integrity rule is enforced in the service.
+ *   amount           decimal(18,4), the project's standing money type. NOT nullable: an event
+ *                    with no amount is not a collection.
+ *   collected_at     WHEN THE CASH CHANGED HANDS, which is not `created_at`. They differ whenever
+ *                    an event is entered after the fact, which is the normal case for a courier
+ *                    round, and reconciliation keys on this one. Indexed with store_id for the
+ *                    "what was collected in this store last week" query this exists to answer.
+ *   evidence         Free text, NOT NULL. A photo reference, a signature id, a receipt number,
+ *                    whatever the store uses. What counts as sufficient is the owner's to define
+ *                    per store; that it EXISTS is enforced.
+ *   recorded_by      The user who entered the event -- separate from collector_id ON PURPOSE. The
+ *                    person who types it in is often not the person who took the money, and
+ *                    collapsing the two destroys exactly the collector-liability trail the
+ *                    decision asks to keep. Nullable: a future API or courier app may record an
+ *                    event with no signed-in user behind it.
+ *
+ * ONE EVENT PER ORDER, enforced by a unique index on order_id. A second collection against the
+ * same order is either a duplicate or a partial-collection record, and partial collection is a
+ * concept this product does not have yet -- so it must be refused at the schema rather than
+ * written as if it were a second full settlement. When partial collection is designed, THIS INDEX
+ * is the line that has to change, which is why it is called out here.
+ *
+ * ADDITIVE AND NON-DESTRUCTIVE, per the same decision: this creates a table and alters nothing.
+ * No existing row is read, rewritten or back-filled. COD orders already marked Paid by the
+ * withdrawn Delivered trigger keep that status and acquire no invented event.
+ *
+ * ORDERING. Promote this BEFORE or WITH `store_order_financials` (draft 0004). The financial
+ * record is meant to follow a collection; creating the financial table first leaves settlement
+ * with no verifiable trigger and re-opens the question the 2026-10-24 decision closed.
+ */
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        if (Schema::hasTable('cod_collection_events')) {
+            return;
+        }
+
+        Schema::create('cod_collection_events', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('order_id')->unique();
+            $table->unsignedBigInteger('store_id')->index();
+
+            // merchant | courier | delivery_company -- App\Services\CodCollectionService::COLLECTOR_TYPES
+            $table->string('collector_type', 32);
+            $table->unsignedBigInteger('collector_id');
+
+            $table->decimal('amount', 18, 4);
+
+            // When the cash changed hands. NOT created_at.
+            $table->timestamp('collected_at');
+
+            $table->text('evidence');
+
+            // The user who entered the event, which is not necessarily the collector.
+            $table->unsignedBigInteger('recorded_by')->nullable();
+
+            $table->timestamps();
+
+            $table->index(['store_id', 'collected_at']);
+            $table->index(['collector_type', 'collector_id']);
+        });
+    }
+
+    public function down(): void
+    {
+        // Dropping this destroys collection evidence, which is the one thing it exists to hold.
+        // Guarded rather than unconditional so a careless rollback on a populated table is at
+        // least a deliberate act: empty it first if that is really what is meant.
+        if (Schema::hasTable('cod_collection_events')
+            && \Illuminate\Support\Facades\DB::table('cod_collection_events')->count() === 0) {
+            Schema::drop('cod_collection_events');
+        }
+    }
+};

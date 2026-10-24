@@ -256,7 +256,15 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // in the statement: `customer_id` is a VARCHAR holding an integer, and MEASURED on MySQL
         // 8.0.46 a SQL-side `where('customer_id', 7)` also matches '7abc', ' 7' and '07' while
         // SQLite matches only '7' -- see tests/Support/Security/bin/verify-pending-partial-payment-lookup-on-mysql.php.
-        $this->assertSame(['app' => 143, 'packages' => 45], $perDir,
+        // 143 -> 145 with the two CodCollectionService sites. The owner's 2026-10-24 decision
+        // withdrew the Delivered-based COD settlement trigger and requires "a separate verified
+        // cash collection event, recording the collector ..., collection amount, time and
+        // supporting evidence". Both sites -- the insert and the read -- carry a store_id
+        // predicate at the call site; the read's FIRST version did not, and this ratchet is what
+        // caught it. Raw and not Eloquent because `cod_collection_events` has no model and no
+        // table yet: it is a GATE F draft, so an Eloquent class would be a model for a table that
+        // does not exist, and the service's isAvailable() gate is what keeps both sites inert.
+        $this->assertSame(['app' => 145, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -277,7 +285,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // 187 -> 188 with P1-ORD-02 criterion 2's pending-balance lookup (see the note above the
         // per-directory assertion). The per-table row for `order_partial_payments` is NEW at [1, 0]
         // -- the statement carries a store_id predicate -- so the unscoped sum below does not move.
-        $this->assertSame(188, array_sum($perDir));
+        // 188 -> 190 with the two CodCollectionService sites above. The per-table row for
+        // `cod_collection_events` is NEW at [2, 0] -- both statements name store_id -- so the
+        // unscoped sum below does not move.
+        $this->assertSame(190, array_sum($perDir));
     }
 
     /**
@@ -311,6 +322,23 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // whether the victim's category has children is the P1-INV-08 bug, and for an own-store category the two
             // values are the same. Counted as aware, not exposed, which is why its second number is 0.
             'categories' => [1, 0],
+            // NEW with the owner's 2026-10-24 COD decision, and BOTH SITES SCOPED -- the [2, 0]
+            // is the point. The Delivered-based settlement trigger was withdrawn and replaced by
+            // "a separate verified cash collection event, recording the collector ..., collection
+            // amount, time and supporting evidence"; App\Services\CodCollectionService is that
+            // event, and its insert and read both name store_id at the call site.
+            //
+            // THE READ'S FIRST VERSION DID NOT, and this ratchet is what caught it -- but only
+            // after the service was changed to spell the table as a quoted LITERAL. Written as
+            // `DB::table(self::TABLE)` both statements were invisible here: the per-directory
+            // count moved and this map gained no row, so an unscoped read would have raised
+            // nothing. CodStateMachineTest::test_the_table_constant_and_the_literals_agree keeps
+            // the literal and the constant from drifting apart now that they are duplicated.
+            //
+            // The table itself is a GATE F draft and exists nowhere yet, so both statements are
+            // unreachable behind CodCollectionService::isAvailable(). They are inventoried anyway:
+            // the day the table lands is the day nobody re-reads this file.
+            'cod_collection_events' => [2, 0],
         // P1-SEC-04: ModuleAdministrativeRouteGuard::ownsCampaign (the row named by `id`; compared to the caller's tenant)
             'coupon_requests' => [3, 3],
             'coupons' => [2, 0],
@@ -478,8 +506,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // 159 -> 160 with P1-ORD-02 criterion 2's pending-balance lookup, which names
         // `order_partial_payments` literally and carries a store_id predicate, so the unscoped sum
         // below does not move.
-        $this->assertSame(160, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '160 literal-table sites of the 188 entry points; the other 28 build their table name '
+        // 160 -> 162 with the two CodCollectionService sites (owner decision 2026-10-24). Both name
+        // `cod_collection_events` literally and both carry a store_id predicate, so the unscoped
+        // sum below does not move. They are literals rather than `self::TABLE` precisely so this
+        // assertion and the map above can see them -- see the row's own note.
+        $this->assertSame(162, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            '162 literal-table sites of the 190 entry points; the other 28 build their table name '
             . 'from a variable and so cannot be attributed (see LIMIT 2 in this class docblock).');
         // 66 -> 71: +9 (campaigns 1, helpdesk_tickets 1, email_templates 1, user_email_templates 1, order_refunds 1, stores 2, plus the Duo/credential reads) and -2 (zid_orders)
         // 71 -> 73: of the five new sites only the two `stores` slug resolutions carry no `store_id` in their statement

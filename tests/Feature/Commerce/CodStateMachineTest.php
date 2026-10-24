@@ -141,25 +141,26 @@ class CodStateMachineTest extends TestCase
     }
 
     /**
-     * And the delivery-side transition is LIVE, not inert -- the inverse of what this asserted before.
-     * An unpaid COD order settles; one already Paid does not settle twice.
+     * AND THE DELIVERY-SIDE TRANSITION IS WITHDRAWN. This test has now been inverted TWICE, and
+     * the history is the point rather than noise.
+     *
+     *   v1  asserted the transition was INERT until the owner opted in (the D-06 proposal state)
+     *   v2  asserted it was LIVE, once D-06 removed the policy gate
+     *   v3  asserts it does not exist, because the owner withdrew it on 2026-10-24:
+     *       "Delivered must never, by itself, mark COD as Paid or credit a merchant wallet."
+     *
+     * A reader who finds only v3 might reasonably wonder whether delivery settlement was ever
+     * considered. It was, twice, and was retired on evidence rather than preference: a merchant
+     * clicking 'delivered' on their own order is a proxy for collection, not evidence of it.
      */
-    public function test_the_delivery_transition_is_live(): void
+    public function test_the_delivery_transition_is_withdrawn(): void
     {
-        $this->assertTrue(
-            $this->verifier->codShouldSettleOnDelivery($this->codOrder('Unpaid')),
-            'an unpaid COD order must settle when delivered'
-        );
-
-        $this->assertTrue(
-            $this->verifier->codShouldSettleOnDelivery($this->codOrder('Pending')),
-            'a pending COD order -- the state it is now created in -- must settle when delivered'
-        );
-
-        $this->assertFalse(
-            $this->verifier->codShouldSettleOnDelivery($this->codOrder('Paid')),
-            'an already-paid order must not settle a second time on a replayed status change'
-        );
+        foreach (['Unpaid', 'Pending'] as $status) {
+            $this->assertFalse(
+                $this->verifier->codMayBeSettled($this->codOrder($status), null),
+                "a COD order in state '{$status}' must NOT settle merely because it was delivered"
+            );
+        }
     }
 
     /** The other offline types are untouched by any of this. */
@@ -194,52 +195,142 @@ class CodStateMachineTest extends TestCase
         );
     }
 
-    /** Opted in, an unpaid COD order settles on delivery. */
-    public function test_an_opted_in_unpaid_cod_order_settles_on_delivery(): void
+    /*
+    |--------------------------------------------------------------------------
+    | DELIVERED IS NOT PAID -- owner decision, 2026-10-24, FINAL.
+    |
+    | THREE TESTS HERE ARE INVERSIONS, not repairs, and the inversion IS the
+    | decision. They asserted that marking an order delivered settles it:
+    |   test_an_opted_in_unpaid_cod_order_settles_on_delivery
+    |   test_an_already_paid_cod_order_does_not_settle_again
+    |   test_a_non_cod_order_never_settles_on_delivery
+    | all three drove codShouldSettleOnDelivery(), which no longer exists as a
+    | working method. They encoded the behaviour the owner withdrew:
+    |
+    |   "Delivered must never, by itself, mark COD as Paid or credit a merchant
+    |    wallet. Require a separate verified cash collection event, recording
+    |    the collector (merchant, courier or delivery company), collection
+    |    amount, time and supporting evidence."
+    |
+    | What they were really protecting -- idempotency, and COD-only -- is kept
+    | below against the NEW rule, because those requirements did not change.
+    | Only the trigger did.
+    |--------------------------------------------------------------------------
+    */
+
+    /** The withdrawn method is gone, and says why rather than being an undefined-method fatal. */
+    public function test_the_delivered_trigger_is_withdrawn_and_says_so(): void
     {
-        config(['services.cod.settlement' => PaymentVerificationService::COD_SETTLEMENT_ON_DELIVERY]);
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessageMatches('/withdrawn by owner decision/i');
+
+        $this->verifier->codShouldSettleOnDelivery($this->codOrder('Pending'));
+    }
+
+    /** No caller survives in app/. A withdrawn trigger with a live call site is not withdrawn. */
+    public function test_no_code_in_app_still_calls_the_withdrawn_trigger(): void
+    {
+        $callers = [];
+
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(app_path(), \FilesystemIterator::SKIP_DOTS)) as $file) {
+            if ($file->getExtension() !== 'php') {
+                continue;
+            }
+
+            // Comments stripped before matching: a docblock EXPLAINING the withdrawal is not a
+            // call, and this project has already been bitten by a ratchet that could not tell the
+            // difference -- in both directions.
+            $code = implode('', array_map(
+                static fn ($t) => is_array($t) && in_array($t[0], [T_COMMENT, T_DOC_COMMENT], true) ? '' : (is_array($t) ? $t[1] : $t),
+                token_get_all(file_get_contents($file->getPathname()))
+            ));
+
+            // The declaration itself is not a call.
+            if (str_contains($code, 'function codShouldSettleOnDelivery')) {
+                continue;
+            }
+
+            if (str_contains($code, 'codShouldSettleOnDelivery')) {
+                $callers[] = $file->getPathname();
+            }
+        }
+
+        $this->assertSame([], $callers,
+            'the Delivered trigger is still called, so withdrawing it changed nothing at those sites');
+    }
+
+    /** WITHOUT A COLLECTION EVENT, NOTHING SETTLES. This is the decision in one assertion. */
+    public function test_a_cod_order_does_not_settle_without_a_collection_event(): void
+    {
+        foreach (['Pending', 'Unpaid', 'unpaid', ''] as $status) {
+            $this->assertFalse(
+                $this->verifier->codMayBeSettled($this->codOrder($status), null),
+                "a COD order in state '{$status}' settled with no verified cash collection event"
+            );
+        }
+    }
+
+    /** A verified event for the right order, in the right amount, DOES settle it. */
+    public function test_a_verified_collection_event_settles_the_order(): void
+    {
+        $order = $this->codOrder('Pending');
 
         $this->assertTrue(
-            $this->verifier->codShouldSettleOnDelivery($this->codOrder('Pending'))
-        );
-        $this->assertTrue(
-            $this->verifier->codShouldSettleOnDelivery($this->codOrder('Unpaid'))
+            $this->verifier->codMayBeSettled($order, $this->collectionEvent($order)),
+            'a verified collection naming the collector, amount, time and evidence must settle the order; '
+            . 'without this the rule is a blanket refusal and every assertion around it is vacuous'
         );
     }
 
-    /**
-     * IDEMPOTENT. A COD order that is already Paid does not settle again, so a
-     * replayed 'delivered' status change cannot credit the merchant twice.
-     */
+    /** IDEMPOTENT, kept from the withdrawn test: the requirement did not change, the trigger did. */
     public function test_an_already_paid_cod_order_does_not_settle_again(): void
     {
-        config(['services.cod.settlement' => PaymentVerificationService::COD_SETTLEMENT_ON_DELIVERY]);
-
-        $this->assertFalse(
-            $this->verifier->codShouldSettleOnDelivery($this->codOrder('Paid')),
-            'a replayed delivery must not settle a second time'
-        );
-
-        // Case-insensitively, because payment_status is a free-text string
-        // column and 'paid' is written by OrderFinancialService:353.
-        $this->assertFalse(
-            $this->verifier->codShouldSettleOnDelivery($this->codOrder('paid')),
-            'the already-paid guard must not be defeated by letter case'
-        );
-    }
-
-    /** A non-COD order never settles through the COD transition. */
-    public function test_a_non_cod_order_never_settles_on_delivery(): void
-    {
-        config(['services.cod.settlement' => PaymentVerificationService::COD_SETTLEMENT_ON_DELIVERY]);
-
-        foreach (['stripe', 'paymera', 'bank_transfer', 'whatsapp', '', null] as $type) {
-            $order = new Order();
-            $order->forceFill(['payment_type' => $type, 'payment_status' => 'Pending']);
+        foreach (['Paid', 'paid'] as $status) {
+            $order = $this->codOrder($status);
 
             $this->assertFalse(
-                $this->verifier->codShouldSettleOnDelivery($order),
-                'only cash on delivery may settle on delivery'
+                $this->verifier->codMayBeSettled($order, $this->collectionEvent($order)),
+                "a replayed collection against an already-{$status} order must not settle it twice"
+            );
+        }
+    }
+
+    /** COD-ONLY, likewise kept: a collection event does not settle a card order. */
+    public function test_a_non_cod_order_never_settles_through_the_collection_rule(): void
+    {
+        foreach (['stripe', 'paymera', 'bank_transfer', 'whatsapp', '', null] as $type) {
+            $order = new Order();
+            $order->forceFill(['id' => 4242, 'payment_type' => $type, 'payment_status' => 'Pending', 'final_price' => 100]);
+
+            $this->assertFalse(
+                $this->verifier->codMayBeSettled($order, $this->collectionEvent($order)),
+                'only cash on delivery settles through a cash collection event'
+            );
+        }
+    }
+
+    /** AN EVENT FOR ANOTHER ORDER SETTLES NOTHING -- the authorise-one-row, mutate-another class. */
+    public function test_a_collection_event_belonging_to_another_order_does_not_settle_this_one(): void
+    {
+        $order = $this->codOrder('Pending');
+        $event = $this->collectionEvent($order);
+        $event->order_id = (int) $order->id + 1;
+
+        $this->assertFalse($this->verifier->codMayBeSettled($order, $event));
+    }
+
+    /** A SHORT OR OVER COLLECTION IS NOT SETTLEMENT. Partial collection is a concept this has not got. */
+    public function test_an_amount_that_does_not_settle_the_order_is_refused(): void
+    {
+        $order = $this->codOrder('Pending');
+
+        foreach ([0, -100, 99.0, 100.01, 150] as $amount) {
+            $event = $this->collectionEvent($order);
+            $event->amount = $amount;
+
+            $this->assertFalse(
+                $this->verifier->codMayBeSettled($order, $event),
+                "a collection of {$amount} against an order of 100 must not settle it"
             );
         }
     }
@@ -349,31 +440,48 @@ class CodStateMachineTest extends TestCase
             $code .= $token;
         }
 
-        $this->assertStringContainsString(
+        /*
+         * INVERTED on 2026-10-24. This block used to assert that the settlement LIVED in this
+         * writer -- that it called codShouldSettleOnDelivery() and keyed on 'delivered'. The owner
+         * withdrew that trigger, so the same three strings are now the things that must be ABSENT.
+         *
+         * Comments are stripped above before any of this is matched, which is load-bearing here:
+         * the withdrawal left a long docblock in that method EXPLAINING what was removed and why,
+         * and that prose names every string below. Without the stripping this test would fail on
+         * its own explanation -- the exact trap that bit EnforcedPaymentTypesIntegrityTest.
+         */
+        $this->assertStringNotContainsString(
             'codShouldSettleOnDelivery(',
             $code,
-            'the settlement must be gated on the policy helper, so it stays inert by default'
+            'the status-change writer still calls the withdrawn Delivered trigger'
         );
-        $this->assertStringContainsString(
-            "'delivered'",
+        $this->assertStringNotContainsString(
+            'STATUS_PAID',
             $code,
-            'and gated on the delivered status specifically'
+            'the status-change writer still writes a PAID payment status. Marking an order '
+            . 'delivered must change the DELIVERY status and nothing else -- the owner asked for '
+            . 'delivery reporting to stay separate from cash collection and settlement.'
         );
-        $this->assertStringContainsString(
+        /*
+         * ALSO INVERTED. This asserted that the writer FIRED OrderPaymentStatus, on the reasoning
+         * that writing payment_status without firing it would bypass the wallet and notification
+         * listeners. That reasoning was sound for a method that wrote payment_status; it writes
+         * none now, so firing a payment event from a DELIVERY status change would be the defect
+         * -- it is precisely the wallet credit the owner forbade.
+         */
+        $this->assertStringNotContainsString(
             'OrderPaymentStatus(',
             $code,
-            'the wallet and notification listeners hang off this event; writing '
-                . 'payment_status without firing it would bypass them'
+            'a delivery status change still fires a PAYMENT event. Its listeners credit the '
+            . 'merchant wallet, which is what "no wallet credit ... for Delivered" forbids.'
         );
 
-        $gate = strpos($code, 'codShouldSettleOnDelivery(');
-        $write = strpos($code, 'payment_status =');
-
-        $this->assertNotFalse($write, 'the payment_status write must be present');
-        $this->assertLessThan(
-            $write,
-            $gate,
-            'the write must be INSIDE the gate, not before it'
+        // And the ordering assertion that policed the old gate is gone with it: there is no
+        // payment_status write left in this method to be inside or outside anything.
+        $this->assertStringNotContainsString(
+            'payment_status =',
+            $code,
+            'the status-change writer still assigns payment_status'
         );
     }
 
@@ -411,86 +519,179 @@ class CodStateMachineTest extends TestCase
             'payment_type' => 'cod',
             'payment_status' => $paymentStatus,
             'store_id' => 11,
+            // The amount a collection event has to match. Added with the 2026-10-24 decision:
+            // settlement is now "the cash collected equals what is owed", so an order with no
+            // total cannot be settled by anything and every amount assertion would be vacuous.
+            'final_price' => 100,
         ]);
 
         return $order;
     }
 
+    /**
+     * A verified cash collection event, in the shape CodCollectionService records and
+     * PaymentVerificationService::codMayBeSettled() reads.
+     *
+     * An OBJECT rather than an array, because that is what a DB::table()->first() hands back and
+     * what the production caller will pass -- a fixture shaped unlike the real thing is how a
+     * rule passes its tests and fails in use.
+     */
+    private function collectionEvent(Order $order, array $overrides = []): object
+    {
+        return (object) array_merge([
+            'order_id' => (int) $order->id,
+            'store_id' => $order->store_id,
+            'collector_type' => 'courier',
+            'collector_id' => 7,
+            'amount' => (float) $order->final_price,
+            'collected_at' => '2026-10-24 09:00:00',
+            'evidence' => 'signed delivery note 4471',
+            'recorded_by' => 3,
+        ], $overrides);
+    }
+
     // =====================================================================================
-    //  D1 vs THE SHIPPED TRIGGER -- the ordering hazard, made falsifiable.
+    //  THE HAZARD THIS SECTION GUARDED IS RESOLVED. WHAT REMAINS IS KEEPING IT RESOLVED.
     // =====================================================================================
 
     /**
-     * THE CONTRADICTION THIS PINS, and it is latent rather than live today.
+     * SUPERSEDES test_gate_f_cannot_be_released_while_marked_delivered_is_the_settlement_trigger,
+     * which was added one commit earlier and lived for about an hour.
      *
-     * D-06 settled "COD is Pending at creation" and this project implemented *marked-Delivered*
-     * as the settlement trigger. The owner's LATER final directive, D1, narrows that:
+     * THAT TEST ASSERTED A CONJUNCTION -- that the GATE F financial tables and the
+     * marked-Delivered trigger must never both exist -- because at the time the trigger was the
+     * shipped behaviour and withdrawing it was an open owner decision. It was the right control
+     * for that state: it would have gone red the day someone promoted GATE F while a merchant's
+     * own click could credit their own wallet.
      *
-     *     "COD: creation stays Pending/Unpaid; collector may be merchant, courier or delivery
-     *      company, and the ACTUAL COLLECTOR AND VERIFIED COLLECTION EVENT ARE RECORDED; five
-     *      things kept distinct -- order status, payment status, cash collection, collector
-     *      liability, merchant settlement; Paid only on trustworthy evidence; NO WALLET CREDIT
-     *      FOR CREATION *OR* FOR 'Delivered'; per-store workflows; idempotent financial
-     *      operations"
+     * The owner then withdrew the trigger outright, so one half of that conjunction is now
+     * permanently false and the test was asserting nothing. Its own premise check caught exactly
+     * that, which is the behaviour a premise check exists for.
      *
-     * The register's own annotation on that row reads: "(extends D-06 -- note it now explicitly
-     * rejects *marked-Delivered* as sufficient, which the shipped machine currently uses)."
+     * WHAT REPLACES IT. The hazard is no longer "these two may not coexist"; it is "the withdrawn
+     * trigger may not come back". That is a different and longer-lived assertion, because the
+     * pressure to restore it will be real: once GATE F lands and merchants ask why COD orders sit
+     * Pending, re-wiring delivery to settlement is the obvious shortcut and it is the one the
+     * owner has already refused.
      *
-     * WHY NOTHING IS BROKEN TODAY, which is the whole reason this is a ratchet and not a fix.
-     * A merchant marking their own order delivered does write `payment_status = Paid`
-     * (OrderController::order_status_change), and `OrderObserver::updated()` does reach
-     * `OrderFinancialService::syncFromOrder()`, which would credit the wallet. But
-     * `store_order_financials`, `store_wallets` and `store_wallet_transactions` are declared by
-     * NO migration -- the GATE F six -- so that service throws `QueryException`, the Observer
-     * catches it, and the credit silently does not happen. D1's prohibition is therefore not
-     * violated: there is no wallet credit at all.
-     *
-     * THE HAZARD IS THE ORDERING. The moment GATE F is released, that dead path becomes live and
-     * a merchant's own unverified click credits their own wallet against cash a courier may never
-     * have handed over -- "uncollected money reportable as paid" in D-06's words, and precisely
-     * the hazard database/migrations/_gate_f_pending/README.md warns that promoting those tables
-     * does not FIX a bug but SWITCHES ON a silently dead subsystem.
-     *
-     * SO THIS TEST ASSERTS A CONJUNCTION, not a behaviour: these two things must never both be
-     * true at once. It passes today because the tables do not exist. It goes RED the day someone
-     * promotes GATE F while marked-Delivered is still the settlement trigger -- which is exactly
-     * when a human needs to be stopped and sent to D1.
-     *
-     * WHY THE TRIGGER IS NOT SIMPLY WITHDRAWN HERE. Removing it makes every COD order sit Pending
-     * until a merchant explicitly asserts payment, which changes what every merchant's revenue
-     * reporting says overnight on a live business. D1 wants a *recorded collection event with a
-     * named collector*, and there is nowhere to record one -- that is columns this repository does
-     * not have. Choosing between "withdraw now and change reporting" and "keep the proxy until the
-     * collection record exists" is the owner's call, and it is recorded on #26 rather than taken
-     * here.
+     * WHY THE SOURCE IS SCANNED RATHER THAN THE BEHAVIOUR DRIVEN. Behaviour is covered above --
+     * codMayBeSettled() refuses without an event. This is about the OTHER end: a future
+     * controller, observer or module writing payment_status = Paid off a delivery status change
+     * without going near codMayBeSettled() at all. Only the source can see that.
      */
-    public function test_gate_f_cannot_be_released_while_marked_delivered_is_the_settlement_trigger(): void
+    public function test_the_delivered_trigger_has_not_been_reinstated_anywhere(): void
     {
-        $financialTablesExist = \Illuminate\Support\Facades\Schema::hasTable('store_order_financials')
-            || \Illuminate\Support\Facades\Schema::hasTable('store_wallets')
-            || \Illuminate\Support\Facades\Schema::hasTable('store_wallet_transactions');
+        $offenders = [];
 
-        $markedDeliveredStillSettles = $this->verifier->codShouldSettleOnDelivery($this->codOrder('Pending'));
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(app_path(), \FilesystemIterator::SKIP_DOTS)) as $file) {
+            if ($file->getExtension() !== 'php') {
+                continue;
+            }
 
-        $this->assertFalse(
-            $financialTablesExist && $markedDeliveredStillSettles,
-            'GATE F HAS BEEN RELEASED WHILE marked-Delivered IS STILL THE COD SETTLEMENT TRIGGER. '
-            . "Owner decision D1 rejects that combination in terms: \"no wallet credit for creation "
-            . "*or* for 'Delivered'\" and \"Paid only on trustworthy evidence\". Until this change, "
-            . 'the credit was dead only because the financial tables did not exist; with them in '
-            . 'place a merchant marking their own order delivered credits their own wallet against '
-            . 'cash a courier may never have handed over. Resolve #26 before promoting these tables: '
-            . 'either withdraw the marked-Delivered trigger, or gate it behind the recorded '
-            . 'collection event D1 asks for.'
-        );
+            // Comments stripped FIRST. The withdrawal left docblocks that quote every string
+            // below; this project has been bitten by a source-grep ratchet reading its own prose
+            // in both directions, so the rule is now unconditional.
+            $code = implode('', array_map(
+                static fn ($t) => is_array($t) && in_array($t[0], [T_COMMENT, T_DOC_COMMENT], true) ? '' : (is_array($t) ? $t[1] : $t),
+                token_get_all(file_get_contents($file->getPathname()))
+            ));
 
-        // The premise, so this cannot pass vacuously by the trigger having been silently removed
-        // for some unrelated reason while the tables are also absent.
-        $this->assertTrue(
-            $financialTablesExist || $markedDeliveredStillSettles,
-            'Neither the GATE F tables nor the marked-Delivered trigger exist. One of the two '
-            . 'premises of this ratchet is gone, so it is no longer measuring the hazard it names '
-            . '-- re-derive it against whatever replaced them.'
-        );
+            // The pattern that matters: a file that mentions the delivered status AND assigns a
+            // paid payment status. Either alone is ordinary -- plenty of code reads 'delivered',
+            // and the explicit merchant assertion in order_payment_status legitimately writes
+            // Paid. Together in one file is the shape that was withdrawn.
+            $mentionsDelivered = str_contains($code, "'delivered'") || str_contains($code, '"delivered"');
+
+            /*
+             * THE ASSIGNMENT AND THE PAID VALUE MUST BE THE SAME STATEMENT. The first version of
+             * this matched "a payment_status assignment somewhere" AND "the word Paid somewhere",
+             * and flagged app/Models/Order.php -- which writes `payment_status = 'Unpaid'` on
+             * CANCEL and separately lists 'Paid' in a dropdown helper at :1028. Two unrelated
+             * facts in one 1000-line file are not a delivered-to-Paid write.
+             *
+             * It then flagged the SAME FILE a second time, for a different reason: the dropdown
+             * helper is `$payment_status = ['Paid' => 'Paid', ...]`, a LOCAL VARIABLE whose
+             * assignment and value really are one statement. Hence `->payment_status`: a status
+             * write is a property assignment on a model, and a local array of labels is not.
+             *
+             * Both near-misses are kept in the comment rather than just fixed, because the loose
+             * forms are the obvious ways to write this and the next person will reach for them
+             * too. Two false positives on one file, from two different causes, is what a
+             * co-occurrence scan costs.
+             */
+            $writesPaid = (bool) preg_match(
+                '/->payment_status\s*=\s*[^;=][^;]{0,80}?(STATUS_PAID|[\'"]Paid[\'"])/',
+                $code
+            );
+
+            if ($mentionsDelivered && $writesPaid) {
+                $offenders[] = str_replace(base_path() . '/', '', $file->getPathname());
+            }
+        }
+
+        $this->assertSame([], $offenders,
+            "A file both names the 'delivered' status and writes a Paid payment status. The owner "
+            . 'withdrew that combination on 2026-10-24: "Delivered must never, by itself, mark COD '
+            . 'as Paid or credit a merchant wallet." If this is a legitimate new path, it must go '
+            . 'through a verified cash collection event -- App\Services\CodCollectionService and '
+            . 'PaymentVerificationService::codMayBeSettled() -- not off a delivery status change.');
+    }
+
+    /**
+     * THE PREMISE FOR THE ABOVE. A ratchet that scans for a pattern proves nothing unless the
+     * scan can actually see that pattern, so this asserts the detector fires on a file that
+     * really does contain it -- using this test file's own fixture text rather than writing a
+     * decoy into app/.
+     */
+    public function test_the_reinstatement_detector_can_actually_detect_it(): void
+    {
+        $decoy = '<?php $s = \'delivered\'; $order->payment_status = \'Paid\';';
+
+        $code = implode('', array_map(
+            static fn ($t) => is_array($t) && in_array($t[0], [T_COMMENT, T_DOC_COMMENT], true) ? '' : (is_array($t) ? $t[1] : $t),
+            token_get_all($decoy)
+        ));
+
+        $mentionsDelivered = str_contains($code, "'delivered'");
+        $writesPaid = (bool) preg_match('/payment_status\s*=\s*[^=]/', $code)
+            && (bool) preg_match("/['\"]Paid['\"]/", $code);
+
+        $this->assertTrue($mentionsDelivered && $writesPaid,
+            'the detector above cannot see the pattern it exists to find, so its empty result means nothing');
+    }
+
+    /**
+     * THE CONSTANT AND THE LITERALS MUST AGREE.
+     *
+     * CodCollectionService spells its table name as a quoted LITERAL in both `DB::table()` calls
+     * and keeps the constant for `Schema::hasTable()` and the public name -- deliberate
+     * duplication, because RawQueryTenancyInventoryTest's per-table exposure ratchet matches only
+     * a quoted literal and could not see `DB::table(self::TABLE)` at all. That was measured: the
+     * per-directory count moved 143 -> 145 while the per-table map gained no row, so a later
+     * change dropping the store_id predicate would have tripped nothing.
+     *
+     * Duplication bought ratchet visibility, and this test is the price of it: if the constant is
+     * ever renamed without the literals, the service reads a table nobody declared and the
+     * inventory watches the wrong one.
+     */
+    public function test_the_table_constant_and_the_literals_agree(): void
+    {
+        $source = file_get_contents(app_path('Services/CodCollectionService.php'));
+
+        $code = implode('', array_map(
+            static fn ($t) => is_array($t) && in_array($t[0], [T_COMMENT, T_DOC_COMMENT], true) ? '' : (is_array($t) ? $t[1] : $t),
+            token_get_all($source)
+        ));
+
+        preg_match_all('/DB::table\s*\(\s*[\'"]([a-zA-Z0-9_]+)[\'"]/', $code, $matches);
+
+        $this->assertNotEmpty($matches[1],
+            'CodCollectionService no longer names its table as a literal in DB::table(), so the '
+            . 'per-table tenancy ratchet cannot see its queries. See the constant\'s docblock.');
+
+        foreach (array_unique($matches[1]) as $literal) {
+            $this->assertSame(\App\Services\CodCollectionService::TABLE, $literal,
+                'a DB::table() literal in CodCollectionService disagrees with its TABLE constant');
+        }
     }
 }

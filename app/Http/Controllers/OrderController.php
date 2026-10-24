@@ -1182,84 +1182,48 @@ public function store(Request $request)
         $d_order = Order::find($data['order_id']);
 
         /*
-         * COD SETTLES HERE -- the other half of the cash-on-delivery state
-         * machine. See App\Services\PaymentVerificationService
-         * COD_SETTLEMENT_ON_DELIVERY for the full argument.
+         * ========================================================================================
+         *  DELIVERED IS NOT PAID. THE COD SETTLEMENT BLOCK THAT STOOD HERE IS WITHDRAWN.
+         *  Owner decision, 2026-10-24, FINAL.
+         * ========================================================================================
          *
-         * THE DEFECT. PaymentService::process() routes 'cod' straight to
-         * getProductStatus() (:315) and the order writer recorded it 'Paid'
-         * immediately, so a cash-on-delivery order counted as paid before the
-         * courier had collected anything. An order placed and never delivered
-         * stayed Paid forever, and a CANCELLATION then had to UNDO a payment
-         * that never happened -- which is literally what
-         * Order::order_status_change() does, writing payment_status = 'Unpaid'
-         * on cancel (app/Models/Order.php:550) with a comment calling it the
-         * missing line needed to refund the amount. There is nothing to refund.
-         * An Observer reacts to that write by adjusting the wallet, so the
-         * premature Paid reaches the financial records and is then walked back.
+         *     "Withdraw the Delivered-based COD payment/settlement trigger now. Delivered must
+         *      never, by itself, mark COD as Paid or credit a merchant wallet. Require a separate
+         *      verified cash collection event, recording the collector (merchant, courier or
+         *      delivery company), collection amount, time and supporting evidence. Keep order
+         *      delivery reporting separate from cash collection and financial settlement
+         *      reporting."
          *
-         * THE MISSING HALF. Nothing ever moved a COD order from unpaid to paid
-         * on delivery, because nothing had to: it was born Paid. With the
-         * correct machine the transition has to exist, and this is the one place
-         * a merchant declares an order delivered.
+         * WHAT USED TO BE HERE, so the removal is legible rather than a gap. On a successful
+         * 'delivered' status change this block wrote `payment_status = Paid` and fired
+         * OrderPaymentStatus, whose listeners reach OrderFinancialService and credit the merchant
+         * wallet. It arrived with D-06, which made COD Pending at creation and needed SOMETHING to
+         * move it to Paid; marking delivered was the only signal the product had.
          *
-         * NOT INERT ANY MORE, AND THIS PARAGRAPH SAID OTHERWISE UNTIL IT WAS
-         * MEASURED. It used to read "INERT BY DEFAULT. codShouldSettleOnDelivery()
-         * returns false unless the owner has opted in to
-         * `services.cod.settlement = 'delivery'`". That stopped being true when
-         * D-06 removed the policy gate: the helper now has no gate at all and
-         * returns true for any non-Paid COD order, so THIS BLOCK IS LIVE for
-         * every deployment. Executed, not read: with
-         * `services.cod.settlement = 'order'` set, codSettlementPolicy() still
-         * answers 'delivery', so settle-at-order is unreachable rather than
-         * merely deselected.
+         * WHY IT IS GONE. A merchant clicking 'delivered' on their own order, through their own
+         * web guard, is a PROXY for collection and not evidence of it -- the courier may not have
+         * handed the cash over, and the click may be early, mistaken, or made to clear a
+         * dashboard. D1 said so ("no wallet credit for creation *or* for 'Delivered'") and the
+         * 2026-10-24 decision withdrew the trigger outright.
          *
-         * AND THE OWNER HAS SINCE NARROWED IT FURTHER. D1 -- the final directive,
-         * later than D-06 -- says "no wallet credit for creation *or* for
-         * 'Delivered'" and "Paid only on trustworthy evidence", with "the actual
-         * collector and verified collection event ... recorded". A merchant
-         * clicking 'delivered' on their own order is a PROXY for collection, not
-         * evidence of it, and D1 rejects it as sufficient.
+         * SO THIS METHOD NOW CHANGES ONE THING: the order's DELIVERY status. It does not touch
+         * payment_status, it fires no payment event, and it credits nothing. That separation --
+         * delivery reporting apart from cash collection apart from financial settlement -- is
+         * itself part of the decision, not a side effect of removing code.
          *
-         * SO THIS TRANSITION IS AN INTERIM, and it is only harmless because the
-         * credit it would cause is dead: OrderFinancialService writes
-         * `store_order_financials` and `store_wallets`, which no migration
-         * declares, so it throws and OrderObserver swallows it. The day GATE F
-         * is released that path becomes live and a merchant's own click credits
-         * their own wallet. CodStateMachineTest::
-         * test_gate_f_cannot_be_released_while_marked_delivered_is_the_settlement_trigger
-         * asserts that conjunction and goes red on exactly that day.
+         * WHAT SETTLES A COD ORDER NOW. `App\Services\CodCollectionService` records a verified
+         * cash collection event naming the collector, amount, time and evidence, and
+         * `PaymentVerificationService::codMayBeSettled()` consults it. Until GATE F provides
+         * `cod_collection_events` no event can exist, so a COD order stays Pending until a human
+         * asserts payment through `order_payment_status()` -- a deliberate separate act, which is
+         * the point.
          *
-         * It is NOT withdrawn here because withdrawing it makes every COD order
-         * sit Pending until a merchant asserts payment by hand, which changes
-         * what every merchant's revenue reporting says overnight, and because
-         * D1's replacement -- a recorded collection event with a named collector
-         * -- needs columns this repository does not have. #26 carries the choice.
+         * HISTORICAL ROWS ARE UNTOUCHED, per the same decision: COD orders already marked Paid by
+         * the withdrawn trigger keep that status. Nothing is reversed or back-filled.
          *
-         * IDEMPOTENT. The guard requires the order not to be Paid already, so a
-         * replayed 'delivered' status change settles once, not twice.
-         *
-         * The save is kept narrow -- only payment_status -- and the same
-         * OrderPaymentStatus event the model's own transitions fire is fired
-         * here too, so the wallet and notification listeners see this change the
-         * way they see every other payment-status change rather than being
-         * bypassed.
+         * CodStateMachineTest pins every sentence above, including that a 'delivered' change
+         * leaves payment_status alone and fires no OrderPaymentStatus event.
          */
-        if (($responce['status'] ?? null) === 'success'
-            && strtolower(trim((string) $data['order_status'])) === 'delivered'
-            && $this->paymentVerifier()->codShouldSettleOnDelivery($d_order)
-        ) {
-            $d_order->payment_status = \App\Services\PaymentVerificationService::STATUS_PAID;
-            $d_order->save();
-
-            event(new \App\Events\OrderPaymentStatus($d_order));
-
-            \Log::info('COD order settled on delivery', [
-                'order_id' => $d_order->id,
-                'store_id' => $d_order->store_id,
-                'payment_type' => $d_order->payment_type,
-            ]);
-        }
         $store = getStoreById($d_order->store_id);
         $dArr = [
             'order_id' => $data['order_id'],
