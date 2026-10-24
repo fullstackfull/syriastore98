@@ -133,30 +133,21 @@ reported a store-B row deleted while the raw table still held it. Assert through
 
 ---
 
-## 2. Development rules
+## 2. Phase 02 — streamlined working rules (owner instruction, 2026-10-25)
 
-- **Branch:** `claude/store-syria-p01a-ci-foundation`. Commit and push there. If the harness assigns a second branch, keep both identical:
-  `merge-base --is-ancestor` each, push `HEAD` to both, fast-forward only. Read CI back before claiming anything about it.
-- **Never merge into `main`. Never deploy. Never run migrations against the development server.
-  Never modify live data.**
-- **Never edit `packages/workdo/`.** Vendored commercial code: an in-place edit is silently
-  reverted by the next upstream update and leaves no patch record. A fix that seems to need a
-  module file belongs in the host app — a Policy, FormRequest, Gate, query scope or route
-  middleware. **`LynomiaChat` is the one exemption** (first-party, written here). Enforced by a
-  PreToolUse hook locally and by `.github/scripts/guard-no-workdo-changes.sh` in CI, which is the
-  authority.
-- **Do not weaken a CI guard or delete a test to get green.** `.github/known-test-outcomes.json`
-  declares the accepted failures; adding an entry to obtain green is explicitly forbidden by its
-  own README.
-- **Preserve first.** This is a remediation project on a live business. Prefer the narrowest change
-  that closes the defect, and keep the request/response contract unless security requires otherwise
-  — then say so explicitly.
-- **A test must bite.** After writing a regression test, revert the fix and confirm the test fails.
-  A removal that doesn't isolate the control proves nothing. This has caught vacuous tests
-  repeatedly: a test asserting "the row didn't change" passes when the endpoint 500s for everyone.
-- **Claim only what you executed.** Say which engine, which command, and what the output was. A review that only READ cannot close a MySQL
-  question — run `tests/Support/Security/bin/`. Never edit, commit or review while a suite or mutation run is in progress; use
-  `docs/development/phase-1/tools/ledger-tool.py` (not `render-ledger.py`, which does not reproduce the ledger) and `mutation-harness.py`.
+**Three standing principles**
+
+1. Preserve every approved change; inventory existing work and do not blindly merge experimental or redundant branches.
+2. Preserve Flutter and Lynomia Chat compatibility, including their API contracts, and existing WorkDo functionality.
+3. Green CI is necessary evidence, not proof that a production release is ready.
+
+**Autonomous execution:** Phase 02 Merchant Experience design and isolated engineering are authorised. Review existing Discovery/design work, implement small coherent slices, run relevant tests, perform independent review on risky changes, and commit/push to a dedicated Phase 02 branch **without repeated owner check-ins**. Prefer targeted UI/contract tests per slice; run the complete required CI gates at integration milestones and final review. Do not manufacture green results or weaken checks.
+
+**Only escalate genuine decisions:** ask the owner for production deployment, merges to `main`, persistent migrations or destructive live-data operations, secret/credential rotation, material changes to prices/payments/stock/business rules or public API compatibility, vendor licence issues, or departures from the six-phase approved scope. Existing approved decisions need no repeated approval.
+
+**Safety boundaries:** Keep tenant isolation, permissions, payments and personal data protected. Do not rewrite history or force-push. Never commit secrets, dumps, or real customer data. Do not edit vendored `packages/workdo/` (except first-party `LynomiaChat`) as a shortcut. Coordinate security incident P1-SEC-40 (#120) independently; UI work does not remediate the database dump exposure. No production access, migration or deployment is implied by this Phase 02 authorisation.
+
+**Scope precedence:** The owner-approved six-phase Master Product Plan / Decision Register v1.0 (2026-10-14) defines the product scope. Phase 02 is Merchant Experience for both merchant web and Flutter; Phase 03 is Storefront, Phase 04 Commerce, Phase 05 Marketing & Analytics, Phase 06 SaaS & Super Admin. Discovery and `docs/design-system/` supply evidence and reusable foundations; older differently numbered roadmaps do not override the approved plan.
 
 ---
 
@@ -195,20 +186,18 @@ declared skip set.
 
 ---
 
-## 4. The six phases
+## 4. The six phases — owner-approved product plan
 
-| Phase | Scope | Status |
+| Phase | Scope | State |
 |---|---|---|
-| **01 Foundation & Stability** | CI, regression gates, security, design-system foundation | **engineering closed 2026-10-24; NOT release-ready** |
-| 02 Merchant Web Experience | adopt the design system screen by screen | not started — needs Phase 01 acceptance |
-| 03 Storefront & Theme Builder | storefront and themes | not started |
-| 04 Advanced Commerce | advanced commerce, merchant Odoo | not started |
-| 05 Marketing & Analytics | marketing, analytics | not started |
-| 06 SaaS & Super Admin | SaaS operations, platform Odoo | not started |
+| 01 Foundation | security, CI, regression gates, design-system foundation | engineering complete (2026-10-24), **NOT release-ready or accepted** |
+| 02 Merchant Experience | merchant dashboard, product/order UX, preferences, search, notifications, onboarding, web and Flutter parity | **owner authorised isolated engineering (2026-10-25); not authorised to merge/release** |
+| 03 Storefront | themes, visual editor, shopper experience, checkout UX, SEO | not started |
+| 04 Commerce | products, multi-warehouse stock, pricing, fulfilment, COD, returns, channels | not started |
+| 05 Marketing & Analytics | campaigns, loyalty, reports and trustworthy analytics | not started |
+| 06 SaaS & Super Admin | SaaS subscriptions, support, controls, operations, platform admin | not started |
 
-Phase 00 complete; **Phase 01 engineering complete, not release-ready** — `DONE 82 · PARTIAL 4 · READY 0 ·
-BACKLOG 2 · BLOCKED 21`, every remaining item held by the owner, the environment, the business or a
-release decision (`phase-1/PHASE-01-CLOSURE-EXECUTION.md` → `CLOSEOUT`). **Do not start Phase 02 before acceptance.**
+Phase 02 engineering may proceed on its own branch; this does **not** waive Phase 01 acceptance criteria or authorise release to production. Preserve and separately track the outstanding release gates in `docs/development/phase-1/PHASE-01-CLOSURE-EXECUTION.md` and the security incident #120.
 
 ---
 
