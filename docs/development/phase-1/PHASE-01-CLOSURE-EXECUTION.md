@@ -1000,3 +1000,37 @@ was **cut off mid-text by a safety classifier and replaced the whole description
 character prefix**, and the write was not retried. The full prior text survives only because it was
 committed byte-identically to `PR3-DESCRIPTION-ARCHIVE.md`. Any option above that edits the
 description should archive first.
+
+## 8. A TEST-DESIGN RULE this phase learned the expensive way (2026-10-24)
+
+**A sentinel asserted ABSENT from a haystack must be long enough that it cannot occur by chance.**
+
+`StorefrontVisitLogTest` asserted that a CVV sentinel appears nowhere in `shetabit_visits`. Its
+oracle is `serialize()` of **every column of every row**, which includes the `url` column — and the
+fixture's store slug is `store-<id>-<uniqid() hex>`. The sentinel was `'737'`. Three characters.
+
+It fired in the merge-base regression gate on `22731010`, **a commit whose entire diff was one
+markdown file**, and the failure message carried its own refutation:
+
+```
+s:7:"request";s:2:"[]";                         <- the control worked; nothing was stored
+s:3:"url";s:44:"http://localhost/store-1-6adcb973799b1/login"
+                                      6adcb9[737]99b1
+```
+
+**Rate, computed not estimated:** 11 three-character windows in a 13-character hex suffix, so
+p ≈ 11/16³ ≈ **0.27% per run** — which is why it survived roughly 200 CI runs before firing, and why
+85 local runs of the test reproduced nothing. A failure this rare reads as a flake and gets re-run,
+which is exactly how it would have kept its secret.
+
+**What makes this worth a rule rather than a footnote.** The three other sentinels in that same file
+are long and self-labelling (`PW-FIXTURE-SENTINEL-4471`, `COOKIE-SENTINEL-9902`,
+`RESETTOKEN-SENTINEL-5538`). One short one was enough. And the cost is not just a red build: with
+`'737'`, **a real CVV leak and a slug collision are indistinguishable** — the assertion could not
+tell you which it had found. Lengthening it removes a false alarm and *improves* attribution, so it
+is not weakening a guard; a chance match makes such a test fail, never pass.
+
+**For Phase 02:** when adding an absent-from-haystack assertion, make the needle distinctive, and
+check what else is in the haystack — ids, timestamps, slugs, uniqid hex, serialized string lengths
+(`serialize()` emits `s:737:` for a 737-byte string) are all needle-shaped. A scan at the time of
+this fix found no other short numeric sentinel in `tests/Feature/Security/`.

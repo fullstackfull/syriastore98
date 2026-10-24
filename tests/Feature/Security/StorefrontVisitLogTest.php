@@ -37,7 +37,35 @@ class StorefrontVisitLogTest extends SecurityTestCase
     private const PASSWORD = 'PW-FIXTURE-SENTINEL-4471';
     private const COOKIE = 'COOKIE-SENTINEL-9902';
     private const CARD = '4111111111119876';
-    private const CVV = '737';
+    /*
+     * DISTINCTIVE, NOT A REALISTIC THREE-DIGIT CVV -- and this is a correction, not a cosmetic one.
+     *
+     * It was '737', the only short sentinel in this file while the other three are long and
+     * self-labelling. The oracle below is `serialize()` of EVERY COLUMN of every visit row, and
+     * that includes the `url` column, which carries the fixture's store slug --
+     * `store-1-<uniqid() hex>`. A three-character numeric needle in that haystack matches BY
+     * CHANCE whenever the random hex happens to contain it.
+     *
+     * NOT A GUESS: it fired on 2026-10-24, in the merge-base regression gate on a commit whose
+     * entire diff was one markdown file. The failure message carried the haystack, and the match
+     * was in the slug, not in the request:
+     *
+     *     s:7:"request";s:2:"[]";                       <- the control worked, nothing was stored
+     *     s:3:"url";s:44:"http://localhost/store-1-6adcb973799b1/login"
+     *                                           ^^^      6adcb9[737]99b1
+     *
+     * RATE, computed rather than hand-waved: a 13-character hex suffix gives 11 three-character
+     * windows, so p ~ 11/16^3 ~ 0.27% per run. That matches the evidence in both directions -- 0
+     * failures in 85 local runs of this test, and roughly one in ~200 CI runs.
+     *
+     * THIS DOES NOT WEAKEN THE CONTROL, and the distinction matters because CLAUDE.md forbids
+     * weakening a guard to get green. A chance match makes this test FAIL, never pass, so the only
+     * thing removed is a false alarm -- and attribution is strictly better, because with '737' a
+     * real CVV leak and a slug collision were indistinguishable. The redaction under test is
+     * KEY-based (App\Services\SanitisedVisitor drops the body wholesale, which is why `request`
+     * reads `[]` above), so the value's shape is irrelevant to what is being asserted.
+     */
+    private const CVV = 'CVV-SENTINEL-737';
     private const TOKEN = 'RESETTOKEN-SENTINEL-5538';
 
     private function themedStore(): Store
