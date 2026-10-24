@@ -219,3 +219,74 @@ GitHub: milestone #1; PR #3; issues #9–#111 (task number ↔ issue number is i
   (§4) before trusting either. · That a green CI run on an older head says anything about the head you just pushed: `cdc213bd` added a
   middleware and left three raw-query inventories unrecorded, and CI was red on it the whole time this file said CI was `success`.
 * That `CLAUDE.md` test counts are current. · That `Product` (or `Order`, `Wishlist`, `DeliveryAddress`, `User`) is tenant-filtered by a global scope. · That a `-guest` route is public (they carry `custom.auth`). · That GitHub status labels match the ledger (they do not, §4). · That a green CI means no failures (2 are declared). · That SQLite results transfer to MySQL. · That an unchanged-looking `Setting` save cannot change what a lookup reads. · That account-level skills or plugins exist. · That an owner direction in §7b is a decision on its details. · That any BLOCKED task may be started because it looks easy.
+
+---
+
+## 12. `[2026-10-24]` PHASE 01 ENGINEERING CLOSURE — read this before anything above it
+
+**Everything above was written 2026-10-21 and revised 2026-10-22, and parts of it are now stale**
+(§4's counts, §6's finish-line proposals, §7c's pending decisions). It is left as written, per this
+file's own convention, so the before/after stays legible. **Where it disagrees with this section,
+this section wins.**
+
+Phase 01 engineering is **closed by owner direction of 2026-10-24**, subject to the recorded
+acceptance limitations. Do not restart discovery. Do not repeat completed tests. Do not open a new
+audit campaign or another owner questionnaire.
+
+### 12a. The three documents that are authoritative now
+
+Read these, in this order, and work from them rather than from §§1–11 above:
+
+1. **`docs/development/phase-1/PHASE-01-CLOSURE-EXECUTION.md` — the `FINAL` section (2026-10-24).**
+   The closing state: the owner's six directives and their resolutions, the outstanding release
+   prerequisites, the preserved gates, and the final counts.
+2. **`docs/development/phase-1/12-PHASE-01-TASK-LEDGER.md`.** Per-task state and evidence.
+   `python3 docs/development/phase-1/tools/ledger-tool.py counts` is the authority — **not**
+   `render-ledger.py`, which does not reproduce the ledger.
+3. **`docs/development/phase-1/PR3-ATTESTATION-S21.md`.** The `SECURITY-DIFF-REVIEW` attestation for
+   `bfb921d2..1bff9dc7`, including §4, which states exactly what was *not* re-examined.
+
+`CLAUDE.md` and `.claude/skills/store-syria-laravel-tenancy/` are unchanged and still come first for
+the architectural traps. Nothing in §0's read order is withdrawn except the task-state parts.
+
+### 12b. State, in four lines
+
+- **Counts:** DONE 81 · READY 2 · BACKLOG 5 · BLOCKED 21 · total 109.
+- **No open owner decision**, and **no unblocked engineering** — the register's section E is empty.
+- **CI is green on the branch**: all 9 check runs `success` at `1bff9dc7` (run 40102841581).
+- **That is not release authorisation.** The prerequisites are unmet; PR #3 is a Draft titled
+  ⛔ DO NOT MERGE; `main` is not to be merged and production is not to be deployed.
+
+### 12c. What is left, and who holds it — none of it is engineering
+
+| | |
+|---|---|
+| **13 environment / server observations** | Each has a prepared read-only command. **Outstanding prerequisites, not test results.** `FINAL` §2a. |
+| **5 D15-gated migrations** | Drafts parked unrunnable. Two ordering constraints must not be lost. `FINAL` §2b. |
+| **2 upstream vendor reports** | Prepared and **NOT sent**. Sending is an outward disclosure and the owner's call. |
+
+### 12d. The four things Phase 02 must not assume
+
+Stated here because each is easy to read past, and each cost this phase real time:
+
+1. **The financial subsystem is dead, not untested.** Its tables do not exist, the service throws,
+   an Observer swallows it. Releasing GATE F **switches it on**; it does not fix it.
+2. **A green suite is not a correct control.** Twice this phase a guard passed its own tests while
+   an independent read found a live bypass — both in code written the same day by the same process
+   that wrote the passing tests.
+3. **A source-grep ratchet may not measure what it says.** Prose can satisfy one *and* fail one;
+   both happened. Strip comments with `token_get_all()`. And the per-table tenancy ratchet — the
+   strongest in the project — is **silent for 28 of 190 raw query sites**, because it keys on
+   `DB::table('literal')`.
+4. **A sentinel asserted ABSENT must not be able to occur by chance.** A three-character one matched
+   a random hex store slug at ~0.27% per run, survived ~200 CI runs, then failed on a markdown-only
+   commit and read exactly like a flake. `FINAL`-section §8.
+
+### 12e. Process rules that still bind
+
+Unchanged from `CLAUDE.md`, repeated because they were each learned by being broken:
+**never edit `packages/workdo/`** (LynomiaChat excepted); **never weaken a CI guard or add a
+manifest entry to get green**; **a test must bite** — revert the fix and confirm it fails;
+**claim only what you executed**, naming the engine and the command; **stage explicit paths** while
+subagents are live, because a stray probe file reached CI once this way; and **read CI back** rather
+than inferring it — the `check_suite.completed` webhook does **not** cover the Actions suite itself.

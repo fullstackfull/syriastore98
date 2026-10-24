@@ -1034,3 +1034,107 @@ is not weakening a guard; a chance match makes such a test fail, never pass.
 check what else is in the haystack — ids, timestamps, slugs, uniqid hex, serialized string lengths
 (`serialize()` emits `s:737:` for a 737-byte string) are all needle-shaped. A scan at the time of
 this fix found no other short numeric sentinel in `tests/Feature/Security/`.
+
+---
+
+# FINAL — Phase 01 engineering closure, 2026-10-24
+
+**This section is terminal.** It is the authority for Phase 01's closing state, and Phase 01 does
+not expand past it: no new audit campaign, no further owner questionnaire. Where any earlier
+section of this file disagrees, this one is right.
+
+## 1. The owner's closing direction, and what each item resolved to
+
+| | direction | resolution |
+|---|---|---|
+| 1 | Accept engineering completion, subject to the recorded acceptance limitations. No restarted discovery, no repeated tests. | Accepted. The limitations are listed in §3 below and are **not** restated from their source documents. No test in this range was re-run to produce this section. |
+| 2 | Keep the two upstream vendor reports prepared but unsent. | Unsent. Both remain in `docs/upstream/`, each saying so on its first line. **No outward disclosure was made.** |
+| 3 | Focused attestation-gap review of the previously uncovered commits; reuse existing evidence; do not rerun all 77 individually. | Done: `PR3-ATTESTATION-S21.md`. Nothing was re-run. Count corrected to **79** (77 was right at `2efbc1dd`; two commits landed after). |
+| 4 | Record the 13 environment checks and 5 D15-gated migrations as outstanding **release prerequisites, not completed tests**. | Done, §2 below, labelled as such. |
+| 5 | Finalize the Phase 01 closure and Phase 02 handoff using the existing authoritative documents. | This section plus the dated closure section of `docs/development/HANDOFF-CURRENT.md`. No new document tree. |
+| 6 | Preserve all mandatory merge and release gates; do not merge `main` or deploy production while they are unmet. | Preserved and unmodified, §4 below. `main` not merged, nothing deployed. |
+
+## 2. OUTSTANDING RELEASE PREREQUISITES — these are NOT test results
+
+**Read this table as a list of things that have not happened.** Every row is an observation or a
+migration that is **outstanding**. None is a passing test, a completed check or evidence of
+anything. Where a row has a prepared script, the script's existence is engineering that is done;
+**running it is the prerequisite, and it has not been run against production.**
+
+### 2a. Environment / server — 13 rows
+
+| row | issue | the prerequisite |
+|---|---|---|
+| `P1-PLT-02` | #34 | Run `report-null-store-orders.php` against production and record the count. |
+| `P1-OWN-01` | #42 | Three read-only server observations (`P1-OWN-01-BACKUPRESTORE-CONTAINMENT.md` §5). D17 keeps the module disabled meanwhile. |
+| `P1-OWN-03` | #44 | The running server. Past malicious use is not determinable from the repository. |
+| `P1-OWN-06` | #47 | Branch protection on `main` — a repository owner setting. |
+| `P1-OWN-07` | #56 | Read-only production inventory of the pre-fix WooCommerce transfer residue. |
+| `P1-OWN-08` | #86 | Needs the restored backup. Seven sub-items, including whether card-bearing rows start a PCI process. |
+| `P1-OWN-09` | #88 | The web-server access log is the only evidence of exploitation; queries are on the row. |
+| `P1-OWN-11` | #106 | Three read-only SQL statements. Counts and store ids suffice. |
+| `P1-SEC-26` | #99 | `SELECT store_id, created_by, value FROM settings WHERE name = 'storage_setting'`. |
+| `P1-OWN-04` | #45 | A **client release window** — the shipped Flutter app force-logs-out on any 401. |
+| `P1-OWN-05` | #46 | (b) `pint` and (c) Playwright-in-CI are owner choices with no security content. |
+| `P1-ORD-13` | #82 | **Criterion 4 only** — a provider sandbox per gateway. Criteria 1–3 closed 2026-10-23. |
+| `P1-SEC-14` | #89 | **Criterion 3 only** — run `report-larabug-configuration.php` where the app runs and paste the output. |
+
+A fourteenth read-only observation of the same kind exists and is **not** counted in the owner's 13:
+`P1-PLT-04` #36 criterion 2, with `report-storefront-entitlement-gap.php` prepared. Flagged rather
+than renumbered, so this table and the owner's direction agree.
+
+### 2b. D15-gated migrations — 5 rows
+
+`P1-MIG-01` #38 · `P1-MIG-02` #39 · `P1-MIG-03` #40 · `P1-MIG-04` #41 · `P1-SEC-32` #111 (c) and (d)
+
+All five hold reviewed drafts or a named mechanism, parked unrunnable under
+`database/migrations/_gate_f_pending/`. **Do not promote a guessed schema**: a `hasTable` /
+`hasColumn` guard makes a premature definition permanent and invisible. D12 answers `P1-MIG-04`'s
+open sub-question — the retired Chatwoot tables are **retained**.
+
+**Two ordering constraints that must not be lost between documents:** `products.cost_price` must be
+declared **before** `store_order_financials`, or every P&L row is all-margin; and the two
+`delivery_boys` commission columns must land **with or before** `delivery_earnings`, because
+`is_commission_enabled` is what gates the earning write.
+
+**And the warning that makes GATE F dangerous rather than merely pending:** the financial subsystem
+is **dead, not untested**. Its tables do not exist, `OrderFinancialService` throws, and
+`OrderObserver` swallows it. Releasing GATE F **switches it on**; it does not fix it.
+
+## 3. The acceptance limitations this closure is subject to
+
+Not restated — duplicating them is how they drift. Each lives in its authoritative document:
+
+| limitation | authority |
+|---|---|
+| per-task PARTIAL rows and their exact unmet criteria | `12-PHASE-01-TASK-LEDGER.md` (`ledger-tool.py counts` is the authority for state) |
+| open security findings | `docs/security/P01-SECURITY-WORK-QUEUE.md` |
+| owner decisions D1–D18 and D-01…D-11 | `15-DEFERRED-OWNER-DECISIONS.md` |
+| the attestation boundary for `bfb921d2..1bff9dc7` | `PR3-ATTESTATION-S21.md` §4 |
+| what Phase 02 must not assume | §4, §6, §8 of this file |
+
+**Final counts** (`ledger-tool.py counts`): **DONE 81 · READY 2 · BACKLOG 5 · BLOCKED 21 · total 109.**
+No open owner decision. No unblocked engineering — section E of the part-2 register is empty.
+
+## 4. Mandatory merge and release gates — preserved and unmet
+
+Unmodified by this closure, and **nothing was weakened or added to a manifest to obtain green**:
+
+- `Tests (REQUIRED — clean install from composer.lock)` and `Tests (REQUIRED — PayHere excluded)`
+- `Merge-base regression gate (new failures only)`
+- `assert-known-test-outcomes.php` against `.github/known-test-outcomes.json` — **2 declared
+  failures and 17 declared skips**, asserted in both directions
+- `guard-no-workdo-changes.sh` · `guard-gate-f-containment.sh` · `guard-no-new-root-uploads.sh` ·
+  `guard-test-isolation.sh` · `guard-no-env-files.sh` · `scan-secrets.sh`
+- `.github/SECURITY-DIFF-REVIEW.md`, now covered to `1bff9dc7` by `PR3-ATTESTATION-S21.md`
+
+**At `1bff9dc7` all 9 check runs are `success` (run 40102841581, read back from the API).** That is
+CI green on the branch. It is **not** release authorisation: the prerequisites in §2 are unmet, PR #3
+is a **Draft titled ⛔ DO NOT MERGE**, and per the owner's direction **`main` is not to be merged and
+production is not to be deployed while they remain unmet.**
+
+## 5. Phase 02
+
+Does not start until Phase 01 acceptance. The handoff is the dated closure section of
+`docs/development/HANDOFF-CURRENT.md`, which points at the documents above rather than restating
+them. Nothing in this section is an invitation to begin.
