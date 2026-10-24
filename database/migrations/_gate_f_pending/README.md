@@ -146,3 +146,82 @@ type in place rather than freezing a guess.
 
 **Promotion is gated on D15** — real MySQL schema evidence plus verified backup restoration —
 exactly as the six table drafts are. Writing a migration is not running one.
+
+---
+
+## GATE F VERIFICATION — attempt of 2026-10-24, and what it established
+
+**Prerequisite 4 is now MET.** The `payment_status = 'Paid'` question this README calls *"the single
+most important thing to say about SCHEMA-01"* was answered by the owner on 2026-10-24: the
+Delivered-based COD trigger is **withdrawn**. Delivered alone never marks COD Paid and never credits
+a wallet; settlement requires a separate verified cash collection event naming collector, amount,
+time and evidence. Implemented in `47719ce1` (`PaymentVerificationService::codMayBeSettled()`,
+`App\Services\CodCollectionService`, and `codShouldSettleOnDelivery()` retired to a method that
+throws), pinned by `tests/Feature/Commerce/CodStateMachineTest.php` — **42 tests, executed
+2026-10-24.** So the warning above — that shipping the schema alone could convert a silent no-op
+into real incorrect payouts — no longer describes the code. It still describes the **data**: rows
+already written by the withdrawn trigger keep their status, and nothing was back-filled.
+
+**Prerequisites 1, 2 and 3 are NOT met, and could not be attempted.** A database was reported
+uploaded on 2026-10-24; **no dump reached this container.** Searched and found empty:
+`/mnt/user-data/uploads`, `/mnt/attach`, both repository trees, and every file over 1MB written
+anywhere on the filesystem in the preceding hours. The only database present was the repository's
+own development `database/database.sqlite` (dated 2026-10-22, not an upload). **Nothing was
+guessed to fill the gap, and no draft was promoted.**
+
+### What exists now so the real verification is one command
+
+`tests/Support/Security/bin/verify-gate-f-schema-on-mysql.php` — **read-only**, no write statement
+anywhere in it. Point it at a restored copy with a read-only account:
+
+```
+php tests/Support/Security/bin/verify-gate-f-schema-on-mysql.php <database> [--host= --user= --pass= --socket=]
+```
+
+It performs prerequisites 1–3 in one pass and reports:
+
+- whether the dump is whole, schema-only or partial (table count, which hold rows, views/routines/
+  triggers, and whether `migrations` is present — without it, promotion order cannot be checked
+  against the source's own history);
+- `SHOW CREATE TABLE` for each of the 15 SCHEMA-01 tables that exists, plus a per-column table of
+  types, nullability, defaults, keys and every foreign key; absent tables are listed as **evidence**
+  rather than as a gap, since an absent table means its draft has nothing to diff against;
+- the six money tables against this README's standing decisions — `decimal(18,4)` and never
+  `float`, `currency_rates.rate_per_usd` at `decimal(18,8)`, `store_id` indexed wherever present;
+- `products.cost_price` and the two `delivery_boys` commission columns, warning if either already
+  exists (the draft would then be a no-op at best and wrong at worst);
+- `cod_collection_events` against the owner's four required fields;
+- the NULL/zero `store_id` census across every table that **has** the column, enumerated from
+  `information_schema` rather than from this README's figure of 56, so a moved schema is reported
+  instead of assumed;
+- `SELECT DISTINCT type FROM users` with counts, and `users.plan_id`;
+- both ordering constraints — `products.cost_price` **before** `store_order_financials`, and the
+  commission columns **with or before** `delivery_earnings` — as pass/fail against the live state.
+
+**It exits 1 on any disagreement, and every message says THE SOURCE WINS.** It never reports the
+database as wrong; it reports the draft as wrong, which is this README's own promotion rule.
+
+**Proven in both directions before being trusted**, on MySQL 8.0.46 in an isolated instance:
+
+| fixture | result |
+|---|---|
+| deliberately contradictory (float money column, `decimal(10,2)`, unindexed `store_id`, `rate_per_usd` at the wrong scale, financials without `cost_price`, earnings without the commission flag, NULL and zero `store_id` rows) | **6 contradictions caught, exit 1** |
+| correct (every standing decision honoured) | **0 contradictions, exit 0** |
+
+Both fixture databases were dropped and the server stopped; only the four MySQL system schemas
+remained. A bug was found and fixed in the harness during that check: `SHOW CREATE TABLE` returns
+**two** columns, so the first draft printed the table *name* where the DDL belonged — every
+structure section would have been vacuous while looking correct.
+
+### Still blocked, and by what
+
+| prerequisite | state |
+|---|---|
+| 1 · `SHOW CREATE TABLE` from a restored copy | **BLOCKED** — no dump present |
+| 2 · NULL `store_id` census | **BLOCKED** — same |
+| 3 · `SELECT DISTINCT type FROM users` | **BLOCKED** — same |
+| 4 · the `payment_status = 'Paid'` question | **MET** (owner decision, 2026-10-24) |
+| D15 · the ten promotion prerequisites | **unchanged** |
+
+**GATE F is NOT ready for production migration.** No draft was promoted, no migration was run
+anywhere, and no table was created outside two throwaway fixture databases that no longer exist.
