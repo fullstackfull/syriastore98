@@ -97,8 +97,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/OrderRefundController.php:765` | Refund restock clamped to the units the order lines lost |
 | `app/Http/Controllers/OrderRefundController.php:1167` | Refund settled but the order totals were left unchanged: product_json is unparseable |
 | `app/Http/Controllers/OzowController.php:217` | Ozow plan return refused: no TransactionId to key on. |
-| `app/Http/Controllers/PaiementProPaymentController.php:283` | PaiementPro return carried no success code; the order will be recorded Pending |
-| `app/Http/Controllers/PaiementProPaymentController.php:396` | Pending partial payment refused: the balance named does not belong to this customer. |
+| `app/Http/Controllers/PaiementProPaymentController.php:310` | PaiementPro return recorded PENDING: this gateway is not provider-verified |
+| `app/Http/Controllers/PaiementProPaymentController.php:423` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/PayHerePaymnetController.php:64` | PayHere plan checkout refused: the integration is retired (owner decision). |
 | `app/Http/Controllers/PayHerePaymnetController.php:76` | PayHere plan checkout refused: the PayHere SDK is not installed. |
 | `app/Http/Controllers/PayUPaymentController.php:274` | Pending partial payment refused: the balance named does not belong to this customer. |

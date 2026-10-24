@@ -128,10 +128,24 @@ class PaiementProReturnVerificationTest extends SecurityTestCase
      * THE PREMISE: this fixture reaches the order writer at all.
      *
      * Every status assertion below is satisfied by a handler that writes nothing, so if this route
-     * is not drivable from here the rest of the file measures nothing. A successful return is the
-     * control because it is the one case whose outcome was already correct.
+     * is not drivable from here the rest of the file measures nothing.
+     *
+     * INVERTED, AND THE INVERSION IS THE FINDING. This test previously asserted
+     * `assertSame('Paid', ...)` under the heading "PRESERVE FIRST: a genuine PaiementPro success
+     * must still be Paid", because the handler recorded `responsecode === '0'` as a verification.
+     * That was wrong under owner decision D2 -- "a return URL, redirect or client flag proves
+     * nothing" -- which the commit that wrote this test did not weigh. `responsecode` arrives from
+     * the caller's own browser on a `Route::any`; the handler makes no provider call of any kind;
+     * so the value proves only that somebody typed it. Both exploits it enabled were reproduced on
+     * the real route and are pinned by the three tests at the end of this file.
+     *
+     * So the premise this test now carries is narrower and still load-bearing: the fixture reaches
+     * the ORDER WRITER. The payment status it asserts is Pending, like every other case here --
+     * which means this file no longer contains a positive control for "Paid", because under D2
+     * PaiementPro has no path to Paid at all. The positive control for the SEAM lives in
+     * PaymentStatusDerivationTest, where a recorded verification does yield Paid.
      */
-    public function test_a_successful_return_writes_a_paid_order(): void
+    public function test_a_successful_looking_return_still_writes_an_order_and_it_is_pending(): void
     {
         [, $store] = $this->tenant();
         $customer = $this->shopperWithBasket($store);
@@ -140,10 +154,11 @@ class PaiementProReturnVerificationTest extends SecurityTestCase
 
         $this->assertNotNull($order,
             'Premise: the return wrote an order. Without one nothing below is measuring the '
-            . 'payment status of anything.');
-        $this->assertSame('Paid', (string) $order->payment_status,
-            'PRESERVE FIRST: a genuine PaiementPro success must still be Paid. The gateway said '
-            . 'responsecode=0, which is its success code, and that is recorded as a verification.');
+            . 'payment status of anything -- and D2 requires the order, because a refusal would '
+            . 'leave a charged customer with no record.');
+        $this->assertSame('Pending', (string) $order->payment_status,
+            'A PaiementPro return that LOOKS successful is still not provider-verified. D2: an '
+            . 'unverifiable gateway stays Pending and writes no paid ledger entry.');
     }
 
     /**
@@ -209,5 +224,109 @@ class PaiementProReturnVerificationTest extends SecurityTestCase
                 "responsecode=" . var_export($code, true) . " was accepted as PaiementPro's "
                 . 'success code. Only the exact string 0 is.');
         }
+    }
+
+    // =====================================================================================
+    //  TWO PAID-WITHOUT-PAYMENT SHAPES THIS FILE'S FIRST VERSION DID NOT COVER, found by an
+    //  independent verification pass over the commit that created it. Written RED.
+    // =====================================================================================
+
+    /**
+     * SHAPE 1 -- A VERIFICATION PLANTED BY A REFUSED REQUEST SURVIVES INTO THE NEXT ONE.
+     *
+     * `getProductStatus()` records the verification BEFORE it reads the stored checkout state, and
+     * the refusal at `storedCheckoutState() === null` returns without clearing it. Measured on the
+     * real route: a POST carrying `responsecode=0` and no stored state writes no order and leaves
+     *
+     *   ['payment_type' => 'paiementpro', 'reason' => 'PaiementPro return responsecode=0', ...]
+     *
+     * in the session. A LATER return in the same session -- a genuine checkout, with no
+     * `responsecode` at all -- then redeems it.
+     *
+     * This is the exact defect P1-PAY-03 exists to close, re-opened by the commit that closed it,
+     * on the one gateway that commit wired end to end.
+     */
+    public function test_a_verification_from_a_refused_return_cannot_be_redeemed_by_a_later_one(): void
+    {
+        [, $store] = $this->tenant();
+        $customer = $this->shopperWithBasket($store);
+
+        // The plant: a success code with NO stored checkout state. The handler must refuse.
+        $before = (int) DB::table('orders')->max('id');
+
+        $this->actingAs($customer, 'customers')
+            ->post('/' . $store->slug . '/get-payment-paiementpro', ['responsecode' => '0']);
+
+        $this->assertNull(DB::table('orders')->where('id', '>', $before)->first(),
+            'Fixture premise: the planting request must write NO order, or this measures something else.');
+
+        // The redemption: a genuine checkout state, and no success code of its own.
+        $order = $this->driveReturn($store, $customer, []);
+
+        $this->assertNotNull($order, 'Fixture premise: the second return must reach the order writer.');
+        $this->assertSame('Pending', $order->payment_status,
+            'A verification recorded by a REFUSED request was redeemed by a later return that carried no '
+            . 'success code of its own. That is an order marked Paid with no payment.');
+    }
+
+    /**
+     * SHAPE 2 -- `responsecode` IS THE CALLER'S OWN FIELD, AND OWNER DECISION D2 SAYS IT PROVES
+     * NOTHING.
+     *
+     * THIS TEST INVERTS `test_a_successful_return_writes_a_paid_order` ABOVE, and the inversion is
+     * the point rather than a repair. That test asserted that `responsecode=0` yields Paid, which
+     * was right under the reasoning of the commit that wrote it: a strict `=== '0'` is far better
+     * than the commented-out loose `== 0` that preceded it, and it is what a genuine PaiementPro
+     * success carries.
+     *
+     * It is wrong under D2, which this project is bound by and which that commit did not weigh:
+     *
+     *   "Gateways: a return URL, redirect or client flag proves nothing; require provider-side
+     *    verification of ownership, reference, amount, currency and status; ... an unverifiable
+     *    gateway stays Pending and writes no paid ledger entry"
+     *
+     * `getProductStatus()` makes NO provider call. There is no `Http::` request, no transaction
+     * lookup, no signature check -- `responsecode` arrives in the request bag from the caller's own
+     * browser, on a `Route::any` (routes/customer.php:195) that accepts GET as readily as POST. So
+     * recording it as a *verification* told `PaymentVerificationService` that something had been
+     * verified when nothing had, and any caller who could reach the return URL could mint a Paid
+     * order for a basket they never paid for.
+     *
+     * PaiementPro is therefore an UNVERIFIABLE gateway in D2's sense, and the correct behaviour is
+     * the one D2 names: Pending, order written, merchant reconciles. The code change is to stop
+     * recording a verification from a caller-supplied field at all -- which also removes shape 1,
+     * because there is then nothing to plant.
+     *
+     * WHAT THIS COSTS, stated rather than discovered later: every PaiementPro order is now Pending
+     * and no merchant wallet is credited for one until a human confirms it. That is the price D2
+     * sets. Restoring automatic settlement needs PaiementPro's own status endpoint and a
+     * credential, which is per-gateway work recorded on #25.
+     */
+    public function test_a_caller_supplied_success_code_is_not_a_verification(): void
+    {
+        [, $store] = $this->tenant();
+        $customer = $this->shopperWithBasket($store);
+
+        $order = $this->driveReturn($store, $customer, ['responsecode' => '0']);
+
+        $this->assertNotNull($order, 'Fixture premise: the return must still WRITE the order -- D2 requires '
+            . 'the reconciliation path, so a refusal here would be the worse failure.');
+        $this->assertSame('Pending', $order->payment_status,
+            'A success code the CALLER supplied was treated as a provider verification. getProductStatus() '
+            . 'makes no provider call, so there is nothing behind this value but the browser that sent it.');
+    }
+
+    /** And nothing may be left in the session for a later request to find. */
+    public function test_no_verification_record_is_left_behind_by_a_paiementpro_return(): void
+    {
+        [, $store] = $this->tenant();
+        $customer = $this->shopperWithBasket($store);
+
+        $this->actingAs($customer, 'customers')
+            ->post('/' . $store->slug . '/get-payment-paiementpro', ['responsecode' => '0']);
+
+        $this->assertNull(session(\App\Services\PaymentVerificationService::SESSION_KEY),
+            'A PaiementPro return left a verification record in the session. Whatever writes one must '
+            . 'also be reached by the code that consumes it, or a refused request arms the next one.');
     }
 }

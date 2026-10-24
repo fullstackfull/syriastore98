@@ -369,7 +369,30 @@ class EnforcedPaymentTypesIntegrityTest extends TestCase
                 continue;
             }
 
-            $source = file_get_contents($file->getPathname());
+            /*
+             * COMMENTS ARE STRIPPED BEFORE ANYTHING IS MATCHED, and this is load-bearing rather
+             * than tidy.
+             *
+             * This scan is a source-grep ratchet, and CLAUDE.md's standing rule for one is "strip
+             * comment lines ... a docblock quoting the string a ratchet greps for makes the ratchet
+             * satisfiable by prose". It bit HERE in the mirror-image form: a docblock in
+             * PaiementProPaymentController explaining why that handler no longer records a
+             * verification contains the words `recordVerification() ran BEFORE ...`, and the
+             * non-literal probe below -- `recordVerification\(\s*(?![\'"])\S` -- matched the
+             * ` ran` after the empty parentheses and reported the file as an unresolvable CALL.
+             * There is no call in that file at all any more.
+             *
+             * So prose could FAIL this ratchet as easily as satisfy it, and in both directions the
+             * fix is the same: look only at code. Stripping comments cannot weaken the guard --
+             * `recordVerification(` inside a comment was never a call -- and it stops a payment
+             * type that is merely NAMED in a docblock from counting as enrolled.
+             */
+            $source = implode('', array_map(
+                static fn ($token) => is_array($token)
+                    ? (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true) ? '' : $token[1])
+                    : $token,
+                token_get_all(file_get_contents($file->getPathname()))
+            ));
 
             if (!str_contains($source, 'recordVerification(')) {
                 continue;

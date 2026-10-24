@@ -255,36 +255,63 @@ class PaiementProPaymentController extends Controller
          *      legitimate order being written while the customer has already been charged. That is
          *      the exact failure the directive's second sentence forbids.
          *
-         * WHAT IS DONE INSTEAD. The gateway's own success code is RECORDED as a verification, on a
-         * STRICT comparison that an absent value cannot satisfy, and nothing else about the
-         * handler's control flow changes. The order is always written; its payment_status is then
-         * resolved by PaymentVerificationService::resolveOrderPaymentStatus(), which under the same
-         * owner decision returns Pending for any gateway payment with no verification record.
+         * ============================================================================================
+         *  WHAT WAS DONE FIRST, AND WHY IT WAS WRONG. CORRECTED, NOT DELETED.
+         * ============================================================================================
          *
-         * So: responsecode strictly '0' -> recorded -> Paid, as a genuine success always was.
-         * Anything else, including absent -> no record -> PENDING, with the order written, the
-         * customer holding a record, and the merchant able to reconcile it against the provider.
-         * Fail-closed on the money, fail-open on the record, which is the only combination that
-         * satisfies both halves of the decision.
+         * The first version of this block RECORDED the gateway's success code as a verification, on
+         * a strict `=== '0'` comparison, reasoning that a strict test an absent value cannot satisfy
+         * was enough. It is not, and an independent verification pass over that very commit found
+         * two ways to get a Paid order without paying. BOTH WERE REPRODUCED on the real route
+         * before this correction:
+         *
+         *   SHAPE 1, the plant. recordVerification() ran BEFORE the stored-checkout-state read
+         *       below, and the `=== null` refusal returns without clearing it. So a POST carrying
+         *       `responsecode=0` and no stored state wrote no order and left
+         *       ['payment_type' => 'paiementpro', ...] in the SESSION; a later, genuine return in
+         *       the same session carrying no responsecode at all then redeemed it and the order was
+         *       written PAID.
+         *
+         *   SHAPE 2, the forgery, and this is the deeper one. `responsecode` is the CALLER'S OWN
+         *       FIELD. This handler makes no provider call -- no Http:: request, no transaction
+         *       lookup, no signature check -- and the route is a `Route::any`
+         *       (routes/customer.php:195) that accepts GET as readily as POST. So any caller who
+         *       could reach the return URL could mint a Paid order for a basket they never paid
+         *       for, and recording it told PaymentVerificationService that something had been
+         *       verified when nothing had.
+         *
+         * OWNER DECISION D2 SETTLES IT, and the first version did not weigh it:
+         *
+         *     "Gateways: a return URL, redirect or client flag proves nothing; require
+         *      provider-side verification of ownership, reference, amount, currency and status;
+         *      ... an unverifiable gateway stays Pending and writes no paid ledger entry"
+         *
+         * A client flag proves nothing. PaiementPro is therefore an UNVERIFIABLE gateway in D2's
+         * sense until its own status endpoint and a credential exist, so NOTHING IS RECORDED HERE.
+         *
+         * WHAT HAPPENS NOW. The order is still always written -- the reconciliation half of the
+         * directive, and a refusal would be the worse failure it names -- and
+         * PaymentVerificationService::resolveOrderPaymentStatus() finds no verification record and
+         * returns PENDING. Every PaiementPro order is Pending until a human confirms it, no wallet
+         * is credited for one, and the warning below is the reconciliation queue rather than just a
+         * trace.
+         *
+         * WHAT THIS COSTS, stated rather than discovered in production: PaiementPro no longer
+         * settles automatically at all. That is the price D2 sets for a gateway that cannot be
+         * asked whether money moved. Restoring automatic settlement needs PaiementPro's own status
+         * endpoint, its response field names and an authenticated credential -- per-gateway work
+         * recorded on #25 and in docs/security/P01-ORD-13-GATEWAY-TEST-REQUIREMENTS.md.
+         *
+         * AND THE SHAPE-1 HAZARD IS CLOSED BY CONSTRUCTION rather than by moving the call below the
+         * refusal: with nothing recorded there is nothing to plant. A gateway that genuinely
+         * verifies must still record AFTER the stored-state refusal, which is where the NMI and
+         * AuthorizeNet arms already do it.
          */
-        $paiementproSucceeded = ((string) $request->input('responsecode')) === '0';
-
-        if ($paiementproSucceeded) {
-            $this->gatewayReturnVerifier()->recordVerification(
-                'paiementpro',
-                \App\Services\PaymentVerificationResult::verified(
-                    'PaiementPro return responsecode=0',
-                    null,
-                    null
-                ),
-                null
-            );
-        } else {
-            \Illuminate\Support\Facades\Log::warning('PaiementPro return carried no success code; the order will be recorded Pending', [
-                'slug' => $slug,
-                'responsecode' => $request->input('responsecode'),
-            ]);
-        }
+        \Illuminate\Support\Facades\Log::warning('PaiementPro return recorded PENDING: this gateway is not provider-verified', [
+            'slug' => $slug,
+            'responsecode' => $request->input('responsecode'),
+            'reason' => 'D2: a client flag proves nothing; no provider call exists on this path',
+        ]);
 
             /*
              * P01-COMMERCE-SEC-01. THE CHECKOUT STATE IS THE SERVER'S, OR THERE IS NO ORDER.
