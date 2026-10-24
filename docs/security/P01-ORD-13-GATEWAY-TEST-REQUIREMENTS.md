@@ -1,4 +1,4 @@
-# P1-ORD-13 criterion 4 — gateway test infrastructure: what must be procured, and what need not wait
+# P1-ORD-13 criterion 4: gateway test infrastructure, what must be procured, and what need not wait
 
 *Written 2026-10-23 from reading the code. **Nothing in this document was executed by this session:**
 no test was run, no artisan command was run, no provider was contacted and no web page was read. Every
@@ -41,28 +41,31 @@ test infrastructure each one needs.
 
 | class | what happens on the way back | count | needs a provider to drive? |
 |---|---|---|---|
-| **A. Converge on the generic writer** | the provider's own controller takes the return, checks its own status, then `redirect()->route('store.payment.status', $slug)` | 9 | the provider's half, yes; the **writer**, no |
-| **B. Return straight to the generic writer** | `PaymentService` gave the provider `route('store.payment.status', ...)` as its return / callback / webhook URL, so the browser or the gateway lands directly on `PaymentController::getProductStatus` | 31 | the provider's half, yes; the **writer**, no |
-| **C. Own order writer** | the gateway returns to a handler that writes the order itself | 7 | **per handler** — see §4 |
+| **A. Converge on the generic writer** | the provider's own controller takes the return, checks its own status, then `redirect()->route('store.payment.status', $slug)` | **9** | the provider's half, yes; the **writer**, no |
+| **B. Return straight to the generic writer** | `PaymentService` gave the provider `route('store.payment.status', ...)` as its return / callback / webhook URL, so the browser or the gateway lands directly on `PaymentController::getProductStatus` | **32** | the provider's half, yes; the **writer**, no |
+| **C. Own order writer** | the gateway returns to a handler that writes the order itself | **7** | **per handler**, see §4 |
 | **D. No gateway** | `cod`, `bank_transfer` (written inline by `PaymentService::getProductStatus`, `app/Services/PaymentService.php:379,381`), `whatsapp`, `telegram` | 4 | **no** |
 
-The 31 class-B return URLs are built at `app/Services/PaymentService.php:662, 669, 755, 848-849,
+The class-B return URLs are built at `app/Services/PaymentService.php:662, 669, 755, 848-849,
 985-986, 1111, 1152, 1209, 1215, 1222, 1284-1285, 1354-1355, 1438-1439, 1495, 1576-1578, 1662, 1735,
 1796-1804, 1951-1952, 2013, 2070-2072, 2138, 3554-3556, 3710-3711, 3851, 3890, 3956-3957, 4078-4079,
 4575, 4582, 4627, 5000`. The class-A redirects are at `MyFatoorahController.php:193`,
 `OzowController.php:310`, `PaynowController.php:269`, `DPOPayController.php:530`,
 `BraintreeController.php:220`, `PowertranzPaymentController.php:423`, `SenangPayController.php:222`,
-`CyberSourceController.php:325` and `PayUPaymentController.php:201`.
+`CyberSourceController.php:325` and `PayUPaymentController.php:201`. SSLCommerz is class B, not A, although
+its controller exists: `routes/customer.php:388` declares no SSLCommerz storefront route at all (only a
+comment), and the storefront `success_url` points straight at `store.payment.status`
+(`PaymentService.php:4999-5003`).
 
-**The consequence for criterion 4 is the single most useful fact in this document.** 40 of the 48
+**The consequence for criterion 4 is the single most useful fact in this document.** 41 of the 48
 providers (classes A and B) share **one** order writer, `PaymentController::getProductStatus`
 (`app/Http/Controllers/PaymentController.php:2138`, route `ANY {storeSlug?}/get-payment-status`,
 `routes/customer.php:186`). Driving *that* handler end to end needs no provider at all, and it is
-already driven in the suite. What a provider sandbox buys for those 40 is not the writer's behaviour.
+already driven in the suite. What a provider sandbox buys for those 41 is not the writer's behaviour.
 It is the answer to a narrower question: *does the provider actually come back to this URL, with the
 parameters the handler's pre-writer blocks read?*
 
-**Seven handlers in `app/` read the stored checkout state and write an order** — derived from the
+**Seven handlers in `app/` read the stored checkout state and write an order**, derived from the
 source, not from a list: `grep -rl 'storedCheckoutState(' app/` returns
 `AuthorizeNetPaymnetController`, `CinetPayController`, `EasebuzzController`, `KhaltiPaymnetController`,
 `NMIPayController`, `PaiementProPaymentController` and `PaymentController`, plus the trait that defines
@@ -76,8 +79,8 @@ eighth appears. `PaymentController::whatsapp` is a further order writer that del
 ## 2. What "preserve fail-closed payment behaviour" currently means, with file:line
 
 `app/Http/Controllers/Concerns/GuardsGatewayReturn.php` is the shared trait the storefront gateway
-returns use. Read in full, it holds four kinds of thing: **two trust controls**, **one replay claim**,
-**one server-derived payable**, and **five refusal helpers**. Not all of them are fail-closed controls,
+returns use. Read in full, it holds trust controls over the checkout state, a replay
+claim, a server-derived payable, two basket pre-flights and five distinct refusals. Not all of them are fail-closed controls,
 and the distinction matters, because a test harness that makes the wrong one convenient will quietly
 take a control out of the money path.
 
@@ -92,7 +95,7 @@ take a control out of the money path.
 | **F5** | `storedCheckoutCartList()` | `GuardsGatewayReturn.php:571-582` | the basket being read back from the hidden `response_data` field the server printed into the payment form (`resources/views/front_end/payment/nmi-payment.blade.php:98`) | any harness that posts a cart list to a return route "so the handler has something to iterate" |
 | **F6** | `basketHasUnusableQuantity()` | `GuardsGatewayReturn.php:610-663`, ceiling `MAX_SANE_LINE_QUANTITY = 1000000` at `:110` | a cart line whose quantity is not a positive integer, or is above the sanity ceiling. Measured: qty `-5` **adds** stock (20 -> 25); qty `2147483647` took a 50-unit product to `product_stock -2147483597` and still wrote the order | raising or removing the ceiling to make a load fixture pass. The constant's own comment says raise it, never remove it |
 | **F7** | `basketHasForeignProduct()` | `GuardsGatewayReturn.php:707-782` | a basket naming another store's product, **or** a variant that does not belong to the named product. Uses `withoutGlobalScopes()` because `Product` and `ProductVariant` are in no `config/tenancy.php` `scoped_models` entry and so add no predicate for anybody | a multi-tenant fixture that seeds one shared product catalogue |
-| **F8** | `gatewayReturnPaymentStatus()` -> `PaymentVerificationService::resolveOrderPaymentStatus()` | `GuardsGatewayReturn.php:481-489`, service at `app/Services/PaymentVerificationService.php:178`; `ENFORCED_PAYMENT_TYPES` at `:60-62` | nothing today, **on purpose**, and that is the point: it replaced the literal `'Paid'` in six handlers so that every unverified Paid write is now logged and enforcement is a one-line change in one service. `ENFORCED_PAYMENT_TYPES` holds exactly one entry, `'paymera'` | adding a provider to `ENFORCED_PAYMENT_TYPES` to make a sandbox test green. That is a business change (merchant wallets stop being credited), not a test fixture — `EnforcedPaymentTypesIntegrityTest` exists for this |
+| **F8** | `gatewayReturnPaymentStatus()` -> `PaymentVerificationService::resolveOrderPaymentStatus()` | `GuardsGatewayReturn.php:481-489`, service at `app/Services/PaymentVerificationService.php:178`; `ENFORCED_PAYMENT_TYPES` at `:60-62` | nothing today, **on purpose**, and that is the point: it replaced the literal `'Paid'` in six handlers so that every unverified Paid write is now logged and enforcement is a one-line change in one service. `ENFORCED_PAYMENT_TYPES` holds exactly one entry, `'paymera'` | adding a provider to `ENFORCED_PAYMENT_TYPES` to make a sandbox test green. That is a business change (merchant wallets stop being credited), not a test fixture. `EnforcedPaymentTypesIntegrityTest` exists for this |
 | **F9** | Paymera status poll fails closed | `PaymentController.php:464-513`, sentinel `PAYMERA_STATUS_UNAUTHENTICATED` at `:373`, credential at `:425-443` | with no credential configured it **makes no call at all** and returns the sentinel, so a missing credential can never be mistaken for a capture. An unreachable host, a non-2xx reply and a non-array body all return the same sentinel | `Http::fake()` with a permissive `'*' => Http::response([...])` default, which answers the poll as though it authenticated |
 | **F10** | Paymera callback signature required by default | `config/services.php:264` (`require_callback_signature`, default **true**), enforced at `PaymentController.php:839-851`, scheme at `PaymentVerificationService.php:471` | **every Paymera callback**, today. The signature field name, algorithm and secret exist only in Paymera's integration document (GATE G(4) / GATE 20, `docs/development/phase-1/07-OWNER-APPROVAL-GATES.md:118,640`), so `verifyPaymeraSignature()` returns UNVERIFIABLE and the callback is rejected | setting `PAYMERA_REQUIRE_CALLBACK_SIGNATURE=false` in a test `.env` and letting it reach a deployed environment. It is a documented escape hatch for the owner, not a test convenience |
 | **F11** | Paymera captured amount checked | `PaymentController.php:861-876`, `PaymentVerificationService::verifyPaymeraCapture()` at `:337` | a callback whose captured amount cannot be parsed or does not match. Unparseable or absent is UNVERIFIABLE, which fails closed | supplying `services.paymera.callback_amount_field` from a guess rather than from Paymera's document |
@@ -130,13 +133,13 @@ and `GatewayReturnTrustBoundaryTest.php:37-41` already records that its own test
 ## 3. What can already be driven end to end with no provider
 
 This extends the measured table at `tests/Feature/Commerce/PartialPaymentDepositSourceTest.php:173-197`
-to the whole set. **The three "measured" rows are that file's and
-`GatewayReturnTrustBoundaryTest.php`'s measurements, not this session's.** Everything marked "read" is
-code reading only.
+to the whole set. **Every row marked *measured* is attributed to the file that recorded that
+measurement. This session ran nothing**, so a row's "yes" means "that file records it as driven", and
+the "what blocks it" column is code reading.
 
 | writer | route | drivable to `new Order()` today | evidence | what blocks it |
 |---|---|---|---|---|
-| `PaymentController::getProductStatus` (40 providers) | `ANY {slug}/get-payment-status` (`routes/customer.php:186`) | **yes** | measured: `GatewayReturnTrustBoundaryTest::shippingWriterRoutes()` `:164-170` drives it to the `delivery_price` write; `test_posted_money_cannot_change_the_order_total` `:739` | nothing. Needs `countries`/`states`/`cities` rows, because the handler inserts a `cities` row from `billing_info` and a missing FK parent 500s **before** the order write |
+| `PaymentController::getProductStatus` (41 providers) | `ANY {slug}/get-payment-status` (`routes/customer.php:186`) | **yes** | measured: `GatewayReturnTrustBoundaryTest::shippingWriterRoutes()` `:164-170` drives it to the `delivery_price` write; `test_posted_money_cannot_change_the_order_total` `:739` | nothing. Needs `countries`/`states`/`cities` rows, because the handler inserts a `cities` row from `billing_info` and a missing FK parent 500s **before** the order write |
 | `PaiementProPaymentController::getProductStatus` | `ANY {slug}/get-payment-paiementpro` (`:195`) | **yes** | measured: the positive control `test_a_legitimate_guest_return_still_writes_its_order` `:666`, and `PartialPaymentDepositSourceTest` (302, one order) | nothing. Note `if ($request->responsecode == 0)` is **commented out** at `PaiementProPaymentController.php:227`, so the handler writes for any return value |
 | `CinetPayController::getProductStatus` | `ANY {slug}/get-payment-cinetPay` (`:197`) | **yes** | measured: `PartialPaymentDepositSourceTest` (302, one order) with `responsecode=0, status=success` | nothing. The only gate is `$request->responsecode == 0` (`CinetPayController.php:370`) |
 | `EasebuzzController::getProductStatus` | `ANY {slug}/get-payment-easebuzz` (`:200`) | **yes** | measured: `PartialPaymentDepositSourceTest` (302, one order) with `status=success` | nothing. Reads its own session key `easebuzz_request_data` (`EasebuzzController.php:248`) |
@@ -210,7 +213,7 @@ none, the provider's own test keys are the only selector, and whether the provid
 | 35 | `Paddle` | `paddle` | `paddle_vendor_id`, `paddle_vendor_auth_code`, `paddle_public_key`, `paddle_mode` | `cashier.sandbox` from `paddle_mode`, defaulting to `true` (`PaymentService.php:3941`) | B |
 | 36 | `Paiementpro` | `paiementpro` | `paiementpro_merchant_id` (and `paiementpro_mode` is declared but **not** required) | **`paiementpro_mode` is collected by the settings screen and read nowhere else**: `grep -rn 'paiementpro_mode' app/` returns only `PaymentSettingController.php:365` | **C** |
 | 37 | `FedPay` | `fedpay` | `fedpay_public_key`, `fedpay_secret_key`, `fedpay_mode` | `fedpay_mode` (`PaymentService.php:4045`) | B |
-| 38 | `CinetPay` | `cinetpay` | `cinet_pay_site_id`, `cinet_pay_api_key`, `cinet_pay_secret_key` | none in code. **`cinet_pay_secret_key` is required by the settings screen and read back at `app/Models/Utility.php:1829`, and no CinetPay call uses it** — `PaymentService.php:4098-4130` and `CinetPayController.php:91-100, 264-267` send only the site id and api key | **C** |
+| 38 | `CinetPay` | `cinetpay` | `cinet_pay_site_id`, `cinet_pay_api_key`, `cinet_pay_secret_key` | none in code. **`cinet_pay_secret_key` is required by the settings screen and read back at `app/Models/Utility.php:1829`, and no CinetPay call uses it**: `PaymentService.php:4098-4130` and `CinetPayController.php:91-100, 264-267` send only the site id and api key | **C** |
 | 39 | `SenagePay` | `Senangpay` | `senang_pay_merchant_id`, `senang_pay_secret_key`, `Senangpay_mode` | `Senangpay_mode` | A |
 | 40 | `CyberSource` | `cybersource` | `cybersource_pay_merchant_id`, `cybersource_pay_secret_key`, `cybersource_pay_api_key` | none in code | A |
 | 41 | `Ozow` | `ozow` | `ozow_pay_Site_key`, `ozow_pay_private_key`, `ozow_pay_api_key`, `ozow_mode` | `ozow_mode == 'sandbox'` -> `IsTest=true` (`PaymentService.php:4315`) | A |
@@ -224,7 +227,7 @@ none, the provider's own test keys are the only selector, and whether the provid
 | 49 | `DPO` | `dpopay` | `dpo_pay_Company_Token`, `dpo_pay_Service_Type` | none in code | A |
 | 50 | `Braintree` | `braintree` | **`required_fields` is EMPTY** (`PaymentSettingController.php:436`); the fields are `braintree_pay_merchant_id`, `braintree_pay_public_key`, `braintree_pay_private_key`, `braintree_mode` | `braintree_mode`, defaulting to `'sandbox'` (`PaymentService.php:4858`) | A |
 | 51 | `PowerTranz` | `powertranz` | **`required_fields` is EMPTY** (`:441`); the fields are `powertranz_pay_merchant_id`, `powertranz_pay_processing_password`, `powertranz_pay_production_url`, `powertranz_mode` | `powertranz_mode` | A |
-| 52 | `SSLCommerz` | `sslcommerz` | **`required_fields` is EMPTY** (`:446`); the fields are `sslcommerz_pay_store_id`, `sslcommerz_pay_secret_key`, `sslcommerz_mode` | `sslcommerz_mode == 'sandbox'` -> `https://sandbox.sslcommerz.com/gwprocess/v4/api.php` (`PaymentService.php:5029`) | A |
+| 52 | `SSLCommerz` | `sslcommerz` | **`required_fields` is EMPTY** (`:446`); the fields are `sslcommerz_pay_store_id`, `sslcommerz_pay_secret_key`, `sslcommerz_mode` | `sslcommerz_mode == 'sandbox'` -> `https://sandbox.sslcommerz.com/gwprocess/v4/api.php` (`PaymentService.php:5029`) | B |
 
 ### 4.1 Does the provider offer a sandbox, and what is the signup prerequisite?
 
@@ -258,29 +261,43 @@ row above.
 
 ## 5. What each return path needs in order to be driven
 
-This answers, per class-C handler, the question "what has to exist before a test can post to this
-route and reach `new Order()`". It is read from each handler's own entry block.
+This answers, per routed return handler, the question "what has to exist before a test can post to
+this route and reach `new Order()`". It is read from each handler's own entry block. The generic
+writer and PayU's redirect are included because criterion 4 names every return handler, not only the
+class-C ones.
 
 | handler | route and HTTP shape | what the return itself must carry | what else must exist |
 |---|---|---|---|
-| `PaymentController::getProductStatus` (`:2138`) | `ANY {slug}/get-payment-status`, `routes/customer.php:186`, middleware `[web, ActiveTheme, themelanguage]` only | nothing provider-specific for most of the 40. The three provider-specific pre-writer blocks are PhonePe (`:2159-2183`, needs `requests_data['order_id']` and an outbound `checkStatus`), toyyibpay (`:2184-2193`, branches on `status_id`) and Tap (`:2195-2208`, needs `tap_id` and an outbound `getCharge`) | a session holding `request_data`. **No public callback URL is needed to drive the writer**; one *is* needed to prove the provider arrives here |
+| `PaymentController::getProductStatus` (`:2138`) | `ANY {slug}/get-payment-status`, `routes/customer.php:186`, middleware `[web, ActiveTheme, themelanguage]` only | nothing provider-specific for most of the 41. The three provider-specific pre-writer blocks are PhonePe (`:2159-2183`, needs `requests_data['order_id']` and an outbound `checkStatus`), toyyibpay (`:2184-2193`, branches on `status_id`) and Tap (`:2195-2208`, needs `tap_id` and an outbound `getCharge`) | a session holding `request_data`. **No public callback URL is needed to drive the writer**; one *is* needed to prove the provider arrives here |
 | `PaiementProPaymentController::getProductStatus` (`:225`) | `ANY {slug}/get-payment-paiementpro`, `:195` | nothing. `if ($request->responsecode == 0)` is commented out at `:227`, so no field is checked | a session holding `request_data` |
 | `CinetPayController::getProductStatus` (`:368`) | `ANY {slug}/get-payment-cinetPay`, `:197` | `responsecode=0`. `cpm_trans_id` is read only for the replay claim (`GuardsGatewayReturn.php:415-416`) | a session holding `request_data`. The initiation at `PaymentService.php:4122-4123` appends `?_token=` + the CSRF token to both the notify and return URLs |
 | `EasebuzzController::getProductStatus` (`:229`) | `ANY {slug}/get-payment-easebuzz`, `:200`. **CSRF-exempt** by the `'*get-payment-easebuzz*'` pattern at `bootstrap/app.php:358` | `status=success` | a session holding **`easebuzz_request_data`**, not `request_data`. The initiation still appends `&request_data=` + a urlencoded JSON of the whole request to the callback URL (`PaymentService.php:4421`); that parameter is no longer read, but it is still on the wire |
 | `KhaltiPaymnetController::getOrderPaymentStatus` (`:210`) | `POST {slug}/order-khalti`, `:190`. The only POST-only one | `payload[token]` and `payload[amount]`. The order write is nested inside `verifyPayment(...)['status_code'] == '200'` (`:670-672`, order row from `:675`) | a session holding `request_data`, **and a live Khalti verify call**. `app/Khalti/Khalti.php:26` is raw `curl_init()` and the controller constructs `new Khalti()` inline at `:670`, so there is **no seam and no `Http::fake()`** |
-| `AuthorizeNetPaymnetController::getOrderPaymentStatus` (`:228`) | `ANY {slug}/authorizenet-status`, `:191` | **card number, expiry (`YYYY-MM`) and CVV** — this is the charge, not a return | a session holding `request_data`, the store's `authorizenet_login_id` and `authorizenet_transaction_key`, **and a reachable Authorize.Net sandbox**. The SDK controller is constructed inline at `:461`, so there is no seam |
+| `AuthorizeNetPaymnetController::getOrderPaymentStatus` (`:228`) | `ANY {slug}/authorizenet-status`, `:191` | **card number, expiry (`YYYY-MM`) and CVV**, because this is the charge, not a return | a session holding `request_data`, the store's `authorizenet_login_id` and `authorizenet_transaction_key`, **and a reachable Authorize.Net sandbox**. The SDK controller is constructed inline at `:461`, so there is no seam |
 | `NMIPayController::getNMIProductStatus` (`:222`) | `ANY {slug}/get-payment-NMI`, `:360` | `nmi_card_number`, `nmi_expiration_date` (`YYYY-MM`), `nmi_cvv_code`, `nmi_cardholder_name` | a session holding `request_data` and the store's `nmi_api_private_key`. **A double bound for `NMIService` removes the provider entirely for the writer** |
 | `PaymentController::handlePaymeraCallback` (`:522`) | `GET /store/paymera/callback/{orderId}`, `routes/web.php:374`, **anonymous** | the `paymera_<uniqid>` reference in the path, plus whatever Paymera posts. The reference is the only identifier | a `paymera_pending_<reference>` cache entry, a status poll answer (fakeable via `Http::fake()`), **a callback signature scheme (GATE G(4))** and **a captured-amount field name (GATE G(4))** |
 | `PaymentController::handlePaymeraTrigger` (`:976`) | `POST /store/paymera/trigger/{orderId}`, `routes/web.php:514`, **anonymous and CSRF-exempt** | as above. Treated as a machine caller: `orderWrittenBy($write, false)` (`:953`) restores the session so the caller does not inherit the buyer's binding | as above |
 | `PayUPaymentController::storeGetPayUStatus` (`:190`) | `ANY /store-payu-payment/status`, `:363` | `data` = `Crypt::encrypt(['status' => 'true'|'false', 'order_id' => $orderID])`, minted exactly as `PaymentService.php:4495-4496` does, plus a session entry under the literal key `"'" . $orderID . "'"` carrying `slug` | nothing else. This handler writes no order |
 
-**Signatures and webhook secrets, summarised.** Only **one** of the storefront return paths has a
-signature control at all, and it is Paymera's (`PaymentController.php:839-851`). None of the other six
-class-C handlers verifies a signature, an HMAC or a shared secret on its return; `GuardsGatewayReturn`
-says this at `:398-404` and `P01-SECURITY-WORK-QUEUE.md` S32 independently records cinetpay, easebuzz
-and paiementpro as "gateway verification: **no**". So for those three, obtaining a sandbox account does
-not by itself make the return verifiable: the integration has no place to put the answer. That is a
-code change, and it is a larger one than criterion 4.
+**Signatures and webhook secrets, summarised.** Three different things get called "verification" here
+and they must be kept apart in a procurement request.
+
+- **An inbound signature or HMAC on the return itself.** Exactly **one** storefront path has one, and
+  it is Paymera's (`PaymentController.php:839-851`). It is unconfigured, so it rejects.
+- **An outbound confirmation call from the handler.** Khalti makes one
+  (`KhaltiPaymnetController.php:671`, nested order write) and NMI makes the charge itself and records
+  the answer (`NMIPayController.php:347`). On the generic writer, three of the 41 do it: PhonePe,
+  toyyibpay and Tap (`PaymentController.php:2159-2208`). Class-A controllers each make their own
+  before redirecting.
+- **Nothing at all.** cinetpay, easebuzz and paiementpro.
+  `P01-SECURITY-WORK-QUEUE.md` S32 records all three as "gateway verification: **no**", and
+  `GuardsGatewayReturn.php:398-404` records that those three plus the generic return supply no
+  transaction reference either.
+
+So for the third group, obtaining a sandbox account does not by itself make the return verifiable:
+the integration has nowhere to put the answer. `cinet_pay_secret_key` is already being collected from
+merchants and is exactly the kind of value such a check would need (§4 row 38). Adding one is a code
+change and a larger one than criterion 4.
 
 ---
 
@@ -301,23 +318,26 @@ outbound connection.
 3. **Khalti's verify seam.** Same shape: `app/Khalti/Khalti.php` is constructed inline with `new
    Khalti()` (`KhaltiPaymnetController.php:670`). Either inject it or route the call through an
    `Http::` client so `Http::fake()` reaches it. This is the single change that moves khalti from
-   "cannot be driven" to "drivable", and khalti is the handler the ledger already records as having
-   been the last producer without an order binding.
+   "cannot be driven" to "drivable". Khalti is also the one producer the P1-ORD-13 census found with no
+   order binding (ledger note N6), so it is the handler on this path most recently changed.
 4. **A paiementpro `responsecode` regression fence.** `PaiementProPaymentController.php:227` has its
    only gateway check commented out. Whatever the right behaviour is, a test should pin the current one
    so that re-enabling it is a visible decision rather than a silent one.
 5. **A cinetpay dead-key finding, recorded as a test.** `cinet_pay_secret_key` is a required settings
    field that no CinetPay call reads. A census test over `app/` asserting that every
    `required_fields` entry in `getPaymentGateways()` is read somewhere would catch this class, and
-   would have caught `PaymentWallPaymentController.php:40`, where the secret is read as
-   `$payment_setting['paymentwall_private_key ']` (trailing space) with the value taken from
-   `'paymentwall_private_key  '` (two trailing spaces), so `$this->secret_key` is always `''`.
-6. **A per-handler `Route::any` and CSRF inventory, asserted.** Five of the six class-C storefront
-   routes are `Route::any`, so they answer GET; easebuzz is CSRF-exempt even on POST
+   would have caught two more of the same class. `PaymentWallPaymentController.php:40` reads the secret
+   as `$payment_setting['paymentwall_private_key ']` (trailing space) with the value taken from
+   `'paymentwall_private_key  '` (two trailing spaces), so `$this->secret_key` is always `''`. And
+   `paiementpro_mode` is offered by the settings screen (`PaymentSettingController.php:365`) and read
+   by nothing: `grep -rn 'paiementpro_mode' app/` returns that one line.
+6. **A per-handler `Route::any` and CSRF inventory, asserted.** Five of the six storefront
+   gateway-controller routes are `Route::any`, so they answer GET; only `order-khalti` is POST-only,
+   and easebuzz is CSRF-exempt even on POST
    (`bootstrap/app.php:358`). An inventory test that fails when a new gateway route is declared without
    an explicit method and CSRF decision costs nothing and needs no provider.
 7. **A `PayUPaymentController::getProductStatus` disposition.** It carries the unfixed
-   `$requests_data = $request->all()` fallback at `:215-218` and is **dead code**: no route declares it
+   `$requests_data = $request->all()` fallback at `:214-218` and is **dead code**: no route declares it
    (`grep` over `routes/` returns `storeGetPayUStatus` and `pay` only) and no caller invokes it. S32
    already records this. Either delete it or guard it; a routed copy of that shape is the exact defect
    `storedCheckoutState()` exists to close.
@@ -363,20 +383,20 @@ real debugging sessions rather than theory:
 | **E4** | CinetPay, Easebuzz, PaiementPro test credentials (keys in rows #38, #43, #36) | each provider. **NOT VERIFIED** for all three | nothing in the suite today: all three are already drivable to `new Order()` | obtaining them does **not** make these returns verified. None of the three has a signature check to feed |
 | **E5** | **A public callback hostname** reachable by each provider's sandbox | hosting / infrastructure, not a provider | every "does the provider actually come back here" test, for all classes | `PaymentService.php:463-464` hard-codes `https://storesyria.com` as the Paymera callback base, so a staging host also needs that value made configurable |
 | **E6** | A decision on `paytr` | owner | an end-to-end paytr test | `test_mode` is hard-coded to `0` (`PaymentService.php:1914`). There is no sandbox path to drive. Adding one is a change to a live-money hash |
-| **E7** | Per-provider sandbox availability answers for the remaining 40 | provider documentation | the procurement plan's sequencing | one documentation read per provider, recorded against the table in §4. **NOT VERIFIED here by design** |
+| **E7** | Per-provider sandbox availability answers for every provider not named in E1 to E4 or E6 | provider documentation | the procurement plan's sequencing | one documentation read per provider, recorded against the table in §4. **NOT VERIFIED here by design** |
 
 ### 7.2 Proceeds now, with no provider
 
 Items 1 to 10 of §6. In priority order by what each unblocks:
 
-1. §6 item 3 (**Khalti seam**) and §6 item 2 (**AuthorizeNet seam**) — these two alone move the
+1. §6 item 3 (**Khalti seam**) and §6 item 2 (**AuthorizeNet seam**). These two alone move the
    drivable-writer count from 8 of 11 to **10 of 11**, leaving only the Paymera success path, which is
    an owner gate rather than a provider.
-2. §6 item 1 (**PayU fixture**) — closes the last recorded fixture gap.
-3. §6 item 10 (**fail-closed inventory test**) — this is what makes "preserve fail-closed payment
+2. §6 item 1 (**PayU fixture**). Closes the last recorded fixture gap.
+3. §6 item 10 (**fail-closed inventory test**). This is what makes "preserve fail-closed payment
    behavior" enforceable rather than aspirational once a sandbox harness starts landing.
-4. §6 items 4, 5, 6, 7 — findings this analysis surfaced, each small and each independent.
-5. §6 items 8, 9 — coverage of the generic writer's remaining branches and the engine-level claim
+4. §6 items 4, 5, 6, 7. Findings this analysis surfaced, each small and each independent.
+5. §6 items 8, 9. Coverage of the generic writer's remaining branches and the engine-level claim
    proof.
 
 ---

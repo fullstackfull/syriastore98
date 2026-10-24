@@ -520,6 +520,31 @@ jobs:
           fi
           .github/scripts/guard-no-workdo-changes.sh "$base" .
 
+      - name: Guard - no NEW user upload is committed to the repository root
+        # P1-OWN-10 (#103), OWNER DECISION 11. The 407 files already tracked under `uploads/` are
+        # ACCEPTED RISK and are not touched: the owner's decision is "Do not delete or rewrite
+        # historical user uploads in Git." This guard stops that set GROWING, which is the half of
+        # D11 that is not accepted risk.
+        #
+        # WHY IT MATTERS MORE THAN "a binary in the repo". A file that EXISTS at the repository root
+        # is served directly by the webserver: the tracked `.htaccess` rewrites `/uploads/...` to
+        # `public/uploads/...` only when the file is NOT there (`!-f` at :33-35), and the
+        # front-controller rule above it is skipped for image extensions (:23). So a new upload
+        # committed to `uploads/` is a new unauthenticated disclosure path, not just repository
+        # weight. See docs/security/P01-OWN-10-ROOT-UPLOADS-EXPOSURE.md.
+        #
+        # Same base resolution as the sibling guard above, and for the same measured reason: a push
+        # of N commits must be inspected over its whole range, not one commit deep.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          base="${BASE_SHA:-$BEFORE_SHA}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git rev-parse HEAD~1 2>/dev/null || true)"
+          fi
+          BASE_REF="$base" .github/scripts/guard-no-new-root-uploads.sh
+
       - name: php -l on changed PHP files
         # Scoped to the diff so it stays fast on a large legacy codebase and so
         # pre-existing issues in untouched files do not block unrelated work.

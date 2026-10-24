@@ -1012,9 +1012,55 @@ class Cart extends Model
         return $tax_price;
     }
 
+    /**
+     * The line price AFTER the coupon, or the line price UNCHANGED when the coupon does not apply.
+     *
+     * =============================================================================================
+     *  A REFUSED COUPON MADE THE LINE FREE.  OWNER DIRECTIVE: "do not defer any confirmed
+     *  payment-total integrity defect, unauthorized discount, or incorrect gateway charge."
+     * =============================================================================================
+     *
+     * THE DEFECT. This method answered **0** on three refusal paths -- per-user limit exceeded
+     * (:1049), expiry or usage limit not satisfied (:1053), and a `fixed product discount` whose
+     * applied/excluded arms match nothing, which simply fell through to the `$coupon_price = 0`
+     * initialiser. Both callers read the answer as the DISCOUNTED LINE PRICE:
+     *
+     *     $coupon_apply_price = Cart::getCouponTotalAmount($coupon, $final_price, ...);
+     *     $coupon_price += $final_price - $coupon_apply_price;   // the WHOLE line becomes the discount
+     *     $final_price   = $coupon_apply_price;                  // ... and the line becomes FREE
+     *
+     * (`Api\ApiController::cart_list` :749-752 for a signed-in shopper, `Cart::cart_list_cookie`
+     * :631-633 for a guest.) So a coupon the store had ALREADY EXHAUSTED, or one the shopper had
+     * already used to their limit, or one restricted to products that are not in the basket, did
+     * not refuse -- it zeroed the line.
+     *
+     * WHY IT IS MONEY AND NOT A DISPLAY BUG. `$final_price` feeds `total_sub_price`, which
+     * `PaymentService::getProductStatus()` writes into `orders.final_price` for `cod` and
+     * `bank_transfer`. For a `cod` order that column is THE CASH THE DRIVER COLLECTS. A crafted
+     * checkout carrying an exhausted coupon code therefore reduced the cash collected, in the limit
+     * to tax and delivery alone.
+     *
+     * THE FIX IS THE RETURN VALUE'S MEANING. "This coupon does not apply" and "this coupon makes
+     * the line free" were the same answer, and they must not be: a legitimate 100%-off percentage
+     * coupon computes 0 here, so the CALLER cannot tell the two apart and the correction has to be
+     * made where the refusal is known. A refusal now returns `$subTotal` -- the line, undiscounted
+     * -- so `$final_price - $coupon_apply_price` is zero and nothing is taken off.
+     *
+     * AND THE RESULT IS FLOORED AT ZERO. `flat` computes `$subTotal - $coupon->discount_amount`
+     * with no floor, so a flat coupon larger than the line produced a NEGATIVE line price, which
+     * the caller then added into the basket total as a credit. A coupon may reduce a line to
+     * nothing; it may not pay the shopper.
+     *
+     * @param  mixed  $coupon    The resolved Coupon, already store-scoped by the caller.
+     * @param  float|int|string  $subTotal  The line price before the coupon.
+     * @return float|int  The line price after the coupon, never negative, never less than the
+     *                    caller asked for when the coupon does not apply.
+     */
     public static function getCouponTotalAmount($coupon, $subTotal, $productId, $categoryId)
     {
-        $coupon_price = 0;
+        // NOT 0. The initialiser is also the `fixed product discount` fall-through answer, and
+        // "no arm matched" means no discount, not a free line.
+        $coupon_price = $subTotal;
 
         if (!empty($coupon)) {
             $coupon_count = $coupon->UsesCouponCount();
@@ -1036,11 +1082,13 @@ class Cart extends Model
             }
             if (!empty($coupon->coupon_limit_user)) {
                 if ($i  >= $coupon->coupon_limit_user) {
-                    return 0;
+                    // THE SHOPPER HAS USED THIS COUPON TO THEIR LIMIT: no discount, not a free line.
+                    return $subTotal;
                 }
             }
             if (empty($coupon_expiry_date)) {
-                return 0;
+                // EXPIRED, OR THE STORE'S TOTAL USAGE LIMIT IS SPENT: same answer, same reason.
+                return $subTotal;
             }
         }
 
@@ -1111,7 +1159,11 @@ class Cart extends Model
             }
         }
         //}
-        return $coupon_price;
+
+        // A COUPON MAY REDUCE A LINE TO NOTHING; IT MAY NOT PAY THE SHOPPER. `flat` subtracts a
+        // fixed amount with no floor, so a 50.00 coupon on a 20.00 line returned -30.00 and the
+        // caller added that into the basket as a credit.
+        return max(0, $coupon_price);
     }
 
     public static function calculateFlatRateShippingAmount($shippingMethods, $shippingCost, $productList)
