@@ -298,3 +298,78 @@ manifest entry to get green**; **a test must bite** — revert the fix and confi
 **claim only what you executed**, naming the engine and the command; **stage explicit paths** while
 subagents are live, because a stray probe file reached CI once this way; and **read CI back** rather
 than inferring it — the `check_suite.completed` webhook does **not** cover the Actions suite itself.
+
+---
+
+## 13. `[2026-10-24]` PHASE 01 ENGINEERING CLOSEOUT — the last word on task state
+
+**§12 above stays as written, and this section wins where they differ.** §12's counts are stale and
+its "no unblocked engineering" line read as *nothing is left*, which was never what it meant.
+
+Phase 01 engineering is **finished and stopped** by the owner's closing direction of 2026-10-24.
+The verdict, in the words the direction asked for: **ENGINEERING COMPLETE for Phase 01, NOT
+RELEASE-READY.** Both halves matter; see `PHASE-01-CLOSURE-EXECUTION.md` → `CLOSEOUT` §5 for what
+each one does and does not claim.
+
+### 13a. Counts, and the one that matters
+
+**DONE 82 · PARTIAL 4 · READY 0 · BACKLOG 2 · BLOCKED 21 · total 109.**
+`python3 docs/development/phase-1/tools/ledger-tool.py counts` is the authority.
+
+**`READY` is empty for the first time in the phase.** That is the basis of the verdict: no row is
+left whose next step this environment can take. It is *not* a claim that the system is correct.
+
+**`PARTIAL` is a seventh status value, introduced during execution and NOT owner-authorised.** It is
+disclosed in the ledger header rather than counted among the six, and it never means a softer
+`DONE` — it means some criteria are verified and at least one is open, with the row's own criteria
+list saying which. Four rows carry it: `P1-ORD-01` (#20) · `P1-ORD-02` (#21) · `P1-ORD-13` (#82) ·
+`P1-SEC-14` (#89). On GitHub they carry `status:backlog`, because `status:partial` does not exist and
+inventing a label was not mine to do.
+
+### 13b. Where to look — four documents, in this order
+
+1. **`phase-1/PHASE-01-CLOSURE-EXECUTION.md` → the `CLOSEOUT` section (2026-10-24).** Terminal. The
+   three-way separation (verified complete · accepted deferrals · mandatory release prerequisites),
+   the corrections it makes to its own earlier sections, and the verdict.
+2. **`phase-1/12-PHASE-01-TASK-LEDGER.md`.** Per-task state and evidence.
+3. **`docs/GATE-F-VERIFIED-SCHEMA.md`** and **`docs/GATE-F-RECONCILIATION-ITEMS.md`.** The measured
+   production schema, and the three financial items that code cannot close.
+4. **`phase-1/16-POST-PHASE-01-BACKLOG.md`.** The auction deferral, with the defects restated.
+
+### 13c. What Phase 02 inherits in the order domain — read this before touching a total
+
+The coupon work closed real defects and left the architecture that produced them. Three facts:
+
+- **There is still no single derivation seam for an order total.** 16 files persist one; **3**
+  reconcile, and those 3 do so **warn-only**. `OrderTotalReconcilerCoverageTest` asserts that
+  partition in **both** directions, so a new writer cannot be added without a decision and an
+  improvement cannot be absorbed silently. Do not delete it to get green — the point is that the
+  answer is written down.
+- **The reconciler's log is not quiet today, and that is expected.** A 200.00 basket at 10% tax
+  stores `product_price 242, tax_price 0, final_price 220`. The **charge is right**; the components
+  cannot produce it. Pinned as a known-bad test, not fixed.
+- **Promoting `warnIfInconsistent()` to `assertConsistent()` refuses orders.** It is a release
+  decision with a revenue consequence, not a tidy-up.
+
+### 13d. Two traps this closeout added to the list in §12d
+
+5. **A ledger is a program and rots like one.** This file's own header interpolated a fixed
+   six-status template, so when a seventh status came into use **four rows became invisible and the
+   parts summed to 105 against a stated 109**; and 24 of 77 execution-order annotations were stale,
+   so a reader got the wrong status for a quarter of the phase. Both are fixed at source —
+   `counts` now builds the header from the data and restates the annotations. **If you add a status,
+   check the header still sums.**
+6. **A criteria list can lie in the generous direction too.** #20 showed *zero of seven* criteria
+   ticked while five were closed, four of them still carrying a `NOT DONE:` prefix written before
+   the fix — and three more were prefixed `DONE:` with the box left unticked. Hiding finished work
+   is the same failure as claiming unfinished work: it makes what is actually open harder to find.
+   `ledger-tool.py amend` **re-renders a block from the JSON, which carries criteria text without
+   completion**, so amending a row with earned ticks silently unticks every one. `check` lists the
+   rows where that applies; edit those by hand.
+
+### 13e. What has not changed
+
+`CLAUDE.md` and `.claude/skills/store-syria-laravel-tenancy/` still come first for the architectural
+traps. §12e's process rules all still bind. The merge and release gates are **preserved and unmet**:
+PR #3 is a Draft titled ⛔ DO NOT MERGE, `main` is not to be merged, and production is not to be
+deployed or modified.

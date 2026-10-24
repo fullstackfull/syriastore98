@@ -2,7 +2,7 @@
 
 Multi-tenant Laravel e-commerce SaaS. Laravel 11.47 on PHP 8.3, built on the vendored **WorkDo
 eCommerceGo** addon platform (70 modules under `packages/workdo/`). A second repository,
-`StoreSyria_app98`, is the shipped **admin** Flutter app. **Resuming or new account? Read `docs/development/HANDOFF-CURRENT.md` first.**
+`StoreSyria_app98`, is the shipped **admin** Flutter app. **Resuming or new account? Read `docs/development/HANDOFF-CURRENT.md` §13 first — Phase 01 engineering is CLOSED.**
 
 The full analysis lives in `docs/`. This file is the short version of what will bite you, and it
 records only things verified by reading or executing the code.
@@ -199,15 +199,16 @@ declared skip set.
 
 | Phase | Scope | Status |
 |---|---|---|
-| **01 Foundation & Stability** | CI, regression gates, security, design-system foundation | **in progress** |
+| **01 Foundation & Stability** | CI, regression gates, security, design-system foundation | **engineering closed 2026-10-24; NOT release-ready** |
 | 02 Merchant Web Experience | adopt the design system screen by screen | not started — needs Phase 01 acceptance |
 | 03 Storefront & Theme Builder | storefront and themes | not started |
 | 04 Advanced Commerce | advanced commerce, merchant Odoo | not started |
 | 05 Marketing & Analytics | marketing, analytics | not started |
 | 06 SaaS & Super Admin | SaaS operations, platform Odoo | not started |
 
-Phase 00 (discovery) is complete. Single owner; the roadmap's parallel tracks are sequencing, not
-concurrent assignments. **Do not start the next phase before Phase 01 acceptance.**
+Phase 00 complete; **Phase 01 engineering complete, not release-ready** — `DONE 82 · PARTIAL 4 · READY 0 ·
+BACKLOG 2 · BLOCKED 21`, every remaining item held by the owner, the environment, the business or a
+release decision (`phase-1/PHASE-01-CLOSURE-EXECUTION.md` → `CLOSEOUT`). **Do not start Phase 02 before acceptance.**
 
 ---
 

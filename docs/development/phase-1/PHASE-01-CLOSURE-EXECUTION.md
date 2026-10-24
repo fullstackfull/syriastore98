@@ -1153,3 +1153,141 @@ production is not to be deployed while they remain unmet.**
 Does not start until Phase 01 acceptance. The handoff is the dated closure section of
 `docs/development/HANDOFF-CURRENT.md`, which points at the documents above rather than restating
 them. Nothing in this section is an invitation to begin.
+
+---
+
+# CLOSEOUT — Phase 01 final engineering closeout, 2026-10-24
+
+**This section supersedes the `FINAL` section above where they disagree**, and it is the last one.
+It answers the owner's closing direction of 2026-10-24 and nothing else: no new audit, no new
+questionnaire, no new task tree. The `FINAL` section's §2 (release prerequisites), §4 (merge gates)
+and §5 (Phase 02 does not start) stand unchanged — only its counts and its two READY rows move.
+
+## 1. The direction, item by item
+
+| | direction | what it resolved to |
+|---|---|---|
+| 1 · #82 | *Secure, unique order identification across payment returns. Complete every locally verifiable criterion; record provider-dependent checks separately.* | Already true when the direction arrived. Criteria 1–3 executed; criterion 4 needs a provider sandbox per gateway and is on the prerequisite register. **What was wrong was the Status field** — `READY` while the evidence said `PARTIAL` — so the ledger header counted a mostly-finished row as not started, and the `FINAL` section's own register restated its original scope. Corrected. |
+| 1 · #89 | *Complete the remaining LaraBug criterion without exposing secrets or requiring production credentials.* | Criterion 3 is **not ticked**: it asks for a reading taken where the application runs, which has not happened. What changed is that the answer no longer decides anything — `mayReportOutbound()` needs `LARABUG_OUTBOUND_ENABLED` **on top of** a keyed account and it defaults to false, so a keyed instance still posts nothing. The reading is one read-only command that prints presence and length, never a key value. |
+| 1 · #20 | *Prevent incorrect coupon calculations and unauthorized discounts.* | Both halves measured and fixed on the storefront writer. Four defects closed, one of them an **unauthorized discount of unbounded size** (a 10% coupon yielded 100,000.00 off a 200.00 basket). 5 of 7 criteria closed. Criteria 1 and 4 remain open **for the other twelve `coupon_price` writers** and the earlier "criterion 4 CLOSED" claim is withdrawn as an overstatement. |
+| 1 · #21 | *Enforce server-authoritative payable totals across active order paths.* | Criterion 2 was already closed. Criterion 3 advanced from unmeasurable to a **declared set asserted in both directions** — 16 writers, 3 reconcile — and the storefront writer, which had only a comment, is wired. Criterion 1 (one seam) is not started and is release-scale. |
+| 1 · #31 | *Ensure concurrency-safe stock changes, using real isolated MySQL verification where required.* | **DONE and closed.** AC3 closed by `ReturnRestoresExactlyWhatWasTakenTest`, which drives the real decrement then the real `/order-return` and asserts net zero for product, variant and per-line. 4 mutants, all bite. |
+| 1 · #61/#62 | *Keep dormant auction functionality safely disabled and transfer noncritical implementation work to a clearly documented future backlog. Do not delete historical data.* | Both stay `BACKLOG` — **not fixed, and not claimed to be.** Containment re-verified (`AuctionOrderDormancyTest`, 3 passed, 3 mutants). Transferred to `16-POST-PHASE-01-BACKLOG.md` with the five implementation defects restated. **No auction data was touched.** |
+| 2 | Financial reconciliation and GATE F; preserve the three findings as explicit items; invent nothing; test against isolated copies; activate nothing; keep the gates pending. | `GateFReconciliation` computes R1/R2/R3 from a connection, has **no INSERT, UPDATE or DELETE anywhere in it**, and is driven against synthetic fixtures by `GateFReconciliationReportTest` (10 tests, with a clean-store negative control and a tokenizer ratchet asserting the absence of any write statement). The schema side is closed and **measured**: `GATE-F-VERIFIED-SCHEMA.md`. The migration and reconciliation gates stay pending. The dump was destroyed and every database dropped. |
+| 3 | Strict scope and cost control. | No new audit. One independent review was run — on the coupon change, which is money and authorization — and it **found a defect in my own fix** (§3 below). No full suite was re-run for a documentation-only edit. |
+| 4 | Closure: final tests, CI on the final commit, ledger, issues, the three-way separation, the report and handoff, and the verdict. | §2–§5 below. |
+
+## 2. The three-way separation the direction asked for
+
+### A · VERIFIED COMPLETED WORK — executed, with the command and the output recorded
+
+**82 ledger rows `DONE`**, each carrying its own executed evidence. What this closeout added:
+
+- **#31 (`P1-INV-05`) closed.** The return path restores exactly what the order took — product,
+  variant and per-line — proven by driving the real services, not by reading them. 4 mutants bite.
+- **#20 (`P1-ORD-01`) 5 of 7.** Coupons apply at all; the thresholds are the server's; the payable
+  is floored at 0; the per-user cap counts the authenticated principal rather than a posted e-mail.
+- **#21 (`P1-ORD-02`) criterion 2 closed, criterion 3 measurable.** The most-used order writer had
+  **no arithmetic check at all** — only a comment naming the reconciler. It is wired.
+- **#82 (`P1-ORD-13`) criteria 1–3**, 8 mutants. **#89 (`P1-SEC-14`) criteria 1–2**, plus an
+  outbound gate that makes criterion 3's answer harmless, 3 mutants.
+- **GATE F, schema side.** The corrected drafts reproduce production's columns, index sets and
+  foreign keys exactly — 3 of 3 unique keys, 12 of 12 foreign keys — both ordering constraints
+  hold, and two `down()` methods that would have destroyed data are fixed and re-tested.
+- **GATE F, data side.** R1, R2 and R3 computed by code that cannot write, proven in both
+  directions. **Nothing was reconciled, activated or corrected.**
+- **The ledger's own bookkeeping.** Its header dropped a whole status (the parts summed to 105
+  against a stated 109) and 24 of 77 execution-order annotations were stale. Both fixed at source.
+
+**Final counts** (`ledger-tool.py counts`, the authority):
+**DONE 82 · PARTIAL 4 · READY 0 · BACKLOG 2 · BLOCKED 21 · total 109.**
+`READY` is empty for the first time in the phase: **no ledger row remains that this environment can
+move.** That sentence is the whole basis of the verdict in §5, and it is a statement about who holds
+the remaining work, not about the system being correct.
+
+### B · ACCEPTED DEFERRALS — not done, not claimed, and each with a named holder
+
+| what | holder | where it is written |
+|---|---|---|
+| #61 · #62 auction restock and status-change | engineering, post-phase | `16-POST-PHASE-01-BACKLOG.md`; dormancy ratchet keeps it unreachable while D-03 holds |
+| #21 criterion 1 — one derivation seam | release-scale decision | the branches do not share a base; unifying them changes charged amounts on paths this container cannot drive |
+| #21 criterion 3 — the other 13 writers, and promoting warn-only to refusing | release decision | `assertConsistent()` turns a logged mismatch into a **refused order** |
+| #20 criteria 1 and 4 for the other 12 `coupon_price` writers | blocked on #21 criterion 1 | no source scan can settle it: the subtraction is written three different ways |
+| #20 (E) a taxed order's stored components do not add up | engineering, post-phase | pinned as a known-bad test. The **charge is correct**; the components cannot produce it |
+| 21 `BLOCKED` rows | per-row `blocked_on` | `12-PHASE-01-TASK-LEDGER.md` |
+| 2 upstream vendor reports | the owner | prepared in `docs/upstream/`, **not sent**; sending is an outward disclosure |
+
+### C · MANDATORY RELEASE PREREQUISITES — things that have not happened
+
+**None of these is a test result.** Where a script exists, writing it was engineering and is done;
+**running it is the prerequisite.**
+
+1. **13 environment / server observations** — `FINAL` §2a, unchanged. Plus the fourteenth of the
+   same kind (`P1-PLT-04` #36 criterion 2), flagged there rather than renumbered.
+2. **5 D15-gated migrations** — `FINAL` §2b, unchanged. **The two ordering constraints must not be
+   lost between documents.**
+3. **#82 criterion 4** — one provider sandbox per gateway. Owner/infrastructure.
+4. **#89 criterion 3** — `php tests/Support/Security/bin/report-larabug-configuration.php`, run
+   where the app runs; its output is the record.
+5. **The three GATE F reconciliation items** — `GATE-F-RECONCILIATION-ITEMS.md`. **R1** a wallet
+   whose stored balance cannot be reconstructed from its own ledger (0 arithmetic violations, 9
+   broken chain links, worst jump −98.28bn, three currencies summed into one column); **R2** 17 COD
+   orders recorded paid with no collection evidence, which *cannot* exist because
+   `cod_collection_events` does not; **R3** 89 of 92 P&L rows with zero product cost, and
+   recomputing them against today's costs would change **0 of 89** — so the costs were never
+   entered, not lost to migration ordering. **Each needs a fact the business holds. Do not write a
+   corrected balance, fabricate a collection event, or back-fill a cost to make a column agree.**
+6. **#20's compatibility condition** — the coupon fix **changes charged amounts**: a coupon that was
+   silently refused now applies. That was always the condition on the row and it is not waived.
+7. **The merge and release gates** — `FINAL` §4, preserved and unmodified. **Nothing was weakened
+   and no manifest entry was added to obtain green.**
+
+## 3. One review, and it earned its cost
+
+The direction allowed one independent review for payment, finance, authorization and tenant
+isolation. It was spent on the coupon change and **found a defect in the fix itself**: the raw
+`coupon_limit` gate exists in **three** places; I changed two and missed `Cart.php`. Before the
+change both coupon arithmetics refused a `coupon_limit = 0` coupon and *agreed*; after it,
+`apply_coupon` accepted while the cart refused — and the free-shipping arm reports the cart's
+figure, so the shopper was told *"applied successfully"* and given a **0.00 discount**. It is
+criterion 4's own shape, through a door the `elseif` does not cover.
+
+My census was keyed on the two sites I had already read: **census-failure mode 1 from this
+project's own skill, committed while fixing a census-shaped defect.** Reproduced as a failing test
+first, fixed, and a tokenizer ratchet now fails on any raw gate outside the shared helper.
+
+Three of the last five packages had a defect found only by that review, two of them *in the fix*.
+Phase 02 should keep it.
+
+## 4. Corrections this closeout makes to earlier sections of this file
+
+| claim | correction |
+|---|---|
+| `FINAL` §3 "DONE 81 · READY 2 · BACKLOG 5 · BLOCKED 21" | **DONE 82 · PARTIAL 4 · READY 0 · BACKLOG 2 · BLOCKED 21.** `PARTIAL` was invisible to the header's six-status template. |
+| `FINAL` §3 "no unblocked engineering — section E is empty" | True then and true now, but it read as *nothing is left*. Four `PARTIAL` rows have named open criteria; §2B says who holds each. |
+| part-2 §2 on `P1-ORD-13` | It restated the original scope as if nothing had been done, because the row's Status field said `READY`. Criteria 1–3 were closed on 2026-10-23. |
+| `P1-ORD-01` evidence, "Criteria 2, 3 and 4 CLOSED" | **Withdrawn for criterion 4.** Its text is "no WRITER charges full price", as global as criterion 1, and the census makes no claim about the other writers in either direction. |
+
+## 5. Is ENGINEERING COMPLETE justified?
+
+**Yes for Phase 01's defined engineering scope — and that is a narrower statement than it sounds,
+so here is exactly what it does and does not mean.**
+
+**What it means.** `READY` is empty. Every one of the 109 rows is `DONE`, or `PARTIAL` with its open
+criteria named and attributed, or `BLOCKED` on a stated external, or `BACKLOG` with a written
+deferral. No row remains whose next step this environment can take. Each remaining item is held by
+the **owner** (a decision), the **environment** (a server reading or a provider sandbox), the
+**business** (a reconciliation fact nobody but it holds), or a **release-scale change** that alters
+charged amounts on paths this container cannot drive. The gates are intact and none was weakened.
+
+**What it does not mean.** It is **not** a statement that the system is correct, and it is **not**
+release authorisation. Three things are true at the same time and all three are in §2C: the
+charged-amount change in #20 needs the owner's acceptance; the order-total architecture still has
+no single seam, so #21 criterion 1 and #20's criteria 1 and 4 stay open past this phase; and the
+GATE F data items are **open by their nature** — code cannot close a missing collection event.
+
+So the verdict is **ENGINEERING COMPLETE for Phase 01, NOT RELEASE-READY**, and the word "complete"
+is doing less work than it appears to. Anyone reading only the first two words has it wrong.
+
+**Phase 01 engineering stops here.** The handoff is §13 of `docs/development/HANDOFF-CURRENT.md`.
+Phase 02 does not start before Phase 01 acceptance.
