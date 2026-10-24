@@ -324,10 +324,22 @@ class SettingsRestrictedWriteTest extends SecurityTestCase
     }
 
     /**
-     * DOCUMENTED, NOT ENDORSED -- P1-OWN-12. The script-bearing names are what the Store Setting screen exists to edit, so a
-     * `Manage Store Setting` holder can put script on every page of the storefront, checkout included. Whether that needs
-     * `Manage Setting` is the owner's decision; this test fails the day someone changes it, which is when the decision should be
-     * recorded.
+     * DOCUMENTED, NOT ENDORSED -- P1-OWN-12, and the owner has now DECIDED. The script-bearing names are what the Store
+     * Setting screen exists to edit, so a `Manage Store Setting` holder can put script on every page of the storefront,
+     * CHECKOUT INCLUDED -- the "redirect a merchant's card payments" outcome by another route.
+     *
+     * OWNER DECISION D10 (docs/development/phase-1/15-DEFERRED-OWNER-DECISIONS.md): "PRESERVE the existing delegation --
+     * any holder of `Manage Store Setting` may edit permitted store JS/CSS and analytics; do not narrow it to the owner or
+     * invent a new mandatory permission; but enforce tenant ownership and authentication, keep CSRF, prevent crossing into
+     * another merchant's or the operator's origin, no access to server-side secrets, and document the delegation risk."
+     *
+     * So this is the DECIDED behaviour, not a pending question, and the assertion is unchanged because D10 preserves
+     * exactly what it pins. THE METHOD NAME still says "pending" and is now wrong in that one word; it is left alone
+     * deliberately -- renaming a test is how a reader loses the thread back to the issue that named it. The risk analysis
+     * and the check of each of D10's five conditions against the code are in
+     * docs/security/P01-OWN-12-STOREFRONT-SCRIPT-DELEGATION.md.
+     *
+     * This test fails the day someone narrows the delegation, which is exactly when the next reader should be sent to D10.
      */
     public function test_script_bearing_names_remain_open_to_manage_store_setting_holders_pending_the_owner_decision(): void
     {

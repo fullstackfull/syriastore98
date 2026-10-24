@@ -157,3 +157,75 @@ release as the first expiry — not before, or it will look like it works when i
 Do stages 0 (done), 1 and 2. Hold 3 until stage 1 has numbers. Leave 5 blocked, and treat
 "add a customer login endpoint" as a prerequisite to be scoped separately rather than a detail of
 this work.
+
+---
+
+## Appendix — `Api\AuthController::login` is UNROUTED, and that is recorded as INTENDED
+
+**P1-OWN-04 (#45), second acceptance criterion:** *"`Api\AuthController::login` is routed, or its
+absence is recorded as intended."* This appendix is that record, and the answer is **intended** —
+not as a shrug, but because routing it today would open a defect.
+
+### The measurement
+
+`app/Http/Controllers/Api/AuthController.php:328` declares `public function login(Request $request, $slug = '')`.
+`routes/api.php` routes **five** of that controller's methods and not this one:
+
+```
+:46  POST {slug}/register                      register
+:50  POST {slug}/forgot-password-send-otp      forgot_password_send_otp
+:51  POST {slug}/forgot-password-verify-otp    forgot_password_verify_otp
+:52  POST {slug}/forgot-password-save          forgot_password_save
+:54  POST {slug}/logout                        logout            [custom.auth]
+```
+
+So the storefront API lets a customer **register**, **reset a password** and **log out**, and
+gives them no way to log in. That is as odd as it sounds, and it is why the criterion asks the
+question at all.
+
+### Why it is recorded as intended rather than routed
+
+**The handler is not safe to expose as written.** Its first statement is
+`$store = getStore($slug)` — and `$store` is then **never used in the credential check**. The
+authentication is:
+
+```php
+Auth::guard('customers')->attempt(['email' => $request->email, 'password' => $request->password]);
+```
+
+No store predicate. Whether that is cross-tenant depends entirely on whether a tenant resolves at
+the time, because `Customer` **is** in `config/tenancy.php`'s `scoped_models` — and
+`null_tenant => 'open'` means that when no tenant resolves the global scope **adds no predicate at
+all**. A route reached by an unauthenticated caller is exactly the case where a tenant may not
+resolve. Routing this method would therefore ship a login endpoint whose store-scoping is
+unestablished, on the strength of a `$store` variable that is assigned and discarded.
+
+The social-login branches below it (`google_id`, `facebook_id`, `apple_id`) build their own
+`Customer::query()` and would need the same question asked separately.
+
+### Why this costs nothing today
+
+**No client calls the storefront API.** `routes/api.php:133-387` sits inside
+`Route::prefix('admin')` and is what the shipped Flutter admin app uses; the storefront API outside
+that group has no caller in either repository. So the missing login endpoint breaks nothing that
+exists, and adding it would create a surface with no consumer and an open question.
+
+### What would have to be true to route it
+
+1. The credential check names the store — derived from the route's slug, not from request input.
+2. The three social branches each do the same.
+3. A negative test drives a customer of store A against store B's slug and asserts refusal, run on
+   **MySQL** as well: `customers.email` comparison under `utf8mb4_0900_ai_ci` is case- and
+   accent-insensitive, so a SQLite-only test proves less than it appears to.
+4. Rate limiting, as the sibling `forgot-password-*` routes already carry (`throttle:auth`).
+5. The token it issues carries the narrowed abilities of **Stage 2** above rather than `['*']`.
+
+Item 5 is why this appendix lives in the token proposal: whenever a login endpoint is added, it is
+the natural place for the ability narrowing D8 asks for, and routing it **before** Stage 2 would
+mint more `['*']` tokens rather than fewer.
+
+### Status
+
+**Recorded as intended. Not routed in this phase.** If the storefront API ever gains a client, this
+appendix is the list of what must be true first.
+

@@ -125,3 +125,74 @@ Pointing `DocumentRoot` at `public/` removes this entire class — the root-leve
 tracked `.env` deny rule, `vendor/`, `storage/`, the `.git` directory and every other root path —
 in one operator action, and it is already on the operator list. The `.htaccess` change above is a
 mitigation for as long as that has not happened.
+
+---
+
+## 7. D11's last criterion — "identify files needing separate legal/security handling"
+
+D11's full text is *"leave them in the tree **and in history**; no deletion, no history rewrite,
+no force-push; prevent **new** user uploads being committed; document residual exposure; identify
+files needing separate legal/security handling; **do not claim preservation removes
+confidentiality risk**"*. Six obligations. Five are discharged in §1–§6 above. This section is the
+sixth.
+
+**The method, and its limit, stated first.** This is a **structural** classification — paths,
+filenames, extensions and counts, produced with `git ls-files uploads`. The files' **contents were
+not inspected**, and not for lack of effort: deciding what is in a merchant's screenshot is a human
+judgement about a real person's data, and making it from a session that may not even have the right
+to look at them would be the wrong way round. So what follows identifies **which files need a human
+to look**, which is what D11 asks for, and nothing more.
+
+### The inventory, by what the name says
+
+| | count | what it is | handling |
+|---|---:|---|---|
+| `Screenshot_<arabic date>.jpg` | **146** | **Device screenshots**, named by the uploader's own OS in Arabic locale | **LOOK FIRST.** See below |
+| other `.jpg` / `.png` under a numeric directory | 240 | product and store imagery, by the filename pattern `<id>_<unixtime>_<originalname>` | ordinary residual (§5) |
+| `.svg` | 17 | icons and theme assets | ordinary residual |
+| `uploads/receipt/icon.png_1783941141` | 1 | the directory name says *receipt*; the file is an **icon** with a mangled extension, not a receipt | ordinary residual — the directory name is the misleading part |
+| `uploads/profile/avatar.png` | 1 | the shipped default avatar | not user data |
+| `uploads/stylique/…` | 1 | theme asset | not user data |
+| `uploads/68_1789477737_1000219049.jpg` | 1 | a stray at the `uploads/` root rather than under a tenant directory | ordinary residual |
+
+**Total 407**, which agrees with `git ls-files uploads | wc -l` and with the count in §1.
+
+### Why the 146 screenshots are the set that needs a human
+
+A product photograph discloses a product. **A screenshot discloses whatever was on the uploader's
+screen** — and the uploader was a merchant using their own phone or desktop. The plausible contents
+are an open chat, a banking or payment-provider page, another customer's order, a notification
+preview, or an email client. None of that is inferable from the filename, and all of it is a
+different question from "a shop's photographs are public anyway".
+
+Three facts make them identifiable to a person, which is what turns this from a security question
+into a legal one as well:
+
+1. **They are attributable to a tenant.** The directory is a numeric id (`uploads/2`, `uploads/15`,
+   `uploads/11`, `uploads/16`, `uploads/19`, `uploads/3`, `uploads/18`) and the filename begins
+   `<id>_<unixtime>_`, so each file names who uploaded it and when.
+2. **The capture time is in the filename**, in Arabic-Indic digits, to the minute.
+3. **They are in git history**, so every clone anyone has ever taken holds them, and D11 forbids
+   the only operation that would remove them.
+
+### What is being handed over, not decided
+
+Per D11 this section **identifies**; it does not purge, rewrite or triage. What a human needs to
+decide, with the files in front of them:
+
+- Do any of the 146 contain a third party's personal data, payment-provider screens, or
+  credentials? That decides whether this is a documentation item or a disclosure obligation.
+- If any do, D11's "no deletion, no history rewrite" and that obligation are in direct tension, and
+  **the tension is the owner's to resolve** — it is a decision about a legal duty, not about a
+  repository.
+- Whether the merchants who uploaded them should be told that files they uploaded are in a
+  developer-readable repository.
+
+### The sentence D11 explicitly asks for
+
+**Preserving these files does not remove their confidentiality risk.** They remain readable by
+everyone with repository access and, until the §3 containment or the §6 `DocumentRoot` change
+lands, by anyone who can reach the server over HTTP. The CI guard stops the set growing; it does
+nothing about the 407 already there, and nothing in this document should be read as saying
+otherwise.
+
