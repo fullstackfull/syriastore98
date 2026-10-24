@@ -69,7 +69,7 @@ reasonable hardening; it is not the defect it resembles and is not logged as one
 | **1** | **GATE F schema dump** — `SHOW CREATE TABLE` for 15 tables from a **restored backup**, a read-only NULL census over the 56 `store_id` tables, `SELECT DISTINCT type FROM users` | **environment** | Collapses with D-11's backup + restoration-rehearsal condition into ONE prerequisite. The drafts are **guesses** from `$fillable`; "the dump wins on every disagreement". Promoting a guess is worse than waiting, because `Schema::hasTable()` guards would make the later correct migration a silent no-op and freeze wrong types permanently. |
 | **2** | **Wildcard DNS + SSL verification** for `*.storesyria.com` | **environment** | D-07's own condition. Both Webuzo call sites pass `issueSsl = false`, so anything that path provisions gets **no certificate**, and the credentials are absent so it throws. |
 | **3** | **Three acceptance criteria need a browser or live server** | **environment** | P1-SEC-06 criterion 3 (the Shopify redirect fix needs the live Admin API), P1-SEC-11 criterion 4 and P1-SEC-26 (Arabic RTL / English LTR rendering and contrast). No further engineering reaches DONE on these here — it is one session with a rendered app and staging, or an explicit decision to accept them on test evidence. |
-| **4** | **Who releases a squatted host** — P1-SEC-32(d) | **owner** | D-07 settled reservation and DNS proof of control but not this. Operator action, or a rule (a holder whose DNS stops pointing at the platform loses it)? Engineering will not pick a registrar policy. **The single smallest outstanding owner decision in Phase 01.** |
+| **4** | ~~**Who releases a squatted host** — P1-SEC-32(d)~~ | ~~owner~~ | **WITHDRAWN 2026-10-24. This row was WRONG.** It was written against the older `D-07` entry and missed **D4** in the final owner-approved set, whose scope column reads *"`P1-SEC-32` entirely, including (d)"*: *"forced release/transfer is operator-only after verifying ownership, with previous holder, new holder, operator, reason and time in the audit log; DNS change alone never transfers a claim"*. So (d) is **decided**, and the rule-based option this row floated is the one D4 explicitly forbids. What remains is **implementation**, gated on D15 like (c): the release path needs an audit record with five named fields, and no table provides one. **There is no outstanding owner decision on #111.** |
 
 **The remaining COD engineering sits behind blocker 1**, so it is not separately schedulable: the
 verified-collection trigger (today it is the merchant *marking delivered*, a proxy for collection
@@ -685,3 +685,117 @@ data read or modified. No credential rotated. No force-push — both designated 
 **fast-forward only** and are identical. No `packages/workdo/` file edited. No CI guard weakened and
 no entry added to `.github/known-test-outcomes.json`. No DNS or hosting configuration touched and no
 certificate requested. **Phase 02 not started.**
+
+---
+---
+
+# CLOSURE — 2026-10-24. The release-prerequisite register.
+
+**This section is the authority for everything above it.** The earlier sections were written at
+`fb556cd6` and are deliberately left as they were, per this file's own convention, so the
+before/after stays legible — but where they disagree with this one, **this one is right**. Two
+claims above are now struck through or superseded by name; the counts table is simply stale.
+
+## 1. Counts, live
+
+| | at `fb556cd6` | **now** |
+|---|---|---|
+| DONE | 48 | **80** |
+| READY | 17 | **2** |
+| BACKLOG | 9 | **5** |
+| BLOCKED | 31 | **22** |
+| **total** | 105 | **109** |
+
+Four rows were added during the phase. `ledger-tool.py counts` is the authority; this is a view.
+
+## 2. What is left, by WHO can move it — not by status
+
+The status field says where a row is. It does not say who is holding it, and that is the question
+a closure needs. Every one of the 22 BLOCKED and 2 READY rows falls into exactly one of these.
+
+### A — ONE owner decision, and it gates the GATE F release (1 row)
+
+| | Row | The choice |
+|---|---|---|
+| **#26** | `P1-PAY-04` | D-06 settled COD timing; **D1 then rejected the trigger the shipped machine uses** — a merchant marking their own order delivered. Nothing is violated today because the wallet credit is dead (no GATE F tables). **(a)** withdraw the trigger now, changing every merchant's revenue reporting overnight, or **(b)** accept it in writing as an interim until a recorded collection event exists. `CodStateMachineTest::test_gate_f_cannot_be_released_while_marked_delivered_is_the_settlement_trigger` now goes red if GATE F is promoted before this is answered. |
+
+**That is the only open owner decision in Phase 01.** The former candidate — P1-SEC-32(d) — was
+answered by D4 and the row above claiming otherwise is struck through.
+
+### B — ENVIRONMENT. Decided; needs a read-only observation or a server (11 rows)
+
+Each already has its exact command prepared. None is an open architecture question.
+
+| Row | | The prerequisite, exactly |
+|---|---|---|
+| `P1-PLT-02` | #34 | **Engineering is COMPLETE** — the fix (`8909272f`) and the reporting script both exist, and the script was executed here (`php tests/Support/Security/bin/report-null-store-orders.php`, exit 0, prints zeros on sqlite). Run it against production and record the count. |
+| `P1-OWN-01` | #42 | Three read-only server observations, listed in `P1-OWN-01-BACKUPRESTORE-CONTAINMENT.md` §5. None enables the module or reads a backup. D17 keeps it disabled meanwhile. |
+| `P1-OWN-03` | #44 | The running server. Past malicious use is not determinable from the repository. |
+| `P1-OWN-06` | #47 | Branch protection on `main` — a repository owner setting, not scriptable from a session. |
+| `P1-OWN-07` | #56 | Read-only production inventory of the pre-fix WooCommerce transfer residue. |
+| `P1-OWN-08` | #86 | D6 gives the direction; execution needs the restored backup. Seven sub-items, including whether the card-bearing rows start a PCI process. |
+| `P1-OWN-09` | #88 | D7 gives the direction; the only evidence of exploitation is the web-server access log, and the read-only queries are listed on the row. |
+| `P1-OWN-11` | #106 | Three read-only SQL statements, verbatim on the row. Counts and store ids suffice; no values need leave the server. |
+| `P1-SEC-26` | #99 | `SELECT store_id, created_by, value FROM settings WHERE name = 'storage_setting'`. Guessing it either breaks every image-existence check or leaves the defect. |
+| `P1-OWN-04` | #45 | D8 decided the design. Needs a **client release window** — the shipped Flutter app force-logs-out on any 401, so expiry cannot land without a staged rollout. |
+| `P1-OWN-05` | #46 | (a) closed. (b) `pint` and (c) Playwright-in-CI are owner choices with no security content. |
+
+### C — D15. Decided; the migration may not run until the ten prerequisites are met (5 rows)
+
+`P1-MIG-01` #38 · `P1-MIG-02` #39 · `P1-MIG-03` #40 · `P1-MIG-04` #41 · `P1-SEC-32` #111 (c) and (d)
+
+All five have reviewed drafts or a named mechanism. **Do not promote a guessed schema**: a
+`hasTable`/`hasColumn` guard makes a premature definition permanent and invisible. D12 answers
+`P1-MIG-04`'s open sub-question — the retired Chatwoot tables are **retained**, not dropped.
+
+**One ordering constraint crosses B and C and must not be lost:** `products.cost_price` must be
+declared **before** `store_order_financials`, or every P&L row is all-margin; and the two
+`delivery_boys` commission columns must land **with or before** `delivery_earnings`. Both are in
+`_gate_f_pending/README.md`.
+
+### D — VENDOR. Reported, not sent (4 rows, all DONE)
+
+`P1-SEC-07` #69 · `P1-INV-20` #67 · `P1-INV-21` #68 · `P1-INV-22` #70. Two version-pinned upstream
+reports exist in `docs/upstream/`. **Both are prepared and NOT sent** — sending is an outward
+disclosure and the owner's call. Each says so on its first line.
+
+### E — ENGINEERING, unblocked, not done (2 READY + named residuals)
+
+| Row | | What is actually left |
+|---|---|---|
+| `P1-ORD-13` | #82 | Carry the order's primary key through the ten gateway return paths, as the WhatsApp/Telegram path already does via `order_complete_ids`. No owner input, no credentials. |
+| `P1-SEC-14` | #89 | Outbound reporting is disabled and the blacklist hardened; what is unmet is criterion 3 — *the answer about production keys must be **recorded***, and it is not. The owner's reply restated the question rather than answering it. |
+| `P1-PAY-03` | #25 | Khalti's verified amount is still the **client's** posted `payload['amount']`; binding it to the server's own figure is a local comparison. AuthorizeNet and Khalti both verify and record nothing, so both now write Pending — a commercial regression. Khalti's writer refuses on a failed curl instead of writing a Pending order, leaving a charged customer with no row. |
+| `P1-PLT-04` | #36 | One read-only count bounds the storefront entitlement change; the query is in `ModuleEntitlementSourcesTest`'s docblock. |
+
+## 3. Two corrections this closure makes to its own earlier sections
+
+1. **P1-SEC-32(d) was never an open owner decision** by the time it was written down as "the single
+   smallest outstanding one". D4 had already answered it. Struck through above and corrected on
+   #111.
+2. **"The remaining COD engineering sits behind blocker 1, so it is not separately schedulable"** is
+   too strong. The marked-Delivered trigger is a live contradiction with D1 that needs no new table
+   to *decide*, only to *replace*. It is now section A.
+
+## 4. What Phase 02 inherits, and what it must not assume
+
+**Inherits, working and tested:** the tenancy and authorization guard family in
+`app/Http/Middleware/` (ten guards, each with removal checks); the payment-verification seam, whose
+default is Pending for any gateway with no record; the known-outcome gate; the observability
+inventory ratchet; the GATE F containment, now including the ordering ratchet in §A.
+
+**Must not assume:**
+
+- **That a green suite means a correct control.** Twice this phase a guard passed its own tests and
+  an independent read found a live bypass — the cart guard's JSON-boolean hole and PaiementPro's
+  caller-supplied "verification". Both were in code written the same day, by the same process that
+  wrote the passing tests.
+- **That a source-grep ratchet measures what it says.** Prose can satisfy one *and* fail one; both
+  happened here. Strip comments.
+- **That `$casts` is the encrypted-column inventory.** Three of the four encrypted-at-rest columns
+  carry no cast and live in tables with no migration.
+- **That the financial subsystem is merely untested.** It is **dead** — the tables do not exist, the
+  service throws, and an Observer swallows it. Releasing GATE F switches it on; it does not fix it.
+
+**Phase 02 does not start until Phase 01 acceptance.** Nothing in this section is an invitation to.
+
