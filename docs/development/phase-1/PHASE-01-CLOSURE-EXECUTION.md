@@ -1125,7 +1125,7 @@ Not restated — duplicating them is how they drift. Each lives in its authorita
 | per-task PARTIAL rows and their exact unmet criteria | `12-PHASE-01-TASK-LEDGER.md` (`ledger-tool.py counts` is the authority for state) |
 | open security findings | `docs/security/P01-SECURITY-WORK-QUEUE.md` |
 | owner decisions D1–D18 and D-01…D-11 | `15-DEFERRED-OWNER-DECISIONS.md` |
-| the attestation boundary for `bfb921d2..1bff9dc7` | `PR3-ATTESTATION-S21.md` §4 |
+| the attestation boundary | `PR3-ATTESTATION-S21.md` — §4 for `bfb921d2..1bff9dc7`, §22 for the GATE F head, and **§23 for `4a6aaf95..52e90923`**, which is the one that covers production code and so works all eight SECURITY-DIFF-REVIEW questions rather than being focused |
 | what Phase 02 must not assume | §4, §6, §8 of this file |
 
 **Final counts** (`ledger-tool.py counts`): **DONE 81 · READY 2 · BACKLOG 5 · BLOCKED 21 · total 109.**
@@ -1314,3 +1314,92 @@ is doing less work than it appears to. Anyone reading only the first two words h
 
 **Phase 01 engineering stops here.** The handoff is §13 of `docs/development/HANDOFF-CURRENT.md`.
 Phase 02 does not start before Phase 01 acceptance.
+
+## 6. The final verification, read back rather than inferred
+
+**Head: `9047cff1`.** Everything below was measured on that tree. Two documentation commits sit on
+top of it (this section, and the figure correction it carries); neither changes code, a test, a
+config or a guard, which is the same convention §22 of `PR3-ATTESTATION-S21.md` used and is stated
+here rather than left to be noticed.
+
+### 6a. CI — the authority, and why the webhook is not
+
+**CI run `40124555971` on `9047cff1`: `completed`, conclusion **`success`**, attempt 1 — and **all 9 check runs on the head are
+`success`**, read from `/commits/<sha>/check-runs` rather than from any webhook:
+
+| check run | |
+|---|---|
+| `Tests (REQUIRED -- real suites, clean install from composer.lock)` | success |
+| `Tests (REQUIRED -- real suites, PayHere excluded and NOT fixed)` | success |
+| `Merge-base regression gate (new failures only)` | success — **§23's question 8: zero new failures against the merge base** |
+| `Static checks (no vendor needed)` · `Secret scan` · `Is the PayHere blocker still there? (report)` | success |
+| `Security-sensitive diff: human checklist` | success — the gate **§23** was written to answer |
+| `Security-sensitive diff: push report (non-blocking)` ×2 | success |**
+
+Seven `check_suite.completed` webhooks arrived during this closeout, one per head pushed, the last
+for `9047cff1` at 19:17:05Z. **None of them was treated as a CI result.** The event's own note
+excludes this App's own suites, and §19 and §20 above each record it firing while Actions jobs were
+still running. The reading above is the check runs, from the API.
+
+### 6b. Local gates on the same tree
+
+| gate | result |
+|---|---|
+| `--testsuite=Unit` | **351 passed**, 1,837 assertions |
+| `--testsuite=Contract` | **26 passed**, 83 assertions |
+| `tests/Feature/Commerce` + `tests/Feature/Security` | **4479 passed, 11 skipped, 0 failures**, 18,592 assertions, exit 0, 798s |
+| `guard-test-isolation` · `guard-no-env-files` · `guard-gate-f-containment` · `guard-no-workdo-changes <base>` · `scan-secrets <base>` · `guard-no-new-root-uploads` | **exit 0 each**, invoked the way `ci.yml` invokes them |
+
+**One guard takes its base from the environment, not from an argument.** Passing it positionally
+reports `BASE_REF '.' does not resolve` — *a guard that could not be evaluated*, which is not the
+same as one that passed and not the same as one that failed. Reading the workflow is what
+distinguishes those three, and a closeout that counted it as a pass would have been wrong in the
+most comfortable direction.
+
+### 6c. Two merge-gate claims, now measured
+
+**Nothing was weakened to obtain green, and this is a measurement.** `git log 1bff9dc7..HEAD --
+.github/` is **empty**: no workflow, no guard script and no manifest changed across the whole range
+past the last attestation. `.github/known-test-outcomes.json` still declares exactly **2 expected
+failures and 17 expected skips**.
+
+**There is no merge conflict against `main`.** `git merge-tree --write-tree origin/main HEAD` exits
+0 with a tree and zero conflict lines. `main` is not an ancestor of this branch — divergence, not
+conflict — because `main` has moved since the PR base `1eebc721`.
+
+### 6d. Prerequisite 0, re-verified at the primary source
+
+Not carried on memory, because it is now the first item on the release list. Against a freshly
+fetched `origin/main`:
+
+- `main`'s tip **is** `3935dee8` *"Add files via upload"*.
+- `storesyria_ecommercego.sql`, blob `d3d42e68`, **20,470,785 bytes, present in `main`'s current
+  tree** (`git ls-tree -r --long origin/main`).
+- **Absent from this branch** (`git ls-tree -r origin/claude/store-syria-p01a-ci-foundation` returns
+  nothing).
+
+**One fact the earlier write-up did not have: the dump commit is `main`'s TIP, with nothing after
+it.** That makes a purge mechanically simpler than a mid-history rewrite — there is nothing on
+`main` to replay past it. It does **not** make it optional, and open pull requests still need
+rebasing afterwards.
+
+### 6e. A figure of mine that was two measurements wearing one coat
+
+The ledger, its JSON and four issue comments quoted the blast radius as **"4478 passed, 11 skipped,
+0 undeclared failures."** That pairs a pass count taken *before* the observability ratchet was
+fixed with a failure count taken *after* — the ratchet being the single failure `95754130` repaired.
+So it understated the passes by exactly one test while reading as one measurement. Replaced
+everywhere with the figure above, taken in a single run on this tree.
+
+It is a small number and it is corrected loudly on purpose: a composite figure is the shape that
+survives review, because every part of it is true.
+
+### 6f. Issue and label state
+
+All 48 open issues carrying a ledger row were cross-checked against the ledger's own statuses.
+**One real drift: #36 (`P1-PLT-04`) was labelled `status:blocked` while the ledger had recorded it
+`DONE` since `09191cda`.** The label was the stale half; corrected, with a comment on the issue
+stating what `DONE` does and does not mean there.
+
+`PARTIAL` has no label, because `status:partial` does not exist and inventing one was not mine to
+do. The four rows carry `status:backlog` and each issue says so in a footer.
